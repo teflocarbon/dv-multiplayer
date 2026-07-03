@@ -88,6 +88,11 @@ public static class CustomFirstPersonControllerPatch
         if (playerTransform == null || PlayerManager.PlayerCamera == null)
             return;
 
+        // Head/hands stream every tick while in VR, independent of body movement — the position
+        // early-return below only tracks the body, and a VR player standing still still moves their
+        // head and hands.
+        SendVrPose();
+
         // Poll the current car directly (no CarChanged event dependency, so it works regardless of
         // which controller is active).
         car = PlayerManager.Car;
@@ -123,6 +128,24 @@ public static class CustomFirstPersonControllerPatch
 
         NetworkLifecycle.Instance.Client.SendPlayerPosition(lastPosition, moveDir, lastRotationY, carNetID, isJumping, onCarNetworked, isJumping || sentFinalPosition);
         isJumping = false;
+    }
+
+    // Streams the local player's head/hand pose while in VR so remote clients can render head+hands.
+    // Sent every tick (hands move constantly); desktop players skip this entirely.
+    private static void SendVrPose()
+    {
+        if (!VRManager.IsVREnabled())
+            return;
+
+        if (!VrPoseCapture.TryGetPose(
+                PlayerManager.PlayerTransform,
+                out Vector3 headPos, out Quaternion headRot,
+                out Vector3 leftHandPos, out Quaternion leftHandRot,
+                out Vector3 rightHandPos, out Quaternion rightHandRot))
+            return;
+
+        NetworkLifecycle.Instance.Client.SendPlayerVrPose(
+            headPos, headRot, leftHandPos, leftHandRot, rightHandPos, rightHandRot);
     }
 
 

@@ -170,6 +170,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundPlayerDisconnectPacket>(OnClientboundPlayerDisconnectPacket);
 
         netPacketProcessor.SubscribeReusable<ClientboundPlayerPositionPacket>(OnClientboundPlayerPositionPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundPlayerVrPosePacket>(OnClientboundPlayerVrPosePacket);
         netPacketProcessor.SubscribeReusable<ClientboundPlayerPreferencesUpdatePacket>(OnClientboundPlayerPreferencesUpdatePacket);
 
 
@@ -552,6 +553,11 @@ public class NetworkClient : NetworkManager
     private void OnClientboundPlayerPositionPacket(ClientboundPlayerPositionPacket packet)
     {
         ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.Position, packet.MoveDir, packet.RotationY, packet.IsJumping, packet.IsOnCar, packet.CarID);
+    }
+
+    private void OnClientboundPlayerVrPosePacket(ClientboundPlayerVrPosePacket packet)
+    {
+        ClientPlayerManager.UpdateVrPose(packet.PlayerId, packet);
     }
 
     private void OnClientboundPlayerPreferencesUpdatePacket(ClientboundPlayerPreferencesUpdatePacket packet)
@@ -1458,6 +1464,26 @@ public class NetworkClient : NetworkManager
             IsJumpingIsOnCar = (byte)((isJumping ? 1 : 0) | (isOnCar ? 2 : 0)),
             CarID = carId
         }, reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Sequenced);
+    }
+
+    /// <summary>
+    /// Sends the local VR player's head/hand pose (all in player-root-local space).
+    /// Sent unreliably/sequenced as it is high-frequency and only the latest pose matters.
+    /// </summary>
+    public void SendPlayerVrPose(
+        Vector3 headPos, Quaternion headRot,
+        Vector3 leftHandPos, Quaternion leftHandRot,
+        Vector3 rightHandPos, Quaternion rightHandRot)
+    {
+        SendPacketToServer(new ServerboundPlayerVrPosePacket
+        {
+            HeadPosition = headPos,
+            HeadRotation = headRot,
+            LeftHandPosition = leftHandPos,
+            LeftHandRotation = leftHandRot,
+            RightHandPosition = rightHandPos,
+            RightHandRotation = rightHandRot
+        }, DeliveryMethod.Sequenced);
     }
 
     public void SendTimeAdvance(float amountOfTimeToSkipInSeconds)
