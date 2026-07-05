@@ -27,6 +27,7 @@ public static class CustomFirstPersonControllerPatch
     private static TrainCar car;
 
     private static bool subscribed;
+    private static bool loggedFirstVrPoseSent;
 
     // Position sync is driven by the network client lifecycle, NOT by the player controller.
     // CustomFirstPersonController.Awake only fires on desktop; in VR it never runs, so hooking it
@@ -143,6 +144,12 @@ public static class CustomFirstPersonControllerPatch
                 out Vector3 leftHandPos, out Quaternion leftHandRot,
                 out Vector3 rightHandPos, out Quaternion rightHandRot))
             return;
+
+        if (!loggedFirstVrPoseSent)
+        {
+            loggedFirstVrPoseSent = true;
+            Multiplayer.Log("CustomFirstPersonControllerPatch: sending first VR pose to server (VR head/hands stream is active).");
+        }
 
         NetworkLifecycle.Instance.Client.SendPlayerVrPose(
             headPos, headRot, leftHandPos, leftHandRot, rightHandPos, rightHandRot);

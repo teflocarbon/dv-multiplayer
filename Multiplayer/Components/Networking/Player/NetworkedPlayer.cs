@@ -198,14 +198,20 @@ public class NetworkedPlayer : MonoBehaviour
             if (handsUnavailable)
                 return;
 
+            Multiplayer.Log($"NetworkedPlayer '{username}' ({PlayerId}): first VR pose received, initialising hands.");
             handsController = gameObject.AddComponent<PlayerHandsController>();
             if (!handsController.Initialise())
             {
+                Multiplayer.LogWarning(
+                    $"NetworkedPlayer '{username}' ({PlayerId}): PlayerHandsController.Initialise() failed " +
+                    $"(LocalVrHands.Available={LocalVrHands.Available}) — keeping walk-animation avatar. " +
+                    "This is expected if the viewing client is not in VR.");
                 Destroy(handsController);
                 handsController = null;
                 handsUnavailable = true;
                 return;
             }
+            Multiplayer.Log($"NetworkedPlayer '{username}' ({PlayerId}): VR hands initialised, switching from walk animation.");
         }
 
         handsController.SetPose(headPos, headRot, leftHandPos, leftHandRot, rightHandPos, rightHandRot);
