@@ -69,6 +69,7 @@ public abstract class NetworkManager
         netPacketProcessor.RegisterNestedType(PlayerItemSaveData.Serialize, PlayerItemSaveData.Deserialize);
         netPacketProcessor.RegisterNestedType(Vector2Serializer.Serialize, Vector2Serializer.Deserialize);
         netPacketProcessor.RegisterNestedType(Vector3Serializer.Serialize, Vector3Serializer.Deserialize);
+        netPacketProcessor.RegisterNestedType(QuaternionSerializer.Serialize, QuaternionSerializer.Deserialize);
         netPacketProcessor.RegisterNestedType(ColorSerializer.Serialize, ColorSerializer.Deserialize);
     }
 

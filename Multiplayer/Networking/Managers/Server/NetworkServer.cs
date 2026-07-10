@@ -178,6 +178,7 @@ public class NetworkServer : NetworkManager
 
         // Player
         netPacketProcessor.SubscribeReusable<ServerboundPlayerPositionPacket, ITransportPeer>(OnServerboundPlayerPositionPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundPlayerVrPosePacket, ITransportPeer>(OnServerboundPlayerVrPosePacket);
         netPacketProcessor.SubscribeReusable<ServerboundLicensePurchaseRequestPacket, ITransportPeer>(OnServerboundLicensePurchaseRequestPacket);
 
 
@@ -1386,6 +1387,28 @@ public class NetworkServer : NetworkManager
             RotationY = packet.RotationY,
             IsJumpingIsOnCar = packet.IsJumpingIsOnCar,
             CarID = packet.CarID
+        };
+
+        SendPacketToAll(clientboundPacket, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, peer);
+    }
+
+    private void OnServerboundPlayerVrPosePacket(ServerboundPlayerVrPosePacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+        {
+            LogWarning($"Received VR Pose from {peer.GetType()}, peerId: {peer.Id}, but could not find matching player.");
+            return;
+        }
+
+        ClientboundPlayerVrPosePacket clientboundPacket = new()
+        {
+            PlayerId = player.PlayerId,
+            HeadPosition = packet.HeadPosition,
+            HeadRotation = packet.HeadRotation,
+            LeftHandPosition = packet.LeftHandPosition,
+            LeftHandRotation = packet.LeftHandRotation,
+            RightHandPosition = packet.RightHandPosition,
+            RightHandRotation = packet.RightHandRotation
         };
 
         SendPacketToAll(clientboundPacket, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, peer);

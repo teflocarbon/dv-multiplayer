@@ -39,6 +39,8 @@ public class NetworkedPlayer : MonoBehaviour
 
     private AnimationHandler animationHandler;
     private NameTag nameTag;
+    private PlayerHandsController handsController;
+    private bool handsUnavailable;
     private int ping;
 
     private string username;
@@ -178,6 +180,41 @@ public class NetworkedPlayer : MonoBehaviour
             return;
 
         targetRotation = Quaternion.Euler(0, rotationY, 0);
+    }
+
+    /// <summary>
+    /// Applies a networked VR head/hand pose (all in this avatar's local space).
+    /// Lazily creates the hands controller the first time a pose arrives, switching the
+    /// avatar from the walk-animation body to a floating head + reused game hands.
+    /// If the local player isn't in VR (no hands to clone) the walk animation is kept.
+    /// </summary>
+    public void ApplyVrPose(
+        Vector3 headPos, Quaternion headRot,
+        Vector3 leftHandPos, Quaternion leftHandRot,
+        Vector3 rightHandPos, Quaternion rightHandRot)
+    {
+        if (handsController == null)
+        {
+            if (handsUnavailable)
+                return;
+
+            Multiplayer.Log($"NetworkedPlayer '{username}' ({PlayerId}): first VR pose received, initialising hands.");
+            handsController = gameObject.AddComponent<PlayerHandsController>();
+            if (!handsController.Initialise())
+            {
+                Multiplayer.LogWarning(
+                    $"NetworkedPlayer '{username}' ({PlayerId}): PlayerHandsController.Initialise() failed " +
+                    $"(LocalVrHands.Available={LocalVrHands.Available}) — keeping walk-animation avatar. " +
+                    "This is expected if the viewing client is not in VR.");
+                Destroy(handsController);
+                handsController = null;
+                handsUnavailable = true;
+                return;
+            }
+            Multiplayer.Log($"NetworkedPlayer '{username}' ({PlayerId}): VR hands initialised, switching from walk animation.");
+        }
+
+        handsController.SetPose(headPos, headRot, leftHandPos, leftHandRot, rightHandPos, rightHandRot);
     }
 
     public void UpdateCar(ushort netId)

@@ -1,5 +1,6 @@
 using DV;
 using Multiplayer.Components.Networking.Player;
+using Multiplayer.Networking.Packets.Clientbound;
 using System.Collections.Generic;
 using System;
 using UnityEngine;
@@ -69,6 +70,17 @@ public class ClientPlayerManager
             return;
         player.UpdateCar(carId);
         player.UpdatePosition(position, moveDir, rotation, isJumping, isOnCar);
+    }
+
+    public void UpdateVrPose(byte playerId, ClientboundPlayerVrPosePacket packet)
+    {
+        if (!TryGetPlayer(playerId, out NetworkedPlayer player))
+            return;
+
+        player.ApplyVrPose(
+            packet.HeadPosition, packet.HeadRotation,
+            packet.LeftHandPosition, packet.LeftHandRotation,
+            packet.RightHandPosition, packet.RightHandRotation);
     }
 
     // Currently only updates crew name, but can be expanded to include other preferences in the future, e.g. player model, marker color, etc.

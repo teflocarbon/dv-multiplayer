@@ -27,6 +27,7 @@ public static class CustomFirstPersonControllerPatch
     private static TrainCar car;
 
     private static bool subscribed;
+    private static bool loggedFirstVrPoseSent;
 
     // Position sync is driven by the network client lifecycle, NOT by the player controller.
     // CustomFirstPersonController.Awake only fires on desktop; in VR it never runs, so hooking it
@@ -88,6 +89,11 @@ public static class CustomFirstPersonControllerPatch
         if (playerTransform == null || PlayerManager.PlayerCamera == null)
             return;
 
+        // Head/hands stream every tick while in VR, independent of body movement — the position
+        // early-return below only tracks the body, and a VR player standing still still moves their
+        // head and hands.
+        SendVrPose();
+
         // Poll the current car directly (no CarChanged event dependency, so it works regardless of
         // which controller is active).
         car = PlayerManager.Car;
@@ -123,6 +129,30 @@ public static class CustomFirstPersonControllerPatch
 
         NetworkLifecycle.Instance.Client.SendPlayerPosition(lastPosition, moveDir, lastRotationY, carNetID, isJumping, onCarNetworked, isJumping || sentFinalPosition);
         isJumping = false;
+    }
+
+    // Streams the local player's head/hand pose while in VR so remote clients can render head+hands.
+    // Sent every tick (hands move constantly); desktop players skip this entirely.
+    private static void SendVrPose()
+    {
+        if (!VRManager.IsVREnabled())
+            return;
+
+        if (!VrPoseCapture.TryGetPose(
+                PlayerManager.PlayerTransform,
+                out Vector3 headPos, out Quaternion headRot,
+                out Vector3 leftHandPos, out Quaternion leftHandRot,
+                out Vector3 rightHandPos, out Quaternion rightHandRot))
+            return;
+
+        if (!loggedFirstVrPoseSent)
+        {
+            loggedFirstVrPoseSent = true;
+            Multiplayer.Log("CustomFirstPersonControllerPatch: sending first VR pose to server (VR head/hands stream is active).");
+        }
+
+        NetworkLifecycle.Instance.Client.SendPlayerVrPose(
+            headPos, headRot, leftHandPos, leftHandRot, rightHandPos, rightHandRot);
     }
 
 
