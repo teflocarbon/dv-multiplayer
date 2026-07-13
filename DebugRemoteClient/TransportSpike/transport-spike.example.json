@@ -1,0 +1,15 @@
+{
+  "Host": "127.0.0.1",
+  "Port": 7777,
+  "Username": "TransportSpike",
+  "Guid": "00000000-0000-0000-0000-000000000001",
+  "Password": "",
+  "BuildVersion": "copy the exact host build string",
+  "Mods": [
+    {
+      "Id": "Multiplayer",
+      "Version": "copy the host value",
+      "Url": ""
+    }
+  ]
+}

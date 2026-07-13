@@ -36,6 +36,7 @@ using Multiplayer.Networking.Packets.Serverbound;
 using Multiplayer.Networking.Packets.Serverbound.Jobs;
 using Multiplayer.Networking.Packets.Serverbound.Train;
 using Multiplayer.Networking.Packets.Unconnected;
+using Multiplayer.Networking.Serialization;
 using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Patches.MainMenu;
 using Multiplayer.Utils;
@@ -95,6 +96,8 @@ public class NetworkServer : NetworkManager
     public ChatManager ChatManager => _chatManager;
 
     private uint lastTick;
+    private readonly LiteNetLibTransport debugLoopbackTransport;
+    private readonly Settings settings;
 
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
     {
@@ -103,6 +106,14 @@ public class NetworkServer : NetworkManager
         IsSinglePlayer = singlePlayer;
         ServerData = serverData;
         Difficulty = difficulty;
+        this.settings = settings;
+
+        if (settings.EnableDebugLoopbackClient)
+        {
+            debugLoopbackTransport = new LiteNetLibTransport();
+            AddTransport(debugLoopbackTransport, settings);
+            Log($"Debug loopback requirements: build {MainMenuControllerPatch.MenuProvider.BuildVersionString}; mods {string.Join(", ", ModCompatibilityManager.Instance.GetLocalMods().Select(mod => mod.Id))}");
+        }
     }
 
     public override bool Start(int port)
@@ -115,14 +126,30 @@ public class NetworkServer : NetworkManager
         WorldStreamingInit.LoadingFinished += OnLoaded;
 
         //Try to get our static IPv6 Address we will need this for IPv6 NAT punching to be reliable
+        bool started;
         if (IPAddress.TryParse(LobbyServerManager.GetStaticIPv6Address(), out IPAddress ipv6Address))
         {
             //start the connection, IPv4 messages can come from anywhere, IPv6 messages need to specifically come from the static IPv6
-            return base.Start(IPAddress.Any, ipv6Address, port);
+            started = base.Start(IPAddress.Any, ipv6Address, port);
+        }
+        else
+        {
+            //we're not running IPv6, start as normal
+            started = base.Start(port);
         }
 
-        //we're not running IPv6, start as normal
-        return base.Start(port);
+        if (!started || debugLoopbackTransport == null)
+            return started;
+
+        if (!debugLoopbackTransport.Start(IPAddress.Loopback, IPAddress.IPv6Loopback, settings.DebugLoopbackPort))
+        {
+            LogError($"Failed to start debug loopback transport on 127.0.0.1:{settings.DebugLoopbackPort}");
+            base.Stop();
+            return false;
+        }
+
+        Log($"Debug loopback transport listening on 127.0.0.1:{settings.DebugLoopbackPort}");
+        return true;
     }
 
     public override void Stop()
@@ -1207,6 +1234,7 @@ public class NetworkServer : NetworkManager
             Accepted = true,
             PlayerId = serverPlayer.PlayerId,
             OverrideUsername = serverPlayer.OriginalUsername == serverPlayer.Username ? string.Empty : overrideUsername,
+            ProtocolFingerprint = ProtocolManifestProvider.Current.Fingerprint,
         };
 
         SendPacket(peer, acceptPacket, DeliveryMethod.ReliableUnordered);
@@ -1215,6 +1243,8 @@ public class NetworkServer : NetworkManager
     private void OnServerboundLoadStateUpdatePacket(ServerboundLoadStateUpdatePacket packet, ITransportPeer peer)
     {
         LogDebug(() => $"OnServerboundLoadStateUpdatePacket from peerId: {peer.Id}, loadState: {packet.LoadState}");
+        if (peer is LiteNetLibPeer)
+            Log($"Debug loopback peer {peer.Id} requested load state {packet.LoadState}");
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
         {
             LogError($"Load state update received for {peer.GetType()}, peerId: {peer.Id}, but ServerPlayer not found");

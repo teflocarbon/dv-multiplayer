@@ -9,6 +9,7 @@ using Multiplayer.Networking.Data.World;
 using Multiplayer.Networking.Serialization;
 using Multiplayer.Networking.TransportLayers;
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 
@@ -22,6 +23,7 @@ public abstract class NetworkManager
     protected readonly NetDataWriter cachedWriter = new();
 
     private readonly ITransport transport;
+    private readonly List<ITransport> additionalTransports = [];
     protected readonly NetManager netManager;
 
     protected abstract string LogPrefix { get; }
@@ -36,14 +38,9 @@ public abstract class NetworkManager
         //transport = new LiteNetLibTransport();
         transport = new SteamWorksTransport();
 
-        transport.OnConnectionRequest += OnConnectionRequest;
-        transport.OnPeerConnected += OnPeerConnected;
-        transport.OnPeerDisconnected += OnPeerDisconnected;
-        transport.OnNetworkReceive += OnNetworkReceive;
-        transport.OnNetworkError += OnNetworkError;
-        transport.OnNetworkLatencyUpdate += OnNetworkLatencyUpdate;
+        AttachTransport(transport);
 
-        RegisterNestedTypes();
+        PacketSerializationRegistry.Register(netPacketProcessor);
 
         OnSettingsUpdated(settings);
         Settings.OnSettingsUpdated += OnSettingsUpdated;
@@ -52,37 +49,19 @@ public abstract class NetworkManager
 
     }
 
-    private void RegisterNestedTypes()
-    {
-        netPacketProcessor.RegisterNestedType(BogieData.Serialize, BogieData.Deserialize);
-        netPacketProcessor.RegisterNestedType<JobUpdateStruct>();
-        netPacketProcessor.RegisterNestedType(JobData.Serialize, JobData.Deserialize);
-        netPacketProcessor.RegisterNestedType(ModInfo.Serialize, ModInfo.Deserialize);
-        netPacketProcessor.RegisterNestedType(RigidbodySnapshot.Serialize, RigidbodySnapshot.Deserialize);
-        netPacketProcessor.RegisterNestedType(StationsChainNetworkData.Serialize, StationsChainNetworkData.Deserialize);
-        netPacketProcessor.RegisterNestedType(TrainsetMovementPart.Serialize, TrainsetMovementPart.Deserialize);
-        netPacketProcessor.RegisterNestedType(TrainsetSpawnPart.Serialize, TrainsetSpawnPart.Deserialize);
-        netPacketProcessor.RegisterNestedType(TrainCarHealthData.Serialize, TrainCarHealthData.Deserialize);
-        netPacketProcessor.RegisterNestedType(PitStopPlugMappingData.Serialize, PitStopPlugMappingData.Deserialize);
-        netPacketProcessor.RegisterNestedType(LocoResourceModuleData.Serialize, LocoResourceModuleData.Deserialize);
-        netPacketProcessor.RegisterNestedType(PitStopPlugData.Serialize, PitStopPlugData.Deserialize);
-        netPacketProcessor.RegisterNestedType(PlayerItemSaveData.Serialize, PlayerItemSaveData.Deserialize);
-        netPacketProcessor.RegisterNestedType(ItemUpdateData.Serialize, ItemUpdateData.Deserialize);
-        netPacketProcessor.RegisterNestedType(CustomizationHoleData.Serialize, CustomizationHoleData.Deserialize);
-        netPacketProcessor.RegisterNestedType(Vector2Serializer.Serialize, Vector2Serializer.Deserialize);
-        netPacketProcessor.RegisterNestedType(Vector3Serializer.Serialize, Vector3Serializer.Deserialize);
-        netPacketProcessor.RegisterNestedType(ColorSerializer.Serialize, ColorSerializer.Deserialize);
-    }
-
     private void OnSettingsUpdated(Settings settings)
     {
         transport?.UpdateSettings(settings);
+        foreach (ITransport additionalTransport in additionalTransports)
+            additionalTransport.UpdateSettings(settings);
     }
 
     public void PollEvents()
     {
         //netManager.PollEvents();
         transport?.PollEvents();
+        foreach (ITransport additionalTransport in additionalTransports)
+            additionalTransport.PollEvents();
     }
 
     public virtual bool Start()
@@ -104,17 +83,31 @@ public abstract class NetworkManager
         return transport.Connect(address, port, netDataWriter);
     }
 
+    /// <summary>
+    /// Adds an optional transport that feeds the same packet processor and server/client handlers.
+    /// The primary transport remains responsible for normal client connections.
+    /// </summary>
+    protected void AddTransport(ITransport additionalTransport, Settings settings)
+    {
+        if (additionalTransport == null)
+            throw new ArgumentNullException(nameof(additionalTransport));
+
+        AttachTransport(additionalTransport);
+        additionalTransport.UpdateSettings(settings);
+        additionalTransports.Add(additionalTransport);
+    }
+
 
     public virtual void Stop()
     {
         transport.Stop(true);
+        foreach (ITransport additionalTransport in additionalTransports)
+            additionalTransport.Stop(true);
 
-        transport.OnConnectionRequest -= OnConnectionRequest;
-        transport.OnPeerConnected -= OnPeerConnected;
-        transport.OnPeerDisconnected -= OnPeerDisconnected;
-        transport.OnNetworkReceive -= OnNetworkReceive;
-        transport.OnNetworkError -= OnNetworkError;
-        transport.OnNetworkLatencyUpdate -= OnNetworkLatencyUpdate;
+        DetachTransport(transport);
+        foreach (ITransport additionalTransport in additionalTransports)
+            DetachTransport(additionalTransport);
+        additionalTransports.Clear();
 
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
 
@@ -151,6 +144,26 @@ public abstract class NetworkManager
     //}
 
     protected abstract void Subscribe();
+
+    private void AttachTransport(ITransport target)
+    {
+        target.OnConnectionRequest += OnConnectionRequest;
+        target.OnPeerConnected += OnPeerConnected;
+        target.OnPeerDisconnected += OnPeerDisconnected;
+        target.OnNetworkReceive += OnNetworkReceive;
+        target.OnNetworkError += OnNetworkError;
+        target.OnNetworkLatencyUpdate += OnNetworkLatencyUpdate;
+    }
+
+    private void DetachTransport(ITransport target)
+    {
+        target.OnConnectionRequest -= OnConnectionRequest;
+        target.OnPeerConnected -= OnPeerConnected;
+        target.OnPeerDisconnected -= OnPeerDisconnected;
+        target.OnNetworkReceive -= OnNetworkReceive;
+        target.OnNetworkError -= OnNetworkError;
+        target.OnNetworkLatencyUpdate -= OnNetworkLatencyUpdate;
+    }
 
     #region Net Events
     public void OnNetworkReceive(ITransportPeer peer, NetDataReader reader, byte channel, DeliveryMethod deliveryMethod)

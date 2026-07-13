@@ -10,6 +10,7 @@ namespace Multiplayer.Networking.TransportLayers;
 
 public class LiteNetLibTransport : ITransport, INetEventListener
 {
+    private readonly Action<string> debugLog;
     public NetStatistics Statistics => netManager.Statistics;
     public bool IsRunning => netManager?.IsRunning ?? false;
 
@@ -25,9 +26,10 @@ public class LiteNetLibTransport : ITransport, INetEventListener
     private readonly NetManager netManager;
 
     #region ITransport
-    public LiteNetLibTransport()
+    public LiteNetLibTransport(Action<string> debugLog = null)
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.LiteNetLibTransport()");
+        this.debugLog = debugLog ?? (message => Multiplayer.LogDebug(() => message));
+        LogDebug($"LiteNetLibTransport.LiteNetLibTransport()");
         netManager = new NetManager(this)
         {
             DisconnectTimeout = 10000,
@@ -36,27 +38,29 @@ public class LiteNetLibTransport : ITransport, INetEventListener
         };
     }
 
+    private void LogDebug(string message) => debugLog(message);
+
     public bool Start()
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.Start()");
+        LogDebug($"LiteNetLibTransport.Start()");
         return netManager.Start();
     }
 
     public bool Start(int port)
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.Start({port})");
+        LogDebug($"LiteNetLibTransport.Start({port})");
         return netManager.Start(port);
     }
 
     public bool Start(IPAddress ipv4, IPAddress ipv6, int port)
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.Start({ipv4}, {ipv6}, {port})");
+        LogDebug($"LiteNetLibTransport.Start({ipv4}, {ipv6}, {port})");
         return netManager.Start(ipv4, ipv6, port);
     }
 
     public void Stop(bool sendDisconnectPackets)
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.Stop()");
+        LogDebug($"LiteNetLibTransport.Stop()");
         netManager.Stop(sendDisconnectPackets);
     }
 
@@ -92,9 +96,14 @@ public class LiteNetLibTransport : ITransport, INetEventListener
 
     void INetEventListener.OnPeerConnected(NetPeer netPeer)
     {
-        var peer = new LiteNetLibPeer(netPeer);
-
-        netPeerToPeer[netPeer] = peer;
+        // A server-side ConnectionRequest.Accept() creates and registers the wrapper before
+        // LiteNetLib raises OnPeerConnected. Reuse it so login state and subsequent receives use
+        // the same ITransportPeer dictionary key.
+        if (!netPeerToPeer.TryGetValue(netPeer, out var peer))
+        {
+            peer = new LiteNetLibPeer(netPeer);
+            netPeerToPeer[netPeer] = peer;
+        }
 
         OnPeerConnected?.Invoke(peer);
     }
@@ -103,6 +112,12 @@ public class LiteNetLibTransport : ITransport, INetEventListener
     {
         if(!netPeerToPeer.TryGetValue(netPeer, out var peer))
             return;
+
+        // LiteNetLib puts connection-rejection payloads (such as the multiplayer login denial
+        // packet) in AdditionalData rather than raising OnNetworkReceive. Surface it before the
+        // disconnect event so protocol-only clients can display the actual server reason.
+        if (disconnectInfo.AdditionalData != null && disconnectInfo.AdditionalData.AvailableBytes > 0)
+            OnNetworkReceive?.Invoke(peer, disconnectInfo.AdditionalData, 0, DeliveryMethod.ReliableUnordered);
 
         OnPeerDisconnected?.Invoke(peer, disconnectInfo.Reason);
 
@@ -124,13 +139,13 @@ public class LiteNetLibTransport : ITransport, INetEventListener
 
     void INetEventListener.OnNetworkError(IPEndPoint endPoint, SocketError socketError)
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.INetEventListener.OnNetworkError({endPoint}, {socketError})");
+        LogDebug($"LiteNetLibTransport.INetEventListener.OnNetworkError({endPoint}, {socketError})");
         OnNetworkError?.Invoke(endPoint, socketError);
     }
 
     void INetEventListener.OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType)
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.INetEventListener.OnNetworkReceiveUnconnected({remoteEndPoint}, {messageType})");
+        LogDebug($"LiteNetLibTransport.INetEventListener.OnNetworkReceiveUnconnected({remoteEndPoint}, {messageType})");
     }
 
     void INetEventListener.OnNetworkLatencyUpdate(NetPeer netPeer, int latency)
@@ -143,7 +158,7 @@ public class LiteNetLibTransport : ITransport, INetEventListener
 
     public void UpdateSettings(Settings settings)
     {
-        Multiplayer.LogDebug(() => $"LiteNetLibTransport.INetEventListener.UpdateSettings()");
+        LogDebug($"LiteNetLibTransport.INetEventListener.UpdateSettings()");
         //only look at LiteNetLib settings
         netManager.NatPunchEnabled = settings.EnableNatPunch;
         netManager.AutoRecycle = settings.ReuseNetPacketReaders;
