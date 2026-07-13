@@ -13,12 +13,17 @@ using UnityEngine;
 namespace Multiplayer.DebugClient;
 
 /// <summary>
-/// Debug-only schemas for selected high-value packets. These deliberately read the production
-/// wire order without resolving any game object or Unity singleton.
+/// Immutable, raw-datagram item schemas for this branch. CommonItemUpdatePacket and
+/// CommonItemsBulkUpdatePacket use the registered ItemUpdateData nested serializer; decoding
+/// from the raw payload prevents a reusable production packet instance from being observed
+/// after it has been mutated for a later datagram.
 /// </summary>
 internal static class SemanticPacketDecoder
 {
-    private static readonly ulong commonItemChangeHash = GetHash(typeof(CommonItemChangePacket));
+    private const string SingleDecoderId = "CommonItemUpdateV1";
+    private const string BulkDecoderId = "CommonItemsBulkUpdateV1";
+    private static readonly ulong singleItemHash = GetHash(typeof(CommonItemUpdatePacket));
+    private static readonly ulong bulkItemsHash = GetHash(typeof(CommonItemsBulkUpdatePacket));
     private static bool enabled;
 
     public static void Enable() => enabled = true;
@@ -26,42 +31,36 @@ internal static class SemanticPacketDecoder
     public static bool TryDecode(byte[] raw, out SemanticPacket packet)
     {
         packet = null;
-        if (!enabled || raw == null || raw.Length < sizeof(ulong) || BitConverter.ToUInt64(raw, 0) != commonItemChangeHash)
-            return false;
+        if (!enabled || raw == null || raw.Length < sizeof(ulong)) return false;
+
+        ulong hash = BitConverter.ToUInt64(raw, 0);
+        string decoderId = hash == singleItemHash ? SingleDecoderId : hash == bulkItemsHash ? BulkDecoderId : null;
+        if (decoderId == null || !ManifestDeclares(hash, decoderId)) return false;
 
         try
         {
             NetDataReader reader = new(raw);
-            reader.GetULong(); // packet hash, already matched above
-            packet = DecodeCommonItemChange(reader);
+            reader.GetULong();
+            packet = hash == singleItemHash
+                ? new DebugCommonItemUpdatePacket { Item = DecodeItem(reader) }
+                : DecodeBulkPacket(reader);
             if (reader.AvailableBytes != 0)
-                throw new InvalidOperationException($"CommonItemChangePacket has {reader.AvailableBytes} unread byte(s).");
+                throw new InvalidOperationException($"{packet.PacketType} has {reader.AvailableBytes} unread byte(s).");
             return true;
         }
         catch (Exception exception)
         {
-            packet = new SemanticDecodeFailure("CommonItemChangePacket", exception);
+            packet = new SemanticDecodeFailure(hash == singleItemHash ? nameof(CommonItemUpdatePacket) : nameof(CommonItemsBulkUpdatePacket), exception);
             return true;
         }
     }
 
-    private static DebugCommonItemChangePacket DecodeCommonItemChange(NetDataReader reader)
+    private static DebugCommonItemsBulkUpdatePacket DecodeBulkPacket(NetDataReader reader)
     {
-        bool compressed = reader.GetBool();
-        int itemCount = reader.GetInt();
-        NetDataReader itemReader = reader;
-        if (compressed)
-            itemReader = new NetDataReader(PacketCompression.Decompress(reader.GetBytesWithLength()));
-
-        DebugCommonItemChangePacket result = new() { Compressed = compressed, DeclaredItemCount = itemCount };
-        for (int index = 0; index < itemCount; index++)
-            result.Items.Add(DecodeItem(itemReader));
-
-        // Production CommonItemChangePacket.SerializeCompressed() passes NetDataWriter.Data
-        // to the compressor. Data is the backing buffer and can contain unused capacity after
-        // the declared item stream. The production deserializer intentionally ignores it.
-        if (compressed)
-            result.TrailingBufferBytes = itemReader.AvailableBytes;
+        // LiteNetLib's reusable serializer writes List<T> length as UInt16 for this packet.
+        ushort count = reader.GetUShort();
+        DebugCommonItemsBulkUpdatePacket result = new() { DeclaredItemCount = count };
+        for (int index = 0; index < count; index++) result.Items.Add(DecodeItem(reader));
         return result;
     }
 
@@ -69,34 +68,31 @@ internal static class SemanticPacketDecoder
     {
         DebugItemUpdate item = new()
         {
-            UpdateType = (ItemUpdateData.ItemUpdateType)reader.GetByte(),
+            UpdateType = reader.GetByte(),
             ItemNetId = reader.GetUShort()
         };
-        item.UpdateTypeFlags = ProtocolEnumNames.Format(typeof(ItemUpdateData.ItemUpdateType), (long)item.UpdateType, flags: true);
+        ItemUpdateData.ItemUpdateType flags = (ItemUpdateData.ItemUpdateType)item.UpdateType;
+        item.UpdateTypeFlags = ProtocolEnumNames.Format(typeof(ItemUpdateData.ItemUpdateType), item.UpdateType, flags: true);
+        if (flags == ItemUpdateData.ItemUpdateType.Destroy) return item;
 
-        if (item.UpdateType == ItemUpdateData.ItemUpdateType.Destroy)
-            return item;
+        item.ItemState = reader.GetByte();
+        ItemState state = (ItemState)item.ItemState;
+        item.ItemStateName = ProtocolEnumNames.Format(typeof(ItemState), item.ItemState.Value, flags: false);
+        if (flags.HasFlag(ItemUpdateData.ItemUpdateType.Create)) item.PrefabName = reader.GetString();
 
-        ItemState itemState = (ItemState)reader.GetByte();
-        item.ItemState = itemState;
-        item.ItemStateName = ProtocolEnumNames.Format(typeof(ItemState), (long)itemState, flags: false);
-        if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create))
-            item.PrefabName = reader.GetString();
-
-        if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ItemState))
+        if (flags.HasFlag(ItemUpdateData.ItemUpdateType.Create) || flags.HasFlag(ItemUpdateData.ItemUpdateType.ItemState))
         {
-            switch (itemState)
+            switch (state)
             {
                 case ItemState.Dropped:
                 case ItemState.Thrown:
                     item.Position = ReadVector3(reader);
                     item.Rotation = ReadQuaternion(reader);
-                    if (item.ItemState == ItemState.Thrown)
-                        item.ThrowDirection = ReadVector3(reader);
+                    if (state == ItemState.Thrown) item.ThrowDirection = ReadVector3(reader);
                     break;
                 case ItemState.InHand:
                 case ItemState.InInventory:
-                    item.Player = reader.GetByte();
+                    item.PlayerId = reader.GetByte();
                     break;
                 case ItemState.Attached:
                     item.CarNetId = reader.GetUShort();
@@ -105,29 +101,25 @@ internal static class SemanticPacketDecoder
             }
         }
 
-        if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState))
+        if (flags.HasFlag(ItemUpdateData.ItemUpdateType.Create) || flags.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState))
         {
             int stateCount = reader.GetInt();
             item.States = new Dictionary<string, object>();
-            for (int index = 0; index < stateCount; index++)
-                item.States[reader.GetString()] = ReadTrackedValue(reader);
+            for (int index = 0; index < stateCount; index++) item.States[reader.GetString()] = ReadTrackedValue(reader);
         }
-
         return item;
     }
 
     private static DebugVector3 ReadVector3(NetDataReader reader) => new() { X = reader.GetFloat(), Y = reader.GetFloat(), Z = reader.GetFloat() };
     private static DebugQuaternion ReadQuaternion(NetDataReader reader) => new() { X = reader.GetFloat(), Y = reader.GetFloat(), Z = reader.GetFloat(), W = reader.GetFloat() };
-
     private static object ReadTrackedValue(NetDataReader reader) => reader.GetByte() switch
     {
-        0 => reader.GetBool(),
-        1 => reader.GetInt(),
-        2 => reader.GetUInt(),
-        3 => reader.GetFloat(),
-        4 => reader.GetString(),
+        0 => reader.GetBool(), 1 => reader.GetInt(), 2 => reader.GetUInt(), 3 => reader.GetFloat(), 4 => reader.GetString(),
         byte code => throw new NotSupportedException($"Unsupported item tracked-value type code {code}.")
     };
+
+    private static bool ManifestDeclares(ulong hash, string decoderId) => ProtocolManifestProvider.Current.Packets.Any(packet =>
+        string.Equals(packet.Hash, hash.ToString("X16"), StringComparison.OrdinalIgnoreCase) && packet.SemanticDecoder == decoderId);
 
     public static void RunProductionRoundTripTest()
     {
@@ -135,61 +127,43 @@ internal static class SemanticPacketDecoder
         enabled = true;
         try
         {
-        CommonItemChangePacket source = new()
-        {
-            Items = new List<ItemUpdateData>
+            NetPacketProcessor processor = new();
+            PacketSerializationRegistry.Register(processor);
+            ItemUpdateData thrown = new()
             {
-                new() { UpdateType = ItemUpdateData.ItemUpdateType.ItemState, ItemNetId = 392, ItemState = ItemState.InInventory, Player = 2 },
-                new()
-                {
-                    UpdateType = ItemUpdateData.ItemUpdateType.Create | ItemUpdateData.ItemUpdateType.ObjectState,
-                    ItemNetId = 77,
-                    ItemState = ItemState.Thrown,
-                    PrefabName = "Flashlight",
-                    ItemPosition = new Vector3(1, 2, 3),
-                    ItemRotation = new Quaternion(0, 0.5f, 0, 1),
-                    ThrowDirection = new Vector3(4, 5, 6),
-                    States = new Dictionary<string, object> { ["battery"] = 93.5f, ["enabled"] = true }
-                }
-            }
-        };
+                UpdateType = ItemUpdateData.ItemUpdateType.FullSync, ItemNetId = 390, ItemState = ItemState.Thrown,
+                ItemPosition = new Vector3(1, 2, 3), ItemRotation = new Quaternion(0, .5f, 0, 1), ThrowDirection = new Vector3(4, 5, 6), States = new()
+            };
+            NetDataWriter writer = new();
+            processor.Write(writer, new CommonItemUpdatePacket { ItemData = thrown });
+            AssertThrown(writer, "CommonItemUpdatePacket");
 
-        NetDataWriter writer = new();
-        writer.Put(commonItemChangeHash);
-        source.Serialize(writer); // Production serializer is the schema authority for this test.
-        byte[] raw = new byte[writer.Length];
-        Buffer.BlockCopy(writer.Data, 0, raw, 0, raw.Length);
-
-        if (!TryDecode(raw, out SemanticPacket decoded) || decoded is not DebugCommonItemChangePacket items || items.Items.Count != 2)
-            throw new InvalidOperationException("Semantic CommonItemChangePacket round-trip did not decode two items.");
-
-        DebugItemUpdate inventory = items.Items[0];
-        DebugItemUpdate thrown = items.Items[1];
-        if (inventory.ItemNetId != 392 || inventory.ItemState != ItemState.InInventory || inventory.Player != 2 ||
-            thrown.ItemNetId != 77 || thrown.ItemState != ItemState.Thrown || thrown.Position.X != 1 || thrown.ThrowDirection.Z != 6 ||
-            thrown.States["battery"] is not float battery || battery != 93.5f || thrown.States["enabled"] is not bool enabledValue || !enabledValue)
-            throw new InvalidOperationException("Semantic CommonItemChangePacket round-trip field equality failed.");
-
-        CommonItemChangePacket compressedSource = new()
-        {
-            Items = Enumerable.Range(0, 51).Select(index => new ItemUpdateData
-            {
-                UpdateType = ItemUpdateData.ItemUpdateType.ItemState,
-                ItemNetId = (ushort)(500 + index),
-                ItemState = ItemState.InInventory,
-                Player = 2
-            }).ToList()
-        };
-        writer.Reset();
-        writer.Put(commonItemChangeHash);
-        compressedSource.Serialize(writer);
-        raw = new byte[writer.Length];
-        Buffer.BlockCopy(writer.Data, 0, raw, 0, raw.Length);
-        if (!TryDecode(raw, out decoded) || decoded is not DebugCommonItemChangePacket compressed || !compressed.Compressed || compressed.Items.Count != 51)
-            throw new InvalidOperationException("Semantic CommonItemChangePacket compressed round-trip failed.");
+            writer.Reset();
+            processor.Write(writer, new CommonItemsBulkUpdatePacket { Items = new List<ItemUpdateData> { thrown } });
+            AssertThrown(writer, "CommonItemsBulkUpdatePacket");
         }
         finally { enabled = previousEnabled; }
     }
+
+    private static void AssertThrown(NetDataWriter writer, string packetType)
+    {
+        byte[] raw = new byte[writer.Length];
+        Buffer.BlockCopy(writer.Data, 0, raw, 0, raw.Length);
+        if (!TryDecode(raw, out SemanticPacket decoded)) throw new InvalidOperationException($"{packetType} was not selected by its manifest decoder.");
+        DebugItemUpdate item = decoded switch
+        {
+            DebugCommonItemUpdatePacket single => single.Item,
+            DebugCommonItemsBulkUpdatePacket bulk when bulk.Items.Count == 1 => bulk.Items[0],
+            _ => null
+        };
+        if (item?.ItemState != (byte)ItemState.Thrown || item.Position?.X != 1 || item.ThrowDirection?.Z != 6 || item.States?.Count != 0)
+            throw new InvalidOperationException($"{packetType} raw semantic round-trip failed.");
+    }
+
+    // Production formatter fallback is deliberately disabled. Once the manifest declares a raw
+    // item schema, the immutable raw DTO is authoritative over reusable packet objects.
+    public static bool TryFormatProductionPacket(object packet, out string detail) { detail = null; return false; }
+    public const string Status = "Raw semantic schemas enabled for CommonItemUpdatePacket and CommonItemsBulkUpdatePacket.";
 
     private static ulong GetHash(Type type)
     {
@@ -204,24 +178,28 @@ internal abstract class SemanticPacket
     public virtual string ToJson() => JsonConvert.SerializeObject(this, Formatting.Indented, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
 }
 
-internal sealed class DebugCommonItemChangePacket : SemanticPacket
+internal sealed class DebugCommonItemUpdatePacket : SemanticPacket
 {
-    public override string PacketType => nameof(CommonItemChangePacket);
-    public bool Compressed { get; set; }
+    public override string PacketType => nameof(CommonItemUpdatePacket);
+    public DebugItemUpdate Item { get; set; }
+}
+
+internal sealed class DebugCommonItemsBulkUpdatePacket : SemanticPacket
+{
+    public override string PacketType => nameof(CommonItemsBulkUpdatePacket);
     public int DeclaredItemCount { get; set; }
-    public int TrailingBufferBytes { get; set; }
     public List<DebugItemUpdate> Items { get; } = [];
 }
 
 internal sealed class DebugItemUpdate
 {
-    public ItemUpdateData.ItemUpdateType UpdateType { get; set; }
+    public byte UpdateType { get; set; }
     public string UpdateTypeFlags { get; set; }
     public ushort ItemNetId { get; set; }
-    public ItemState? ItemState { get; set; }
+    public byte? ItemState { get; set; }
     public string ItemStateName { get; set; }
     public string PrefabName { get; set; }
-    public byte? Player { get; set; }
+    public byte? PlayerId { get; set; }
     public DebugVector3 Position { get; set; }
     public DebugQuaternion Rotation { get; set; }
     public DebugVector3 ThrowDirection { get; set; }
@@ -229,12 +207,17 @@ internal sealed class DebugItemUpdate
     public bool? AttachedFront { get; set; }
     public Dictionary<string, object> States { get; set; }
 }
-
 internal sealed class DebugVector3 { public float X { get; set; } public float Y { get; set; } public float Z { get; set; } }
 internal sealed class DebugQuaternion { public float X { get; set; } public float Y { get; set; } public float Z { get; set; } public float W { get; set; } }
 
-/// <summary>Renders wire enum values from the verified build manifest, with a harmless
-/// reflection fallback only while inspecting an older manifest that predates a given enum.</summary>
+internal sealed class SemanticDecodeFailure : SemanticPacket
+{
+    private readonly string packetType; private readonly Exception exception;
+    public SemanticDecodeFailure(string packetType, Exception exception) { this.packetType = packetType; this.exception = exception; }
+    public override string PacketType => packetType;
+    public override string ToJson() => JsonConvert.SerializeObject(new { Error = exception.Message, Exception = exception.ToString() }, Formatting.Indented);
+}
+
 internal static class ProtocolEnumNames
 {
     public static string Format(Type enumType, long value, bool flags)
@@ -247,23 +230,11 @@ internal static class ProtocolEnumNames
             if (!string.IsNullOrEmpty(exact)) return exact;
             if (flags)
             {
-                string[] parts = values.Where(pair => pair.Value != 0 && IsSingleBit(pair.Value) && (value & pair.Value) == pair.Value)
-                    .OrderBy(pair => pair.Value).Select(pair => pair.Key).ToArray();
+                string[] parts = values.Where(pair => pair.Value != 0 && IsSingleBit(pair.Value) && (value & pair.Value) == pair.Value).OrderBy(pair => pair.Value).Select(pair => pair.Key).ToArray();
                 if (parts.Length > 0) return string.Join(" | ", parts);
             }
-            return $"Unknown({value})";
         }
-        return Enum.IsDefined(enumType, value) ? Enum.GetName(enumType, value) : $"Unknown({value})";
+        return $"Unknown({value})";
     }
-
     private static bool IsSingleBit(long value) => value > 0 && (value & (value - 1)) == 0;
-}
-
-internal sealed class SemanticDecodeFailure : SemanticPacket
-{
-    private readonly string packetType;
-    private readonly Exception exception;
-    public SemanticDecodeFailure(string packetType, Exception exception) { this.packetType = packetType; this.exception = exception; }
-    public override string PacketType => packetType;
-    public override string ToJson() => JsonConvert.SerializeObject(new { Error = exception.Message, Exception = exception.ToString() }, Formatting.Indented);
 }

@@ -70,7 +70,7 @@ internal static class Program
         localProtocolFingerprint = LoadLocalProtocolFingerprint();
         Console.WriteLine($"Protocol manifest fingerprint: {localProtocolFingerprint}");
         SemanticPacketDecoder.RunProductionRoundTripTest();
-        Console.WriteLine("Semantic schema self-test passed: CommonItemChangePacket production round-trip.");
+        Console.WriteLine($"Semantic decoder: {SemanticPacketDecoder.Status}");
         PacketCatalog.RegisterAll(processor, OnDecodedPacket);
 
         if (profile.EnableWebUi)
@@ -230,6 +230,9 @@ internal static class Program
 
     private static string DescribePacket(object packet)
     {
+        if (SemanticPacketDecoder.TryFormatProductionPacket(packet, out string semanticDetail))
+            return semanticDetail;
+
         switch (packet)
         {
             case ClientboundGameParamsPacket gameParamsPacket:
@@ -238,8 +241,8 @@ internal static class Program
                 return $"GameMode={saveGamePacket.GameMode}; Money={saveGamePacket.Money}; PlayerItems={saveGamePacket.PlayerItems?.Length ?? 0}";
             case ClientboundSpawnTrainSetPacket trainsetPacket:
                 return $"SpawnParts={trainsetPacket.SpawnParts?.Length ?? 0}; AutoCouple={trainsetPacket.AutoCouple}";
-            case global::Multiplayer.Networking.Packets.Common.CommonItemChangePacket itemPacket:
-                return $"Items={itemPacket.Items?.Count ?? 0}";
+            case CommonItemsBulkUpdatePacket itemsPacket:
+                return $"Items={itemsPacket.Items?.Count ?? 0}";
             case global::Multiplayer.Networking.Packets.Clientbound.Jobs.ClientboundJobsCreatePacket jobsPacket:
                 return $"StationNetId={jobsPacket.StationNetId}; Jobs={jobsPacket.Jobs?.Length ?? 0}";
         }

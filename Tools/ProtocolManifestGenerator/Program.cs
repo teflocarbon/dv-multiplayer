@@ -105,11 +105,21 @@ internal static class Program
             TypeName = type.FullName,
             Direction = type.Namespace.Contains(".Serverbound") ? "Serverbound" : type.Namespace.Contains(".Clientbound") ? "Clientbound" : "Bidirectional",
             Category = type.Namespace.Substring(type.Namespace.IndexOf("Packets.", StringComparison.Ordinal) + "Packets.".Length),
-            SemanticDecoder = type.FullName == "Multiplayer.Networking.Packets.Common.CommonItemChangePacket" ? "CommonItemChangeV1" : null,
+            SemanticDecoder = GetSemanticDecoderId(type.FullName),
             HighFrequency = highFrequency,
             SuppressByDefault = suppressByDefault
         };
     }
+    // This is a catalog of explicitly maintained debug schemas, not a second packet
+    // registration list. The manifest is the only place that associates a production packet
+    // with its optional debug decoder/formatter.
+    private static string GetSemanticDecoderId(string typeName) => typeName switch
+    {
+        "Multiplayer.Networking.Packets.Common.CommonItemChangePacket" => "CommonItemChangeV1",
+        "Multiplayer.Networking.Packets.Common.CommonItemUpdatePacket" => "CommonItemUpdateV1",
+        "Multiplayer.Networking.Packets.Common.CommonItemsBulkUpdatePacket" => "CommonItemsBulkUpdateV1",
+        _ => null
+    };
     private static Dictionary<string, long> CreateEnum(Type type) => Enum.GetValues(type).Cast<object>().ToDictionary(value => value.ToString(), value => Convert.ToInt64(value));
     private static ulong GetHash(Type type)
     {
