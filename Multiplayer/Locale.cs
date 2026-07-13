@@ -17,6 +17,7 @@ public static class Locale
 
     private const string PREFIX_MAIN_MENU = $"{PREFIX}mm";
     private const string PREFIX_SERVER_BROWSER = $"{PREFIX}sb";
+    private const string PREFIX_SETTINGS = $"{PREFIX}settings";
     private const string PREFIX_SERVER_HOST = $"{PREFIX}host";
     private const string PREFIX_DISCONN_REASON = $"{PREFIX}dr";
     private const string PREFIX_CAREER_MANAGER = $"{PREFIX}carman";
@@ -45,6 +46,60 @@ public static class Locale
 
     public static string MAIN_MENU__UPDATE_ACTION => Get(MAIN_MENU__UPDATE_ACTION_KEY);
     public const string MAIN_MENU__UPDATE_ACTION_KEY = $"{PREFIX_MAIN_MENU}/update_action";
+    #endregion
+
+    #region Settings Menu
+    public static string SETTINGS__SETTINGS => Get(SETTINGS__SETTINGS_KEY);
+    public const string SETTINGS__SETTINGS_KEY = $"{PREFIX_SETTINGS}/settings";
+
+    public static string SETTINGS_USE_STEAM_NAME => Get(SETTINGS_USE_STEAM_NAME_KEY);
+    public const string SETTINGS_USE_STEAM_NAME_KEY = $"{PREFIX_SETTINGS}/use_steam_name";
+
+    public static string SETTINGS_PLAYER_NAME => Get(SETTINGS_PLAYER_NAME_KEY);
+    public const string SETTINGS_PLAYER_NAME_KEY = $"{PREFIX_SETTINGS}/player_name";
+
+    public static string SETTINGS_CHOOSE_CHARACTER => Get(SETTINGS_CHOOSE_CHARACTER_KEY);
+    public const string SETTINGS_CHOOSE_CHARACTER_KEY = $"{PREFIX_SETTINGS}/choose_character";
+
+    public static string SETTINGS_SHOW_NAME_TAGS => Get(SETTINGS_SHOW_NAME_TAGS_KEY);
+    public const string SETTINGS_SHOW_NAME_TAGS_KEY = $"{PREFIX_SETTINGS}/show_name_tags";
+
+    public static string SETTINGS_SHOW_PINGS => Get(SETTINGS_SHOW_PINGS_KEY);
+    public const string SETTINGS_SHOW_PINGS_KEY = $"{PREFIX_SETTINGS}/show_pings";
+
+    public static string SETTINGS_SHOW_PLAYER_LIST => Get(SETTINGS_SHOW_PLAYER_LIST_KEY);
+    public const string SETTINGS_SHOW_PLAYER_LIST_KEY = $"{PREFIX_SETTINGS}/show_player_list";
+
+    public static string SETTINGS_PLAYER_LIST_POSITION => Get(SETTINGS_PLAYER_LIST_POSITION_KEY);
+    public const string SETTINGS_PLAYER_LIST_POSITION_KEY = $"{PREFIX_SETTINGS}/player_list_position";
+
+    // requires enum post-fix
+    public const string SETTINGS_POSITION_KEY = $"{PREFIX_SETTINGS}/pos_";
+
+    public static string SETTINGS_SHOW_CHAT => Get(SETTINGS_SHOW_CHAT_KEY);
+    public const string SETTINGS_SHOW_CHAT_KEY = $"{PREFIX_SETTINGS}/show_chat";
+
+    public static string SETTINGS_CHAT_KEY_BINDING => Get(SETTINGS_CHAT_KEY_BINDING_KEY);
+    public const string SETTINGS_CHAT_KEY_BINDING_KEY = $"{PREFIX_SETTINGS}/chat_key";
+
+    public const string SETTINGS_CHAT_KEY_BINDING_TOOLTIP_ENABLED_KEY = $"{SETTINGS_CHAT_KEY_BINDING_KEY}__tooltip";
+    public const string SETTINGS_CHAT_KEY_BINDING_TOOLTIP_DISABLED_KEY = $"{SETTINGS_CHAT_KEY_BINDING_KEY}__tooltip_disabled";
+
+    public static string SETTINGS_KEY_BINDING_OVERLAY => Get(SETTINGS_KEY_BINDING_OVERLAY_KEY);
+    public const string SETTINGS_KEY_BINDING_OVERLAY_KEY = $"{PREFIX_SETTINGS}/key_bind_overlay";
+
+
+
+    public static string SETTINGS_DEBUG_LOGGING => Get(SETTINGS_DEBUG_LOGGING_KEY);
+    public const string SETTINGS_DEBUG_LOGGING_KEY = $"{PREFIX_SETTINGS}/debug_logging";
+
+    public static string SETTINGS_CHAR_SEL_SETTINGS => Get(SETTINGS_CHAR_SEL_SETTINGS_KEY);
+    public const string SETTINGS_CHAR_SEL_SETTINGS_KEY = $"{PREFIX_SETTINGS}/char_select";
+    public const string SETTINGS_CHAR_SEL_TOOLTIP_KEY = $"{PREFIX_SETTINGS}/char_select__tooltip";
+
+    public const string SETTINGS_CHAR_HOVER_SETTINGS_KEY = $"{PREFIX_SETTINGS}/char_hover";
+    public const string SETTINGS_CHAR_HOVER_TOOLTIP_KEY = $"{SETTINGS_CHAR_HOVER_SETTINGS_KEY}__tooltip";
+
     #endregion
 
     #region Server Browser
@@ -115,8 +170,12 @@ public static class Locale
     public const string SERVER_HOST__TITLE_KEY = $"{PREFIX_SERVER_HOST}/title";
     public static string SERVER_HOST_PASSWORD => Get(SERVER_HOST_PASSWORD_KEY);
     public const string SERVER_HOST_PASSWORD_KEY = $"{PREFIX_SERVER_HOST}/password";
+    public const string SERVER_HOST_PASSWORD_TOOLTIP_KEY = $"{SERVER_HOST_PASSWORD_KEY}__tooltip";
+    public const string SERVER_HOST_PASSWORD_TOOLTIP_DISABLED_KEY = $"{SERVER_HOST_PASSWORD_TOOLTIP_KEY}_disabled";
     public static string SERVER_HOST_NAME => Get(SERVER_HOST_NAME_KEY);
     public const string SERVER_HOST_NAME_KEY = $"{PREFIX_SERVER_HOST}/name";
+    public const string SERVER_HOST_NAME_TOOLTIP_KEY = $"{SERVER_HOST_NAME_KEY}__tooltip";
+    public const string SERVER_HOST_NAME_TOOLTIP_DISABLED_KEY = $"{SERVER_HOST_NAME_TOOLTIP_KEY}_disabled";
     public static string SERVER_HOST_PUBLIC => Get(SERVER_HOST_PUBLIC_KEY);
     public const string SERVER_HOST_PUBLIC_KEY = $"{PREFIX_SERVER_HOST}/public";
     public static string SERVER_HOST_VISIBILITY => Get(SERVER_HOST_PUBLIC_KEY);
@@ -126,8 +185,16 @@ public static class Locale
     public const string SERVER_HOST_VISIBILITY_MODES_KEY = $"{PREFIX_SERVER_HOST}/visibility/modes";
     public static string SERVER_HOST_DETAILS => Get(SERVER_HOST_DETAILS_KEY);
     public const string SERVER_HOST_DETAILS_KEY = $"{PREFIX_SERVER_HOST}/details";
+    public const string SERVER_HOST_DETAILS_TOOLTIP_KEY = $"{SERVER_HOST_DETAILS_KEY}__tooltip";
+    public const string SERVER_HOST_DETAILS_TOOLTIP_DISABLED_KEY = $"{SERVER_HOST_DETAILS_TOOLTIP_KEY}_disabled";
     public static string SERVER_HOST_MAX_PLAYERS => Get(SERVER_HOST_MAX_PLAYERS_KEY);
     public const string SERVER_HOST_MAX_PLAYERS_KEY = $"{PREFIX_SERVER_HOST}/max_players";
+
+
+    public const string SERVER_HOST_PORT_TOOLTIP_KEY = $"{PREFIX_SERVER_HOST}/port__tooltip";
+    public const string SERVER_HOST_PORT_TOOLTIP_DISABLED_KEY = $"{SERVER_HOST_PORT_TOOLTIP_KEY}_disabled";
+
+
     public static string SERVER_HOST_START => Get(SERVER_HOST_START_KEY);
     public const string SERVER_HOST_START_KEY = $"{PREFIX_SERVER_HOST}/start";
 

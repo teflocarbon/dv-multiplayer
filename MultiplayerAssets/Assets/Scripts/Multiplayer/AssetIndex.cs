@@ -1,4 +1,6 @@
 using UnityEngine;
+using System.Collections.Generic;
+using System.Collections;
 
 namespace Multiplayer.Editor
 {
@@ -6,7 +8,9 @@ namespace Multiplayer.Editor
     public class AssetIndex : ScriptableObject
     {
         [Header("Prefabs")]
-        public GameObject playerPrefab;
+        public GameObject PlayerTag;
+        public GameObject defaultModel;
+        public GameObject[] modelPrefabs;
 
         [Header("Textures")]
         public Sprite multiplayerIcon;

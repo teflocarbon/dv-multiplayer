@@ -3,6 +3,7 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.SaveGame;
+using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Utils;
 using Newtonsoft.Json.Linq;
@@ -39,8 +40,11 @@ public class ServerPlayer : IDisposable
     public string Username { get; set; }
     public string OriginalUsername { get; set; }
     public Guid Guid { get; set; }
-    public Vector3 RawPosition { get; set; }
-    public float RawRotationY { get; set; }
+    public string CharacterId { get; set; }
+    public bool IsVR { get; }
+
+    public PlayerTrackingData TrackingData { get; set; }
+    public PlayerPostureFlags Posture { get; set; }        // already exists — keep
     public ushort CarId { get; set; }
     private string _crewName;
     public string CrewName
@@ -70,9 +74,15 @@ public class ServerPlayer : IDisposable
                 _crewName = string.Empty;
             }
 
-            NetworkLifecycle.Instance.Server.SendPlayerPreferencesUpdate(this);
+            Dictionary<PlayerPreference, string> preferences = new()
+            {
+                { PlayerPreference.CrewName, _crewName }
+            };
+
+            NetworkLifecycle.Instance.Server.SendPlayerPreferencesUpdate(this, preferences);
         }
     }
+
     public string DisplayName
     {
         get
@@ -91,7 +101,7 @@ public class ServerPlayer : IDisposable
     private Vector3 _lastWorldPos = Vector3.zero;
     private Vector3 _lastAbsoluteWorldPosition = Vector3.zero;
 
-    public ServerPlayer(ITransportPeer peer, string username, string originalUsername, Guid guid)
+    public ServerPlayer(ITransportPeer peer, string username, string originalUsername, Guid guid, string characterId, bool isVr)
     {
         PlayerId = idPool.NextId;
 
@@ -101,9 +111,15 @@ public class ServerPlayer : IDisposable
         Username = username;
         OriginalUsername = originalUsername;
         Guid = guid;
+        CharacterId = characterId;
+
+        IsVR = isVr;
     }
 
     #region Positioning
+    public Vector3 RawPosition => TrackingData.Position ?? Vector3.zero;
+    public float RawRotationY => TrackingData.RotationY ?? 0f;
+
     public Vector3 AbsoluteWorldPosition
     {
         get

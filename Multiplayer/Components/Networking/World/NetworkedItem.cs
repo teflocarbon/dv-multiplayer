@@ -27,12 +27,10 @@ public enum ItemState : byte
 public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 {
     #region Lookup Cache
-    private static readonly Dictionary<ItemBase, NetworkedItem> itemBaseToNetworkedItem = new();
+    private static readonly Dictionary<ItemBase, NetworkedItem> itemBaseToNetworkedItem = new(4096);
 
-    public static List<NetworkedItem> GetAll()
-    {
-        return itemBaseToNetworkedItem.Values.Where(val => val.Item != null).ToList();
-    }
+    public static Dictionary<ItemBase, NetworkedItem>.ValueCollection GetAll() => itemBaseToNetworkedItem.Values;
+    
     public static bool Get(ushort netId, out NetworkedItem obj)
     {
         bool b = Get(netId, out IdMonoBehaviour<ushort, NetworkedItem> rawObj);

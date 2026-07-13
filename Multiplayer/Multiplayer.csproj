@@ -3,7 +3,7 @@
         <TargetFramework>net48</TargetFramework>
         <LangVersion>latest</LangVersion>
         <RootNamespace>Multiplayer</RootNamespace>
-        <InformationalVersion>0.1.14.0</InformationalVersion>
+        <InformationalVersion>0.1.15.0</InformationalVersion>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Krafs.Publicizer" Version="2.3.0">
@@ -105,9 +105,6 @@
         <Reference Include="UnityEngine.InputLegacyModule" />
         <Reference Include="VRTK" />
     </ItemGroup>
-    <ItemGroup>
-      <Folder Include="Networking\Packets\Common\RPC\" />
-    </ItemGroup>
     <Target Name="PostBuildMacros">
         <GetAssemblyIdentity AssemblyFiles="$(TargetPath)">
             <Output TaskParameter="Assemblies" ItemName="Targets" />
@@ -122,7 +119,11 @@
         <!-- Copy to build folder -->
         <Copy SourceFiles="../info.json;../locale.csv;../LICENSE;$(TargetPath);$(OutDir)/Humanizer.dll;$(OutDir)/LiteNetLib.dll" DestinationFolder="../build/" />
         <!-- Update Json, copy to game directory and make package if in 'Release' -->
-        <Exec Condition="$(ConfigurationName) == 'Release'" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
-        <Exec Condition="$(ConfigurationName) == 'Debug'" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
+        <!-- Windows: use powershell -->
+        <Exec Condition="$(ConfigurationName) == 'Release' AND $([MSBuild]::IsOsPlatform('Windows'))" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
+        <Exec Condition="$(ConfigurationName) == 'Debug' AND $([MSBuild]::IsOsPlatform('Windows'))" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
+        <!-- Linux/macOS: use pwsh -->
+        <Exec Condition="$(ConfigurationName) == 'Release' AND !$([MSBuild]::IsOsPlatform('Windows'))" Command="pwsh -ExecutionPolicy Bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)/Mods/Multiplayer')&quot;" ContinueOnError="true" />
+        <Exec Condition="$(ConfigurationName) == 'Debug' AND !$([MSBuild]::IsOsPlatform('Windows'))" Command="pwsh -ExecutionPolicy Bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)/Mods/Multiplayer')&quot;" ContinueOnError="true" />
     </Target>
 </Project>

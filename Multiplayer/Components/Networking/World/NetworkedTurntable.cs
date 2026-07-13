@@ -53,7 +53,14 @@ public class NetworkedTurntable : IdMonoBehaviour<byte, NetworkedTurntable>
 
         NetworkLifecycle.Instance.OnTick += OnTick;
 
-        initialised = NetworkLifecycle.Instance.IsHost();
+        if (NetworkLifecycle.Instance?.Server?.IsRunning ?? false)
+            initialised = NetworkLifecycle.Instance.IsHost();
+    }
+
+    protected void Start()
+    {
+        if (!initialised)
+            initialised = NetworkLifecycle.Instance.IsHost();
     }
 
     protected override void OnDestroy()

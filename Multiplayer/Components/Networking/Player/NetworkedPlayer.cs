@@ -1,6 +1,7 @@
 using DV.Player;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Editor.Components.Player;
+using Multiplayer.Networking.Data.Player;
 using UnityEngine;
 
 namespace Multiplayer.Components.Networking.Player;
@@ -15,8 +16,8 @@ public class NetworkedPlayer : MonoBehaviour
 
     /// <summary>
     /// Captures the standard offset position for held items relative to the player transform
-    /// for mapping to a NetworkedPlayer
-    /// This must be called as soon as the world is loaded, before the local player moves or crouches
+    /// for mapping to a NetworkedPlayer.
+    /// This must be called as soon as the world is loaded, before the local player moves or crouches.
     /// </summary>
     public static void CaptureItemAnchorOffset()
     {
@@ -24,22 +25,27 @@ public class NetworkedPlayer : MonoBehaviour
         // - the direction/rotation of the camera
         // - player loading status (maybe posistion hasn't settled yet)
         if (!VRManager.IsVREnabled())
-        { 
+        {
             itemAnchorOffset = PlayerManager.PlayerTransform.InverseTransformPoint(ItemPositionController.Instance.itemAnchor.position);
             Multiplayer.LogDebug(() => $"NetworkedPlayer.CaptureItemAnchorOffset() itemAnchorOffset: {itemAnchorOffset}");
         }
     }
-
     #endregion
 
     private const float LERP_SPEED = 5.0f;
+    private const float MAX_LEAN_ANGLE = 50f;
+    private const float LEAN_SMOOTHING_DURATION = 0.1f;
+    private const float HEAD_LEAN_MULTIPLIER = 1.5f;
 
     public byte PlayerId { get; set; }
     public string CrewName { get; set; }
+    public bool IsVR { get; set; }
 
+    private GameObject playerModel;
     private AnimationHandler animationHandler;
     private NameTag nameTag;
     private int ping;
+    private NetworkedPlayerIKHandler ikHandler;
 
     private string username;
 
@@ -49,7 +55,7 @@ public class NetworkedPlayer : MonoBehaviour
         set
         {
             username = value;
-            nameTag.SetUsername(value);
+            nameTag?.SetUsername(value);
         }
     }
 
@@ -67,22 +73,56 @@ public class NetworkedPlayer : MonoBehaviour
     internal TrainCar OccupiedCar { get; private set; }
 
     private Transform selfTransform;
+    private PlayerPostureFlags currentPosture;
+
+    // Head tracking
+    private Transform headTransform;
+    private Quaternion headBaseWorldRotation = Quaternion.identity;
+    private float currentHeadPitch;
+    private float targetHeadPitch;
+
+    // Spine tracking
+    private Transform spineTransform;
+    private Quaternion spineBaseWorldRotation = Quaternion.identity;
+
+    // Player movement and rotation
     private Vector3 targetPos;
     private Quaternion targetRotation;
     private Vector2 moveDir;
     private Vector2 targetMoveDir;
-    
+
+    private float currentLeanAngle;
+    private float angleSmoothRefVel;
+    private float currentSitHeight;
+
+    // VR hand tracking — targets set from incoming packets
+    private Transform leftHandTransform;
+    private Transform rightHandTransform;
+    private Vector3 targetLeftHandPos;
+    private Quaternion targetLeftHandRot = Quaternion.identity;
+    private Vector3 targetRightHandPos;
+    private Quaternion targetRightHandRot = Quaternion.identity;
+
+    // Current lerped values — tracked independently to avoid Animator fighting
+    private Vector3 currentLeftHandWorldPos;
+    private Quaternion currentLeftHandWorldRot = Quaternion.identity;
+    private Vector3 currentRightHandWorldPos;
+    private Quaternion currentRightHandWorldRot = Quaternion.identity;
+    private bool handTrackingInitialized;
+
     private GameObject itemHeld;
     private Vector3? itemHoldPos;
     private Quaternion? itemHoldRot;
 
     protected void Awake()
     {
-        animationHandler = GetComponent<AnimationHandler>();
+        nameTag = GetComponentInChildren<NameTag>();
 
-        nameTag = GetComponent<NameTag>();
         nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
         PlayerManager.CameraChanged += () => nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
+
+        if (name != null)
+            nameTag.SetUsername(name);
 
         OnSettingsUpdated(Multiplayer.Settings);
         Settings.OnSettingsUpdated += OnSettingsUpdated;
@@ -90,8 +130,26 @@ public class NetworkedPlayer : MonoBehaviour
         selfTransform = transform;
         targetPos = selfTransform.position;
         targetRotation = selfTransform.rotation;
+
+        targetHeadPitch = 0f;
+
         moveDir = Vector2.zero;
         targetMoveDir = Vector2.zero;
+
+        currentPosture = PlayerPostureFlags.None;
+
+        var clampedSitHeight = Mathf.Clamp
+            (
+                CustomFirstPersonController.PLAYER_SITTING_HEIGHT,
+                CustomFirstPersonController.MIN_PLAYER_SITTING_HEIGHT,
+                CustomFirstPersonController.MAX_PLAYER_SITTING_HEIGHT
+            );
+        currentSitHeight = Mathf.InverseLerp
+            (
+                CustomFirstPersonController.MIN_PLAYER_SITTING_HEIGHT,
+                CustomFirstPersonController.MAX_PLAYER_SITTING_HEIGHT,
+                clampedSitHeight
+            );
     }
 
     protected void OnDestroy()
@@ -105,9 +163,68 @@ public class NetworkedPlayer : MonoBehaviour
         nameTag.ShowPing(settings.ShowNameTags && settings.ShowPingInNameTags);
     }
 
+    public void ChangeModel(GameObject newModel)
+    {
+        if (newModel == playerModel || newModel == null)
+            return;
+
+        if (playerModel != null)
+        {
+            animationHandler = null;
+            DestroyImmediate(playerModel);
+            headTransform = null;
+            leftHandTransform = null;
+            rightHandTransform = null;
+            handTrackingInitialized = false;
+        }
+
+        playerModel = Instantiate(newModel, transform);
+        animationHandler = playerModel.GetComponent<AnimationHandler>();
+
+        var animator = playerModel.GetComponentInChildren<Animator>(true);
+        if (animator != null)
+        {
+            if (IsVR)
+            {
+                // Track VR Networked player's IK state for hands and feet
+                ikHandler = animator.gameObject.AddComponent<NetworkedPlayerIKHandler>();
+                ikHandler.IsActive = false;
+            }
+
+            headTransform = animator.GetBoneTransform(HumanBodyBones.Head);
+            if (headTransform == null)
+                Multiplayer.LogWarning($"Head bone not found in model {newModel.name}. Head tracking will not work");
+
+            spineTransform = animator.GetBoneTransform(HumanBodyBones.Spine);
+
+            leftHandTransform = animator.GetBoneTransform(HumanBodyBones.LeftHand);
+            rightHandTransform = animator.GetBoneTransform(HumanBodyBones.RightHand);
+
+            if (leftHandTransform == null || rightHandTransform == null)
+                Multiplayer.LogWarning($"Hand bones not found in model {newModel.name}. VR hand tracking will not work");
+        }
+        else
+        {
+            Multiplayer.LogWarning($"Animator not found in model {newModel.name}. Tracking will not work");
+        }
+
+        if (spineTransform == null)
+        {
+            // Fall back to using the model's transform if the spine bone is not found
+            spineTransform = playerModel.transform;
+        }
+
+        spineBaseWorldRotation = Quaternion.Inverse(selfTransform.rotation) * spineTransform.rotation;
+
+        if (headTransform != null)
+            headBaseWorldRotation = Quaternion.Inverse(selfTransform.rotation) * headTransform.rotation;
+
+        SetPosture(currentPosture);
+    }
+
     public void SetPing(int ping)
     {
-        nameTag.SetPing(ping);
+        nameTag?.SetPing(ping);
         this.ping = ping;
     }
 
@@ -120,10 +237,19 @@ public class NetworkedPlayer : MonoBehaviour
     {
         float t = Time.deltaTime * LERP_SPEED;
 
-        Vector3 position = Vector3.Lerp(IsOnCar ? selfTransform.localPosition : selfTransform.position, IsOnCar ? targetPos : targetPos + WorldMover.currentMove, t);
-        
+        Vector3 position = Vector3.Lerp(
+            IsOnCar ? selfTransform.localPosition : selfTransform.position,
+            IsOnCar ? targetPos : targetPos + WorldMover.currentMove,
+            t);
+
+        // Calculate smoothed head pitch for use in VR and nonVR head positioning and nonVR item positioning
+        currentHeadPitch = Mathf.Lerp(currentHeadPitch, targetHeadPitch, t);
+
         moveDir = Vector2.Lerp(moveDir, targetMoveDir, t);
-        animationHandler.SetMoveDir(moveDir);
+        animationHandler?.SetMoveDir(moveDir);
+
+        if (!IsVR)
+            animationHandler?.SetSitHeight(currentSitHeight);
 
         if (IsOnCar && OccupiedCar != null)
         {
@@ -159,25 +285,144 @@ public class NetworkedPlayer : MonoBehaviour
             selfTransform.position = position;
             selfTransform.rotation = Quaternion.Lerp(transform.rotation, targetRotation, t);
         }
-
-        if (itemHeld != null)
-        {
-            itemHeld.transform.position = selfTransform.position + GetItemOffsetFromPlayer();
-            itemHeld.transform.rotation = selfTransform.rotation * (itemHoldRot ?? Quaternion.identity);//ItemPositionController.Instance.itemAnchor.localRotation);
-        }
     }
 
-    public void UpdatePosition(Vector3 position, Vector2 moveDir, float rotationY, bool isJumping, bool movePacketIsOnCar)
+    /// <summary>
+    /// LateUpdate is called after animators have updated, allowing us to apply our own transformations on top of the animated posture.
+    /// </summary>
+    protected void LateUpdate()
     {
-        targetPos = position;
-        targetMoveDir = moveDir;
+        if (!IsVR)
+        {
+            float targetLeanAngle = 0f;
+            if (currentPosture.HasFlag(PlayerPostureFlags.LeanLeft))
+                targetLeanAngle = MAX_LEAN_ANGLE;
+            else if (currentPosture.HasFlag(PlayerPostureFlags.LeanRight))
+                targetLeanAngle = -MAX_LEAN_ANGLE;
 
-        animationHandler.SetIsJumping(isJumping);
+            currentLeanAngle = Mathf.SmoothDamp(currentLeanAngle, targetLeanAngle, ref angleSmoothRefVel, LEAN_SMOOTHING_DURATION);
+        }
+
+        ApplySpineAndHeadRotation();
+
+        if (IsVR)
+            ApplyHandTracking();
+    }
+
+    private void ApplySpineAndHeadRotation()
+    {
+        if (spineTransform != null)
+        {
+            // Reconstruct the base animated posture for this model in world space
+            Quaternion currentModelSpineBase = selfTransform.rotation * spineBaseWorldRotation;
+
+            // Define standard look/lean vectors using the main uniform player root
+            // Side lean is always spinning around the root's global FORWARD axis
+            Quaternion leanOffset = Quaternion.AngleAxis(currentLeanAngle, selfTransform.forward);
+
+            // Directly assign the uniform world rotation 
+            spineTransform.rotation = leanOffset * currentModelSpineBase;
+        }
+
+        if (headTransform == null)
+            return;
+
+        Quaternion currentModelHeadBase = selfTransform.rotation * headBaseWorldRotation;
+        Quaternion pitchRotation = Quaternion.AngleAxis(currentHeadPitch, selfTransform.right);
+        Quaternion leanTiltRotation = Quaternion.AngleAxis(currentLeanAngle * HEAD_LEAN_MULTIPLIER, selfTransform.forward);
+        headTransform.rotation = pitchRotation * leanTiltRotation * currentModelHeadBase;
+    }
+
+    private void ApplyHandTracking()
+    {
+        if (!handTrackingInitialized || ikHandler == null)
+            return;
+
+        float t = Time.deltaTime * LERP_SPEED;
+
+        currentLeftHandWorldPos = Vector3.Lerp(currentLeftHandWorldPos, targetLeftHandPos, t);
+        currentLeftHandWorldRot = Quaternion.Lerp(currentLeftHandWorldRot, targetLeftHandRot, t);
+
+        currentRightHandWorldPos = Vector3.Lerp(currentRightHandWorldPos, targetRightHandPos, t);
+        currentRightHandWorldRot = Quaternion.Lerp(currentRightHandWorldRot, targetRightHandRot, t);
+
+        ikHandler.LeftHandPosition = selfTransform.position + targetRotation * currentLeftHandWorldPos;
+        ikHandler.LeftHandRotation = targetRotation * currentLeftHandWorldRot;
+        ikHandler.RightHandPosition = selfTransform.position + targetRotation * currentRightHandWorldPos;
+        ikHandler.RightHandRotation = targetRotation * currentRightHandWorldRot;
+    }
+
+    /// <summary>
+    /// Feed networked tracking data into the NetworkedPlayer to update its position, rotation, and posture.
+    /// </summary>
+    /// <param name="trackingData"></param>
+    /// <param name="posture"></param>
+    /// <param name="movePacketIsOnCar"></param>
+    public void UpdatePosition(PlayerTrackingData trackingData, PlayerPostureFlags posture, bool movePacketIsOnCar)
+    {
+        if (trackingData.Position.HasValue)
+            targetPos = trackingData.Position.Value;
+
+        if (trackingData.MoveDirection.HasValue)
+        {
+            targetMoveDir = trackingData.MoveDirection.Value;
+        }
+
+        if (trackingData.SitHeight.HasValue)
+            currentSitHeight = Mathf.Clamp01(trackingData.SitHeight.Value);
+
+        SetPosture(posture);
 
         if (IsOnCar != movePacketIsOnCar)
             return;
 
-        targetRotation = Quaternion.Euler(0, rotationY, 0);
+        if (trackingData.RotationY.HasValue)
+            targetRotation = Quaternion.Euler(0, trackingData.RotationY.Value, 0);
+
+        if (trackingData.LookPosition.HasValue)
+            targetHeadPitch = trackingData.LookPosition.Value;
+
+        if (trackingData.LeftHandPosition.HasValue)
+            targetLeftHandPos = trackingData.LeftHandPosition.Value;
+        if (trackingData.LeftHandRotation.HasValue)
+            targetLeftHandRot = trackingData.LeftHandRotation.Value;
+        if (trackingData.RightHandPosition.HasValue)
+            targetRightHandPos = trackingData.RightHandPosition.Value;
+        if (trackingData.RightHandRotation.HasValue)
+            targetRightHandRot = trackingData.RightHandRotation.Value;
+
+        // Todo: improve sync, the arms can be a little spaghetti-y
+        if (!handTrackingInitialized)
+        {
+            currentLeftHandWorldPos = targetLeftHandPos;
+            currentLeftHandWorldRot = targetLeftHandRot;
+            currentRightHandWorldPos = targetRightHandPos;
+            currentRightHandWorldRot = targetRightHandRot;
+            handTrackingInitialized = true;
+
+            if (ikHandler != null)
+                ikHandler.IsActive = true;
+        }
+    }
+
+    private void SetPosture(PlayerPostureFlags posture)
+    {
+        currentPosture = posture;
+        // Swimming overrides other postures
+        bool isSwimming = posture.HasFlag(PlayerPostureFlags.Swim);
+        animationHandler?.SetIsSwimming(isSwimming);
+        if (isSwimming)
+        {
+            animationHandler?.SetIsCrouching(false);
+            animationHandler?.SetIsSitting(false);
+            animationHandler?.SetIsJumping(false);
+        }
+        else
+        {
+            animationHandler?.SetIsJumping(posture.HasFlag(PlayerPostureFlags.Jump));
+            animationHandler?.SetIsCrouching(posture.HasFlag(PlayerPostureFlags.Crouch));
+            animationHandler?.SetIsSitting(posture.HasFlag(PlayerPostureFlags.Sit));
+        }
     }
 
     public void UpdateCar(ushort netId)
@@ -212,12 +457,4 @@ public class NetworkedPlayer : MonoBehaviour
         itemHoldPos = null;
         itemHoldRot = null;
     }
-
-    private Vector3 GetItemOffsetFromPlayer()
-    {
-        Vector3 baseOffset = itemAnchorOffset;
-        Vector3 finalOffset = itemHoldPos.HasValue ? baseOffset + itemHoldPos.Value : baseOffset;
-        return selfTransform.TransformDirection(finalOffset);
-    }
-
 }

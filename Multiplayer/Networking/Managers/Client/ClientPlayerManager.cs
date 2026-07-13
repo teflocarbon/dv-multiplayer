@@ -1,7 +1,8 @@
 using DV;
 using Multiplayer.Components.Networking.Player;
-using System.Collections.Generic;
+using Multiplayer.Networking.Data.Player;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -16,11 +17,11 @@ public class ClientPlayerManager
     public Action<NetworkedPlayer> OnPlayerPrefsUpdated;
     public IReadOnlyCollection<NetworkedPlayer> Players => playerMap.Values;
 
-    private readonly GameObject playerPrefab;
+    private readonly GameObject playerTagPrefab;
 
     public ClientPlayerManager()
     {
-        playerPrefab = Multiplayer.AssetIndex.playerPrefab;
+        playerTagPrefab = Multiplayer.AssetIndex.PlayerTag;
     }
 
     public bool TryGetPlayer(byte playerid, out NetworkedPlayer player)
@@ -28,7 +29,7 @@ public class ClientPlayerManager
         return playerMap.TryGetValue(playerid, out player);
     }
 
-    public void AddPlayer(byte playerId, string username, string crewName)
+    public void AddPlayer(byte playerId, string username, string crewName, string characterId, bool isVr)
     {
         if (playerMap.ContainsKey(playerId))
         {
@@ -36,12 +37,25 @@ public class ClientPlayerManager
             RemovePlayer(playerId);
         }
 
-        GameObject go = Object.Instantiate(playerPrefab, WorldMover.OriginShiftParent);
+        // Player model holder
+        GameObject go = new($"Player[{username}]");
+        go.transform.SetParent(WorldMover.OriginShiftParent);
         go.layer = LayerMask.NameToLayer(Layers.Player);
+
+        // Setup player tag
+        Object.Instantiate(playerTagPrefab, go.transform);
         NetworkedPlayer networkedPlayer = go.AddComponent<NetworkedPlayer>();
+
         networkedPlayer.PlayerId = playerId;
         networkedPlayer.Username = username;
         networkedPlayer.CrewName = crewName;
+        networkedPlayer.IsVR = isVr;
+
+        // Get player model from registry and apply it to the player
+        var model = Multiplayer.PlayerModelRegistry.GetModelById(characterId);
+
+        networkedPlayer.ChangeModel(model.Prefab);
+
         playerMap.Add(playerId, networkedPlayer);
         OnPlayerConnected?.Invoke(networkedPlayer);
     }
@@ -63,32 +77,30 @@ public class ClientPlayerManager
         player.SetPing(ping);
     }
 
-    public void UpdatePosition(byte playerid, Vector3 position, Vector3 moveDir, float rotation, bool isJumping, bool isOnCar, ushort carId)
+    public void UpdatePosition(byte playerId, PlayerTrackingData trackingData, PlayerPostureFlags posture, bool isOnCar, ushort carId)
     {
-        if (!TryGetPlayer(playerid, out NetworkedPlayer player))
+        if (!TryGetPlayer(playerId, out NetworkedPlayer player))
             return;
         player.UpdateCar(carId);
-        player.UpdatePosition(position, moveDir, rotation, isJumping, isOnCar);
+        player.UpdatePosition(trackingData, posture, isOnCar);
     }
 
-    // Currently only updates crew name, but can be expanded to include other preferences in the future, e.g. player model, marker color, etc.
-    public void UpdatePreferences(byte playerId, string crewName)
+    public void UpdatePreferences(byte playerId, Dictionary<PlayerPreference, string> preferences)
     {
-        Multiplayer.LogDebug(()=>$"Updating preferences for playerId: {playerId}, CrewName:{crewName}");
+        Multiplayer.LogDebug(() => $"Updating preferences for playerId: {playerId}, Preference count : {preferences?.Count}");
 
         if (!TryGetPlayer(playerId, out NetworkedPlayer player))
             return;
 
-        Multiplayer.LogDebug(() => $"Updating preferences for playerId: {playerId}, CrewName: {crewName}, Found: {player.Username}");
+        if (preferences.TryGetValue(PlayerPreference.CrewName, out string crewName))
+            player.CrewName = crewName;
 
-        player.CrewName = crewName;
+        if (preferences.TryGetValue(PlayerPreference.CharacterModel, out string characterId))
+        {
+            var model = Multiplayer.PlayerModelRegistry.GetModelById(characterId);
+            player.ChangeModel(model.Prefab);
+        }
+
         OnPlayerPrefsUpdated?.Invoke(player);
     }
-
-    //public void UpdateCar(byte playerId, ushort carId)
-    //{
-    //    if (!playerMap.TryGetValue(playerId, out NetworkedPlayer player))
-    //        return;
-    //    player.UpdateCar(carId);
-    //}
 }
