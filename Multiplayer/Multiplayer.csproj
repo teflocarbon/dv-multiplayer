@@ -3,7 +3,7 @@
         <TargetFramework>net48</TargetFramework>
         <LangVersion>latest</LangVersion>
         <RootNamespace>Multiplayer</RootNamespace>
-        <InformationalVersion>0.1.14.0</InformationalVersion>
+        <InformationalVersion>0.1.15.0</InformationalVersion>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Krafs.Publicizer" Version="2.3.0">
@@ -28,7 +28,12 @@
     
     <PropertyGroup>
         <NoWarn>$(NoWarn);CS0436</NoWarn>
+        <ProtocolManifestPath>$(IntermediateOutputPath)protocol-manifest.json</ProtocolManifestPath>
     </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Tools\ProtocolManifestGenerator\ProtocolManifestGenerator.csproj" ReferenceOutputAssembly="false" />
+        <EmbeddedResource Include="$(ProtocolManifestPath)" LogicalName="Multiplayer.ProtocolManifest.json" Condition="'$(ManifestEmbedPass)' == 'true' AND Exists('$(ProtocolManifestPath)')" />
+    </ItemGroup>
     
     <!-- Derail Valley References -->
     <ItemGroup>
@@ -124,5 +129,10 @@
         <!-- Update Json, copy to game directory and make package if in 'Release' -->
         <Exec Condition="$(ConfigurationName) == 'Release'" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
         <Exec Condition="$(ConfigurationName) == 'Debug'" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
+    </Target>
+    <Target Name="GenerateProtocolManifest" AfterTargets="Build" Condition="'$(ManifestEmbedPass)' != 'true'">
+        <Exec Command="&quot;$(MSBuildProjectDirectory)\..\Tools\ProtocolManifestGenerator\bin\$(Configuration)\net48\ProtocolManifestGenerator.exe&quot; &quot;$(TargetPath)&quot; &quot;$(DvInstallDir)\DerailValley_Data\Managed&quot; &quot;$(ProtocolManifestPath)&quot;" />
+        <Copy SourceFiles="$(ProtocolManifestPath)" DestinationFolder="$(OutDir)" />
+        <Exec Command="dotnet build &quot;$(MSBuildProjectFullPath)&quot; --no-restore -p:ManifestEmbedPass=true -p:Configuration=$(Configuration)" />
     </Target>
 </Project>

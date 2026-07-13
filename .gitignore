@@ -286,6 +286,9 @@ dist/
 # User-specific refrence paths
 Directory.Build.targets
 
+# Local development-client connection profiles may contain server passwords.
+DebugRemoteClient/**/*.local.json
+
 # LibreOffice locks
 .~lock.*#
 

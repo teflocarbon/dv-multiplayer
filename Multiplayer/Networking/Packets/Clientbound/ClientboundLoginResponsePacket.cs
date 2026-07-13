@@ -11,4 +11,5 @@ public class ClientboundLoginResponsePacket
     public string[] ReasonArgs { get; set; }
     public ModInfo[] Missing { get; set; } = [];
     public ModInfo[] Extra { get; set; } = [];
+    public string ProtocolFingerprint { get; set; } = "";
 }

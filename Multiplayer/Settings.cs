@@ -90,6 +90,10 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public int StatsListSize = 3;
     [Draw("Debug Logging", Tooltip = "Whether to log extra information. This is useful for debugging, but should otherwise be kept off.", VisibleOn = "ShowAdvancedSettings|true")]
     public bool DebugLogging;
+    [Draw("Enable Debug Loopback Client", Tooltip = "Listens only on localhost for the standalone development client. This does not expose a LAN or internet server.", VisibleOn = "ShowAdvancedSettings|true")]
+    public bool EnableDebugLoopbackClient;
+    [Draw("Debug Loopback Port", Tooltip = "Localhost-only port used by the standalone development client.", VisibleOn = "ShowAdvancedSettings|true")]
+    public int DebugLoopbackPort = 7778;
     [Draw("Enable Log File", Tooltip = "Whether to create a separate file for logs. This is useful for debugging, but should otherwise be kept off.", VisibleOn = "ShowAdvancedSettings|true")]
     public bool EnableLogFile;
     [Draw("Enable NAT Punch", VisibleOn = "ShowAdvancedSettings|true")]
@@ -137,6 +141,7 @@ public class Settings : UnityModManager.ModSettings, IDrawable
         Username = Username.Trim().Truncate(MAX_USERNAME_LENGTH);
 
         Port = Mathf.Clamp(Port, 1024, 49151);
+        DebugLoopbackPort = Mathf.Clamp(DebugLoopbackPort, 1024, 49151);
         MaxPlayers = Mathf.Clamp(MaxPlayers, 1, byte.MaxValue);
         Password = Password?.Trim();
 
