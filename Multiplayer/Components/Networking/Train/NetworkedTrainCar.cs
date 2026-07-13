@@ -24,6 +24,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 
 namespace Multiplayer.Components.Networking.Train;
 
@@ -244,6 +246,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         TrainCar = GetComponent<TrainCar>();
         trainCarsToNetworkedTrainCars[TrainCar] = this;
+        EntityDebugRegistry.RegisterTrain(this);
+        DebugRuntime.Publish("train", "train.registered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "TrainCar", entityId: NetId.ToString(), data: DebugValueSnapshotter.SnapshotObject(new { CurrentID, NetId }));
 
         TrainCar.LogicCarInitialized += OnLogicCarInitialised;
 
@@ -327,6 +332,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
                     var portNetId = GetPortNetId(control.portId);
                     portToBaseControl[portNetId] = control;
+                    if (DebugRuntime.EnabledFor("train"))
+                        EntityDebugRegistry.Register("Control/Port", $"{NetId}:{portNetId}", $"{CurrentID} {kvp.Key}", this,
+                            DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, portId = control.portId, controlType = kvp.Key.ToString() }));
 
                     Multiplayer.LogDebug(() => $"NetworkedTrainCar.Start() Control {kvp.Key} has portId {control.portId} on car {CurrentID}");
                 }
@@ -619,6 +627,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     {
         if (UnloadWatcher.isQuitting)
             return;
+
+        DebugRuntime.Publish("train", "train.unregistered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "TrainCar", entityId: NetId.ToString(), data: DebugValueSnapshotter.SnapshotObject(new { CurrentID, NetId }));
+        EntityDebugRegistry.Unregister("TrainCar", NetId.ToString());
 
         //Clean dictionaries
         trainCarsToNetworkedTrainCars.Remove(TrainCar);
@@ -1001,6 +1013,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     public void Server_ReceiveAuthorityRequest(uint portNetId, ServerPlayer player, bool requestAuthority)
     {
+        using IDisposable debugScope = DebugTrace.BeginApply("train", "train.authority-apply", DebugRuntimeSide.Server, "Control/Port", $"{NetId}:{portNetId}",
+            () => DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, playerId = player?.PlayerId, requestAuthority }));
         portAuthority.TryGetValue(portNetId, out var currentAuth);
 
         if (requestAuthority)
@@ -1009,6 +1023,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             {
                 if ((player.WorldPosition - transform.position).sqrMagnitude > CarLengthSq)
                 {
+                    DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "sender-out-of-range", DebugRuntimeSide.Server);
                     NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control on car {CurrentID}, but they are too far away!");
                     NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
                     NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released, player);
@@ -1022,6 +1037,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             }
             else if (currentAuth != player)
             {
+                DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "authority-held-by-other-player", DebugRuntimeSide.Server);
                 NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control that's in use on car {CurrentID}");
                 NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
             }
@@ -1037,6 +1053,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             }
             else if (currentAuth != null)
             {
+                DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "authority-release-not-owner", DebugRuntimeSide.Server);
                 NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to release authority for a control that's not theirs on car {CurrentID}");
                 NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
             }
@@ -1260,6 +1277,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void Common_OnPortUpdated(Port port, uint portNetId)
     {
+        DebugRuntime.PublishHighFrequency("train", "train.port-value-changed", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            "Control/Port", $"{NetId}:{portNetId}",
+            () => DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, port.id, port.Value, port.prevValue, port.valueType }));
         //Multiplayer.LogDebug(() => $"Common_OnPortUpdated() port [{port?.id}] updated on [{CurrentID}, {NetId}]. Value: {port?.Value}, PrevValue: {port?.prevValue}, ValueType: {port?.valueType}, Tick: {NetworkLifecycle.Instance.Tick}");
         if (port.valueType != PortValueType.CONTROL && !NetworkLifecycle.Instance.IsHost())
         {
@@ -1751,6 +1771,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     public void Client_ReceiveTrainPhysicsUpdate(in TrainsetMovementPart movementPart, uint tick)
     {
+        using IDisposable debugScope = DebugTrace.BeginApply("train", "train.physics-apply", DebugRuntimeSide.Client, "TrainCar", NetId.ToString(), () =>
+        {
+            EntityDebugRegistry.RegisterTrain(this);
+            return EntityDebugRegistry.Get("TrainCar", NetId.ToString())?.LatestState;
+        }, highFrequency: true);
+        if (DebugRuntime.EnabledFor("train") && DebugRuntime.ShouldEmitHighFrequency("TrainCar", NetId.ToString()))
+            DebugRuntime.Publish("train", "train.physics-received", DebugRuntimeSide.Client, entityType: "TrainCar", entityId: NetId.ToString(),
+                data: DebugValueSnapshotter.SnapshotObject(movementPart), highFrequency: true, samplingDecided: true);
         if (!Client_Initialized)
             return;
 

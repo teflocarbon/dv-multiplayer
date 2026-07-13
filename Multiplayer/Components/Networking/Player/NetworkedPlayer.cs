@@ -6,6 +6,9 @@ using Multiplayer.Networking.Data.Player;
 using Multiplayer.Utils;
 using System.Collections.Generic;
 using UnityEngine;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
+using System;
 
 namespace Multiplayer.Components.Networking.Player;
 
@@ -387,6 +390,11 @@ public class NetworkedPlayer : MonoBehaviour
     /// <param name="movePacketIsOnCar"></param>
     public void UpdatePosition(PlayerTrackingData trackingData, PlayerPostureFlags posture, bool movePacketIsOnCar)
     {
+        using IDisposable debugScope = DebugTrace.BeginApply("player", "player.tracking-apply", DebugRuntimeSide.Client, "Player", PlayerId.ToString(), () =>
+        {
+            EntityDebugRegistry.RegisterPlayer(this);
+            return EntityDebugRegistry.Get("Player", PlayerId.ToString())?.LatestState;
+        }, highFrequency: true);
         if (trackingData.Position.HasValue)
             targetPos = trackingData.Position.Value;
 
@@ -454,6 +462,7 @@ public class NetworkedPlayer : MonoBehaviour
 
     public void UpdateCar(ushort netId)
     {
+        string previousCar = OccupiedCar?.ID ?? string.Empty;
         IsOnCar = NetworkedTrainCar.TryGet(netId, out TrainCar trainCar);
         OccupiedCar = trainCar;
 
@@ -461,6 +470,9 @@ public class NetworkedPlayer : MonoBehaviour
             selfTransform.SetParent(OccupiedCar.transform, true);
         else
             selfTransform.SetParent(null, true);
+
+        DebugRuntime.Publish("player", "player.car-attachment", DebugRuntimeSide.Client, entityType: "Player", entityId: PlayerId.ToString(),
+            data: new() { ["previousCar"] = previousCar, ["carNetId"] = netId, ["currentCar"] = OccupiedCar?.ID ?? string.Empty, ["isOnCar"] = IsOnCar });
     }
 
     /// <summary>

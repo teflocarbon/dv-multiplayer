@@ -1,6 +1,7 @@
 using LiteNetLib;
 using LiteNetLib.Utils;
 using Multiplayer.Networking.Data;
+using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.Managers.Client;
 using Multiplayer.Networking.Packets.Clientbound;
 using Multiplayer.Networking.Packets.Clientbound.Train;
@@ -9,6 +10,8 @@ using Multiplayer.Networking.Packets.Common;
 using Multiplayer.Networking.Packets.Serverbound;
 using Multiplayer.Networking.Serialization;
 using Multiplayer.Networking.TransportLayers;
+using Multiplayer.Debugging.Protocol;
+using Multiplayer.Debugging;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
@@ -35,7 +38,11 @@ internal static class Program
         Converters = { new UnityValueJsonConverter() }
     };
     private static ITransportPeer server;
-    private static TraceWebServer traceUi;
+    private static DebugHttpServer traceUi;
+    private static DebugEventStore traceStore;
+    private static DebugSessionInfo debugSession;
+    private static AsyncJsonlSink traceFile;
+    private static DebugDiscoveryFile traceDiscovery;
     private static DebugClientProfile profile;
     private static PlayerLoadingState loadState;
     private static bool gameParams, saveData;
@@ -54,6 +61,14 @@ internal static class Program
 
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && string.Equals(args[0], "--self-test", StringComparison.OrdinalIgnoreCase))
+        {
+            try { DebugProtocolSelfTests.Run(); DebugPacketProjectorSelfTests.Run(); ReplicationCoordinator.RunSelfTest(); Console.WriteLine("Debug protocol, packet projection, and replication coordinator self-tests passed."); return 0; }
+            catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
+        }
+        if (args.Length > 0 && string.Equals(args[0], "--dashboard", StringComparison.OrdinalIgnoreCase))
+            return DashboardMode.Run(args.Length > 1 ? args[1] : null);
+
         string profilePath = args.Length == 1 ? args[0] : "Debug/debug-client.local.json";
         try
         {
@@ -77,8 +92,26 @@ internal static class Program
         {
             try
             {
-                traceUi = new TraceWebServer(profile.WebUiPort);
+                string debugRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Multiplayer.Debug");
+                Directory.CreateDirectory(debugRoot);
+                int pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+                DateTime now = DateTime.UtcNow;
+                string sessionId = $"{now:yyyyMMdd-HHmmss}-p{pid}-{Guid.NewGuid():N}".Substring(0, 31);
+                traceStore = new DebugEventStore(10000);
+                debugSession = new DebugSessionInfo
+                {
+                    SessionId = sessionId, ProcessId = pid,
+                    ProcessStartedUtc = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
+                    StartedUtc = now, HeartbeatUtc = now, Role = "standalone", PlayerName = profile.Username,
+                    ApiToken = Guid.NewGuid().ToString("N"), GameBuild = profile.BuildVersion,
+                    LogPath = Path.Combine(debugRoot, $"dvmp-debug-{sessionId}.jsonl")
+                };
+                traceFile = new AsyncJsonlSink(traceStore, debugSession.LogPath);
+                traceUi = new DebugHttpServer(traceStore, () => debugSession);
                 traceUi.Start();
+                debugSession.FirehosePort = traceUi.Port;
+                debugSession.FirehoseUrl = traceUi.Url;
+                traceDiscovery = new DebugDiscoveryFile(debugRoot, () => debugSession);
                 Console.WriteLine($"Trace UI: {traceUi.Url}");
             }
             catch (Exception exception)
@@ -116,7 +149,9 @@ internal static class Program
         }
 
         transport.Stop(true);
+        traceDiscovery?.Dispose();
         traceUi?.Dispose();
+        traceFile?.Dispose();
         return 0;
     }
 
@@ -220,11 +255,11 @@ internal static class Program
             case ClientboundSpawnTrainSetPacket:
                 receivedTrainsets++; TryAdvanceTrainsets(); break;
             case ClientboundPlayerJoinedPacket joined:
-                players[joined.PlayerId] = new DebugPlayer(joined.Username, joined.Position, joined.Rotation); break;
+                players[joined.PlayerId] = new DebugPlayer(joined.Username, joined.TrackingData); break;
             case ClientboundPlayerDisconnectPacket left:
                 players.Remove(left.PlayerId); break;
             case ClientboundPlayerPositionPacket position when players.TryGetValue(position.PlayerId, out DebugPlayer player):
-                player.Position = position.Position; player.Rotation = position.RotationY; break;
+                player.ApplyTrackingData(position.TrackingData); break;
         }
     }
 
@@ -320,7 +355,16 @@ internal static class Program
             Vector3 forward = new(Mathf.Sin(radians), 0, Mathf.Cos(radians));
             position = host.Position + right * profile.FollowOffset.Right + Vector3.up * profile.FollowOffset.Up + forward * profile.FollowOffset.Forward;
         }
-        Send(new ServerboundPlayerPositionPacket { Position = position, MoveDir = Vector2.zero, RotationY = 0, CarID = 0 }, DeliveryMethod.Sequenced);
+        Send(new ServerboundPlayerPositionPacket
+        {
+            TrackingData = new PlayerTrackingData
+            {
+                Position = position,
+                MoveDirection = Vector2.zero,
+                RotationY = 0
+            },
+            CarID = 0
+        }, DeliveryMethod.Sequenced);
         lastPositionAt = DateTime.UtcNow;
     }
 
@@ -359,18 +403,23 @@ internal static class Program
 
     private static void PublishTrace(string direction, string packetType, string status, string summary, byte[] raw, string detail, ITransportPeer peer, byte channel, DeliveryMethod delivery)
     {
-        traceUi?.Publish(new TraceEvent
+        if (traceStore == null || debugSession == null) return;
+        Dictionary<string, object> data = new()
         {
-            Timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'"),
-            Direction = direction,
-            PacketType = packetType,
-            Status = status,
-            Summary = summary,
-            Detail = detail ?? string.Empty,
-            RawHex = raw == null ? string.Empty : BitConverter.ToString(raw),
-            PeerId = peer?.Id ?? currentDatagram?.PeerId ?? -1,
-            Channel = peer == null && currentDatagram != null ? currentDatagram.Channel : channel,
-            Delivery = peer == null && currentDatagram != null ? currentDatagram.Delivery.ToString() : delivery.ToString()
+            ["direction"] = direction, ["packetType"] = packetType, ["status"] = status, ["summary"] = summary,
+            ["detail"] = detail ?? string.Empty, ["peerId"] = peer?.Id ?? currentDatagram?.PeerId ?? -1,
+            ["channel"] = peer == null && currentDatagram != null ? currentDatagram.Channel : channel,
+            ["delivery"] = peer == null && currentDatagram != null ? currentDatagram.Delivery.ToString() : delivery.ToString(),
+            ["rawLength"] = raw?.Length ?? 0,
+            ["payloadFingerprint"] = DebugPayloadFingerprint.Compute(raw, 0, raw?.Length ?? 0)
+        };
+        if (rawHexEnabled && raw != null && packetType.IndexOf("Login", StringComparison.OrdinalIgnoreCase) < 0) data["rawBase64"] = Convert.ToBase64String(raw);
+        traceStore.Publish(new DebugEvent
+        {
+            TimestampUtc = DateTime.UtcNow, SessionId = debugSession.SessionId, ProcessId = debugSession.ProcessId,
+            Role = debugSession.Role, RuntimeSide = DebugRuntimeSide.Standalone, Category = "packet",
+            EventName = $"packet.{status.ToLowerInvariant()}", Severity = status.Contains("Failure") ? DebugSeverity.Error : DebugSeverity.Info,
+            EntityType = "Packet", EntityId = packetType, Data = data
         });
     }
 
@@ -480,7 +529,26 @@ public sealed class DebugClientProfile
 }
 public sealed class DebugMod { public string Id { get; set; } = ""; public string Version { get; set; } = ""; public string Url { get; set; } = ""; }
 public sealed class FollowOffset { public float Right { get; set; } = 5; public float Up { get; set; } public float Forward { get; set; } }
-internal sealed class DebugPlayer { public string Username; public Vector3 Position; public float Rotation; public DebugPlayer(string username, Vector3 position, float rotation) { Username = username; Position = position; Rotation = rotation; } }
+internal sealed class DebugPlayer
+{
+    public string Username;
+    public Vector3 Position;
+    public float Rotation;
+
+    public DebugPlayer(string username, PlayerTrackingData trackingData)
+    {
+        Username = username;
+        ApplyTrackingData(trackingData);
+    }
+
+    public void ApplyTrackingData(PlayerTrackingData trackingData)
+    {
+        if (trackingData.Position.HasValue)
+            Position = trackingData.Position.Value;
+        if (trackingData.RotationY.HasValue)
+            Rotation = trackingData.RotationY.Value;
+    }
+}
 internal sealed class DatagramTrace
 {
     public int PeerId { get; }

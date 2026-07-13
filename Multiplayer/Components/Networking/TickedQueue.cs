@@ -1,4 +1,5 @@
 using Multiplayer.Components.Networking.Train;
+using Multiplayer.Debugging;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -26,6 +27,7 @@ public abstract class TickedQueue<T> : MonoBehaviour
             return;
         NetworkLifecycle.Instance.OnTick -= OnTick;
         lastTick = 0;
+        DebugDiagnostics.QueueCleared(GetType().Name, GetID(), snapshots.Count);
         snapshots.Clear();
         identifier = string.Empty;
     }
@@ -33,7 +35,10 @@ public abstract class TickedQueue<T> : MonoBehaviour
     public void ReceiveSnapshot(T snapshot, uint tick)
     {
         if (tick <= lastTick)
+        {
+            DebugDiagnostics.QueueStale(GetType().Name, GetID(), snapshots.Count, tick, lastTick);
             return;
+        }
 
         if (snapshots.Count >= QUEUE_LENGTH_WARNING)
             Multiplayer.LogWarning($"[{GetID()}] Snapshot queue exceeds {QUEUE_LENGTH_WARNING} items. Current size: {snapshots.Count}");
@@ -41,9 +46,11 @@ public abstract class TickedQueue<T> : MonoBehaviour
         if (lastReceivedTick > 0 && tick - lastReceivedTick > SNAPSHOT_GAP_WARNING)
             Multiplayer.LogWarning($"[{GetID()}] Large gap between snapshots: {tick - lastReceivedTick} ticks.");
 
+        uint previousReceivedTick = lastReceivedTick;
         lastReceivedTick = tick;
         lastTick = tick;
         snapshots.Enqueue((tick, snapshot));
+        DebugDiagnostics.QueueReceived(GetType().Name, GetID(), snapshots.Count, tick, previousReceivedTick);
     }
 
     private void OnTick(uint tick)
@@ -54,11 +61,13 @@ public abstract class TickedQueue<T> : MonoBehaviour
         {
             (uint snapshotTick, T snapshot) = snapshots.Dequeue();
             Process(snapshot, snapshotTick);
+            DebugDiagnostics.QueueApplied(GetType().Name, GetID(), snapshots.Count, snapshotTick);
         }
     }
 
     public void Clear()
     {
+        DebugDiagnostics.QueueCleared(GetType().Name, GetID(), snapshots.Count);
         snapshots.Clear();
     }
 

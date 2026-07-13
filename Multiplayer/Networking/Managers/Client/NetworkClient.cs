@@ -41,6 +41,8 @@ using Multiplayer.Networking.Packets.Serverbound;
 using Multiplayer.Networking.Packets.Serverbound.Jobs;
 using Multiplayer.Networking.Packets.Serverbound.Train;
 using Multiplayer.Networking.TransportLayers;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 using Multiplayer.Patches.MainMenu;
 using Multiplayer.Patches.SaveGame;
 using Multiplayer.Patches.World;
@@ -456,6 +458,7 @@ public class NetworkClient : NetworkManager
     public override void OnNetworkLatencyUpdate(ITransportPeer peer, int latency)
     {
         Ping = latency;
+        DebugDiagnostics.RecordLatency(DebugRuntimeSide.Client, peer?.Id ?? -1, latency);
 
         if (latency > LATENCY_FLAG)
             LogWarning($"High Ping Detected! {latency}ms");
@@ -473,6 +476,7 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundLoginResponsePacket(ClientboundLoginResponsePacket packet)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client);
         if (packet.Accepted)
         {
             Log($"Player accepted");
@@ -483,6 +487,8 @@ public class NetworkClient : NetworkManager
                 Log($"A player with username '{Username}' already exists, your temporary username is '{packet.OverrideUsername}'");
                 Username = packet.OverrideUsername;
             }
+
+            DebugRuntime.SetRole(NetworkLifecycle.Instance.IsHost() ? "host" : "client", Username, PlayerId);
 
             if (NetworkLifecycle.Instance.IsHost())
             {
@@ -561,6 +567,7 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundPlayerJoinedPacket(ClientboundPlayerJoinedPacket packet)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
         Log($"Received player joined packet for player id: {packet.PlayerId}, username: {packet.Username}");
         ClientPlayerManager.AddPlayer(packet.PlayerId, packet.Username, packet.CrewName, packet.CharacterId, packet.IsVR);
 
@@ -570,6 +577,7 @@ public class NetworkClient : NetworkManager
     //For other player left the game
     private void OnClientboundPlayerDisconnectPacket(ClientboundPlayerDisconnectPacket packet)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
         Log($"Received player disconnect packet for player id: {packet.PlayerId}");
         ClientPlayerManager.RemovePlayer(packet.PlayerId);
     }
@@ -591,6 +599,7 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundPlayerPositionPacket(ClientboundPlayerPositionPacket packet)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
         ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
@@ -810,6 +819,7 @@ public class NetworkClient : NetworkManager
 
     public void OnClientboundTrainPhysicsPacket(ClientboundTrainsetPhysicsPacket packet)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client);
         //LogDebug(() => $"Received Physics packet for netId: {packet.FirstNetId}, tick: {packet.Tick}");
         NetworkTrainsetWatcher.Instance.Client_HandleTrainsetPhysicsUpdate(packet);
     }
@@ -1310,6 +1320,7 @@ public class NetworkClient : NetworkManager
 
     private void OnCommonItemsBulkUpdatePacket(CommonItemsBulkUpdatePacket packet)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client);
         LogDebug(() => $"OnCommonItemsBulkUpdatePacket({packet?.Items?.Count})");
 
         LogDebug(() =>
@@ -1346,6 +1357,7 @@ public class NetworkClient : NetworkManager
 
     private void OnCommonItemUpdatePacket(CommonItemUpdatePacket packet)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Item", packet?.ItemData?.ItemNetId.ToString());
         LogDebug(() => $"OnCommonItemUpdatePacket()");
 
         LogDebug(() =>
@@ -1377,6 +1389,7 @@ public class NetworkClient : NetworkManager
 
         if (!NetworkedItem.TryGet(packet.ItemData.ItemNetId, out NetworkedItem networkedItem))
         {
+            DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Client);
             LogWarning($"OnCommonItemUpdatePacket() Failed to find networked item for netId {packet.ItemData.ItemNetId}");
             return;
         }
@@ -1943,6 +1956,8 @@ public class NetworkClient : NetworkManager
 
     public void SendItemUpdatePacket(ItemUpdateData updateData)
     {
+        DebugRuntime.Publish("item", "item.packet-send-requested", DebugRuntimeSide.Client, entityType: "Item",
+            entityId: updateData?.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(updateData));
         LogDebug(()=>
         {
             string debug = $"SendItemUpdatePacket() UpdateType: {updateData?.UpdateType}, itemNetId: {updateData?.ItemNetId}, PrefabName: {updateData?.PrefabName}, Equipped: {updateData?.ItemState}, Position: {updateData?.ItemPosition}, Rotation: {updateData?.ItemRotation}, ThrowDirection: {updateData?.ThrowDirection}, Player: {updateData?.PlayerId}, CarNetId: {updateData?.CarNetId}, AttachedFront: {updateData?.AttachedFront}";

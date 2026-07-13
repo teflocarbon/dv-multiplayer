@@ -9,6 +9,8 @@ using Multiplayer.Networking.Data.Train;
 using Multiplayer.Networking.Data.World;
 using Multiplayer.Networking.Serialization;
 using Multiplayer.Networking.TransportLayers;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 using System;
 using System.Collections.Generic;
 using System.Net;
@@ -119,6 +121,7 @@ public abstract class NetworkManager
     {
         cachedWriter.Reset();
         netPacketProcessor.Write(cachedWriter, packet);
+        DebugTrace.PacketSerialized(cachedWriter, GetDebugSide(), packet);
         return cachedWriter;
     }
 
@@ -126,17 +129,22 @@ public abstract class NetworkManager
     {
         cachedWriter.Reset();
         netPacketProcessor.WriteNetSerializable(cachedWriter, ref packet);
+        DebugTrace.PacketSerialized(cachedWriter, GetDebugSide(), packet);
         return cachedWriter;
     }
 
     protected void SendPacket<T>(ITransportPeer peer, T packet, DeliveryMethod deliveryMethod) where T : class, new()
     {
-        peer?.Send(WritePacket(packet), deliveryMethod);
+        NetDataWriter writer = WritePacket(packet);
+        DebugTrace.PacketSending(peer, writer, deliveryMethod, GetDebugSide(), typeof(T).Name);
+        peer?.Send(writer, deliveryMethod);
     }
 
     protected void SendNetSerializablePacket<T>(ITransportPeer peer, T packet, DeliveryMethod deliveryMethod) where T : INetSerializable, new()
     {
-        peer?.Send(WriteNetSerializablePacket(packet), deliveryMethod);
+        NetDataWriter writer = WriteNetSerializablePacket(packet);
+        DebugTrace.PacketSending(peer, writer, deliveryMethod, GetDebugSide(), typeof(T).Name);
+        peer?.Send(writer, deliveryMethod);
     }
 
     //protected void SendUnconnectedPacket<T>(T packet, string ipAddress, int port) where T : class, new()
@@ -172,6 +180,7 @@ public abstract class NetworkManager
         //LogDebug(() => $"NetworkManager.OnNetworkReceive()");
         try
         {
+            DebugTrace.PacketReceived(peer, reader, channel, deliveryMethod, GetDebugSide());
             IsProcessingPacket = true;
             netPacketProcessor.ReadAllPackets(reader, peer);
         }
@@ -215,6 +224,8 @@ public abstract class NetworkManager
     public abstract void OnNetworkLatencyUpdate(ITransportPeer peer, int latency);
 
     #endregion
+
+    protected DebugRuntimeSide GetDebugSide() => GetType().Name == "NetworkServer" ? DebugRuntimeSide.Server : DebugRuntimeSide.Client;
 
     #region Logging
 

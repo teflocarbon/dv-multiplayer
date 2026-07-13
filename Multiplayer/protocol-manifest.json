@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.15.0+79ada47b193050cd38f34c8aab8e8cf71ed54923",
-  "Fingerprint": "4e49a3f2eb3a3c9756fc358ff7a186a9c5784523ced719dc59ff7def3eab5dad",
+  "BuildVersion": "0.1.15.0+807b62bf1c0226cb25f3431a97863d952c41c9f6",
+  "Fingerprint": "79c864032b604c3a99324b4bb73274e31578aacc069385ed8be25c6e8777690d",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -386,6 +386,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundCargoStatePacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "81084EA7F1D045CB",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundPlayerPreferenceUpdatePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -873,11 +882,6 @@
       "EnvironmentDamageFuel": 201,
       "EnvironmentDamageCoal": 202
     },
-    "Multiplayer.Components.MainMenu.ServerVisibility": {
-      "Private": 0,
-      "Friends": 1,
-      "Public": 2
-    },
     "Multiplayer.Components.Networking.World.ItemState": {
       "Dropped": 0,
       "Thrown": 1,
@@ -885,6 +889,11 @@
       "InInventory": 3,
       "Attached": 4,
       "Removed": 5
+    },
+    "Multiplayer.Components.UI.ServerBrowser.ServerVisibility": {
+      "Private": 0,
+      "Friends": 1,
+      "Public": 2
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+Hand": {
       "nonVR": 0,
@@ -908,6 +917,35 @@
       "None": 0,
       "Filling": 1,
       "Draining": 2
+    },
+    "Multiplayer.Networking.Data.Player.PlayerPostureFlags": {
+      "None": 0,
+      "Crouch": 1,
+      "Sit": 2,
+      "Swim": 4,
+      "Jump": 8,
+      "LeanLeft": 16,
+      "LeanRight": 32
+    },
+    "Multiplayer.Networking.Data.Player.PlayerTrackingData+DataFlags": {
+      "None": 0,
+      "Position": 1,
+      "MoveDirection": 2,
+      "RotationY": 4,
+      "LookPosition": 8,
+      "SitHeight": 16,
+      "LeftHandPosition": 32,
+      "LeftHandRotation": 64,
+      "LeftHandClosed": 128,
+      "RightHandPosition": 256,
+      "RightHandRotation": 512,
+      "RightHandClosed": 1024,
+      "HipPosition": 2048,
+      "HipRotation": 4096,
+      "LeftFootPosition": 8192,
+      "LeftFootRotation": 16384,
+      "RightFootPosition": 32768,
+      "RightFootRotation": 65536
     },
     "Multiplayer.Networking.Data.PlayerLoadingState": {
       "None": 0,
