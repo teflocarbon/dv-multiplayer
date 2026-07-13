@@ -14,6 +14,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using UnityEngine;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -106,6 +108,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     #region Client Variables
     public byte playerBelongsToId; // 0 means no owner
+    internal ItemState DebugCurrentState => GetItemState();
     public NetworkedPlayer playerBelongsTo;
     #endregion
 
@@ -130,6 +133,10 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         // Mark registration as complete for items that don't need tracked values
         if (!registrationComplete && !UsefulItem)
             registrationComplete = true;
+
+        EntityDebugRegistry.RegisterItem(this);
+        DebugRuntime.Publish("item", "item.registered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "Item", entityId: NetId.ToString(), data: EntityDebugRegistry.ItemState(this));
     }
 
     protected void LateUpdate()
@@ -151,6 +158,11 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         if (UnloadWatcher.isQuitting || UnloadWatcher.isUnloading)
             return;
+
+        DebugRuntime.Publish("item", "item.destroyed", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "Item", entityId: NetId.ToString(), data: EntityDebugRegistry.ItemState(this));
+        EntityDebugRegistry.Unregister("Item", NetId.ToString());
+        DebugDesyncDetector.Forget(NetId);
 
         if (NetworkLifecycle.Instance.IsHost())
         {
@@ -177,6 +189,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     #region Server
     public void Server_ReceiveItemUpdate(ItemUpdateData snapshot, ServerPlayer senderPlayer)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(snapshot, DebugRuntimeSide.Server, "Item", snapshot?.ItemNetId.ToString());
         //TODO: rollback if validation fails
         if (!ValidateUpdate(snapshot, senderPlayer))
             return;
@@ -214,13 +227,17 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         // Clients can not spawn or destroy items
         if (snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.Create | ItemUpdateData.ItemUpdateType.Destroy))
+        {
+            DebugTrace.Validation("item", "Item", NetId.ToString(), false, "client-create-or-destroy-not-allowed", DebugRuntimeSide.Server);
             return false;
+        }
 
         if (snapshot.ItemState == ItemState.InHand)
         {
             if (BelongsTo != null && BelongsTo != senderPlayer)
             {
                 Multiplayer.LogWarning($"NetworkedItem.ValidateUpdate() Player {senderPlayer?.DisplayName} attempted to grab item {NetId}, but it is held by {BelongsTo.DisplayName}");
+                DebugTrace.Validation("item", "Item", NetId.ToString(), false, "held-by-other-player", DebugRuntimeSide.Server);
                 return false;
             }
         }
@@ -231,10 +248,13 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             {
                 Multiplayer.LogWarning($"NetworkedItem.ValidateUpdate() Player {senderPlayer?.DisplayName} attempted to update item {NetId} with state {snapshot.ItemState}, but it is held by {BelongsTo?.DisplayName}");
 
+                DebugTrace.Validation("item", "Item", NetId.ToString(), false, "owned-by-other-player", DebugRuntimeSide.Server);
+
                 return false;
             }
         }
 
+        DebugTrace.Validation("item", "Item", NetId.ToString(), true, "accepted", DebugRuntimeSide.Server);
         return true;
     }
     #endregion
@@ -361,10 +381,13 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         while (pendingSnapshots.Count > 0)
         {
             Multiplayer.LogDebug(() => $"NetworkedItem.FinaliseTrackedValues() itemNetId: {NetId}, item name: {name}. Dequeuing");
-            ApplySnapshot(pendingSnapshots.Dequeue());
+            ItemUpdateData pending = pendingSnapshots.Dequeue();
+            ApplySnapshot(pending);
+            DebugDiagnostics.QueueApplied("ItemPendingSnapshot", NetId.ToString(), pendingSnapshots.Count, NetworkLifecycle.Instance.Tick);
         }
 
         registrationComplete = true;
+        DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "tracked-values-not-finalised");
     }
 
     private bool HasDirtyValues()
@@ -463,10 +486,17 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
             return;
 
+        DebugRuntime.Publish("item", "item.snapshot-received", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
+        DebugDesyncDetector.Remember(snapshot);
+
         if (!registrationComplete)
         {
             Multiplayer.Log($"NetworkedItem.ReceiveSnapshot() netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}. Queuing");
             pendingSnapshots.Enqueue(snapshot);
+            DebugDiagnostics.QueueReceived("ItemPendingSnapshot", NetId.ToString(), pendingSnapshots.Count,
+                NetworkLifecycle.Instance.Tick, pendingSnapshots.Count > 1 ? NetworkLifecycle.Instance.Tick - 1 : 0);
+            DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "tracked-values-not-finalised", $"pending={pendingSnapshots.Count}");
             return;
         }
 
@@ -475,6 +505,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void ApplySnapshot(ItemUpdateData snapshot)
     {
+        using IDisposable debugScope = DebugTrace.BeginApply("item", "item.snapshot-apply", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            "Item", snapshot.ItemNetId.ToString(), () => EntityDebugRegistry.ItemState(this));
         Multiplayer.LogDebug(() => $"NetworkedItem.ApplySnapshot([netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}, ItemState: {snapshot?.ItemState}, PlayerId: {snapshot?.PlayerId}, Active state: {gameObject.activeInHierarchy}])");
 
         if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ItemState) || snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.FullSync) || snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create))
@@ -523,6 +555,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         stateDirty = false;
 
         MarkValuesClean();
+        EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
     }
 
     public ItemUpdateData CreateUpdateData(ItemUpdateData.ItemUpdateType updateType)
@@ -584,6 +617,9 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             States = states,
             PlayerId = playerBelongsToId,
         };
+
+        DebugRuntime.Publish("item", "item.snapshot-created", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "Item", entityId: NetId.ToString(), data: DebugTrace.ItemSnapshotData(updateData));
 
         return updateData;
     }
@@ -686,7 +722,11 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         if (playerId != 0 && NetworkLifecycle.Instance.IsClientRunning)
             if (!NetworkLifecycle.Instance.Client.ClientPlayerManager.TryGetPlayer(playerId, out playerBelongsTo))
+            {
+                DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player", $"playerId={playerId}");
                 Multiplayer.LogWarning($"Unable to find player {playerId} for item {NetId}");
+            }
+            else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "missing-player");
     }
 
     private void HandleDroppedOrThrownState(ItemUpdateData snapshot)
@@ -720,9 +760,11 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         if (!NetworkedTrainCar.TryGet(snapshot.CarNetId, out TrainCar trainCar))
         {
+            DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-train-car", $"carNetId={snapshot.CarNetId}");
             Multiplayer.LogWarning($"NetworkedItem.HandleAttachedState() CarNetId: {snapshot?.CarNetId} not found for ItemNetId: {snapshot?.ItemNetId}");
             return;
         }
+        DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "missing-train-car");
 
         //Try to find the coupler snap point for the car and correct end to snap to
         var snapPoint = trainCar?.physicsLod?.GetCouplerSnapPoints()
@@ -730,16 +772,20 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         if (snapPoint == null)
         {
+            DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-snap-point", $"carNetId={snapshot.CarNetId} front={snapshot.AttachedFront}");
             Multiplayer.LogWarning($"NetworkedItem.HandleAttachedState() ItemNetId: {snapshot?.ItemNetId}. No valid snap point found for car {snapshot.CarNetId}");
             return;
         }
+        DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "missing-snap-point");
 
         //Attempt attachment to car
         Item.ItemRigidbody.isKinematic = false;
         if (!snapPoint.SnapItem(Item, false))
         {
+            DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "attachment-failed", $"carNetId={snapshot.CarNetId} front={snapshot.AttachedFront}");
             Multiplayer.LogWarning($"NetworkedItem.HandleAttachedState() Attachment failed for item {snapshot?.ItemNetId} to car {snapshot.CarNetId}");
         }
+        else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "attachment-failed");
     }
 
     private void HandleInventoryOrHandState(ItemUpdateData snapshot)

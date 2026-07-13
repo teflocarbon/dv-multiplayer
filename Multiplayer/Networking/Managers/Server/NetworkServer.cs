@@ -39,6 +39,8 @@ using Multiplayer.Networking.Packets.Serverbound.Train;
 using Multiplayer.Networking.Packets.Unconnected;
 using Multiplayer.Networking.Serialization;
 using Multiplayer.Networking.TransportLayers;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 using Multiplayer.Patches.MainMenu;
 using Multiplayer.Patches.World;
 using Multiplayer.Utils;
@@ -390,6 +392,7 @@ public class NetworkServer : NetworkManager
 
     public override void OnNetworkLatencyUpdate(ITransportPeer peer, int latency)
     {
+        DebugDiagnostics.RecordLatency(DebugRuntimeSide.Server, peer?.Id ?? -1, latency);
         if (!TryGetServerPlayer(peer, out var player))
             return;
 
@@ -434,6 +437,8 @@ public class NetworkServer : NetworkManager
             if (excludeSelf && peer == SelfPeer)
                 continue;
 
+            TraceItemDeliveryExpected(packet, peer, deliveryMethod);
+            DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugRuntimeSide.Server, typeof(T).Name);
             peer?.Send(writer, deliveryMethod);
         }
     }
@@ -449,6 +454,8 @@ public class NetworkServer : NetworkManager
             if (TryGetServerPlayer(peer, out var player) && player.LoadingState < minimumLoadState)
                 continue;
 
+            TraceItemDeliveryExpected(packet, peer, deliveryMethod);
+            DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugRuntimeSide.Server, typeof(T).Name);
             peer?.Send(writer, deliveryMethod);
         }
     }
@@ -461,6 +468,7 @@ public class NetworkServer : NetworkManager
             if (excludeSelf && peer == SelfPeer)
                 continue;
 
+            DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugRuntimeSide.Server, typeof(T).Name);
             peer?.Send(writer, deliveryMethod);
         }
     }
@@ -472,6 +480,7 @@ public class NetworkServer : NetworkManager
         {
             if (peer == excludePeer || (excludeSelf && peer == SelfPeer))
                 continue;
+            DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugRuntimeSide.Server, typeof(T).Name);
             peer?.Send(writer, deliveryMethod);
         }
     }
@@ -994,6 +1003,7 @@ public class NetworkServer : NetworkManager
 
     public void SendItemsBulkUpdatePacket(List<ItemUpdateData> items, ServerPlayer player)
     {
+        DebugRuntime.Publish("item", "item.bulk-send-requested", DebugRuntimeSide.Server, data: new() { ["count"] = items?.Count ?? 0, ["playerId"] = player?.PlayerId ?? 0 });
         Log($"Sending SendItemsBulkUpdatePacket with {items?.Count()} items to {player?.Username ?? "all players"}");
 
         var packet = new CommonItemsBulkUpdatePacket { Items = items };
@@ -1030,18 +1040,62 @@ public class NetworkServer : NetworkManager
         if (player == null)
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludeSelf: true);
         else
+        {
+            TraceItemDeliveryExpected(packet, player.Peer, DeliveryMethod.ReliableOrdered);
             SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
+        }
     }
 
     public void SendItemUpdatePacket(ItemUpdateData item, ServerPlayer sendToPlayer = null, ServerPlayer excludePlayer = null)
     {
+        DebugRuntime.Publish("item", "item.relay-requested", DebugRuntimeSide.Server, entityType: "Item", entityId: item?.ItemNetId.ToString(),
+            data: Merge(DebugTrace.ItemSnapshotData(item), new() { ["sendToPlayer"] = sendToPlayer?.PlayerId ?? 0, ["excludePlayer"] = excludePlayer?.PlayerId ?? 0 }));
         Log($"Sending CommonItemUpdatePacket to {sendToPlayer?.Username ?? "all players"}");
 
         var packet = new CommonItemUpdatePacket { ItemData = item };
         if (sendToPlayer == null)
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludePlayer?.Peer, excludeSelf: true);
         else
+        {
+            TraceItemDeliveryExpected(packet, sendToPlayer.Peer, DeliveryMethod.ReliableOrdered);
             SendPacket(sendToPlayer.Peer, packet, DeliveryMethod.ReliableOrdered);
+        }
+    }
+
+    private void TraceItemDeliveryExpected<T>(T packet, ITransportPeer peer, DeliveryMethod deliveryMethod)
+    {
+        if (!DebugRuntime.EnabledFor("item") || peer == null || !TryGetServerPlayer(peer, out ServerPlayer recipient)) return;
+        IEnumerable<ItemUpdateData> snapshots = packet switch
+        {
+            CommonItemUpdatePacket single when single.ItemData != null => new[] { single.ItemData },
+            CommonItemsBulkUpdatePacket bulk when bulk.Items != null => bulk.Items.Where(item => item != null),
+            _ => Array.Empty<ItemUpdateData>()
+        };
+        foreach (ItemUpdateData snapshot in snapshots)
+        {
+            Dictionary<string, object> data = DebugTrace.ItemSnapshotData(snapshot);
+            data["packetType"] = packet.GetType().Name;
+            data["recipientPlayerId"] = recipient.PlayerId;
+            data["recipientPlayerName"] = recipient.Username ?? string.Empty;
+            data["recipientPeerId"] = peer.Id;
+            data["delivery"] = deliveryMethod.ToString();
+            data["loadingState"] = recipient.LoadingState.ToString();
+            if (NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem networkedItem) && networkedItem != null)
+            {
+                bool nearby = recipient.NearbyItems.TryGetValue(networkedItem, out float nearbyTime);
+                bool known = recipient.KnownItems.TryGetValue(networkedItem, out uint knownTick);
+                data["nearby"] = nearby; data["nearbyAgeSeconds"] = nearby ? Time.time - nearbyTime : 0f;
+                data["known"] = known; data["knownTick"] = knownTick; data["lastDirtyTick"] = networkedItem.LastDirtyTick;
+                data["decision"] = !nearby ? "outside-interest-but-sent" : !known ? "create-required" : knownTick < networkedItem.LastDirtyTick ? "full-sync-required" : "relay/update";
+            }
+            DebugRuntime.Publish("item", "item.delivery-expected", DebugRuntimeSide.Server, entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: data);
+        }
+    }
+
+    private static Dictionary<string, object> Merge(Dictionary<string, object> target, Dictionary<string, object> additions)
+    {
+        foreach (var pair in additions) target[pair.Key] = pair.Value;
+        return target;
     }
 
     public void SendPitStopBulkDataPacket(ushort netId, int carCount, int carIndex, int faucetNotch, LocoResourceModuleData[] stationData, PitStopPlugData[] plugData, ServerPlayer player)
@@ -1481,8 +1535,10 @@ public class NetworkServer : NetworkManager
 
     private void OnServerboundPlayerPositionPacket(ServerboundPlayerPositionPacket packet, ITransportPeer peer)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Player", peer?.Id.ToString());
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
         {
+            DebugTrace.Validation("player", "Player", peer?.Id.ToString(), false, "unknown-player", DebugRuntimeSide.Server);
             LogWarning($"Received Player Position from {peer.GetType()}, peerId: {peer.Id}, but could not find matching player.");
             return;
         }
@@ -1491,6 +1547,8 @@ public class NetworkServer : NetworkManager
         player.TrackingData = player.TrackingData.MergeFrom(packet.TrackingData);
         player.CarId = packet.CarID;
         player.Posture = packet.Posture;
+        DebugRuntime.PublishHighFrequency("player", "player.tracking-applied", DebugRuntimeSide.Server, "Player", player.PlayerId.ToString(),
+            () => DebugValueSnapshotter.SnapshotObject(new { packet.TrackingData, packet.CarID, packet.Posture, packet.IsOnCar }));
 
         SendPacketToAll(new ClientboundPlayerPositionPacket
         {
@@ -2220,8 +2278,12 @@ public class NetworkServer : NetworkManager
 
     private void OnCommonItemUpdatePacket(CommonItemUpdatePacket packet, ITransportPeer peer)
     {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Item", packet?.ItemData?.ItemNetId.ToString());
         if (!TryGetServerPlayer(peer, out var player))
+        {
+            DebugTrace.Validation("item", "Item", packet?.ItemData?.ItemNetId.ToString(), false, "unknown-sender", DebugRuntimeSide.Server);
             return;
+        }
 
         LogDebug(() => $"OnCommonItemUpdatePacket({packet?.ItemData.ItemNetId}, [{peer.Id}, {player.Username}])");
         // Set player id for all items, do not trust the client to send the correct player id
@@ -2230,6 +2292,10 @@ public class NetworkServer : NetworkManager
         if (NetworkedItem.TryGet(packet.ItemData.ItemNetId, out var networkedItem))
         {
             networkedItem.Server_ReceiveItemUpdate(packet.ItemData, player);
+        }
+        else
+        {
+            DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Server);
         }
     }
 

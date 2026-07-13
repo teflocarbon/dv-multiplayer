@@ -9,9 +9,11 @@ using Multiplayer.Components.MainMenu;
 using Multiplayer.Components.Networking;
 using Multiplayer.Editor;
 using Multiplayer.Models;
+using Multiplayer.Debugging;
 using Multiplayer.Patches.Mods;
 using Multiplayer.Patches.World;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -24,9 +26,12 @@ namespace Multiplayer;
 
 public static class Multiplayer
 {
-    private const string LOG_FILE = "multiplayer.log";
+    private static readonly object logFileGate = new();
     private static APIProvider _apiProvider;
     private static AssetBundle assetBundle;
+    private static string processSessionId;
+    private static string logFilePath;
+    private static DateTime sessionStartedUtc;
 
     public static UnityModManager.ModEntry ModEntry;
     public static Settings Settings;
@@ -48,6 +53,9 @@ public static class Multiplayer
     }
 
     public static string LocalBuildInfo => BuildInfo.BUILD_VERSION_MAJOR.ToString() + " - " + BuildInfo.BUILDBOT_INFO;
+    public static string ProcessSessionId => processSessionId;
+    public static string LogFilePath => logFilePath;
+    public static DateTime SessionStartedUtc => sessionStartedUtc;
 
 
     public static bool specLog = false;
@@ -57,16 +65,16 @@ public static class Multiplayer
     {
         ModEntry = modEntry;
         Settings = Settings.Load(modEntry);//Settings.Load<Settings>(modEntry);
+        InitializeSessionLogging();
         ModEntry.OnGUI = Settings.Draw;
         ModEntry.OnSaveGUI = Settings.Save;
         ModEntry.OnLateUpdate = LateUpdate;
+        ModEntry.OnUnload = Unload;
 
         Harmony harmony = null;
 
         try
         {
-            File.Delete(LOG_FILE);
-
             Locale.Load(ModEntry.Path);
 
             var gameVer = BuildInfo.BUILD_VERSION_MAJOR.ToString() +
@@ -122,6 +130,8 @@ public static class Multiplayer
             Log("Creating NetworkManager...");
             NetworkLifecycle.CreateLifecycle();
 
+            DebugRuntime.ApplySettings(Settings);
+
             Log("Loading Compatibility Manager...");
             ModCompatibilityManager.Instance.CheckInstance();
 
@@ -141,6 +151,12 @@ public static class Multiplayer
             return false;
         }
 
+        return true;
+    }
+
+    private static bool Unload(UnityModManager.ModEntry modEntry)
+    {
+        DebugRuntime.Stop();
         return true;
     }
 
@@ -256,6 +272,15 @@ public static class Multiplayer
 
     #region Logging
 
+    private static void InitializeSessionLogging()
+    {
+        sessionStartedUtc = DateTime.UtcNow;
+        int processId = Process.GetCurrentProcess().Id;
+        string suffix = Guid.NewGuid().ToString("N").Substring(0, 4);
+        processSessionId = $"{sessionStartedUtc:yyyyMMdd-HHmmss}-p{processId}-{suffix}";
+        logFilePath = Path.Combine(ModEntry.Path, "Multiplayer.Debug", $"multiplayer-{processSessionId}.log");
+    }
+
     public static void LogDebug(Func<object> resolver)
     {
         if (!Settings.DebugLogging)
@@ -280,15 +305,27 @@ public static class Multiplayer
 
     public static void LogException(object msg, Exception e)
     {
+        WriteLogFile($"[{DateTime.UtcNow:HH:mm:ss.fff}] [Error] {msg}{Environment.NewLine}{e}");
         ModEntry.Logger.LogException($"{msg}", e);
     }
 
     private static void WriteLog(string msg)
     {
         string str = $"[{DateTime.Now.ToUniversalTime():HH:mm:ss.fff}] {msg}";
-        if (Settings.EnableLogFile)
-            File.AppendAllLines(LOG_FILE, new[] { str });
+        WriteLogFile(str);
         ModEntry.Logger.Log(str);
+    }
+
+    private static void WriteLogFile(string line)
+    {
+        if (Settings?.EnableLogFile != true || string.IsNullOrEmpty(logFilePath))
+            return;
+
+        lock (logFileGate)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(logFilePath));
+            File.AppendAllText(logFilePath, line + Environment.NewLine, new UTF8Encoding(false));
+        }
     }
 
     #endregion
