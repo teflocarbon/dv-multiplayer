@@ -2,6 +2,7 @@ using LiteNetLib.Utils;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
+using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.Data.Train;
 using Multiplayer.Networking.Data.World;
 
@@ -29,6 +30,7 @@ public static class PacketSerializationRegistry
         packetProcessor.RegisterNestedType(LocoResourceModuleData.Serialize, LocoResourceModuleData.Deserialize);
         packetProcessor.RegisterNestedType(PitStopPlugData.Serialize, PitStopPlugData.Deserialize);
         packetProcessor.RegisterNestedType(PlayerItemSaveData.Serialize, PlayerItemSaveData.Deserialize);
+        packetProcessor.RegisterNestedType(PlayerTrackingData.Serialize, PlayerTrackingData.Deserialize);
         packetProcessor.RegisterNestedType(ItemUpdateData.Serialize, ItemUpdateData.Deserialize);
         packetProcessor.RegisterNestedType(CustomizationHoleData.Serialize, CustomizationHoleData.Deserialize);
         packetProcessor.RegisterNestedType(Vector2Serializer.Serialize, Vector2Serializer.Deserialize);

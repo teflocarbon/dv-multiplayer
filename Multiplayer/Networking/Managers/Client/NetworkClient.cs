@@ -27,6 +27,7 @@ using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.SaveGame;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.Data.Train;
 using Multiplayer.Networking.Data.World;
 using Multiplayer.Networking.Packets.Clientbound;
@@ -42,6 +43,7 @@ using Multiplayer.Networking.Packets.Serverbound.Train;
 using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Patches.MainMenu;
 using Multiplayer.Patches.SaveGame;
+using Multiplayer.Patches.World;
 using Multiplayer.Utils;
 using Newtonsoft.Json.Linq;
 using System;
@@ -63,6 +65,7 @@ public class NetworkClient : NetworkManager
     private ITransportPeer selfPeer;
     public byte PlayerId { get; private set; }
     public string Username { get; private set; }
+    private string characterModelId;
     public string CrewName { get; private set; }
     public string DisplayName => string.IsNullOrEmpty(CrewName) ? Username : $"[{CrewName}] {Username}";
 
@@ -101,6 +104,9 @@ public class NetworkClient : NetworkManager
         };
 
         Username = Multiplayer.Settings.GetUserName();
+        characterModelId = Multiplayer.Settings.CharacterId;
+
+        Settings.OnSettingsUpdated += OnSettingsUpdated;
     }
 
     public void Start(string address, int port, string password, bool isSinglePlayer, Action<DisconnectReason, string> onDisconnect)
@@ -117,7 +123,9 @@ public class NetworkClient : NetworkManager
             Guid = Multiplayer.Settings.GetGuid().ToByteArray(),
             Password = password,
             BuildVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
-            Mods = ModCompatibilityManager.Instance.GetLocalMods()
+            Mods = ModCompatibilityManager.Instance.GetLocalMods(),
+            CharacterId = Multiplayer.Settings.CharacterId,
+            IsVR = VRManager.IsVREnabled()
         };
 
         Log("Sending Login Packet");
@@ -139,7 +147,23 @@ public class NetworkClient : NetworkManager
             Client_GameSession.SetCurrent(originalSession);
         }
 
+        Settings.OnSettingsUpdated -= OnSettingsUpdated;
+
         base.Stop();
+    }
+
+    private void OnSettingsUpdated(Settings settings)
+    {
+        Dictionary<PlayerPreference, string> preferences = [];
+
+        if (settings.CharacterId != characterModelId)
+        {
+            characterModelId = settings.CharacterId;
+            preferences[PlayerPreference.CharacterModel] = characterModelId;
+        }
+
+        if (preferences.Count > 0)
+            SendPlayerPreferences(preferences);
     }
 
     protected override void Subscribe()
@@ -474,6 +498,19 @@ public class NetworkClient : NetworkManager
             {
                 LogDebug(() => "Loading finished, beginning sync");
                 CoroutineManager.Instance.StartCoroutine(SyncWorldState());
+
+                if (WorldMover.Instance.playerTracker != null)
+                {
+                    var tracker = WorldMover.Instance.playerTracker.GetComponent<LocalPlayerTrackerBase>();
+                    if (tracker == null)
+                    {
+                        LogWarning($"LocalPlayerTracker not found, adding {(VRManager.IsVREnabled() ? "" : "non")}VR tracker.");
+                        if (VRManager.IsVREnabled())
+                            tracker = WorldMover.Instance.playerTracker.gameObject.AddComponent<LocalPlayerTrackerVR>();
+                        else
+                            tracker = WorldMover.Instance.playerTracker.gameObject.AddComponent<LocalPlayerTrackerNonVR>();
+                    }
+                }
             };
 
             return;
@@ -525,9 +562,9 @@ public class NetworkClient : NetworkManager
     private void OnClientboundPlayerJoinedPacket(ClientboundPlayerJoinedPacket packet)
     {
         Log($"Received player joined packet for player id: {packet.PlayerId}, username: {packet.Username}");
-        ClientPlayerManager.AddPlayer(packet.PlayerId, packet.Username, packet.CrewName);
+        ClientPlayerManager.AddPlayer(packet.PlayerId, packet.Username, packet.CrewName, packet.CharacterId, packet.IsVR);
 
-        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.Position, Vector3.zero, packet.Rotation, packet.LookPosition, false, packet.CarID != 0, packet.CarID);
+        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
     //For other player left the game
@@ -554,7 +591,7 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundPlayerPositionPacket(ClientboundPlayerPositionPacket packet)
     {
-        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.Position, packet.MoveDir, packet.RotationY, packet.LookPosition, packet.IsJumping, packet.IsOnCar, packet.CarID);
+        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
     private void OnClientboundPlayerPreferencesUpdatePacket(ClientboundPlayerPreferencesUpdatePacket packet)
@@ -563,10 +600,11 @@ public class NetworkClient : NetworkManager
 
         if (packet.PlayerId == PlayerId)
         {
-            CrewName = packet.CrewName;
+            if (packet.GetPreferencesDictionary().TryGetValue(PlayerPreference.CrewName, out string crewName))
+                CrewName = crewName;
         }
 
-        ClientPlayerManager.UpdatePreferences(packet.PlayerId, packet.CrewName);
+        ClientPlayerManager.UpdatePreferences(packet.PlayerId, packet.GetPreferencesDictionary());
     }
 
     private void OnClientboundPingUpdatePacket(ClientboundPingUpdatePacket packet)
@@ -600,6 +638,8 @@ public class NetworkClient : NetworkManager
             packet.Apply(Globals.G.GameParams);
         if (Globals.G.gameParamsInstance != null)
             packet.Apply(Globals.G.gameParamsInstance);
+
+        TimeAdvancePatch.FastTravelAdvancesTime = packet.FastTravelAdvancesTime;
     }
 
     private void OnClientboundSaveGameDataPacket(ClientboundSaveGameDataPacket packet)
@@ -1497,19 +1537,31 @@ public class NetworkClient : NetworkManager
         LoadingState = newState;
     }
 
-    public void SendPlayerPosition(Vector3 position, Vector3 moveDir, float rotationY, float lookPosition, ushort carId, bool isJumping, bool isOnCar, bool reliable)
+    public void SendPlayerPosition(PlayerTrackingData trackingData, PlayerPostureFlags posture, bool isOnCar, ushort carId, bool reliable)
     {
         //LogDebug(() => $"SendPlayerPosition({position}, {moveDir}, {rotationY}, {carId}, {isJumping}, {IsOnCar})");
 
         SendPacketToServer(new ServerboundPlayerPositionPacket
         {
-            Position = position,
-            MoveDir = new Vector2(moveDir.x, moveDir.z),
-            RotationY = rotationY,
-            LookPosition = lookPosition,
-            IsJumpingIsOnCar = (byte)((isJumping ? 1 : 0) | (isOnCar ? 2 : 0)),
+            TrackingData = trackingData,
+            Posture = posture,
+            IsOnCar = isOnCar,
             CarID = carId
         }, reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Sequenced);
+    }
+
+    public void SendPlayerPreferences(Dictionary<PlayerPreference, string> preferences)
+    {
+        if (preferences == null || preferences.Count == 0)
+        {
+            LogWarning("SendPlayerPreferences() called with null or empty preferences");
+            return;
+        }
+        SendPacketToServer(new ServerboundPlayerPreferenceUpdatePacket
+        {
+            PreferenceKeys = Array.ConvertAll(preferences.Keys.ToArray(), item => (byte)item),
+            PreferenceValues = preferences.Values.ToArray()
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendTimeAdvance(float amountOfTimeToSkipInSeconds)

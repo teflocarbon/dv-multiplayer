@@ -55,8 +55,16 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         Junction.Switched += Junction_Switched;
         junctionToNetworkedJunction[Junction] = this;
 
-        initialised = NetworkLifecycle.Instance.IsHost();
+        if (NetworkLifecycle.Instance?.Server?.IsRunning ?? false)
+            initialised = NetworkLifecycle.Instance.IsHost();
     }
+
+    protected void Start()
+    {
+        if (!initialised)
+            initialised = NetworkLifecycle.Instance.IsHost();
+    }
+
     protected override void OnDestroy()
     {
         base.OnDestroy();

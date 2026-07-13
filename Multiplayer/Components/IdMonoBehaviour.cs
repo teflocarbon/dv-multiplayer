@@ -6,6 +6,7 @@ using UnityEngine;
 
 namespace Multiplayer.Components;
 
+[DisallowMultipleComponent]
 public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct where I : MonoBehaviour
 {
     private static readonly IdPool<T> idPool = new();

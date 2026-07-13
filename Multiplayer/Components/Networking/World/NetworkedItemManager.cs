@@ -27,7 +27,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     public float MAX_REACH_DISTANCE = 4f + REACH_DISTANCE_BUFFER;         //from the game, but we should try to look up the value
 
     //caches for item snapshots
-    private readonly List<ItemUpdateData> DestroyedItems = [];
+    private readonly List<ItemUpdateData> DestroyedItems = new(64);
 
     //Item ownership
     //private Dictionary<ushort, PlayerInventory> playerInventories = new Dictionary<ushort, PlayerInventory>();
@@ -39,16 +39,14 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
      */
 
     //cache for client-sided items & spawns
-    private readonly Dictionary<string, List<NetworkedItem>> CachedItems = []; //Client cached items
-    private readonly Dictionary<string, InventoryItemSpec> ItemPrefabs = []; //Item prefabs
+    private readonly Dictionary<string, List<NetworkedItem>> CachedItems = new(1024); //Client cached items
+    private readonly Dictionary<string, InventoryItemSpec> ItemPrefabs = new(1024);   //Item prefabs
     private bool ClientInitialised = false;
 
 
     /* 
      * Common
      */
-    
-
 
     protected override void Awake()
     {
@@ -173,7 +171,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     {
         float currentTime = Time.time;
 
-        List<NetworkedItem> allItems = NetworkedItem.GetAll();
+        var allItems = NetworkedItem.GetAll();
 
         foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
         {
@@ -466,8 +464,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             return;
 
         // Remove all spawned world items and place them into a cache for later use
-        var items = NetworkedItem.GetAll().ToList();
-        foreach (var item in items)
+        foreach (var item in NetworkedItem.GetAll())
         {
             try
             {
@@ -475,14 +472,14 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                 {
                     SendToCache(item);
                 }
-                else
-                {
-                    NetworkLifecycle.Instance.Client.LogDebug(() => $"CacheWorldItems() Not caching: {item.Item.InventorySpecs.previewPrefab} is in Inventory: {StorageController.Instance.StorageInventory.ContainsItem(item.Item)}");
-                }
+                //else
+                //{
+                //    NetworkLifecycle.Instance.Client.LogDebug(() => $"CacheWorldItems() Not caching: {item.Item.InventorySpecs.previewPrefab} is in Inventory: {StorageController.Instance.StorageInventory.ContainsItem(item.Item)}");
+                //}
             }
             catch (Exception ex)
             {
-                NetworkLifecycle.Instance.Client.LogDebug(() => $"Error Caching Spawned Item: {ex.Message}");
+                NetworkLifecycle.Instance.Client.LogError($"Error Caching Spawned Item: {ex.Message}");
             }
         }
 
@@ -506,7 +503,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     {
         string prefabName = netItem?.Item?.InventorySpecs?.itemPrefabName;
 
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"Caching Spawned Item: {prefabName ?? ""}");
+        //NetworkLifecycle.Instance.Client.LogDebug(() => $"Caching Spawned Item: {prefabName ?? ""}");
 
         netItem.gameObject.SetActive(false);
         RespawnOnDrop respawn = netItem.Item.GetComponent<RespawnOnDrop>();

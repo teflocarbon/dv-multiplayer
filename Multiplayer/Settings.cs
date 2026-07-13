@@ -1,11 +1,10 @@
 using Humanizer;
-using Multiplayer.Components.MainMenu;
+using Multiplayer.Components.UI.ServerBrowser;
 using Multiplayer.Utils;
 using System;
 using UnityEngine;
 using UnityModManagerNet;
 using static Multiplayer.Components.Networking.UI.PlayerListGUI;
-using static Multiplayer.Patches.Mods.RemoteDispatchPatch;
 using Console = DV.Console;
 
 namespace Multiplayer;
@@ -29,11 +28,14 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     [Draw("Username", Tooltip = "Your username in-game.", VisibleOn = "UseSteamName|false")]
     public string Username = "Player";
     public string Guid = System.Guid.NewGuid().ToString();
+    public string CharacterId = "MP_UC";
 
     [Space(10)]
     [Header("Gameplay")]
     [Draw("Allow clients to set their own crew names", Tooltip = "Whether to allow clients to set their own crew names.")]
     public bool AllowClientCrewNames = false;
+    [Draw("Fast Travel Advances Time", Tooltip = "When players use fast travel, time will advance.")]
+    public bool FastTravelAdvancesTime = true;
 
     [Space(10)]
     [Header("Server")]

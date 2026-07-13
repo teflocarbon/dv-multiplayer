@@ -4,6 +4,7 @@ using Multiplayer.API;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
+using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.Data.Train;
 using Multiplayer.Networking.Data.World;
 using Multiplayer.Networking.Serialization;
@@ -49,7 +50,7 @@ public abstract class NetworkManager
 
     }
 
-    private void OnSettingsUpdated(Settings settings)
+    public virtual void OnSettingsUpdated(Settings settings)
     {
         transport?.UpdateSettings(settings);
         foreach (ITransport additionalTransport in additionalTransports)

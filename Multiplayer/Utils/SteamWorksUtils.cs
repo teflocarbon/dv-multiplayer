@@ -170,7 +170,10 @@ public static class SteamworksUtils
 
     public static void OnLobbyJoinRequest(Lobby lobby, SteamId id)
     {
-        Multiplayer.Log($"Received lobby join request: {lobby.Id}, {id.Value}");
+        var gameCheck = lobby.GetData(SteamworksUtils.LOBBY_MP_MOD_KEY);
+
+        if (gameCheck != SteamworksUtils.LOBBY_MP_MOD_KEY)
+            return;
 
         if (!CanHandleLobbyRequest())
             return;
@@ -182,7 +185,10 @@ public static class SteamworksUtils
 
     public static void OnLobbyInviteRequest(Friend friend, Lobby lobby)
     {
-        Multiplayer.Log($"Received lobby invite from '{friend.Name}' ({friend.Id}), Lobby: {lobby.Id}");
+        var gameCheck = lobby.GetData(SteamworksUtils.LOBBY_MP_MOD_KEY);
+
+        if (gameCheck != SteamworksUtils.LOBBY_MP_MOD_KEY)
+            return;
 
         if (!CanHandleLobbyRequest())
             return;

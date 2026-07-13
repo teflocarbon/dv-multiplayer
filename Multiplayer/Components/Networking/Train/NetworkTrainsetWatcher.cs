@@ -212,8 +212,8 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         if (set.cars.Count != packet.TrainsetParts.Length)
         {
             //log the discrepancies
-            Multiplayer.LogWarning(
-                $"Received {nameof(ClientboundTrainsetPhysicsPacket)} for trainset with FirstNetId: {packet.FirstNetId} and LastNetId: {packet.LastNetId} with {packet.TrainsetParts.Length} parts, but trainset has {set.cars.Count} parts");
+            //Multiplayer.LogWarning(
+            //    $"Received {nameof(ClientboundTrainsetPhysicsPacket)} for trainset with FirstNetId: {packet.FirstNetId} and LastNetId: {packet.LastNetId} with {packet.TrainsetParts.Length} parts, but trainset has {set.cars.Count} parts");
 
             for (int i = 0; i < packet.TrainsetParts.Length; i++)
             {

@@ -9,4 +9,6 @@ public class ServerboundClientLoginPacket
     public string Password { get; set; }
     public string BuildVersion { get; set; }
     public ModInfo[] Mods { get; set; }
+    public string CharacterId { get; set; }
+    public bool IsVR { get; set; }
 }
