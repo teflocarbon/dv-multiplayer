@@ -183,8 +183,10 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         ItemState currentState = GetItemState();
         if (!NetworkLifecycle.Instance.IsHost() && NetId == 0 && !stateDirty)
             return;
+        bool remotePlayerAuthoritative = IsRemotePlayerAuthoritative();
         if (!stateDirty && lastState == currentState &&
-            !HasNetworkStateProjectionChanged(currentState) && !HasDirtyValues())
+            (remotePlayerAuthoritative || !HasNetworkStateProjectionChanged(currentState)) &&
+            !HasDirtyValues())
             return;
         ProcessLocalStateObservation("late-update");
     }
@@ -257,7 +259,10 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         DebugTrace.Validation("item", "Item", NetId.ToString(), true, "accepted", DebugRuntimeSide.Server);
 
         Multiplayer.LogDebug(() => $"NetworkedItem.Server_ReceiveItemUpdate() NetId: {snapshot?.ItemNetId}, ItemState: {snapshot?.ItemState}, Player: {senderPlayer.DisplayName}");
-        bool appliesItemState = snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.FullSync | ItemUpdateData.ItemUpdateType.Create);
+        // FullSync is a composite flag (ItemState | ItemPosition | ObjectState).
+        // Including it in a HasAnyFlag mask also matches a plain ObjectState packet,
+        // incorrectly turning tracked-value-only updates into hand/world transitions.
+        bool appliesItemState = ItemUpdateData.IncludesItemState(snapshot.UpdateType);
         if (appliesItemState)
         {
             UpdateHostPossessor(snapshot.PlayerId);
@@ -283,6 +288,27 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         {
             DebugTrace.Validation("item", "Item", NetId.ToString(), false, "client-create-or-destroy-not-allowed", DebugRuntimeSide.Server);
             return false;
+        }
+
+        if (snapshot.States != null && snapshot.States.TryGetValue(NetworkedPageBookState.TrackedValueKey, out object pageValue))
+        {
+            if (pageValue is not int requestedPage)
+            {
+                DebugTrace.Validation("item", "Item", NetId.ToString(), false, "page-index-type-invalid", DebugRuntimeSide.Server);
+                return false;
+            }
+            PageBook pageBook = GetComponentInChildren<PageBook>(true);
+            if (pageBook == null)
+            {
+                DebugTrace.Validation("item", "Item", NetId.ToString(), false, "pagebook-not-present", DebugRuntimeSide.Server);
+                return false;
+            }
+            PageBookApplyPlan pagePlan = PageBookSyncPlanner.Plan(requestedPage, pageBook.PagesGenerated, pageBook.PageNum);
+            if (pagePlan.Status == PageBookApplyStatus.Reject)
+            {
+                DebugTrace.Validation("item", "Item", NetId.ToString(), false, pagePlan.Reason, DebugRuntimeSide.Server);
+                return false;
+            }
         }
 
         return true;
@@ -429,6 +455,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             //Find special interaction components
             TryGetComponent<GrabHandlerItem>(out grabHandler);
             TryGetComponent<SnappableItem>(out snappableItem);
+            NetworkedPageBookState.TryRegister(this);
 
             if (!NetworkLifecycle.Instance.IsHost() && NetId == 0)
                 NetworkedItemManager.Instance?.RegisterUnboundClientItem(this);
@@ -579,7 +606,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
 
         byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
-        if (playerBelongsToId != 0 && playerBelongsToId != localPlayerId)
+        if (IsRemotePlayerAuthoritative())
         {
             stateDirty = false;
             MarkValuesClean();
@@ -699,7 +726,21 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         while (pendingSnapshots.TryDequeue(out ItemUpdateData pending))
         {
             Multiplayer.LogDebug(() => $"NetworkedItem.FinaliseTrackedValues() itemNetId: {NetId}, item name: {name}. Dequeuing");
-            ApplySnapshot(pending);
+            DeferredSnapshotDrainPlan drainPlan = DeferredSnapshotDrainPlanner.Plan(
+                pending.AuthorityRevision, AuthorityRevision, pending.States is { Count: > 0 });
+            switch (drainPlan.Action)
+            {
+                case DeferredSnapshotDrainAction.ApplyFullSnapshot:
+                    ApplySnapshot(pending);
+                    break;
+                case DeferredSnapshotDrainAction.ApplyTrackedStateOnly:
+                    ApplyDeferredTrackedState(pending, drainPlan.Reason);
+                    break;
+                case DeferredSnapshotDrainAction.SkipStaleSnapshot:
+                    PublishDeferredDrain("item.pending-snapshot-stale-skipped", pending,
+                        drainPlan.Reason);
+                    break;
+            }
             DebugDiagnostics.QueueApplied("ItemPendingSnapshot", NetId.ToString(), pendingSnapshots.Count, NetworkLifecycle.Instance.Tick);
         }
 
@@ -851,12 +892,27 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
         ApplyAuthorityMetadata(snapshot);
 
+        Dictionary<string, object> receivedDebugData = DebugTrace.ItemSnapshotData(snapshot);
+        snapshot.DebugCorrelationFingerprint = receivedDebugData.TryGetValue("stateFingerprint", out object fingerprint)
+            ? Convert.ToString(fingerprint)
+            : string.Empty;
         DebugRuntime.Publish("item", "item.snapshot-received", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
-            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
+            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: receivedDebugData);
         DebugDesyncDetector.Remember(snapshot);
 
         if (!registrationComplete && snapshot.States is { Count: > 0 })
         {
+            if (ItemUpdateData.IncludesItemState(snapshot.UpdateType))
+            {
+                // Establish the authoritative wire baseline while tracked values wait for
+                // registration. An unchanged job-created object must not echo a redundant
+                // Dropped update merely because its Create has not drained yet. A real local
+                // interaction still differs from this baseline and is sent normally.
+                lastState = ObservationBaselineAfterSnapshot(snapshot.ItemState);
+                lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
+                    ProjectionFromSnapshot(snapshot));
+                hasLastSentState = true;
+            }
             Multiplayer.Log($"NetworkedItem.ReceiveSnapshot() netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}. Queuing");
             PendingEnqueueResult enqueue = pendingSnapshots.Enqueue(snapshot);
             if (enqueue.Accepted)
@@ -883,7 +939,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                     ["queueCapacity"] = MaxPendingSnapshots,
                     ["enqueueStatus"] = enqueue.Status.ToString(),
                     ["supersededSnapshotCount"] = enqueue.SupersededCount,
-                    ["automaticFinalizationGraceSeconds"] = NetworkedItemManager.TrackedValueFinalizationGraceSeconds
+                    ["automaticFinalizationGraceSeconds"] = NetworkedItemManager.TrackedValueFinalizationGraceSeconds,
+                    ["stateFingerprint"] = snapshot.DebugCorrelationFingerprint
                 });
             NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
             return;
@@ -910,6 +967,33 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         ApplySnapshot(snapshot);
     }
 
+    private void ApplyDeferredTrackedState(ItemUpdateData snapshot, string reason)
+    {
+        PublishDeferredDrain("item.pending-snapshot-stale-placement-skipped", snapshot, reason);
+        using IDisposable debugScope = DebugTrace.BeginApply("item", "item.pending-tracked-state-apply",
+            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            "Item", NetId.ToString(), () => DebugApplyState(snapshot));
+        if (snapshot.States is { Count: > 0 })
+            ApplyTrackedValues(snapshot.States);
+        MarkValuesClean();
+        EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
+    }
+
+    private void PublishDeferredDrain(string eventName, ItemUpdateData snapshot, string reason)
+    {
+        DebugRuntime.Publish("item", eventName,
+            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            DebugSeverity.Warning, "Item", NetId.ToString(), new()
+            {
+                ["reason"] = reason ?? string.Empty,
+                ["pendingAuthorityRevision"] = snapshot?.AuthorityRevision ?? 0,
+                ["currentAuthorityRevision"] = AuthorityRevision,
+                ["pendingUpdateType"] = snapshot?.UpdateType.ToString() ?? string.Empty,
+                ["stateFingerprint"] = snapshot?.DebugCorrelationFingerprint ?? string.Empty,
+                ["trackedStateCount"] = snapshot?.States?.Count ?? 0
+            });
+    }
+
     private void ApplySnapshot(ItemUpdateData snapshot)
     {
         applyingRemoteSnapshot = true;
@@ -926,11 +1010,13 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private void ApplySnapshotCore(ItemUpdateData snapshot)
     {
         ApplyAuthorityMetadata(snapshot);
-        bool appliesItemState = snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.FullSync | ItemUpdateData.ItemUpdateType.Create);
+        // FullSync already contains ItemState. Test the semantic bit directly so an
+        // ObjectState-only update (for example a page flip) cannot re-run placement.
+        bool appliesItemState = ItemUpdateData.IncludesItemState(snapshot.UpdateType);
         bool probeWorldState = DebugRuntime.EnabledFor("item") && appliesItemState && (snapshot.ItemState is ItemState.Dropped or ItemState.Thrown);
         string parentBefore = probeWorldState ? ParentPath() : string.Empty;
         using IDisposable debugScope = DebugTrace.BeginApply("item", "item.snapshot-apply", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
-            "Item", snapshot.ItemNetId.ToString(), DebugUnityState);
+            "Item", snapshot.ItemNetId.ToString(), () => DebugApplyState(snapshot));
         Multiplayer.LogDebug(() => $"NetworkedItem.ApplySnapshot([netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}, ItemState: {snapshot?.ItemState}, PlayerId: {snapshot?.PlayerId}, Active state: {gameObject.activeInHierarchy}])");
 
         if (appliesItemState)
@@ -966,7 +1052,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState))
         {
             Multiplayer.LogDebug(() => $"NetworkedItem.ApplySnapshot() netID: {snapshot?.ItemNetId}, States: {snapshot?.States?.Count}");
-            if (trackedItem != null && snapshot.States != null)
+            if (trackedValues.Count > 0 && snapshot.States != null)
             {
                 ApplyTrackedValues(snapshot.States);
             }
@@ -1096,10 +1182,14 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (playerBelongsTo?.RightHandItemGO == gameObject)
             return ItemState.InHand;
 
-        // A server may not have a local NetworkedPlayer hand representation. Preserve the
-        // accepted authoritative held/inventory state until that owner sends a transition.
-        if (NetworkLifecycle.Instance.IsHost() && BelongsTo != null &&
-            lastState is ItemState.InHand or ItemState.InInventory)
+        // A server has no local base-game inventory representation for a remote client, so
+        // preserve that client's accepted placement until it sends another transition. The
+        // host's own items must be observed from the host Inventory; preserving them here
+        // hides InHand -> InInventory when the host switches equipped items.
+        byte hostPlayerId = NetworkLifecycle.Instance.Server?.SelfId ?? 0;
+        if (ItemStateObservationPolicy.PreserveRemotePlayerPlacement(
+                NetworkLifecycle.Instance.IsHost(), BelongsTo?.PlayerId ?? 0,
+                hostPlayerId, ToWireState(lastState)))
             return lastState;
 
         try
@@ -1124,6 +1214,18 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         //do we need a condition to check if it's attached to something else (last attach vs current attach)?
         return ItemState.Dropped;
+    }
+
+    private bool IsRemotePlayerAuthoritative()
+    {
+        if (NetworkLifecycle.Instance.IsHost())
+        {
+            byte hostPlayerId = NetworkLifecycle.Instance.Server?.SelfId ?? 0;
+            return BelongsTo != null && BelongsTo.PlayerId != hostPlayerId;
+        }
+
+        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        return playerBelongsToId != 0 && playerBelongsToId != localPlayerId;
     }
 
     private void ApplyTrackedValues(Dictionary<string, object> newValues)
@@ -1284,6 +1386,15 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private static ItemState ObservationBaselineAfterSnapshot(ItemState state)
     {
         return state == ItemState.Thrown ? ItemState.Dropped : state;
+    }
+
+    private Dictionary<string, object> DebugApplyState(ItemUpdateData snapshot)
+    {
+        Dictionary<string, object> state = DebugUnityState();
+        state["updateType"] = snapshot?.UpdateType.ToString() ?? string.Empty;
+        state["authorityRevision"] = snapshot?.AuthorityRevision ?? 0;
+        state["stateFingerprint"] = snapshot?.DebugCorrelationFingerprint ?? string.Empty;
+        return state;
     }
 
     private bool HasNetworkStateProjectionChanged(ItemState currentState)
@@ -1469,19 +1580,44 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void SetWorldPresentation()
     {
+        Dictionary<string, int> childLayersBefore = DebugRuntime.EnabledFor("item") ? ChildLayerHistogram() : null;
+        int previousRootLayer = gameObject.layer;
         int worldLayer = LayerMask.NameToLayer("World_Item");
-        if (worldLayer >= 0)
-        {
-            Transform[] transforms = GetComponentsInChildren<Transform>(true);
-            foreach (Transform child in transforms)
-                child.gameObject.layer = worldLayer;
-        }
+        if (worldLayer >= 0) gameObject.layer = worldLayer;
 
         // Do not blanket-enable child renderers here. Documents, maps and other
         // multi-state items intentionally keep alternate page/cover meshes disabled;
         // enabling every renderer produces the opaque white sheet seen on clients.
-        // The base game's world-return path restores the root, layer and physics but
-        // preserves the item's own renderer state.
+        // Child layers are equally item-specific: dropped maps keep their touchscreens
+        // and previous/next buttons on Inventory while their root/pages use World_Item.
+        // Only the root presentation layer is canonical for world-state validation.
+        if (childLayersBefore != null)
+            DebugRuntime.Publish("item", "item.world-presentation-layer-applied",
+                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                entityType: "Item", entityId: NetId.ToString(), data: new()
+                {
+                    ["previousRootLayer"] = previousRootLayer,
+                    ["previousRootLayerName"] = LayerMask.LayerToName(previousRootLayer) ?? string.Empty,
+                    ["currentRootLayer"] = gameObject.layer,
+                    ["currentRootLayerName"] = LayerMask.LayerToName(gameObject.layer) ?? string.Empty,
+                    ["descendantLayersBefore"] = childLayersBefore,
+                    ["descendantLayersAfter"] = ChildLayerHistogram(),
+                    ["descendantLayersPreserved"] = true
+                });
+    }
+
+    private Dictionary<string, int> ChildLayerHistogram()
+    {
+        Dictionary<string, int> result = new(StringComparer.Ordinal);
+        foreach (Transform child in GetComponentsInChildren<Transform>(true))
+        {
+            if (child == transform) continue;
+            int layer = child.gameObject.layer;
+            string name = LayerMask.LayerToName(layer);
+            string key = string.IsNullOrEmpty(name) ? layer.ToString() : $"{layer}:{name}";
+            result[key] = result.TryGetValue(key, out int count) ? count + 1 : 1;
+        }
+        return result;
     }
 
     private IEnumerator TracePostApply(ItemState expectedState, string expectedParent)
@@ -1631,6 +1767,18 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         state["rendererEnabledCount"] = enabledRenderers;
         state["anyRendererEnabled"] = enabledRenderers > 0;
         state["allRenderersEnabled"] = renderers.Length == 0 || enabledRenderers == renderers.Length;
+
+        PageBook pageBook = GetComponentInChildren<PageBook>(true);
+        if (pageBook != null)
+        {
+            state["pageBookCurrentPage"] = pageBook.currentPage;
+            state["pageBookPageCount"] = pageBook.PageNum;
+            state["pageBookPagesGenerated"] = pageBook.PagesGenerated;
+            state["pageBookRuntimePageCount"] = pageBook.pages?.Count ?? 0;
+            NetworkedPageBookState pageState = GetComponent<NetworkedPageBookState>();
+            state["pageBookLogicalPage"] = pageState?.LogicalPage ?? pageBook.currentPage;
+            state["pageBookPendingPage"] = pageState?.PendingPage;
+        }
 
         ItemReparentingBase reparenting = GetComponent<ItemReparentingBase>();
         state["reparentingCurrentParent"] = reparenting?.CurrentParent?.gameObject?.GetPath() ?? string.Empty;

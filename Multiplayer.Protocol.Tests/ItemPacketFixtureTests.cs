@@ -14,6 +14,18 @@ namespace Multiplayer.Protocol.Tests;
 [TestFixture]
 public sealed class ItemPacketFixtureTests
 {
+    [TestCase(ItemUpdateData.ItemUpdateType.ObjectState, false)]
+    [TestCase(ItemUpdateData.ItemUpdateType.ItemPosition, false)]
+    [TestCase(ItemUpdateData.ItemUpdateType.ItemState, true)]
+    [TestCase(ItemUpdateData.ItemUpdateType.FullSync, true)]
+    [TestCase(ItemUpdateData.ItemUpdateType.Create, true)]
+    [TestCase(ItemUpdateData.ItemUpdateType.Create | ItemUpdateData.ItemUpdateType.ObjectState, true)]
+    public void PlacementDetectionDoesNotTreatObjectStateAsFullSync(
+        ItemUpdateData.ItemUpdateType updateType, bool expected)
+    {
+        Assert.That(ItemUpdateData.IncludesItemState(updateType), Is.EqualTo(expected));
+    }
+
     [Test]
     public void ExistingProjectorFixtureRunsUnderNUnit()
     {

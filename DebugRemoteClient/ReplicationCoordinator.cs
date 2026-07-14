@@ -13,7 +13,15 @@ internal sealed class ReplicationCoordinator
     private readonly object gate = new();
     private readonly LinkedList<ReplicationOperationDto> operations = new();
     private readonly Dictionary<string, DebugSessionInfo> sessions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingSnapshotStart> pendingSnapshotStarts = new(StringComparer.Ordinal);
     private const int MaximumOperations = 2000;
+    private const double PendingSnapshotStartSeconds = 5;
+
+    private sealed class PendingSnapshotStart
+    {
+        public DebugSessionInfo Session { get; set; }
+        public DebugEvent Event { get; set; }
+    }
 
     public event Action<ReplicationOperationDto> DiscontinuityDetected;
 
@@ -43,6 +51,38 @@ internal sealed class ReplicationCoordinator
         ReplicationOperationDto zeroRecipientOperation = twoPlayerCoordinator.SnapshotOperations().Single();
         if (zeroRecipientOperation.Status != ReplicationOperationStatus.Complete || zeroRecipientOperation.Recipients.Count != 0)
             throw new InvalidOperationException("Replication coordinator self-test failed to complete an applied host operation with no relay recipients.");
+
+        ReplicationCoordinator projectedOnlyCoordinator = new();
+        projectedOnlyCoordinator.UpdateSessions(new[] { host, client });
+        projectedOnlyCoordinator.Observe(host,
+            Event(host, 16, start.AddSeconds(1.2), "item.snapshot-created", "267", "PROJECTED"));
+        if (projectedOnlyCoordinator.SnapshotOperations().Length != 0)
+            throw new InvalidOperationException("Replication coordinator exposed a projected snapshot which was never sent.");
+        DebugEvent projectedDelivery = Event(host, 17, start.AddSeconds(1.2).AddMilliseconds(5),
+            "item.delivery-expected", "267", "PROJECTED");
+        projectedDelivery.Data["recipientPlayerId"] = 1;
+        projectedOnlyCoordinator.Observe(host, projectedDelivery);
+        ReplicationOperationDto projectedDeliveryOperation =
+            projectedOnlyCoordinator.SnapshotOperations().Single();
+        if (projectedDeliveryOperation.Stages.Count != 2 ||
+            projectedDeliveryOperation.Stages[0].EventName != "item.snapshot-created")
+            throw new InvalidOperationException("Replication coordinator did not retain the source snapshot for a real delivery.");
+
+        ReplicationCoordinator canonicalFingerprintCoordinator = new();
+        canonicalFingerprintCoordinator.UpdateSessions(new[] { host, client });
+        canonicalFingerprintCoordinator.Observe(client,
+            Event(client, 13, start.AddSeconds(1.1), "item.packet-send-requested", "787", "CLIENT-R1"));
+        canonicalFingerprintCoordinator.Observe(host,
+            Event(host, 13, start.AddSeconds(1.1).AddMilliseconds(5), "item.snapshot-received", "787", "HOST-R2"));
+        canonicalFingerprintCoordinator.Observe(host,
+            Event(host, 14, start.AddSeconds(1.1).AddMilliseconds(10), "item.snapshot-apply.after", "787", "HOST-R2"));
+        canonicalFingerprintCoordinator.Observe(host,
+            Event(host, 15, start.AddSeconds(1.1).AddMilliseconds(15), "item.relay-requested", "787", "HOST-R2"));
+        ReplicationOperationDto canonicalFingerprintOperation =
+            canonicalFingerprintCoordinator.SnapshotOperations().Single();
+        if (canonicalFingerprintOperation.Status != ReplicationOperationStatus.Complete ||
+            canonicalFingerprintOperation.Stages.Count != 4)
+            throw new InvalidOperationException("Replication coordinator self-test split a canonical host fingerprint from its client request.");
 
         ReplicationCoordinator observationCoordinator = new();
         observationCoordinator.UpdateSessions(new[] { client });
@@ -79,6 +119,34 @@ internal sealed class ReplicationCoordinator
         if (stateOperation.Status != ReplicationOperationStatus.Discontinuity ||
             stateOperation.StateComparisons.Single().Differences.All(value => value.Code != "renderer-state-mismatch"))
             throw new InvalidOperationException("Replication coordinator self-test did not detect a semantic renderer discontinuity.");
+
+        ReplicationCoordinator delayedStateCoordinator = new();
+        delayedStateCoordinator.UpdateSessions(new[] { host, client });
+        DebugEvent handSource = Event(host, 40, start.AddSeconds(4), "item.snapshot-created", "736", "HAND");
+        handSource.Data["itemState"] = "InHand";
+        handSource.Data["playerId"] = 0;
+        handSource.Data["authorityRevision"] = 3;
+        handSource.Data["sourceUnityState"] = new Dictionary<string, object>();
+        delayedStateCoordinator.Observe(host, handSource);
+        DebugEvent handExpected = Event(host, 41, start.AddSeconds(4).AddMilliseconds(5), "item.delivery-expected", "736", "HAND");
+        handExpected.Data["recipientPlayerId"] = 1;
+        delayedStateCoordinator.Observe(host, handExpected);
+        delayedStateCoordinator.Observe(client, Event(client, 40, start.AddSeconds(4).AddMilliseconds(10), "item.snapshot-received", "736", "HAND"));
+        DebugEvent handApplied = Event(client, 41, start.AddSeconds(4).AddMilliseconds(15), "item.snapshot-apply.after", "736", "HAND");
+        handApplied.Data["lastState"] = "InHand";
+        handApplied.Data["authorityRevision"] = 3;
+        delayedStateCoordinator.Observe(client, handApplied);
+        DebugEvent delayedMismatch = Event(client, 42, start.AddSeconds(5).AddMilliseconds(500), "desync.item-detected", "736", "");
+        delayedMismatch.Category = "desync";
+        delayedMismatch.Data["reason"] = "state-mismatch";
+        delayedMismatch.Data["expectedState"] = "InHand";
+        delayedMismatch.Data["actualState"] = "Dropped";
+        delayedMismatch.Data["expectedAuthorityRevision"] = 3;
+        delayedStateCoordinator.Observe(client, delayedMismatch);
+        ReplicationOperationDto delayedStateOperation = delayedStateCoordinator.SnapshotOperations().Single();
+        if (delayedStateOperation.Status != ReplicationOperationStatus.Discontinuity ||
+            delayedStateOperation.StateComparisons.Single().Differences.All(value => value.Code != "state-mismatch"))
+            throw new InvalidOperationException("Replication coordinator self-test did not attach a delayed replica state mismatch to its authoritative operation.");
     }
 
     private static DebugEvent Event(DebugSessionInfo session, long sequence, DateTime timestamp, string name, string entityId, string fingerprint) => new()
@@ -113,10 +181,43 @@ internal sealed class ReplicationCoordinator
         lock (gate)
         {
             if (session != null) sessions[session.SessionId] = session;
+            PrunePendingSnapshotStarts(now);
             operation = Match(itemId, fingerprint, item, now);
+            if (item.EventName == "item.snapshot-created" && operation == null)
+            {
+                // CreateUpdateData is also used to project host state while evaluating
+                // interest and dirty items. A projection is not a replication operation
+                // until a send/delivery boundary follows. Retain it briefly so a real flow
+                // still includes the source Unity state used by semantic comparisons.
+                pendingSnapshotStarts[item.EventKey] = new PendingSnapshotStart
+                {
+                    Session = session,
+                    Event = item
+                };
+                if (pendingSnapshotStarts.Count > MaximumOperations)
+                {
+                    string oldest = pendingSnapshotStarts
+                        .OrderBy(value => value.Value.Event.TimestampUtc)
+                        .Select(value => value.Key)
+                        .First();
+                    pendingSnapshotStarts.Remove(oldest);
+                }
+                return;
+            }
             if (operation == null)
             {
-                operation = NewOperation(itemId, fingerprint, item, session, now);
+                if (TryTakePendingSnapshotStart(itemId, fingerprint, item, now,
+                        out DebugSessionInfo pendingSession, out DebugEvent pendingEvent))
+                {
+                    operation = NewOperation(itemId, Text(pendingEvent.Data, "stateFingerprint"),
+                        pendingEvent, pendingSession, pendingEvent.TimestampUtc);
+                    AddStage(operation, pendingEvent);
+                    ApplySemantics(operation, pendingSession, pendingEvent);
+                }
+                else
+                {
+                    operation = NewOperation(itemId, fingerprint, item, session, now);
+                }
                 operations.AddLast(operation);
                 while (operations.Count > MaximumOperations) operations.RemoveFirst();
             }
@@ -125,6 +226,43 @@ internal sealed class ReplicationCoordinator
             if (Recalculate(operation, now)) triggered = Snapshot(operation);
         }
         if (triggered != null) DiscontinuityDetected?.Invoke(triggered);
+    }
+
+    private void PrunePendingSnapshotStarts(DateTime now)
+    {
+        foreach (string key in pendingSnapshotStarts
+                     .Where(value => (now - value.Value.Event.TimestampUtc).TotalSeconds >
+                         PendingSnapshotStartSeconds)
+                     .Select(value => value.Key)
+                     .ToArray())
+            pendingSnapshotStarts.Remove(key);
+    }
+
+    private bool TryTakePendingSnapshotStart(string itemId, string fingerprint, DebugEvent current,
+        DateTime now, out DebugSessionInfo session, out DebugEvent item)
+    {
+        KeyValuePair<string, PendingSnapshotStart>? match = pendingSnapshotStarts
+            .Where(value => value.Value.Event.EntityId == itemId &&
+                value.Value.Event.SessionId == current.SessionId &&
+                value.Value.Event.TimestampUtc <= now &&
+                (now - value.Value.Event.TimestampUtc).TotalSeconds <= PendingSnapshotStartSeconds &&
+                (string.IsNullOrEmpty(fingerprint) || string.Equals(
+                    Text(value.Value.Event.Data, "stateFingerprint"), fingerprint,
+                    StringComparison.Ordinal)))
+            .OrderByDescending(value => value.Value.Event.TimestampUtc)
+            .Cast<KeyValuePair<string, PendingSnapshotStart>?>()
+            .FirstOrDefault();
+        if (!match.HasValue)
+        {
+            session = null;
+            item = null;
+            return false;
+        }
+
+        pendingSnapshotStarts.Remove(match.Value.Key);
+        session = match.Value.Value.Session;
+        item = match.Value.Value.Event;
+        return true;
     }
 
     public void Tick(DateTime now)
@@ -163,12 +301,55 @@ internal sealed class ReplicationCoordinator
     private ReplicationOperationDto Match(string itemId, string fingerprint, DebugEvent item, DateTime now)
     {
         IEnumerable<ReplicationOperationDto> candidates = operations.Reverse().Where(value => value.EntityId == itemId && (now - value.UpdatedUtc).TotalSeconds < 5);
+        if (item.EventName is "desync.item-detected" or "desync.item-recovered")
+        {
+            uint? expectedRevision = UInt(item.Data, "expectedAuthorityRevision");
+            ReplicationOperationDto semantic = candidates.FirstOrDefault(value =>
+                !expectedRevision.HasValue || value.Stages.Any(stage =>
+                    UInt(stage.Data, "authorityRevision") == expectedRevision));
+            if (semantic != null)
+            {
+                if (semantic.CorrelationConfidence == "unmatched")
+                    semantic.CorrelationConfidence = "semantic";
+                return semantic;
+            }
+        }
         if (!string.IsNullOrEmpty(fingerprint))
         {
-            ReplicationOperationDto exact = candidates.FirstOrDefault(value => value.StateFingerprint == fingerprint);
+            // A client request and the host-authoritative relay intentionally have different
+            // fingerprints when the host increments the revision or normalises authority
+            // metadata. Once the canonical snapshot has joined an operation, treat every
+            // fingerprint carried by its stages as an alias for that same flow. Otherwise the
+            // relay starts a second 0/0 operation and leaves the successfully-applied request
+            // permanently pending.
+            ReplicationOperationDto exact = candidates.FirstOrDefault(value =>
+                value.StateFingerprint == fingerprint || value.Stages.Any(stage =>
+                    string.Equals(Text(stage.Data, "stateFingerprint"), fingerprint,
+                        StringComparison.Ordinal)));
             if (exact != null) { exact.CorrelationConfidence = "exact"; return exact; }
+
+            if (item.EventName == "item.snapshot-created")
+            {
+                ReplicationOperationDto refinement = candidates.FirstOrDefault(value =>
+                    value.OriginSessionId == item.SessionId && value.OriginTick == item.NetworkTick &&
+                    (now - value.StartedUtc).TotalMilliseconds <= 100 &&
+                    !value.Stages.Any(stage => stage.EventName is "item.delivery-expected" or "item.packet-send-requested"));
+                if (refinement != null)
+                {
+                    refinement.StateFingerprint = fingerprint;
+                    refinement.UpdateType = Text(item.Data, "updateType");
+                    refinement.CorrelationConfidence = "exact";
+                    return refinement;
+                }
+            }
+
+            if (IsOperationStart(item.EventName))
+                return null;
         }
-        ReplicationOperationDto recent = candidates.FirstOrDefault(value => (now - value.UpdatedUtc).TotalMilliseconds <= 750 && value.Status == ReplicationOperationStatus.Pending);
+        ReplicationOperationDto recent = candidates.FirstOrDefault(value =>
+            (now - value.UpdatedUtc).TotalMilliseconds <= 750 &&
+            value.Status == ReplicationOperationStatus.Pending &&
+            (string.IsNullOrEmpty(fingerprint) || string.IsNullOrEmpty(value.StateFingerprint)));
         if (recent != null) { if (recent.CorrelationConfidence == "unmatched") recent.CorrelationConfidence = "likely"; return recent; }
         return IsOperationStart(item.EventName) ? null : candidates.FirstOrDefault(value => (now - value.UpdatedUtc).TotalMilliseconds <= 250);
     }
@@ -234,8 +415,11 @@ internal sealed class ReplicationCoordinator
             if (recipient != null)
             {
                 recipient.SessionId = session.SessionId;
-                recipient.Received |= item.EventName is "packet.handler.before" or "item.snapshot-received";
-                recipient.Handled |= item.EventName is "packet.handler.after" or "item.snapshot-received" or "item.snapshot-apply.before" or "item.snapshot-apply.after";
+                recipient.Received |= item.EventName is "packet.handler.before" or "item.snapshot-received" or
+                    "item.special-create-deferred";
+                recipient.Handled |= item.EventName is "packet.handler.after" or "item.snapshot-received" or
+                    "item.snapshot-apply.before" or "item.snapshot-apply.after" or
+                    "item.special-create-deferred";
                 if (item.EventName == "item.snapshot-apply.after")
                 {
                     recipient.Applied = true;
@@ -286,6 +470,43 @@ internal sealed class ReplicationCoordinator
             operation.Status = ReplicationOperationStatus.Discontinuity;
             operation.DiscontinuityReason = $"state:{SessionName(comparison)}:{comparison.Differences[0].Code}";
         }
+        ReplicationStageDto activeSemanticDesync = operation.Stages
+            .Where(stage => stage.EventName is "desync.item-detected" or "desync.item-recovered")
+            .GroupBy(stage => stage.SessionId)
+            .Select(group => group.OrderByDescending(stage => stage.TimestampUtc).First())
+            .FirstOrDefault(stage => stage.EventName == "desync.item-detected");
+        if (activeSemanticDesync != null)
+        {
+            string reason = Text(activeSemanticDesync.Data, "reason", "state-mismatch");
+            ItemReplicaComparisonDto comparison = operation.StateComparisons.FirstOrDefault(value =>
+                value.SessionId == activeSemanticDesync.SessionId);
+            if (comparison == null)
+            {
+                comparison = new ItemReplicaComparisonDto
+                {
+                    SessionId = activeSemanticDesync.SessionId,
+                    Role = activeSemanticDesync.Role,
+                    PlayerId = activeSemanticDesync.PlayerId,
+                    EventName = activeSemanticDesync.EventName
+                };
+                operation.StateComparisons.Add(comparison);
+            }
+            comparison.Differences.Add(new ItemReplicaDifferenceDto
+            {
+                Code = reason,
+                Field = reason == "holder-mismatch" ? "holderPlayerId" : "itemState",
+                Expected = reason == "holder-mismatch"
+                    ? Text(activeSemanticDesync.Data, "expectedHolder")
+                    : Text(activeSemanticDesync.Data, "expectedState"),
+                Actual = reason == "holder-mismatch"
+                    ? Text(activeSemanticDesync.Data, "actualHolder")
+                    : Text(activeSemanticDesync.Data, "actualState"),
+                Detail = string.Concat("authorityRevision=",
+                    Text(activeSemanticDesync.Data, "expectedAuthorityRevision"))
+            });
+            operation.Status = ReplicationOperationStatus.Discontinuity;
+            operation.DiscontinuityReason = $"state:{SessionName(comparison)}:{reason}";
+        }
         bool newlyDetected = operation.Status == ReplicationOperationStatus.Discontinuity && before != ReplicationOperationStatus.Discontinuity && !operation.CaptureTriggered;
         if (newlyDetected) operation.CaptureTriggered = true;
         return newlyDetected;
@@ -305,12 +526,15 @@ internal sealed class ReplicationCoordinator
             "item.validation-accepted" or
             "item.validation-rejected" or
             "item.snapshot-received" or
+            "item.special-create-deferred" or
             "item.snapshot-apply.before" or
             "item.snapshot-apply.after" or
             "item.snapshot-apply.exception" or
             "item.snapshot-deferred" or
             "item.relay-requested" or
             "item.missing-local-representation" or
+            "desync.item-detected" or
+            "desync.item-recovered" or
             "packet.handler.before" or
             "packet.handler.after" or
             "packet.handler.exception";
@@ -319,6 +543,13 @@ internal sealed class ReplicationCoordinator
 
     private static void EvaluateStateComparisons(ReplicationOperationDto operation)
     {
+        // A successful Destroy is represented by destroyApplied/applyResult, not by a live
+        // Unity state. Comparing it as Dropped/active guarantees false discontinuities.
+        if (string.Equals(operation.UpdateType, "Destroy", StringComparison.OrdinalIgnoreCase))
+        {
+            operation.StateComparisons.Clear();
+            return;
+        }
         ReplicationStageDto source = operation.Stages.FirstOrDefault(stage =>
             stage.EventName == "item.snapshot-created" && stage.Data != null && stage.Data.ContainsKey("sourceUnityState"));
         if (source == null)
@@ -378,7 +609,10 @@ internal sealed class ReplicationCoordinator
             RigidbodyIsKinematic = NullableBool(source, "rigidbodyIsKinematic"),
             ActualRemoteHolderPlayerId = NullableByte(source, "actualRemoteHolderPlayerId"),
             RendererCount = NullableInt(source, "rendererCount"),
-            RendererEnabledCount = NullableInt(source, "rendererEnabledCount")
+            RendererEnabledCount = NullableInt(source, "rendererEnabledCount"),
+            PageBookCurrentPage = NullableInt(source, "pageBookCurrentPage"),
+            PageBookPageCount = NullableInt(source, "pageBookPageCount"),
+            PageBookPagesGenerated = NullableBool(source, "pageBookPagesGenerated")
         };
     }
 
@@ -399,7 +633,10 @@ internal sealed class ReplicationCoordinator
         RigidbodyIsKinematic = NullableBool(data, "rigidbodyIsKinematic"),
         ActualRemoteHolderPlayerId = NullableByte(data, "actualRemoteHolderPlayerId"),
         RendererCount = NullableInt(data, "rendererCount"),
-        RendererEnabledCount = NullableInt(data, "rendererEnabledCount")
+        RendererEnabledCount = NullableInt(data, "rendererEnabledCount"),
+        PageBookCurrentPage = NullableInt(data, "pageBookCurrentPage"),
+        PageBookPageCount = NullableInt(data, "pageBookPageCount"),
+        PageBookPagesGenerated = NullableBool(data, "pageBookPagesGenerated")
     };
 
     private static string SessionName(ItemReplicaComparisonDto value) =>

@@ -120,6 +120,16 @@ public static class EntityDebugRegistry
         lock (gate) return records.TryGetValue(Key(type, id), out Record record) ? ToDto(record) : null;
     }
 
+    /// <summary>Returns the live selected component for an explicit, main-thread-only inspection.</summary>
+    public static bool TryGetLiveComponent(string type, string id, out Component component)
+    {
+        lock (gate)
+        {
+            component = records.TryGetValue(Key(type, id), out Record record) ? record.Reference?.Target as Component : null;
+            return component != null;
+        }
+    }
+
     public static DebugEntityDto GetLabel(string type, string id)
     {
         lock (gate)
@@ -299,6 +309,17 @@ public static class EntityDebugRegistry
         state["unboundState"] = item.UnboundState.ToString();
         state["velocity"] = DebugValueSnapshotter.Snapshot(item.Item?.ItemRigidbody?.velocity);
         state["angularVelocity"] = DebugValueSnapshotter.Snapshot(item.Item?.ItemRigidbody?.angularVelocity);
+        PageBook pageBook = item.GetComponentInChildren<PageBook>(true);
+        if (pageBook != null)
+        {
+            state["pageBookCurrentPage"] = pageBook.currentPage;
+            state["pageBookPageCount"] = pageBook.PageNum;
+            state["pageBookPagesGenerated"] = pageBook.PagesGenerated;
+            state["pageBookRuntimePageCount"] = pageBook.pages?.Count ?? 0;
+            NetworkedPageBookState pageState = item.GetComponent<NetworkedPageBookState>();
+            state["pageBookLogicalPage"] = pageState?.LogicalPage ?? pageBook.currentPage;
+            state["pageBookPendingPage"] = pageState?.PendingPage;
+        }
         try
         {
             Inventory inventory = Inventory.Instance;

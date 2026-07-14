@@ -82,6 +82,37 @@ public sealed class ItemReplicaStateComparerTests
             Has.Some.Matches<ItemReplicaDifference>(value => value.Code == "remote-hand-holder-mismatch"));
     }
 
+    [Test]
+    public void DetectsPageBookSemanticMismatchAfterBothSidesGenerate()
+    {
+        ItemReplicaState expected = Base("Dropped");
+        expected.PageBookPagesGenerated = true;
+        expected.PageBookCurrentPage = 4;
+        expected.PageBookPageCount = 61;
+        ItemReplicaState actual = Base("Dropped");
+        actual.PageBookPagesGenerated = true;
+        actual.PageBookCurrentPage = 3;
+        actual.PageBookPageCount = 60;
+
+        var result = ItemReplicaStateComparer.Compare(expected, actual);
+        Assert.That(result, Has.Some.Matches<ItemReplicaDifference>(value => value.Code == "pagebook-current-page-mismatch"));
+        Assert.That(result, Has.Some.Matches<ItemReplicaDifference>(value => value.Code == "pagebook-page-count-mismatch"));
+    }
+
+    [Test]
+    public void DefersPageBookComparisonWhileReplicaIsStillGenerating()
+    {
+        ItemReplicaState expected = Base("Dropped");
+        expected.PageBookPagesGenerated = true;
+        expected.PageBookCurrentPage = 4;
+        ItemReplicaState actual = Base("Dropped");
+        actual.PageBookPagesGenerated = false;
+        actual.PageBookCurrentPage = 0;
+
+        Assert.That(ItemReplicaStateComparer.Compare(expected, actual),
+            Has.None.Matches<ItemReplicaDifference>(value => value.Code.StartsWith("pagebook-")));
+    }
+
     private static ItemReplicaState Base(string state) => new()
     {
         ItemState = state,
