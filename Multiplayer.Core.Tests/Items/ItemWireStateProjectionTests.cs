@@ -98,6 +98,31 @@ public sealed class ItemWireStateProjectionTests
         Assert.That(ItemWireStateComparer.RequiresSend(true, value, value), Is.False);
     }
 
+    [Test]
+    public void ThrownSendUsesDroppedAsStableFollowUpBaseline()
+    {
+        ItemWireStateProjection baseline = ItemWireStateComparer.StableBaselineAfterSend(
+            new ItemWireStateProjection(WireItemState.Thrown));
+
+        Assert.Multiple(() => {
+            Assert.That(baseline.State, Is.EqualTo(WireItemState.Dropped));
+            Assert.That(ItemWireStateComparer.RequiresSend(true, baseline,
+                new ItemWireStateProjection(WireItemState.Dropped)), Is.False);
+        });
+    }
+
+    [TestCase(WireItemState.Dropped)]
+    [TestCase(WireItemState.InHand)]
+    [TestCase(WireItemState.InInventory)]
+    [TestCase(WireItemState.Attached)]
+    [TestCase(WireItemState.Removed)]
+    public void StableStatesRemainTheirOwnBaseline(WireItemState state)
+    {
+        ItemWireStateProjection sent = Projection(state);
+        ItemWireStateProjection baseline = ItemWireStateComparer.StableBaselineAfterSend(sent);
+        Assert.That(ItemWireStateComparer.RequiresSend(true, baseline, sent), Is.False);
+    }
+
     private static ItemWireStateProjection Projection(WireItemState state) => state switch
     {
         WireItemState.InHand or WireItemState.InInventory => new(state, 2),

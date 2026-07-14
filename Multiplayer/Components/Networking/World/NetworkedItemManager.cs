@@ -48,6 +48,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     private readonly AdoptionCoordinator<NetworkedItem> ClientAdoptions = new();
     private readonly HostAdoptionRegistry HostAdoptions = new();
     private readonly Dictionary<NetworkedItem, float> PendingTrackedValueFinalizations = new();
+    private readonly Dictionary<ushort, ItemUpdateData> PendingSpecialItemSnapshots = new();
     private bool ClientInitialised = false;
 
 
@@ -348,14 +349,14 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             {
                 bool known = player.KnownItems.TryGetValue(nearbyItem, out uint knownTick);
                 var dirtyUpdate = dirtyItems.FirstOrDefault(di => di.ItemNetId == nearbyItem.NetId);
-                bool suppressCreate = !known && DoNotCreateItem(nearbyItem);
+                bool specialJobItem = !known && DoNotCreateItem(nearbyItem);
                 ItemDeliveryDecision delivery = KnownItemDeliveryEvaluator.Evaluate(
                     relevant: true,
                     known,
                     knownTick,
                     nearbyItem.LastDirtyTick,
                     dirtyUpdate != null,
-                    suppressCreate,
+                    suppressCreate: false,
                     destroyed: false);
 
                 if (delivery.Kind == ItemDeliveryKind.Create)
@@ -367,11 +368,14 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                     if (delivery.MarkKnown)
                         player.KnownItems[nearbyItem] = tick;
 
-                    //prevent propagation of creates for special items
-                    if (!delivery.SuppressPayload && snapshot != null)
+                    // Job documents are created by the job lifecycle, but they still need the
+                    // authoritative Create envelope to seed revision/ownership metadata. The
+                    // client binds this snapshot to its job-created object instead of creating a
+                    // second representation.
+                    if (snapshot != null)
                         playerUpdates.Add(snapshot);
-                    else
-                        TraceItem("item.generic-create-suppressed", nearbyItem, new()
+                    if (specialJobItem)
+                        TraceItem("item.special-create-metadata-sent", nearbyItem, new()
                         {
                             ["trackedItemType"] = nearbyItem.TrackedItemType?.FullName ?? string.Empty,
                             ["playerId"] = player.PlayerId
@@ -453,6 +457,21 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                 return;
             }
 
+            // Reliable ordering normally creates the job document before its item metadata is
+            // received. Keep the snapshot if scene/job construction is a frame late; generic item
+            // creation here would duplicate the job system's canonical Unity object.
+            if (netItem == null && IsJobDocumentPrefab(snapshot.PrefabName))
+            {
+                PendingSpecialItemSnapshots[snapshot.ItemNetId] = snapshot;
+                DebugRuntime.Publish("item", "item.special-create-deferred", DebugRuntimeSide.Client,
+                    entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: new()
+                    {
+                        ["prefabName"] = snapshot.PrefabName ?? string.Empty,
+                        ["authorityRevision"] = snapshot.AuthorityRevision
+                    });
+                return;
+            }
+
             //if the item already exists we need to remove it
             if (netItem != null)
                 SendToCache(netItem);
@@ -475,6 +494,27 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         }
     }
     #endregion
+
+    internal void ApplyPendingSpecialSnapshot(NetworkedItem item)
+    {
+        if (NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0 ||
+            !DoNotCreateItem(item) ||
+            !PendingSpecialItemSnapshots.TryGetValue(item.NetId, out ItemUpdateData snapshot))
+            return;
+
+        PendingSpecialItemSnapshots.Remove(item.NetId);
+        TraceItem("item.special-create-bound-existing", item, new()
+        {
+            ["prefabName"] = snapshot.PrefabName ?? string.Empty,
+            ["authorityRevision"] = snapshot.AuthorityRevision
+        });
+        item.ReceiveSnapshot(snapshot);
+    }
+
+    private static bool IsJobDocumentPrefab(string prefabName) =>
+        string.Equals(prefabName, nameof(JobOverview), StringComparison.Ordinal) ||
+        string.Equals(prefabName, nameof(JobBooklet), StringComparison.Ordinal) ||
+        string.Equals(prefabName, nameof(JobReport), StringComparison.Ordinal);
 
     #region Item Cache And Management
     private void CreateItem(ItemUpdateData snapshot)
