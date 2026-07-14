@@ -64,6 +64,14 @@ public static class DebugRuntime
                 ModCommit = GetCommit(),
                 LogPath = Path.Combine(root, $"dvmp-debug-{sessionId}.jsonl")
             };
+            // Raw capture is deliberately session-only. A persisted legacy setting can
+            // otherwise copy and Base64-encode every sampled datagram as soon as both game
+            // processes load, before the developer has a chance to open the overlay.
+            if (settings.EnableRawPacketCapture)
+            {
+                settings.EnableRawPacketCapture = false;
+                Multiplayer.LogWarning("Raw packet capture was disabled at debug-session startup; enable Raw explicitly from the packet inspector when needed.");
+            }
             runtimeSettings = CreateRuntimeSettings(settings);
             store = new DebugEventStore(settings.DebugMaxInMemoryEvents);
             captures = new DebugCaptureManager(store, SnapshotSession, root);
@@ -83,7 +91,10 @@ public static class DebugRuntime
 
     private static void UpdateSettings(Settings settings)
     {
-        runtimeSettings = CreateRuntimeSettings(settings);
+        // Preserve the packet inspector's session-local trace selection while applying
+        // ordinary UMM settings changes. Only sampling is persistent/safe to update here.
+        if (runtimeSettings != null)
+            runtimeSettings.HighFrequencySampling = Mathf.Clamp(settings.DebugHighFrequencySampling, 1, 120);
         store?.Resize(settings.DebugMaxInMemoryEvents);
         EntityDebugRegistry.Resize(settings.DebugMaxEntityTimelineEvents);
         DebugWorldLabelManager.SetEnabled(settings.EnableDebugWorldLabels);
@@ -232,8 +243,8 @@ public static class DebugRuntime
 
     private static DebugRuntimeSettingsDto CreateRuntimeSettings(Settings settings) => new()
     {
-        TraceMode = settings.EnableRawPacketCapture ? DebugTraceMode.Raw : DebugTraceMode.Summary,
-        RawPacketCapture = settings.EnableRawPacketCapture,
+        TraceMode = DebugTraceMode.Summary,
+        RawPacketCapture = false,
         HighFrequencySampling = settings.DebugHighFrequencySampling,
         Categories = Array.Empty<string>()
     };

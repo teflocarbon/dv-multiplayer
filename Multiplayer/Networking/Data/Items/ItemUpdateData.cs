@@ -28,6 +28,13 @@ public class ItemUpdateData
         Right = 2
     }
 
+    /// <summary>
+    /// Whether this update carries authoritative placement/holder state. FullSync contains
+    /// ItemState and therefore returns true; ObjectState alone deliberately returns false.
+    /// </summary>
+    public static bool IncludesItemState(ItemUpdateType updateType) =>
+        updateType.HasFlag(ItemUpdateType.ItemState) || updateType.HasFlag(ItemUpdateType.Create);
+
     public ItemUpdateType UpdateType { get; set; }
     public ushort ItemNetId { get; set; }
     public string PrefabName { get; set; }
@@ -46,6 +53,9 @@ public class ItemUpdateData
     public int InventoryClaimSlot { get; set; } = -1;
     public ItemInventoryClaimFlags InventoryClaimFlags { get; set; }
     public ItemTransitionReason TransitionReason { get; set; }
+
+    // Detached local observability correlation. This is deliberately not serialized.
+    internal string DebugCorrelationFingerprint { get; set; }
 
     public static void Serialize(NetDataWriter writer, ItemUpdateData data)
     {

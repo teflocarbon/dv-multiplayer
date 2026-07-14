@@ -44,6 +44,7 @@ public static class DebugCommands
                     "last" or "event" => DebugOverlayController.CopyLastEvent(),
                     "flow" or "replication" => DebugOverlayController.CopyReplicationFlow(),
                     "matrix" or "interest" => DebugOverlayController.CopyInterestMatrix(),
+                    "tree" or "components" or "hierarchy" => DebugOverlayController.CopyComponentHierarchy(),
                     "bundle" or "diagnostics" => DebugOverlayController.CopyDiagnosticBundle(),
                     _ => DebugOverlayController.CopySelected()
                 };

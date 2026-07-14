@@ -110,7 +110,9 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool EnableDebugFileLogging = true;
     [Draw("Enable Debug Firehose", Tooltip = "Serve the local debug UI on a random loopback port.", VisibleOn = "EnableDebugSystem|true")]
     public bool EnableDebugFirehose = true;
-    [Draw("Raw Packet Capture", Tooltip = "Capture raw packet payloads. Login payloads are always redacted.", VisibleOn = "EnableDebugSystem|true")]
+    // Kept for settings-file compatibility. Raw capture is intentionally armed only from
+    // the in-game packet inspector for the current session because persisting it can make
+    // startup unusable on packet-heavy worlds.
     public bool EnableRawPacketCapture;
     [Draw("Enable World Labels", VisibleOn = "EnableDebugSystem|true")]
     public bool EnableDebugWorldLabels;

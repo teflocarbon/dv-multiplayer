@@ -463,12 +463,10 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             if (netItem == null && IsJobDocumentPrefab(snapshot.PrefabName))
             {
                 PendingSpecialItemSnapshots[snapshot.ItemNetId] = snapshot;
+                Dictionary<string, object> deferredData = DebugTrace.ItemSnapshotData(snapshot);
+                deferredData["reason"] = "waiting-for-job-lifecycle-object";
                 DebugRuntime.Publish("item", "item.special-create-deferred", DebugRuntimeSide.Client,
-                    entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: new()
-                    {
-                        ["prefabName"] = snapshot.PrefabName ?? string.Empty,
-                        ["authorityRevision"] = snapshot.AuthorityRevision
-                    });
+                    entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: deferredData);
                 return;
             }
 
@@ -480,7 +478,26 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         }
         else if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy)
         {
+            DebugDesyncDetector.Forget(snapshot.ItemNetId);
+            Dictionary<string, object> destroyData = DebugTrace.ItemSnapshotData(snapshot);
+            string entityId = snapshot.ItemNetId.ToString();
+            destroyData["representationFound"] = netItem != null;
+            DebugRuntime.Publish("item", "item.snapshot-received", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: entityId,
+                data: new Dictionary<string, object>(destroyData, StringComparer.Ordinal));
+            if (netItem != null)
+                foreach (KeyValuePair<string, object> value in EntityDebugRegistry.ItemState(netItem))
+                    destroyData[value.Key] = value.Value;
+            DebugRuntime.Publish("item", "item.snapshot-apply.before", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: entityId,
+                data: new Dictionary<string, object>(destroyData, StringComparer.Ordinal));
             SendToCache(netItem);
+            destroyData["destroyApplied"] = true;
+            destroyData["applyResult"] = netItem == null ? "already-absent" : "cached";
+            destroyData["activeInHierarchy"] = netItem != null && netItem.gameObject.activeInHierarchy;
+            destroyData["boundNetIdAfter"] = netItem?.NetId ?? 0;
+            DebugRuntime.Publish("item", "item.snapshot-apply.after", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: entityId, data: destroyData);
         }
         else if (netItem != null)
         {
@@ -964,7 +981,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     {
         if (!DebugRuntime.EnabledFor("item") || snapshot == null) return;
         DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
-            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugValueSnapshotter.SnapshotObject(snapshot));
+            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
     }
 
     private static void TraceItem(string eventName, NetworkedItem item, Dictionary<string, object> data)

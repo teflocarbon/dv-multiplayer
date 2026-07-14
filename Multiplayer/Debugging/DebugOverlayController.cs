@@ -160,6 +160,14 @@ public sealed class DebugOverlayController : MonoBehaviour
     }
     public static bool CopyReplicationFlow() => CopyToClipboard(filter is "Packet" or "Health" || selected?.EntityType != "Item" ? null : summaryCopy ? Plain(FormatReplicationFlow(selected.EntityId)) : DebugJson.Serialize(DebugDiagnostics.ReplicationFlow(selected.EntityId), Formatting.Indented), "replication flow");
     public static bool CopyInterestMatrix() => CopyToClipboard(filter is "Packet" or "Health" || selected?.EntityType != "Item" ? null : summaryCopy ? Plain(FormatInterestMatrix(selected.EntityId)) : DebugJson.Serialize(DebugDiagnostics.InterestMatrix(selected.EntityId), Formatting.Indented), "host matrix");
+    public static bool CopyComponentHierarchy()
+    {
+        if (filter is "Packet" or "Health" || selected == null ||
+            !EntityDebugRegistry.TryGetLiveComponent(selected.EntityType, selected.EntityId, out Component component))
+            return CopyToClipboard(null, "component hierarchy");
+        DebugComponentHierarchy.Snapshot snapshot = DebugComponentHierarchy.Capture(selected.EntityType, selected.EntityId, component);
+        return CopyToClipboard(snapshot == null ? null : summaryCopy ? DebugComponentHierarchy.Summarize(snapshot) : DebugJson.Serialize(snapshot, Formatting.Indented), "component hierarchy");
+    }
     public static bool CopyDiagnosticBundle()
     {
         if (selected == null && selectedPacket == null) return CopyToClipboard(null, "diagnostic bundle");
@@ -231,6 +239,7 @@ public sealed class DebugOverlayController : MonoBehaviour
             if (shift) CopyTimeline(); else if (alt) CopyLastEvent(); else CopySelected();
         }
         if (control && Input.GetKeyDown(KeyCode.B)) CopyDiagnosticBundle();
+        if (control && Input.GetKeyDown(KeyCode.H)) CopyComponentHierarchy();
         if (control && Input.GetKeyDown(KeyCode.F))
         {
             instance.searchInput?.ActivateInputField();
@@ -791,13 +800,14 @@ public sealed class DebugOverlayController : MonoBehaviour
         AddToolbarButton(selectedHeader.transform, "COPY LAST", () => CopyLastEvent(), 92);
         AddToolbarButton(selectedHeader.transform, "COPY FLOW", () => CopyReplicationFlow(), 92);
         AddToolbarButton(selectedHeader.transform, "COPY MATRIX", () => CopyInterestMatrix(), 102);
+        AddToolbarButton(selectedHeader.transform, "COPY TREE", () => CopyComponentHierarchy(), 94);
         AddToolbarButton(selectedHeader.transform, "COPY BUNDLE", () => CopyDiagnosticBundle(), 112);
         GameObject details = TextScroll(right.transform, "Details", out detailsText); Flex(details, 2);
         timelineSection = Group(right.transform, "TimelineSection", false, Header, -1); Flex(timelineSection, 1);
         Text timelineHeader = Label(timelineSection.transform, "TimelineHeader", 15, TextAnchor.MiddleLeft, FontStyle.Bold); timelineHeader.text = "EVENT TIMELINE  <color=#78858C>LAST 60</color>"; Fixed(timelineHeader.gameObject, -1, 32);
         GameObject timeline = TextScroll(timelineSection.transform, "Timeline", out timelineText); Flex(timeline, 1);
         Text footer = Label(Group(panel.transform, "Footer", true, Header, 34).transform, "Help", 14, TextAnchor.MiddleLeft);
-        footer.text = "  <color=#26B861>F6</color> settings   <color=#26B861>F7</color> size   <color=#26B861>F8</color> toggle   <color=#26B861>F9</color> labels   <color=#26B861>F10</color> freeze   <color=#26B861>F11</color> verbose   <color=#26B861>F12</color> gaze   <color=#26B861>Ctrl+F</color> search   <color=#26B861>Ctrl+C</color> copy   <color=#26B861>0-5</color> tabs";
+        footer.text = "  <color=#26B861>F6</color> settings   <color=#26B861>F7</color> size   <color=#26B861>F8</color> toggle   <color=#26B861>F9</color> labels   <color=#26B861>F10</color> freeze   <color=#26B861>F11</color> verbose   <color=#26B861>F12</color> gaze   <color=#26B861>Ctrl+F</color> search   <color=#26B861>Ctrl+H</color> tree   <color=#26B861>Ctrl+C</color> copy   <color=#26B861>0-6</color> tabs";
         BuildSettingsPanel();
         ApplyVisualSettings();
     }

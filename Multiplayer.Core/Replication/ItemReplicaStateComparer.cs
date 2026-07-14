@@ -35,6 +35,9 @@ public sealed class ItemReplicaState
     public byte? ActualRemoteHolderPlayerId { get; set; }
     public int? RendererCount { get; set; }
     public int? RendererEnabledCount { get; set; }
+    public int? PageBookCurrentPage { get; set; }
+    public int? PageBookPageCount { get; set; }
+    public bool? PageBookPagesGenerated { get; set; }
 }
 
 public sealed class ItemReplicaDifference
@@ -112,6 +115,16 @@ public static class ItemReplicaStateComparer
             Add(differences, "renderer-state-mismatch", "rendererEnabledCount",
                 expected.RendererEnabledCount.Value, actual.RendererEnabledCount.Value,
                 $"rendererCount={expected.RendererCount.Value}");
+
+        // PageBook render hierarchies are asynchronous. Compare semantic page state only
+        // after both peers report that their local page stacks have been generated.
+        if (expected.PageBookPagesGenerated == true && actual.PageBookPagesGenerated == true)
+        {
+            CompareNullable(differences, "pagebook-current-page-mismatch", "pageBookCurrentPage",
+                expected.PageBookCurrentPage, actual.PageBookCurrentPage);
+            CompareNullable(differences, "pagebook-page-count-mismatch", "pageBookPageCount",
+                expected.PageBookPageCount, actual.PageBookPageCount);
+        }
 
         return differences;
     }
