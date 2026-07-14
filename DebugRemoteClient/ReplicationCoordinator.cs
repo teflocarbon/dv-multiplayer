@@ -1,4 +1,5 @@
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Core.Replication;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -218,38 +219,36 @@ internal sealed class ReplicationCoordinator
     private static bool Recalculate(ReplicationOperationDto operation, DateTime now)
     {
         ReplicationOperationStatus before = operation.Status;
-        if (operation.Stages.Any(stage => stage.EventName.Contains("validation-rejected")))
+        RecipientCompletionResult completion = RecipientCompletionEvaluator.Evaluate(new RecipientCompletionInput
         {
-            operation.Status = ReplicationOperationStatus.Rejected;
-            operation.DiscontinuityReason = "validation-rejected";
-        }
-        else
+            LastUpdatedUtc = operation.UpdatedUtc,
+            ValidationRejected = operation.Stages.Any(stage => stage.EventName.Contains("validation-rejected")),
+            HostApplied = operation.Stages.Any(stage => stage.RuntimeSide == DebugRuntimeSide.Server &&
+                stage.EventName == "item.snapshot-apply.after"),
+            RelayFinished = operation.Stages.Any(stage => stage.RuntimeSide == DebugRuntimeSide.Server &&
+                stage.EventName == "item.relay-requested"),
+            Recipients = operation.Recipients.Select(recipient => new RecipientProgress
+            {
+                PlayerId = recipient.PlayerId,
+                Sent = recipient.Sent,
+                Received = recipient.Received,
+                Applied = recipient.Applied
+            }).ToArray()
+        }, now);
+
+        foreach (ReplicationRecipientDto recipient in operation.Recipients)
         {
-            foreach (ReplicationRecipientDto recipient in operation.Recipients)
-            {
-                double age = (now - operation.UpdatedUtc).TotalMilliseconds;
-                if (recipient.Sent && !recipient.Received && age >= 750) recipient.Discontinuity = "sent-not-received";
-                else if (recipient.Received && !recipient.Applied && age >= 2000) recipient.Discontinuity = "received-not-applied";
-                else if (recipient.Applied) recipient.Discontinuity = string.Empty;
-            }
-            ReplicationRecipientDto broken = operation.Recipients.FirstOrDefault(value => !string.IsNullOrEmpty(value.Discontinuity));
-            if (broken != null)
-            {
-                operation.Status = ReplicationOperationStatus.Discontinuity;
-                operation.DiscontinuityReason = $"P{broken.PlayerId}:{broken.Discontinuity}";
-            }
-            else if (operation.Recipients.Count > 0 && operation.Recipients.All(value => value.Applied))
-            {
-                operation.Status = ReplicationOperationStatus.Complete;
-                operation.DiscontinuityReason = string.Empty;
-            }
-            else if (operation.Recipients.Count == 0 && HostAppliedAndRelayFinished(operation))
-            {
-                operation.Status = ReplicationOperationStatus.Complete;
-                operation.DiscontinuityReason = string.Empty;
-            }
-            else operation.Status = ReplicationOperationStatus.Pending;
+            recipient.Discontinuity = completion.RecipientDiscontinuities.TryGetValue(recipient.PlayerId,
+                out string reason) ? reason : string.Empty;
         }
+        operation.Status = completion.Status switch
+        {
+            ReplicationCompletionStatus.Complete => ReplicationOperationStatus.Complete,
+            ReplicationCompletionStatus.Rejected => ReplicationOperationStatus.Rejected,
+            ReplicationCompletionStatus.Discontinuity => ReplicationOperationStatus.Discontinuity,
+            _ => ReplicationOperationStatus.Pending
+        };
+        operation.DiscontinuityReason = completion.Reason;
         bool newlyDetected = operation.Status == ReplicationOperationStatus.Discontinuity && before != ReplicationOperationStatus.Discontinuity && !operation.CaptureTriggered;
         if (newlyDetected) operation.CaptureTriggered = true;
         return newlyDetected;
@@ -279,9 +278,6 @@ internal sealed class ReplicationCoordinator
             "packet.handler.after" or
             "packet.handler.exception";
     }
-    private static bool HostAppliedAndRelayFinished(ReplicationOperationDto operation) =>
-        operation.Stages.Any(stage => stage.RuntimeSide == DebugRuntimeSide.Server && stage.EventName == "item.snapshot-apply.after") &&
-        operation.Stages.Any(stage => stage.RuntimeSide == DebugRuntimeSide.Server && stage.EventName == "item.relay-requested");
     private static bool IsOperationStart(string name) => name is "item.snapshot-created" or "item.packet-send-requested" or "item.relay-requested" or "item.bulk-item-send-requested";
     private static string Text(IDictionary<string, object> data, string key) => data != null && data.TryGetValue(key, out object value) && value != null ? Convert.ToString(value) : string.Empty;
     private static int Int(IDictionary<string, object> data, string key, int fallback) { try { return data != null && data.TryGetValue(key, out object value) ? Convert.ToInt32(value) : fallback; } catch { return fallback; } }

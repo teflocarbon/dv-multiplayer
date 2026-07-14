@@ -3,6 +3,7 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.SaveGame;
+using Multiplayer.Core.Identity;
 using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Utils;
@@ -18,14 +19,14 @@ public class ServerPlayer : IDisposable
 {
     public const byte MAX_CREW_NAME_LENGTH = 6;
     #region ID Management
-    private static readonly IdPool<byte> idPool = new();
+    private static readonly NetIdAllocator<byte> idAllocator = new(value => unchecked((byte)(value + 1)));
 
     public void Dispose()
     {
         Multiplayer.LogDebug(() => $"Disposing ServerPlayer {Username} ({PlayerId})");
         if (PlayerId != 0)
         {
-            idPool.ReleaseId(PlayerId);
+            idAllocator.Release(PlayerId);
             PlayerId = 0;
         }
     }
@@ -103,7 +104,9 @@ public class ServerPlayer : IDisposable
 
     public ServerPlayer(ITransportPeer peer, string username, string originalUsername, Guid guid, string characterId, bool isVr)
     {
-        PlayerId = idPool.NextId;
+        if (!idAllocator.TryAllocate(out byte playerId))
+            throw new InvalidOperationException("No multiplayer player IDs remain.");
+        PlayerId = playerId;
 
         Peer = peer;
         LastLogin = DateTime.UtcNow;
