@@ -12,6 +12,8 @@ using DV.InventorySystem;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Core.Items;
+using Multiplayer.Core.Replication;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -43,8 +45,8 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     private readonly Queue<NetworkedItem> PendingLocalStateObservations = new();
     private readonly HashSet<NetworkedItem> PendingLocalStateObservationSet = new();
     private readonly Dictionary<NetworkedItem, string> PendingLocalStateReasons = new();
-    private readonly Dictionary<string, NetworkedItem> PendingItemAdoptions = new(StringComparer.Ordinal);
-    private readonly Dictionary<NetworkedItem, string> PendingItemAdoptionTokens = new();
+    private readonly AdoptionCoordinator<NetworkedItem> ClientAdoptions = new();
+    private readonly HostAdoptionRegistry HostAdoptions = new();
     private readonly Dictionary<NetworkedItem, float> PendingTrackedValueFinalizations = new();
     private bool ClientInitialised = false;
 
@@ -268,22 +270,33 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                     continue;
 
                 float sqrDistance = (player.WorldPosition - item.transform.position).sqrMagnitude;
+                bool currentlyRelevant = player.NearbyItems.TryGetValue(item, out float lastRelevantTime);
+                RelevanceDecision relevance = InterestMembershipEvaluator.Evaluate(
+                    currentlyRelevant,
+                    sqrDistance,
+                    MAX_DISTANCE_TO_ITEM_SQR,
+                    currentlyRelevant ? currentTime - lastRelevantTime : 0,
+                    NEARBY_REMOVAL_DELAY);
 
-                if (sqrDistance <= MAX_DISTANCE_TO_ITEM_SQR)
+                if (relevance.Action is RelevanceAction.Enter or RelevanceAction.Refresh)
                 {
-                    bool enteredRelevance = !player.NearbyItems.ContainsKey(item);
                     //NetworkLifecycle.Instance.Server.LogDebug(() => $"UpdatePlayerItemLists() Adding for player: {player?.Username}, Nearby Item: {item?.NetId}, {item?.name}");
                     player.NearbyItems[item] = currentTime;
-                    if (enteredRelevance) TraceItem("item.relevance-enter", item, new() { ["playerId"] = player.PlayerId, ["distance"] = Mathf.Sqrt(sqrDistance) });
+                    if (relevance.Action == RelevanceAction.Enter)
+                        TraceItem("item.relevance-enter", item, new() { ["playerId"] = player.PlayerId, ["distance"] = Mathf.Sqrt(sqrDistance) });
                 }
             }
 
             // Remove items that are no longer nearby
-            for (int i = 0; i < player.NearbyItems.Count; i++)
+            foreach (var kvp in player.NearbyItems.ToArray())
             {
-                var kvp = player.NearbyItems.ElementAt(i);
-
-                if (currentTime - kvp.Value > NEARBY_REMOVAL_DELAY)
+                RelevanceDecision relevance = InterestMembershipEvaluator.Evaluate(
+                    true,
+                    (player.WorldPosition - kvp.Key.transform.position).sqrMagnitude,
+                    MAX_DISTANCE_TO_ITEM_SQR,
+                    currentTime - kvp.Value,
+                    NEARBY_REMOVAL_DELAY);
+                if (relevance.Action == RelevanceAction.Leave)
                 {
                     //NetworkLifecycle.Instance.Server.LogDebug(() => $"UpdatePlayerItemLists() Removing for player: {player?.Username}, Nearby Item: {kvp.Key?.NetId}, {kvp.Key?.name}");
                     player.NearbyItems.Remove(kvp.Key);
@@ -333,16 +346,29 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             // Process nearby items
             foreach (var nearbyItem in player.NearbyItems.Keys)
             {
-                if (!player.KnownItems.ContainsKey(nearbyItem))
+                bool known = player.KnownItems.TryGetValue(nearbyItem, out uint knownTick);
+                var dirtyUpdate = dirtyItems.FirstOrDefault(di => di.ItemNetId == nearbyItem.NetId);
+                bool suppressCreate = !known && DoNotCreateItem(nearbyItem);
+                ItemDeliveryDecision delivery = KnownItemDeliveryEvaluator.Evaluate(
+                    relevant: true,
+                    known,
+                    knownTick,
+                    nearbyItem.LastDirtyTick,
+                    dirtyUpdate != null,
+                    suppressCreate,
+                    destroyed: false);
+
+                if (delivery.Kind == ItemDeliveryKind.Create)
                 {
                     // This is a new item for the player
                     //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) New item for: {player.Username}, itemNetID{nearbyItem.NetId}");
 
                     ItemUpdateData snapshot = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
-                    player.KnownItems[nearbyItem] = tick;
+                    if (delivery.MarkKnown)
+                        player.KnownItems[nearbyItem] = tick;
 
                     //prevent propagation of creates for special items
-                    if (!DoNotCreateItem(nearbyItem))
+                    if (!delivery.SuppressPayload && snapshot != null)
                         playerUpdates.Add(snapshot);
                     else
                         TraceItem("item.generic-create-suppressed", nearbyItem, new()
@@ -353,21 +379,11 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                 }
                 else
                 {
-                    // Check if this item is in the dirty items list
-                    var dirtyUpdate = dirtyItems.FirstOrDefault(di => di.ItemNetId == nearbyItem.NetId);
-
                     //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) Item exists for: {player.Username}, {dirtyUpdate != null}");
+                    if (delivery.Kind == ItemDeliveryKind.FullSync)
+                        dirtyUpdate = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
 
-                    if (dirtyUpdate == null)
-                    {
-                        //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) Item exists for: {player.Username}, LastDirtyTick: {player.KnownItems[nearbyItem] < nearbyItem.LastDirtyTick}");
-                        if (player.KnownItems[nearbyItem] < nearbyItem.LastDirtyTick)
-                        {
-                            dirtyUpdate = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
-                        }
-                    }
-
-                    if (dirtyUpdate != null)
+                    if (delivery.Kind is ItemDeliveryKind.Dirty or ItemDeliveryKind.FullSync && dirtyUpdate != null)
                     {
                         Multiplayer.LogDebug(() => $"ProcessChanged({tick}) Update Type: {dirtyUpdate.UpdateType}, Item State: {dirtyUpdate.ItemState}");
                         playerUpdates.Add(dirtyUpdate);
@@ -566,9 +582,6 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     {
         if (item == null || item.NetId != 0)
             return;
-        if (PendingItemAdoptionTokens.ContainsKey(item))
-            return;
-
         string token = Guid.NewGuid().ToString("N");
         ItemAdoptionRequestData request = item.CreateItemAdoptionRequest(token);
         if (request.Snapshot == null || string.IsNullOrWhiteSpace(request.PrefabName))
@@ -577,8 +590,17 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                 "Item", "0", new() { ["reason"] = "local-snapshot-unavailable", ["trigger"] = reason ?? string.Empty });
             return;
         }
-        PendingItemAdoptions[token] = item;
-        PendingItemAdoptionTokens[item] = token;
+        AdoptionBeginStatus begin = ClientAdoptions.TryBegin(item, token);
+        if (begin != AdoptionBeginStatus.Started)
+        {
+            DebugRuntime.Publish("item", "item.adoption-request-suppressed", DebugRuntimeSide.Client,
+                DebugSeverity.Warning, "Item", "0", new()
+                {
+                    ["reason"] = begin.ToString(),
+                    ["adoptionToken"] = token
+                });
+            return;
+        }
         Dictionary<string, object> data = item.LocalStateDebugData();
         data["adoptionToken"] = token;
         data["trigger"] = reason ?? string.Empty;
@@ -591,11 +613,21 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     public void ApplyItemAdoptionResult(ItemAdoptionResultData result)
     {
         string token = result.AdoptionToken ?? string.Empty;
-        if (!PendingItemAdoptions.TryGetValue(token, out NetworkedItem item))
+        AdoptionResolution<NetworkedItem> resolution = ClientAdoptions.Resolve(token,
+            result.Accepted, result.AssignedNetId);
+        NetworkedItem item = resolution.Item;
+        if (resolution.Status is AdoptionResolutionStatus.UnknownToken or
+            AdoptionResolutionStatus.AlreadyCompleted)
+        {
+            DebugRuntime.Publish("item", "item.adoption-result-ignored", DebugRuntimeSide.Client,
+                DebugSeverity.Warning, "Item", result.AssignedNetId.ToString(), new()
+                {
+                    ["adoptionToken"] = token,
+                    ["reason"] = resolution.Status.ToString(),
+                    ["assignedNetId"] = result.AssignedNetId
+                });
             return;
-        PendingItemAdoptions.Remove(token);
-        if (item != null)
-            PendingItemAdoptionTokens.Remove(item);
+        }
         if (item == null)
             return;
 
@@ -603,10 +635,13 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         data["adoptionToken"] = token;
         data["assignedNetId"] = result.AssignedNetId;
         data["rejectionReason"] = result.RejectionReason ?? string.Empty;
-        if (!result.Accepted || result.AssignedNetId == 0)
+        if (resolution.Status != AdoptionResolutionStatus.Accepted)
         {
             DebugRuntime.Publish("item", "item.adoption-rejected", DebugRuntimeSide.Client, DebugSeverity.Warning,
-                "Item", "0", data);
+                "Item", "0", new Dictionary<string, object>(data)
+                {
+                    ["coordinatorStatus"] = resolution.Status.ToString()
+                });
             return;
         }
 
@@ -676,9 +711,26 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             rejectionReason = "invalid-adoption-snapshot";
             return false;
         }
+
+        string token = request.AdoptionToken;
+        if (HostAdoptions.TryGetCompleted(player.PlayerId, token, out HostAdoptionOutcome previous))
+        {
+            assignedNetId = previous.AssignedNetId;
+            rejectionReason = previous.RejectionReason;
+            return previous.Accepted;
+        }
+        HostAdoptionBeginStatus begin = HostAdoptions.TryBegin(player.PlayerId, token);
+        if (begin != HostAdoptionBeginStatus.Started)
+        {
+            rejectionReason = begin == HostAdoptionBeginStatus.AlreadyPending
+                ? "adoption-token-pending"
+                : "invalid-adoption-token";
+            return false;
+        }
         if (!ItemPrefabs.TryGetValue(request.PrefabName ?? string.Empty, out InventoryItemSpec spec) || spec == null)
         {
             rejectionReason = "unknown-prefab";
+            HostAdoptions.Complete(player.PlayerId, token, false, 0, rejectionReason);
             return false;
         }
         GameObject gameObject = Instantiate(spec.gameObject, request.Position + WorldMover.currentMove, request.Rotation);
@@ -687,6 +739,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         {
             Destroy(gameObject);
             rejectionReason = "authoritative-id-allocation-failed";
+            HostAdoptions.Complete(player.PlayerId, token, false, 0, rejectionReason);
             return false;
         }
 
@@ -696,6 +749,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         request.Snapshot.ItemPosition = request.Position;
         request.Snapshot.ItemRotation = request.Rotation;
         networkedItem.ServerInitialiseAdoptedItem(player, request.Snapshot);
+        HostAdoptions.Complete(player.PlayerId, token, true, assignedNetId, string.Empty);
         return true;
     }
 

@@ -121,6 +121,8 @@ Each host item has a canonical record containing:
 
 Every accepted host-local change, client update, first-interaction adoption, and owner recall is converted into a canonical transition before it is applied or broadcast. The host replaces packet holder fields with the authenticated actor and returns the resulting revision and ownership projection to the sender. A client update with an old revision is rejected as `stale-authority-revision`; a non-possessor attempting to mutate a held/inventory item is rejected as `sender-not-current-possessor`.
 
+First-interaction adoption is idempotent per authenticated player and temporary token. A duplicate pending token cannot allocate another object, and a retry after completion receives the original accepted NetId or stable rejection. On the client, one local Unity object can have only one pending adoption and a result is applied at most once.
+
 `InventoryItemSpec.BelongsToPlayer` and `IsEssential` are used only to establish initial persistent ownership. They are not treated as the current holder. Physical state remains `World`, `PlayerHand`, `PlayerInventory`, or `Attached`, independently of any retained inventory reservation.
 
 ### 3.5 Essential-item recall

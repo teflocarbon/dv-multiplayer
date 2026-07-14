@@ -787,4 +787,31 @@ DebugRemoteClient/bin/Debug/net48/Multiplayer.DebugClient.exe --self-test
 
 The self-test currently covers event serialization/schema, redaction, bounded retention, stable payload fingerprints, discovery liveness, random loopback startup, API responses, and capture pre-roll/live writes.
 
+Pure multiplayer authority invariants are covered separately by the NUnit suite:
+
+```powershell
+dotnet test Multiplayer.Core.Tests\Multiplayer.Core.Tests.csproj
+```
+
+Actual item packet wire fixtures and schema-aware debug projections run in a second NUnit suite:
+
+```powershell
+dotnet build Multiplayer\Multiplayer.csproj -c Debug
+dotnet test Multiplayer.Protocol.Tests\Multiplayer.Protocol.Tests.csproj -c Debug
+```
+
+`Multiplayer.Core` has no Unity or Derail Valley dependencies, and the production host registry delegates its ownership, placement, revision, claim, and recall decisions to that tested state machine. See `TESTING.md` for the test boundary and extraction roadmap.
+
+The same core now owns item send-projection comparison (`state + holder + attached car/end`), bounded pending-snapshot ordering, and inventory-claim planning through `IInventoryView`. Deferred queues reject duplicate/stale revisions, cap at 256 entries, and allow an authoritative `FullSync` to supersede older queued deltas. `item.pending-snapshot-rejected` reports duplicate, stale, or capacity rejection; `item.snapshot-deferred` includes capacity, enqueue status, and the number of snapshots superseded by a full snapshot.
+
+Recipient completion, adoption coordination, storage placement, and remote hand/inventory projection are also pure core decisions. The dashboard uses `RecipientCompletionEvaluator` for expected/received/applied completion and the 750 ms / 2 s discontinuity boundaries. Client adoption permits one pending token per Unity item and ignores unknown or duplicate completed results; the host scopes tokens by authenticated player and replays the original completed token-to-NetId outcome. `item.adoption-request-suppressed` and `item.adoption-result-ignored` expose coordinator rejections. Storage world projection removes conflicting inventory, lost-and-found, and item-container memberships according to one plan; `storage.multiple-membership-repaired` reports overlap repair and `storage.transition-rejected` reports an unavailable/invalid projection.
+
+NetId allocation, relevance hysteresis, known-item delivery selection, and tracked-value
+full-sync/delta composition are now pure tested decisions too. The runtime allocator reserves zero,
+rejects collisions and duplicate releases, reuses released IDs once, and reports exhaustion instead
+of wrapping. Item relevance uses the existing inclusive 100 metre boundary and strict three-second
+removal delay; delivery distinguishes Create, current Dirty, missed-tick FullSync, and no-op. Tracked
+state composition prevents clients from leaking server-authoritative dirty values and plans unknown
+or authority-rejected incoming keys before the Unity setters run.
+
 Host/client gameplay behavior, world-origin shifts, and VR label readability still require in-game acceptance testing with separate processes.

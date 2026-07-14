@@ -131,9 +131,7 @@ public class ItemUpdateData
 
                 if (data.ItemState == ItemState.Thrown)
                 {
-                    Multiplayer.LogDebug(() => $"ItemUpdateData.Deserialize() Item Thrown before: {data.ThrowDirection}");
                     data.ThrowDirection = Vector3Serializer.Deserialize(reader);
-                    Multiplayer.LogDebug(() => $"ItemUpdateData.Deserialize() Item Thrown after: {data.ThrowDirection}");
                 }
             }
             else if (data.ItemState == ItemState.InInventory || data.ItemState == ItemState.InHand)
