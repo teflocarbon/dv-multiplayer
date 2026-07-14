@@ -51,6 +51,34 @@ internal sealed class ReplicationCoordinator
         observationCoordinator.Observe(client, Event(client, 22, start.AddSeconds(2), "item.snapshot-suppressed", "789", ""));
         if (observationCoordinator.SnapshotOperations().Length != 0)
             throw new InvalidOperationException("Replication coordinator self-test created an operation from observational item events.");
+
+        ReplicationCoordinator stateCoordinator = new();
+        stateCoordinator.UpdateSessions(new[] { host, client });
+        DebugEvent stateSource = Event(host, 30, start.AddSeconds(3), "item.snapshot-created", "737", "STATE");
+        stateSource.Data["itemState"] = "Dropped";
+        stateSource.Data["authorityRevision"] = 4;
+        stateSource.Data["persistentOwnerPlayerId"] = 1;
+        stateSource.Data["position"] = new Dictionary<string, object> { ["x"] = 100f, ["y"] = 20f, ["z"] = 300f };
+        stateSource.Data["sourceUnityState"] = new Dictionary<string, object>
+        {
+            ["rendererCount"] = 67, ["rendererEnabledCount"] = 64,
+            ["activeInHierarchy"] = true, ["layerName"] = "World_Item", ["rigidbodyIsKinematic"] = false
+        };
+        stateCoordinator.Observe(host, stateSource);
+        DebugEvent stateExpected = Event(host, 31, start.AddSeconds(3).AddMilliseconds(5), "item.delivery-expected", "737", "STATE");
+        stateExpected.Data["recipientPlayerId"] = 1;
+        stateCoordinator.Observe(host, stateExpected);
+        stateCoordinator.Observe(client, Event(client, 30, start.AddSeconds(3).AddMilliseconds(10), "item.snapshot-received", "737", "STATE"));
+        DebugEvent badApply = Event(client, 31, start.AddSeconds(3).AddMilliseconds(15), "item.snapshot-apply.after", "737", "STATE");
+        badApply.Data["lastState"] = "Dropped"; badApply.Data["authorityRevision"] = 4; badApply.Data["persistentOwnerPlayerId"] = 1;
+        badApply.Data["positionAbsolute"] = new Dictionary<string, object> { ["x"] = 100f, ["y"] = 20f, ["z"] = 300f };
+        badApply.Data["rendererCount"] = 67; badApply.Data["rendererEnabledCount"] = 67;
+        badApply.Data["activeInHierarchy"] = true; badApply.Data["layerName"] = "World_Item"; badApply.Data["rigidbodyIsKinematic"] = false;
+        stateCoordinator.Observe(client, badApply);
+        ReplicationOperationDto stateOperation = stateCoordinator.SnapshotOperations().Single();
+        if (stateOperation.Status != ReplicationOperationStatus.Discontinuity ||
+            stateOperation.StateComparisons.Single().Differences.All(value => value.Code != "renderer-state-mismatch"))
+            throw new InvalidOperationException("Replication coordinator self-test did not detect a semantic renderer discontinuity.");
     }
 
     private static DebugEvent Event(DebugSessionInfo session, long sequence, DateTime timestamp, string name, string entityId, string fingerprint) => new()
@@ -122,7 +150,8 @@ internal sealed class ReplicationCoordinator
             StartedUtc = value.StartedUtc, UpdatedUtc = value.UpdatedUtc, Status = value.Status,
             CorrelationConfidence = value.CorrelationConfidence, DiscontinuityReason = value.DiscontinuityReason,
             StageCount = value.Stages.Count, RecipientCount = value.Recipients.Count,
-            AppliedRecipientCount = value.Recipients.Count(recipient => recipient.Applied)
+            AppliedRecipientCount = value.Recipients.Count(recipient => recipient.Applied),
+            StateDiscontinuityCount = value.StateComparisons.Sum(comparison => comparison.Differences.Count)
         }).ToArray();
     }
 
@@ -249,6 +278,14 @@ internal sealed class ReplicationCoordinator
             _ => ReplicationOperationStatus.Pending
         };
         operation.DiscontinuityReason = completion.Reason;
+        EvaluateStateComparisons(operation);
+        if (operation.StateComparisons.Any(comparison => comparison.Differences.Count > 0) &&
+            operation.Status == ReplicationOperationStatus.Complete)
+        {
+            ItemReplicaComparisonDto comparison = operation.StateComparisons.First(value => value.Differences.Count > 0);
+            operation.Status = ReplicationOperationStatus.Discontinuity;
+            operation.DiscontinuityReason = $"state:{SessionName(comparison)}:{comparison.Differences[0].Code}";
+        }
         bool newlyDetected = operation.Status == ReplicationOperationStatus.Discontinuity && before != ReplicationOperationStatus.Discontinuity && !operation.CaptureTriggered;
         if (newlyDetected) operation.CaptureTriggered = true;
         return newlyDetected;
@@ -279,6 +316,117 @@ internal sealed class ReplicationCoordinator
             "packet.handler.exception";
     }
     private static bool IsOperationStart(string name) => name is "item.snapshot-created" or "item.packet-send-requested" or "item.relay-requested" or "item.bulk-item-send-requested";
+
+    private static void EvaluateStateComparisons(ReplicationOperationDto operation)
+    {
+        ReplicationStageDto source = operation.Stages.FirstOrDefault(stage =>
+            stage.EventName == "item.snapshot-created" && stage.Data != null && stage.Data.ContainsKey("sourceUnityState"));
+        if (source == null)
+            return;
+
+        ReplicationStageDto canonical = operation.Stages
+            .Where(stage => stage.Data != null && stage.Data.ContainsKey("itemState"))
+            .OrderByDescending(stage => UInt(stage.Data, "authorityRevision") ?? 0)
+            .ThenByDescending(stage => stage.TimestampUtc)
+            .FirstOrDefault() ?? source;
+        ItemReplicaState expected = ReadExpectedState(canonical.Data, source.Data);
+        operation.StateComparisons.Clear();
+        foreach (ReplicationStageDto applied in operation.Stages
+                     .Where(stage => stage.EventName == "item.snapshot-apply.after")
+                     .GroupBy(stage => stage.SessionId)
+                     .Select(group => group.OrderByDescending(stage => stage.TimestampUtc).First()))
+        {
+            ItemReplicaState actual = ReadAppliedState(applied.Data);
+            IReadOnlyList<ItemReplicaDifference> differences = ItemReplicaStateComparer.Compare(expected, actual, applied.PlayerId);
+            operation.StateComparisons.Add(new ItemReplicaComparisonDto
+            {
+                SessionId = applied.SessionId,
+                Role = applied.Role,
+                PlayerId = applied.PlayerId,
+                EventName = applied.EventName,
+                Differences = differences.Select(value => new ItemReplicaDifferenceDto
+                {
+                    Code = value.Code,
+                    Field = value.Field,
+                    Expected = value.Expected,
+                    Actual = value.Actual,
+                    Detail = value.Detail
+                }).ToList()
+            });
+        }
+    }
+
+    private static ItemReplicaState ReadExpectedState(IDictionary<string, object> wire,
+        IDictionary<string, object> sourceCarrier)
+    {
+        IDictionary<string, object> source = ObjectMap(Value(sourceCarrier, "sourceUnityState"));
+        IDictionary<string, object> claim = ObjectMap(Value(wire, "inventoryClaim"));
+        return new ItemReplicaState
+        {
+            ItemState = Text(wire, "itemState"),
+            AuthorityRevision = UInt(wire, "authorityRevision"),
+            PersistentOwnerPlayerId = NullableByte(wire, "persistentOwnerPlayerId"),
+            PlacementPlayerId = NullableByte(wire, "playerId"),
+            InventoryClaimPlayerId = NullableByte(wire, "inventoryClaimPlayerId") ?? NullableByte(claim, "playerId") ?? NullableByte(source, "inventoryClaimPlayerId"),
+            InventoryClaimSlot = NullableInt(wire, "inventoryClaimSlot") ?? NullableInt(claim, "slot") ?? NullableInt(source, "inventoryClaimSlot"),
+            InventoryClaimFlags = Text(wire, "inventoryClaimFlags", Text(claim, "flags", Text(source, "inventoryClaimFlags"))),
+            PositionAbsolute = Vector(Value(wire, "position")) ?? Vector(Value(wire, "itemPosition")) ?? Vector(Value(source, "positionAbsolute")),
+            Velocity = Vector(Value(source, "velocity")),
+            ActiveInHierarchy = NullableBool(source, "activeInHierarchy"),
+            Parent = Text(source, "parent"),
+            LayerName = Text(source, "layerName"),
+            RigidbodyIsKinematic = NullableBool(source, "rigidbodyIsKinematic"),
+            ActualRemoteHolderPlayerId = NullableByte(source, "actualRemoteHolderPlayerId"),
+            RendererCount = NullableInt(source, "rendererCount"),
+            RendererEnabledCount = NullableInt(source, "rendererEnabledCount")
+        };
+    }
+
+    private static ItemReplicaState ReadAppliedState(IDictionary<string, object> data) => new()
+    {
+        ItemState = Text(data, "lastState", Text(data, "computedState")),
+        AuthorityRevision = UInt(data, "authorityRevision"),
+        PersistentOwnerPlayerId = NullableByte(data, "persistentOwnerPlayerId"),
+        PlacementPlayerId = NullableByte(data, "placementPlayerId"),
+        InventoryClaimPlayerId = NullableByte(data, "inventoryClaimPlayerId"),
+        InventoryClaimSlot = NullableInt(data, "inventoryClaimSlot"),
+        InventoryClaimFlags = Text(data, "inventoryClaimFlags"),
+        PositionAbsolute = Vector(Value(data, "positionAbsolute")),
+        Velocity = Vector(Value(data, "velocity")),
+        ActiveInHierarchy = NullableBool(data, "activeInHierarchy"),
+        Parent = Text(data, "parent"),
+        LayerName = Text(data, "layerName"),
+        RigidbodyIsKinematic = NullableBool(data, "rigidbodyIsKinematic"),
+        ActualRemoteHolderPlayerId = NullableByte(data, "actualRemoteHolderPlayerId"),
+        RendererCount = NullableInt(data, "rendererCount"),
+        RendererEnabledCount = NullableInt(data, "rendererEnabledCount")
+    };
+
+    private static string SessionName(ItemReplicaComparisonDto value) =>
+        value.PlayerId.HasValue ? $"P{value.PlayerId.Value}" : string.IsNullOrEmpty(value.Role) ? "session" : value.Role;
+    private static object Value(IDictionary<string, object> data, string key) =>
+        data != null && data.TryGetValue(key, out object value) ? value : null;
+    private static IDictionary<string, object> ObjectMap(object value)
+    {
+        if (value is IDictionary<string, object> map) return map;
+        if (value is JObject json) return json.ToObject<Dictionary<string, object>>() ?? new Dictionary<string, object>();
+        return new Dictionary<string, object>();
+    }
+    private static ReplicaVector3? Vector(object value)
+    {
+        IDictionary<string, object> map = ObjectMap(value);
+        try
+        {
+            if (!map.ContainsKey("x") || !map.ContainsKey("y") || !map.ContainsKey("z")) return null;
+            return new ReplicaVector3(Convert.ToSingle(map["x"]), Convert.ToSingle(map["y"]), Convert.ToSingle(map["z"]));
+        }
+        catch { return null; }
+    }
+    private static uint? UInt(IDictionary<string, object> data, string key) { try { object value = Value(data, key); return value == null ? null : Convert.ToUInt32(value); } catch { return null; } }
+    private static byte? NullableByte(IDictionary<string, object> data, string key) { try { object value = Value(data, key); return value == null ? null : Convert.ToByte(value); } catch { return null; } }
+    private static int? NullableInt(IDictionary<string, object> data, string key) { try { object value = Value(data, key); return value == null ? null : Convert.ToInt32(value); } catch { return null; } }
+    private static bool? NullableBool(IDictionary<string, object> data, string key) { try { object value = Value(data, key); return value == null ? null : Convert.ToBoolean(value); } catch { return null; } }
+    private static string Text(IDictionary<string, object> data, string key, string fallback) { string value = Text(data, key); return string.IsNullOrEmpty(value) ? fallback : value; }
     private static string Text(IDictionary<string, object> data, string key) => data != null && data.TryGetValue(key, out object value) && value != null ? Convert.ToString(value) : string.Empty;
     private static int Int(IDictionary<string, object> data, string key, int fallback) { try { return data != null && data.TryGetValue(key, out object value) ? Convert.ToInt32(value) : fallback; } catch { return fallback; } }
     private static byte Byte(IDictionary<string, object> data, string key) { try { return data != null && data.TryGetValue(key, out object value) ? Convert.ToByte(value) : (byte)0; } catch { return 0; } }

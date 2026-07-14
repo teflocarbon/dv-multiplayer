@@ -33,6 +33,16 @@ public readonly struct ItemWireStateProjection
 
 public static class ItemWireStateComparer
 {
+    /// <summary>
+    /// Thrown is a one-shot wire event. After it is sent/applied, the stable observable state is
+    /// Dropped; retaining Thrown as the comparison baseline would emit an immediate Dropped packet
+    /// that cancels the remote rigidbody's newly applied force.
+    /// </summary>
+    public static ItemWireStateProjection StableBaselineAfterSend(ItemWireStateProjection sent) =>
+        sent.State == WireItemState.Thrown
+            ? new ItemWireStateProjection(WireItemState.Dropped)
+            : sent;
+
     public static bool RequiresSend(bool hasPrevious, ItemWireStateProjection previous,
         ItemWireStateProjection current)
     {

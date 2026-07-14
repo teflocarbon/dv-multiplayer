@@ -119,6 +119,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private Vector3 throwDirection;
 
     private bool processingAsHost = false;
+    private bool applyingRemoteSnapshot;
     private bool hostStateObservationPending;
     private bool clientBindingGateApplied;
     private bool interactionAllowedBeforeBindingGate;
@@ -402,6 +403,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             Register();
 
         NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
+        NetworkedItemManager.Instance?.ApplyPendingSpecialSnapshot(this);
 
     }
 
@@ -451,7 +453,16 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
 
         if (isBound && NetId != 0)
+        {
             UnboundState = ClientItemUnboundState.None;
+
+            // A non-host item with an authoritative ID represents an object the server
+            // has already created.  Clear the local creation edge immediately rather
+            // than waiting for its first snapshot to apply: tracked-value setup can
+            // defer that snapshot, and LateUpdate must not emit a client Create while
+            // the item is waiting in that queue.
+            createdDirty = false;
+        }
 
         if (grabHandler == null)
             TryGetComponent(out grabHandler);
@@ -533,6 +544,11 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void MarkLocalStateDirty(string reason)
     {
+        // ForceEndInteraction, inventory purges and GrabHandlerItem.Throw raise the same base-game
+        // callbacks as a local interaction. While projecting an authoritative snapshot those
+        // callbacks are side effects, not new player intent, and must not enqueue an echo packet.
+        if (applyingRemoteSnapshot)
+            return;
         stateDirty = true;
         if (!NetworkLifecycle.Instance.IsHost())
             NetworkedItemManager.Instance?.QueueLocalStateObservation(this, reason);
@@ -796,7 +812,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         snapshot = CreateUpdateData(updateType);
         if (snapshot != null)
         {
-            lastSentProjection = ProjectionFromSnapshot(snapshot);
+            lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
+                ProjectionFromSnapshot(snapshot));
             hasLastSentState = true;
             // Thrown is a one-shot wire transition, not a stable Unity state. Once the
             // throw has been emitted the base game represents the item as an ordinary
@@ -838,7 +855,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
         DebugDesyncDetector.Remember(snapshot);
 
-        if (!registrationComplete)
+        if (!registrationComplete && snapshot.States is { Count: > 0 })
         {
             Multiplayer.Log($"NetworkedItem.ReceiveSnapshot() netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}. Queuing");
             PendingEnqueueResult enqueue = pendingSnapshots.Enqueue(snapshot);
@@ -872,10 +889,41 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         }
 
+        if (!registrationComplete)
+        {
+            // Placement does not depend on tracked-value registration. In particular,
+            // many generic items have no tracked values at all; holding their Create
+            // packet for the registration grace period leaves a live clone at the
+            // origin and can expose a visibly falling debug label. Only packets which
+            // actually carry tracked state need to wait for item-specific patches.
+            DebugRuntime.Publish("item", "item.snapshot-applied-before-finalization",
+                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                entityType: "Item", entityId: NetId.ToString(), data: new()
+                {
+                    ["reason"] = "no-tracked-state-in-packet",
+                    ["authorityRevision"] = snapshot.AuthorityRevision,
+                    ["updateType"] = snapshot.UpdateType.ToString()
+                });
+            NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
+        }
+
         ApplySnapshot(snapshot);
     }
 
     private void ApplySnapshot(ItemUpdateData snapshot)
+    {
+        applyingRemoteSnapshot = true;
+        try
+        {
+            ApplySnapshotCore(snapshot);
+        }
+        finally
+        {
+            applyingRemoteSnapshot = false;
+        }
+    }
+
+    private void ApplySnapshotCore(ItemUpdateData snapshot)
     {
         ApplyAuthorityMetadata(snapshot);
         bool appliesItemState = snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.FullSync | ItemUpdateData.ItemUpdateType.Create);
@@ -933,7 +981,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             // an ungrabbed world item locally. Baseline it as Dropped so this client (or a
             // listen host) cannot echo a synthetic Dropped update on the following frame.
             lastState = ObservationBaselineAfterSnapshot(snapshot.ItemState);
-            lastSentProjection = ProjectionFromSnapshot(snapshot);
+            lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
+                ProjectionFromSnapshot(snapshot));
             hasLastSentState = true;
         }
         createdDirty = false;
@@ -1021,8 +1070,11 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         CaptureLocalInventoryClaim(updateData);
 
+        Dictionary<string, object> snapshotDebugData = DebugTrace.ItemSnapshotData(updateData);
+        if (DebugRuntime.EnabledFor("item"))
+            snapshotDebugData["sourceUnityState"] = DebugUnityState();
         DebugRuntime.Publish("item", "item.snapshot-created", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
-            entityType: "Item", entityId: NetId.ToString(), data: DebugTrace.ItemSnapshotData(updateData));
+            entityType: "Item", entityId: NetId.ToString(), data: snapshotDebugData);
 
         return updateData;
     }
@@ -1425,9 +1477,11 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                 child.gameObject.layer = worldLayer;
         }
 
-        // Inventory presentation can disable renderers while leaving the root active.
-        foreach (Renderer renderer in GetComponentsInChildren<Renderer>(true))
-            renderer.enabled = true;
+        // Do not blanket-enable child renderers here. Documents, maps and other
+        // multi-state items intentionally keep alternate page/cover meshes disabled;
+        // enabling every renderer produces the opaque white sheet seen on clients.
+        // The base game's world-return path restores the root, layer and physics but
+        // preserves the item's own renderer state.
     }
 
     private IEnumerator TracePostApply(ItemState expectedState, string expectedParent)
