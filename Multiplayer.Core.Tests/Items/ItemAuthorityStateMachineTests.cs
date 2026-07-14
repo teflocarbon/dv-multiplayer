@@ -43,7 +43,7 @@ public sealed class ItemAuthorityStateMachineTests
 
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original,
             Transition(actor: 2, revision: 12, placement: AuthorityPlacement.PlayerHand,
-                essential: true));
+                retrievalClaim: true));
 
         Assert.That(result.Accepted, Is.True);
         Assert.That(result.State.PersistentOwnerPlayerId, Is.EqualTo(1));
@@ -152,11 +152,11 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
-    public void FirstEssentialInventoryTransition_EstablishesOwnerAndClaim()
+    public void FirstReservedInventoryTransition_EstablishesOwnerAndClaim()
     {
         ItemAuthorityState original = State();
         ItemTransitionCommand command = Transition(2, 0, AuthorityPlacement.PlayerInventory,
-            essential: true);
+            retrievalClaim: true);
         command.InventoryClaimSlot = 5;
         command.InventoryClaimFlags = AuthorityClaimFlags.Reserved;
 
@@ -178,7 +178,7 @@ public sealed class ItemAuthorityStateMachineTests
         original.PlacementPlayerId = 1;
 
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original,
-            Transition(1, 3, AuthorityPlacement.World, essential: true));
+            Transition(1, 3, AuthorityPlacement.World, retrievalClaim: true));
 
         Assert.That(result.Accepted, Is.True);
         Assert.That(result.State.PlacementPlayerId, Is.Zero);
@@ -197,7 +197,7 @@ public sealed class ItemAuthorityStateMachineTests
         borrowed.InventoryClaimFlags |= AuthorityClaimFlags.Stolen;
 
         ItemAuthorityResult dropped = ItemAuthorityStateMachine.Apply(borrowed,
-            Transition(2, 10, AuthorityPlacement.World, essential: true));
+            Transition(2, 10, AuthorityPlacement.World, retrievalClaim: true));
 
         Assert.That(dropped.Accepted, Is.True);
         Assert.That(dropped.State.PersistentOwnerPlayerId, Is.EqualTo(1));
@@ -206,11 +206,11 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
-    public void EssentialClaimSlot_CannotBeMovedByLaterOwnerTransition()
+    public void RetrievalClaimSlot_CannotBeMovedByLaterOwnerTransition()
     {
         ItemAuthorityState original = OwnedEssentialWorldItem(owner: 1, revision: 6);
         ItemTransitionCommand command = Transition(1, 6, AuthorityPlacement.PlayerInventory,
-            essential: true);
+            retrievalClaim: true);
         command.InventoryClaimSlot = 9;
 
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
@@ -220,21 +220,17 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
-    public void NonEssentialClaimSlot_MayMove()
+    public void OrdinaryInventorySlot_DoesNotEstablishRetrievalOwnership()
     {
-        ItemAuthorityState original = State(revision: 6,
-            placement: AuthorityPlacement.PlayerInventory);
-        original.PlacementPlayerId = 1;
-        original.PersistentOwnerPlayerId = 1;
-        original.InventoryClaimPlayerId = 1;
-        original.InventoryClaimSlot = 3;
+        ItemAuthorityState original = State(revision: 6, placement: AuthorityPlacement.World);
         ItemTransitionCommand command = Transition(1, 6, AuthorityPlacement.PlayerInventory);
         command.InventoryClaimSlot = 9;
 
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
 
         Assert.That(result.Accepted, Is.True);
-        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(9));
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.Zero);
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1));
     }
 
     [Test]
@@ -261,7 +257,7 @@ public sealed class ItemAuthorityStateMachineTests
         original.Placement = AuthorityPlacement.PlayerHand;
         original.PlacementPlayerId = 2;
         ItemTransitionCommand command = Transition(3, 1, AuthorityPlacement.World,
-            essential: true);
+            retrievalClaim: true);
         command.Force = true;
 
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
@@ -273,18 +269,38 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
-    public void Recall_RejectsStaleRevisionAndNonEssentialItem()
+    public void ForcedSharedSummon_ClearsPlayerRetrievalClaim()
+    {
+        ItemAuthorityState original = OwnedEssentialWorldItem(owner: 2, revision: 8);
+        original.Placement = AuthorityPlacement.PlayerInventory;
+        original.PlacementPlayerId = 2;
+        ItemTransitionCommand command = Transition(1, 0, AuthorityPlacement.World);
+        command.Force = true;
+        command.ClearRetrievalClaim = true;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.Placement, Is.EqualTo(AuthorityPlacement.World));
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.Zero);
+        Assert.That(result.State.InventoryClaimPlayerId, Is.Zero);
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1));
+        Assert.That(result.State.InventoryClaimFlags, Is.EqualTo(AuthorityClaimFlags.None));
+    }
+
+    [Test]
+    public void Recall_RejectsStaleRevisionAndItemWithoutRetrievalClaim()
     {
         ItemAuthorityState original = OwnedEssentialWorldItem(owner: 1, revision: 8);
         ItemAuthorityResult stale = ItemAuthorityStateMachine.Recall(original,
             Recall(1, 7, 3));
-        ItemRecallCommand nonEssentialCommand = Recall(1, 8, 3);
-        nonEssentialCommand.IsEssential = false;
-        ItemAuthorityResult nonEssential = ItemAuthorityStateMachine.Recall(original,
-            nonEssentialCommand);
+        ItemAuthorityState noClaim = original.Clone();
+        noClaim.InventoryClaimFlags = AuthorityClaimFlags.None;
+        ItemAuthorityResult nonRecallable = ItemAuthorityStateMachine.Recall(noClaim,
+            Recall(1, 8, 3));
 
         Assert.That(stale.RejectionReason, Is.EqualTo("stale-authority-revision"));
-        Assert.That(nonEssential.RejectionReason, Is.EqualTo("item-not-recallable"));
+        Assert.That(nonRecallable.RejectionReason, Is.EqualTo("item-not-recallable"));
         Assert.That(original.Revision, Is.EqualTo(8));
     }
 
@@ -295,12 +311,12 @@ public sealed class ItemAuthorityStateMachineTests
         for (int cycle = 0; cycle < 10; cycle++)
         {
             ItemAuthorityResult pickup = ItemAuthorityStateMachine.Apply(state,
-                Transition(2, state.Revision, AuthorityPlacement.PlayerHand, essential: true));
+                Transition(2, state.Revision, AuthorityPlacement.PlayerHand, retrievalClaim: true));
             Assert.That(pickup.Accepted, Is.True, $"pickup cycle {cycle}");
             state = pickup.State;
 
             ItemAuthorityResult drop = ItemAuthorityStateMachine.Apply(state,
-                Transition(2, state.Revision, AuthorityPlacement.World, essential: true));
+                Transition(2, state.Revision, AuthorityPlacement.World, retrievalClaim: true));
             Assert.That(drop.Accepted, Is.True, $"drop cycle {cycle}");
             state = drop.State;
         }
@@ -354,8 +370,7 @@ public sealed class ItemAuthorityStateMachineTests
                 {
                     RequestingPlayerId = (byte)random.Next(1, 4),
                     ExpectedRevision = expected,
-                    RequestedSlot = random.Next(0, 10),
-                    IsEssential = true
+                    RequestedSlot = random.Next(0, 10)
                 });
             }
             else
@@ -369,7 +384,6 @@ public sealed class ItemAuthorityStateMachineTests
                     ExpectedRevision = expected,
                     AppliesPlacement = true,
                     RequestedPlacement = (AuthorityPlacement)random.Next(0, 8),
-                    IsEssential = true,
                     InventoryClaimSlot = random.Next(0, 10),
                     InventoryClaimFlags = (AuthorityClaimFlags)random.Next(0, 16)
                 });
@@ -417,21 +431,20 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     private static ItemTransitionCommand Transition(byte actor, uint revision,
-        AuthorityPlacement placement, bool essential = false) => new()
+        AuthorityPlacement placement, bool retrievalClaim = false) => new()
     {
         ActorPlayerId = actor,
         ExpectedRevision = revision,
         AppliesPlacement = true,
         RequestedPlacement = placement,
-        IsEssential = essential,
-        InventoryClaimSlot = -1
+        InventoryClaimSlot = retrievalClaim ? 3 : -1,
+        InventoryClaimFlags = retrievalClaim ? AuthorityClaimFlags.Reserved : AuthorityClaimFlags.None
     };
 
     private static ItemRecallCommand Recall(byte player, uint revision, int requestedSlot) => new()
     {
         RequestingPlayerId = player,
         ExpectedRevision = revision,
-        RequestedSlot = requestedSlot,
-        IsEssential = true
+        RequestedSlot = requestedSlot
     };
 }

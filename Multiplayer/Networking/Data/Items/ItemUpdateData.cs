@@ -53,6 +53,7 @@ public class ItemUpdateData
     public int InventoryClaimSlot { get; set; } = -1;
     public ItemInventoryClaimFlags InventoryClaimFlags { get; set; }
     public ItemTransitionReason TransitionReason { get; set; }
+    public byte OriginatingPlayerId { get; set; }
 
     // Detached local observability correlation. This is deliberately not serialized.
     internal string DebugCorrelationFingerprint { get; set; }
@@ -67,6 +68,7 @@ public class ItemUpdateData
         writer.Put(data.InventoryClaimSlot);
         writer.Put((byte)data.InventoryClaimFlags);
         writer.Put((byte)data.TransitionReason);
+        writer.Put(data.OriginatingPlayerId);
 
         if (data.UpdateType == ItemUpdateType.Destroy)
             return;
@@ -125,6 +127,7 @@ public class ItemUpdateData
         data.InventoryClaimSlot = reader.GetInt();
         data.InventoryClaimFlags = (ItemInventoryClaimFlags)reader.GetByte();
         data.TransitionReason = (ItemTransitionReason)reader.GetByte();
+        data.OriginatingPlayerId = reader.GetByte();
 
         if (data.UpdateType == ItemUpdateType.Destroy)
             return data;

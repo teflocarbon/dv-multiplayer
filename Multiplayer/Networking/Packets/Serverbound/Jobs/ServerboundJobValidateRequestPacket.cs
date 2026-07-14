@@ -6,5 +6,6 @@ public class ServerboundJobValidateRequestPacket
 {
     public ushort JobNetId { get; set; }
     public uint StationNetId { get; set; }
+    public ushort ItemNetId { get; set; }
     public ValidationType validationType { get; set; }
 }

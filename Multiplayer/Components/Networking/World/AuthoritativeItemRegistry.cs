@@ -44,10 +44,11 @@ public static class AuthoritativeItemRegistry
         if (records.TryGetValue(item.NetId, out Record existing))
             return existing;
 
-        bool persistentlyPlayerOwned = item.Item?.IsEssential() == true ||
-            item.Item?.InventorySpecs?.BelongsToPlayer == true;
+        ItemInventoryClaimFlags claimFlags = seed?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None;
+        bool hasRetrievalClaim = (seed?.InventoryClaimSlot ?? -1) >= 0 &&
+            HasRetrievalFlag(claimFlags);
         byte claimedOwner = seed?.PersistentOwnerPlayerId ?? 0;
-        byte persistentOwner = actor != null && persistentlyPlayerOwned &&
+        byte persistentOwner = actor != null && hasRetrievalClaim &&
             (claimedOwner == 0 || claimedOwner == actor.PlayerId)
                 ? actor.PlayerId
                 : (byte)0;
@@ -58,9 +59,10 @@ public static class AuthoritativeItemRegistry
             Placement = PlacementFrom(seed?.ItemState ?? item.DebugCurrentState),
             PlacementPlayerId = seed?.PlayerId ?? 0,
             PersistentOwnerPlayerId = persistentOwner,
-            InventoryClaimPlayerId = seed?.InventoryClaimPlayerId ?? 0,
-            InventoryClaimSlot = seed?.InventoryClaimSlot ?? -1,
-            InventoryClaimFlags = seed?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None,
+            InventoryClaimPlayerId = persistentOwner == 0 ? (byte)0 :
+                seed?.InventoryClaimPlayerId ?? persistentOwner,
+            InventoryClaimSlot = persistentOwner == 0 ? -1 : seed?.InventoryClaimSlot ?? -1,
+            InventoryClaimFlags = persistentOwner == 0 ? ItemInventoryClaimFlags.None : claimFlags,
             PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
             Position = seed?.ItemPosition ?? item.transform.position - WorldMover.currentMove,
             Rotation = seed?.ItemRotation ?? item.transform.rotation,
@@ -74,7 +76,8 @@ public static class AuthoritativeItemRegistry
     }
 
     public static bool TryApplyTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
-        ItemTransitionReason reason, bool force, out string rejectionReason)
+        ItemTransitionReason reason, bool force, out string rejectionReason,
+        bool clearRetrievalClaim = false)
     {
         rejectionReason = string.Empty;
         if (item == null || snapshot == null || actor == null || item.NetId == 0)
@@ -104,7 +107,7 @@ public static class AuthoritativeItemRegistry
             Force = force,
             AppliesPlacement = appliesPlacement,
             RequestedPlacement = (AuthorityPlacement)(byte)requestedPlacement,
-            IsEssential = item.Item?.IsEssential() == true,
+            ClearRetrievalClaim = clearRetrievalClaim,
             InventoryClaimSlot = snapshot.InventoryClaimSlot,
             InventoryClaimFlags = (AuthorityClaimFlags)(byte)snapshot.InventoryClaimFlags
         });
@@ -115,7 +118,8 @@ public static class AuthoritativeItemRegistry
             return false;
         }
 
-        if (appliesPlacement && item.Item?.IsEssential() == true && snapshot.InventoryClaimSlot >= 0 &&
+        if (appliesPlacement && HasRetrievalFlag(record.InventoryClaimFlags) &&
+            snapshot.InventoryClaimSlot >= 0 &&
             record.InventoryClaimSlot >= 0 && record.InventoryClaimSlot != snapshot.InventoryClaimSlot &&
             record.PersistentOwnerPlayerId == actor.PlayerId)
         {
@@ -153,8 +157,7 @@ public static class AuthoritativeItemRegistry
         {
             RequestingPlayerId = requester.PlayerId,
             ExpectedRevision = expectedRevision,
-            RequestedSlot = requestedSlot,
-            IsEssential = item.Item?.IsEssential() == true
+            RequestedSlot = requestedSlot
         });
         if (!result.Accepted)
         {
@@ -259,6 +262,9 @@ public static class AuthoritativeItemRegistry
         ItemState.Attached => ItemPlacementKind.Attached,
         _ => ItemPlacementKind.World
     };
+
+    private static bool HasRetrievalFlag(ItemInventoryClaimFlags flags) =>
+        (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
 
     private static void PublishRejected(NetworkedItem item, Record record, ServerPlayer actor,
         ItemUpdateData snapshot, string reason)

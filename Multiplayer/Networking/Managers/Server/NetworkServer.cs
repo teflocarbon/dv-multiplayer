@@ -259,6 +259,7 @@ public class NetworkServer : NetworkManager
 
         // Jobs
         netPacketProcessor.SubscribeReusable<ServerboundJobValidateRequestPacket, ITransportPeer>(OnServerboundJobValidateRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundJobBookletSummonRequestPacket, ITransportPeer>(OnServerboundJobBookletSummonRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWarehouseMachineControllerRequestPacket, ITransportPeer>(OnServerboundWarehouseMachineControllerRequestPacket);
 
         // Items
@@ -1062,6 +1063,25 @@ public class NetworkServer : NetworkManager
             TraceItemDeliveryExpected(packet, sendToPlayer.Peer, DeliveryMethod.ReliableOrdered);
             SendPacket(sendToPlayer.Peer, packet, DeliveryMethod.ReliableOrdered);
         }
+    }
+
+    public void SendJobReportArtifact(JobReportArtifactData artifact, ServerPlayer player)
+    {
+        if (artifact == null || player?.Peer == null)
+            return;
+
+        DebugRuntime.Publish("job", "job.report-artifact-sent", DebugRuntimeSide.Server,
+            entityType: "Item", entityId: artifact.ItemNetId.ToString(), data: new Dictionary<string, object>
+            {
+                ["artifactToken"] = artifact.ArtifactToken,
+                ["jobNetId"] = artifact.JobNetId,
+                ["recipientPlayerId"] = player.PlayerId,
+                ["hasDebt"] = artifact.Debt != null
+            });
+        SendPacket(player.Peer, new ClientboundJobReportArtifactPacket
+        {
+            Payload = artifact.Serialize()
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     private void TraceItemDeliveryExpected<T>(T packet, ITransportPeer peer, DeliveryMethod deliveryMethod)
@@ -2143,15 +2163,40 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        LogDebug(() => $"OnServerboundJobValidateRequestPacket() Validating {packet.JobNetId}, Validation Type: {packet.validationType} overview: {networkedJob.JobOverview != null}, booklet: {networkedJob.JobBooklet != null}");
+        LogDebug(() => $"OnServerboundJobValidateRequestPacket() Validating {packet.JobNetId}, Validation Type: {packet.validationType}, item: {packet.ItemNetId}");
         switch (packet.validationType)
         {
             case ValidationType.JobOverview:
-                networkedStationController.JobValidator.ProcessJobOverview(networkedJob.JobOverview.GetTrackedItem<JobOverview>());
+                if (networkedJob.JobOverview == null ||
+                    networkedJob.JobOverview.NetId != packet.ItemNetId)
+                {
+                    LogWarning($"Job overview {packet.ItemNetId} is not canonical for job {packet.JobNetId}");
+                    SendPacket(peer, new ClientboundJobValidateResponsePacket
+                        { JobNetId = packet.JobNetId, Invalid = true }, DeliveryMethod.ReliableOrdered);
+                    return;
+                }
+                networkedJob.PendingBookletIssuedToPlayerId = player.PlayerId;
+                try
+                {
+                    networkedStationController.JobValidator.ProcessJobOverview(
+                        networkedJob.JobOverview.GetTrackedItem<JobOverview>());
+                }
+                finally
+                {
+                    networkedJob.PendingBookletIssuedToPlayerId = 0;
+                }
                 break;
 
             case ValidationType.JobBooklet:
-                networkedStationController.JobValidator.ValidateJob(networkedJob.JobBooklet.GetTrackedItem<JobBooklet>());
+                if (!networkedJob.TryGetJobBooklet(packet.ItemNetId, out NetworkedItem booklet))
+                {
+                    LogWarning($"Job booklet {packet.ItemNetId} is not registered for job {packet.JobNetId}");
+                    SendPacket(peer, new ClientboundJobValidateResponsePacket
+                        { JobNetId = packet.JobNetId, Invalid = true }, DeliveryMethod.ReliableOrdered);
+                    return;
+                }
+                networkedStationController.JobValidator.ValidateJob(
+                    booklet.GetTrackedItem<JobBooklet>());
                 break;
         }
 
@@ -2299,6 +2344,20 @@ public class NetworkServer : NetworkManager
         {
             DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Server);
         }
+    }
+
+    private void OnServerboundJobBookletSummonRequestPacket(
+        ServerboundJobBookletSummonRequestPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        if (!NetworkedStationController.Get(packet.StationNetId,
+                out NetworkedStationController station) || station.JobValidator == null)
+        {
+            LogWarning($"Job booklet summon station not found: {packet.StationNetId}");
+            return;
+        }
+        JobBookletSummonCoordinator.TryStart(station.JobValidator, player);
     }
 
     private void OnServerboundItemAdoptionPacket(ServerboundItemAdoptionPacket packet, ITransportPeer peer)

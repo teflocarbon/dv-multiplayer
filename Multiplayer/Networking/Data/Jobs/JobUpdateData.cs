@@ -14,6 +14,7 @@ public struct JobUpdateStruct : INetSerializable
     public ushort ItemNetID;
     public uint ValidationStationId;
     public ItemPositionData ItemPositionData;
+    public byte IssuedToPlayerId;
 
     public readonly void Serialize(NetDataWriter writer)
     {
@@ -30,6 +31,7 @@ public struct JobUpdateStruct : INetSerializable
         writer.Put(ItemNetID);
         writer.Put(ValidationStationId);
         ItemPositionData.Serialize(writer,ItemPositionData);
+        writer.Put(IssuedToPlayerId);
     }
 
     public void Deserialize(NetDataReader reader)
@@ -46,5 +48,6 @@ public struct JobUpdateStruct : INetSerializable
         ItemNetID = reader.GetUShort();
         ValidationStationId = reader.GetUInt();
         ItemPositionData = ItemPositionData.Deserialize(reader);
+        IssuedToPlayerId = reader.GetByte();
     }
 }

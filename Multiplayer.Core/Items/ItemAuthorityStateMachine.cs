@@ -57,7 +57,7 @@ public sealed class ItemTransitionCommand
     public bool Force { get; set; }
     public bool AppliesPlacement { get; set; }
     public AuthorityPlacement RequestedPlacement { get; set; }
-    public bool IsEssential { get; set; }
+    public bool ClearRetrievalClaim { get; set; }
     public int InventoryClaimSlot { get; set; } = -1;
     public AuthorityClaimFlags InventoryClaimFlags { get; set; }
 }
@@ -67,7 +67,6 @@ public sealed class ItemRecallCommand
     public byte RequestingPlayerId { get; set; }
     public uint ExpectedRevision { get; set; }
     public int RequestedSlot { get; set; } = -1;
-    public bool IsEssential { get; set; }
 }
 
 public readonly struct ItemAuthorityResult
@@ -109,8 +108,15 @@ public static class ItemAuthorityStateMachine
             return ItemAuthorityResult.Reject(current, "sender-not-current-possessor");
 
         ItemAuthorityState next = current.Clone();
-        if (command.AppliesPlacement && next.PersistentOwnerPlayerId == 0 && command.IsEssential)
+        bool requestedRetrievalClaim = command.InventoryClaimSlot >= 0 &&
+            HasRetrievalFlag(command.InventoryClaimFlags);
+        if (command.AppliesPlacement && next.PersistentOwnerPlayerId == 0 && requestedRetrievalClaim)
+        {
             next.PersistentOwnerPlayerId = command.ActorPlayerId;
+            next.InventoryClaimPlayerId = command.ActorPlayerId;
+            next.InventoryClaimSlot = command.InventoryClaimSlot;
+            next.InventoryClaimFlags = command.InventoryClaimFlags;
+        }
 
         if (command.AppliesPlacement)
         {
@@ -123,10 +129,10 @@ public static class ItemAuthorityStateMachine
         if (command.AppliesPlacement && next.PersistentOwnerPlayerId != 0 &&
             command.ActorPlayerId == next.PersistentOwnerPlayerId)
         {
-            if (command.InventoryClaimSlot >= 0)
+            if (requestedRetrievalClaim)
             {
                 next.InventoryClaimPlayerId = command.ActorPlayerId;
-                if (next.InventoryClaimSlot < 0 || !command.IsEssential)
+                if (next.InventoryClaimSlot < 0)
                     next.InventoryClaimSlot = command.InventoryClaimSlot;
                 next.InventoryClaimFlags = command.InventoryClaimFlags;
             }
@@ -135,7 +141,7 @@ public static class ItemAuthorityStateMachine
                 next.InventoryClaimFlags &= ~(AuthorityClaimFlags.Dropped | AuthorityClaimFlags.Stolen);
             else if (next.InventoryClaimSlot >= 0)
             {
-                next.InventoryClaimFlags |= AuthorityClaimFlags.Dropped | AuthorityClaimFlags.Reserved;
+                next.InventoryClaimFlags |= AuthorityClaimFlags.Dropped;
                 next.InventoryClaimFlags &= ~AuthorityClaimFlags.Stolen;
             }
         }
@@ -144,6 +150,14 @@ public static class ItemAuthorityStateMachine
         {
             next.InventoryClaimFlags |= AuthorityClaimFlags.Dropped |
                 AuthorityClaimFlags.Reserved | AuthorityClaimFlags.Stolen;
+        }
+
+        if (command.Force && command.ClearRetrievalClaim)
+        {
+            next.PersistentOwnerPlayerId = 0;
+            next.InventoryClaimPlayerId = 0;
+            next.InventoryClaimSlot = -1;
+            next.InventoryClaimFlags = AuthorityClaimFlags.None;
         }
 
         next.Revision++;
@@ -157,7 +171,7 @@ public static class ItemAuthorityStateMachine
         if (current.PersistentOwnerPlayerId == 0 ||
             current.PersistentOwnerPlayerId != command.RequestingPlayerId)
             return ItemAuthorityResult.Reject(current, "requester-not-persistent-owner");
-        if (!command.IsEssential)
+        if (current.InventoryClaimSlot < 0 || !HasRetrievalFlag(current.InventoryClaimFlags))
             return ItemAuthorityResult.Reject(current, "item-not-recallable");
         if (command.ExpectedRevision != current.Revision)
             return ItemAuthorityResult.Reject(current, "stale-authority-revision");
@@ -178,6 +192,9 @@ public static class ItemAuthorityStateMachine
 
     private static bool IsPlayerPlacement(AuthorityPlacement placement) =>
         placement is AuthorityPlacement.PlayerHand or AuthorityPlacement.PlayerInventory;
+
+    private static bool HasRetrievalFlag(AuthorityClaimFlags flags) =>
+        (flags & (AuthorityClaimFlags.Reserved | AuthorityClaimFlags.Locked)) != 0;
 }
 
 /// <summary>Small pure identity store used to prove one canonical record per nonzero NetId.</summary>

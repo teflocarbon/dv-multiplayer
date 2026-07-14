@@ -16,6 +16,7 @@
     <ProjectReference Include="..\Multiplayer.DebugProtocol\Multiplayer.DebugProtocol.csproj" />
     <Reference Include="Multiplayer"><HintPath>$(MultiplayerAssemblyPath)</HintPath><Private>true</Private></Reference>
     <Reference Include="Assembly-CSharp"><HintPath>$(DerailValleyManagedDir)\Assembly-CSharp.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="DV.ThingTypes"><HintPath>$(DerailValleyManagedDir)\DV.ThingTypes.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(DerailValleyManagedDir)\UnityEngine.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(DerailValleyManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>true</Private></Reference>
   </ItemGroup>

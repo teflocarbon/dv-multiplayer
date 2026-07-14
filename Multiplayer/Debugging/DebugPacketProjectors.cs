@@ -2,6 +2,8 @@ using Multiplayer.Components.Networking.World;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Packets.Common;
+using Multiplayer.Networking.Data.Jobs;
+using Multiplayer.Networking.Packets.Clientbound.Jobs;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,6 +53,31 @@ public static class DebugPacketProjectorRegistry
         {
             Wire = ProjectItemUpdate(item), Context = ItemContext(item, localPlayerId), Summary = SummarizeItem(item)
         });
+        Register<ClientboundJobReportArtifactPacket>((packet, localPlayerId) =>
+        {
+            JobReportArtifactData artifact = JobReportArtifactData.Deserialize(packet.Payload);
+            return new DebugPacketProjection
+            {
+                Wire = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["packetType"] = nameof(ClientboundJobReportArtifactPacket),
+                    ["schemaVersion"] = artifact.SchemaVersion,
+                    ["artifactToken"] = artifact.ArtifactToken,
+                    ["itemNetId"] = artifact.ItemNetId,
+                    ["jobNetId"] = artifact.JobNetId,
+                    ["validationStationNetId"] = artifact.ValidationStationNetId,
+                    ["position"] = DebugStrictSnapshotter.Snapshot(artifact.Position.Position),
+                    ["rotation"] = DebugStrictSnapshotter.Snapshot(artifact.Position.Rotation),
+                    ["job"] = DebugStrictSnapshotter.Snapshot(artifact.Job),
+                    ["debt"] = DebugStrictSnapshotter.Snapshot(artifact.Debt)
+                },
+                Context = localPlayerId.HasValue
+                    ? new Dictionary<string, object> { ["localPlayerId"] = localPlayerId.Value }
+                    : new Dictionary<string, object>(),
+                Summary = $"JobReport item {artifact.ItemNetId} job {artifact.Job?.Id ?? artifact.JobNetId.ToString()}" +
+                          (artifact.Debt == null ? " no debt" : " with debt")
+            };
+        });
     }
 
     public static void Register<T>(Func<T, byte?, DebugPacketProjection> projector) => projectors[typeof(T)] = (value, player) => projector((T)value, player);
@@ -58,7 +85,25 @@ public static class DebugPacketProjectorRegistry
     public static DebugPacketProjection Project(object packet, byte? localPlayerId = null)
     {
         if (packet == null) return new DebugPacketProjection { Wire = null, Summary = "null packet" };
-        if (projectors.TryGetValue(packet.GetType(), out Func<object, byte?, DebugPacketProjection> projector)) return projector(packet, localPlayerId);
+        if (projectors.TryGetValue(packet.GetType(), out Func<object, byte?, DebugPacketProjection> projector))
+        {
+            try
+            {
+                return projector(packet, localPlayerId);
+            }
+            catch (Exception exception)
+            {
+                return new DebugPacketProjection
+                {
+                    Wire = new Dictionary<string, object>
+                    {
+                        ["packetType"] = packet.GetType().Name,
+                        ["projectionError"] = exception.Message
+                    },
+                    Summary = $"{packet.GetType().Name} (projection failed)"
+                };
+            }
+        }
         return new DebugPacketProjection
         {
             Wire = new Dictionary<string, object> { ["packetType"] = packet.GetType().Name, ["fields"] = DebugStrictSnapshotter.Snapshot(packet) },
@@ -76,6 +121,7 @@ public static class DebugPacketProjectorRegistry
             ["authorityRevision"] = item.AuthorityRevision,
             ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
             ["transitionReason"] = item.TransitionReason.ToString(),
+            ["originatingPlayerId"] = item.OriginatingPlayerId,
             ["inventoryClaim"] = new Dictionary<string, object>(StringComparer.Ordinal)
             {
                 ["playerId"] = item.InventoryClaimPlayerId,

@@ -22,6 +22,7 @@ public enum ItemTransitionReason : byte
     ClientState,
     ClientAdoption,
     OwnerRecall,
+    JobBookletSummon,
     FullSync
 }
 

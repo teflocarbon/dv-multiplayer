@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.15.0+a68855ae950c525f86b1b24ab40fbcac36156055",
-  "Fingerprint": "421978a49634f3c7750117610a2e8a0b3b045fa0649493caf561b789e025beab",
+  "BuildVersion": "0.1.15.0+3d4b8db111c8d61a65f16b8facf93309291c9838",
+  "Fingerprint": "308dc38ca828c3f7e33459b75222aa1d08d25df1ea271b7e2180e54b3c0b55fb",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -179,6 +179,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundWindowsRepairedPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "2C2F28A4B7D8C8D7",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Jobs.ServerboundJobBookletSummonRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Jobs",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -560,6 +569,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "B9ED1809FF01BAF5",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Jobs.ClientboundJobReportArtifactPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "BC63A18DBA9C727E",
@@ -945,7 +963,8 @@
       "ClientState": 3,
       "ClientAdoption": 4,
       "OwnerRecall": 5,
-      "FullSync": 6
+      "JobBookletSummon": 6,
+      "FullSync": 7
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+Hand": {
       "nonVR": 0,

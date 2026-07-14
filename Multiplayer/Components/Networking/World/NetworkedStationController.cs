@@ -454,6 +454,9 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
             takenJobs.Add(newJob);
             newJob.TakeJob(true); //take job as if loaded from save to prevent debt controller kicking in
+            foreach (JobBookletCopyData booklet in jobData.JobBooklets ?? [])
+                GenerateJobBookletCopy(networkedJob, booklet.ItemNetId, booklet.Position,
+                    booklet.IssuedToPlayerId);
         }
         else
         {
@@ -531,6 +534,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
             UpdateJobState(netJob, job);
             UpdateJobOverview(netJob, job);
+            UpdateJobBooklet(netJob, job);
 
         }
     }
@@ -558,6 +562,15 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         }
     }
 
+    private void UpdateJobBooklet(NetworkedJob netJob, JobUpdateStruct job)
+    {
+        if (job.JobState != JobState.InProgress || job.ItemNetID == 0 ||
+            netJob.TryGetJobBooklet(job.ItemNetID, out _))
+            return;
+        GenerateJobBookletCopy(netJob, job.ItemNetID, job.ItemPositionData,
+            job.IssuedToPlayerId);
+    }
+
     private void HandleJobStateChange(NetworkedJob netJob, JobUpdateStruct updateData)
     {
         JobValidator validator = null;
@@ -566,7 +579,9 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
         NetworkLifecycle.Instance.Client.LogDebug(() => $"HandleJobStateChange({jobIdStr}) Current state: {netJob?.Job?.State}, New state: {updateData.JobState}, ValidationStationNetId: {updateData.ValidationStationId}, ItemNetId: {updateData.ItemNetID}");
 
-        bool shouldPrint = updateData.JobState == JobState.InProgress || updateData.JobState == JobState.Completed;
+        // Job state packets only create the accepted-job booklet. Job reports are physical
+        // print artifacts and arrive through ClientboundJobReportArtifactPacket.
+        bool shouldPrint = updateData.JobState == JobState.InProgress;
         bool canPrint = true;
 
         if (shouldPrint)
@@ -603,7 +618,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
                     JobBooklet jobBooklet = BookletCreator.CreateJobBooklet(netJob.Job, validator.bookletPrinter.spawnAnchor.position, validator.bookletPrinter.spawnAnchor.rotation, WorldMover.OriginShiftParent, true);
                     netItem = jobBooklet.GetOrAddComponent<NetworkedItem>();
                     netItem.Initialize(jobBooklet, updateData.ItemNetID, false);
-                    netJob.JobBooklet = netItem;
+                    netJob.RegisterJobBooklet(netItem, updateData.IssuedToPlayerId);
                     printed = true;
                 }
 
@@ -616,19 +631,9 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
                 completedJobs.Add(netJob.Job);
                 netJob.Job.CompleteJob();
 
-                if (canPrint)
-                {
-                    DisplayableDebt displayableDebt = SingletonBehaviour<JobDebtController>.Instance.LastStagedJobDebt;
-                    JobReport jobReport = BookletCreator.CreateJobReport(netJob.Job, displayableDebt, validator.bookletPrinter.spawnAnchor.position, validator.bookletPrinter.spawnAnchor.rotation, WorldMover.OriginShiftParent);
-                    netItem = jobReport.GetOrAddComponent<NetworkedItem>();
-                    netItem.Initialize(jobReport, updateData.ItemNetID, false);
-                    netJob.AddReport(netItem);
-                    printed = true;
-                }
-
                 StartCoroutine(UpdateCarPlates(netJob.JobCars, string.Empty));
 
-                netJob.DestroyJobBooklet();
+                netJob.DestroyJobBooklets();
 
                 break;
 
@@ -675,7 +680,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
             abandonedJobs.Remove(job.Job);
 
         job.DestroyJobOverview();
-        job.DestroyJobBooklet();
+        job.DestroyJobBooklets();
 
         job.ClearReports();
 
@@ -730,6 +735,20 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         netItem.Initialize(jobOverview, itemNetId, false);
         networkedJob.JobOverview = netItem;
         StationController.spawnedJobOverviews.Add(jobOverview);
+    }
+
+    private static void GenerateJobBookletCopy(NetworkedJob networkedJob, ushort itemNetId,
+        ItemPositionData posData, byte issuedToPlayerId)
+    {
+        if (networkedJob == null || itemNetId == 0 ||
+            networkedJob.TryGetJobBooklet(itemNetId, out _))
+            return;
+        JobBooklet booklet = BookletCreator.CreateJobBooklet(networkedJob.Job,
+            posData.Position + WorldMover.currentMove, posData.Rotation,
+            WorldMover.OriginShiftParent, true);
+        NetworkedItem item = booklet.GetOrAddComponent<NetworkedItem>();
+        item.Initialize(booklet, itemNetId, false);
+        networkedJob.RegisterJobBooklet(item, issuedToPlayerId);
     }
     #endregion
 }

@@ -1,5 +1,6 @@
 using DV;
 using DV.Common;
+using DV.Booklets;
 using DV.Customization;
 using DV.Customization.Paint;
 using DV.Damage;
@@ -27,6 +28,7 @@ using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.SaveGame;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Networking.Data.Jobs;
 using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.Data.Train;
 using Multiplayer.Networking.Data.World;
@@ -93,6 +95,7 @@ public class NetworkClient : NetworkManager
 
     // Allow mods to add to the wait Queue
     private readonly List<string> readyBlocks = [];
+    private readonly Dictionary<ushort, JobReportArtifactData> pendingJobReportArtifacts = new();
 
     public NetworkClient(Settings settings, bool singlePlayer) : base(settings)
     {
@@ -244,6 +247,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundJobsUpdatePacket>(OnClientboundJobsUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundJobsCreatePacket>(OnClientboundJobsCreatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundJobValidateResponsePacket>(OnClientboundJobValidateResponsePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundJobReportArtifactPacket>(OnClientboundJobReportArtifactPacket);
         netPacketProcessor.SubscribeReusable<ClientboundTaskUpdatePacket>(OnClientboundTaskUpdatePacket);
 
         // World Sync
@@ -1234,6 +1238,7 @@ public class NetworkClient : NetworkManager
         Log($"Received {packet.Jobs.Length} jobs for station {networkedStationController.StationController.logicStation.ID}");
 
         networkedStationController.AddJobs(packet.Jobs);
+        DrainPendingJobReportArtifacts();
     }
 
     private void OnClientboundJobsUpdatePacket(ClientboundJobsUpdatePacket packet)
@@ -1250,6 +1255,75 @@ public class NetworkClient : NetworkManager
         Log($"Received {packet.JobUpdates.Length} job updates for station {networkedStationController.StationController.logicStation.ID}");
 
         networkedStationController.UpdateJobs(packet.JobUpdates);
+        DrainPendingJobReportArtifacts();
+    }
+
+    private void OnClientboundJobReportArtifactPacket(ClientboundJobReportArtifactPacket packet)
+    {
+        try
+        {
+            JobReportArtifactData artifact = JobReportArtifactData.Deserialize(packet.Payload);
+            pendingJobReportArtifacts[artifact.ItemNetId] = artifact;
+            DebugRuntime.Publish("job", "job.report-artifact-received", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: artifact.ItemNetId.ToString(), data: new Dictionary<string, object>
+                {
+                    ["artifactToken"] = artifact.ArtifactToken,
+                    ["jobNetId"] = artifact.JobNetId,
+                    ["hasDebt"] = artifact.Debt != null
+                });
+            TryMaterializeJobReport(artifact);
+        }
+        catch (Exception exception)
+        {
+            LogError($"Failed to decode JobReport artifact: {exception}");
+            DebugRuntime.Publish("job", "job.report-artifact-rejected", DebugRuntimeSide.Client,
+                DebugSeverity.Error, data: new Dictionary<string, object> { ["reason"] = exception.Message });
+        }
+    }
+
+    private void DrainPendingJobReportArtifacts()
+    {
+        foreach (JobReportArtifactData artifact in pendingJobReportArtifacts.Values.ToArray())
+            TryMaterializeJobReport(artifact);
+    }
+
+    private bool TryMaterializeJobReport(JobReportArtifactData artifact)
+    {
+        if (artifact == null || NetworkLifecycle.Instance.IsHost())
+            return false;
+        if (NetworkedItem.TryGet(artifact.ItemNetId, out NetworkedItem existing))
+        {
+            if (existing.GetTrackedItem<JobReport>() != null)
+            {
+                pendingJobReportArtifacts.Remove(artifact.ItemNetId);
+                return true;
+            }
+            LogError($"JobReport artifact {artifact.ArtifactToken} conflicts with item {artifact.ItemNetId}.");
+            return false;
+        }
+        if (!NetworkedJob.Get(artifact.JobNetId, out NetworkedJob networkedJob) || networkedJob?.Job == null)
+            return false;
+
+        Job_data jobData = artifact.Job.ToGameData();
+        Debt_data debtData = artifact.Debt?.ToGameData();
+        Vector3 localPosition = artifact.Position.Position + WorldMover.currentMove;
+        JobReport report = BookletCreator_JobReport.Create(jobData, debtData, localPosition,
+            artifact.Position.Rotation, WorldMover.OriginShiftParent);
+        if (report == null)
+            throw new InvalidOperationException($"BookletCreator returned null for report {artifact.ArtifactToken}.");
+
+        NetworkedItem netItem = report.GetOrAddComponent<NetworkedItem>();
+        netItem.Initialize(report, artifact.ItemNetId, false);
+        networkedJob.AddReport(netItem);
+        pendingJobReportArtifacts.Remove(artifact.ItemNetId);
+        DebugRuntime.Publish("job", "job.report-artifact-materialized", DebugRuntimeSide.Client,
+            entityType: "Item", entityId: artifact.ItemNetId.ToString(), data: new Dictionary<string, object>
+            {
+                ["artifactToken"] = artifact.ArtifactToken,
+                ["jobNetId"] = artifact.JobNetId,
+                ["gameObjectPath"] = report.gameObject.GetPath()
+            });
+        return true;
     }
 
     private void OnClientboundTaskUpdatePacket(ClientboundTaskUpdatePacket packet)
@@ -1898,12 +1972,14 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableUnordered);
     }
 
-    public void SendJobValidateRequest(NetworkedJob job, NetworkedStationController station)
+    public void SendJobValidateRequest(NetworkedJob job, NetworkedStationController station,
+        NetworkedItem validationItem)
     {
         SendPacketToServer(new ServerboundJobValidateRequestPacket
         {
             JobNetId = job.NetId,
             StationNetId = station.NetId,
+            ItemNetId = validationItem?.NetId ?? 0,
             validationType = job.ValidationType
         }, DeliveryMethod.ReliableUnordered);
     }
@@ -1997,6 +2073,14 @@ public class NetworkClient : NetworkManager
 
         SendPacketToServer(new CommonItemUpdatePacket { ItemData = updateData },
                 DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendJobBookletSummonRequest(uint stationNetId)
+    {
+        SendPacketToServer(new ServerboundJobBookletSummonRequestPacket
+        {
+            StationNetId = stationNetId
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendItemAdoption(ItemAdoptionRequestData request)
