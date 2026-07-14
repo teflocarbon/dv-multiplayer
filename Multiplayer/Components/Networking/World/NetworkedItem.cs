@@ -236,6 +236,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         snapshot.ItemNetId = NetId;
         snapshot.UpdateType = ItemUpdateData.ItemUpdateType.FullSync;
+        snapshot.PersistentOwnerPlayerId = owner.PlayerId;
         if (!AuthoritativeItemRegistry.TryApplyTransition(this, snapshot, owner,
                 ItemTransitionReason.ClientAdoption, true, out string rejectionReason))
         {
@@ -821,6 +822,19 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return null;
         }
 
+        if (NetworkLifecycle.Instance.IsHost() && NetId != 0 &&
+            AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority) &&
+            authority.Placement == ItemPlacementKind.LostAndFound)
+        {
+            hostStateObservationPending = false;
+            createdDirty = false;
+            stateDirty = false;
+            wasThrown = false;
+            wasRemoved = false;
+            MarkValuesClean();
+            return null;
+        }
+
         if (!stateDirty && !hasDirtyVals)
         {
             hostStateObservationPending = false;
@@ -987,6 +1001,50 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
 
         ApplySnapshot(snapshot);
+    }
+
+    internal void ApplyClientLostAndFoundProjection(ItemUpdateData snapshot)
+    {
+        if (snapshot == null || NetworkLifecycle.Instance.IsHost())
+            return;
+
+        ApplyAuthorityMetadata(snapshot);
+        SetClientNetworkBinding(true);
+        try { Item?.ForceEndInteraction(); } catch { }
+        try
+        {
+            StorageController storage = StorageController.Instance;
+            if (storage?.StorageWorld?.ContainsItem(Item) == true)
+                storage.RemoveItemFromWorldStorage(Item);
+        }
+        catch { }
+
+        Rigidbody body = Item?.ItemRigidbody;
+        if (body != null)
+        {
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.isKinematic = true;
+        }
+        if (Item != null)
+            Item.InteractionAllowed = false;
+        gameObject.SetActive(false);
+        createdDirty = false;
+        stateDirty = false;
+        hasLastSentState = true;
+        EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
+            EntityDebugRegistry.ItemState(this));
+    }
+
+    internal void RestoreClientLostAndFoundProjection(ItemUpdateData snapshot)
+    {
+        if (snapshot == null || NetworkLifecycle.Instance.IsHost())
+            return;
+        SetClientNetworkBinding(true);
+        gameObject.SetActive(true);
+        if (Item != null)
+            Item.InteractionAllowed = true;
+        ReceiveSnapshot(snapshot);
     }
 
     private void ApplyDeferredTrackedState(ItemUpdateData snapshot, string reason)
@@ -2066,6 +2124,12 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         InventoryClaimSlot = snapshot.InventoryClaimSlot;
         InventoryClaimFlags = snapshot.InventoryClaimFlags;
         LastTransitionReason = snapshot.TransitionReason;
+        // Persistent ownership plus a retrieval claim is the authoritative multiplayer
+        // classification for a personal item. This also repairs projections cached by older
+        // builds, whose generic Destroy path incorrectly cleared BelongsToPlayer.
+        if (PersistentOwnerPlayerId != 0 && InventoryClaimSlot >= 0 &&
+            HasRetrievalFlag(InventoryClaimFlags) && Item?.InventorySpecs != null)
+            Item.InventorySpecs.BelongsToPlayer = true;
     }
 
     private void PublishHolderInvariant(ItemUpdateData snapshot)

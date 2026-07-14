@@ -248,6 +248,8 @@ Inventory, storage, and container diagnostics subscribe to Derail Valley's exist
 
 The overlay's `6 INVENTORY` page lists the local inventory by slot, including dropped essential-item silhouettes. Each row distinguishes stored, silhouette, stolen, and foreign states and opens the normal item inspector with live inventory slot/equip slot, active versus including-dropped membership, reserved/dropped/locked flags, essential/player-owned classification, canonical claim slot, claim-slot agreement, persistent owner, authority revision, and replication timeline. ID-zero inventory objects remain visible using their Unity instance identity.
 
+The `7 LOST+FOUND` page separates the four Lost and Found representations that otherwise look deceptively similar in ordinary item state: host registry records already collected, host policy candidates, save records awaiting owner/object rebinding, and the local client's authoritative list received from the host. Rows show source, status, NetId, revision, owner, and collection or policy reason. Selecting a row exposes persistent owner identity, claim slot/flags, authority placement, collection timestamp/token, eligibility/grace timing, owner and nearest-player distances, grabbed/snapped/machine protection, canonical Unity-object presence, storage membership, active state, transform, and the underlying item's retained timeline. Search also matches these state values. The page gathers detailed Unity/storage state only while visible; the normal host policy scan caches cheap detached decision primitives to avoid introducing a periodic debug hitch. Summary/full copy modes and the standard event-copy controls work on the page.
+
 Essential inventory claims are treated as immovable owner reservations. A normal owner drop, throw, or equip preserves the original reserved/dropped slot even while the physical item is in world storage or another player's hand. A foreign pickup adds the canonical `Stolen` claim flag without moving the owner's claim. Recall clears both `Dropped` and `Stolen`, then revives the existing reserved entry in place rather than inserting a second inventory object. On the borrower's process, authoritative possession revocation purges both the physical inventory entry and any dropped silhouette so no unusable ghost remains. `inventory.essential-claim-repaired`, `inventory.essential-claim-restored`, `inventory.essential-claim-invariant-violation`, and `item.essential-claim-slot-move-rejected` expose recovery or disagreement.
 
 `item.respawn-or-destroy-scheduled` traces `RespawnOnDrop` before its delayed coroutine can independently reset, destroy, deactivate, or move an item to lost and found. The warning includes identity, ownership, essential status, delay, respawn mode, transform, velocity, hierarchy state, and whether the object is on a valid respawn parent. Subsequent storage events make the resulting move correlatable without changing the base-game lifecycle decision.
@@ -367,6 +369,8 @@ Mouse-wheel sensitivity is increased for the entity list, state inspector, and t
 | `3` | Filter to train cars |
 | `4` | Open the packet inspector |
 | `5` | Open multiplayer health and automation diagnostics |
+| `6` | Open the local inventory diagnostics page |
+| `7` | Open Lost and Found registry, policy, save-rebind, and client-list diagnostics |
 | Up/Down, Page Up/Page Down, `[`/`]` | Move through the filtered entity list |
 | `Ctrl+F` | Focus the entity/packet search box |
 | `Ctrl+C` | Copy the selected entity DTO as formatted JSON |

@@ -1,82 +1,83 @@
 using DV.CabControls;
+using DV.ThingTypes;
 using HarmonyLib;
+using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World;
-using Multiplayer.Utils;
-using System;
-using UnityEngine;
+using Multiplayer.Core.Items;
 
-namespace Multiplayer.Patches.World.Items;
-/*
-[HarmonyPatch(typeof(StorageController))]
-public static class StorageControllerPatch
+namespace Multiplayer.Patches.World;
+
+internal static class MultiplayerStoragePatchGuard
 {
-    [HarmonyPatch(nameof(StorageController.AddItemToLostAndFound))]
-    [HarmonyPrefix]
-    static void AddItemToLostAndFound(StorageController __instance, ItemBase item)
+    internal static bool Active => NetworkLifecycle.Instance != null &&
+        (NetworkLifecycle.Instance.IsServerRunning || NetworkLifecycle.Instance.IsClientRunning);
+
+    internal static bool IsManaged(ItemBase item, out NetworkedItem networked)
     {
-
-        Multiplayer.LogDebug(() =>
-        {
-            NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem netItem);
-            return $"StorageController.AddItemToLostAndFound({item.name}) netId: {netItem?.NetId}\r\n{new System.Diagnostics.StackTrace()}";
-        });
+        networked = null;
+        if (!Active || item == null || !NetworkedItem.TryGetNetworkedItem(item, out networked) ||
+            networked == null || networked.NetId == 0)
+            return false;
+        if (NetworkLifecycle.Instance.IsHost() &&
+            AuthoritativeItemRegistry.TryGet(networked.NetId, out AuthoritativeItemRegistry.Record authority))
+            return authority.PersistentOwnerPlayerId != 0;
+        return networked.PersistentOwnerPlayerId != 0;
     }
-
-    [HarmonyPatch(nameof(StorageController.RemoveItemFromLostAndFound))]
-    [HarmonyPrefix]
-    static void RemoveItemFromLostAndFound(StorageController __instance, ItemBase item)
-    {
-
-        Multiplayer.LogDebug(() =>
-        {
-            NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem netItem);
-            return $"StorageController.RemoveItemFromLostAndFound({item.name}) netId: {netItem?.NetId}\r\n{new System.Diagnostics.StackTrace()}";
-        });
-    }
-
-    [HarmonyPatch(nameof(StorageController.RequestLostAndFoundItemActivation))]
-    [HarmonyPrefix]
-    static void RequestLostAndFoundItemActivation(StorageController __instance)
-    {
-
-        Multiplayer.LogDebug(() =>
-        {
-            return $"StorageController.RequestLostAndFoundItemActivation()\r\n{new System.Diagnostics.StackTrace()}";
-        });
-    }
-
-    [HarmonyPatch(nameof(StorageController.MoveItemsFromWorldToLostAndFound))]
-    [HarmonyPrefix]
-    static void MoveItemsFromWorldToLostAndFound(StorageController __instance, bool ignoreItemsWithRespawnParents)
-    {
-
-        Multiplayer.LogDebug(() =>
-        {
-            return $"StorageController.MoveItemsFromWorldToLostAndFound({ignoreItemsWithRespawnParents})\r\n{new System.Diagnostics.StackTrace()}";
-        });
-    }
-
-    [HarmonyPatch(nameof(StorageController.ForceSummonAllWorldItemsToLostAndFound))]
-    [HarmonyPrefix]
-    static void ForceSummonAllWorldItemsToLostAndFound(StorageController __instance)
-    {
-
-        Multiplayer.LogDebug(() =>
-        {
-            return $"StorageController.ForceSummonAllWorldItemsToLostAndFound()\r\n{new System.Diagnostics.StackTrace()}";
-        });
-    }
-
-    [HarmonyPatch(nameof(StorageController.RequestItemActivation))]
-    [HarmonyPrefix]
-    static void RequestItemActivation(StorageController __instance)
-    {
-
-        Multiplayer.LogDebug(() =>
-        {
-            return $"StorageController.RequestItemActivation()\r\n{new System.Diagnostics.StackTrace()}";
-        });
-    }
-
 }
-*/
+
+[HarmonyPatch(typeof(StorageController), nameof(StorageController.AddItemToLostAndFound))]
+internal static class StorageControllerAddLostItemPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(ItemBase item)
+    {
+        if (!MultiplayerStoragePatchGuard.IsManaged(item, out NetworkedItem networked))
+            return true;
+        if (NetworkLifecycle.Instance.IsHost())
+            NetworkedLostAndFoundManager.Collect(networked, LostItemReason.SaveRecovery);
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(StorageController), nameof(StorageController.RequestLostAndFoundItemActivation))]
+internal static class StorageControllerRequestLostActivationPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix() => !MultiplayerStoragePatchGuard.Active;
+}
+
+[HarmonyPatch(typeof(StorageController), nameof(StorageController.MoveItemsFromWorldToLostAndFound))]
+internal static class StorageControllerMoveWorldItemsPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix() => !MultiplayerStoragePatchGuard.Active;
+}
+
+[HarmonyPatch(typeof(StorageController), nameof(StorageController.ForceSummonAllWorldItemsToLostAndFound))]
+internal static class StorageControllerForceSummonPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix() => !MultiplayerStoragePatchGuard.Active;
+}
+
+[HarmonyPatch(typeof(StorageController), "OnPlayerInActivationRange")]
+internal static class StorageControllerAccessPointPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(StorageAccessPointBase __0) =>
+        !MultiplayerStoragePatchGuard.Active || __0 == null ||
+        __0.AccessPointStorageType != StorageType.LostAndFound;
+}
+
+[HarmonyPatch(typeof(StorageItemTransformController), nameof(StorageItemTransformController.ActivateItems))]
+internal static class LostAndFoundTransformActivationPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(StorageItemTransformController __instance)
+    {
+        if (!MultiplayerStoragePatchGuard.Active)
+            return true;
+        return StorageController.Instance == null ||
+            __instance != StorageController.Instance.ItemTransformControllerLostAndFound;
+    }
+}

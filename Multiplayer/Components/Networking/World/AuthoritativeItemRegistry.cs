@@ -48,10 +48,10 @@ public static class AuthoritativeItemRegistry
         bool hasRetrievalClaim = (seed?.InventoryClaimSlot ?? -1) >= 0 &&
             HasRetrievalFlag(claimFlags);
         byte claimedOwner = seed?.PersistentOwnerPlayerId ?? 0;
-        byte persistentOwner = actor != null && hasRetrievalClaim &&
-            (claimedOwner == 0 || claimedOwner == actor.PlayerId)
-                ? actor.PlayerId
-                : (byte)0;
+        bool actorOwnsPlayerItem = item.Item?.InventorySpecs?.BelongsToPlayer == true && actor != null &&
+            (claimedOwner == actor.PlayerId ||
+             claimedOwner == 0 && item.Item?.InventorySpecs?.BelongsToPlayer == true);
+        byte persistentOwner = actorOwnsPlayerItem ? actor.PlayerId : (byte)0;
 
         Record record = new()
         {
@@ -59,10 +59,10 @@ public static class AuthoritativeItemRegistry
             Placement = PlacementFrom(seed?.ItemState ?? item.DebugCurrentState),
             PlacementPlayerId = seed?.PlayerId ?? 0,
             PersistentOwnerPlayerId = persistentOwner,
-            InventoryClaimPlayerId = persistentOwner == 0 ? (byte)0 :
+            InventoryClaimPlayerId = persistentOwner == 0 || !hasRetrievalClaim ? (byte)0 :
                 seed?.InventoryClaimPlayerId ?? persistentOwner,
-            InventoryClaimSlot = persistentOwner == 0 ? -1 : seed?.InventoryClaimSlot ?? -1,
-            InventoryClaimFlags = persistentOwner == 0 ? ItemInventoryClaimFlags.None : claimFlags,
+            InventoryClaimSlot = persistentOwner == 0 || !hasRetrievalClaim ? -1 : seed?.InventoryClaimSlot ?? -1,
+            InventoryClaimFlags = persistentOwner == 0 || !hasRetrievalClaim ? ItemInventoryClaimFlags.None : claimFlags,
             PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
             Position = seed?.ItemPosition ?? item.transform.position - WorldMover.currentMove,
             Rotation = seed?.ItemRotation ?? item.transform.rotation,
@@ -108,6 +108,7 @@ public static class AuthoritativeItemRegistry
             AppliesPlacement = appliesPlacement,
             RequestedPlacement = (AuthorityPlacement)(byte)requestedPlacement,
             ClearRetrievalClaim = clearRetrievalClaim,
+            MayEstablishPersistentOwner = item.Item?.InventorySpecs?.BelongsToPlayer == true,
             InventoryClaimSlot = snapshot.InventoryClaimSlot,
             InventoryClaimFlags = (AuthorityClaimFlags)(byte)snapshot.InventoryClaimFlags
         });
@@ -189,6 +190,143 @@ public static class AuthoritativeItemRegistry
         return true;
     }
 
+    public static bool TryMoveToLostAndFound(NetworkedItem item, out Record record,
+        out string rejectionReason, bool allowRecoveryPlacement = false)
+    {
+        record = null;
+        rejectionReason = string.Empty;
+        if (item == null || item.NetId == 0 || !records.TryGetValue(item.NetId, out record))
+        {
+            rejectionReason = "unknown-network-entity";
+            return false;
+        }
+        if (record.PersistentOwnerPlayerId == 0)
+        {
+            rejectionReason = "item-has-no-persistent-owner";
+            return false;
+        }
+        if (record.Placement != ItemPlacementKind.World &&
+            (!allowRecoveryPlacement || record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory))
+        {
+            rejectionReason = "item-not-in-world";
+            return false;
+        }
+        if (record.Revision == uint.MaxValue)
+        {
+            rejectionReason = "authority-revision-exhausted";
+            return false;
+        }
+
+        record.Revision++;
+        record.Placement = ItemPlacementKind.LostAndFound;
+        record.PlacementPlayerId = 0;
+        record.LastReason = ItemTransitionReason.LostAndFoundCollection;
+        Publish("item.lost-and-found-authority-applied", item, record, null);
+        return true;
+    }
+
+    public static bool TryRetrieveFromLostAndFound(NetworkedItem item, ServerPlayer requester,
+        uint expectedRevision, int targetSlot, out ItemUpdateData snapshot, out string rejectionReason)
+    {
+        snapshot = null;
+        rejectionReason = string.Empty;
+        if (item == null || requester == null || item.NetId == 0 ||
+            !records.TryGetValue(item.NetId, out Record record))
+        {
+            rejectionReason = "unknown-network-entity";
+            return false;
+        }
+        if (record.Placement != ItemPlacementKind.LostAndFound)
+        {
+            rejectionReason = "item-not-in-lost-and-found";
+            return false;
+        }
+        if (record.PersistentOwnerPlayerId != requester.PlayerId)
+        {
+            rejectionReason = "requester-not-persistent-owner";
+            return false;
+        }
+        if (record.Revision != expectedRevision)
+        {
+            rejectionReason = "stale-lost-item-revision";
+            return false;
+        }
+        if (record.Revision == uint.MaxValue)
+        {
+            rejectionReason = "authority-revision-exhausted";
+            return false;
+        }
+
+        ItemUpdateData created = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+        if (created == null)
+        {
+            rejectionReason = "snapshot-creation-failed";
+            return false;
+        }
+        record.Revision++;
+        record.Placement = ItemPlacementKind.PlayerInventory;
+        record.PlacementPlayerId = requester.PlayerId;
+        record.InventoryClaimPlayerId = requester.PlayerId;
+        record.InventoryClaimSlot = targetSlot;
+        record.InventoryClaimFlags &= ~(ItemInventoryClaimFlags.Dropped | ItemInventoryClaimFlags.Stolen);
+        record.LastReason = ItemTransitionReason.LostAndFoundRetrieval;
+
+        created.ItemState = ItemState.InInventory;
+        created.PlayerId = requester.PlayerId;
+        WriteToSnapshot(record, created, ItemTransitionReason.LostAndFoundRetrieval);
+        snapshot = created;
+        Publish("item.lost-and-found-retrieval-authority-applied", item, record, new()
+        {
+            ["requestingPlayerId"] = requester.PlayerId,
+            ["targetSlot"] = targetSlot
+        });
+        return true;
+    }
+
+    public static Record RestoreLostRecord(NetworkedItem item, byte ownerPlayerId, uint revision,
+        string prefabName, byte inventoryClaimPlayerId = 0, int inventoryClaimSlot = -1,
+        ItemInventoryClaimFlags inventoryClaimFlags = ItemInventoryClaimFlags.None)
+    {
+        if (item == null || item.NetId == 0 || ownerPlayerId == 0)
+            return null;
+        Record record = Ensure(item);
+        record.Revision = revision;
+        record.Placement = ItemPlacementKind.LostAndFound;
+        record.PlacementPlayerId = 0;
+        record.PersistentOwnerPlayerId = ownerPlayerId;
+        record.InventoryClaimPlayerId = inventoryClaimPlayerId;
+        record.InventoryClaimSlot = inventoryClaimSlot;
+        record.InventoryClaimFlags = inventoryClaimFlags;
+        record.PrefabName = string.IsNullOrWhiteSpace(prefabName) ? record.PrefabName : prefabName;
+        record.LastReason = ItemTransitionReason.LostAndFoundCollection;
+        if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(ownerPlayerId, out ServerPlayer owner))
+            owner.AddOwnedItem(item.NetId);
+        item.ApplyAuthorityMetadata(new ItemUpdateData
+        {
+            ItemNetId = item.NetId,
+            AuthorityRevision = record.Revision,
+            PersistentOwnerPlayerId = ownerPlayerId,
+            InventoryClaimPlayerId = record.InventoryClaimPlayerId,
+            InventoryClaimSlot = record.InventoryClaimSlot,
+            InventoryClaimFlags = record.InventoryClaimFlags,
+            TransitionReason = record.LastReason
+        });
+        return record;
+    }
+
+    public static void RollbackLostAndFoundCollection(NetworkedItem item, uint previousRevision,
+        ItemPlacementKind previousPlacement, byte previousPlacementPlayerId,
+        ItemTransitionReason previousReason)
+    {
+        if (item == null || !records.TryGetValue(item.NetId, out Record record) ||
+            record.Placement != ItemPlacementKind.LostAndFound)
+            return;
+        record.Revision = previousRevision;
+        record.Placement = previousPlacement;
+        record.PlacementPlayerId = previousPlacementPlayerId;
+        record.LastReason = previousReason;
+    }
+
     public static void ApplyReplicaMetadata(NetworkedItem item, ItemUpdateData snapshot)
     {
         if (item == null || snapshot == null || item.NetId == 0)
@@ -228,6 +366,7 @@ public static class AuthoritativeItemRegistry
 
     public static void Remove(ushort netId) => records.Remove(netId);
     public static void Clear() => records.Clear();
+    public static IEnumerable<Record> Records => records.Values;
 
     private static ItemAuthorityState ToCore(Record record)
     {

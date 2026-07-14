@@ -61,6 +61,7 @@ namespace Multiplayer.Networking.Managers.Client;
 
 public class NetworkClient : NetworkManager
 {
+    public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
     protected override string LogPrefix => "[Client]";
 
     private Action<DisconnectReason, string> onDisconnect;
@@ -255,6 +256,8 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundItemAdoptionPacket>(OnClientboundItemAdoptionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
         netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
         netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
@@ -1490,6 +1493,36 @@ public class NetworkClient : NetworkManager
             });
     }
 
+    private void OnClientboundLostItemsSnapshotPacket(ClientboundLostItemsSnapshotPacket packet)
+    {
+        int count = new[]
+        {
+            packet.NetIds?.Length ?? 0,
+            packet.Revisions?.Length ?? 0,
+            packet.PrefabNames?.Length ?? 0,
+            packet.DisplayNames?.Length ?? 0,
+            packet.Reasons?.Length ?? 0,
+            packet.LostUtcTicks?.Length ?? 0
+        }.Min();
+        LostItemData[] items = new LostItemData[count];
+        for (int i = 0; i < count; i++)
+            items[i] = new LostItemData
+            {
+                NetId = packet.NetIds[i],
+                Revision = packet.Revisions[i],
+                PrefabName = packet.PrefabNames[i],
+                DisplayName = packet.DisplayNames[i],
+                Reason = packet.Reasons[i],
+                LostUtcTicks = packet.LostUtcTicks[i]
+            };
+        NetworkedLostAndFoundManager.ApplyClientSnapshot(packet.Generation, items);
+    }
+
+    private void OnClientboundLostItemRetrieveResultPacket(ClientboundLostItemRetrieveResultPacket packet)
+    {
+        LostItemRetrieveCompleted?.Invoke(packet);
+    }
+
     private void OnCommonPaintThemePacket(CommonPaintThemePacket packet)
     {
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar netTrainCar))
@@ -2088,6 +2121,36 @@ public class NetworkClient : NetworkManager
         SendPacketToServer(new ServerboundItemAdoptionPacket
         {
             Request = request
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestLostItems(uint requestId)
+    {
+        SendPacketToServer(new ServerboundLostItemsRequestPacket { RequestId = requestId },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestLostItemRetrieval(uint requestId, ushort itemNetId,
+        uint expectedRevision, int requestedSlot = -1)
+    {
+        Inventory inventory = Inventory.Instance;
+        int capacity = inventory?.Capacity ?? 0;
+        int existingItemSlot = -1;
+        if (NetworkedItem.TryGet(itemNetId, out NetworkedItem existingItem) && existingItem != null)
+            existingItemSlot = inventory?.IndexOf(existingItem.gameObject) ?? -1;
+        List<int> occupied = new();
+        for (int slot = 0; slot < capacity; slot++)
+            if (inventory.PeekItemAtSlot(slot, true) != null)
+                occupied.Add(slot);
+        SendPacketToServer(new ServerboundLostItemRetrievePacket
+        {
+            RequestId = requestId,
+            ItemNetId = itemNetId,
+            ExpectedRevision = expectedRevision,
+            RequestedSlot = requestedSlot,
+            ExistingItemSlot = existingItemSlot,
+            InventoryCapacity = capacity,
+            OccupiedSlots = occupied.ToArray()
         }, DeliveryMethod.ReliableOrdered);
     }
 

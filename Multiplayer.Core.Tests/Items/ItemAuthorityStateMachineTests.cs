@@ -54,6 +54,22 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
+    public void NonPersonalItemClaim_DoesNotEstablishPersistentOwnership()
+    {
+        ItemAuthorityState original = State(revision: 2);
+        ItemTransitionCommand command = Transition(actor: 1, revision: 2,
+            placement: AuthorityPlacement.PlayerInventory, retrievalClaim: true);
+        command.MayEstablishPersistentOwner = false;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.Zero);
+        Assert.That(result.State.InventoryClaimPlayerId, Is.Zero);
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1));
+    }
+
+    [Test]
     public void Recall_ReturnsSameCanonicalIdentityAndDoesNotCreateAnotherItem()
     {
         ItemAuthorityStore store = new();

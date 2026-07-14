@@ -267,6 +267,8 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket, ITransportPeer>(OnCommonItemUpdatePacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemAdoptionPacket, ITransportPeer>(OnServerboundItemAdoptionPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
     }
 
     //allow mods to register their own packets
@@ -1063,6 +1065,23 @@ public class NetworkServer : NetworkManager
             TraceItemDeliveryExpected(packet, sendToPlayer.Peer, DeliveryMethod.ReliableOrdered);
             SendPacket(sendToPlayer.Peer, packet, DeliveryMethod.ReliableOrdered);
         }
+    }
+
+    public void SendLostItemsSnapshot(ServerPlayer player, uint requestId = 0)
+    {
+        if (player?.Peer == null) return;
+        LostItemData[] items = NetworkedLostAndFoundManager.SnapshotFor(player);
+        SendPacket(player.Peer, new ClientboundLostItemsSnapshotPacket
+        {
+            RequestId = requestId,
+            Generation = NetworkedLostAndFoundManager.Generation,
+            NetIds = items.Select(item => item.NetId).ToArray(),
+            Revisions = items.Select(item => item.Revision).ToArray(),
+            PrefabNames = items.Select(item => item.PrefabName ?? string.Empty).ToArray(),
+            DisplayNames = items.Select(item => item.DisplayName ?? string.Empty).ToArray(),
+            Reasons = items.Select(item => item.Reason).ToArray(),
+            LostUtcTicks = items.Select(item => item.LostUtcTicks).ToArray()
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendJobReportArtifact(JobReportArtifactData artifact, ServerPlayer player)
@@ -2405,17 +2424,22 @@ public class NetworkServer : NetworkManager
             return;
 
         bool accepted = false;
+        bool storedInLostAndFound = false;
         string rejectionReason = string.Empty;
         ItemUpdateData snapshot = null;
         if (!NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) || item == null)
             rejectionReason = "unknown-network-entity";
+        else if (storedInLostAndFound = NetworkedLostAndFoundManager.Contains(item.NetId))
+            accepted = NetworkedLostAndFoundManager.TryRetrieveForRecall(player, item,
+                packet.ExpectedRevision, packet.RequestedSlot, out snapshot, out rejectionReason);
         else
             accepted = AuthoritativeItemRegistry.TryRecall(item, player, packet.RequestedSlot,
                 packet.ExpectedRevision, out snapshot, out rejectionReason);
 
         if (accepted)
         {
-            item.ApplyServerCanonicalSnapshot(snapshot);
+            if (!storedInLostAndFound)
+                item.ApplyServerCanonicalSnapshot(snapshot);
             SendItemUpdatePacket(snapshot);
         }
         else
@@ -2437,6 +2461,33 @@ public class NetworkServer : NetworkManager
             AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
             RejectionReason = rejectionReason ?? string.Empty
         }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundLostItemsRequestPacket(ServerboundLostItemsRequestPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        SendLostItemsSnapshot(player, packet.RequestId);
+    }
+
+    private void OnServerboundLostItemRetrievePacket(ServerboundLostItemRetrievePacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        bool accepted = NetworkedLostAndFoundManager.TryRetrieve(player, packet.ItemNetId,
+            packet.ExpectedRevision, packet.RequestedSlot, packet.ExistingItemSlot, packet.InventoryCapacity,
+            packet.OccupiedSlots, out ItemUpdateData snapshot, out string rejectionReason);
+        if (accepted)
+            SendItemUpdatePacket(snapshot);
+        SendPacket(peer, new ClientboundLostItemRetrieveResultPacket
+        {
+            RequestId = packet.RequestId,
+            ItemNetId = packet.ItemNetId,
+            Accepted = accepted,
+            AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
+            RejectionReason = rejectionReason ?? string.Empty
+        }, DeliveryMethod.ReliableOrdered);
+        SendLostItemsSnapshot(player, packet.RequestId);
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet, ITransportPeer peer)

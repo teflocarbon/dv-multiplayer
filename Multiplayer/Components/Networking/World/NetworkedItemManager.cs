@@ -177,6 +177,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
         if (NetworkLifecycle.Instance.IsHost())
             NetworkLifecycle.Instance.OnTick -= Common_OnTick;
+        NetworkedLostAndFoundManager.Clear();
     }
 
     public void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)
@@ -212,6 +213,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
         if (NetworkLifecycle.Instance.IsHost())
         {
+            NetworkedLostAndFoundManager.HostTick(tick);
             UpdatePlayerItemLists();
             ProcessChanged(tick);
         }
@@ -462,6 +464,18 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         NetworkLifecycle.Instance.Client.LogDebug(() => $"NetworkedItemManager.ProcessReceivedAsClient() Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create)
         {
+            // Lost and Found collection deliberately keeps the canonical client component bound
+            // so a reserved inventory silhouette can still issue its normal Return request.
+            // Restore that same representation in place; generic cache replacement would clear
+            // its NetId and BelongsToPlayer classification a second time.
+            if (netItem != null && snapshot.TransitionReason == ItemTransitionReason.LostAndFoundRetrieval)
+            {
+                TraceItem("item.lost-and-found-client-projection-restored", netItem,
+                    DebugTrace.ItemSnapshotData(snapshot));
+                netItem.RestoreClientLostAndFoundProjection(snapshot);
+                return;
+            }
+
             // Job-created documents already own their authoritative ID. Applying the generic
             // snapshot to that representation is valid; replacing it would create a duplicate.
             if (netItem != null && DoNotCreateItem(netItem))
@@ -509,9 +523,15 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             DebugRuntime.Publish("item", "item.snapshot-apply.before", DebugRuntimeSide.Client,
                 entityType: "Item", entityId: entityId,
                 data: new Dictionary<string, object>(destroyData, StringComparer.Ordinal));
-            SendToCache(netItem);
+            bool lostAndFoundProjection = netItem != null &&
+                snapshot.TransitionReason == ItemTransitionReason.LostAndFoundCollection;
+            if (lostAndFoundProjection)
+                netItem.ApplyClientLostAndFoundProjection(snapshot);
+            else
+                SendToCache(netItem);
             destroyData["destroyApplied"] = true;
-            destroyData["applyResult"] = netItem == null ? "already-absent" : "cached";
+            destroyData["applyResult"] = netItem == null ? "already-absent" :
+                lostAndFoundProjection ? "lost-and-found-projection" : "cached";
             destroyData["activeInHierarchy"] = netItem != null && netItem.gameObject.activeInHierarchy;
             destroyData["boundNetIdAfter"] = netItem?.NetId ?? 0;
             DebugRuntime.Publish("item", "item.snapshot-apply.after", DebugRuntimeSide.Client,
@@ -730,7 +750,9 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     {
         if (item == null || item.NetId == 0)
             return false;
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
+            ? NetworkLifecycle.Instance.Server?.SelfId ?? 0
+            : NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
         DebugRuntime.Publish("item", "item.recall-requested",
             NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
             entityType: "Item", entityId: item.NetId.ToString(), data: new()
@@ -749,8 +771,14 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
         if (!NetworkLifecycle.Instance.Server.TryGetServerPlayer(localPlayerId, out ServerPlayer hostPlayer))
             return false;
-        if (!AuthoritativeItemRegistry.TryRecall(item, hostPlayer, requestedSlot, item.AuthorityRevision,
-                out ItemUpdateData snapshot, out string rejectionReason))
+        bool storedInLostAndFound = NetworkedLostAndFoundManager.Contains(item.NetId);
+        bool accepted = storedInLostAndFound
+            ? NetworkedLostAndFoundManager.TryRetrieveForRecall(hostPlayer, item,
+                item.AuthorityRevision, requestedSlot, out ItemUpdateData snapshot,
+                out string rejectionReason)
+            : AuthoritativeItemRegistry.TryRecall(item, hostPlayer, requestedSlot,
+                item.AuthorityRevision, out snapshot, out rejectionReason);
+        if (!accepted)
         {
             DebugRuntime.Publish("item", "item.recall-rejected", DebugRuntimeSide.Server,
                 DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
@@ -761,7 +789,8 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             return false;
         }
 
-        item.ApplyServerCanonicalSnapshot(snapshot);
+        if (!storedInLostAndFound)
+            item.ApplyServerCanonicalSnapshot(snapshot);
         NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
         return true;
     }

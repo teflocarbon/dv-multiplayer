@@ -36,6 +36,12 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool AllowClientCrewNames = false;
     [Draw("Fast Travel Advances Time", Tooltip = "When players use fast travel, time will advance.")]
     public bool FastTravelAdvancesTime = true;
+    [Draw("Lost Item Owner Distance", Tooltip = "Distance from the persistent owner before a world item can become lost.", Min = 50, Max = 2000)]
+    public float LostItemOwnerDistance = 200f;
+    [Draw("Lost Item Nearby Player Protection", Tooltip = "Do not collect an item while any active player is this close.", Min = 10, Max = 500)]
+    public float LostItemNearbyPlayerProtectionDistance = 100f;
+    [Draw("Lost Item Collection Grace", Tooltip = "Seconds an item must remain eligible before collection.", Min = 1, Max = 120)]
+    public float LostItemCollectionGraceSeconds = 10f;
 
     [Space(10)]
     [Header("Server")]
@@ -185,6 +191,9 @@ public class Settings : UnityModManager.ModSettings, IDrawable
         DebugWorldLabelUpdateHz = Mathf.Clamp(DebugWorldLabelUpdateHz, 1f, 10f);
         DebugWorldLabelMaxCount = Mathf.Clamp(DebugWorldLabelMaxCount, 1, 128);
         DebugOverlayUiScale = Mathf.Clamp(DebugOverlayUiScale, 0.75f, 1.5f);
+        LostItemOwnerDistance = Mathf.Clamp(LostItemOwnerDistance, 50f, 2000f);
+        LostItemNearbyPlayerProtectionDistance = Mathf.Clamp(LostItemNearbyPlayerProtectionDistance, 10f, 500f);
+        LostItemCollectionGraceSeconds = Mathf.Clamp(LostItemCollectionGraceSeconds, 1f, 120f);
         DebugHighFrequencySampling = Mathf.Clamp(DebugHighFrequencySampling, 1, 120);
         DebugMaxEntityTimelineEvents = Mathf.Clamp(DebugMaxEntityTimelineEvents, 50, 2000);
         DebugMaxInMemoryEvents = Mathf.Clamp(DebugMaxInMemoryEvents, 100, 100000);

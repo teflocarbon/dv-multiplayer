@@ -4,7 +4,9 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Networking.Data.Items;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -14,6 +16,7 @@ namespace Multiplayer.Patches.World.Items;
 internal static class InventoryOwnershipUiPatch
 {
     private static readonly HashSet<string> markedEvents = new();
+    private static uint lostItemRequestId;
 
     [HarmonyPatch(typeof(InventoryUIController), "OnGetClicked")]
     [HarmonyPrefix]
@@ -21,7 +24,7 @@ internal static class InventoryOwnershipUiPatch
         InventorySectionController controller)
     {
         if (__instance?.provider?.Inventory == null || NetworkLifecycle.Instance == null ||
-            !NetworkLifecycle.Instance.IsClientRunning)
+            (!NetworkLifecycle.Instance.IsClientRunning && !NetworkLifecycle.Instance.IsHost()))
             return true;
 
         int absoluteSlot = __instance.GetAbsoluteSlotIndex(slotIndex, controller == __instance.hotbarController);
@@ -30,7 +33,9 @@ internal static class InventoryOwnershipUiPatch
             item.NetId == 0 || item.PersistentOwnerPlayerId == 0)
             return true;
 
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
+            ? NetworkLifecycle.Instance.Server?.SelfId ?? 0
+            : NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
         if (item.PersistentOwnerPlayerId != localPlayerId)
         {
             DebugRuntime.Publish("item", "item.foreign-item-recall-blocked", DebugRuntimeSide.Client,
@@ -43,9 +48,20 @@ internal static class InventoryOwnershipUiPatch
             return false;
         }
 
-        // Multiplayer retrieval is a host-authoritative possession revocation. Suppress the
-        // original local-only AddItemToInventory path to prevent a second representation.
-        NetworkedItemManager.Instance?.RequestItemRecall(item, absoluteSlot);
+        // A virtually stored item must use the same retrieval operation as the Career Manager
+        // screen. The ordinary recall packet is for a world/remote-hand item and does not carry
+        // the inventory projection needed to revive an existing dropped silhouette.
+        LostItemData lost = NetworkedLostAndFoundManager.ClientItems
+            .FirstOrDefault(entry => entry?.NetId == item.NetId);
+        if (!NetworkLifecycle.Instance.IsHost() && lost != null)
+        {
+            NetworkLifecycle.Instance.Client?.RequestLostItemRetrieval(
+                unchecked(++lostItemRequestId), item.NetId, lost.Revision, absoluteSlot);
+        }
+        else
+        {
+            NetworkedItemManager.Instance?.RequestItemRecall(item, absoluteSlot);
+        }
         return false;
     }
 
@@ -68,7 +84,9 @@ internal static class InventoryOwnershipUiPatch
             return;
 
         __instance.getButton?.gameObject.SetActive(false);
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
+            ? NetworkLifecycle.Instance.Server?.SelfId ?? 0
+            : NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
         string key = $"{item.NetId}:{item.PersistentOwnerPlayerId}:{localPlayerId}";
         if (markedEvents.Add(key))
             DebugRuntime.Publish("item", "item.foreign-item-ui-marked", DebugRuntimeSide.Client,
