@@ -249,6 +249,8 @@ public class NetworkClient : NetworkManager
         // World Sync
         netPacketProcessor.SubscribeReusable<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemAdoptionPacket>(OnClientboundItemAdoptionPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
         netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
         netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
@@ -1397,6 +1399,23 @@ public class NetworkClient : NetworkManager
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
+    private void OnClientboundItemAdoptionPacket(ClientboundItemAdoptionPacket packet)
+    {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Item", null);
+        NetworkedItemManager.Instance.ApplyItemAdoptionResult(packet.Result);
+    }
+
+    private void OnClientboundItemRecallResultPacket(ClientboundItemRecallResultPacket packet)
+    {
+        DebugRuntime.Publish("item", packet.Accepted ? "item.recall-confirmed" : "item.recall-rejected",
+            DebugRuntimeSide.Client, packet.Accepted ? DebugSeverity.Info : DebugSeverity.Warning,
+            "Item", packet.ItemNetId.ToString(), new()
+            {
+                ["authorityRevision"] = packet.AuthorityRevision,
+                ["rejectionReason"] = packet.RejectionReason ?? string.Empty
+            });
+    }
+
     private void OnCommonPaintThemePacket(CommonPaintThemePacket packet)
     {
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar netTrainCar))
@@ -1956,6 +1975,14 @@ public class NetworkClient : NetworkManager
 
     public void SendItemUpdatePacket(ItemUpdateData updateData)
     {
+        if (updateData == null || updateData.ItemNetId == 0)
+        {
+            LogWarning($"Blocked local item snapshot with no host-issued network ID. UpdateType: {updateData?.UpdateType}, prefab: {updateData?.PrefabName}");
+            DebugRuntime.Publish("item", "item.zero-id-send-blocked", DebugRuntimeSide.Client, DebugSeverity.Error,
+                "Item", "0", DebugTrace.ItemSnapshotData(updateData));
+            return;
+        }
+
         DebugRuntime.Publish("item", "item.packet-send-requested", DebugRuntimeSide.Client, entityType: "Item",
             entityId: updateData?.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(updateData));
         LogDebug(()=>
@@ -1970,6 +1997,24 @@ public class NetworkClient : NetworkManager
 
         SendPacketToServer(new CommonItemUpdatePacket { ItemData = updateData },
                 DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendItemAdoption(ItemAdoptionRequestData request)
+    {
+        SendPacketToServer(new ServerboundItemAdoptionPacket
+        {
+            Request = request
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot)
+    {
+        SendPacketToServer(new ServerboundItemRecallPacket
+        {
+            ItemNetId = itemNetId,
+            ExpectedRevision = expectedRevision,
+            RequestedSlot = requestedSlot
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendPaintThemeChange(NetworkedTrainCar netTraincar, TrainCarPaint.Target targetArea, uint themeId)

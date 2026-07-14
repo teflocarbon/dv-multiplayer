@@ -5,12 +5,15 @@ using DV.ThingTypes;
 using DV.Utils;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.Train;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
 using Multiplayer.Utils;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Components.Networking.World;
@@ -24,6 +27,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
     private static readonly Dictionary<Station, NetworkedStationController> stationToNetworkedStationController = [];
     private static readonly Dictionary<JobValidator, NetworkedStationController> jobValidatorToNetworkedStation = [];
     private static readonly List<JobValidator> jobValidators = [];
+    private static readonly Dictionary<Station, HashSet<Job>> pendingHostJobs = [];
 
     public static bool Get(uint netId, out NetworkedStationController obj)
     {
@@ -146,10 +150,32 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         string stationID = stationController.logicStation.ID;
         networkedStationController.NetId = StringHashing.Fnv1aHash(stationID);
 
-        stationControllerToNetworkedStationController.Add(stationController, networkedStationController);
-        stationIdToNetworkedStationController.Add(stationID, networkedStationController);
-        stationIdToStationController.Add(stationID, stationController);
-        stationToNetworkedStationController.Add(stationController.logicStation, networkedStationController);
+        stationControllerToNetworkedStationController[stationController] = networkedStationController;
+        stationIdToNetworkedStationController[stationID] = networkedStationController;
+        stationIdToStationController[stationID] = stationController;
+        stationToNetworkedStationController[stationController.logicStation] = networkedStationController;
+    }
+
+    public static void RegisterOrQueueHostJob(Station station, Job job)
+    {
+        if (station == null || job == null)
+            return;
+        if (GetFromStation(station, out NetworkedStationController controller) && controller != null)
+        {
+            controller.AddJob(job);
+            return;
+        }
+
+        if (!pendingHostJobs.TryGetValue(station, out HashSet<Job> jobs))
+            pendingHostJobs[station] = jobs = [];
+        jobs.Add(job);
+        DebugRuntime.Publish("job", "job.station-registration-deferred", DebugRuntimeSide.Server,
+            DebugSeverity.Warning, "Station", station.ID ?? string.Empty, new()
+            {
+                ["jobId"] = job.ID ?? string.Empty,
+                ["pendingCount"] = jobs.Count,
+                ["reason"] = "networked-station-not-ready"
+            });
     }
 
     public static void QueueJobValidator(JobValidator jobValidator)
@@ -222,7 +248,10 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
             }
 
             if (StationController.logicStation != null)
+            {
                 stationToNetworkedStationController.Remove(StationController.logicStation);
+                pendingHostJobs.Remove(StationController.logicStation);
+            }
 
             if (JobValidator != null)
             {
@@ -246,6 +275,12 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         abandonedJobs = StationController.logicStation.abandonedJobs;
         completedJobs = StationController.logicStation.completedJobs;
 
+        if (NetworkLifecycle.Instance.IsHost())
+        {
+            DrainPendingHostJobs();
+            ReconcileExistingHostJobs();
+        }
+
         //Multiplayer.Log($"NetworkedStation.Awake({StationController.logicStation.ID})");
 
         foreach (JobValidator validator in jobValidators)
@@ -267,6 +302,15 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
     //Adding job
     public void AddJob(Job job)
     {
+        if (job == null)
+            return;
+        if (NetworkedJob.TryGetFromJob(job, out NetworkedJob existing))
+        {
+            NetworkedJobs.Add(existing);
+            BindExistingJobOverview(existing);
+            return;
+        }
+
         NetworkedJob networkedJob = new GameObject($"NetworkedJob {job.ID}").AddComponent<NetworkedJob>();
         networkedJob.Initialize(job, this);
         NetworkedJobs.Add(networkedJob);
@@ -275,6 +319,65 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
         //Setup handlers
         networkedJob.OnJobDirty += OnJobDirty;
+        BindExistingJobOverview(networkedJob);
+
+        DebugRuntime.Publish("job", "job.host-network-registration-complete", DebugRuntimeSide.Server,
+            entityType: "Job", entityId: networkedJob.NetId.ToString(), data: new()
+            {
+                ["jobId"] = job.ID ?? string.Empty,
+                ["stationId"] = StationController.logicStation?.ID ?? string.Empty,
+                ["hasOverview"] = networkedJob.JobOverview != null
+            });
+    }
+
+    private void DrainPendingHostJobs()
+    {
+        Station station = StationController.logicStation;
+        if (!pendingHostJobs.TryGetValue(station, out HashSet<Job> jobs))
+            return;
+        pendingHostJobs.Remove(station);
+        foreach (Job job in jobs)
+            AddJob(job);
+    }
+
+    private void ReconcileExistingHostJobs()
+    {
+        HashSet<Job> jobs = [];
+        AddJobs(availableJobs, jobs);
+        AddJobs(takenJobs, jobs);
+        AddJobs(abandonedJobs, jobs);
+        AddJobs(completedJobs, jobs);
+        foreach (Job job in jobs)
+            AddJob(job);
+    }
+
+    private static void AddJobs(IEnumerable<Job> source, HashSet<Job> destination)
+    {
+        if (source == null)
+            return;
+        foreach (Job job in source)
+            if (job != null)
+                destination.Add(job);
+    }
+
+    private void BindExistingJobOverview(NetworkedJob networkedJob)
+    {
+        if (networkedJob?.Job == null || networkedJob.JobOverview != null)
+            return;
+        JobOverview overview = StationController.spawnedJobOverviews?
+            .LastOrDefault(candidate => candidate != null && ReferenceEquals(candidate.job, networkedJob.Job));
+        if (overview == null)
+            return;
+        NetworkedItem item = overview.GetOrAddComponent<NetworkedItem>();
+        item.Initialize(overview, item.NetId, false);
+        networkedJob.JobOverview = item;
+        DebugRuntime.Publish("job", "job.overview-late-bound", DebugRuntimeSide.Server,
+            entityType: "Job", entityId: networkedJob.NetId.ToString(), data: new()
+            {
+                ["jobId"] = networkedJob.Job.ID ?? string.Empty,
+                ["itemNetId"] = item.NetId,
+                ["stationId"] = StationController.logicStation?.ID ?? string.Empty
+            });
     }
 
     private void OnJobDirty(NetworkedJob job)

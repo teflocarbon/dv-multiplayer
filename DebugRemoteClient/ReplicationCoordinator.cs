@@ -32,6 +32,24 @@ internal sealed class ReplicationCoordinator
         ReplicationOperationDto operation = coordinator.SnapshotOperations().Single();
         if (operation.Status != ReplicationOperationStatus.Complete || operation.Recipients.Count != 1 || !operation.Recipients[0].Applied)
             throw new InvalidOperationException("Replication coordinator self-test failed to complete a host/client item flow.");
+
+        ReplicationCoordinator twoPlayerCoordinator = new();
+        twoPlayerCoordinator.UpdateSessions(new[] { host, client });
+        twoPlayerCoordinator.Observe(client, Event(client, 10, start.AddSeconds(1), "item.packet-send-requested", "344", "DROP"));
+        twoPlayerCoordinator.Observe(host, Event(host, 10, start.AddSeconds(1).AddMilliseconds(5), "item.snapshot-received", "344", "DROP"));
+        twoPlayerCoordinator.Observe(host, Event(host, 11, start.AddSeconds(1).AddMilliseconds(10), "item.snapshot-apply.after", "344", "DROP"));
+        twoPlayerCoordinator.Observe(host, Event(host, 12, start.AddSeconds(1).AddMilliseconds(15), "item.relay-requested", "344", "DROP"));
+        ReplicationOperationDto zeroRecipientOperation = twoPlayerCoordinator.SnapshotOperations().Single();
+        if (zeroRecipientOperation.Status != ReplicationOperationStatus.Complete || zeroRecipientOperation.Recipients.Count != 0)
+            throw new InvalidOperationException("Replication coordinator self-test failed to complete an applied host operation with no relay recipients.");
+
+        ReplicationCoordinator observationCoordinator = new();
+        observationCoordinator.UpdateSessions(new[] { client });
+        observationCoordinator.Observe(client, Event(client, 20, start.AddSeconds(2), "item.local-state-observed", "789", ""));
+        observationCoordinator.Observe(client, Event(client, 21, start.AddSeconds(2), "item.local-state-unchanged", "789", ""));
+        observationCoordinator.Observe(client, Event(client, 22, start.AddSeconds(2), "item.snapshot-suppressed", "789", ""));
+        if (observationCoordinator.SnapshotOperations().Length != 0)
+            throw new InvalidOperationException("Replication coordinator self-test created an operation from observational item events.");
     }
 
     private static DebugEvent Event(DebugSessionInfo session, long sequence, DateTime timestamp, string name, string entityId, string fingerprint) => new()
@@ -53,7 +71,10 @@ internal sealed class ReplicationCoordinator
 
     public void Observe(DebugSessionInfo session, DebugEvent item)
     {
-        if (item == null || !IsItemEvent(item)) return;
+        // Entity lifecycle, inspector and local-state observation events are useful in the
+        // event stream but are not replication attempts. Creating operations for them turns
+        // routine unchanged/suppressed observations into permanently-pending flow sludge.
+        if (item == null || !IsReplicationFlowEvent(item)) return;
         string itemId = item.EntityType == "Item" ? item.EntityId : Text(item.Data, "itemNetId");
         if (string.IsNullOrWhiteSpace(itemId)) return;
         string fingerprint = Text(item.Data, "stateFingerprint");
@@ -222,6 +243,11 @@ internal sealed class ReplicationCoordinator
                 operation.Status = ReplicationOperationStatus.Complete;
                 operation.DiscontinuityReason = string.Empty;
             }
+            else if (operation.Recipients.Count == 0 && HostAppliedAndRelayFinished(operation))
+            {
+                operation.Status = ReplicationOperationStatus.Complete;
+                operation.DiscontinuityReason = string.Empty;
+            }
             else operation.Status = ReplicationOperationStatus.Pending;
         }
         bool newlyDetected = operation.Status == ReplicationOperationStatus.Discontinuity && before != ReplicationOperationStatus.Discontinuity && !operation.CaptureTriggered;
@@ -229,7 +255,33 @@ internal sealed class ReplicationCoordinator
         return newlyDetected;
     }
 
-    private static bool IsItemEvent(DebugEvent item) => item.EntityType == "Item" || item.Category == "item" && !string.IsNullOrEmpty(item.EntityId);
+    private static bool IsReplicationFlowEvent(DebugEvent item)
+    {
+        if (!(item.EntityType == "Item" || item.Category == "item" && !string.IsNullOrEmpty(item.EntityId)))
+            return false;
+
+        return item.EventName is
+            "item.snapshot-created" or
+            "item.packet-send-requested" or
+            "item.bulk-item-send-requested" or
+            "item.bulk-send-requested" or
+            "item.delivery-expected" or
+            "item.validation-accepted" or
+            "item.validation-rejected" or
+            "item.snapshot-received" or
+            "item.snapshot-apply.before" or
+            "item.snapshot-apply.after" or
+            "item.snapshot-apply.exception" or
+            "item.snapshot-deferred" or
+            "item.relay-requested" or
+            "item.missing-local-representation" or
+            "packet.handler.before" or
+            "packet.handler.after" or
+            "packet.handler.exception";
+    }
+    private static bool HostAppliedAndRelayFinished(ReplicationOperationDto operation) =>
+        operation.Stages.Any(stage => stage.RuntimeSide == DebugRuntimeSide.Server && stage.EventName == "item.snapshot-apply.after") &&
+        operation.Stages.Any(stage => stage.RuntimeSide == DebugRuntimeSide.Server && stage.EventName == "item.relay-requested");
     private static bool IsOperationStart(string name) => name is "item.snapshot-created" or "item.packet-send-requested" or "item.relay-requested" or "item.bulk-item-send-requested";
     private static string Text(IDictionary<string, object> data, string key) => data != null && data.TryGetValue(key, out object value) && value != null ? Convert.ToString(value) : string.Empty;
     private static int Int(IDictionary<string, object> data, string key, int fallback) { try { return data != null && data.TryGetValue(key, out object value) ? Convert.ToInt32(value) : fallback; } catch { return fallback; } }

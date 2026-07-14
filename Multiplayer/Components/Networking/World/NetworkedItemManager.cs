@@ -8,7 +8,7 @@ using Multiplayer.Components.Networking.World;
 using System;
 using Multiplayer.Utils;
 using DV;
-using DV.Interaction;
+using DV.InventorySystem;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
@@ -17,6 +17,7 @@ namespace Multiplayer.Components.Networking.World;
 
 public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 {
+    public const float TrackedValueFinalizationGraceSeconds = 0.75f;
     /*
      * Server 
      */
@@ -25,16 +26,9 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     public const float MAX_DISTANCE_TO_ITEM = 100f;
     public const float MAX_DISTANCE_TO_ITEM_SQR = MAX_DISTANCE_TO_ITEM * MAX_DISTANCE_TO_ITEM;
     public const float NEARBY_REMOVAL_DELAY = 3f; // 3 seconds delay
-    public const float REACH_DISTANCE_BUFFER = 0.5f;
-    public float MAX_REACH_DISTANCE = 4f + REACH_DISTANCE_BUFFER;         //from the game, but we should try to look up the value
 
     //caches for item snapshots
     private readonly List<ItemUpdateData> DestroyedItems = new(64);
-
-    //Item ownership
-    //private Dictionary<ushort, PlayerInventory> playerInventories = new Dictionary<ushort, PlayerInventory>();
-    //private Dictionary<NetworkedItem, ushort> itemToPlayerMap = new Dictionary<NetworkedItem, ushort>();
-
 
     /*
      * Client
@@ -42,7 +36,16 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
     //cache for client-sided items & spawns
     private readonly Dictionary<string, List<NetworkedItem>> CachedItems = new(1024); //Client cached items
+    private readonly HashSet<NetworkedItem> CachedItemSet = new();
+    private readonly Queue<NetworkedItem> PendingUnboundClientItems = new();
+    private readonly HashSet<NetworkedItem> PendingUnboundClientItemSet = new();
     private readonly Dictionary<string, InventoryItemSpec> ItemPrefabs = new(1024);   //Item prefabs
+    private readonly Queue<NetworkedItem> PendingLocalStateObservations = new();
+    private readonly HashSet<NetworkedItem> PendingLocalStateObservationSet = new();
+    private readonly Dictionary<NetworkedItem, string> PendingLocalStateReasons = new();
+    private readonly Dictionary<string, NetworkedItem> PendingItemAdoptions = new(StringComparer.Ordinal);
+    private readonly Dictionary<NetworkedItem, string> PendingItemAdoptionTokens = new();
+    private readonly Dictionary<NetworkedItem, float> PendingTrackedValueFinalizations = new();
     private bool ClientInitialised = false;
 
 
@@ -53,24 +56,6 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     protected override void Awake()
     {
         base.Awake();
-        if (!NetworkLifecycle.Instance.IsHost())
-            return;
-
-        //B99 temporary patch NetworkLifecycle.Instance.Server.PlayerDisconnected += PlayerDisconnected;
-
-        try
-        {
-            MAX_REACH_DISTANCE = GrabberRaycasterDV.RAYCAST_MAX_DIST + REACH_DISTANCE_BUFFER;
-        }
-        catch (Exception ex)
-        {
-            NetworkLifecycle.Instance.Server.LogWarning($"NatworkedItemManager.Awake() Failed to find GrabberRaycasterDV\r\n{ex.Message}");
-        }
-    }
-
-    private void PlayerDisconnected(uint netID)
-    {
-        throw new NotImplementedException();
     }
 
     protected void Start()
@@ -79,6 +64,103 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             NetworkLifecycle.Instance.OnTick += Common_OnTick;
 
         BuildPrefabLookup();
+    }
+
+    protected void Update()
+    {
+        ProcessTrackedValueFinalizations();
+        ProcessPendingLocalStateObservations();
+        if (NetworkLifecycle.Instance.IsHost())
+            return;
+
+        if (!ClientInitialised)
+            return;
+
+        int remainingBudget = 16;
+        while (remainingBudget-- > 0 && PendingUnboundClientItems.Count > 0)
+        {
+            NetworkedItem item = PendingUnboundClientItems.Dequeue();
+            PendingUnboundClientItemSet.Remove(item);
+            if (item == null || item.NetId != 0)
+                continue;
+
+            if (!CachedItemSet.Contains(item) && CanCacheClientSceneItem(item))
+            {
+                TraceItem("item.unbound-scene-item-cached", item, new() { ["reason"] = "late-loaded-or-missed-initial-cache" });
+                SendToCache(item);
+            }
+            else
+            {
+                item.AllowUnboundLocalInteraction();
+            }
+        }
+    }
+
+    internal void QueueLocalStateObservation(NetworkedItem item, string reason)
+    {
+        if (item == null)
+            return;
+        PendingLocalStateReasons[item] = reason ?? string.Empty;
+        if (!PendingLocalStateObservationSet.Add(item))
+            return;
+        PendingLocalStateObservations.Enqueue(item);
+    }
+
+    internal void QueueInventoryStateObservations(string reason)
+    {
+        foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null).Distinct())
+        {
+            bool stateChanged = item.DebugCurrentState != item.DebugLastState;
+            // InventoryStatusChanged is broad and may fire repeatedly for the entire
+            // inventory. Membership alone does not mean an item changed. Queue only real
+            // state transitions; otherwise every status notification produces unchanged /
+            // suppressed events for every carried item and floods the replication UI.
+            if (stateChanged)
+                QueueLocalStateObservation(item, reason);
+        }
+    }
+
+    private void ProcessPendingLocalStateObservations()
+    {
+        int budget = 32;
+        while (budget-- > 0 && PendingLocalStateObservations.Count > 0)
+        {
+            NetworkedItem item = PendingLocalStateObservations.Dequeue();
+            PendingLocalStateObservationSet.Remove(item);
+            PendingLocalStateReasons.TryGetValue(item, out string reason);
+            PendingLocalStateReasons.Remove(item);
+            if (item == null)
+                continue;
+            item.ProcessLocalStateObservation(string.IsNullOrEmpty(reason) ? "queued-state-hook" : reason);
+        }
+    }
+
+    internal void ScheduleTrackedValueFinalization(NetworkedItem item)
+    {
+        if (item == null || item.TrackedValuesFinalised || PendingTrackedValueFinalizations.ContainsKey(item))
+            return;
+        PendingTrackedValueFinalizations[item] = Time.realtimeSinceStartup + TrackedValueFinalizationGraceSeconds;
+    }
+
+    private void ProcessTrackedValueFinalizations()
+    {
+        if (PendingTrackedValueFinalizations.Count == 0)
+            return;
+
+        float now = Time.realtimeSinceStartup;
+        foreach (NetworkedItem item in PendingTrackedValueFinalizations.Keys.ToArray())
+        {
+            if (item == null || item.TrackedValuesFinalised)
+            {
+                PendingTrackedValueFinalizations.Remove(item);
+                continue;
+            }
+            if (now < PendingTrackedValueFinalizations[item])
+                continue;
+
+            PendingTrackedValueFinalizations.Remove(item);
+            item.FinaliseTrackedValuesAutomatically();
+        }
     }
 
     protected override void OnDestroy()
@@ -183,10 +265,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             foreach (var item in allItems)
             {
                 if (item == null)
-                {
-                    NetworkLifecycle.Instance.Server.LogDebug(() => $"UpdatePlayerItemLists() Null item found in allItems!");
                     continue;
-                }
 
                 float sqrDistance = (player.WorldPosition - item.transform.position).sqrMagnitude;
 
@@ -218,12 +297,25 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     {
         List<ItemUpdateData> dirtyItems = [];
         float timeStamp = Time.time;
+        NetworkLifecycle.Instance.Server.TryGetServerPlayer(NetworkLifecycle.Instance.Server.SelfId, out ServerPlayer hostPlayer);
 
         foreach (var item in NetworkedItem.GetAll())
         {
+            if (item == null)
+                continue;
             ItemUpdateData snapshot = item.GetSnapshot();
-            if (snapshot != null)
+            if (snapshot != null && hostPlayer != null)
+            {
+                if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, hostPlayer,
+                        ItemTransitionReason.HostLocalState, true, out string rejectionReason))
+                {
+                    DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
+                        rejectionReason, DebugRuntimeSide.Server);
+                    continue;
+                }
+                item.ApplyHostLocalCanonicalTransition(snapshot, hostPlayer);
                 dirtyItems.Add(snapshot);
+            }
         }
 
         //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) DirtyItems: {dirtyItems.Count}");
@@ -250,8 +342,14 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                     player.KnownItems[nearbyItem] = tick;
 
                     //prevent propagation of creates for special items
-                    if (!DoNotCreateItem(nearbyItem.GetType()))
+                    if (!DoNotCreateItem(nearbyItem))
                         playerUpdates.Add(snapshot);
+                    else
+                        TraceItem("item.generic-create-suppressed", nearbyItem, new()
+                        {
+                            ["trackedItemType"] = nearbyItem.TrackedItemType?.FullName ?? string.Empty,
+                            ["playerId"] = player.PlayerId
+                        });
                 }
                 else
                 {
@@ -292,77 +390,6 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         DestroyedItems.Clear();
     }
 
-    //private void ProcessReceivedAsHost(ItemUpdateData snapshot, ServerPlayer player)
-    //{
-    //    if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create)
-    //    {
-    //        NetworkLifecycle.Instance.Server.LogError($"NetworkedItemManager.ProcessReceivedAsHost() Host received Create snapshot! ItemNetId: {snapshot.ItemNetId}, prefabName: {snapshot.PrefabName}");
-    //        return;
-    //    }
-
-    //    if (NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem netItem))
-    //    {
-    //        if (ValidatePlayerAction(snapshot, player)) //Ensure the player can do this
-    //        {
-    //            NetworkLifecycle.Instance.Server.LogWarning($"NetworkedItemManager.ProcessReceivedAsHost() ItemNetId: {snapshot.ItemNetId}, snapshot type: {snapshot.UpdateType}");
-    //            netItem.ReceiveSnapshot(snapshot);
-    //        }
-    //        else
-    //        {
-    //            NetworkLifecycle.Instance.Server.LogWarning($"NetworkedItemManager.ProcessReceivedAsHost() Player action validation failed for ItemNetId: {snapshot.ItemNetId}");
-    //        }
-    //    }
-    //    else
-    //    {
-    //        NetworkLifecycle.Instance.Server.LogError($"NetworkedItemManager.ProcessReceivedAsHost() NetworkedItem not found! Update Type: {snapshot.UpdateType}, ItemNetId: {snapshot.ItemNetId}, prefabName: {snapshot.PrefabName}");
-    //    }
-    //}
-
-    private bool ValidatePlayerAction(ItemUpdateData snapshot, ServerPlayer player)
-    {
-        return true;
-        // Must have valid item
-        if (!NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem networkedItem))
-            return false;
-
-        Multiplayer.LogDebug(() => $"ValidatePlayerAction() ItemId: {snapshot.ItemNetId}, name: {networkedItem.name} Update Type: {snapshot.UpdateType}, Item State: {snapshot.ItemState}, Player: {player.Username}");
-
-        switch (snapshot.ItemState)
-        {
-            case ItemState.InHand:
-            case ItemState.InInventory:
-                // Check if someone else owns it
-                GetItemOwner(snapshot.ItemNetId, out ServerPlayer currentOwner);
-                Multiplayer.LogDebug(() => $"ValidatePlayerAction() ItemId: {snapshot.ItemNetId}, name: {networkedItem.name} Update Type: {snapshot.UpdateType}, Item State: {snapshot.ItemState}, Player: {player?.Username}, Current Owner: {currentOwner?.Username}");
-
-                if (currentOwner != null && currentOwner != player)
-                    return false;
-
-                // Check pickup distance
-                float distance = Vector3.Distance(player.WorldPosition, networkedItem.transform.position);
-                if (distance > MAX_REACH_DISTANCE)
-                    return false;
-
-                Multiplayer.LogDebug(() => $"ValidatePlayerAction() ItemId: {snapshot.ItemNetId}, name: {networkedItem.name} Update Type: {snapshot.UpdateType}, Item State: {snapshot.ItemState}, Player: {player.Username}, Distance check: {distance}");
-                break;
-
-            case ItemState.Dropped:
-            case ItemState.Thrown:
-            case ItemState.Attached: //needs additional checks for distance to coupler
-                // Only owner can drop/throw
-                if (!player.OwnsItem(snapshot.ItemNetId))
-                    return false;
-                break;
-        }
-
-        return true;
-    }
-
-    private bool GetItemOwner(ushort itemNetId, out ServerPlayer owner)
-    {
-        owner = NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(p => p.OwnsItem(itemNetId));
-        return owner != null;
-    }
     #endregion
 
     #region Client
@@ -397,6 +424,19 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         NetworkLifecycle.Instance.Client.LogDebug(() => $"NetworkedItemManager.ProcessReceivedAsClient() Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create)
         {
+            // Job-created documents already own their authoritative ID. Applying the generic
+            // snapshot to that representation is valid; replacing it would create a duplicate.
+            if (netItem != null && DoNotCreateItem(netItem))
+            {
+                TraceItem("item.generic-create-bound-existing", netItem, new()
+                {
+                    ["trackedItemType"] = netItem.TrackedItemType?.FullName ?? string.Empty,
+                    ["prefabName"] = snapshot.PrefabName ?? string.Empty
+                });
+                netItem.ReceiveSnapshot(snapshot);
+                return;
+            }
+
             //if the item already exists we need to remove it
             if (netItem != null)
                 SendToCache(netItem);
@@ -450,8 +490,9 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             TraceItem("item.instantiated", newItem, new() { ["prefabName"] = snapshot.PrefabName });
         }
 
-        newItem.gameObject.SetActive(true);
         newItem.NetId = snapshot.ItemNetId;
+        newItem.SetClientNetworkBinding(true);
+        newItem.gameObject.SetActive(true);
         TraceItem(reusedFromCache ? "item.cache-reused" : "item.created", newItem, DebugValueSnapshotter.SnapshotObject(snapshot));
 
         newItem.ReceiveSnapshot(snapshot);
@@ -479,9 +520,17 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         {
             try
             {
-                if (item.Item != null && !item.Item.IsEssential() && !item.Item.IsGrabbed() && !StorageController.Instance.StorageInventory.ContainsItem(item.Item))
+                if (item == null || item.NetId != 0)
+                    continue;
+
+                ScheduleTrackedValueFinalization(item);
+                if (CanCacheClientSceneItem(item))
                 {
                     SendToCache(item);
+                }
+                else
+                {
+                    item.AllowUnboundLocalInteraction();
                 }
                 //else
                 //{
@@ -497,13 +546,263 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         ClientInitialised = true;
     }
 
+    internal void RegisterUnboundClientItem(NetworkedItem item)
+    {
+        if (item == null || item.NetId != 0 || CachedItemSet.Contains(item))
+            return;
+        ScheduleTrackedValueFinalization(item);
+        bool allowInteraction = IsPlayerOrStoredItem(item, out Dictionary<string, object> classification);
+        if (allowInteraction)
+            item.AllowUnboundLocalInteraction();
+        else
+            item.GateAsSceneObjectAwaitingHostCreate();
+        classification["classification"] = allowInteraction ? "player-or-stored-item" : "scene-authored-clutter";
+        TraceItem("item.unbound-classified", item, classification);
+        if (PendingUnboundClientItemSet.Add(item))
+            PendingUnboundClientItems.Enqueue(item);
+    }
+
+    internal void RequestItemAdoption(NetworkedItem item, string reason)
+    {
+        if (item == null || item.NetId != 0)
+            return;
+        if (PendingItemAdoptionTokens.ContainsKey(item))
+            return;
+
+        string token = Guid.NewGuid().ToString("N");
+        ItemAdoptionRequestData request = item.CreateItemAdoptionRequest(token);
+        if (request.Snapshot == null || string.IsNullOrWhiteSpace(request.PrefabName))
+        {
+            DebugRuntime.Publish("item", "item.adoption-rejected", DebugRuntimeSide.Client, DebugSeverity.Error,
+                "Item", "0", new() { ["reason"] = "local-snapshot-unavailable", ["trigger"] = reason ?? string.Empty });
+            return;
+        }
+        PendingItemAdoptions[token] = item;
+        PendingItemAdoptionTokens[item] = token;
+        Dictionary<string, object> data = item.LocalStateDebugData();
+        data["adoptionToken"] = token;
+        data["trigger"] = reason ?? string.Empty;
+        data["snapshot"] = DebugTrace.ItemSnapshotData(request.Snapshot);
+        DebugRuntime.Publish("item", "item.adoption-requested", DebugRuntimeSide.Client, DebugSeverity.Info,
+            "Item", "0", data);
+        NetworkLifecycle.Instance.Client?.SendItemAdoption(request);
+    }
+
+    public void ApplyItemAdoptionResult(ItemAdoptionResultData result)
+    {
+        string token = result.AdoptionToken ?? string.Empty;
+        if (!PendingItemAdoptions.TryGetValue(token, out NetworkedItem item))
+            return;
+        PendingItemAdoptions.Remove(token);
+        if (item != null)
+            PendingItemAdoptionTokens.Remove(item);
+        if (item == null)
+            return;
+
+        Dictionary<string, object> data = item.LocalStateDebugData();
+        data["adoptionToken"] = token;
+        data["assignedNetId"] = result.AssignedNetId;
+        data["rejectionReason"] = result.RejectionReason ?? string.Empty;
+        if (!result.Accepted || result.AssignedNetId == 0)
+        {
+            DebugRuntime.Publish("item", "item.adoption-rejected", DebugRuntimeSide.Client, DebugSeverity.Warning,
+                "Item", "0", data);
+            return;
+        }
+
+        item.CompleteItemAdoption(result);
+        ScheduleTrackedValueFinalization(item);
+        DebugRuntime.Publish("item", "item.adoption-complete", DebugRuntimeSide.Client, DebugSeverity.Info,
+            "Item", result.AssignedNetId.ToString(), data);
+    }
+
+    public bool RequestItemRecall(NetworkedItem item, int requestedSlot)
+    {
+        if (item == null || item.NetId == 0)
+            return false;
+        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        DebugRuntime.Publish("item", "item.recall-requested",
+            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "Item", entityId: item.NetId.ToString(), data: new()
+            {
+                ["requestingPlayerId"] = localPlayerId,
+                ["requestedSlot"] = requestedSlot,
+                ["expectedRevision"] = item.AuthorityRevision,
+                ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId
+            });
+
+        if (!NetworkLifecycle.Instance.IsHost())
+        {
+            NetworkLifecycle.Instance.Client?.SendItemRecall(item.NetId, item.AuthorityRevision, requestedSlot);
+            return true;
+        }
+
+        if (!NetworkLifecycle.Instance.Server.TryGetServerPlayer(localPlayerId, out ServerPlayer hostPlayer))
+            return false;
+        if (!AuthoritativeItemRegistry.TryRecall(item, hostPlayer, requestedSlot, item.AuthorityRevision,
+                out ItemUpdateData snapshot, out string rejectionReason))
+        {
+            DebugRuntime.Publish("item", "item.recall-rejected", DebugRuntimeSide.Server,
+                DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
+                {
+                    ["requestingPlayerId"] = localPlayerId,
+                    ["rejectionReason"] = rejectionReason
+                });
+            return false;
+        }
+
+        item.ApplyServerCanonicalSnapshot(snapshot);
+        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
+        return true;
+    }
+
+    public bool TryAdoptClientItem(ServerPlayer player, ItemAdoptionRequestData request,
+        out ushort assignedNetId, out string rejectionReason)
+    {
+        assignedNetId = 0;
+        rejectionReason = string.Empty;
+        if (!NetworkLifecycle.Instance.IsHost() || player == null)
+        {
+            rejectionReason = "invalid-runtime-or-player";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(request.AdoptionToken) || request.AdoptionToken.Length > 64)
+        {
+            rejectionReason = "invalid-adoption-token";
+            return false;
+        }
+        if (request.Snapshot == null || request.Snapshot.ItemNetId != 0)
+        {
+            rejectionReason = "invalid-adoption-snapshot";
+            return false;
+        }
+        if (!ItemPrefabs.TryGetValue(request.PrefabName ?? string.Empty, out InventoryItemSpec spec) || spec == null)
+        {
+            rejectionReason = "unknown-prefab";
+            return false;
+        }
+        GameObject gameObject = Instantiate(spec.gameObject, request.Position + WorldMover.currentMove, request.Rotation);
+        NetworkedItem networkedItem = gameObject.GetOrAddComponent<NetworkedItem>();
+        if (networkedItem == null || networkedItem.NetId == 0)
+        {
+            Destroy(gameObject);
+            rejectionReason = "authoritative-id-allocation-failed";
+            return false;
+        }
+
+        assignedNetId = networkedItem.NetId;
+        player.KnownItems[networkedItem] = NetworkLifecycle.Instance.Tick;
+        ScheduleTrackedValueFinalization(networkedItem);
+        request.Snapshot.ItemPosition = request.Position;
+        request.Snapshot.ItemRotation = request.Rotation;
+        networkedItem.ServerInitialiseAdoptedItem(player, request.Snapshot);
+        return true;
+    }
+
+    internal void ResolveAuthoritativeBindingCollision(NetworkedItem incoming, ushort authoritativeId, Type trackedItemType)
+    {
+        if (incoming == null || authoritativeId == 0 || NetworkLifecycle.Instance.IsHost())
+            return;
+        if (!NetworkedItem.TryGet(authoritativeId, out NetworkedItem existing) || existing == null || existing == incoming)
+            return;
+
+        DebugRuntime.Publish("item", "item.authoritative-binding-collision", DebugRuntimeSide.Client, DebugSeverity.Error,
+            "Item", authoritativeId.ToString(), new()
+            {
+                ["existingInstanceId"] = existing.gameObject.GetInstanceID(),
+                ["existingPath"] = existing.gameObject.GetPath(),
+                ["existingTrackedItemType"] = existing.TrackedItemType?.FullName ?? string.Empty,
+                ["incomingInstanceId"] = incoming.gameObject.GetInstanceID(),
+                ["incomingPath"] = incoming.gameObject.GetPath(),
+                ["incomingTrackedItemType"] = trackedItemType?.FullName ?? string.Empty
+            });
+
+        // The job/lifecycle-created object is the authoritative representation. Retire any
+        // earlier generic copy before the new object takes ownership of the ID lookup.
+        SendToCache(existing);
+    }
+
+    private static bool CanCacheClientSceneItem(NetworkedItem item)
+    {
+        if (item?.Item == null || !item.gameObject.activeSelf || item.Item.IsEssential() || item.Item.IsGrabbed())
+            return false;
+        if (IsPlayerOrStoredItem(item, out _))
+            return false;
+
+        return true;
+    }
+
+    private static bool IsPlayerOrStoredItem(NetworkedItem item, out Dictionary<string, object> data)
+    {
+        bool belongsToPlayer = item?.Item?.InventorySpecs?.BelongsToPlayer == true;
+        bool grabbed = item?.Item?.IsGrabbed() == true;
+        bool inventoryMember = false;
+        bool itemContainerMember = false;
+        bool worldStorageMember = false;
+        bool storageInventoryMember = false;
+        bool storageLostAndFoundMember = false;
+        bool storageItemContainerMember = false;
+        bool storageAvailable = StorageController.Instance != null;
+        try
+        {
+            inventoryMember = Inventory.Instance?.Contains(item.gameObject, false) == true;
+            var container = Inventory.Instance?.ItemContainerRegistry?.GetItemContainerAndIndex(item.gameObject);
+            itemContainerMember = container.HasValue && container.Value.Item1 != null;
+            StorageController storage = StorageController.Instance;
+            worldStorageMember = storage?.StorageWorld?.ContainsItem(item.Item) == true;
+            storageInventoryMember = storage?.StorageInventory?.ContainsItem(item.Item) == true;
+            storageLostAndFoundMember = storage?.StorageLostAndFound?.ContainsItem(item.Item) == true;
+            storageItemContainerMember = storage?.StorageItemContainers?.ContainsItem(item.Item) == true;
+        }
+        catch (Exception exception)
+        {
+            data = new Dictionary<string, object>
+            {
+                ["classificationError"] = exception.Message,
+                ["storageAvailable"] = storageAvailable
+            };
+            // Unknown is safer than briefly disabling a legitimate grab. The reconciliation
+            // queue will classify it again once the storage systems are available.
+            return true;
+        }
+
+        data = new Dictionary<string, object>
+        {
+            ["belongsToPlayer"] = belongsToPlayer,
+            ["grabbed"] = grabbed,
+            ["inventoryMember"] = inventoryMember,
+            ["itemContainerMember"] = itemContainerMember,
+            ["worldStorageMember"] = worldStorageMember,
+            ["storageInventoryMember"] = storageInventoryMember,
+            ["storageLostAndFoundMember"] = storageLostAndFoundMember,
+            ["storageItemContainerMember"] = storageItemContainerMember,
+            ["storageAvailable"] = storageAvailable
+        };
+        return !storageAvailable || belongsToPlayer || grabbed || inventoryMember || itemContainerMember ||
+            worldStorageMember || storageInventoryMember || storageLostAndFoundMember || storageItemContainerMember;
+    }
+
     private NetworkedItem GetFromCache(string prefabName)
     {
+        if ((!CachedItems.TryGetValue(prefabName, out var cached) || cached.Count == 0) && !string.IsNullOrEmpty(prefabName))
+        {
+            NetworkedItem lateSceneItem = NetworkedItem.GetAll().Where(item => item != null).Distinct().FirstOrDefault(item =>
+                item.NetId == 0 && !CachedItemSet.Contains(item) &&
+                CanCacheClientSceneItem(item) &&
+                string.Equals(item.Item?.InventorySpecs?.itemPrefabName, prefabName, StringComparison.Ordinal));
+            if (lateSceneItem != null)
+            {
+                TraceItem("item.late-scene-item-reconciled", lateSceneItem, new() { ["prefabName"] = prefabName });
+                SendToCache(lateSceneItem);
+            }
+        }
+
         if (CachedItems.TryGetValue(prefabName, out var items) && items.Count > 0)
         {
 
             var cachedItem = items[items.Count - 1];
             items.RemoveAt(items.Count - 1);
+            CachedItemSet.Remove(cachedItem);
             return cachedItem;
         }
 
@@ -512,11 +811,24 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
     private void SendToCache(NetworkedItem netItem)
     {
+        if (netItem == null || CachedItemSet.Contains(netItem))
+            return;
+
         string prefabName = netItem?.Item?.InventorySpecs?.itemPrefabName;
+        if (string.IsNullOrEmpty(prefabName))
+        {
+            Multiplayer.LogWarning($"NetworkedItemManager.SendToCache() Item {netItem?.name} has no prefab name; leaving it gated and inactive.");
+            netItem?.SetClientNetworkBinding(false);
+            netItem?.gameObject.SetActive(false);
+            if (netItem != null)
+                netItem.NetId = 0;
+            return;
+        }
         TraceItem("item.cache-enter", netItem, new() { ["prefabName"] = prefabName ?? string.Empty });
 
         //NetworkLifecycle.Instance.Client.LogDebug(() => $"Caching Spawned Item: {prefabName ?? ""}");
 
+        netItem.SetClientNetworkBinding(false);
         netItem.gameObject.SetActive(false);
         RespawnOnDrop respawn = netItem.Item.GetComponent<RespawnOnDrop>();
 
@@ -551,6 +863,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             CachedItems[prefabName] = new List<NetworkedItem>();
         }
         CachedItems[prefabName].Add(netItem);
+        CachedItemSet.Add(netItem);
     }
 
     private static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
@@ -568,6 +881,11 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     }
 
     #endregion
+
+    public bool DoNotCreateItem(NetworkedItem item)
+    {
+        return item != null && DoNotCreateItem(item.TrackedItemType);
+    }
 
     public bool DoNotCreateItem(Type itemType)
     {

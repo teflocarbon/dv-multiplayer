@@ -520,6 +520,15 @@ public class NetworkedPlayer : MonoBehaviour
 
     public void DropItem()
     {
+        DropItem(null);
+    }
+
+    public bool DropItem(GameObject expectedItem)
+    {
+        GameObject heldItem = RightHandItemGO;
+        if (heldItem == null || expectedItem != null && heldItem != expectedItem)
+            return false;
+
         foreach (Collider col in disabledRHItemColliders)
         {
             if (col != null)
@@ -527,17 +536,18 @@ public class NetworkedPlayer : MonoBehaviour
         }
         disabledRHItemColliders.Clear();
 
-        var itemGrabHandler = RightHandItemGO?.GetComponentInChildren<GrabHandlerItem>();
+        var itemGrabHandler = heldItem.GetComponentInChildren<GrabHandlerItem>();
         if (itemGrabHandler != null)
         {
             itemGrabHandler.TogglePhysics(true);
             itemGrabHandler.interactionAllowed = true;
         }
 
-        RightHandItemGO?.transform.SetParent(WorldMover.OriginShiftParent, true);
+        heldItem.transform.SetParent(WorldMover.OriginShiftParent, true);
 
         RightHandItemGO = null;
         itemHoldPos = null;
         itemHoldRot = null;
+        return true;
     }
 }

@@ -294,6 +294,7 @@ internal sealed class DebugRuntimeBehaviour : MonoBehaviour
     private void Awake()
     {
         gameObject.AddComponent<DebugOverlayController>();
+        gameObject.AddComponent<DebugInventoryObserver>();
         SceneManager.sceneLoaded += OnSceneLoaded;
         SceneManager.sceneUnloaded += OnSceneUnloaded;
     }
