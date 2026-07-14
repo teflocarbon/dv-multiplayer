@@ -14,6 +14,9 @@ using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Items;
 using Multiplayer.Core.Replication;
+using DV.Booklets;
+using Multiplayer.Components.Networking.Jobs;
+using Multiplayer.Networking.Data.Jobs;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -365,6 +368,21 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                     //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) New item for: {player.Username}, itemNetID{nearbyItem.NetId}");
 
                     ItemUpdateData snapshot = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+                    if (snapshot != null && hostPlayer != null)
+                    {
+                        AuthoritativeItemRegistry.Record record =
+                            AuthoritativeItemRegistry.Ensure(nearbyItem, hostPlayer, snapshot);
+                        if (record != null)
+                            AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, record.LastReason);
+                    }
+
+                    // A runtime-rendered report cannot be reconstructed from its prefab name.
+                    // Send its immutable render recipe first on the same reliable ordered channel.
+                    if (nearbyItem.GetTrackedItem<JobReport>() != null &&
+                        JobReportArtifactRegistry.TryGet(nearbyItem.NetId, out JobReportArtifactData reportArtifact))
+                    {
+                        NetworkLifecycle.Instance.Server.SendJobReportArtifact(reportArtifact, player);
+                    }
                     if (delivery.MarkKnown)
                         player.KnownItems[nearbyItem] = tick;
 

@@ -157,6 +157,7 @@ public sealed class ItemPacketFixtureTests
         InventoryClaimSlot = 4,
         InventoryClaimFlags = ItemInventoryClaimFlags.Reserved,
         TransitionReason = ItemTransitionReason.ClientState,
+        OriginatingPlayerId = 2,
         PrefabName = "Cup2",
         ItemState = state,
         ItemPosition = new Vector3(9469.9f, 120.599f, 13616.892f),
@@ -179,6 +180,7 @@ public sealed class ItemPacketFixtureTests
         Assert.That(result.InventoryClaimSlot, Is.EqualTo(source.InventoryClaimSlot));
         Assert.That(result.InventoryClaimFlags, Is.EqualTo(source.InventoryClaimFlags));
         Assert.That(result.TransitionReason, Is.EqualTo(source.TransitionReason));
+        Assert.That(result.OriginatingPlayerId, Is.EqualTo(source.OriginatingPlayerId));
     });
 
     private static void AssertWorldTransform(ItemUpdateData result)

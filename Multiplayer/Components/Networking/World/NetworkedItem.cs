@@ -19,6 +19,7 @@ using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Collections;
 using Multiplayer.Core.Items;
+using Multiplayer.Components.Networking.Jobs;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -138,6 +139,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     public ItemInventoryClaimFlags InventoryClaimFlags { get; private set; }
     public ItemTransitionReason LastTransitionReason { get; private set; }
     public bool IsForeignOwned => PersistentOwnerPlayerId != 0 &&
+        InventoryClaimSlot >= 0 && HasRetrievalFlag(InventoryClaimFlags) &&
         PersistentOwnerPlayerId != (NetworkLifecycle.Instance?.Client?.PlayerId ?? 0);
     #endregion
 
@@ -220,6 +222,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
 
         AuthoritativeItemRegistry.Remove(NetId);
+        if (NetworkLifecycle.Instance.IsHost())
+            JobReportArtifactRegistry.Remove(NetId);
         base.OnDestroy();
     }
     #endregion
@@ -249,6 +253,11 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         //TODO: rollback if validation fails
         if (!ValidateUpdate(snapshot, senderPlayer))
             return;
+
+        // The authenticated transport sender is authoritative for this envelope field. It lets
+        // the sender consume the canonical revision as an acknowledgement without performing its
+        // already-running local throw a second time.
+        snapshot.OriginatingPlayerId = senderPlayer.PlayerId;
 
         if (!AuthoritativeItemRegistry.TryApplyTransition(this, snapshot, senderPlayer,
                 ItemTransitionReason.ClientState, false, out string authorityRejection))
@@ -318,22 +327,28 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         if (snapshot == null || actor == null)
             return;
-        string parentBefore = ParentPath();
         PublishUnityState("item.ownership-transition.before", new()
         {
             ["actorPlayerId"] = actor.PlayerId,
             ["targetState"] = snapshot.ItemState.ToString(),
-            ["transitionReason"] = snapshot.TransitionReason.ToString()
+            ["transitionReason"] = snapshot.TransitionReason.ToString(),
+            ["unityStateAlreadyApplied"] = true
         });
-        PrepareForStateChange(snapshot.PlayerId, snapshot.ItemState);
+
+        // GetSnapshot observes a transition the listen player's base-game Inventory/GrabHandler
+        // has already completed. Re-running PrepareForStateChange here is destructive: for a
+        // retained recall claim it adds the item back to Inventory and invokes the base-game drop
+        // path, which zeroes an already-running local throw. Host-local projection therefore only
+        // commits canonical metadata and possessor bookkeeping. Remote snapshots still use the
+        // normal PrepareForStateChange/ApplySnapshot path.
         UpdateHostPossessor(snapshot.PlayerId);
         ApplyAuthorityMetadata(snapshot);
-        PublishParentChange(parentBefore, "host-local-authority-transfer");
         PublishUnityState("item.ownership-transition.after", new()
         {
             ["actorPlayerId"] = actor.PlayerId,
             ["targetState"] = snapshot.ItemState.ToString(),
-            ["transitionReason"] = snapshot.TransitionReason.ToString()
+            ["transitionReason"] = snapshot.TransitionReason.ToString(),
+            ["unityStateAlreadyApplied"] = true
         });
     }
 
@@ -555,9 +570,6 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         playerBelongsToId = currentState is ItemState.InHand or ItemState.InInventory
             ? NetworkLifecycle.Instance.Client.PlayerId
             : (byte)0;
-        if (PersistentOwnerPlayerId == 0 && (Item?.IsEssential() == true ||
-                Item?.InventorySpecs?.BelongsToPlayer == true))
-            PersistentOwnerPlayerId = NetworkLifecycle.Instance.Client.PlayerId;
         ItemUpdateData snapshot = CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
         return new ItemAdoptionRequestData
         {
@@ -900,6 +912,16 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: receivedDebugData);
         DebugDesyncDetector.Remember(snapshot);
 
+        if (ItemSnapshotApplicationPolicy.IsLocalThrowAcknowledgement(
+                NetworkLifecycle.Instance.IsHost(),
+                NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+                snapshot.OriginatingPlayerId,
+                ToWireState(snapshot.ItemState)))
+        {
+            ApplyLocalThrowAcknowledgement(snapshot);
+            return;
+        }
+
         if (!registrationComplete && snapshot.States is { Count: > 0 })
         {
             if (ItemUpdateData.IncludesItemState(snapshot.UpdateType))
@@ -977,6 +999,31 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             ApplyTrackedValues(snapshot.States);
         MarkValuesClean();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
+    }
+
+    private void ApplyLocalThrowAcknowledgement(ItemUpdateData snapshot)
+    {
+        lastState = ObservationBaselineAfterSnapshot(snapshot.ItemState);
+        lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
+            ProjectionFromSnapshot(snapshot));
+        hasLastSentState = true;
+        createdDirty = false;
+        stateDirty = false;
+        wasThrown = false;
+        hostStateObservationPending = false;
+        MarkValuesClean();
+        EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
+            EntityDebugRegistry.ItemState(this));
+        DebugRuntime.Publish("item", "item.local-throw-acknowledged",
+            DebugRuntimeSide.Client, entityType: "Item", entityId: NetId.ToString(), data: new()
+            {
+                ["authorityRevision"] = snapshot.AuthorityRevision,
+                ["originatingPlayerId"] = snapshot.OriginatingPlayerId,
+                ["velocityPreserved"] = DebugValueSnapshotter.Snapshot(
+                    Item?.ItemRigidbody?.velocity),
+                ["angularVelocityPreserved"] = DebugValueSnapshotter.Snapshot(
+                    Item?.ItemRigidbody?.angularVelocity)
+            });
     }
 
     private void PublishDeferredDrain(string eventName, ItemUpdateData snapshot, string reason)
@@ -1151,7 +1198,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             InventoryClaimPlayerId = InventoryClaimPlayerId,
             InventoryClaimSlot = InventoryClaimSlot,
             InventoryClaimFlags = InventoryClaimFlags,
-            TransitionReason = LastTransitionReason
+            TransitionReason = LastTransitionReason,
+            OriginatingPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0
         };
 
         CaptureLocalInventoryClaim(updateData);
@@ -1288,9 +1336,9 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             try
             {
                 Inventory inventory = Inventory.Instance;
-                bool preserveOwnerClaim = Item?.IsEssential() == true &&
-                    PersistentOwnerPlayerId != 0 && PersistentOwnerPlayerId == localPlayerId &&
-                    InventoryClaimSlot >= 0;
+                bool preserveOwnerClaim = PersistentOwnerPlayerId != 0 &&
+                    PersistentOwnerPlayerId == localPlayerId && InventoryClaimSlot >= 0 &&
+                    HasRetrievalFlag(InventoryClaimFlags);
                 // Contains(includeDropped: true) also includes the persistent owner's
                 // reserved recall silhouette. That is a claim, not active possession.
                 // Treating it as possession caused every foreign snapshot to revoke the
@@ -1305,12 +1353,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                     // a dropped reserved claim before projecting the foreign holder.
                     EnsureLocalOwnerDroppedClaim(inventory, targetState);
                 }
-                else if (inventory != null &&
-                         (inventory.Contains(gameObject, true) || inventory.IndexOf(gameObject) >= 0))
-                {
-                    inventory.ItemContainerRegistry?.PurgeItemFromContainer(gameObject);
-                    inventory.PurgeFromInventory(gameObject);
-                }
+                else
+                    RemoveLocalInventoryMembership(inventory, targetState);
                 if (hadLocalPossession)
                 {
                     DebugRuntime.Publish("item", "item.local-possession-revoked",
@@ -1446,11 +1490,13 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         {
             Inventory inventory = Inventory.Instance;
             grabHandler?.ForceEndInteraction();
-            inventory?.ItemContainerRegistry?.PurgeItemFromContainer(gameObject);
             if (ShouldPreserveLocalOwnerClaim())
+            {
+                inventory?.ItemContainerRegistry?.PurgeItemFromContainer(gameObject);
                 EnsureLocalOwnerDroppedClaim(inventory, targetState);
+            }
             else
-                inventory?.PurgeFromInventory(gameObject);
+                RemoveLocalInventoryMembership(inventory, targetState);
         }
         catch (Exception exception)
         {
@@ -1510,8 +1556,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool ShouldPreserveLocalOwnerClaim()
     {
         byte localPlayerId = NetworkLifecycle.Instance?.Client?.PlayerId ?? 0;
-        return Item?.IsEssential() == true && localPlayerId != 0 &&
-            PersistentOwnerPlayerId == localPlayerId && InventoryClaimSlot >= 0;
+        return localPlayerId != 0 && PersistentOwnerPlayerId == localPlayerId &&
+            InventoryClaimSlot >= 0 && HasRetrievalFlag(InventoryClaimFlags);
     }
 
     private void EnsureLocalOwnerDroppedClaim(Inventory inventory, ItemState targetState)
@@ -2054,7 +2100,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void CaptureLocalInventoryClaim(ItemUpdateData snapshot)
     {
-        if (snapshot == null || Item?.IsEssential() != true)
+        if (snapshot == null)
             return;
         byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
         if (localPlayerId == 0 || PersistentOwnerPlayerId != 0 && PersistentOwnerPlayerId != localPlayerId)
@@ -2078,6 +2124,55 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             Multiplayer.LogWarning($"Unable to capture inventory claim for item {NetId}: {exception.Message}");
         }
     }
+
+    private void RemoveLocalInventoryMembership(Inventory inventory, ItemState targetState)
+    {
+        if (inventory == null)
+            return;
+
+        int slotBefore = inventory.IndexOf(gameObject);
+        int equipSlotBefore = inventory.GetEquipSlotForItem(gameObject);
+        bool containedBefore = inventory.Contains(gameObject, true);
+        inventory.ItemContainerRegistry?.PurgeItemFromContainer(gameObject);
+
+        if (slotBefore < 0 && equipSlotBefore < 0 && !containedBefore)
+            return;
+
+        // PurgeFromInventory only removes entries tracked in the base game's
+        // lockedAndReservedMap. Ordinary inventory items are not in that map, so using Purge as
+        // the primary removal left the canonical object in its slot. Run the real base-game
+        // unequip/drop transition first. It removes ordinary entries and preserves a silhouette
+        // only for locked/reserved entries.
+        inventory.DropItemFromHandsOrInventory(gameObject);
+
+        // This canonical transition does not preserve the local player's retrieval claim. If the
+        // base game deliberately left a locked/reserved dropped silhouette, remove that alias now.
+        int slotAfterDrop = inventory.IndexOf(gameObject);
+        if (slotAfterDrop >= 0 || inventory.Contains(gameObject, true))
+            inventory.PurgeFromInventory(gameObject);
+
+        int slotAfter = inventory.IndexOf(gameObject);
+        int equipSlotAfter = inventory.GetEquipSlotForItem(gameObject);
+        bool containedAfter = inventory.Contains(gameObject, true);
+        DebugRuntime.Publish("inventory", "item.local-inventory-membership-revoked",
+            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            containedAfter || slotAfter >= 0 || equipSlotAfter >= 0
+                ? DebugSeverity.Warning : DebugSeverity.Info,
+            "Item", NetId.ToString(), new()
+            {
+                ["targetState"] = targetState.ToString(),
+                ["slotBefore"] = slotBefore,
+                ["equipSlotBefore"] = equipSlotBefore,
+                ["containedBefore"] = containedBefore,
+                ["slotAfter"] = slotAfter,
+                ["equipSlotAfter"] = equipSlotAfter,
+                ["containedAfter"] = containedAfter
+            });
+    }
+
+
+    private static bool HasRetrievalFlag(ItemInventoryClaimFlags flags) =>
+        (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
     #endregion
 
     public string GetDirtyValuesDebugString()

@@ -29,7 +29,7 @@ public static class DeferredSnapshotDrainPlanner
     public static DeferredSnapshotDrainPlan Plan(uint pendingRevision, uint currentRevision,
         bool hasTrackedState)
     {
-        if (pendingRevision == 0 || currentRevision == 0 || pendingRevision >= currentRevision)
+        if (currentRevision == 0 || pendingRevision >= currentRevision)
             return new(DeferredSnapshotDrainAction.ApplyFullSnapshot, "current-or-legacy-snapshot");
 
         return hasTrackedState
