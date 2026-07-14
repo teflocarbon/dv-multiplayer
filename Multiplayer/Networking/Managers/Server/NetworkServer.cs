@@ -264,6 +264,8 @@ public class NetworkServer : NetworkManager
         // Items
         //netPacketProcessor.SubscribeNetSerializable<CommonItemsBulkUpdatePacket, ITransportPeer>(OnCommonItemChangePacket);
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket, ITransportPeer>(OnCommonItemUpdatePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemAdoptionPacket, ITransportPeer>(OnServerboundItemAdoptionPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
     }
 
     //allow mods to register their own packets
@@ -2297,6 +2299,85 @@ public class NetworkServer : NetworkManager
         {
             DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Server);
         }
+    }
+
+    private void OnServerboundItemAdoptionPacket(ServerboundItemAdoptionPacket packet, ITransportPeer peer)
+    {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Item", null);
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+
+        ItemAdoptionRequestData request = packet.Request;
+        bool accepted = NetworkedItemManager.Instance.TryAdoptClientItem(player, request,
+            out ushort assignedNetId, out string rejectionReason);
+        AuthoritativeItemRegistry.TryGet(assignedNetId, out AuthoritativeItemRegistry.Record authorityRecord);
+        DebugRuntime.Publish("item", accepted ? "item.adoption-accepted" : "item.adoption-rejected",
+            DebugRuntimeSide.Server, accepted ? DebugSeverity.Info : DebugSeverity.Warning,
+            "Item", assignedNetId.ToString(), new()
+            {
+                ["adoptionToken"] = request.AdoptionToken ?? string.Empty,
+                ["prefab"] = request.PrefabName ?? string.Empty,
+                ["playerId"] = player.PlayerId,
+                ["assignedNetId"] = assignedNetId,
+                ["rejectionReason"] = rejectionReason ?? string.Empty,
+                ["snapshot"] = DebugTrace.ItemSnapshotData(request.Snapshot)
+            });
+
+        SendPacket(peer, new ClientboundItemAdoptionPacket
+        {
+            Result = new ItemAdoptionResultData
+            {
+                AdoptionToken = request.AdoptionToken,
+                Accepted = accepted,
+                AssignedNetId = assignedNetId,
+                RejectionReason = rejectionReason ?? string.Empty,
+                AuthorityRevision = authorityRecord?.Revision ?? 0,
+                PersistentOwnerPlayerId = authorityRecord?.PersistentOwnerPlayerId ?? 0,
+                InventoryClaimPlayerId = authorityRecord?.InventoryClaimPlayerId ?? 0,
+                InventoryClaimSlot = authorityRecord?.InventoryClaimSlot ?? -1,
+                InventoryClaimFlags = authorityRecord?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None
+            }
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+
+        bool accepted = false;
+        string rejectionReason = string.Empty;
+        ItemUpdateData snapshot = null;
+        if (!NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) || item == null)
+            rejectionReason = "unknown-network-entity";
+        else
+            accepted = AuthoritativeItemRegistry.TryRecall(item, player, packet.RequestedSlot,
+                packet.ExpectedRevision, out snapshot, out rejectionReason);
+
+        if (accepted)
+        {
+            item.ApplyServerCanonicalSnapshot(snapshot);
+            SendItemUpdatePacket(snapshot);
+        }
+        else
+        {
+            DebugRuntime.Publish("item", "item.recall-rejected", DebugRuntimeSide.Server,
+                DebugSeverity.Warning, "Item", packet.ItemNetId.ToString(), new()
+                {
+                    ["requestingPlayerId"] = player.PlayerId,
+                    ["expectedRevision"] = packet.ExpectedRevision,
+                    ["requestedSlot"] = packet.RequestedSlot,
+                    ["rejectionReason"] = rejectionReason ?? string.Empty
+                });
+        }
+
+        SendPacket(peer, new ClientboundItemRecallResultPacket
+        {
+            ItemNetId = packet.ItemNetId,
+            Accepted = accepted,
+            AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
+            RejectionReason = rejectionReason ?? string.Empty
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet, ITransportPeer peer)

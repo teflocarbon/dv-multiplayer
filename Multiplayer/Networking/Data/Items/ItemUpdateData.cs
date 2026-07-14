@@ -40,11 +40,23 @@ public class ItemUpdateData
     public bool AttachedFront  { get; set; }
     public Dictionary<string, object> States { get; set; }
     public Hand PlayerHand { get; set; }
+    public uint AuthorityRevision { get; set; }
+    public byte PersistentOwnerPlayerId { get; set; }
+    public byte InventoryClaimPlayerId { get; set; }
+    public int InventoryClaimSlot { get; set; } = -1;
+    public ItemInventoryClaimFlags InventoryClaimFlags { get; set; }
+    public ItemTransitionReason TransitionReason { get; set; }
 
     public static void Serialize(NetDataWriter writer, ItemUpdateData data)
     {
         writer.Put((byte)data.UpdateType);
         writer.Put(data.ItemNetId);
+        writer.Put(data.AuthorityRevision);
+        writer.Put(data.PersistentOwnerPlayerId);
+        writer.Put(data.InventoryClaimPlayerId);
+        writer.Put(data.InventoryClaimSlot);
+        writer.Put((byte)data.InventoryClaimFlags);
+        writer.Put((byte)data.TransitionReason);
 
         if (data.UpdateType == ItemUpdateType.Destroy)
             return;
@@ -97,6 +109,12 @@ public class ItemUpdateData
 
         data.UpdateType = (ItemUpdateType)reader.GetByte();
         data.ItemNetId = reader.GetUShort();
+        data.AuthorityRevision = reader.GetUInt();
+        data.PersistentOwnerPlayerId = reader.GetByte();
+        data.InventoryClaimPlayerId = reader.GetByte();
+        data.InventoryClaimSlot = reader.GetInt();
+        data.InventoryClaimFlags = (ItemInventoryClaimFlags)reader.GetByte();
+        data.TransitionReason = (ItemTransitionReason)reader.GetByte();
 
         if (data.UpdateType == ItemUpdateType.Destroy)
             return data;

@@ -1,4 +1,6 @@
 using DV;
+using DV.InventorySystem;
+using Multiplayer.Components.Networking.World;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Networking.Serialization;
 using Newtonsoft.Json;
@@ -255,6 +257,7 @@ public sealed class DebugOverlayController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Alpha3)) SetFilter("TrainCar");
         if (Input.GetKeyDown(KeyCode.Alpha4)) SetFilter("Packet");
         if (Input.GetKeyDown(KeyCode.Alpha5)) SetFilter("Health");
+        if (Input.GetKeyDown(KeyCode.Alpha6)) SetFilter("Inventory");
         instance.Refresh(false);
         if (filter == "Health")
         {
@@ -282,7 +285,7 @@ public sealed class DebugOverlayController : MonoBehaviour
         if (!next && !previous) return;
         selectedIndex = next ? (selectedIndex + 1) % filteredEntities.Length : (selectedIndex - 1 + filteredEntities.Length) % filteredEntities.Length;
         DebugEntityDto target = filteredEntities[selectedIndex];
-        Select(target.EntityType, target.EntityId);
+        SelectVisibleEntity(target);
     }
 
     public static bool SelectLookedAt()
@@ -333,6 +336,20 @@ public sealed class DebugOverlayController : MonoBehaviour
         instance?.Refresh(true);
     }
 
+    private static void SelectVisibleEntity(DebugEntityDto target)
+    {
+        if (target == null)
+            return;
+        if (filter == "Inventory")
+        {
+            selected = target;
+            frozen = false;
+            instance?.Refresh(true);
+            return;
+        }
+        Select(target.EntityType, target.EntityId);
+    }
+
     private static void SetSearch(string value)
     {
         search = value?.Trim() ?? string.Empty;
@@ -368,6 +385,14 @@ public sealed class DebugOverlayController : MonoBehaviour
             // view already snapshots the bounded event store and should remain isolated.
             RefreshPacketEvents();
         }
+        else if (filter == "Inventory")
+        {
+            allEntities = LocalInventoryEntities();
+            filteredEntities = allEntities.Where(EntityMatchesSearch).ToArray();
+            selectedIndex = Mathf.Clamp(selectedIndex, 0, Math.Max(0, filteredEntities.Length - 1));
+            if (!frozen && selected != null)
+                selected = filteredEntities.FirstOrDefault(item => item.EntityId == selected.EntityId) ?? selected;
+        }
         else if (filter != "Health")
         {
             DebugEntityDto[] summaries = EntityDebugRegistry.Summaries().Where(item => item.EntityType is "Item" or "Player" or "TrainCar")
@@ -394,6 +419,8 @@ public sealed class DebugOverlayController : MonoBehaviour
             ? $"<color=#7E8B92>HEALTH</color>\n<size=22>{DebugDiagnostics.IdentitySnapshot().Length + DebugDiagnostics.DependencySnapshot().Length}</size>  <color=#26B861>ISSUES</color>"
             : filter == "Packet"
             ? $"<color=#7E8B92>PACKET EVENTS</color>\n<size=22>{packetEvents.Length}</size>  <color=#26B861>{(packetPaused ? "PAUSED" : "LIVE")}</color>"
+            : filter == "Inventory"
+            ? $"<color=#7E8B92>INVENTORY</color>\n<size=22>{filteredEntities.Length}</size>  <color=#26B861>LOCAL ITEMS</color>"
             : $"<color=#7E8B92>ENTITIES</color>\n<size=22>{allEntities.Length}</size>  <color=#26B861>{filter}</color>";
         worldText.text = $"<color=#7E8B92>WORLD ORIGIN</color>\n{WorldMover.currentMove}\n<color=#7E8B92>ABS</color> {(PlayerManager.PlayerTransform == null ? Vector3.zero : PlayerManager.PlayerTransform.position - WorldMover.currentMove)}";
         streamText.text = filter == "Health"
@@ -419,6 +446,35 @@ public sealed class DebugOverlayController : MonoBehaviour
         return (item.EntityId?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
             (item.DisplayName?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
             (item.EntityType?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0;
+    }
+
+    private static DebugEntityDto[] LocalInventoryEntities()
+    {
+        Inventory inventory = Inventory.Instance;
+        if (inventory == null)
+            return Array.Empty<DebugEntityDto>();
+        List<(int slot, DebugEntityDto dto)> items = new();
+        foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null).Distinct())
+        {
+            int slot;
+            try { slot = inventory.IndexOf(item.gameObject); }
+            catch { continue; }
+            if (slot < 0)
+                continue;
+            string id = item.NetId != 0 ? item.NetId.ToString() : $"unity:{item.gameObject.GetInstanceID()}";
+            DebugEntityDto registered = item.NetId != 0 ? EntityDebugRegistry.Get("Item", item.NetId.ToString()) : null;
+            items.Add((slot, new DebugEntityDto
+            {
+                EntityType = "Item",
+                EntityId = id,
+                DisplayName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
+                Severity = registered?.Severity ?? DebugSeverity.Info,
+                LastUpdatedUtc = DateTime.UtcNow,
+                LatestState = EntityDebugRegistry.ItemState(item),
+                Timeline = registered?.Timeline ?? new List<DebugEvent>()
+            }));
+        }
+        return items.OrderBy(item => item.slot).Select(item => item.dto).ToArray();
     }
 
     private void RefreshPacketEvents()
@@ -599,11 +655,22 @@ public sealed class DebugOverlayController : MonoBehaviour
             if (!active) continue;
             int entityIndex = start + rowIndex;
             DebugEntityDto entity = filteredEntities[entityIndex];
-            row.Text.text = $"<color=#78858C>{entity.EntityType.ToUpperInvariant(),-8}</color>  <color=#26B861>{entity.EntityId}</color>  {entity.DisplayName}" +
-                (entity.Severity >= DebugSeverity.Warning ? $"  <color=#FFB84D>{entity.Severity}</color>" : string.Empty);
+            if (filter == "Inventory")
+            {
+                Dictionary<string, object> state = entity.LatestState;
+                string flags = StateBool(state, "inventorySlotDropped") ? "SILHOUETTE" : "STORED";
+                if (StateBool(state, "claimStolen")) flags += " · STOLEN";
+                if (StateBool(state, "foreignOwned")) flags += " · FOREIGN";
+                row.Text.text = $"<color=#78858C>SLOT {StateValue(state, "inventorySlot", -1),2}</color>  <color=#26B861>{entity.EntityId}</color>  {entity.DisplayName}\n" +
+                    $"<size=12><color=#78858C>{flags} · owner P{StateValue(state, "persistentOwnerPlayerId", 0)} · claim {StateValue(state, "inventoryClaimSlot", -1)}</color></size>";
+                row.Layout.preferredHeight = 50;
+            }
+            else
+                row.Text.text = $"<color=#78858C>{entity.EntityType.ToUpperInvariant(),-8}</color>  <color=#26B861>{entity.EntityId}</color>  {entity.DisplayName}" +
+                    (entity.Severity >= DebugSeverity.Warning ? $"  <color=#FFB84D>{entity.Severity}</color>" : string.Empty);
             row.Background.color = IsSelected(entity.EntityType, entity.EntityId) ? Selected : entityIndex % 2 == 0 ? Panel : PanelLight;
             row.Button.onClick.RemoveAllListeners();
-            row.Button.onClick.AddListener(() => { selectedIndex = entityIndex; Select(entity.EntityType, entity.EntityId); });
+            row.Button.onClick.AddListener(() => { selectedIndex = entityIndex; SelectVisibleEntity(entity); });
         }
     }
 
@@ -698,7 +765,7 @@ public sealed class DebugOverlayController : MonoBehaviour
         GameObject filters = Group(left.transform, "Filters", true, Header, 38);
         AddFilter(filters.transform, "All", "0 ALL"); AddFilter(filters.transform, "Item", "1 ITEMS"); AddFilter(filters.transform, "Player", "2 PLAYERS"); AddFilter(filters.transform, "TrainCar", "3 TRAINS");
         GameObject diagnosticFilters = Group(left.transform, "DiagnosticFilters", true, Header, 38);
-        AddFilter(diagnosticFilters.transform, "Packet", "4 PACKETS"); AddFilter(diagnosticFilters.transform, "Health", "5 HEALTH");
+        AddFilter(diagnosticFilters.transform, "Packet", "4 PACKETS"); AddFilter(diagnosticFilters.transform, "Health", "5 HEALTH"); AddFilter(diagnosticFilters.transform, "Inventory", "6 INVENTORY");
         packetControls = Group(left.transform, "PacketControls", true, Header, 38);
         noisyPacketsButton = AddSettingsButton(packetControls.transform, "NOISY", ToggleNoisyPackets);
         pausePacketsButton = AddSettingsButton(packetControls.transform, "PAUSE", TogglePacketPause);
@@ -1002,6 +1069,13 @@ public sealed class DebugOverlayController : MonoBehaviour
         return Convert.ToString(value);
     }
     private static string Number(object value) { try { return Convert.ToSingle(value).ToString("0.###"); } catch { return Convert.ToString(value); } }
+    private static object StateValue(Dictionary<string, object> state, string key, object fallback) =>
+        state != null && state.TryGetValue(key, out object value) && value != null ? value : fallback;
+    private static bool StateBool(Dictionary<string, object> state, string key)
+    {
+        try { return Convert.ToBoolean(StateValue(state, key, false)); }
+        catch { return false; }
+    }
 }
 
 public sealed class DebugPanelDragger : MonoBehaviour, IBeginDragHandler, IDragHandler

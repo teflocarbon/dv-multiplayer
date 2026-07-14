@@ -20,7 +20,11 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
             if (_netId.Equals(value))
                 return;
             if ((_netId as dynamic).CompareTo(default(T)) != 0)
+            {
                 idPool.ReleaseId(_netId);
+                if (indexToObject.TryGetValue(_netId, out IdMonoBehaviour<T, I> registered) && ReferenceEquals(registered, this))
+                    indexToObject.Remove(_netId);
+            }
             Register(value);
         }
     }
@@ -56,12 +60,19 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
     public void Register(T id)
     {
         _netId = id;
+        if ((id as dynamic).CompareTo(default(T)) == 0)
+            return;
+
+        if (indexToObject.TryGetValue(id, out IdMonoBehaviour<T, I> registered) && !ReferenceEquals(registered, this))
+            Multiplayer.LogWarning($"Replacing duplicate NetId {id} for {typeof(I).Name}: {registered?.name} -> {name}");
         indexToObject[id] = this;
     }
 
     protected virtual void OnDestroy()
     {
         idPool.ReleaseId(NetId);
+        if (indexToObject.TryGetValue(NetId, out IdMonoBehaviour<T, I> registered) && ReferenceEquals(registered, this))
+            indexToObject.Remove(NetId);
         if (!UnloadWatcher.isUnloading)
             return;
         idPool.Reset();

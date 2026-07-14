@@ -71,7 +71,17 @@ public static class DebugPacketProjectorRegistry
         if (item == null) return new Dictionary<string, object>(StringComparer.Ordinal) { ["value"] = null };
         Dictionary<string, object> result = new(StringComparer.Ordinal)
         {
-            ["updateType"] = item.UpdateType.ToString(), ["itemNetId"] = item.ItemNetId
+            ["updateType"] = item.UpdateType.ToString(),
+            ["itemNetId"] = item.ItemNetId,
+            ["authorityRevision"] = item.AuthorityRevision,
+            ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+            ["transitionReason"] = item.TransitionReason.ToString(),
+            ["inventoryClaim"] = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["playerId"] = item.InventoryClaimPlayerId,
+                ["slot"] = item.InventoryClaimSlot,
+                ["flags"] = item.InventoryClaimFlags.ToString()
+            }
         };
         if (item.UpdateType == ItemUpdateData.ItemUpdateType.Destroy) return result;
         result["itemState"] = item.ItemState.ToString();
@@ -116,7 +126,7 @@ public static class DebugPacketProjectorRegistry
     private static string SummarizeItem(ItemUpdateData item)
     {
         if (item == null) return "null item update";
-        string prefix = $"Item {item.ItemNetId} {item.UpdateType}";
+        string prefix = $"Item {item.ItemNetId} r{item.AuthorityRevision} owner=P{item.PersistentOwnerPlayerId} {item.UpdateType}";
         if (item.UpdateType == ItemUpdateData.ItemUpdateType.Destroy) return prefix;
         return item.ItemState switch
         {

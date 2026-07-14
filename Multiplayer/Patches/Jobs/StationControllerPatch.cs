@@ -18,7 +18,10 @@ public static class StationController_Patch
     [HarmonyPrefix]
     public static bool ExpireAllAvailableJobsInStation(StationController __instance)
     {
-        return NetworkLifecycle.Instance.IsHost();
+        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
+        if (lifecycle == null || !lifecycle.IsServerRunning && !lifecycle.IsClientRunning)
+            return true;
+        return lifecycle.IsHost();
     }
 
 
