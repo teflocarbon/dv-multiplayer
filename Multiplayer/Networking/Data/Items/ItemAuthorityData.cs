@@ -23,7 +23,9 @@ public enum ItemTransitionReason : byte
     ClientAdoption,
     OwnerRecall,
     JobBookletSummon,
-    FullSync
+    FullSync,
+    LostAndFoundCollection,
+    LostAndFoundRetrieval
 }
 
 [Flags]

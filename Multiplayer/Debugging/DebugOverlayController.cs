@@ -96,6 +96,7 @@ public sealed class DebugOverlayController : MonoBehaviour
     private readonly Dictionary<string, Image> filterButtons = new(StringComparer.OrdinalIgnoreCase);
 
     public static bool Verbose => verbose;
+    public static bool LostAndFoundDiagnosticsVisible => visible && filter == "LostFound";
     public static void Toggle()
     {
         visible = !visible;
@@ -267,6 +268,7 @@ public sealed class DebugOverlayController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Alpha4)) SetFilter("Packet");
         if (Input.GetKeyDown(KeyCode.Alpha5)) SetFilter("Health");
         if (Input.GetKeyDown(KeyCode.Alpha6)) SetFilter("Inventory");
+        if (Input.GetKeyDown(KeyCode.Alpha7)) SetFilter("LostFound");
         instance.Refresh(false);
         if (filter == "Health")
         {
@@ -349,7 +351,7 @@ public sealed class DebugOverlayController : MonoBehaviour
     {
         if (target == null)
             return;
-        if (filter == "Inventory")
+        if (filter is "Inventory" or "LostFound")
         {
             selected = target;
             frozen = false;
@@ -402,6 +404,16 @@ public sealed class DebugOverlayController : MonoBehaviour
             if (!frozen && selected != null)
                 selected = filteredEntities.FirstOrDefault(item => item.EntityId == selected.EntityId) ?? selected;
         }
+        else if (filter == "LostFound")
+        {
+            allEntities = LostAndFoundEntities();
+            filteredEntities = allEntities.Where(EntityMatchesSearch).ToArray();
+            selectedIndex = Mathf.Clamp(selectedIndex, 0, Math.Max(0, filteredEntities.Length - 1));
+            if (!frozen)
+                selected = selected?.EntityType == "LostFound"
+                    ? filteredEntities.FirstOrDefault(item => item.EntityId == selected.EntityId) ?? filteredEntities.FirstOrDefault()
+                    : filteredEntities.FirstOrDefault();
+        }
         else if (filter != "Health")
         {
             DebugEntityDto[] summaries = EntityDebugRegistry.Summaries().Where(item => item.EntityType is "Item" or "Player" or "TrainCar")
@@ -430,15 +442,17 @@ public sealed class DebugOverlayController : MonoBehaviour
             ? $"<color=#7E8B92>PACKET EVENTS</color>\n<size=22>{packetEvents.Length}</size>  <color=#26B861>{(packetPaused ? "PAUSED" : "LIVE")}</color>"
             : filter == "Inventory"
             ? $"<color=#7E8B92>INVENTORY</color>\n<size=22>{filteredEntities.Length}</size>  <color=#26B861>LOCAL ITEMS</color>"
+            : filter == "LostFound"
+            ? $"<color=#7E8B92>LOST & FOUND</color>\n<size=22>{filteredEntities.Length}</size>  <color=#26B861>DEBUG ENTRIES</color>"
             : $"<color=#7E8B92>ENTITIES</color>\n<size=22>{allEntities.Length}</size>  <color=#26B861>{filter}</color>";
         worldText.text = $"<color=#7E8B92>WORLD ORIGIN</color>\n{WorldMover.currentMove}\n<color=#7E8B92>ABS</color> {(PlayerManager.PlayerTransform == null ? Vector3.zero : PlayerManager.PlayerTransform.position - WorldMover.currentMove)}";
         streamText.text = filter == "Health"
             ? $"<color=#7E8B92>NETWORK</color>\n{health.LatencyLatestMs}ms · jitter {health.LatencyJitterMs:0.0}ms\n<color=#7E8B92>DEBUG</color> {health.ObservabilityAverageMs:0.00}ms"
             : $"<color=#7E8B92>TRACE</color>\n{DebugRuntime.RuntimeSettings?.TraceMode} · 1/{DebugRuntime.RuntimeSettings?.HighFrequencySampling}\n<color=#7E8B92>PORT</color> {session?.FirehosePort}";
-        timelineSection.SetActive(verbose || filter == "Packet");
+        timelineSection.SetActive(verbose || filter is "Packet" or "LostFound");
         packetControls?.SetActive(filter == "Packet");
         packetModeControls?.SetActive(filter == "Packet");
-        if (entityPaneLayout != null) entityPaneLayout.preferredWidth = filter == "Packet" ? 440 : 350;
+        if (entityPaneLayout != null) entityPaneLayout.preferredWidth = filter == "Packet" ? 440 : filter == "LostFound" ? 410 : 350;
         UpdateFilters();
         UpdateRows();
         UpdateInspector();
@@ -454,7 +468,9 @@ public sealed class DebugOverlayController : MonoBehaviour
         if (string.IsNullOrWhiteSpace(search)) return true;
         return (item.EntityId?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
             (item.DisplayName?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
-            (item.EntityType?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0;
+            (item.EntityType?.IndexOf(search, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0 ||
+            item.EntityType == "LostFound" && item.LatestState?.Any(pair =>
+                Convert.ToString(pair.Value)?.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0) == true;
     }
 
     private static DebugEntityDto[] LocalInventoryEntities()
@@ -484,6 +500,35 @@ public sealed class DebugOverlayController : MonoBehaviour
             }));
         }
         return items.OrderBy(item => item.slot).Select(item => item.dto).ToArray();
+    }
+
+    private static DebugEntityDto[] LostAndFoundEntities()
+    {
+        List<DebugEntityDto> entries = new();
+        foreach (Dictionary<string, object> state in NetworkedLostAndFoundManager.DebugSnapshot())
+        {
+            string key = Convert.ToString(state.TryGetValue("debugKey", out object keyValue) ? keyValue : null) ?? Guid.NewGuid().ToString("N");
+            string name = Convert.ToString(state.TryGetValue("displayName", out object nameValue) ? nameValue : null);
+            if (string.IsNullOrWhiteSpace(name))
+                name = Convert.ToString(state.TryGetValue("prefabName", out object prefabValue) ? prefabValue : null) ?? "Unknown item";
+            ushort netId = 0;
+            try { netId = Convert.ToUInt16(state.TryGetValue("netId", out object idValue) ? idValue : 0); }
+            catch { }
+            DebugEntityDto registered = netId == 0 ? null : EntityDebugRegistry.Get("Item", netId.ToString());
+            string status = Convert.ToString(state.TryGetValue("status", out object statusValue) ? statusValue : null) ?? string.Empty;
+            entries.Add(new DebugEntityDto
+            {
+                EntityType = "LostFound",
+                EntityId = key,
+                DisplayName = name,
+                Severity = status == "AwaitingRebind" ? DebugSeverity.Warning : registered?.Severity ?? DebugSeverity.Info,
+                LastUpdatedUtc = DateTime.UtcNow,
+                LatestState = new Dictionary<string, object>(state, StringComparer.Ordinal),
+                Timeline = registered?.Timeline ?? new List<DebugEvent>()
+            });
+        }
+        return entries.OrderBy(item => StateValue(item.LatestState, "status", string.Empty))
+            .ThenBy(item => StateValue(item.LatestState, "netId", 0)).ToArray();
     }
 
     private void RefreshPacketEvents()
@@ -674,6 +719,22 @@ public sealed class DebugOverlayController : MonoBehaviour
                     $"<size=12><color=#78858C>{flags} · owner P{StateValue(state, "persistentOwnerPlayerId", 0)} · claim {StateValue(state, "inventoryClaimSlot", -1)}</color></size>";
                 row.Layout.preferredHeight = 50;
             }
+            else if (filter == "LostFound")
+            {
+                Dictionary<string, object> state = entity.LatestState;
+                string status = Convert.ToString(StateValue(state, "status", "Unknown"));
+                string source = Convert.ToString(StateValue(state, "source", "unknown"));
+                string reason = Convert.ToString(StateValue(state, "policyReason",
+                    StateValue(state, "reason", string.Empty)));
+                int netId;
+                try { netId = Convert.ToInt32(StateValue(state, "netId", 0)); }
+                catch { netId = 0; }
+                string statusColor = status == "Stored" || status == "ListedByHost" ? "#26B861" :
+                    status == "AwaitingRebind" ? "#FFB84D" : "#7E8B92";
+                row.Text.text = $"<color=#78858C>{source.ToUpperInvariant()}</color>  <color={statusColor}>{status.ToUpperInvariant()}</color>  <color=#26B861>{(netId == 0 ? "--" : netId.ToString())}</color>  {entity.DisplayName}\n" +
+                    $"<size=12><color=#78858C>{reason} · r{StateValue(state, "revision", 0)} · owner P{StateValue(state, "ownerPlayerId", 0)}</color></size>";
+                row.Layout.preferredHeight = 50;
+            }
             else
                 row.Text.text = $"<color=#78858C>{entity.EntityType.ToUpperInvariant(),-8}</color>  <color=#26B861>{entity.EntityId}</color>  {entity.DisplayName}" +
                     (entity.Severity >= DebugSeverity.Warning ? $"  <color=#FFB84D>{entity.Severity}</color>" : string.Empty);
@@ -774,7 +835,7 @@ public sealed class DebugOverlayController : MonoBehaviour
         GameObject filters = Group(left.transform, "Filters", true, Header, 38);
         AddFilter(filters.transform, "All", "0 ALL"); AddFilter(filters.transform, "Item", "1 ITEMS"); AddFilter(filters.transform, "Player", "2 PLAYERS"); AddFilter(filters.transform, "TrainCar", "3 TRAINS");
         GameObject diagnosticFilters = Group(left.transform, "DiagnosticFilters", true, Header, 38);
-        AddFilter(diagnosticFilters.transform, "Packet", "4 PACKETS"); AddFilter(diagnosticFilters.transform, "Health", "5 HEALTH"); AddFilter(diagnosticFilters.transform, "Inventory", "6 INVENTORY");
+        AddFilter(diagnosticFilters.transform, "Packet", "4 PACKETS"); AddFilter(diagnosticFilters.transform, "Health", "5 HEALTH"); AddFilter(diagnosticFilters.transform, "Inventory", "6 INVENTORY"); AddFilter(diagnosticFilters.transform, "LostFound", "7 LOST+FOUND");
         packetControls = Group(left.transform, "PacketControls", true, Header, 38);
         noisyPacketsButton = AddSettingsButton(packetControls.transform, "NOISY", ToggleNoisyPackets);
         pausePacketsButton = AddSettingsButton(packetControls.transform, "PAUSE", TogglePacketPause);
@@ -807,7 +868,7 @@ public sealed class DebugOverlayController : MonoBehaviour
         Text timelineHeader = Label(timelineSection.transform, "TimelineHeader", 15, TextAnchor.MiddleLeft, FontStyle.Bold); timelineHeader.text = "EVENT TIMELINE  <color=#78858C>LAST 60</color>"; Fixed(timelineHeader.gameObject, -1, 32);
         GameObject timeline = TextScroll(timelineSection.transform, "Timeline", out timelineText); Flex(timeline, 1);
         Text footer = Label(Group(panel.transform, "Footer", true, Header, 34).transform, "Help", 14, TextAnchor.MiddleLeft);
-        footer.text = "  <color=#26B861>F6</color> settings   <color=#26B861>F7</color> size   <color=#26B861>F8</color> toggle   <color=#26B861>F9</color> labels   <color=#26B861>F10</color> freeze   <color=#26B861>F11</color> verbose   <color=#26B861>F12</color> gaze   <color=#26B861>Ctrl+F</color> search   <color=#26B861>Ctrl+H</color> tree   <color=#26B861>Ctrl+C</color> copy   <color=#26B861>0-6</color> tabs";
+        footer.text = "  <color=#26B861>F6</color> settings   <color=#26B861>F7</color> size   <color=#26B861>F8</color> toggle   <color=#26B861>F9</color> labels   <color=#26B861>F10</color> freeze   <color=#26B861>F11</color> verbose   <color=#26B861>F12</color> gaze   <color=#26B861>Ctrl+F</color> search   <color=#26B861>Ctrl+H</color> tree   <color=#26B861>Ctrl+C</color> copy   <color=#26B861>0-7</color> tabs";
         BuildSettingsPanel();
         ApplyVisualSettings();
     }

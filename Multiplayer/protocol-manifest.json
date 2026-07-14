@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.15.0+3d4b8db111c8d61a65f16b8facf93309291c9838",
-  "Fingerprint": "308dc38ca828c3f7e33459b75222aa1d08d25df1ea271b7e2180e54b3c0b55fb",
+  "BuildVersion": "0.1.15.0+77e8f56667ef41771d039829f10033c03dd12a5a",
+  "Fingerprint": "f9514a9d740642ff146537cd73623fb10486596e9fc6bcc6ab8f26ef5e69824c",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -247,6 +247,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "3DE0E04500B75F76",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "3EF8F1FEC8CCE294",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundTrainSyncRequestPacket",
       "Direction": "Serverbound",
@@ -436,6 +445,24 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "83658BF633B684D1",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundLostItemsRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "88689E8E93DDC528",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemsSnapshotPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "8A392F0ECA3104FB",
       "TypeName": "Multiplayer.Networking.Packets.Common.CommonPitStopInteractionPacket",
       "Direction": "Bidirectional",
@@ -569,6 +596,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "B95654CB3670533B",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundLostItemRetrievePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "B9ED1809FF01BAF5",
@@ -964,7 +1000,9 @@
       "ClientAdoption": 4,
       "OwnerRecall": 5,
       "JobBookletSummon": 6,
-      "FullSync": 7
+      "FullSync": 7,
+      "LostAndFoundCollection": 8,
+      "LostAndFoundRetrieval": 9
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+Hand": {
       "nonVR": 0,

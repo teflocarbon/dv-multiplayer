@@ -19,27 +19,34 @@ namespace Multiplayer.Patches.World.Items;
 internal static class RespawnOnDropDebugPatch
 {
     [HarmonyPrefix]
-    private static void BeforeRespawnOrDestroy(RespawnOnDrop __instance, float delay)
+    private static bool BeforeRespawnOrDestroy(RespawnOnDrop __instance, float delay)
     {
-        if (!DebugRuntime.EnabledFor("inventory") || __instance == null)
-            return;
+        if (__instance == null)
+            return true;
         GameObject itemObject = __instance.gameObject;
         ItemBase item = itemObject.GetComponent<ItemBase>();
         NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem networked);
         Rigidbody rigidbody = item?.ItemRigidbody;
-        DebugRuntime.Publish("inventory", "item.respawn-or-destroy-scheduled",
-            NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
-            DebugSeverity.Warning, "Item", networked != null && networked.NetId != 0 ? networked.NetId.ToString() : $"unity:{itemObject.GetInstanceID()}",
-            new Dictionary<string, object>
-            {
-                ["delaySeconds"] = delay,
-                ["belongsToPlayer"] = item?.InventorySpecs?.BelongsToPlayer ?? false,
-                ["isEssential"] = item?.InventorySpecs?.IsEssential ?? false,
-                ["respawnOnDropThroughFloor"] = __instance.respawnOnDropThroughFloor,
-                ["onValidRespawnParent"] = __instance.OnValidRespawnParent,
-                ["position"] = DebugValueSnapshotter.Snapshot(itemObject.transform.position),
-                ["velocity"] = DebugValueSnapshotter.Snapshot(rigidbody?.velocity),
-                ["activeInHierarchy"] = itemObject.activeInHierarchy
-            });
+        if (DebugRuntime.EnabledFor("inventory"))
+            DebugRuntime.Publish("inventory", "item.respawn-or-destroy-scheduled",
+                NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                DebugSeverity.Warning, "Item", networked != null && networked.NetId != 0 ? networked.NetId.ToString() : $"unity:{itemObject.GetInstanceID()}",
+                new Dictionary<string, object>
+                {
+                    ["delaySeconds"] = delay,
+                    ["belongsToPlayer"] = item?.InventorySpecs?.BelongsToPlayer ?? false,
+                    ["isEssential"] = item?.InventorySpecs?.IsEssential ?? false,
+                    ["respawnOnDropThroughFloor"] = __instance.respawnOnDropThroughFloor,
+                    ["onValidRespawnParent"] = __instance.OnValidRespawnParent,
+                    ["position"] = DebugValueSnapshotter.Snapshot(itemObject.transform.position),
+                    ["velocity"] = DebugValueSnapshotter.Snapshot(rigidbody?.velocity),
+                    ["activeInHierarchy"] = itemObject.activeInHierarchy,
+                    ["suppressedByMultiplayer"] = MultiplayerStoragePatchGuard.IsManaged(item, out _)
+                });
+
+        // The host scanner owns distance collection for canonical player items. Clients
+        // must never run a process-local distance decision. Preserve vanilla reset/destroy
+        // behavior for unowned scene objects and other non-network-managed items.
+        return !MultiplayerStoragePatchGuard.IsManaged(item, out _);
     }
 }

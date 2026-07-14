@@ -58,6 +58,7 @@ public sealed class ItemTransitionCommand
     public bool AppliesPlacement { get; set; }
     public AuthorityPlacement RequestedPlacement { get; set; }
     public bool ClearRetrievalClaim { get; set; }
+    public bool MayEstablishPersistentOwner { get; set; } = true;
     public int InventoryClaimSlot { get; set; } = -1;
     public AuthorityClaimFlags InventoryClaimFlags { get; set; }
 }
@@ -110,7 +111,8 @@ public static class ItemAuthorityStateMachine
         ItemAuthorityState next = current.Clone();
         bool requestedRetrievalClaim = command.InventoryClaimSlot >= 0 &&
             HasRetrievalFlag(command.InventoryClaimFlags);
-        if (command.AppliesPlacement && next.PersistentOwnerPlayerId == 0 && requestedRetrievalClaim)
+        if (command.AppliesPlacement && command.MayEstablishPersistentOwner &&
+            next.PersistentOwnerPlayerId == 0 && requestedRetrievalClaim)
         {
             next.PersistentOwnerPlayerId = command.ActorPlayerId;
             next.InventoryClaimPlayerId = command.ActorPlayerId;
