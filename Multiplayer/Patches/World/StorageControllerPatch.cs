@@ -3,7 +3,6 @@ using DV.ThingTypes;
 using HarmonyLib;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World;
-using Multiplayer.Core.Items;
 
 namespace Multiplayer.Patches.World;
 
@@ -33,8 +32,14 @@ internal static class StorageControllerAddLostItemPatch
     {
         if (!MultiplayerStoragePatchGuard.IsManaged(item, out NetworkedItem networked))
             return true;
-        if (NetworkLifecycle.Instance.IsHost())
-            NetworkedLostAndFoundManager.Collect(networked, LostItemReason.SaveRecovery);
+
+        // Vanilla calls this method from several local presentation/recovery paths, including
+        // contact with the physical Lost and Found shed. None of those process-local calls are
+        // allowed to become multiplayer authority. Explicit host recovery callers must invoke
+        // NetworkedLostAndFoundManager.Collect with a stable reason after validating policy.
+        global::Multiplayer.Multiplayer.LogDebug(() =>
+            $"Suppressed vanilla Lost and Found insertion for managed item {networked.NetId} " +
+            $"({item.name})");
         return false;
     }
 }

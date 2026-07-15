@@ -81,20 +81,27 @@ public static class NetworkedLostAndFoundManager
             registry.GetForOwner(player.PlayerId).Select(ToData).ToArray();
     }
 
-    public static bool TryRetrieve(ServerPlayer player, ushort itemNetId, uint expectedRevision,
+    public static bool TryRetrieve(ServerPlayer player, uint lostHandle, uint expectedRevision,
         int requestedSlot, int existingItemSlot, int inventoryCapacity, int[] occupiedSlots,
         out ItemUpdateData snapshot, out string rejectionReason)
     {
         snapshot = null;
         rejectionReason = string.Empty;
-        if (player == null || !registry.TryGet(itemNetId, out LostItemRecord lost))
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Manager retrieval started: " +
+            $"player=P{player?.PlayerId ?? 0}, handle={lostHandle}, expectedRevision={expectedRevision}, " +
+            $"requestedSlot={requestedSlot}, existingSlot={existingItemSlot}, capacity={inventoryCapacity}, " +
+            $"registryContains={registry.TryGetByHandle(lostHandle, out _)}");
+        if (player == null || !registry.TryGetByHandle(lostHandle, out LostItemRecord lost))
         {
             rejectionReason = "unknown-lost-item";
+            TraceRecallRejection(0, rejectionReason, lostHandle);
             return false;
         }
+        ushort itemNetId = lost.NetId;
         if (inventoryCapacity < 1 || inventoryCapacity > 256)
         {
             rejectionReason = "inventory-unavailable";
+            TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
         LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(lost, player.PlayerId,
@@ -103,11 +110,16 @@ public static class NetworkedLostAndFoundManager
         if (!plan.Accepted)
         {
             rejectionReason = plan.Reason;
+            TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Retrieval plan accepted: " +
+            $"netId={itemNetId}, targetSlot={plan.TargetSlot}, storedRevision={lost.Revision}, " +
+            $"owner=P{lost.OwnerPlayerId}");
         if (!NetworkedItem.TryGet(itemNetId, out NetworkedItem item) || item == null)
         {
             rejectionReason = "missing-canonical-unity-item";
+            TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
         if (!AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record authority) ||
@@ -115,11 +127,18 @@ public static class NetworkedLostAndFoundManager
         {
             RemoveStaleEntry(itemNetId, item, "canonical-item-no-longer-in-lost-and-found");
             rejectionReason = "item-not-in-lost-and-found";
+            TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
         if (!AuthoritativeItemRegistry.TryRetrieveFromLostAndFound(item, player,
                 expectedRevision, plan.TargetSlot, out snapshot, out rejectionReason))
+        {
+            TraceRecallRejection(itemNetId, rejectionReason);
             return false;
+        }
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Authority transition accepted: " +
+            $"netId={itemNetId}, newRevision={snapshot?.AuthorityRevision ?? 0}, " +
+            $"state={snapshot?.ItemState.ToString() ?? "null"}, targetSlot={plan.TargetSlot}");
         LostItemRegistryResult removed = registry.RemoveForRetrieval(itemNetId, player.PlayerId,
             expectedRevision, out LostItemRecord removedRecord);
         if (removed != LostItemRegistryResult.Removed)
@@ -128,6 +147,7 @@ public static class NetworkedLostAndFoundManager
                 expectedRevision, lost.PrefabName, lost.InventoryClaimPlayerId,
                 lost.InventoryClaimSlot, (ItemInventoryClaimFlags)lost.InventoryClaimFlags);
             rejectionReason = "lost-item-registry-changed";
+            TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
         try
@@ -148,6 +168,7 @@ public static class NetworkedLostAndFoundManager
             }
             rejectionReason = "unity-retrieval-application-failed";
             Multiplayer.LogException("Lost and Found retrieval failed", exception);
+            TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
         generation++;
@@ -157,6 +178,9 @@ public static class NetworkedLostAndFoundManager
             ["targetSlot"] = plan.TargetSlot,
             ["generation"] = generation
         });
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Manager retrieval completed: " +
+            $"netId={itemNetId}, revision={snapshot.AuthorityRevision}, targetSlot={plan.TargetSlot}, " +
+            $"active={item.gameObject.activeSelf}, registryContains={registry.TryGet(itemNetId, out _)}");
         return true;
     }
 
@@ -172,9 +196,26 @@ public static class NetworkedLostAndFoundManager
         {
             snapshot = null;
             rejectionReason = "recall-claim-slot-missing";
+            TraceRecallRejection(item?.NetId ?? 0, rejectionReason);
             return false;
         }
-        return TryRetrieve(player, item?.NetId ?? 0, expectedRevision, existingItemSlot,
+        if (item == null || !registry.TryGet(item.NetId, out LostItemRecord lost))
+        {
+            snapshot = null;
+            rejectionReason = "unknown-lost-item";
+            TraceRecallRejection(item?.NetId ?? 0, rejectionReason);
+            return false;
+        }
+        uint authoritativeRevision = lost.Revision;
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Converting star recall to retrieval: " +
+            $"player=P{player?.PlayerId ?? 0}, netId={item.NetId}, projectionRevision={expectedRevision}, " +
+            $"registryRevision={authoritativeRevision}, " +
+            $"silhouetteSlot={existingItemSlot}");
+        // Collection advances canonical authority while deliberately leaving a dropped inventory
+        // silhouette behind. Older projections can therefore report the pre-collection revision.
+        // The star action identifies that same canonical registry entry, so validate against the
+        // host-owned registry revision rather than the inert Unity projection's cached revision.
+        return TryRetrieve(player, lost.Handle, authoritativeRevision, existingItemSlot,
             existingItemSlot, existingItemSlot + 1, Array.Empty<int>(), out snapshot,
             out rejectionReason);
     }
@@ -213,6 +254,7 @@ public static class NetworkedLostAndFoundManager
         }
         LostItemRecord record = new()
         {
+            PersistentItemId = Guid.NewGuid(),
             NetId = item.NetId,
             Revision = authority.Revision,
             OwnerPlayerId = authority.PersistentOwnerPlayerId,
@@ -223,8 +265,7 @@ public static class NetworkedLostAndFoundManager
             InventoryClaimSlot = authority.InventoryClaimSlot,
             InventoryClaimFlags = (byte)authority.InventoryClaimFlags,
             Reason = reason,
-            LostUtcTicks = DateTime.UtcNow.Ticks,
-            PersistenceToken = $"net:{item.NetId}"
+            LostUtcTicks = DateTime.UtcNow.Ticks
         };
         if (registry.Add(record) != LostItemRegistryResult.Added)
         {
@@ -239,6 +280,8 @@ public static class NetworkedLostAndFoundManager
         try
         {
             ProjectToInertStorage(item);
+            if (destroy != null)
+                item.ApplyAuthorityMetadata(destroy);
         }
         catch (Exception exception)
         {
@@ -332,7 +375,8 @@ public static class NetworkedLostAndFoundManager
                     ["prefabName"] = (string)pending["prefabName"] ?? string.Empty,
                     ["displayName"] = (string)pending["displayName"] ?? string.Empty,
                     ["reason"] = ((LostItemReason)((byte?)pending["reason"] ?? 0)).ToString(),
-                    ["persistenceToken"] = (string)pending["persistenceToken"] ?? string.Empty
+                    ["persistentItemId"] = (string)pending["persistentItemId"] ?? string.Empty,
+                    ["storageIndex"] = (int?)pending["storageIndex"] ?? -1
                 });
             }
         }
@@ -342,9 +386,10 @@ public static class NetworkedLostAndFoundManager
             {
                 result.Add(new Dictionary<string, object>
                 {
-                    ["debugKey"] = $"client:{item.NetId}",
+                    ["debugKey"] = $"client-handle:{item.Handle}",
                     ["source"] = "client-authoritative-list",
                     ["status"] = "ListedByHost",
+                    ["lostHandle"] = item.Handle,
                     ["netId"] = item.NetId,
                     ["revision"] = item.Revision,
                     ["prefabName"] = item.PrefabName ?? string.Empty,
@@ -411,20 +456,40 @@ public static class NetworkedLostAndFoundManager
         if (storage?.StorageLostAndFound == null)
             return;
         int countBefore = registry.Count;
-        List<ItemBase> available = storage.StorageLostAndFound.GetStorageItemList()
+        List<ItemBase> restoredItems = storage.StorageLostAndFound.GetStorageItemList();
+        List<ItemBase> available = restoredItems
             .Where(item => item != null && !registry.TryGet(
                 NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem existing) ? existing.NetId : (ushort)0,
                 out _)).ToList();
 
         foreach (JObject value in pendingSaveImports.ToArray())
         {
+            if (!Guid.TryParse((string)value["persistentItemId"], out Guid persistentItemId) ||
+                persistentItemId == Guid.Empty)
+            {
+                // Clean-break format: do not infer persistent identity from a transient NetId.
+                pendingSaveImports.Remove(value);
+                Multiplayer.LogWarning("Ignoring Lost and Found save record without persistentItemId");
+                continue;
+            }
             string ownerIdentity = (string)value["ownerIdentity"] ?? string.Empty;
+            if (registry.TryGetByPersistentId(persistentItemId, out _))
+            {
+                pendingSaveImports.Remove(value);
+                Multiplayer.LogWarning($"Ignoring duplicate Lost and Found persistentItemId {persistentItemId:D}");
+                continue;
+            }
             ServerPlayer owner = NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player =>
                 string.Equals(player.Guid.ToString("D"), ownerIdentity, StringComparison.OrdinalIgnoreCase));
             if (owner == null) continue;
             string prefab = (string)value["prefabName"] ?? string.Empty;
-            ItemBase baseItem = available.FirstOrDefault(item =>
-                string.Equals(item.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal));
+            int storageIndex = (int?)value["storageIndex"] ?? -1;
+            ItemBase baseItem = storageIndex >= 0 && storageIndex < restoredItems.Count
+                ? restoredItems[storageIndex]
+                : null;
+            if (baseItem == null || !available.Contains(baseItem) ||
+                !string.Equals(baseItem.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal))
+                continue;
             if (baseItem == null || !NetworkedItem.TryGetNetworkedItem(baseItem, out NetworkedItem item) || item.NetId == 0)
                 continue;
             available.Remove(baseItem);
@@ -436,6 +501,7 @@ public static class NetworkedLostAndFoundManager
                 claimPlayerId, claimSlot, claimFlags);
             registry.Restore(new LostItemRecord
             {
+                PersistentItemId = persistentItemId,
                 NetId = item.NetId,
                 Revision = revision,
                 OwnerPlayerId = owner.PlayerId,
@@ -446,8 +512,7 @@ public static class NetworkedLostAndFoundManager
                 InventoryClaimSlot = claimSlot,
                 InventoryClaimFlags = (byte)claimFlags,
                 Reason = (LostItemReason)((byte?)value["reason"] ?? 0),
-                LostUtcTicks = (long?)value["lostUtcTicks"] ?? DateTime.UtcNow.Ticks,
-                PersistenceToken = (string)value["persistenceToken"] ?? string.Empty
+                LostUtcTicks = (long?)value["lostUtcTicks"] ?? DateTime.UtcNow.Ticks
             });
             pendingSaveImports.Remove(value);
         }
@@ -601,12 +666,19 @@ public static class NetworkedLostAndFoundManager
             }, DebugSeverity.Warning);
     }
 
+    private static void TraceRecallRejection(ushort itemNetId, string reason, uint lostHandle = 0)
+    {
+        global::Multiplayer.Multiplayer.LogWarning($"[LostAndFound Recall] Manager retrieval rejected: " +
+            $"handle={lostHandle}, netId={itemNetId}, reason={reason ?? string.Empty}");
+    }
+
     private static string OwnerIdentity(byte id) =>
         NetworkLifecycle.Instance.Server.TryGetServerPlayer(id, out ServerPlayer player)
             ? player.Guid.ToString("D") : string.Empty;
 
     private static LostItemData ToData(LostItemRecord record) => new()
     {
+        Handle = record.Handle,
         NetId = record.NetId,
         Revision = record.Revision,
         PrefabName = record.PrefabName,
@@ -621,9 +693,11 @@ public static class NetworkedLostAndFoundManager
         Dictionary<string, object> entry = item == null
             ? new Dictionary<string, object>(StringComparer.Ordinal)
             : new Dictionary<string, object>(EntityDebugRegistry.ItemState(item), StringComparer.Ordinal);
-        entry["debugKey"] = $"registry:{record.NetId}";
+        entry["debugKey"] = $"registry-handle:{record.Handle}";
         entry["source"] = "host-registry";
         entry["status"] = "Stored";
+        entry["persistentItemId"] = record.PersistentItemId.ToString("D");
+        entry["lostHandle"] = record.Handle;
         entry["netId"] = record.NetId;
         entry["revision"] = record.Revision;
         entry["ownerPlayerId"] = record.OwnerPlayerId;
@@ -632,7 +706,6 @@ public static class NetworkedLostAndFoundManager
         entry["displayName"] = record.DisplayName;
         entry["reason"] = record.Reason.ToString();
         entry["lostUtc"] = FormatUtc(record.LostUtcTicks);
-        entry["persistenceToken"] = record.PersistenceToken;
         entry["inventoryClaimPlayerId"] = record.InventoryClaimPlayerId;
         entry["inventoryClaimSlot"] = record.InventoryClaimSlot;
         entry["inventoryClaimFlagsRaw"] = record.InventoryClaimFlags;
@@ -683,19 +756,27 @@ public static class NetworkedLostAndFoundManager
         catch { return $"invalid-ticks:{ticks}"; }
     }
 
-    private static JObject Serialize(LostItemRecord record) => new()
+    private static JObject Serialize(LostItemRecord record)
     {
-        ["revision"] = record.Revision,
-        ["ownerIdentity"] = record.OwnerIdentity,
-        ["prefabName"] = record.PrefabName,
-        ["displayName"] = record.DisplayName,
-        ["inventoryClaimPlayerId"] = record.InventoryClaimPlayerId,
-        ["inventoryClaimSlot"] = record.InventoryClaimSlot,
-        ["inventoryClaimFlags"] = record.InventoryClaimFlags,
-        ["reason"] = (byte)record.Reason,
-        ["lostUtcTicks"] = record.LostUtcTicks,
-        ["persistenceToken"] = record.PersistenceToken
-    };
+        int storageIndex = -1;
+        if (NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item?.Item != null)
+            storageIndex = StorageController.Instance?.StorageLostAndFound?.GetStorageItemList()
+                .IndexOf(item.Item) ?? -1;
+        return new JObject
+        {
+            ["persistentItemId"] = record.PersistentItemId.ToString("D"),
+            ["storageIndex"] = storageIndex,
+            ["revision"] = record.Revision,
+            ["ownerIdentity"] = record.OwnerIdentity,
+            ["prefabName"] = record.PrefabName,
+            ["displayName"] = record.DisplayName,
+            ["inventoryClaimPlayerId"] = record.InventoryClaimPlayerId,
+            ["inventoryClaimSlot"] = record.InventoryClaimSlot,
+            ["inventoryClaimFlags"] = record.InventoryClaimFlags,
+            ["reason"] = (byte)record.Reason,
+            ["lostUtcTicks"] = record.LostUtcTicks
+        };
+    }
 
     private static void TraceDecision(NetworkedItem item, AuthoritativeItemRegistry.Record authority,
         LostItemDecision decision, LostItemCandidate candidate)

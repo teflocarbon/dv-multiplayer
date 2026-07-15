@@ -242,12 +242,13 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
             pending = true;
             message = "RETRIEVING...";
             NetworkLifecycle.Instance.Client?.RequestLostItemRetrieval(++requestId,
-                item.NetId, item.Revision);
+                item.Handle, item.NetId, item.Revision);
         }
         else if (input == InputAction.PrintInfo)
         {
             LostItemData item = items[Selected];
-            message = $"ID {item.NetId}  {((global::Multiplayer.Core.Items.LostItemReason)item.Reason)}";
+            message = $"LOST {item.Handle}  NET {item.NetId}  " +
+                $"{((global::Multiplayer.Core.Items.LostItemReason)item.Reason)}";
         }
         EnsureVisible();
         Render();
@@ -273,10 +274,10 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
 
     private void RefreshFromModel()
     {
-        ushort selectedId = items.Count > 0 && Selected < items.Count ? items[Selected].NetId : (ushort)0;
+        uint selectedHandle = items.Count > 0 && Selected < items.Count ? items[Selected].Handle : 0;
         items.Clear();
         items.AddRange(NetworkedLostAndFoundManager.ClientItems.OrderBy(item => item.LostUtcTicks));
-        int preserved = selectedId == 0 ? -1 : items.FindIndex(item => item.NetId == selectedId);
+        int preserved = selectedHandle == 0 ? -1 : items.FindIndex(item => item.Handle == selectedHandle);
         Selected = preserved >= 0 ? preserved : Mathf.Clamp(Selected, 0, Math.Max(0, items.Count - 1));
         EnsureVisible();
         Render();
@@ -299,7 +300,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
             int index = first + row;
             TextMeshPro text = Texts.Rows[row];
             text.text = index < items.Count
-                ? $"[{items[index].NetId}] {Display(items[index])}"
+                ? $"[{items[index].Handle}] {Display(items[index])}"
                 : string.Empty;
             text.color = index == Selected && index < items.Count
                 ? Host.Switcher.HIGHLIGHTED_COLOR : Host.Switcher.REGULAR_COLOR;

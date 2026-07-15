@@ -1484,6 +1484,9 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundItemRecallResultPacket(ClientboundItemRecallResultPacket packet)
     {
+        Log($"[LostAndFound Recall] Recall result received: netId={packet.ItemNetId}, " +
+            $"accepted={packet.Accepted}, revision={packet.AuthorityRevision}, " +
+            $"reason={packet.RejectionReason ?? string.Empty}");
         DebugRuntime.Publish("item", packet.Accepted ? "item.recall-confirmed" : "item.recall-rejected",
             DebugRuntimeSide.Client, packet.Accepted ? DebugSeverity.Info : DebugSeverity.Warning,
             "Item", packet.ItemNetId.ToString(), new()
@@ -1497,6 +1500,7 @@ public class NetworkClient : NetworkManager
     {
         int count = new[]
         {
+            packet.Handles?.Length ?? 0,
             packet.NetIds?.Length ?? 0,
             packet.Revisions?.Length ?? 0,
             packet.PrefabNames?.Length ?? 0,
@@ -1508,6 +1512,7 @@ public class NetworkClient : NetworkManager
         for (int i = 0; i < count; i++)
             items[i] = new LostItemData
             {
+                Handle = packet.Handles[i],
                 NetId = packet.NetIds[i],
                 Revision = packet.Revisions[i],
                 PrefabName = packet.PrefabNames[i],
@@ -1520,6 +1525,19 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundLostItemRetrieveResultPacket(ClientboundLostItemRetrieveResultPacket packet)
     {
+        Log($"[LostAndFound Recall] Lost item retrieval result received: request={packet.RequestId}, " +
+            $"handle={packet.LostHandle}, accepted={packet.Accepted}, revision={packet.AuthorityRevision}, " +
+            $"reason={packet.RejectionReason ?? string.Empty}");
+        DebugRuntime.Publish("item", packet.Accepted ? "item.lost-and-found-recall-confirmed" :
+            "item.lost-and-found-recall-rejected", DebugRuntimeSide.Client,
+            packet.Accepted ? DebugSeverity.Info : DebugSeverity.Warning,
+            "LostItem", packet.LostHandle.ToString(), new()
+            {
+                ["requestId"] = packet.RequestId,
+                ["lostHandle"] = packet.LostHandle,
+                ["authorityRevision"] = packet.AuthorityRevision,
+                ["rejectionReason"] = packet.RejectionReason ?? string.Empty
+            });
         LostItemRetrieveCompleted?.Invoke(packet);
     }
 
@@ -2130,22 +2148,26 @@ public class NetworkClient : NetworkManager
             DeliveryMethod.ReliableOrdered);
     }
 
-    public void RequestLostItemRetrieval(uint requestId, ushort itemNetId,
+    public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
         uint expectedRevision, int requestedSlot = -1)
     {
         Inventory inventory = Inventory.Instance;
         int capacity = inventory?.Capacity ?? 0;
         int existingItemSlot = -1;
-        if (NetworkedItem.TryGet(itemNetId, out NetworkedItem existingItem) && existingItem != null)
+        if (NetworkedItem.TryGet(currentNetId, out NetworkedItem existingItem) && existingItem != null)
             existingItemSlot = inventory?.IndexOf(existingItem.gameObject) ?? -1;
         List<int> occupied = new();
         for (int slot = 0; slot < capacity; slot++)
             if (inventory.PeekItemAtSlot(slot, true) != null)
                 occupied.Add(slot);
+        Log($"[LostAndFound Recall] Preparing retrieval packet: request={requestId}, " +
+            $"handle={lostHandle}, currentNetId={currentNetId}, " +
+            $"revision={expectedRevision}, requestedSlot={requestedSlot}, existingSlot={existingItemSlot}, " +
+            $"capacity={capacity}, occupied=[{string.Join(",", occupied)}]");
         SendPacketToServer(new ServerboundLostItemRetrievePacket
         {
             RequestId = requestId,
-            ItemNetId = itemNetId,
+            LostHandle = lostHandle,
             ExpectedRevision = expectedRevision,
             RequestedSlot = requestedSlot,
             ExistingItemSlot = existingItemSlot,

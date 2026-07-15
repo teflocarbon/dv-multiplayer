@@ -4,6 +4,7 @@ public class ClientboundLostItemsSnapshotPacket
 {
     public uint RequestId { get; set; }
     public uint Generation { get; set; }
+    public uint[] Handles { get; set; }
     public ushort[] NetIds { get; set; }
     public uint[] Revisions { get; set; }
     public string[] PrefabNames { get; set; }
