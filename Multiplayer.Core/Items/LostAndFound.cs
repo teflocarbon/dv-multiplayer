@@ -90,6 +90,8 @@ public static class LostItemCollectionPolicy
 
 public sealed class LostItemRecord
 {
+    public Guid PersistentItemId { get; set; }
+    public uint Handle { get; set; }
     public ushort NetId { get; set; }
     public uint Revision { get; set; }
     public byte OwnerPlayerId { get; set; }
@@ -101,7 +103,6 @@ public sealed class LostItemRecord
     public byte InventoryClaimFlags { get; set; }
     public LostItemReason Reason { get; set; }
     public long LostUtcTicks { get; set; }
-    public string PersistenceToken { get; set; } = string.Empty;
 
     public LostItemRecord Clone() => (LostItemRecord)MemberwiseClone();
 }
@@ -113,26 +114,43 @@ public enum LostItemRegistryResult : byte
     Removed,
     Invalid,
     DuplicateNetId,
+    DuplicatePersistentItemId,
+    DuplicateHandle,
     NotFound,
     WrongOwner,
     StaleRevision
 }
 
-/// <summary>One canonical Lost and Found entry per NetId, partitioned by persistent owner.</summary>
+/// <summary>
+/// Host Lost and Found records keyed internally by their current runtime NetId, with a durable
+/// UUID for save identity and a compact process-local handle for network requests.
+/// </summary>
 public sealed class LostItemRegistry
 {
     private readonly Dictionary<ushort, LostItemRecord> records = new();
+    private readonly Dictionary<uint, ushort> handleToNetId = new();
+    private readonly Dictionary<Guid, ushort> persistentIdToNetId = new();
+    private uint nextHandle = 1;
 
     public int Count => records.Count;
 
     public LostItemRegistryResult Add(LostItemRecord record)
     {
-        if (record == null || record.NetId == 0 || record.OwnerPlayerId == 0)
+        if (record == null || record.PersistentItemId == Guid.Empty || record.NetId == 0 ||
+            record.OwnerPlayerId == 0)
             return LostItemRegistryResult.Invalid;
         if (records.ContainsKey(record.NetId))
             return LostItemRegistryResult.DuplicateNetId;
+        if (persistentIdToNetId.ContainsKey(record.PersistentItemId))
+            return LostItemRegistryResult.DuplicatePersistentItemId;
         LostItemRecord stored = record.Clone();
+        if (stored.Handle == 0)
+            stored.Handle = AllocateHandle();
+        else if (handleToNetId.ContainsKey(stored.Handle))
+            return LostItemRegistryResult.DuplicateHandle;
         records.Add(stored.NetId, stored);
+        handleToNetId.Add(stored.Handle, stored.NetId);
+        persistentIdToNetId.Add(stored.PersistentItemId, stored.NetId);
         return LostItemRegistryResult.Added;
     }
 
@@ -143,6 +161,23 @@ public sealed class LostItemRegistry
             record = stored.Clone();
             return true;
         }
+        record = null;
+        return false;
+    }
+
+    public bool TryGetByHandle(uint handle, out LostItemRecord record)
+    {
+        if (handle != 0 && handleToNetId.TryGetValue(handle, out ushort netId))
+            return TryGet(netId, out record);
+        record = null;
+        return false;
+    }
+
+    public bool TryGetByPersistentId(Guid persistentItemId, out LostItemRecord record)
+    {
+        if (persistentItemId != Guid.Empty &&
+            persistentIdToNetId.TryGetValue(persistentItemId, out ushort netId))
+            return TryGet(netId, out record);
         record = null;
         return false;
     }
@@ -172,6 +207,8 @@ public sealed class LostItemRegistry
         if (record.Revision != expectedRevision)
             return LostItemRegistryResult.StaleRevision;
         records.Remove(netId);
+        handleToNetId.Remove(record.Handle);
+        persistentIdToNetId.Remove(record.PersistentItemId);
         removed = record.Clone();
         return LostItemRegistryResult.Removed;
     }
@@ -189,17 +226,49 @@ public sealed class LostItemRegistry
         if (!records.TryGetValue(netId, out LostItemRecord record))
             return LostItemRegistryResult.NotFound;
         records.Remove(netId);
+        handleToNetId.Remove(record.Handle);
+        persistentIdToNetId.Remove(record.PersistentItemId);
         removed = record.Clone();
         return LostItemRegistryResult.Removed;
     }
 
-    public void Restore(LostItemRecord record)
+    public LostItemRegistryResult Restore(LostItemRecord record)
     {
-        if (record != null && record.NetId != 0 && record.OwnerPlayerId != 0)
-            records[record.NetId] = record.Clone();
+        if (record == null || record.PersistentItemId == Guid.Empty || record.NetId == 0 ||
+            record.OwnerPlayerId == 0)
+            return LostItemRegistryResult.Invalid;
+        if (persistentIdToNetId.TryGetValue(record.PersistentItemId, out ushort persistentMapped) &&
+            persistentMapped != record.NetId)
+            return LostItemRegistryResult.DuplicatePersistentItemId;
+        if (records.TryGetValue(record.NetId, out LostItemRecord previous))
+        {
+            handleToNetId.Remove(previous.Handle);
+            persistentIdToNetId.Remove(previous.PersistentItemId);
+        }
+        LostItemRecord stored = record.Clone();
+        if (stored.Handle == 0 || (handleToNetId.TryGetValue(stored.Handle, out ushort mapped) &&
+            mapped != stored.NetId))
+            stored.Handle = AllocateHandle();
+        records[stored.NetId] = stored;
+        handleToNetId[stored.Handle] = stored.NetId;
+        persistentIdToNetId[stored.PersistentItemId] = stored.NetId;
+        return LostItemRegistryResult.Updated;
     }
 
-    public void Clear() => records.Clear();
+    public void Clear()
+    {
+        records.Clear();
+        handleToNetId.Clear();
+        persistentIdToNetId.Clear();
+        nextHandle = 1;
+    }
+
+    private uint AllocateHandle()
+    {
+        while (nextHandle == 0 || handleToNetId.ContainsKey(nextHandle))
+            nextHandle++;
+        return nextHandle++;
+    }
 }
 
 public readonly struct LostItemRetrievalPlan

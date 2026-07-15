@@ -18,6 +18,7 @@ public sealed class LostAndFoundPacketTests
         {
             RequestId = packet.RequestId,
             Generation = packet.Generation,
+            Handles = packet.Handles,
             NetIds = packet.NetIds,
             Revisions = packet.Revisions,
             PrefabNames = packet.PrefabNames,
@@ -30,6 +31,7 @@ public sealed class LostAndFoundPacketTests
         {
             RequestId = 11,
             Generation = 4,
+            Handles = new uint[] { 51 },
             NetIds = new ushort[] { 782 },
             Revisions = new uint[] { 9 },
             PrefabNames = new[] { "CommsRadio" },
@@ -40,6 +42,7 @@ public sealed class LostAndFoundPacketTests
         processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
         Assert.That(result, Is.Not.Null);
         Assert.That(result.RequestId, Is.EqualTo(11));
+        Assert.That(result.Handles[0], Is.EqualTo(51));
         Assert.That(result.NetIds[0], Is.EqualTo(782));
         Assert.That(result.LostUtcTicks[0], Is.EqualTo(638880000000000000));
     }
@@ -52,7 +55,7 @@ public sealed class LostAndFoundPacketTests
         processor.SubscribeReusable<ServerboundLostItemRetrievePacket>(packet => result = new ServerboundLostItemRetrievePacket
         {
             RequestId = packet.RequestId,
-            ItemNetId = packet.ItemNetId,
+            LostHandle = packet.LostHandle,
             ExpectedRevision = packet.ExpectedRevision,
             RequestedSlot = packet.RequestedSlot,
             ExistingItemSlot = packet.ExistingItemSlot,
@@ -63,7 +66,7 @@ public sealed class LostAndFoundPacketTests
         processor.Write(writer, new ServerboundLostItemRetrievePacket
         {
             RequestId = 12,
-            ItemNetId = 782,
+            LostHandle = 51,
             ExpectedRevision = 9,
             RequestedSlot = 3,
             ExistingItemSlot = 5,
@@ -71,8 +74,40 @@ public sealed class LostAndFoundPacketTests
             OccupiedSlots = new[] { 0, 1, 2 }
         });
         processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
-        Assert.That(result.ItemNetId, Is.EqualTo(782));
+        Assert.That(result.LostHandle, Is.EqualTo(51));
         Assert.That(result.ExistingItemSlot, Is.EqualTo(5));
         Assert.That(result.OccupiedSlots, Is.EqualTo(new[] { 0, 1, 2 }));
+    }
+
+    [Test]
+    public void RetrievalResult_RoundTripsCompactHandleWithoutPersistentUuid()
+    {
+        ClientboundLostItemRetrieveResultPacket result = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(packet => result =
+            new ClientboundLostItemRetrieveResultPacket
+            {
+                RequestId = packet.RequestId,
+                LostHandle = packet.LostHandle,
+                Accepted = packet.Accepted,
+                AuthorityRevision = packet.AuthorityRevision,
+                RejectionReason = packet.RejectionReason
+            });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundLostItemRetrieveResultPacket
+        {
+            RequestId = 13,
+            LostHandle = 51,
+            Accepted = true,
+            AuthorityRevision = 10,
+            RejectionReason = string.Empty
+        });
+
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result.LostHandle, Is.EqualTo(51));
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.AuthorityRevision, Is.EqualTo(10));
     }
 }

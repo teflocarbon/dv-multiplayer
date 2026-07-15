@@ -1075,6 +1075,7 @@ public class NetworkServer : NetworkManager
         {
             RequestId = requestId,
             Generation = NetworkedLostAndFoundManager.Generation,
+            Handles = items.Select(item => item.Handle).ToArray(),
             NetIds = items.Select(item => item.NetId).ToArray(),
             Revisions = items.Select(item => item.Revision).ToArray(),
             PrefabNames = items.Select(item => item.PrefabName ?? string.Empty).ToArray(),
@@ -2421,7 +2422,14 @@ public class NetworkServer : NetworkManager
     private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)
     {
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
+        {
+            LogWarning($"[LostAndFound Recall] Recall packet has no authenticated player: " +
+                $"peer={peer?.Id}, netId={packet.ItemNetId}");
             return;
+        }
+
+        Log($"[LostAndFound Recall] Recall packet received: player=P{player.PlayerId}, " +
+            $"netId={packet.ItemNetId}, revision={packet.ExpectedRevision}, slot={packet.RequestedSlot}");
 
         bool accepted = false;
         bool storedInLostAndFound = false;
@@ -2461,6 +2469,9 @@ public class NetworkServer : NetworkManager
             AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
             RejectionReason = rejectionReason ?? string.Empty
         }, DeliveryMethod.ReliableOrdered);
+        Log($"[LostAndFound Recall] Recall result sent: player=P{player.PlayerId}, " +
+            $"netId={packet.ItemNetId}, stored={storedInLostAndFound}, accepted={accepted}, " +
+            $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
     }
 
     private void OnServerboundLostItemsRequestPacket(ServerboundLostItemsRequestPacket packet, ITransportPeer peer)
@@ -2473,8 +2484,16 @@ public class NetworkServer : NetworkManager
     private void OnServerboundLostItemRetrievePacket(ServerboundLostItemRetrievePacket packet, ITransportPeer peer)
     {
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
+        {
+            LogWarning($"[LostAndFound Recall] Retrieval packet has no authenticated player: " +
+                $"peer={peer?.Id}, request={packet.RequestId}, handle={packet.LostHandle}");
             return;
-        bool accepted = NetworkedLostAndFoundManager.TryRetrieve(player, packet.ItemNetId,
+        }
+        Log($"[LostAndFound Recall] Retrieval packet received: player=P{player.PlayerId}, " +
+            $"request={packet.RequestId}, handle={packet.LostHandle}, revision={packet.ExpectedRevision}, " +
+            $"requestedSlot={packet.RequestedSlot}, existingSlot={packet.ExistingItemSlot}, " +
+            $"capacity={packet.InventoryCapacity}, occupied=[{string.Join(",", packet.OccupiedSlots ?? System.Array.Empty<int>())}]");
+        bool accepted = NetworkedLostAndFoundManager.TryRetrieve(player, packet.LostHandle,
             packet.ExpectedRevision, packet.RequestedSlot, packet.ExistingItemSlot, packet.InventoryCapacity,
             packet.OccupiedSlots, out ItemUpdateData snapshot, out string rejectionReason);
         if (accepted)
@@ -2482,12 +2501,15 @@ public class NetworkServer : NetworkManager
         SendPacket(peer, new ClientboundLostItemRetrieveResultPacket
         {
             RequestId = packet.RequestId,
-            ItemNetId = packet.ItemNetId,
+            LostHandle = packet.LostHandle,
             Accepted = accepted,
             AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
             RejectionReason = rejectionReason ?? string.Empty
         }, DeliveryMethod.ReliableOrdered);
         SendLostItemsSnapshot(player, packet.RequestId);
+        Log($"[LostAndFound Recall] Retrieval result sent: player=P{player.PlayerId}, " +
+            $"request={packet.RequestId}, handle={packet.LostHandle}, accepted={accepted}, " +
+            $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet, ITransportPeer peer)

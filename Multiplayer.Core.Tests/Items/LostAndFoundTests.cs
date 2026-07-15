@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Multiplayer.Core.Items;
 using NUnit.Framework;
@@ -144,6 +145,55 @@ public sealed class LostAndFoundTests
     }
 
     [Test]
+    public void Registry_AssignsCompactHandlesAndResolvesThemWithoutExposingPersistentId()
+    {
+        LostItemRegistry registry = new();
+        LostItemRecord first = Record();
+        LostItemRecord second = Record();
+        second.NetId = 43;
+        second.PersistentItemId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+
+        Assert.That(registry.Add(first), Is.EqualTo(LostItemRegistryResult.Added));
+        Assert.That(registry.Add(second), Is.EqualTo(LostItemRegistryResult.Added));
+        registry.TryGet(42, out LostItemRecord storedFirst);
+        registry.TryGet(43, out LostItemRecord storedSecond);
+
+        Assert.That(storedFirst.Handle, Is.Not.Zero);
+        Assert.That(storedSecond.Handle, Is.Not.Zero.And.Not.EqualTo(storedFirst.Handle));
+        Assert.That(registry.TryGetByHandle(storedFirst.Handle, out LostItemRecord resolved), Is.True);
+        Assert.That(resolved.PersistentItemId, Is.EqualTo(first.PersistentItemId));
+        Assert.That(registry.TryGetByPersistentId(first.PersistentItemId, out LostItemRecord persistent),
+            Is.True);
+        Assert.That(persistent.NetId, Is.EqualTo(first.NetId));
+    }
+
+    [Test]
+    public void Registry_RejectsDuplicatePersistentIdentityAcrossNetIds()
+    {
+        LostItemRegistry registry = new();
+        LostItemRecord first = Record();
+        LostItemRecord duplicate = Record();
+        duplicate.NetId = 43;
+        Assert.That(registry.Add(first), Is.EqualTo(LostItemRegistryResult.Added));
+        Assert.That(registry.Add(duplicate),
+            Is.EqualTo(LostItemRegistryResult.DuplicatePersistentItemId));
+    }
+
+    [Test]
+    public void Registry_RestoreAllocatesRuntimeHandleInsteadOfPersistingOne()
+    {
+        LostItemRegistry registry = new();
+        LostItemRecord restored = Record();
+        restored.Handle = 0;
+
+        Assert.That(registry.Restore(restored), Is.EqualTo(LostItemRegistryResult.Updated));
+        Assert.That(registry.TryGet(restored.NetId, out LostItemRecord stored), Is.True);
+        Assert.That(stored.Handle, Is.Not.Zero);
+        Assert.That(registry.TryGetByHandle(stored.Handle, out LostItemRecord resolved), Is.True);
+        Assert.That(resolved.PersistentItemId, Is.EqualTo(restored.PersistentItemId));
+    }
+
+    [Test]
     public void Registry_ExternalCanonicalTransitionInvalidatesOldEntryWithoutOldRevision()
     {
         LostItemRegistry registry = new();
@@ -206,11 +256,11 @@ public sealed class LostAndFoundTests
 
     private static LostItemRecord Record() => new()
     {
+        PersistentItemId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
         NetId = 42,
         Revision = 7,
         OwnerPlayerId = 1,
         PrefabName = "CommsRadio",
-        DisplayName = "Radio",
-        PersistenceToken = "item-token"
+        DisplayName = "Radio"
     };
 }

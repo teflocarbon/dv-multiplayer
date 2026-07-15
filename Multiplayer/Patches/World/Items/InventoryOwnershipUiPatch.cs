@@ -23,21 +23,42 @@ internal static class InventoryOwnershipUiPatch
     private static bool BeforeGetClicked(InventoryUIController __instance, int slotIndex,
         InventorySectionController controller)
     {
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Star clicked: relativeSlot={slotIndex}, " +
+            $"controller={controller?.section.ToString() ?? "null"}, uiPresent={__instance != null}, " +
+            $"lifecyclePresent={NetworkLifecycle.Instance != null}");
         if (__instance?.provider?.Inventory == null || NetworkLifecycle.Instance == null ||
             (!NetworkLifecycle.Instance.IsClientRunning && !NetworkLifecycle.Instance.IsHost()))
+        {
+            global::Multiplayer.Multiplayer.LogWarning("[LostAndFound Recall] Falling through to vanilla: " +
+                $"inventoryPresent={__instance?.provider?.Inventory != null}, " +
+                $"clientRunning={NetworkLifecycle.Instance?.IsClientRunning ?? false}, " +
+                $"isHost={NetworkLifecycle.Instance?.IsHost() ?? false}");
             return true;
+        }
 
         int absoluteSlot = __instance.GetAbsoluteSlotIndex(slotIndex, controller == __instance.hotbarController);
         GameObject itemObject = __instance.provider.Inventory.PeekItemAtSlot(absoluteSlot, true);
-        if (itemObject == null || !itemObject.TryGetComponent(out NetworkedItem item) ||
-            item.NetId == 0 || item.PersistentOwnerPlayerId == 0)
+        NetworkedItem item = itemObject != null ? itemObject.GetComponent<NetworkedItem>() : null;
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Slot resolved: absoluteSlot={absoluteSlot}, " +
+            $"dropped={__instance.provider.Inventory.GetSlotDroppedState(absoluteSlot)}, " +
+            $"reserved={__instance.provider.Inventory.GetSlotReservedState(absoluteSlot)}, " +
+            $"item={itemObject?.name ?? "null"}, netId={item?.NetId ?? 0}, " +
+            $"owner=P{item?.PersistentOwnerPlayerId ?? 0}, revision={item?.AuthorityRevision ?? 0}");
+        if (itemObject == null || item == null || item.NetId == 0 || item.PersistentOwnerPlayerId == 0)
+        {
+            global::Multiplayer.Multiplayer.LogWarning("[LostAndFound Recall] Falling through to vanilla: " +
+                $"itemPresent={itemObject != null}, networkedItemPresent={item != null}, " +
+                $"netId={item?.NetId ?? 0}, owner=P{item?.PersistentOwnerPlayerId ?? 0}");
             return true;
+        }
 
         byte localPlayerId = NetworkLifecycle.Instance.IsHost()
             ? NetworkLifecycle.Instance.Server?.SelfId ?? 0
             : NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
         if (item.PersistentOwnerPlayerId != localPlayerId)
         {
+            global::Multiplayer.Multiplayer.LogWarning($"[LostAndFound Recall] Blocked foreign recall: " +
+                $"netId={item.NetId}, local=P{localPlayerId}, owner=P{item.PersistentOwnerPlayerId}");
             DebugRuntime.Publish("item", "item.foreign-item-recall-blocked", DebugRuntimeSide.Client,
                 DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
                 {
@@ -53,14 +74,32 @@ internal static class InventoryOwnershipUiPatch
         // the inventory projection needed to revive an existing dropped silhouette.
         LostItemData lost = NetworkedLostAndFoundManager.ClientItems
             .FirstOrDefault(entry => entry?.NetId == item.NetId);
+        global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Routing: netId={item.NetId}, " +
+            $"runtime={(NetworkLifecycle.Instance.IsHost() ? "host" : "client")}, " +
+            $"clientListMatch={lost != null}, clientListCount={NetworkedLostAndFoundManager.ClientItems.Count}, " +
+            $"localRevision={item.AuthorityRevision}, listedRevision={lost?.Revision ?? 0}");
         if (!NetworkLifecycle.Instance.IsHost() && lost != null)
         {
-            NetworkLifecycle.Instance.Client?.RequestLostItemRetrieval(
-                unchecked(++lostItemRequestId), item.NetId, lost.Revision, absoluteSlot);
+            uint requestId = unchecked(++lostItemRequestId);
+            if (NetworkLifecycle.Instance.Client == null)
+            {
+                global::Multiplayer.Multiplayer.LogError($"[LostAndFound Recall] Cannot send retrieval: " +
+                    $"client is null, request={requestId}, netId={item.NetId}");
+            }
+            else
+            {
+                global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Sending Lost and Found retrieval: " +
+                    $"request={requestId}, handle={lost.Handle}, netId={item.NetId}, " +
+                    $"revision={lost.Revision}, slot={absoluteSlot}");
+                NetworkLifecycle.Instance.Client.RequestLostItemRetrieval(
+                    requestId, lost.Handle, item.NetId, lost.Revision, absoluteSlot);
+            }
         }
         else
         {
-            NetworkedItemManager.Instance?.RequestItemRecall(item, absoluteSlot);
+            bool requested = NetworkedItemManager.Instance?.RequestItemRecall(item, absoluteSlot) ?? false;
+            global::Multiplayer.Multiplayer.Log($"[LostAndFound Recall] Recall route returned: " +
+                $"netId={item.NetId}, requested={requested}, managerPresent={NetworkedItemManager.Instance != null}");
         }
         return false;
     }

@@ -1,6 +1,6 @@
 # Derail Valley Multiplayer Lost and Found Logic
 
-> Status: initial design and reverse-engineering notes. No Lost and Found behavior described here is implemented yet unless explicitly identified as existing infrastructure.
+> Status: work in progress. The host-authoritative registry, collection/retrieval flow, Career Manager page, shed suppression, observability, and persistent identity described below are implemented, but still require broader in-game acceptance testing.
 
 ## Related documents
 
@@ -232,6 +232,8 @@ A detached host record should contain at least:
 ```csharp
 public sealed class LostItemRecord
 {
+    public Guid PersistentItemId { get; init; } // host/save only
+    public uint Handle { get; init; }           // compact runtime/wire identity
     public ushort NetId { get; init; }
     public byte OwnerPlayerId { get; init; }
     public uint AuthorityRevision { get; init; }
@@ -267,7 +269,17 @@ PurchasedDeliveryFallback
 
 Recovery reasons should remain visible because some may need different UI or migration policy.
 
-The canonical runtime item should retain its NetId. Initially, the safest implementation is to detach, deactivate, and retain the same `NetworkedItem` rather than destroy it and reconstruct it during retrieval. A detached recipe can support save/load and eventual object unloading, but it should not introduce a second live Unity object.
+Identity has three deliberately separate layers:
+
+```text
+PersistentItemId (UUID)  durable semantic identity in the host save
+Handle (uint)            compact, process-local Lost and Found list/retrieval identity
+NetId (ushort)           current live multiplayer object association
+```
+
+The UUID is generated when an item first enters the host registry and is never sent in ordinary Lost and Found packets. Handles are allocated monotonically for the current host runtime, are not persisted, and are not reused during that runtime. List snapshots include the handle and current NetId; retrieval requests and results use the handle. This avoids adding a 16-byte UUID to routine packets while ensuring that a save record does not pretend a transient NetId is its durable identity.
+
+The canonical runtime item still retains its current NetId while the host process is alive. The implementation detaches, deactivates, and retains the same `NetworkedItem` rather than creating a second live object. After save/load, the UUID remains stable while the restored physical object may receive a different runtime NetId and handle.
 
 ## Eligibility policy
 
@@ -389,14 +401,15 @@ The screen should show:
 
 ```text
 item display name/prefab
-NetId (debug mode)
+compact Lost and Found handle
+current NetId (debug mode)
 reason and time stored
 recallable/reserved status
 target inventory availability
 Retrieve action
 ```
 
-The retrieval request should contain the NetId and expected authority revision. The host validates:
+The retrieval request contains the compact Lost and Found handle and expected authority revision. The host resolves the handle to the current registry record and runtime NetId, then validates:
 
 - requester is authenticated;
 - requester matches persistent owner;
@@ -409,7 +422,7 @@ Recommended first implementation: retrieve directly into the requesting player's
 
 If the inventory is full, leave the item in the registry and return a clear failure. Never remove the record before placement succeeds.
 
-Retrieval must reuse the same NetId and canonical object:
+Within a running session, retrieval reuses the same NetId and canonical object:
 
 ```text
 LostAndFound -> PlayerInventory
@@ -478,6 +491,14 @@ The initial functional patches should remain conditional and narrow:
 - leave ordinary non-player respawn/reset behavior untouched;
 - route direct recovery callers through host reason codes instead of globally blocking `AddItemToLostAndFound()`.
 
+Implemented authority boundary: `StorageController.AddItemToLostAndFound()` is suppressed for an
+already network-managed player item on both host and client. The vanilla method is reached by local
+physical-shed contact as well as several recovery helpers, so treating every invocation as
+`SaveRecovery` caused thrown items touching the shed model to disappear immediately. Legitimate
+multiplayer recovery must call `NetworkedLostAndFoundManager.Collect()` explicitly with its stable
+reason after host validation. Unbound/base-game restoration objects still use vanilla behavior and
+are classified after loading.
+
 ## Licenses
 
 Physical license papers are not supported multiplayer possessions and must never participate in the authoritative item registry or Lost and Found. The host already owns synchronized career/license state, so recovery means repairing the entitlement/UI, not spawning a paper license into a shed or registry.
@@ -513,12 +534,12 @@ The multiplayer fix should suppress the physical-paper side effect while preserv
 
 Do not add a second multiplayer license list. Keep the vanilla `CareerManagerLicensesScreen`, which already reads `LicenseManager` and is refreshed by the existing packet handler. If more detail is useful later, enrich that screen's presentation from entitlement data only.
 
-## Persistence
+## Persistence and identity
 
 The host save is authoritative for the registry. Persist detached records with enough information to restore the same semantic item:
 
 ```text
-NetId and revision
+persistent item UUID and revision
 owner player identity
 prefab and tracked state
 inventory claim
@@ -526,9 +547,9 @@ loss reason/time
 last absolute transform for diagnostics
 ```
 
-Player IDs may be session-local, so persistent ownership must ultimately map through the mod's stable player/account/save identity. Until that identity is defined, persistence across server restarts is a design blocker; do not serialize a transient byte player ID and assume it remains valid.
+The save does not persist the compact runtime handle or treat NetId as durable identity. Player IDs are session-local, so ownership is persisted through the existing stable player GUID and rebound to the current byte player ID when that player is present.
 
-Migration should inspect existing base `StorageLostAndFound` save entries on the host and classify them rather than importing everything blindly. Invalid-container and missing-car entries may be quarantined; license entries should become entitlements; eligible player items can become registry records.
+This development version intentionally uses a clean-break format. Records without a valid `persistentItemId` UUID are rejected and removed from the pending import list. There is no legacy `net:{NetId}` token migration and no attempt to infer identity from old records. This is acceptable while the mod has only one development user and avoids carrying compatibility complexity into the unfinished state machine.
 
 Vanilla restoration places Lost and Found objects near the end of `StartingItemsController.AddStartingItemsCoro`, after it loads the separate Inventory, LostAndFound, World, InstalledGadgets, and ItemContainers collections and applies recovery safeguards. Registry import must wait until `itemsLoaded == true`; importing earlier would miss fallback and license-repair objects created during restoration.
 
@@ -548,7 +569,7 @@ save:
   persist only multiplayer metadata separately
 ```
 
-Multiplayer metadata includes stable owner identity, NetId reconciliation identity, authority revision, loss reason/time, and retrieval claim state. Do not serialize a second physical object recipe in a parallel custom list; bind metadata back to the single vanilla-restored object during load.
+Multiplayer metadata includes the persistent item UUID, stable owner identity, authority revision, loss reason/time, and retrieval claim state. Runtime handles are rebuilt after load and NetIds are rebound to the restored canonical Unity objects. Do not serialize a second physical object recipe in a parallel custom list; bind metadata back to the single vanilla-restored object during load.
 
 `SaveGameManager.UpdateInternalData()` synchronously saves Inventory, World, LostAndFound, InstalledGadgets, and ItemContainers in that order. `OnInternalDataUpdate` fires only after those calls, so it is too late to change Lost and Found membership for the current save. Authoritative projection must remain continuously correct or run in a prefix/before-save hook. `OnInternalDataUpdate` can still write the separate multiplayer metadata chunk after vanilla storage data exists.
 
@@ -556,7 +577,7 @@ No additional base-game pre-save event is required for the first implementation.
 
 Only the host may persist authoritative Lost and Found membership and metadata. Clients may need hidden local projections for `ItemDisabler`, but allowing ordinary client save serialization to include replicated host or other-player objects would contaminate the client's save. Every projection needs authority/session provenance, and client storage serialization must exclude replicated Lost and Found projections deterministically.
 
-Vanilla `StorageItemData` does not guarantee unique identity between duplicate items of the same prefab. Persist a stable per-item GUID/token in the item's saved tracked/JObject data, or establish an equally unambiguous indexed save contract. Rebind multiplayer metadata by this token after `itemsLoaded`; never match duplicate objects only by prefab and transform.
+Vanilla `StorageItemData` does not carry the multiplayer UUID. The current clean-break format therefore persists the UUID together with the exact index of its one physical object in the vanilla `StorageLostAndFound` list. After `itemsLoaded`, rebinding requires that index to exist and its prefab to agree; it never falls back to selecting the first object with the same prefab. The host then assigns the restored object its current NetId and a new compact handle. A future item-save-data extension could embed the UUID directly, but the explicit indexed contract is sufficient while this save format is development-only.
 
 ## Network protocol outline
 
@@ -565,15 +586,16 @@ Suggested messages:
 ```text
 ClientboundLostItemListPacket
     full personal list after login or Career Manager activation
+    compact handle + current runtime NetId; never persistent UUID
 
 ClientboundLostItemChangedPacket
     added/updated/removed registry entry
 
 ServerboundLostItemRetrievePacket
-    NetId + expected revision
+    compact handle + expected revision + inventory evidence
 
 ClientboundLostItemRetrieveResultPacket
-    accepted/rejected + reason + resulting revision/slot
+    compact handle + accepted/rejected + reason + resulting revision
 ```
 
 Registry messages describe availability and UI state. The existing item snapshot protocol remains responsible for the actual canonical placement transition.
