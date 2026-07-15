@@ -208,7 +208,7 @@ internal sealed class DashboardMerger : IDisposable
             {
                 ["operationId"] = operation.OperationId, ["updateType"] = operation.UpdateType,
                 ["reason"] = operation.DiscontinuityReason, ["correlationConfidence"] = operation.CorrelationConfidence,
-                ["recipients"] = operation.Recipients.Select(recipient => new { recipient.PlayerId, recipient.PlayerName, recipient.Sent, recipient.Received, recipient.Handled, recipient.Applied, recipient.Discontinuity }).ToArray()
+                ["recipients"] = operation.Recipients.Select(recipient => new { recipient.PlayerId, recipient.PlayerName, recipient.Sent, recipient.Received, recipient.Handled, recipient.Applied, recipient.AcknowledgedWithoutApply, recipient.Discontinuity }).ToArray()
             }
         });
         if (!DashboardAutomaticCapturesEnabled || automaticCaptureCount >= 10 || DateTime.UtcNow < nextAutomaticCaptureUtc) return;

@@ -1,6 +1,7 @@
 using DV.InventorySystem;
 using HarmonyLib;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Integrations.Inventory;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -32,7 +33,9 @@ public static class InventoryItemStatePatch
     [HarmonyPostfix]
     private static void ObserveInventoryState(MethodBase __originalMethod)
     {
+        string reason = "inventory." + (__originalMethod?.Name ?? "state-changed");
+        InventoryIntegration.PurgeForeignDroppedClaims(reason);
         NetworkedItemManager.Instance?.QueueInventoryStateObservations(
-            "inventory." + (__originalMethod?.Name ?? "state-changed"));
+            reason);
     }
 }

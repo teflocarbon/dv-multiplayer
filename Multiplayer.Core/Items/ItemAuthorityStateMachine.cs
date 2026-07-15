@@ -58,6 +58,12 @@ public sealed class ItemTransitionCommand
     public bool AppliesPlacement { get; set; }
     public AuthorityPlacement RequestedPlacement { get; set; }
     public bool ClearRetrievalClaim { get; set; }
+    /// <summary>
+    /// The host has authenticated this operation as the item's initial client adoption.
+    /// Unlike a retrieval claim, adoption establishes identity even for an ordinary,
+    /// non-reserved inventory item.
+    /// </summary>
+    public bool EstablishPersistentOwner { get; set; }
     public bool MayEstablishPersistentOwner { get; set; } = true;
     public int InventoryClaimSlot { get; set; } = -1;
     public AuthorityClaimFlags InventoryClaimFlags { get; set; }
@@ -98,6 +104,8 @@ public static class ItemAuthorityStateMachine
     {
         if (current == null || command == null || current.NetId == 0 || command.ActorPlayerId == 0)
             return ItemAuthorityResult.Reject(current, "invalid-transition-input");
+        if (!command.Force && current.Placement == AuthorityPlacement.LostAndFound)
+            return ItemAuthorityResult.Reject(current, "item-in-lost-and-found");
         if (!command.Force && command.ExpectedRevision != current.Revision)
             return ItemAuthorityResult.Reject(current, "stale-authority-revision");
         if (current.Revision == uint.MaxValue)
@@ -111,13 +119,17 @@ public static class ItemAuthorityStateMachine
         ItemAuthorityState next = current.Clone();
         bool requestedRetrievalClaim = command.InventoryClaimSlot >= 0 &&
             HasRetrievalFlag(command.InventoryClaimFlags);
-        if (command.AppliesPlacement && command.MayEstablishPersistentOwner &&
-            next.PersistentOwnerPlayerId == 0 && requestedRetrievalClaim)
+        bool establishesOwner = command.EstablishPersistentOwner ||
+            command.MayEstablishPersistentOwner && requestedRetrievalClaim;
+        if (command.AppliesPlacement && next.PersistentOwnerPlayerId == 0 && establishesOwner)
         {
             next.PersistentOwnerPlayerId = command.ActorPlayerId;
-            next.InventoryClaimPlayerId = command.ActorPlayerId;
-            next.InventoryClaimSlot = command.InventoryClaimSlot;
-            next.InventoryClaimFlags = command.InventoryClaimFlags;
+            if (requestedRetrievalClaim)
+            {
+                next.InventoryClaimPlayerId = command.ActorPlayerId;
+                next.InventoryClaimSlot = command.InventoryClaimSlot;
+                next.InventoryClaimFlags = command.InventoryClaimFlags;
+            }
         }
 
         if (command.AppliesPlacement)
@@ -134,7 +146,10 @@ public static class ItemAuthorityStateMachine
             if (requestedRetrievalClaim)
             {
                 next.InventoryClaimPlayerId = command.ActorPlayerId;
-                if (next.InventoryClaimSlot < 0)
+                bool ownerControlsCurrentPlacement = command.AppliesPlacement &&
+                    IsPlayerPlacement(current.Placement) &&
+                    current.PlacementPlayerId == command.ActorPlayerId;
+                if (next.InventoryClaimSlot < 0 || ownerControlsCurrentPlacement)
                     next.InventoryClaimSlot = command.InventoryClaimSlot;
                 next.InventoryClaimFlags = command.InventoryClaimFlags;
             }
@@ -184,7 +199,10 @@ public static class ItemAuthorityStateMachine
         next.Placement = AuthorityPlacement.PlayerInventory;
         next.PlacementPlayerId = command.RequestingPlayerId;
         next.InventoryClaimPlayerId = command.RequestingPlayerId;
-        if (next.InventoryClaimSlot < 0 && command.RequestedSlot >= 0)
+        // The authenticated owner invoked recall from a concrete local ghost slot. That
+        // slot is fresher evidence than a potentially stale canonical claim captured before
+        // Derail Valley rebuilt or moved its inventory layout.
+        if (command.RequestedSlot >= 0)
             next.InventoryClaimSlot = command.RequestedSlot;
         next.InventoryClaimFlags |= AuthorityClaimFlags.Reserved;
         next.InventoryClaimFlags &= ~(AuthorityClaimFlags.Dropped | AuthorityClaimFlags.Stolen);

@@ -7,13 +7,11 @@ This document records facts established from the supplied decompiled Derail Vall
 - `DV.InventorySystem.Inventory` (abstract base implementation)
 - `StorageController`
 - `StorageBase`
-- `StorageItemData`
 - `DV.Items.ItemPositionHandler`
 - `InventoryUIController`
 - `InventoryItemSpec`
 - `InventorySlotState`, `InventoryItemData`, `InventoryActionType`, and `InventoryItemState`
 - `RespawnOnDrop`
-- `StartingItemsController`
 - `AItemContainer`, `ItemContainer`, and `ItemContainerRegistry`
 - `StorageItemTransformController` (lost-and-found presentation)
 
@@ -27,52 +25,12 @@ Two supplied `Inventory` attachments were byte-for-byte identical. The concrete 
 4. A dropped or equipped essential item can be physically in `StorageWorld` while its inventory slot still retains a reservation for the same object. Inventory reservation is therefore not a physical location and must be represented separately in a multiplayer manifest.
 5. Lost and found is separate from the inventory Get action. It moves the same player-owned `ItemBase` objects between `StorageWorld` and `StorageLostAndFound`, with a transform controller responsible for presenting them at a shed/access point.
 6. Item containers are another independent ownership/location layer. `ItemPositionHandler` demonstrates the events needed to follow nesting and inventory state through containers.
-7. `StorageItemData` is the base game's persisted item-state projection and closely matches the dimensions needed by a multiplayer manifest. It has no unique item identity or revision, however, so it cannot be used unchanged as a live multiplayer authority record.
+7. Save projection and reconstruction are documented separately in [`DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md`](DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md). Runtime storage state must not be conflated with persisted placement.
 8. `InventoryItemSpec.IsEssential` is an explicit serialized property and is independent of `BelongsToPlayer`. Do not infer essential/recall behavior solely from ownership or prefab name.
 9. `RespawnOnDrop` is a second item lifecycle controller. Each process can independently decide that an item is too far away, then move a player-owned item to lost and found, reset a non-player item to its spawn, or destroy it. In multiplayer this decision must eventually be host-authoritative.
-10. `StartingItemsController` intentionally reconstructs overlapping concepts: a world item may also retain an inventory slot and dropped reservation. Its duplicate resolution is narrow and does not provide a general identity reconciliation system.
+10. Physical placement and inventory reservation can overlap for the same Unity object. The exact persisted representation and restoration sequence are documented in the save/load research file.
 11. Item containers already provide exact mutation events and a persisted string `ContainerId`. They should be observed directly; periodic inference from object parents is only a reconciliation fallback.
-
-## StorageItemData save projection
-
-`StorageItemData` stores:
-
-```text
-itemPrefabName
-position and rotation
-belongsToPlayer
-isGrabbed
-inventorySlotIndex
-containerSlotIndex
-inLockedSlot
-isDropped
-carGuid
-containerId
-arbitrary JObject state
-```
-
-This confirms that the base game itself treats ownership, grabbing, inventory slot, dropped reservation, container placement, car placement, transform, and item-specific state as distinct dimensions. It also confirms that inventory and container slot identity are necessary to restore an item correctly; a broad `InInventory` state is not sufficient.
-
-The class notably does **not** contain:
-
-```text
-a unique item ID
-a storage/location enum
-an explicit reserved flag
-a revision/version
-```
-
-In single player, prefab plus save placement is sufficient because the game controls reconstruction. Multiplayer needs to extend this semantic shape with `NetId`, owner player ID, authoritative physical state/storage, reservation state, and revision.
-
-The mod already has `PlayerItemSaveData`, which mirrors `StorageItemData` and adds a `NetId`. It is currently used to translate host-provided player item data back into `StorageItemData` during client save setup. That DTO is useful precedent and its serialization helpers may be reusable, but it should not become the live transition protocol unchanged:
-
-- it is a complete save snapshot rather than an explicit delta;
-- it has no expected/current revision;
-- it does not distinguish a reservation claim from physical placement directly;
-- its arbitrary `JObject` state is relatively expensive for frequent live events;
-- the earlier save-registration architecture coupled loading and runtime authority too tightly.
-
-A live manifest snapshot can use the same field meanings, while a smaller transition DTO carries only changed placement fields plus `NetId`, owner, and revision.
+12. Nested-container safety is enforced neither by `AItemContainer` nor by the inventory UI. `ValidItem` checks only direct self-insertion and an item-type mask. Persistent graph validation belongs at the save/load boundary; runtime network operations require the same independent graph-safety rules.
 
 ## Inventory structure
 
@@ -305,25 +263,76 @@ The supplied container classes make the transition semantics more precise:
 
 The multiplayer item manifest should use these events to follow nested containers. Container placement needs both the container identity and contained slot index; transform parent alone is not sufficient.
 
-## Starting-item and save restoration
+### Nested-container graph semantics
 
-`StartingItemsController` loads five overlapping sources of `StorageItemData`:
+`AItemContainer` is an `IRecursiveItemStorage`, and the supplied implementation confirms that containers form a directed parent/child graph rather than a flat secondary inventory.
+
+`NestedIn` is a tuple containing:
 
 ```text
-Inventory
-LostAndFound
-World
-Installed
-ItemContainers
+Item1 = immediate containing AItemContainer
+Item2 = outermost/root AItemContainer
 ```
 
-It instantiates objects at a safety position, then completes placement/finalization on a later frame. Multiplayer code must respect its `itemsLoaded` lifecycle barrier and should not classify these temporary objects as world clutter while restoration is incomplete.
+`UpdateNesting(newFirstNest)` walks `NestedIn.Item1` from the immediate parent to the outermost ancestor, stores both values, and then recursively updates every container in `childrenContainers`. The seemingly unrelated consumers in `ItemAudioSpatialBlendController` and `ItemPositionHandler` use the outermost `ItemContainer` to follow the inventory/hand state of an entire nested hierarchy. A document inside a folder inside a registrator therefore inherits presentation and position behaviour from the outermost carried container.
 
-The controller's illegal-duplicate resolution is deliberately limited. It resolves basic starting items and licenses by prefab priority, removing candidates from lost and found, world, inventory, installed, or containers until one remains. It does not deduplicate arbitrary saved items and it does not provide a stable runtime identity.
+The base class itself does **not** make this graph safe:
 
-During restoration a world entry with `inventorySlotIndex >= 0` or `isGrabbed=true` also participates in inventory reconstruction. That is direct confirmation that one physical world object can simultaneously have a dropped/reserved inventory slot claim. This is intentional representation, not a duplicate Unity object.
+- `AddItem` calls the abstract `ValidItem`, but contains no explicit self-containment or ancestor-cycle test;
+- `UpdateNesting` walks parent links without a visited set or maximum depth;
+- it then propagates to child containers recursively, also without a visited set or depth bound;
+- `Contains(item, recursive: true)` recursively descends into child containers without either guard;
+- `ItemContainerRegistry` is a flat ID dictionary and does not validate graph integrity;
+- `GetItemContainerAndIndex` only linearly scans direct slots in registered containers.
 
-Invalid or full container placements fall back to lost and found. A multiplayer observer should record that fallback explicitly, because otherwise a host/client container-capacity difference looks like an unexplained disappearance.
+The concrete `ItemContainer.ValidItem` implementation is now known. It rejects `null`, the container's own GameObject, objects without a usable `ItemBase`, and items whose `SpecItem.itemType` does not intersect the container prefab's serialized `allowedItemTypes` mask. It does **not** test whether the proposed child container is an ancestor of the destination, call recursive `Contains`, enforce a depth limit, or otherwise validate the graph. The inventory UI repeatedly calls `ValidItem` before moves, but `HandleItemContainerMoveOrSwap` contains no separate ancestor/cycle check either.
+
+Consequently, direct self-containment is blocked, but an indirect `A -> B -> A` cycle is not generically blocked by code. A particular prefab hierarchy may happen to prevent it through its `allowedItemTypes` masks, but save data and multiplayer validation cannot rely on those masks being globally acyclic. A cycle or sufficiently deep valid-looking chain can produce an infinite parent walk, unbounded recursive propagation, or a stack overflow.
+
+Host-authoritative container operations should therefore validate a detached graph before calling Unity/container methods:
+
+1. the moving item and destination container resolve to canonical, distinct items;
+2. the source direct membership and source slot are correct;
+3. the destination slot exists, is empty or is part of an explicitly valid swap, and passes concrete item compatibility;
+4. the destination is not the moving container itself or any of its descendants;
+5. every container has at most one direct parent and every item has one direct placement;
+6. traversal uses an iterative visited set, a small maximum depth, and a total node/edge budget;
+7. malformed full-sync/save graphs are rejected or quarantined before `AddItem`/`UpdateNesting` is invoked.
+
+A reasonable initial multiplayer limit is depth 8 and 256 visited nodes per validation. The host should call the destination container's runtime `ValidItem(candidate)` method rather than copying serialized `allowedItemTypes` masks into the mod. Graph safety remains an independent host-side rule.
+
+Save serialization, container identity restoration, two-phase edge reconstruction, and confirmed loader failure paths are documented in [`DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md`](DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md).
+
+### Multiplayer container virtualization
+
+For multiplayer scale, clients should not need a permanent Unity representation of every item inside every remote or closed container. Use an authoritative host graph with lazy client projection:
+
+```text
+host
+  complete canonical container graph and item authority
+  direct parent/slot edges
+  ownership, tracked state, and revisions
+  detached cold records backed by the host save
+
+client closed container
+  root container shell only
+  container identity, capacity, direct item count, graph revision
+
+client active/open container
+  subscribed direct-slot snapshot
+  bounded display DTOs through a container UI provider
+  revisioned deltas while the subscription remains active
+```
+
+Opening the general inventory should not hydrate every carried container. `ItemContainerRegistry.ActiveContainerChanged` is the natural subscription boundary: request direct contents when a specific container becomes active, and release or cache them briefly after it closes. Nested contents are requested when the nested container itself is opened.
+
+All moves remain host transactions. A client command identifies source/destination containers and slots plus expected graph revisions. The host resolves canonical records, calls the running game's compatibility policy, validates cycles/depth/ownership, applies the edge change once, and publishes a delta to viewers of the affected containers. Simultaneous viewers use revision conflicts rather than client-side last-writer-wins behavior.
+
+The shell must not pretend an unhydrated container is empty. Base UI add/swap paths must be gated until the authoritative direct-slot snapshot is present. Prefer a data-driven container UI provider over temporary or fake item GameObjects; gameplay hydration occurs only when an item leaves cold storage.
+
+The intended scalable target is host-side cold storage: contained items become detached authoritative records backed by the host save and do not retain dormant Unity objects or ordinary NetIds. Browsing hydrates bounded UI data only; withdrawing an item materializes its canonical Unity object and assigns a runtime NetId. This deliberately replaces part of the base-game lifecycle and is specified in [`MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md`](MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md).
+
+Lost and Found naturally stores a virtualized container as one root shell/registry entry plus its existing host graph. Retrieving the root does not hydrate all descendants; opening the retrieved container subscribes to its direct contents normally.
 
 ## RespawnOnDrop lifecycle
 
@@ -521,12 +530,10 @@ Useful next diagnostics after a live test are:
 - warn when a nonzero NetId has contradictory live storage memberships;
 - compare the exact inventory/container event sequence across host and client;
 - display dropped/reserved slot claims separately from physical placement in the replication dashboard;
-- capture the `StartingItemsController.itemsLoaded` barrier and restore-source classification when save restoration bugs become the active focus.
 
 ## Remaining decompilation requests
 
-The supplied code now covers the ordinary inventory, Get/recall, storage, container, save restoration, and distance-respawn lifecycles well enough to implement their event model. Additional decompilation is only needed when one of these narrower questions becomes active:
+The supplied code now covers the ordinary inventory, Get/recall, storage, container, and distance-respawn lifecycles well enough to implement their runtime event model. Save/load research and its remaining requests live in the separate save/load document. Additional runtime decompilation is only needed when one of these narrower questions becomes active:
 
 1. The concrete inventory presentation methods (`AssignInventoryLayer`, `AssignWorldItemLayer`, `ForceEndInteraction`, and `GetPlayerTransform`) if host-side world/in-hand presentation still diverges.
 2. The provider implementing `IsEssentialItemsGetterAllowed`, if multiplayer needs to reproduce the exact circumstances under which the Get button is disabled.
-3. The save serializer/controller which produces each `StartingItemsController` list, if stable cross-save item identity is reintroduced later.

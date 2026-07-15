@@ -17,6 +17,8 @@ using System.Text;
 using UnityEngine;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Integrations.Inventory;
+using Multiplayer.Integrations.Storage;
 using Multiplayer.Core.Collections;
 using Multiplayer.Core.Items;
 using Multiplayer.Components.Networking.Jobs;
@@ -121,9 +123,12 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private bool processingAsHost = false;
     private bool applyingRemoteSnapshot;
+    private bool recallPreparationPending;
+    private uint recallPreparationOperationId;
     private bool hostStateObservationPending;
     private bool clientBindingGateApplied;
     private bool interactionAllowedBeforeBindingGate;
+    private readonly ItemOutboundRevisionPipeline outboundRevisionPipeline = new();
     internal ClientItemUnboundState UnboundState { get; private set; }
     #endregion
 
@@ -138,9 +143,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     public int InventoryClaimSlot { get; private set; } = -1;
     public ItemInventoryClaimFlags InventoryClaimFlags { get; private set; }
     public ItemTransitionReason LastTransitionReason { get; private set; }
-    public bool IsForeignOwned => PersistentOwnerPlayerId != 0 &&
-        InventoryClaimSlot >= 0 && HasRetrievalFlag(InventoryClaimFlags) &&
-        PersistentOwnerPlayerId != (NetworkLifecycle.Instance?.Client?.PlayerId ?? 0);
+    public bool IsForeignOwned => InventoryIntegration.Project(this).ForeignOwned;
     #endregion
 
     protected override bool IsIdServerAuthoritative => true;
@@ -180,6 +183,12 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     protected void LateUpdate()
     {
+        if (!NetworkLifecycle.Instance.IsHost() &&
+            NetworkedItemManager.Instance?.IsClientLostAndFoundTombstoned(NetId) == true)
+        {
+            EnforceClientLostAndFoundProjection();
+            return;
+        }
         if (NetworkLifecycle.Instance.IsHost() && hostStateObservationPending)
             return;
         ItemState currentState = GetItemState();
@@ -251,9 +260,26 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     public void Server_ReceiveItemUpdate(ItemUpdateData snapshot, ServerPlayer senderPlayer)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(snapshot, DebugRuntimeSide.Server, "Item", snapshot?.ItemNetId.ToString());
+        if (NetworkedLostAndFoundManager.Contains(NetId))
+        {
+            DebugTrace.Validation("item", "Item", NetId.ToString(), false,
+                "item-in-lost-and-found", DebugRuntimeSide.Server);
+            DebugRuntime.Publish("item", "item.lost-and-found-live-transition-rejected",
+                DebugRuntimeSide.Server, DebugSeverity.Warning, "Item", NetId.ToString(), new()
+                {
+                    ["senderPlayerId"] = senderPlayer?.PlayerId ?? 0,
+                    ["requestedState"] = snapshot?.ItemState.ToString() ?? string.Empty,
+                    ["requestedRevision"] = snapshot?.AuthorityRevision ?? 0
+                });
+            SendCanonicalRejectionCorrection(senderPlayer, "item-in-lost-and-found");
+            return;
+        }
         //TODO: rollback if validation fails
         if (!ValidateUpdate(snapshot, senderPlayer))
+        {
+            SendCanonicalRejectionCorrection(senderPlayer, "snapshot-validation-rejected");
             return;
+        }
 
         // The authenticated transport sender is authoritative for this envelope field. It lets
         // the sender consume the canonical revision as an acknowledgement without performing its
@@ -264,6 +290,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                 ItemTransitionReason.ClientState, false, out string authorityRejection))
         {
             DebugTrace.Validation("item", "Item", NetId.ToString(), false, authorityRejection, DebugRuntimeSide.Server);
+            SendCanonicalRejectionCorrection(senderPlayer, authorityRejection);
             return;
         }
         DebugTrace.Validation("item", "Item", NetId.ToString(), true, "accepted", DebugRuntimeSide.Server);
@@ -289,6 +316,30 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         // The sender also receives the canonical revision/owner projection. Applying an
         // acknowledgement is idempotent and prevents the next transition using a stale revision.
         NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
+    }
+
+    private void SendCanonicalRejectionCorrection(ServerPlayer senderPlayer, string rejectionReason)
+    {
+        if (senderPlayer == null || NetworkLifecycle.Instance?.Server == null)
+            return;
+        bool lostAndFoundProjection = NetworkedLostAndFoundManager.TryCreateCollectionProjection(
+            this, out ItemUpdateData correction);
+        if (!lostAndFoundProjection &&
+            !AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(this, out correction))
+            return;
+
+        DebugRuntime.Publish("item", "item.rejection-correction-sent", DebugRuntimeSide.Server,
+            DebugSeverity.Warning, "Item", NetId.ToString(), new()
+            {
+                ["recipientPlayerId"] = senderPlayer.PlayerId,
+                ["rejectionReason"] = rejectionReason ?? string.Empty,
+                ["authorityRevision"] = correction.AuthorityRevision,
+                ["canonicalState"] = correction.ItemState.ToString(),
+                ["correctionUpdateType"] = correction.UpdateType.ToString(),
+                ["lostAndFoundProjection"] = lostAndFoundProjection,
+                ["requestedCorrection"] = true
+            });
+        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(correction, senderPlayer);
     }
 
     private bool ValidateUpdate(ItemUpdateData snapshot, ServerPlayer senderPlayer)
@@ -587,7 +638,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         // ForceEndInteraction, inventory purges and GrabHandlerItem.Throw raise the same base-game
         // callbacks as a local interaction. While projecting an authoritative snapshot those
         // callbacks are side effects, not new player intent, and must not enqueue an echo packet.
-        if (applyingRemoteSnapshot)
+        if (applyingRemoteSnapshot || recallPreparationPending)
             return;
         stateDirty = true;
         if (!NetworkLifecycle.Instance.IsHost())
@@ -600,6 +651,13 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         ItemState previousObservedState = lastState;
         ItemState currentState = GetItemState();
+        if (recallPreparationPending)
+        {
+            stateDirty = false;
+            PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState,
+                reason, "recall-prepare-pending");
+            return;
+        }
         bool networkStateChanged = HasNetworkStateProjectionChanged(currentState);
         if (currentState != previousObservedState || networkStateChanged)
             stateDirty = true;
@@ -618,7 +676,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         }
 
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         if (IsRemotePlayerAuthoritative())
         {
             stateDirty = false;
@@ -637,7 +695,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         }
 
-        ItemUpdateData snapshot = GetSnapshot();
+        ItemUpdateData snapshot = GetSnapshot(reserveClientRevision: true);
         if (snapshot == null)
         {
             PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
@@ -646,7 +704,9 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
 
         if (!processingAsHost)
+        {
             NetworkLifecycle.Instance.Client?.SendItemUpdatePacket(snapshot);
+        }
         else
             processingAsHost = false;
     }
@@ -809,7 +869,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     #endregion
 
-    public ItemUpdateData GetSnapshot()
+    public ItemUpdateData GetSnapshot(bool reserveClientRevision = false)
     {
         ItemUpdateData snapshot;
         ItemUpdateData.ItemUpdateType updateType = ItemUpdateData.ItemUpdateType.None;
@@ -876,7 +936,10 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         lastState = currentState;
         LastDirtyTick = NetworkLifecycle.Instance.Tick;
-        snapshot = CreateUpdateData(updateType);
+        uint? authorityRevisionOverride = reserveClientRevision && !NetworkLifecycle.Instance.IsHost()
+            ? outboundRevisionPipeline.Reserve(AuthorityRevision)
+            : null;
+        snapshot = CreateUpdateData(updateType, authorityRevisionOverride);
         if (snapshot != null)
         {
             lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
@@ -1010,7 +1073,47 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         ApplyAuthorityMetadata(snapshot);
         SetClientNetworkBinding(true);
+        EnforceClientLostAndFoundProjection();
+        createdDirty = false;
+        stateDirty = false;
+        hasLastSentState = true;
+        EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
+            EntityDebugRegistry.ItemState(this));
+    }
+
+    private void EnforceClientLostAndFoundProjection()
+    {
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
+        bool preserveOwnerSilhouette = localPlayerId != 0 &&
+            PersistentOwnerPlayerId == localPlayerId &&
+            Item?.InventorySpecs?.IsEssential == true && InventoryClaimSlot >= 0 &&
+            HasRetrievalFlag(InventoryClaimFlags);
+        try
+        {
+            Inventory inventory = Inventory.Instance;
+            int slot = inventory?.IndexOf(gameObject) ?? -1;
+            bool membershipSecure = preserveOwnerSilhouette
+                ? slot == InventoryClaimSlot && inventory.GetSlotDroppedState(slot) &&
+                    inventory.GetSlotReservedState(slot)
+                : inventory?.Contains(gameObject, true) != true;
+            if (!gameObject.activeSelf && Item?.InteractionAllowed == false &&
+                Item?.IsGrabbed() != true && membershipSecure)
+                return;
+        }
+        catch { }
+
         try { Item?.ForceEndInteraction(); } catch { }
+        try
+        {
+            if (preserveOwnerSilhouette)
+                InventoryIntegration.EnsureDroppedClaim(gameObject, InventoryClaimSlot);
+            else
+            {
+                InventoryIntegration.RevokeMembership(gameObject, NetId);
+                InventoryIntegration.PurgeForeignDroppedClaims("lost-and-found-tombstone");
+            }
+        }
+        catch { }
         try
         {
             StorageController storage = StorageController.Instance;
@@ -1029,11 +1132,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (Item != null)
             Item.InteractionAllowed = false;
         gameObject.SetActive(false);
-        createdDirty = false;
         stateDirty = false;
-        hasLastSentState = true;
-        EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
-            EntityDebugRegistry.ItemState(this));
     }
 
     internal void RestoreClientLostAndFoundProjection(ItemUpdateData snapshot)
@@ -1193,7 +1292,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
     }
 
-    public ItemUpdateData CreateUpdateData(ItemUpdateData.ItemUpdateType updateType)
+    public ItemUpdateData CreateUpdateData(ItemUpdateData.ItemUpdateType updateType,
+        uint? authorityRevisionOverride = null)
     {
         if (transform == null || Item == null || Item?.InventorySpecs == null || Item?.InventorySpecs?.ItemPrefabName == null)
         {
@@ -1251,7 +1351,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             AttachedFront = frontCoupler,
             States = states,
             PlayerId = playerBelongsToId,
-            AuthorityRevision = AuthorityRevision,
+            AuthorityRevision = authorityRevisionOverride ?? AuthorityRevision,
             PersistentOwnerPlayerId = PersistentOwnerPlayerId,
             InventoryClaimPlayerId = InventoryClaimPlayerId,
             InventoryClaimSlot = InventoryClaimSlot,
@@ -1288,14 +1388,12 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (playerBelongsTo?.RightHandItemGO == gameObject)
             return ItemState.InHand;
 
-        // A server has no local base-game inventory representation for a remote client, so
-        // preserve that client's accepted placement until it sends another transition. The
-        // host's own items must be observed from the host Inventory; preserving them here
-        // hides InHand -> InInventory when the host switches equipped items.
-        byte hostPlayerId = NetworkLifecycle.Instance.Server?.SelfId ?? 0;
+        // Derail Valley exposes only this process's local inventory. Preserve another player's
+        // accepted placement on both host and clients; otherwise a remote InInventory projection
+        // is recomputed as Dropped merely because it is absent from the local Inventory singleton.
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         if (ItemStateObservationPolicy.PreserveRemotePlayerPlacement(
-                NetworkLifecycle.Instance.IsHost(), BelongsTo?.PlayerId ?? 0,
-                hostPlayerId, ToWireState(lastState)))
+                playerBelongsToId, localPlayerId, ToWireState(lastState)))
             return lastState;
 
         try
@@ -1330,7 +1428,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return BelongsTo != null && BelongsTo.PlayerId != hostPlayerId;
         }
 
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         return playerBelongsToId != 0 && playerBelongsToId != localPlayerId;
     }
 
@@ -1388,31 +1486,31 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         playerBelongsToId = playerId;
         playerBelongsTo = null;
 
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         if (playerId != localPlayerId)
         {
             try
             {
-                Inventory inventory = Inventory.Instance;
                 bool preserveOwnerClaim = PersistentOwnerPlayerId != 0 &&
                     PersistentOwnerPlayerId == localPlayerId && InventoryClaimSlot >= 0 &&
-                    HasRetrievalFlag(InventoryClaimFlags);
+                    HasRetrievalFlag(InventoryClaimFlags) &&
+                    Item?.InventorySpecs?.IsEssential == true;
                 // Contains(includeDropped: true) also includes the persistent owner's
                 // reserved recall silhouette. That is a claim, not active possession.
                 // Treating it as possession caused every foreign snapshot to revoke the
                 // owner again and made the local observed state oscillate.
                 bool hadLocalPossession = Item?.IsGrabbed() == true ||
-                    inventory?.Contains(gameObject, false) == true;
+                    InventoryIntegration.ContainsActive(gameObject);
                 grabHandler?.ForceEndInteraction();
                 if (preserveOwnerClaim)
                 {
                     // The same Unity object backs the reserved silhouette and the remote
                     // world/hand representation. Convert active local inventory state into
                     // a dropped reserved claim before projecting the foreign holder.
-                    EnsureLocalOwnerDroppedClaim(inventory, targetState);
+                    EnsureLocalOwnerDroppedClaim(targetState);
                 }
                 else
-                    RemoveLocalInventoryMembership(inventory, targetState);
+                    RemoveLocalInventoryMembership(targetState);
                 if (hadLocalPossession)
                 {
                     DebugRuntime.Publish("item", "item.local-possession-revoked",
@@ -1546,15 +1644,14 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         try
         {
-            Inventory inventory = Inventory.Instance;
             grabHandler?.ForceEndInteraction();
             if (ShouldPreserveLocalOwnerClaim())
             {
-                inventory?.ItemContainerRegistry?.PurgeItemFromContainer(gameObject);
-                EnsureLocalOwnerDroppedClaim(inventory, targetState);
+                InventoryIntegration.PurgeContainerMembership(gameObject);
+                EnsureLocalOwnerDroppedClaim(targetState);
             }
             else
-                RemoveLocalInventoryMembership(inventory, targetState);
+                RemoveLocalInventoryMembership(targetState);
         }
         catch (Exception exception)
         {
@@ -1563,9 +1660,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         try
         {
-            StorageController storage = StorageController.Instance;
-            StorageTransitionPlan plan = StorageTransitionPlanner.Plan(
-                new UnityStorageView(storage, Item), StorageMembership.World);
+            StorageTransitionPlan plan = StorageIntegration.MoveTo(Item, StorageMembership.World);
             if (!plan.Accepted)
             {
                 DebugRuntime.Publish("storage", "storage.transition-rejected",
@@ -1576,27 +1671,14 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                         ["target"] = StorageMembership.World.ToString()
                     });
             }
-            else
-            {
-                if (plan.Remove.HasFlag(StorageMembership.ItemContainer))
-                    storage.RemoveItemFromStorageItemContainers(Item);
-                if (plan.Remove.HasFlag(StorageMembership.Inventory))
-                    storage.RemoveItemFromStorageItemList(storage.StorageInventory, Item);
-                if (plan.Remove.HasFlag(StorageMembership.LostAndFound))
-                    storage.RemoveItemFromStorageItemList(storage.StorageLostAndFound, Item);
-                if (plan.Remove.HasFlag(StorageMembership.World))
-                    storage.RemoveItemFromStorageItemList(storage.StorageWorld, Item);
-                if (plan.Add.HasFlag(StorageMembership.World))
-                    storage.AddItemToWorldStorage(Item);
-                if (plan.RepairedMultipleMembership)
-                    DebugRuntime.Publish("storage", "storage.multiple-membership-repaired",
-                        NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
-                        DebugSeverity.Warning, "Item", NetId.ToString(), new()
-                        {
-                            ["removed"] = plan.Remove.ToString(),
-                            ["target"] = StorageMembership.World.ToString()
-                        });
-            }
+            else if (plan.RepairedMultipleMembership)
+                DebugRuntime.Publish("storage", "storage.multiple-membership-repaired",
+                    NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                    DebugSeverity.Warning, "Item", NetId.ToString(), new()
+                    {
+                        ["removed"] = plan.Remove.ToString(),
+                        ["target"] = StorageMembership.World.ToString()
+                    });
         }
         catch (Exception exception)
         {
@@ -1613,41 +1695,24 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private bool ShouldPreserveLocalOwnerClaim()
     {
-        byte localPlayerId = NetworkLifecycle.Instance?.Client?.PlayerId ?? 0;
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         return localPlayerId != 0 && PersistentOwnerPlayerId == localPlayerId &&
-            InventoryClaimSlot >= 0 && HasRetrievalFlag(InventoryClaimFlags);
+            InventoryClaimSlot >= 0 && HasRetrievalFlag(InventoryClaimFlags) &&
+            Item?.InventorySpecs?.IsEssential == true;
     }
 
-    private void EnsureLocalOwnerDroppedClaim(Inventory inventory, ItemState targetState)
+    private void EnsureLocalOwnerDroppedClaim(ItemState targetState)
     {
-        UnityInventoryView view = new(inventory, gameObject, InventoryClaimSlot);
-        InventoryClaimPlan plan = InventoryClaimPlanner.EnsureDroppedClaim(view, InventoryClaimSlot);
-        if (plan.Rejected)
+        InventoryClaimExecution execution = InventoryIntegration.EnsureDroppedClaim(
+            gameObject, InventoryClaimSlot);
+        InventoryClaimPlan plan = execution.Plan;
+        if (!execution.Succeeded)
         {
-            PublishClaimInvariant(plan.Reason, plan.TargetSlot, targetState);
+            PublishClaimInvariant(execution.FailureReason, plan.TargetSlot, targetState);
             return;
         }
-
-        switch (plan.Action)
-        {
-            case InventoryClaimAction.None:
-                return;
-            case InventoryClaimAction.DropExistingItemInPlace:
-                if (inventory.DropItemFromHandsOrInventory(gameObject) == null)
-                    PublishClaimInvariant("essential-claim-drop-failed", plan.TargetSlot, targetState);
-                return;
-            case InventoryClaimAction.AddToExpectedSlotThenDrop:
-                if (inventory.AddItemToInventory(gameObject, plan.TargetSlot, false) < 0 ||
-                    inventory.DropItemFromHandsOrInventory(gameObject) == null)
-                {
-                    PublishClaimInvariant("essential-claim-repair-failed", plan.TargetSlot, targetState);
-                    return;
-                }
-                break;
-            default:
-                PublishClaimInvariant("essential-claim-plan-invalid", plan.TargetSlot, targetState);
-                return;
-        }
+        if (plan.Action == InventoryClaimAction.None)
+            return;
 
         DebugRuntime.Publish("inventory", "inventory.essential-claim-repaired",
             NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
@@ -1959,7 +2024,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         Multiplayer.LogDebug(() => $"NetworkedItem.HandleInventoryOrHandState() ItemNetId: {snapshot?.ItemNetId} State: {snapshot?.ItemState}. Player: {snapshot?.PlayerId}, Position: {snapshot?.ItemPosition}");
 
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         RemoteItemProjectionPlan plan = RemoteItemProjectionPlanner.Plan(
             ToWireState(snapshot.ItemState), snapshot.PlayerId, localPlayerId, playerBelongsTo != null);
         if (plan.ClearExistingRemoteHands && NetworkLifecycle.Instance.IsClientRunning)
@@ -1973,7 +2038,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             playerBelongsToId = localPlayerId;
 
             if (plan.Action == RemoteItemProjectionAction.LocalInventory)
-                RestoreLocalInventoryClaim(Inventory.Instance, snapshot);
+                RestoreLocalInventoryClaim(snapshot);
             else if (plan.Activate)
                 gameObject.SetActive(true);
 
@@ -2016,28 +2081,94 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
     }
 
-    private void RestoreLocalInventoryClaim(Inventory inventory, ItemUpdateData snapshot)
+    internal bool TryPrepareLocalRecall(uint operationId, int requestedSlot, out string failureReason)
     {
-        int requestedSlot = snapshot.InventoryClaimSlot;
-        UnityInventoryView view = new(inventory, gameObject, requestedSlot);
-        InventoryClaimPlan plan = InventoryClaimPlanner.RestoreClaim(view, requestedSlot);
-        if (plan.Rejected)
+        failureReason = string.Empty;
+        if (recallPreparationPending)
         {
-            PublishClaimInvariant(plan.Reason, plan.TargetSlot, ItemState.InInventory);
-            return;
+            failureReason = "recall-prepare-already-pending";
+            return false;
         }
 
-        if (plan.Action is InventoryClaimAction.RestoreExistingItem or
-            InventoryClaimAction.AddToExpectedSlot)
+        recallPreparationPending = true;
+        recallPreparationOperationId = operationId;
+        InventoryClaimExecution execution;
+        applyingRemoteSnapshot = true;
+        try
         {
-            // AddItemToInventory intentionally revives an existing dropped/reserved entry:
-            // the base game locates its reserved slot and toggles IsDropped off in place.
-            int restoredSlot = inventory.AddItemToInventory(gameObject, plan.TargetSlot, false);
-            if (restoredSlot < 0)
+            byte localPlayerId = InventoryIntegration.LocalPlayerId;
+            PrepareForStateChange(localPlayerId, ItemState.InInventory);
+            playerBelongsTo = null;
+            playerBelongsToId = localPlayerId;
+            execution = InventoryIntegration.RestoreClaim(gameObject, requestedSlot);
+        }
+        catch (Exception exception)
+        {
+            failureReason = $"recall-prepare-exception:{exception.GetType().Name}";
+            PublishRecallPreparation(false, operationId, requestedSlot, failureReason);
+            return false;
+        }
+        finally
+        {
+            applyingRemoteSnapshot = false;
+        }
+
+        if (!execution.Succeeded)
+        {
+            failureReason = execution.FailureReason;
+            PublishClaimInvariant(failureReason, execution.Plan.TargetSlot, ItemState.InInventory);
+            PublishRecallPreparation(false, operationId, requestedSlot, failureReason);
+            return false;
+        }
+
+        stateDirty = false;
+        hostStateObservationPending = false;
+        PublishRecallPreparation(true, operationId, requestedSlot, string.Empty);
+        return true;
+    }
+
+    internal void CompleteLocalRecallPreparation(uint operationId, bool accepted)
+    {
+        if (!recallPreparationPending || recallPreparationOperationId != operationId)
+            return;
+        recallPreparationPending = false;
+        recallPreparationOperationId = 0;
+        stateDirty = false;
+        hostStateObservationPending = false;
+        DebugRuntime.Publish("item", accepted ? "item.recall-transaction-committed" :
+                "item.recall-transaction-cancelled",
+            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            accepted ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
-                PublishClaimInvariant("recall-claim-restore-failed", plan.TargetSlot, ItemState.InInventory);
-                return;
-            }
+                ["operationId"] = operationId,
+                ["authorityRevision"] = AuthorityRevision
+            });
+    }
+
+    private void PublishRecallPreparation(bool succeeded, uint operationId, int requestedSlot,
+        string failureReason)
+    {
+        DebugRuntime.Publish("item", succeeded ? "item.recall-prepare-succeeded" :
+                "item.recall-prepare-failed",
+            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            succeeded ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
+            {
+                ["operationId"] = operationId,
+                ["requestedSlot"] = requestedSlot,
+                ["authorityRevision"] = AuthorityRevision,
+                ["failureReason"] = failureReason ?? string.Empty
+            });
+    }
+
+    private bool RestoreLocalInventoryClaim(ItemUpdateData snapshot)
+    {
+        int requestedSlot = snapshot.InventoryClaimSlot;
+        InventoryClaimExecution execution = InventoryIntegration.RestoreClaim(gameObject, requestedSlot);
+        InventoryClaimPlan plan = execution.Plan;
+        if (!execution.Succeeded)
+        {
+            PublishClaimInvariant(execution.FailureReason, plan.TargetSlot, ItemState.InInventory);
+            return false;
         }
 
         DebugRuntime.Publish("inventory", "inventory.essential-claim-restored",
@@ -2045,73 +2176,14 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             entityType: "Item", entityId: NetId.ToString(), data: new()
             {
                 ["requestedSlot"] = requestedSlot,
-                ["restoredSlot"] = inventory.IndexOf(gameObject),
+                ["restoredSlot"] = execution.CurrentSlot,
                 ["plan"] = plan.Action.ToString(),
-                ["reserved"] = inventory.GetSlotReservedState(plan.TargetSlot),
-                ["dropped"] = inventory.GetSlotDroppedState(plan.TargetSlot),
+                ["reserved"] = execution.Reserved,
+                ["dropped"] = execution.Dropped,
                 ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
                 ["authorityRevision"] = AuthorityRevision
             });
-    }
-
-    private sealed class UnityInventoryView : IInventoryView
-    {
-        private readonly Inventory inventory;
-        private readonly GameObject item;
-        private readonly int expectedSlot;
-
-        public UnityInventoryView(Inventory inventory, GameObject item, int expectedSlot)
-        {
-            this.inventory = inventory;
-            this.item = item;
-            this.expectedSlot = expectedSlot;
-        }
-
-        public bool IsAvailable => inventory != null;
-        public int CurrentSlot => inventory?.IndexOf(item) ?? -1;
-        public bool ContainsActiveItem => inventory?.Contains(item, false) == true;
-        public bool IsExpectedSlotOccupiedByOther
-        {
-            get
-            {
-                if (inventory == null || expectedSlot < 0) return false;
-                GameObject occupant = inventory.PeekItemAtSlot(expectedSlot, true);
-                return occupant != null && occupant != item;
-            }
-        }
-        public bool CurrentSlotReserved => CurrentSlot >= 0 && inventory.GetSlotReservedState(CurrentSlot);
-        public bool CurrentSlotDropped => CurrentSlot >= 0 && inventory.GetSlotDroppedState(CurrentSlot);
-    }
-
-    private sealed class UnityStorageView : IStorageView
-    {
-        private readonly StorageController storage;
-        private readonly ItemBase item;
-
-        public UnityStorageView(StorageController storage, ItemBase item)
-        {
-            this.storage = storage;
-            this.item = item;
-        }
-
-        public bool IsAvailable => storage != null && item != null;
-        public StorageMembership Membership
-        {
-            get
-            {
-                if (!IsAvailable) return StorageMembership.None;
-                StorageMembership membership = StorageMembership.None;
-                if (storage.StorageInventory?.ContainsItem(item) == true)
-                    membership |= StorageMembership.Inventory;
-                if (storage.StorageWorld?.ContainsItem(item) == true)
-                    membership |= StorageMembership.World;
-                if (storage.StorageLostAndFound?.ContainsItem(item) == true)
-                    membership |= StorageMembership.LostAndFound;
-                if (storage.StorageItemContainers?.ContainsItem(item) == true)
-                    membership |= StorageMembership.ItemContainer;
-                return membership;
-            }
-        }
+        return true;
     }
 
     internal void ApplyAuthorityMetadata(ItemUpdateData snapshot)
@@ -2119,22 +2191,29 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (snapshot == null)
             return;
         AuthorityRevision = snapshot.AuthorityRevision;
+        if (!NetworkLifecycle.Instance.IsHost())
+        {
+            byte localPlayerId = InventoryIntegration.LocalPlayerId;
+            bool ownAcknowledgement = localPlayerId != 0 &&
+                snapshot.OriginatingPlayerId == localPlayerId;
+            outboundRevisionPipeline.ObserveCanonical(AuthorityRevision,
+                preserveReservations: ownAcknowledgement);
+        }
         PersistentOwnerPlayerId = snapshot.PersistentOwnerPlayerId;
         InventoryClaimPlayerId = snapshot.InventoryClaimPlayerId;
         InventoryClaimSlot = snapshot.InventoryClaimSlot;
         InventoryClaimFlags = snapshot.InventoryClaimFlags;
         LastTransitionReason = snapshot.TransitionReason;
-        // Persistent ownership plus a retrieval claim is the authoritative multiplayer
-        // classification for a personal item. This also repairs projections cached by older
-        // builds, whose generic Destroy path incorrectly cleared BelongsToPlayer.
-        if (PersistentOwnerPlayerId != 0 && InventoryClaimSlot >= 0 &&
-            HasRetrievalFlag(InventoryClaimFlags) && Item?.InventorySpecs != null)
+        // Persistent ownership is the authoritative multiplayer classification for a personal
+        // item. A retrieval claim is a separate capability: ordinary adopted inventory items
+        // still belong to their player and must remain eligible for Lost and Found.
+        if (PersistentOwnerPlayerId != 0 && Item?.InventorySpecs != null)
             Item.InventorySpecs.BelongsToPlayer = true;
     }
 
     private void PublishHolderInvariant(ItemUpdateData snapshot)
     {
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         NetworkedPlayer actualRemoteHolder = null;
         if (NetworkLifecycle.Instance.IsClientRunning)
             actualRemoteHolder = NetworkLifecycle.Instance.Client.ClientPlayerManager.Players
@@ -2166,14 +2245,18 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         if (snapshot == null)
             return;
-        byte localPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+        byte localPlayerId = InventoryIntegration.LocalPlayerId;
         if (localPlayerId == 0 || PersistentOwnerPlayerId != 0 && PersistentOwnerPlayerId != localPlayerId)
             return;
         try
         {
             Inventory inventory = Inventory.Instance;
             int slot = inventory?.IndexOf(gameObject) ?? -1;
-            if (slot < 0)
+            // Derail Valley's item-getter button is specifically gated by
+            // InventorySlotDisplayData.IsItemGetter, which is copied from IsEssential.
+            // Reservation is also used for ordinary inventory bookkeeping and must not
+            // grant those items recall silhouettes or foreign-item styling.
+            if (slot < 0 || Item?.InventorySpecs?.IsEssential != true)
                 return;
             snapshot.InventoryClaimPlayerId = localPlayerId;
             snapshot.InventoryClaimSlot = slot;
@@ -2189,48 +2272,24 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
     }
 
-    private void RemoveLocalInventoryMembership(Inventory inventory, ItemState targetState)
+    private void RemoveLocalInventoryMembership(ItemState targetState)
     {
-        if (inventory == null)
+        InventoryRemovalSnapshot removal = InventoryIntegration.RevokeMembership(gameObject);
+        if (removal.SlotBefore < 0 && removal.EquippedSlotBefore < 0 && !removal.ContainedBefore)
             return;
-
-        int slotBefore = inventory.IndexOf(gameObject);
-        int equipSlotBefore = inventory.GetEquipSlotForItem(gameObject);
-        bool containedBefore = inventory.Contains(gameObject, true);
-        inventory.ItemContainerRegistry?.PurgeItemFromContainer(gameObject);
-
-        if (slotBefore < 0 && equipSlotBefore < 0 && !containedBefore)
-            return;
-
-        // PurgeFromInventory only removes entries tracked in the base game's
-        // lockedAndReservedMap. Ordinary inventory items are not in that map, so using Purge as
-        // the primary removal left the canonical object in its slot. Run the real base-game
-        // unequip/drop transition first. It removes ordinary entries and preserves a silhouette
-        // only for locked/reserved entries.
-        inventory.DropItemFromHandsOrInventory(gameObject);
-
-        // This canonical transition does not preserve the local player's retrieval claim. If the
-        // base game deliberately left a locked/reserved dropped silhouette, remove that alias now.
-        int slotAfterDrop = inventory.IndexOf(gameObject);
-        if (slotAfterDrop >= 0 || inventory.Contains(gameObject, true))
-            inventory.PurgeFromInventory(gameObject);
-
-        int slotAfter = inventory.IndexOf(gameObject);
-        int equipSlotAfter = inventory.GetEquipSlotForItem(gameObject);
-        bool containedAfter = inventory.Contains(gameObject, true);
         DebugRuntime.Publish("inventory", "item.local-inventory-membership-revoked",
             NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
-            containedAfter || slotAfter >= 0 || equipSlotAfter >= 0
+            removal.ContainedAfter || removal.SlotAfter >= 0 || removal.EquippedSlotAfter >= 0
                 ? DebugSeverity.Warning : DebugSeverity.Info,
             "Item", NetId.ToString(), new()
             {
                 ["targetState"] = targetState.ToString(),
-                ["slotBefore"] = slotBefore,
-                ["equipSlotBefore"] = equipSlotBefore,
-                ["containedBefore"] = containedBefore,
-                ["slotAfter"] = slotAfter,
-                ["equipSlotAfter"] = equipSlotAfter,
-                ["containedAfter"] = containedAfter
+                ["slotBefore"] = removal.SlotBefore,
+                ["equipSlotBefore"] = removal.EquippedSlotBefore,
+                ["containedBefore"] = removal.ContainedBefore,
+                ["slotAfter"] = removal.SlotAfter,
+                ["equipSlotAfter"] = removal.EquippedSlotAfter,
+                ["containedAfter"] = removal.ContainedAfter
             });
     }
 

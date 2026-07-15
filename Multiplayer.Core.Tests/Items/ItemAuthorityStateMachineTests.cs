@@ -70,6 +70,42 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
+    public void ClientAdoption_EstablishesOwnerWithoutRetrievalClaim()
+    {
+        ItemAuthorityState original = State(revision: 0);
+        ItemTransitionCommand command = Transition(actor: 2, revision: 0,
+            placement: AuthorityPlacement.PlayerInventory);
+        command.EstablishPersistentOwner = true;
+        command.MayEstablishPersistentOwner = false;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.EqualTo(2));
+        Assert.That(result.State.PlacementPlayerId, Is.EqualTo(2));
+        Assert.That(result.State.InventoryClaimPlayerId, Is.Zero,
+            "ordinary ownership must not manufacture an essential-item recall claim");
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1));
+        Assert.That(result.State.InventoryClaimFlags, Is.EqualTo(AuthorityClaimFlags.None));
+    }
+
+    [Test]
+    public void LaterPickup_CannotReplaceOwnerEstablishedByClientAdoption()
+    {
+        ItemAuthorityState original = State(revision: 1, placement: AuthorityPlacement.World);
+        original.PersistentOwnerPlayerId = 2;
+        ItemTransitionCommand command = Transition(actor: 3, revision: 1,
+            placement: AuthorityPlacement.PlayerHand);
+        command.EstablishPersistentOwner = true;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.EqualTo(2));
+        Assert.That(result.State.PlacementPlayerId, Is.EqualTo(3));
+    }
+
+    [Test]
     public void Recall_ReturnsSameCanonicalIdentityAndDoesNotCreateAnotherItem()
     {
         ItemAuthorityStore store = new();
@@ -88,10 +124,14 @@ public sealed class ItemAuthorityStateMachineTests
         Assert.That(store.TryRegister(result.State), Is.False);
         Assert.That(result.State.Placement, Is.EqualTo(AuthorityPlacement.PlayerInventory));
         Assert.That(result.State.PlacementPlayerId, Is.EqualTo(1));
+        Assert.That(borrowed.Revision, Is.EqualTo(20),
+            "recall preparation must not commit by mutating its canonical input");
+        Assert.That(borrowed.Placement, Is.EqualTo(AuthorityPlacement.PlayerHand));
+        Assert.That(borrowed.PlacementPlayerId, Is.EqualTo(2));
     }
 
     [Test]
-    public void Recall_RestoresOriginalImmovableClaimAndClearsDroppedAndStolen()
+    public void Recall_RebasesClaimToClickedGhostAndClearsDroppedAndStolen()
     {
         ItemAuthorityState borrowed = OwnedEssentialWorldItem(owner: 1, revision: 20);
         borrowed.InventoryClaimSlot = 3;
@@ -102,7 +142,7 @@ public sealed class ItemAuthorityStateMachineTests
             Recall(player: 1, revision: 20, requestedSlot: 9));
 
         Assert.That(result.Accepted, Is.True);
-        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(3));
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(9));
         Assert.That(result.State.InventoryClaimFlags.HasFlag(AuthorityClaimFlags.Reserved), Is.True);
         Assert.That(result.State.InventoryClaimFlags.HasFlag(AuthorityClaimFlags.Dropped), Is.False);
         Assert.That(result.State.InventoryClaimFlags.HasFlag(AuthorityClaimFlags.Stolen), Is.False);
@@ -135,6 +175,23 @@ public sealed class ItemAuthorityStateMachineTests
         Assert.That(result.RejectionReason, Is.EqualTo("stale-authority-revision"));
         Assert.That(result.State.Revision, Is.EqualTo(7));
         Assert.That(result.State.Placement, Is.EqualTo(AuthorityPlacement.World));
+    }
+
+    [Test]
+    public void LostAndFoundPlacement_RejectsLiveClientResurrectionWithoutMutation()
+    {
+        ItemAuthorityState original = OwnedEssentialWorldItem(owner: 1, revision: 12);
+        original.Placement = AuthorityPlacement.LostAndFound;
+        original.PlacementPlayerId = 0;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original,
+            Transition(actor: 2, revision: 12, placement: AuthorityPlacement.PlayerHand));
+
+        Assert.That(result.Accepted, Is.False);
+        Assert.That(result.RejectionReason, Is.EqualTo("item-in-lost-and-found"));
+        Assert.That(result.State.Revision, Is.EqualTo(12));
+        Assert.That(result.State.Placement, Is.EqualTo(AuthorityPlacement.LostAndFound));
+        Assert.That(original.Placement, Is.EqualTo(AuthorityPlacement.LostAndFound));
     }
 
     [Test]
@@ -222,10 +279,43 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
-    public void RetrievalClaimSlot_CannotBeMovedByLaterOwnerTransition()
+    public void RetrievalClaimSlot_CannotBeMovedWhileItemIsOutsideOwnerPossession()
     {
         ItemAuthorityState original = OwnedEssentialWorldItem(owner: 1, revision: 6);
         ItemTransitionCommand command = Transition(1, 6, AuthorityPlacement.PlayerInventory,
+            retrievalClaim: true);
+        command.InventoryClaimSlot = 9;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(3));
+    }
+
+    [Test]
+    public void OwnerMayMoveRetrievalClaimWhileCurrentlyPossessingItem()
+    {
+        ItemAuthorityState original = OwnedEssentialWorldItem(owner: 1, revision: 6);
+        original.Placement = AuthorityPlacement.PlayerHand;
+        original.PlacementPlayerId = 1;
+        ItemTransitionCommand command = Transition(1, 6, AuthorityPlacement.World,
+            retrievalClaim: true);
+        command.InventoryClaimSlot = 9;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(9));
+        Assert.That(result.State.InventoryClaimFlags.HasFlag(AuthorityClaimFlags.Dropped), Is.True);
+    }
+
+    [Test]
+    public void ForeignPossessorCannotMoveOwnersRetrievalClaim()
+    {
+        ItemAuthorityState original = OwnedEssentialWorldItem(owner: 1, revision: 6);
+        original.Placement = AuthorityPlacement.PlayerHand;
+        original.PlacementPlayerId = 2;
+        ItemTransitionCommand command = Transition(2, 6, AuthorityPlacement.World,
             retrievalClaim: true);
         command.InventoryClaimSlot = 9;
 
@@ -370,31 +460,33 @@ public sealed class ItemAuthorityStateMachineTests
         ItemAuthorityState state = OwnedEssentialWorldItem(owner: 1, revision: 0);
         ushort identity = state.NetId;
         byte owner = state.PersistentOwnerPlayerId;
-        int claimSlot = state.InventoryClaimSlot;
 
         for (int operation = 0; operation < 2_000; operation++)
         {
             ItemAuthorityState before = state;
             bool recall = random.Next(8) == 0;
             ItemAuthorityResult result;
+            ItemTransitionCommand transition = null;
+            ItemRecallCommand recallCommand = null;
             if (recall)
             {
                 uint expected = random.Next(5) == 0 && state.Revision > 0
                     ? state.Revision - 1
                     : state.Revision;
-                result = ItemAuthorityStateMachine.Recall(state, new ItemRecallCommand
+                recallCommand = new ItemRecallCommand
                 {
                     RequestingPlayerId = (byte)random.Next(1, 4),
                     ExpectedRevision = expected,
                     RequestedSlot = random.Next(0, 10)
-                });
+                };
+                result = ItemAuthorityStateMachine.Recall(state, recallCommand);
             }
             else
             {
                 uint expected = random.Next(5) == 0 && state.Revision > 0
                     ? state.Revision - 1
                     : state.Revision;
-                result = ItemAuthorityStateMachine.Apply(state, new ItemTransitionCommand
+                transition = new ItemTransitionCommand
                 {
                     ActorPlayerId = (byte)random.Next(1, 4),
                     ExpectedRevision = expected,
@@ -402,15 +494,28 @@ public sealed class ItemAuthorityStateMachineTests
                     RequestedPlacement = (AuthorityPlacement)random.Next(0, 8),
                     InventoryClaimSlot = random.Next(0, 10),
                     InventoryClaimFlags = (AuthorityClaimFlags)random.Next(0, 16)
-                });
+                };
+                result = ItemAuthorityStateMachine.Apply(state, transition);
             }
 
             state = result.State;
             Assert.That(state.NetId, Is.EqualTo(identity), $"identity at operation {operation}");
             Assert.That(state.PersistentOwnerPlayerId, Is.EqualTo(owner),
                 $"owner at operation {operation}");
-            Assert.That(state.InventoryClaimSlot, Is.EqualTo(claimSlot),
-                $"claim slot at operation {operation}");
+            if (state.InventoryClaimSlot != before.InventoryClaimSlot)
+            {
+                bool validPossessionMove = result.Accepted && transition != null &&
+                    transition.ActorPlayerId == owner && transition.InventoryClaimSlot >= 0 &&
+                    (transition.InventoryClaimFlags & (AuthorityClaimFlags.Reserved |
+                        AuthorityClaimFlags.Locked)) != 0 &&
+                    before.Placement is AuthorityPlacement.PlayerHand or
+                        AuthorityPlacement.PlayerInventory &&
+                    before.PlacementPlayerId == owner;
+                bool validRecallRepair = result.Accepted && recallCommand != null &&
+                    recallCommand.RequestingPlayerId == owner && recallCommand.RequestedSlot >= 0;
+                Assert.That(validPossessionMove || validRecallRepair, Is.True,
+                    $"claim slot move at operation {operation}");
+            }
             Assert.That(state.Revision, Is.EqualTo(result.Accepted
                 ? before.Revision + 1
                 : before.Revision), $"revision at operation {operation}");

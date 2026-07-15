@@ -45,7 +45,8 @@ public static class AuthoritativeItemRegistry
             return existing;
 
         ItemInventoryClaimFlags claimFlags = seed?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None;
-        bool hasRetrievalClaim = (seed?.InventoryClaimSlot ?? -1) >= 0 &&
+        bool hasRetrievalClaim = item.Item?.InventorySpecs?.IsEssential == true &&
+            (seed?.InventoryClaimSlot ?? -1) >= 0 &&
             HasRetrievalFlag(claimFlags);
         byte claimedOwner = seed?.PersistentOwnerPlayerId ?? 0;
         bool actorOwnsPlayerItem = item.Item?.InventorySpecs?.BelongsToPlayer == true && actor != null &&
@@ -87,6 +88,17 @@ public static class AuthoritativeItemRegistry
         }
 
         Record record = Ensure(item, actor, snapshot);
+        bool retrievalEligible = item.Item?.InventorySpecs?.IsEssential == true;
+        ItemAuthorityState currentState = ToCore(record);
+        if (!retrievalEligible)
+        {
+            // Sanitize the candidate state, not the live record. A rejected transition
+            // must never mutate canonical authority; the cleanup commits only when the
+            // transition itself is accepted.
+            currentState.InventoryClaimPlayerId = 0;
+            currentState.InventoryClaimSlot = -1;
+            currentState.InventoryClaimFlags = AuthorityClaimFlags.None;
+        }
         Publish("item.transition-requested", item, record, new()
         {
             ["actorPlayerId"] = actor.PlayerId,
@@ -100,7 +112,8 @@ public static class AuthoritativeItemRegistry
             ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.FullSync;
         bool appliesPlacement = (snapshot.UpdateType & placementFlags) != 0;
         ItemPlacementKind requestedPlacement = appliesPlacement ? PlacementFrom(snapshot.ItemState) : record.Placement;
-        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(ToCore(record), new ItemTransitionCommand
+        byte previousPersistentOwner = record.PersistentOwnerPlayerId;
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(currentState, new ItemTransitionCommand
         {
             ActorPlayerId = actor.PlayerId,
             ExpectedRevision = snapshot.AuthorityRevision,
@@ -108,9 +121,12 @@ public static class AuthoritativeItemRegistry
             AppliesPlacement = appliesPlacement,
             RequestedPlacement = (AuthorityPlacement)(byte)requestedPlacement,
             ClearRetrievalClaim = clearRetrievalClaim,
+            EstablishPersistentOwner = reason == ItemTransitionReason.ClientAdoption,
             MayEstablishPersistentOwner = item.Item?.InventorySpecs?.BelongsToPlayer == true,
-            InventoryClaimSlot = snapshot.InventoryClaimSlot,
-            InventoryClaimFlags = (AuthorityClaimFlags)(byte)snapshot.InventoryClaimFlags
+            InventoryClaimSlot = retrievalEligible ? snapshot.InventoryClaimSlot : -1,
+            InventoryClaimFlags = retrievalEligible
+                ? (AuthorityClaimFlags)(byte)snapshot.InventoryClaimFlags
+                : AuthorityClaimFlags.None
         });
         if (!result.Accepted)
         {
@@ -119,19 +135,22 @@ public static class AuthoritativeItemRegistry
             return false;
         }
 
-        if (appliesPlacement && HasRetrievalFlag(record.InventoryClaimFlags) &&
+        if (appliesPlacement && HasRetrievalFlag((ItemInventoryClaimFlags)(byte)result.State.InventoryClaimFlags) &&
             snapshot.InventoryClaimSlot >= 0 &&
-            record.InventoryClaimSlot >= 0 && record.InventoryClaimSlot != snapshot.InventoryClaimSlot &&
+            result.State.InventoryClaimSlot >= 0 &&
+            result.State.InventoryClaimSlot != snapshot.InventoryClaimSlot &&
             record.PersistentOwnerPlayerId == actor.PlayerId)
         {
             Publish("item.essential-claim-slot-move-rejected", item, record, new()
             {
                 ["requestedSlot"] = snapshot.InventoryClaimSlot,
-                ["retainedSlot"] = record.InventoryClaimSlot
+                ["retainedSlot"] = result.State.InventoryClaimSlot
             }, DebugSeverity.Warning);
         }
 
         ApplyCore(record, result.State);
+        if (previousPersistentOwner == 0 && record.PersistentOwnerPlayerId == actor.PlayerId)
+            actor.AddOwnedItem(item.NetId);
         record.Position = snapshot.ItemPosition;
         record.Rotation = snapshot.ItemRotation;
         record.LastReason = reason;
@@ -144,7 +163,7 @@ public static class AuthoritativeItemRegistry
         return true;
     }
 
-    public static bool TryRecall(NetworkedItem item, ServerPlayer requester, int requestedSlot,
+    public static bool TryPrepareRecall(NetworkedItem item, ServerPlayer requester, int requestedSlot,
         uint expectedRevision, out ItemUpdateData snapshot, out string rejectionReason)
     {
         snapshot = null;
@@ -152,6 +171,11 @@ public static class AuthoritativeItemRegistry
         if (item == null || requester == null || item.NetId == 0 || !records.TryGetValue(item.NetId, out Record record))
         {
             rejectionReason = "unknown-network-entity";
+            return false;
+        }
+        if (item.Item?.InventorySpecs?.IsEssential != true)
+        {
+            rejectionReason = "item-not-recallable";
             return false;
         }
         ItemAuthorityResult result = ItemAuthorityStateMachine.Recall(ToCore(record), new ItemRecallCommand
@@ -173,22 +197,67 @@ public static class AuthoritativeItemRegistry
             return false;
         }
 
-        byte previousPossessor = record.PlacementPlayerId;
-        ApplyCore(record, result.State);
-        record.LastReason = ItemTransitionReason.OwnerRecall;
-
         snapshot = recallSnapshot;
         snapshot.ItemState = ItemState.InInventory;
         snapshot.PlayerId = requester.PlayerId;
+        WriteStateToSnapshot(result.State, snapshot, ItemTransitionReason.OwnerRecall);
+        Publish("item.recall-prepared", item, record, new()
+        {
+            ["requestingPlayerId"] = requester.PlayerId,
+            ["requestedSlot"] = requestedSlot,
+            ["baseRevision"] = record.Revision,
+            ["preparedRevision"] = result.State.Revision
+        });
+        return true;
+    }
+
+    public static bool TryCommitPreparedRecall(NetworkedItem item, ServerPlayer requester,
+        int requestedSlot, uint expectedRevision, out ItemUpdateData snapshot,
+        out string rejectionReason)
+    {
+        snapshot = null;
+        rejectionReason = string.Empty;
+        if (!TryPrepareRecall(item, requester, requestedSlot, expectedRevision,
+                out ItemUpdateData prepared, out rejectionReason))
+            return false;
+        if (!records.TryGetValue(item.NetId, out Record record))
+        {
+            rejectionReason = "unknown-network-entity";
+            return false;
+        }
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Recall(ToCore(record),
+            new ItemRecallCommand
+            {
+                RequestingPlayerId = requester.PlayerId,
+                ExpectedRevision = expectedRevision,
+                RequestedSlot = requestedSlot
+            });
+        if (!result.Accepted)
+        {
+            rejectionReason = result.RejectionReason;
+            return false;
+        }
+
+        byte previousPossessor = record.PlacementPlayerId;
+        ApplyCore(record, result.State);
+        record.LastReason = ItemTransitionReason.OwnerRecall;
+        snapshot = prepared;
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         Publish("item.recall-accepted", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,
             ["previousPossessorPlayerId"] = previousPossessor,
-            ["requestedSlot"] = requestedSlot
+            ["requestedSlot"] = requestedSlot,
+            ["baseRevision"] = expectedRevision
         });
         return true;
     }
+
+    public static bool TryRecall(NetworkedItem item, ServerPlayer requester, int requestedSlot,
+        uint expectedRevision, out ItemUpdateData snapshot, out string rejectionReason) =>
+        TryCommitPreparedRecall(item, requester, requestedSlot, expectedRevision,
+            out snapshot, out rejectionReason);
 
     public static bool TryMoveToLostAndFound(NetworkedItem item, out Record record,
         out string rejectionReason, bool allowRecoveryPlacement = false)
@@ -343,6 +412,47 @@ public static class AuthoritativeItemRegistry
         snapshot.InventoryClaimFlags = record.InventoryClaimFlags;
         snapshot.TransitionReason = reason;
         snapshot.PlayerId = record.PlacementPlayerId;
+    }
+
+    private static void WriteStateToSnapshot(ItemAuthorityState state, ItemUpdateData snapshot,
+        ItemTransitionReason reason)
+    {
+        snapshot.AuthorityRevision = state.Revision;
+        snapshot.PersistentOwnerPlayerId = state.PersistentOwnerPlayerId;
+        snapshot.InventoryClaimPlayerId = state.InventoryClaimPlayerId;
+        snapshot.InventoryClaimSlot = state.InventoryClaimSlot;
+        snapshot.InventoryClaimFlags = (ItemInventoryClaimFlags)(byte)state.InventoryClaimFlags;
+        snapshot.TransitionReason = reason;
+        snapshot.PlayerId = state.PlacementPlayerId;
+    }
+
+    /// <summary>
+    /// Builds a host-authored correction for a rejected speculative client transition.
+    /// The registry supplies identity and placement; the Unity item supplies any state-specific
+    /// attachment/transform fields needed by the normal snapshot application path.
+    /// </summary>
+    public static bool TryCreateCorrectionSnapshot(NetworkedItem item, out ItemUpdateData snapshot)
+    {
+        snapshot = null;
+        if (item == null || item.NetId == 0 || !records.TryGetValue(item.NetId, out Record record))
+            return false;
+
+        snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
+        if (snapshot == null)
+            return false;
+
+        snapshot.ItemState = record.Placement switch
+        {
+            ItemPlacementKind.PlayerHand => ItemState.InHand,
+            ItemPlacementKind.PlayerInventory => ItemState.InInventory,
+            ItemPlacementKind.Attached => ItemState.Attached,
+            _ => ItemState.Dropped
+        };
+        snapshot.ItemPosition = record.Position;
+        snapshot.ItemRotation = record.Rotation;
+        snapshot.OriginatingPlayerId = 0;
+        WriteToSnapshot(record, snapshot, record.LastReason);
+        return true;
     }
 
     public static Dictionary<string, object> Snapshot(Record record)

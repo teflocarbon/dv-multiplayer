@@ -66,6 +66,19 @@ public sealed class RecipientCompletionTests
         Assert.That(recovered.RecipientDiscontinuities, Is.Empty);
     }
 
+    [Test]
+    public void OriginatingThrowAcknowledgement_CompletesWithoutSecondApplication()
+    {
+        RecipientProgress recipient = Recipient(2, true, true, false);
+        recipient.AcknowledgedWithoutApply = true;
+
+        RecipientCompletionResult result = Evaluate(new[] { recipient }, 2500);
+
+        Assert.That(result.Status, Is.EqualTo(ReplicationCompletionStatus.Complete));
+        Assert.That(result.RecipientDiscontinuities, Is.Empty);
+        Assert.That(recipient.Applied, Is.False);
+    }
+
     [TestCase(false, false, ReplicationCompletionStatus.Pending)]
     [TestCase(true, false, ReplicationCompletionStatus.Pending)]
     [TestCase(false, true, ReplicationCompletionStatus.Pending)]
