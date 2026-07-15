@@ -255,6 +255,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundItemAdoptionPacket>(OnClientboundItemAdoptionPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemRecallPreparePacket>(OnClientboundItemRecallPreparePacket);
         netPacketProcessor.SubscribeReusable<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
         netPacketProcessor.SubscribeReusable<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
         netPacketProcessor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
@@ -1485,6 +1486,7 @@ public class NetworkClient : NetworkManager
     private void OnClientboundItemRecallResultPacket(ClientboundItemRecallResultPacket packet)
     {
         Log($"[LostAndFound Recall] Recall result received: netId={packet.ItemNetId}, " +
+            $"operation={packet.OperationId}, " +
             $"accepted={packet.Accepted}, revision={packet.AuthorityRevision}, " +
             $"reason={packet.RejectionReason ?? string.Empty}");
         DebugRuntime.Publish("item", packet.Accepted ? "item.recall-confirmed" : "item.recall-rejected",
@@ -1494,6 +1496,25 @@ public class NetworkClient : NetworkManager
                 ["authorityRevision"] = packet.AuthorityRevision,
                 ["rejectionReason"] = packet.RejectionReason ?? string.Empty
             });
+        if (NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item))
+            item?.CompleteLocalRecallPreparation(packet.OperationId, packet.Accepted);
+    }
+
+    private void OnClientboundItemRecallPreparePacket(ClientboundItemRecallPreparePacket packet)
+    {
+        string failureReason = string.Empty;
+        bool succeeded = NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) &&
+            item != null && item.TryPrepareLocalRecall(packet.OperationId, packet.RequestedSlot,
+                out failureReason);
+        if (item == null)
+            failureReason = "missing-local-item-representation";
+        SendPacketToServer(new ServerboundItemRecallPreparedPacket
+        {
+            OperationId = packet.OperationId,
+            ItemNetId = packet.ItemNetId,
+            Succeeded = succeeded,
+            FailureReason = failureReason ?? string.Empty
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     private void OnClientboundLostItemsSnapshotPacket(ClientboundLostItemsSnapshotPacket packet)

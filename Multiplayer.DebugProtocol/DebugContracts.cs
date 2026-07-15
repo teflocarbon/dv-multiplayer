@@ -82,6 +82,7 @@ public sealed class ReplicationRecipientDto
     public bool Received { get; set; }
     public bool Handled { get; set; }
     public bool Applied { get; set; }
+    public bool AcknowledgedWithoutApply { get; set; }
     public string Decision { get; set; } = string.Empty;
     public string Discontinuity { get; set; } = string.Empty;
     public Dictionary<string, object> Interest { get; set; } = new(StringComparer.Ordinal);
@@ -144,6 +145,7 @@ public sealed class ReplicationOperationSummaryDto
     public int StageCount { get; set; }
     public int RecipientCount { get; set; }
     public int AppliedRecipientCount { get; set; }
+    public int AcknowledgedRecipientCount { get; set; }
     public int StateDiscontinuityCount { get; set; }
 }
 

@@ -2,6 +2,23 @@
 
 > Status: work in progress. The host-authoritative registry, collection/retrieval flow, Career Manager page, shed suppression, observability, and persistent identity described below are implemented, but still require broader in-game acceptance testing.
 
+## Multiplayer integration boundary
+
+Lost and Found policy should remain a multiplayer domain service, while direct Derail Valley manipulation moves behind shared internal adapters:
+
+```text
+NetworkedLostAndFoundService
+  eligibility, ownership, grace, persistence, retrieval transactions
+        |
+        +-- InventoryIntegration
+        |     slots, silhouettes, recall action, add/remove/equip projection
+        |
+        +-- StorageIntegration
+              world/inventory/container/storage membership and physical projection
+```
+
+Do not model the overridden vanilla Lost and Found as another authoritative integration API. Multiplayer Lost and Found is the authority; the storage adapter only projects its decisions into DV storage lists and Unity state. Existing direct calls in `NetworkedLostAndFoundManager`, `InventoryOwnershipUiPatch`, and `StorageControllerPatch` are sufficiently concentrated that they should be migrated now while the boundary is introduced, rather than preserved as compatibility debt.
+
 ## Related documents
 
 - `DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md` contains the established base-game inventory, storage, `RespawnOnDrop`, and shed-presentation behavior.
@@ -344,6 +361,34 @@ These values should be configurable after real host/client testing. The protecti
 
 Explicit owner recall or reclaim is a different authority operation. A recallable item may be returned to its persistent owner even while held by another player if that is the intended gameplay policy, but it must go through the existing owner-recall validation and possession-revocation transition. It must not be disguised as a Lost and Found distance collection.
 
+Normal owner recall now uses a two-phase transaction. The host first computes a candidate recall revision without changing canonical placement, then asks the authenticated owner's runtime to restore the existing Unity object into the requested silhouette slot. Only a successful prepared response may commit the candidate authority revision. A failed insertion, stale revision, timeout, or disconnect cancels the transaction; the host retains the previous canonical placement and sends that projection back to repair any partial local presentation. Local item-change observations are suppressed only while this bounded transaction is pending. Lost and Found retrieval remains a separate operation because it also changes persistent registry placement.
+
+### Player-owned container aggregates
+
+A player-owned item container that becomes lost is one Lost-and-Found aggregate rooted at the outermost world container. Its contents are not independently distance-collected and must not become separate Lost-and-Found rows merely because their owner is also distant.
+
+Collection semantics are:
+
+```text
+outermost player-owned container
+  -> one Lost-and-Found registry entry for the root
+
+every contained item/container
+  -> retain canonical identity, persistent owner, revision, tracked state,
+     direct parent container identity, and slot
+  -> no independent Lost-and-Found entry
+```
+
+The root owner determines whose Lost-and-Found page lists the aggregate. Contained items do not silently change persistent owner. This matters when P1's crate contains an item owned by P2: retrieving the crate restores the same tree and the child remains owned by P2.
+
+Only an outermost container is eligible for distance collection. A nested container or ordinary contained item is protected by its direct container placement. Before collecting the root, the host must validate the detached containment graph: unique canonical nodes, one direct parent per child, valid slots, no cycles, and bounded depth. Invalid graphs are rejected rather than partially collected.
+
+Collection deactivates/suppresses the root presentation but preserves the internal direct edges. It must not call `PurgeItemFromContainer` on descendants, flatten the tree, move every descendant into `StorageLostAndFound`, or allocate new descendant identities. Retrieval restores the same root object and its existing tree; contents remain inactive container members until the base inventory UI exposes/removes them normally.
+
+An explicit owner recall for a recallable **child** remains a separate operation. It may detach that one child from a stored aggregate and return it to its persistent owner, with an atomic container-edge and authority revision update. The surrounding lost container and its other contents remain stored. Ordinary distance collection never performs this extraction.
+
+`ItemContainer.Clear()` is different from losing an intact container. Clearing/destroying the container deliberately removes its children; each eligible child may then enter Lost and Found under `ContainerCleared`. It must not leave a registry entry that claims the destroyed container still owns those edges.
+
 ## Distance and loss detection
 
 The host should perform one bounded, low-frequency scan over eligible canonical items. It should not allow each process's `RespawnOnDrop` to decide network placement.
@@ -383,7 +428,7 @@ The host transition should be atomic from the authority model's perspective:
 1. Re-evaluate eligibility immediately before mutation.
 2. Capture detached tracked state and the last absolute transform.
 3. Increment the authority revision and set placement to `LostAndFound`.
-4. Detach from hands, inventory, containers, snapping, cars, and storage memberships as required.
+4. Detach the root from hands, inventory, snapping, cars, and conflicting storage memberships; preserve descendant container edges when collecting an intact container aggregate.
 5. Zero rigidbody velocity/angular velocity and make the object non-simulating.
 6. Deactivate the canonical Unity object without destroying its identity.
 7. Add exactly one registry record under the persistent owner.
@@ -392,6 +437,8 @@ The host transition should be atomic from the authority model's perspective:
 Clients should apply the placement by removing/deactivating their existing representation. They must not independently run the base Lost and Found distance transition.
 
 If any required detach step fails, the host should keep the prior placement and emit a rejection/invariant event instead of recording an item that remains physically present.
+
+For container roots, the registry metadata should include an integrity fingerprint of the ordered direct-edge set for diagnostics and save/reload verification. Normal list/retrieve packets still need only the compact root handle; the full descendant graph already belongs to item/container authority and must not be duplicated into every Lost-and-Found packet.
 
 ## Career Manager retrieval
 
@@ -642,6 +689,9 @@ near sample cancels a pending candidate
 another active player near the item prevents collection
 another player entering the protection radius cancels a pending candidate
 an item held or inventoried by a non-owner is never distance-collected
+disconnecting while holding, inventorying, or containing a foreign-owned item recovers it to the persistent owner's registry
+disconnect recovery includes ordinary non-red, non-recallable owned items
+disconnect recovery is idempotent and cannot create both a departing-player save record and an owner LostAndFound record
 nearby protection does not transfer persistent ownership
 origin/player position unavailable prevents transition
 persistent owner, not current holder, selects the registry

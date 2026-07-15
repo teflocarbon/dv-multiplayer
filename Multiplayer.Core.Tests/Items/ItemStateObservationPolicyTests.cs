@@ -11,7 +11,7 @@ public sealed class ItemStateObservationPolicyTests
     public void RemoteClientPlacement_IsPreservedOnHost(WireItemState state)
     {
         Assert.That(ItemStateObservationPolicy.PreserveRemotePlayerPlacement(
-            isHost: true, possessorPlayerId: 2, hostPlayerId: 1, state), Is.True);
+            possessorPlayerId: 2, localPlayerId: 1, state), Is.True);
     }
 
     [TestCase(WireItemState.InHand)]
@@ -19,13 +19,28 @@ public sealed class ItemStateObservationPolicyTests
     public void HostLocalPlacement_IsObservedFromUnity(WireItemState state)
     {
         Assert.That(ItemStateObservationPolicy.PreserveRemotePlayerPlacement(
-            isHost: true, possessorPlayerId: 1, hostPlayerId: 1, state), Is.False);
+            possessorPlayerId: 1, localPlayerId: 1, state), Is.False);
+    }
+
+    [TestCase(WireItemState.InHand)]
+    [TestCase(WireItemState.InInventory)]
+    public void HostPlacement_IsPreservedOnRemoteClient(WireItemState state)
+    {
+        Assert.That(ItemStateObservationPolicy.PreserveRemotePlayerPlacement(
+            possessorPlayerId: 1, localPlayerId: 2, state), Is.True);
     }
 
     [Test]
     public void WorldPlacement_IsNeverPreservedAsPlayerPlacement()
     {
         Assert.That(ItemStateObservationPolicy.PreserveRemotePlayerPlacement(
-            isHost: true, possessorPlayerId: 2, hostPlayerId: 1, WireItemState.Dropped), Is.False);
+            possessorPlayerId: 2, localPlayerId: 1, WireItemState.Dropped), Is.False);
+    }
+
+    [Test]
+    public void UnknownLocalPlayer_DoesNotFreezePlacement()
+    {
+        Assert.That(ItemStateObservationPolicy.PreserveRemotePlayerPlacement(
+            possessorPlayerId: 1, localPlayerId: 0, WireItemState.InInventory), Is.False);
     }
 }

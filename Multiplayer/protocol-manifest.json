@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.15.0+1eaaf244ccc15c3a39421bce69838304e51868e5",
-  "Fingerprint": "04b6f4d07320d4bd0d8362075b4b0b2b7cb64807f1945cffa440286f702847b5",
+  "BuildVersion": "0.1.15.0+69c94b687f44de8559c255c781e745388ac8b8a0",
+  "Fingerprint": "0a9c7ac30ee3147f33720eb8a597965ff5cc3f6635294aebabed185ea1b249e2",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -314,6 +314,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonTrainCouplePacket",
       "Direction": "Bidirectional",
       "Category": "Common.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "533F8C0BFE18B2A3",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundItemRecallPreparePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -782,6 +791,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundTrainControlAuthorityUpdatePacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "E7D95DD3A831592D",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundItemRecallPreparedPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

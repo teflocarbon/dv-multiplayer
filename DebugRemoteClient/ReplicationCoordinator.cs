@@ -42,6 +42,28 @@ internal sealed class ReplicationCoordinator
         if (operation.Status != ReplicationOperationStatus.Complete || operation.Recipients.Count != 1 || !operation.Recipients[0].Applied)
             throw new InvalidOperationException("Replication coordinator self-test failed to complete a host/client item flow.");
 
+        ReplicationCoordinator throwAcknowledgementCoordinator = new();
+        throwAcknowledgementCoordinator.UpdateSessions(new[] { host, client });
+        DebugEvent throwSource = Event(client, 3, start.AddMilliseconds(20),
+            "item.snapshot-created", "391", "THROW-R1");
+        throwSource.Data["itemState"] = "Thrown";
+        throwSource.Data["originatingPlayerId"] = 1;
+        throwAcknowledgementCoordinator.Observe(client, throwSource);
+        DebugEvent throwExpected = Event(host, 4, start.AddMilliseconds(25),
+            "item.delivery-expected", "391", "THROW-R2");
+        throwExpected.Data["recipientPlayerId"] = 1;
+        throwAcknowledgementCoordinator.Observe(host, throwExpected);
+        throwAcknowledgementCoordinator.Observe(client, Event(client, 4,
+            start.AddMilliseconds(30), "item.snapshot-received", "391", "THROW-R2"));
+        throwAcknowledgementCoordinator.Observe(client, Event(client, 5,
+            start.AddMilliseconds(31), "item.local-throw-acknowledged", "391", ""));
+        ReplicationOperationDto throwAcknowledgementOperation =
+            throwAcknowledgementCoordinator.SnapshotOperations().Single();
+        if (throwAcknowledgementOperation.Status != ReplicationOperationStatus.Complete ||
+            throwAcknowledgementOperation.Recipients[0].Applied ||
+            !throwAcknowledgementOperation.Recipients[0].AcknowledgedWithoutApply)
+            throw new InvalidOperationException("Replication coordinator self-test did not complete an originating throw acknowledgement.");
+
         ReplicationCoordinator twoPlayerCoordinator = new();
         twoPlayerCoordinator.UpdateSessions(new[] { host, client });
         twoPlayerCoordinator.Observe(client, Event(client, 10, start.AddSeconds(1), "item.packet-send-requested", "344", "DROP"));
@@ -289,6 +311,7 @@ internal sealed class ReplicationCoordinator
             CorrelationConfidence = value.CorrelationConfidence, DiscontinuityReason = value.DiscontinuityReason,
             StageCount = value.Stages.Count, RecipientCount = value.Recipients.Count,
             AppliedRecipientCount = value.Recipients.Count(recipient => recipient.Applied),
+            AcknowledgedRecipientCount = value.Recipients.Count(recipient => recipient.AcknowledgedWithoutApply),
             StateDiscontinuityCount = value.StateComparisons.Sum(comparison => comparison.Differences.Count)
         }).ToArray();
     }
@@ -419,7 +442,14 @@ internal sealed class ReplicationCoordinator
                     "item.special-create-deferred";
                 recipient.Handled |= item.EventName is "packet.handler.after" or "item.snapshot-received" or
                     "item.snapshot-apply.before" or "item.snapshot-apply.after" or
-                    "item.special-create-deferred";
+                    "item.special-create-deferred" or "item.local-throw-acknowledged";
+                if (item.EventName == "item.local-throw-acknowledged")
+                {
+                    recipient.Received = true;
+                    recipient.AcknowledgedWithoutApply = true;
+                    recipient.ResultingState = new Dictionary<string, object>(item.Data,
+                        StringComparer.Ordinal);
+                }
                 if (item.EventName == "item.snapshot-apply.after")
                 {
                     recipient.Applied = true;
@@ -445,7 +475,8 @@ internal sealed class ReplicationCoordinator
                 PlayerId = recipient.PlayerId,
                 Sent = recipient.Sent,
                 Received = recipient.Received,
-                Applied = recipient.Applied
+                Applied = recipient.Applied,
+                AcknowledgedWithoutApply = recipient.AcknowledgedWithoutApply
             }).ToArray()
         }, now);
 
@@ -526,6 +557,7 @@ internal sealed class ReplicationCoordinator
             "item.validation-accepted" or
             "item.validation-rejected" or
             "item.snapshot-received" or
+            "item.local-throw-acknowledged" or
             "item.special-create-deferred" or
             "item.snapshot-apply.before" or
             "item.snapshot-apply.after" or

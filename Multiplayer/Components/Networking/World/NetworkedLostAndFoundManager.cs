@@ -4,6 +4,8 @@ using DV.JObjectExtstensions;
 using Multiplayer.Core.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Integrations.Inventory;
+using Multiplayer.Integrations.Storage;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Newtonsoft.Json.Linq;
@@ -30,6 +32,25 @@ public static class NetworkedLostAndFoundManager
     public static IReadOnlyList<LostItemData> ClientItems => clientItems;
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
+
+    public static bool TryCreateCollectionProjection(NetworkedItem item,
+        out ItemUpdateData snapshot)
+    {
+        snapshot = null;
+        if (item == null || !registry.TryGet(item.NetId, out LostItemRecord lost) ||
+            !AuthoritativeItemRegistry.TryGet(item.NetId,
+                out AuthoritativeItemRegistry.Record authority) ||
+            authority.Placement != ItemPlacementKind.LostAndFound)
+            return false;
+
+        snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
+        if (snapshot == null)
+            return false;
+        AuthoritativeItemRegistry.WriteToSnapshot(authority, snapshot,
+            ItemTransitionReason.LostAndFoundCollection);
+        snapshot.AuthorityRevision = lost.Revision;
+        return true;
+    }
 
     public static void HostTick(uint tick)
     {
@@ -561,41 +582,12 @@ public static class NetworkedLostAndFoundManager
 
     private static void ProjectToInertStorage(NetworkedItem item)
     {
-        ItemBase baseItem = item.Item;
-        if (baseItem == null) return;
-        try { baseItem.ForceEndInteraction(); } catch { }
-        StorageController storage = StorageController.Instance;
-        if (storage != null)
-        {
-            if (storage.StorageItemContainers?.ContainsItem(baseItem) == true)
-                storage.RemoveItemFromStorageItemContainers(baseItem);
-            if (storage.StorageInventory?.ContainsItem(baseItem) == true)
-                storage.RemoveItemFromStorageItemList(storage.StorageInventory, baseItem);
-            if (storage.StorageWorld?.ContainsItem(baseItem) == true)
-                storage.RemoveItemFromStorageItemList(storage.StorageWorld, baseItem);
-            if (storage.StorageLostAndFound?.ContainsItem(baseItem) != true)
-                storage.AddItemToStorageItemList(storage.StorageLostAndFound, baseItem.gameObject);
-        }
-        Rigidbody body = baseItem.ItemRigidbody;
-        if (body != null)
-        {
-            body.velocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.isKinematic = true;
-        }
-        baseItem.InteractionAllowed = false;
-        baseItem.transform.SetParent(WorldMover.OriginShiftParent, true);
-        baseItem.gameObject.SetActive(false);
+        StorageIntegration.ProjectLostAndFound(item?.Item);
     }
 
     private static void RestoreFromProjection(NetworkedItem item)
     {
-        ItemBase baseItem = item.Item;
-        StorageController storage = StorageController.Instance;
-        if (storage?.StorageLostAndFound?.ContainsItem(baseItem) == true)
-            storage.RemoveItemFromStorageItemList(storage.StorageLostAndFound, baseItem);
-        baseItem.gameObject.SetActive(true);
-        baseItem.InteractionAllowed = true;
+        StorageIntegration.RestoreLostAndFound(item?.Item);
     }
 
     private static bool IsLicensePaper(NetworkedItem item)
@@ -616,20 +608,12 @@ public static class NetworkedLostAndFoundManager
     {
         if (item?.Item == null)
             return false;
-        try
-        {
-            // includeDropped=false is deliberate: an essential world item keeps an immutable
-            // dropped silhouette in inventory, but that silhouette must not make the physical
-            // world object look inventoried to the collection policy.
-            if (Inventory.Instance?.Contains(item.gameObject, false) == true)
-                return true;
-        }
-        catch { }
-        try
-        {
-            return StorageController.Instance?.StorageInventory?.ContainsItem(item.Item) == true;
-        }
-        catch { return false; }
+        // includeDropped=false is deliberate: an essential world item keeps an immutable
+        // dropped silhouette in inventory, but that silhouette must not make the physical
+        // world object look inventoried to the collection policy.
+        if (InventoryIntegration.ContainsActive(item.gameObject))
+            return true;
+        return (StorageIntegration.GetMembership(item.Item) & StorageMembership.Inventory) != 0;
     }
 
     private static void ReconcileCanonicalPlacements()

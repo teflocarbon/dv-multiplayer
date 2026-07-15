@@ -18,6 +18,9 @@ public sealed class RecipientProgress
     public bool Sent { get; set; }
     public bool Received { get; set; }
     public bool Applied { get; set; }
+    public bool AcknowledgedWithoutApply { get; set; }
+
+    public bool Completed => Applied || AcknowledgedWithoutApply;
 }
 
 public sealed class RecipientCompletionInput
@@ -57,7 +60,7 @@ public static class RecipientCompletionEvaluator
             string discontinuity = string.Empty;
             if (recipient.Sent && !recipient.Received && age >= input.SentNotReceivedTimeoutMilliseconds)
                 discontinuity = "sent-not-received";
-            else if (recipient.Received && !recipient.Applied && age >= input.ReceivedNotAppliedTimeoutMilliseconds)
+            else if (recipient.Received && !recipient.Completed && age >= input.ReceivedNotAppliedTimeoutMilliseconds)
                 discontinuity = "received-not-applied";
             if (!string.IsNullOrEmpty(discontinuity))
                 result.RecipientDiscontinuities[recipient.PlayerId] = discontinuity;
@@ -70,7 +73,7 @@ public static class RecipientCompletionEvaluator
             result.Reason = $"P{first.Key}:{first.Value}";
         }
         else if (input.Recipients != null && input.Recipients.Count > 0 &&
-                 input.Recipients.All(recipient => recipient.Applied))
+                 input.Recipients.All(recipient => recipient.Completed))
         {
             result.Status = ReplicationCompletionStatus.Complete;
         }
