@@ -25,7 +25,8 @@ public enum ItemTransitionReason : byte
     JobBookletSummon,
     FullSync,
     LostAndFoundCollection,
-    LostAndFoundRetrieval
+    LostAndFoundRetrieval,
+    ContainerDeposit
 }
 
 [Flags]

@@ -28,16 +28,16 @@ public sealed class NetIdAllocatorTests
     }
 
     [Test]
-    public void ReleasedIdIsReusedOnce()
+    public void ReleasedIdIsNotReusedWhileFreshIdsRemain()
     {
         NetIdAllocator<ushort> allocator = UShortAllocator();
         allocator.TryAllocate(out ushort first);
         Assert.That(allocator.Release(first), Is.True);
         Assert.That(allocator.Release(first), Is.False);
-        allocator.TryAllocate(out ushort reused);
+        allocator.TryAllocate(out ushort fresh);
         allocator.TryAllocate(out ushort next);
-        Assert.That(reused, Is.EqualTo(first));
-        Assert.That(next, Is.EqualTo(2));
+        Assert.That(fresh, Is.EqualTo(2));
+        Assert.That(next, Is.EqualTo(3));
     }
 
     [Test]

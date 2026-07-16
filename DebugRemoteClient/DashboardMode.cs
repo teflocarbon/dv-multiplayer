@@ -1,5 +1,6 @@
 using Multiplayer.Debugging.Protocol;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -15,7 +16,9 @@ namespace Multiplayer.DebugClient;
 
 internal static class DashboardMode
 {
-    private const int DashboardPort = 7781;
+    private static int DashboardPort => int.TryParse(
+        Environment.GetEnvironmentVariable("DVMP_DASHBOARD_PORT"), out int port) &&
+        port is > 0 and <= 65535 ? port : 7782;
 
     public static int Run(string requestedRoot)
     {
@@ -31,6 +34,7 @@ internal static class DashboardMode
             StartedUtc = DateTime.UtcNow,
             HeartbeatUtc = DateTime.UtcNow,
             Role = "dashboard",
+            BuildNumber = global::Multiplayer.Multiplayer.BuildNumber,
             ApiToken = Guid.NewGuid().ToString("N")
         };
         DebugRuntimeSettingsDto dashboardSettings = new();
@@ -38,8 +42,12 @@ internal static class DashboardMode
         using ManualResetEventSlim shutdown = new(false);
         using DashboardMerger merger = new(root, store);
 #if DEBUG
+        RuntimeTestRunJournal runtimeTestJournal = new();
         RuntimeTestCoordinator runtimeTests = new(merger.Sessions,
-            startCapture: merger.StartCapture, stopCapture: merger.StopCapture);
+            startCapture: merger.StartCapture, stopCapture: merger.StopCapture,
+            journal: runtimeTestJournal,
+            runUpdated: run => PublishRuntimeTestUpdate(store, dashboard, run),
+            captureFiles: merger.CaptureFiles);
         using RuntimeEnvironmentSupervisor runtimeEnvironment = new(merger.Sessions);
 #endif
         using DebugHttpServer server = new(store, () => dashboard,
@@ -51,9 +59,11 @@ internal static class DashboardMode
             sessions: merger.Sessions,
             replicationOperations: merger.ReplicationOperations,
             replicationOperation: merger.ReplicationOperation,
+            historicalEvents: merger.HistoricalEvents,
             requestedPort: DashboardPort);
 #if DEBUG
-        server.ConfigureRuntimeTests(runtimeTests.GetCapabilities, runtimeTests.Enqueue, runtimeTests.GetRun, runtimeTests.Cancel);
+        server.ConfigureRuntimeTests(runtimeTests.GetCapabilities, runtimeTests.GetRuns,
+            runtimeTests.Enqueue, runtimeTests.GetRun, runtimeTests.Cancel);
         server.ConfigureRuntimeEnvironment(runtimeEnvironment.GetStatus,
             request => { environmentConfiguration.Save(request); return runtimeEnvironment.Start(request); },
             runtimeEnvironment.Stop, environmentConfiguration.Get, environmentConfiguration.Save);
@@ -80,12 +90,63 @@ internal static class DashboardMode
             while (!shutdown.IsSet)
             {
                 string command = Console.ReadLine();
-                if (command == null || string.Equals(command, "/quit", StringComparison.OrdinalIgnoreCase)) { shutdown.Set(); break; }
+                // A dashboard launched hidden by the handoff helper has no interactive stdin.
+                // EOF means "run headless", not "quit"; the HTTP shutdown endpoint remains
+                // the authoritative lifecycle control in that mode.
+                if (command == null)
+                {
+                    while (!shutdown.Wait(1000)) { }
+                    break;
+                }
+                if (string.Equals(command, "/quit", StringComparison.OrdinalIgnoreCase))
+                {
+                    shutdown.Set();
+                    break;
+                }
             }
         });
         shutdown.Wait();
         return 0;
     }
+
+#if DEBUG
+    private static void PublishRuntimeTestUpdate(DebugEventStore store,
+        DebugSessionInfo dashboard, RuntimeTestRunDto run)
+    {
+        bool failed = run.Status is RuntimeTestCommandStatus.Failed or
+            RuntimeTestCommandStatus.FailedDirty;
+        store.Publish(new DebugEvent
+        {
+            TimestampUtc = DateTime.UtcNow,
+            SessionId = dashboard.SessionId,
+            ProcessId = dashboard.ProcessId,
+            Role = "dashboard",
+            RuntimeSide = DebugRuntimeSide.Dashboard,
+            Category = "runtime-test",
+            EventName = "runtime-test.run-updated",
+            Severity = failed ? DebugSeverity.Error : DebugSeverity.Info,
+            EntityType = "RuntimeTestRun",
+            EntityId = run.RequestId,
+            CorrelationId = run.RunId,
+            TestRunId = run.RunId,
+            TestCaseId = run.CaseId,
+            TestPhaseId = run.PhaseId,
+            TestStepId = run.StepId,
+            Data = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["requestId"] = run.RequestId,
+                ["runId"] = run.RunId,
+                ["caseId"] = run.CaseId,
+                ["command"] = run.Command,
+                ["status"] = run.Status.ToString(),
+                ["phaseId"] = run.PhaseId,
+                ["stepId"] = run.StepId,
+                ["error"] = run.Error,
+                ["processCount"] = run.Processes?.Count ?? 0
+            }
+        });
+    }
+#endif
 
     private static void StartWithTakeover(DebugHttpServer server)
     {
@@ -199,6 +260,53 @@ internal sealed class DashboardMerger : IDisposable
         return id;
     }
     public string StopCapture() { Broadcast("api/capture/stop", new { }); return "stopped"; }
+
+    public IEnumerable<string> CaptureFiles(string captureId)
+    {
+        if (string.IsNullOrWhiteSpace(captureId)) return Array.Empty<string>();
+        string directory = Path.Combine(root, "captures");
+        if (!Directory.Exists(directory)) return Array.Empty<string>();
+        List<string> matches = new();
+        foreach (string path in Directory.GetFiles(directory, "*.jsonl"))
+        {
+            try
+            {
+                using StreamReader reader = new(path, Encoding.UTF8);
+                JObject metadata = JObject.Parse(reader.ReadLine() ?? string.Empty);
+                if (string.Equals((string)metadata["captureId"], captureId,
+                        StringComparison.Ordinal))
+                    matches.Add(path);
+            }
+            catch { }
+        }
+        return matches.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public IEnumerable<DebugEvent> HistoricalEvents(DebugEventQueryDto query)
+    {
+        if (string.IsNullOrWhiteSpace(query?.TestRunId)) return Array.Empty<DebugEvent>();
+        List<DebugEvent> events = new();
+        foreach (string path in CaptureFiles(query.TestRunId))
+        {
+            try
+            {
+                using StreamReader reader = new(path, Encoding.UTF8);
+                reader.ReadLine(); // Capture metadata.
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    try
+                    {
+                        DebugEvent item = JsonConvert.DeserializeObject<DebugEvent>(line, DebugJson.Settings);
+                        if (item != null) events.Add(item);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+        return events;
+    }
 
     private void Broadcast(string relativePath, object body)
     {

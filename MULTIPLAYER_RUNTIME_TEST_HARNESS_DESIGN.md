@@ -34,7 +34,8 @@ The harness supplements rather than replaces:
 The observability system already provides most of the transport and coordination foundation:
 
 - every game process exposes an authenticated loopback HTTP/SSE endpoint;
-- live sessions advertise role, player ID, build, endpoint, and API token;
+- live sessions advertise role, player ID, the shared mod/dashboard CalVer build number, endpoint,
+  and API token;
 - the combined dashboard discovers and merges host/client sessions;
 - the dashboard can broadcast authenticated commands to every runtime;
 - events from every process use one shared debug protocol;
@@ -68,10 +69,13 @@ The first executable slice is now present in debug builds:
   player targeting, independent child status polling, cancellation forwarding, and a parent
   barrier which cannot pass while any selected process remains queued or running;
 - aggregate per-process status, result, and failure details in the shared response DTO;
-- common runtime attribution on every result: role, player identity, session/process identity,
-  server/client state, and active scene;
+- common runtime attribution on every result: shared build number, role, player identity,
+  session/process identity, server/client state, and active scene;
 - a Runtime tests dashboard tab for catalogue discovery, target selection, JSON parameters,
   execution, cancellation, and per-process results;
+- an Actions-style run history backed by an atomic Local AppData journal, with SSE-driven live
+  phase/step updates, assertion and cleanup summaries, correlated events, capture artifacts, and
+  run-window packet/item-replication timelines with routine packet noise suppressed;
 - loopback protocol self-tests covering unauthorized rejection and capability, enqueue, and status
   responses, plus coordinator self-tests covering multi-process barriers and ambiguous-target
   rejection.
@@ -80,9 +84,11 @@ The first executable slice is now present in debug builds:
 - automatic dashboard capture lifetime for `scenario.*` commands and event queries by test
   run/case/phase/step;
 - cross-process cold-container operation correlation using the operation UUID;
-- `scenario.cold-container-round-trip`, which discovers an existing owned shell/item fixture,
-  invokes the real non-VR quick-move method for deposit and withdrawal, and verifies view revisions,
-  representation retirement, fresh NetId materialization, slot, owner, prefab, and detached state;
+- `scenario.cold-container-round-trip`, whose dashboard coordinator creates disposable client-owned
+  shell/item fixtures on the host, invokes the real non-VR quick-move method on the client for
+  deposit and withdrawal, verifies view revisions, representation retirement, fresh NetId
+  materialization, slot, owner, prefab and detached state, then retires both fixtures and verifies
+  their client inventory projections are absent;
 - `scenario.cold-container-foreign-rejection`, which verifies an existing foreign-owned inventory
   fixture cannot mutate either its source slot or the cold container.
 
@@ -581,8 +587,8 @@ Suggested steps:
 
 1. Confirm host and client are loaded and advertise compatible builds.
 2. Move both players to a safe shared anchor.
-3. Select an existing owned container shell and compatible owned inventory item, optionally pinned
-   by NetId. Disposable fixture spawning is the next arrangement improvement.
+3. Ask the host runtime to create a disposable client-owned container shell and compatible item,
+   then wait for both authoritative inventory projections on the selected client.
 4. Record the item's current inventory slot and detached state.
 5. Open the crate through the real container-access path.
 6. Invoke the real desktop quick-move gameplay method.
@@ -592,7 +598,8 @@ Suggested steps:
 10. Withdraw through the real container UI path.
 11. Assert exactly one materialized item reaches the requested inventory slot.
 12. Assert ownership, detached state, and graph revisions remain valid.
-13. Close the container and clean up every test resource.
+13. Close the container, asynchronously recover any committed cold item after a failed assertion,
+    and have the host retire both disposable fixtures.
 
 The second implemented scenario is:
 

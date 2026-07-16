@@ -62,6 +62,8 @@ namespace Multiplayer.Networking.Managers.Client;
 public class NetworkClient : NetworkManager
 {
     public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
+    public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
+    public event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
     protected override string LogPrefix => "[Client]";
 
     private Action<DisconnectReason, string> onDisconnect;
@@ -259,6 +261,8 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
         netPacketProcessor.SubscribeReusable<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
         netPacketProcessor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);
         netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
         netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
@@ -1467,6 +1471,19 @@ public class NetworkClient : NetworkManager
             return debug;
         });
 
+        // Create and Destroy are representation-lifecycle operations. The bulk packet path
+        // already routes them through NetworkedItemManager, but the single-item path used to
+        // bypass it and call ReceiveSnapshot directly. That left Destroyed objects registered,
+        // inventoried, and visible even though the packet had arrived successfully.
+        if (packet.ItemData.UpdateType.HasAnyFlag(
+                ItemUpdateData.ItemUpdateType.Create |
+                ItemUpdateData.ItemUpdateType.Destroy))
+        {
+            NetworkedItemManager.Instance.ReceiveSnapshots(
+                new List<ItemUpdateData> { packet.ItemData });
+            return;
+        }
+
         if (!NetworkedItem.TryGet(packet.ItemData.ItemNetId, out NetworkedItem networkedItem))
         {
             DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Client);
@@ -1560,6 +1577,17 @@ public class NetworkClient : NetworkManager
                 ["rejectionReason"] = packet.RejectionReason ?? string.Empty
             });
         LostItemRetrieveCompleted?.Invoke(packet);
+    }
+
+    private void OnClientboundContainerViewPacket(ClientboundContainerViewPacket packet)
+    {
+        ContainerViewReceived?.Invoke(packet);
+    }
+
+    private void OnClientboundContainerMutationResultPacket(
+        ClientboundContainerMutationResultPacket packet)
+    {
+        ContainerMutationCompleted?.Invoke(packet);
     }
 
     private void OnCommonPaintThemePacket(CommonPaintThemePacket packet)
@@ -2167,6 +2195,25 @@ public class NetworkClient : NetworkManager
     {
         SendPacketToServer(new ServerboundLostItemsRequestPacket { RequestId = requestId },
             DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestContainerView(uint requestId, ushort shellNetId,
+        uint containerHandle = 0, int offset = 0, byte count = 64)
+    {
+        SendPacketToServer(new ServerboundContainerBrowsePacket
+        {
+            RequestId = requestId,
+            ShellNetId = shellNetId,
+            ContainerHandle = containerHandle,
+            Offset = offset,
+            Count = count
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestContainerMutation(ServerboundContainerMutationPacket packet)
+    {
+        if (packet == null) return;
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
     }
 
     public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,

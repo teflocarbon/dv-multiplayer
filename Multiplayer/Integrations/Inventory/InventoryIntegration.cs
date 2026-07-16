@@ -6,6 +6,7 @@ using Multiplayer.Core.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Networking.Data.Items;
+using System;
 using System.Linq;
 using UnityEngine;
 
@@ -79,6 +80,7 @@ internal interface IInventoryRuntimeAdapter
     bool TrySnapshotSlot(InventoryUIController controller, int relativeSlot,
         InventorySectionController section, out InventorySlotRuntimeSnapshot snapshot);
     bool ContainsActive(GameObject item);
+    int AddActive(GameObject item, int preferredSlot = -1);
     InventoryClaimExecution EnsureDroppedClaim(GameObject item, int expectedSlot);
     InventoryClaimExecution RestoreClaim(GameObject item, int expectedSlot);
     InventoryRemovalSnapshot RevokeMembership(GameObject item, ushort itemNetId = 0);
@@ -121,6 +123,19 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
             return false;
         try { return DV.InventorySystem.Inventory.Instance?.Contains(item, false) == true; }
         catch { return false; }
+    }
+
+    public int AddActive(GameObject item, int preferredSlot = -1)
+    {
+        DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
+        if (inventory == null || item == null)
+            return -1;
+        int currentSlot = inventory.IndexOf(item);
+        if (currentSlot >= 0 && inventory.Contains(item, false))
+            return currentSlot;
+        return preferredSlot >= 0
+            ? inventory.AddItemToInventory(item, preferredSlot, false)
+            : inventory.AddItemToInventory(item, false);
     }
 
     public InventoryClaimExecution EnsureDroppedClaim(GameObject item, int expectedSlot)
@@ -177,6 +192,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         if (inventory == null || item == null)
             return new InventoryRemovalSnapshot(-1, -1, false, -1, -1, false);
+        using IDisposable authoritativeRemoval = InventoryIntegration.BeginAuthoritativeRemoval();
         int slotBefore = inventory.IndexOf(item);
         int equippedBefore = inventory.GetEquipSlotForItem(item);
         bool containedBefore = inventory.Contains(item, true);
@@ -200,15 +216,23 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
             if (equippedSlot >= 0)
                 inventory.DropItemFromHandsOrInventory(candidate);
 
-            // Purge first for dropped reserved/locked silhouettes. Calling Drop first is a
-            // no-op for an already-dropped entry, while PurgeFromInventory is precisely the
-            // operation which clears its lockedAndReservedMap record and fires the UI event.
-            if (!inventory.PurgeFromInventory(candidate) &&
-                (inventory.IndexOf(candidate) >= 0 || inventory.Contains(candidate, true)))
+            int slot = inventory.IndexOf(candidate);
+            if (slot >= 0)
             {
-                inventory.DropItemFromHandsOrInventory(candidate);
+                // Reserved/dropped silhouettes are removed by PurgeFromInventory. Ordinary
+                // active entries are removed through the game's drop transition with
+                // keepInactive=true, which clears the slot without projecting the item into
+                // the world. Storage side effects are suppressed by the authoritative-removal
+                // scope and reconciled explicitly by the caller.
+                if (!inventory.PurgeFromInventory(candidate))
+                    inventory.DropItemFromHandsOrInventory(slot, true);
                 if (inventory.IndexOf(candidate) >= 0 || inventory.Contains(candidate, true))
+                {
                     inventory.PurgeFromInventory(candidate);
+                    int remainingSlot = inventory.IndexOf(candidate);
+                    if (remainingSlot >= 0)
+                        inventory.DropItemFromHandsOrInventory(remainingSlot, true);
+                }
             }
         }
         return new InventoryRemovalSnapshot(slotBefore, equippedBefore, containedBefore,
@@ -328,11 +352,34 @@ internal static class InventoryIntegration
 {
     private static readonly IInventoryRuntimeAdapter runtime =
         new DerailValleyInventoryRuntimeAdapter();
+    private static int authoritativeRemovalDepth;
+
+    internal static bool AuthoritativeRemovalActive => authoritativeRemovalDepth > 0;
+
+    internal static IDisposable BeginAuthoritativeRemoval()
+    {
+        authoritativeRemovalDepth++;
+        return new AuthoritativeRemovalScope();
+    }
+
+    private sealed class AuthoritativeRemovalScope : IDisposable
+    {
+        private bool disposed;
+
+        public void Dispose()
+        {
+            if (disposed) return;
+            disposed = true;
+            authoritativeRemovalDepth = Math.Max(0, authoritativeRemovalDepth - 1);
+        }
+    }
     private static uint lostItemRequestId;
 
     public static byte LocalPlayerId => runtime.LocalPlayerId;
 
     public static bool ContainsActive(GameObject item) => runtime.ContainsActive(item);
+    public static int AddActive(GameObject item, int preferredSlot = -1) =>
+        runtime.AddActive(item, preferredSlot);
     public static InventoryClaimExecution EnsureDroppedClaim(GameObject item, int expectedSlot) =>
         runtime.EnsureDroppedClaim(item, expectedSlot);
     public static InventoryClaimExecution RestoreClaim(GameObject item, int expectedSlot) =>

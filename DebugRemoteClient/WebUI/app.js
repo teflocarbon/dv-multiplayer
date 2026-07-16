@@ -17,6 +17,7 @@ function matches(event) {
 function addOption(select, value, label = value) { if (!value || Array.from(select.options).some(option => option.value === value)) return; select.add(new Option(label, value)); }
 function add(event) {
   events.push(event); if (events.length > 50000) events.splice(0, events.length - 50000);
+  window.dispatchEvent(new CustomEvent("dvmp-debug-event", {detail:event}));
   addOption($("session-filter"), event.sessionId, `${event.role || "session"} · ${event.sessionId}`);
   addOption($("category-filter"), event.category);
   if (!paused && pinned === null) scheduleRender(); else updateStats();
@@ -56,10 +57,10 @@ $("raw").addEventListener("click", async event => { const current = await fetch(
 async function refreshSessions() {
   try {
     const sessions = await fetch("/api/sessions").then(response => response.json()), root = $("sessions"); knownSessions = sessions; root.replaceChildren();
-    for (const session of sessions) { const card = document.createElement("div"); card.className = "session-card"; card.textContent = `${session.role} — ${session.playerName || "unnamed"} — PID ${session.processId} — ${session.sessionId}`; root.append(card); }
+    for (const session of sessions) { const card = document.createElement("div"); card.className = "session-card"; card.textContent = `${session.role} — ${session.playerName || "unnamed"} — PID ${session.processId} — Build ${session.buildNumber || "unknown"} — ${session.sessionId}`; root.append(card); }
   } catch {}
 }
-fetch("/api/session").then(response => response.json()).then(session => { localSession = session; refreshSessions(); setInterval(refreshSessions, 2000); });
+fetch("/api/session").then(response => response.json()).then(session => { localSession = session; refreshSessions(); setInterval(refreshSessions, 2000); authenticatedGet("/api/automation").then(response => response.json()).then(info => { $("dashboard-build").textContent = `Build ${info.buildNumber || "development"}`; }).catch(() => {}); });
 const stream = new EventSource("/events");
 stream.onopen = () => { $("connection").textContent = "Live event stream connected"; $("connection").classList.add("live"); };
 stream.onerror = () => { $("connection").textContent = "Reconnecting…"; $("connection").classList.remove("live"); };

@@ -1,9 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('status','sessions','config-get','config-set','environment-start','environment-wait','environment-status','environment-stop','capabilities','run','wait','cancel','capture-start','capture-stop','events','restart-dashboard')]
+    [ValidateSet('status','sessions','config-get','config-set','environment-start','environment-wait','environment-status','environment-stop','capabilities','runs','run','wait','cancel','capture-start','capture-stop','events','restart-dashboard')]
     [string]$Command,
-    [string]$BaseUrl = 'http://127.0.0.1:7781/',
+    [string]$BaseUrl = 'http://127.0.0.1:7782/',
     [string]$InputJson,
     [string]$TestId,
     [string]$TargetSessionId,
@@ -43,6 +43,7 @@ function Invoke-HarnessApi([string]$method, [string]$path, $body = $null) {
 
 function Write-Result($value) {
     if ($null -eq $value) { Write-Output '{}' }
+    elseif ($value -is [System.Array] -and $value.Count -eq 0) { Write-Output '[]' }
     else { Write-Output ($value | ConvertTo-Json -Depth 30) }
 }
 
@@ -113,7 +114,14 @@ if ($Command -eq 'restart-dashboard') {
         }
     }
 
-    Start-Process -FilePath $executable -ArgumentList '--dashboard' -WorkingDirectory $ProjectRoot -WindowStyle Hidden | Out-Null
+    $dashboardPort = ([Uri]$BaseUrl).Port
+    $previousDashboardPort = $env:DVMP_DASHBOARD_PORT
+    $env:DVMP_DASHBOARD_PORT = [string]$dashboardPort
+    try {
+        Start-Process -FilePath $executable -ArgumentList '--dashboard' -WorkingDirectory $ProjectRoot -WindowStyle Hidden | Out-Null
+    } finally {
+        $env:DVMP_DASHBOARD_PORT = $previousDashboardPort
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds([Math]::Max(10, $TimeoutSeconds))
     do {
         Start-Sleep -Milliseconds 200
@@ -153,6 +161,7 @@ switch ($Command) {
     'environment-status' { Write-Result (Invoke-HarnessApi 'GET' 'api/runtime-environment/status') }
     'environment-stop' { Write-Result (Invoke-HarnessApi 'POST' 'api/runtime-environment/stop' @{}) }
     'capabilities' { Write-Result (Invoke-HarnessApi 'GET' 'api/runtime-tests/capabilities') }
+    'runs' { Write-Result (Invoke-HarnessApi 'GET' 'api/runtime-tests/runs') }
     'run' {
         if ([string]::IsNullOrWhiteSpace($TestId)) { throw 'run-requires-TestId' }
         $capabilities = Invoke-HarnessApi 'GET' 'api/runtime-tests/capabilities'

@@ -383,6 +383,49 @@ public static class AuthoritativeItemRegistry
         return record;
     }
 
+    /// <summary>
+    /// Registers an item materialized from host-owned detached storage without allowing
+    /// the current holder to accidentally replace its persistent owner.
+    /// </summary>
+    public static Record RegisterMaterializedColdItem(NetworkedItem item, ServerPlayer holder,
+        byte persistentOwnerPlayerId, ItemUpdateData snapshot)
+    {
+        if (item == null || holder == null || snapshot == null || item.NetId == 0)
+            return null;
+
+        Record record = new()
+        {
+            NetId = item.NetId,
+            Revision = 1,
+            Placement = ItemPlacementKind.PlayerInventory,
+            PlacementPlayerId = holder.PlayerId,
+            PersistentOwnerPlayerId = persistentOwnerPlayerId,
+            // A materialized item needs a concrete projection slot even when it does not
+            // carry a persistent recall claim. Flags distinguish an ordinary placement
+            // slot from a reserved/locked retrieval claim.
+            InventoryClaimPlayerId = snapshot.InventoryClaimPlayerId,
+            InventoryClaimSlot = snapshot.InventoryClaimSlot,
+            InventoryClaimFlags = snapshot.InventoryClaimFlags,
+            PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
+            Position = snapshot.ItemPosition,
+            Rotation = snapshot.ItemRotation,
+            LastReason = ItemTransitionReason.HostLocalState
+        };
+        records[item.NetId] = record;
+        if (persistentOwnerPlayerId != 0 &&
+            NetworkLifecycle.Instance.Server.TryGetServerPlayer(persistentOwnerPlayerId,
+                out ServerPlayer owner))
+            owner.AddOwnedItem(item.NetId);
+        WriteToSnapshot(record, snapshot, record.LastReason);
+        item.ApplyAuthorityMetadata(snapshot);
+        Publish("item.cold-materialization-registered", item, record, new()
+        {
+            ["holderPlayerId"] = holder.PlayerId,
+            ["persistentOwnerPlayerId"] = persistentOwnerPlayerId
+        });
+        return record;
+    }
+
     public static void RollbackLostAndFoundCollection(NetworkedItem item, uint previousRevision,
         ItemPlacementKind previousPlacement, byte previousPlacementPlayerId,
         ItemTransitionReason previousReason)

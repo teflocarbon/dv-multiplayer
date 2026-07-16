@@ -1,6 +1,34 @@
 # Multiplayer Container Storage Design
 
-> Status: proposed architecture. This deliberately replaces Derail Valley's always-instantiated contained-item model for multiplayer-owned containers.
+> Status: first owner-only implementation complete; requires two-process in-game acceptance testing. This deliberately replaces Derail Valley's always-instantiated contained-item model for multiplayer-owned containers.
+
+## Implemented surface (2026-07-15)
+
+The first implementation now includes:
+
+- a pure, host-authoritative cold graph with persistent UUIDs, compact session handles,
+  per-container revisions, owner-only authorization, direct-slot browsing, nesting, moves,
+  transactional deposit/withdrawal phases, bounded idempotency, and graph validation;
+- hard limits for depth, visited nodes, capacity, owner item count, detached state size,
+  browse page size, and encoded save size;
+- a version-2 binary host-save chunk under `Multiplayer.ColdContainers`; no legacy-record
+  migration is included because development is currently single-user;
+- persistent container UUID injection through `ItemSaveData`, so shell identity survives
+  inventory, world, and Lost-and-Found save paths;
+- four bounded request/result packet types. Routine packets use NetIds and session handles;
+  persistent UUIDs remain save/internal data and are not sent to clients;
+- host-side hydration/dehydration using the existing inventory/storage integration APIs and
+  `ItemSaveData`, with persistent item ownership preserved independently of the container owner;
+- runtime compatibility checks derived from the currently loaded Derail Valley container and
+  item prefabs, cached per prefab pair rather than hard-coded item-type tables;
+- one-level-at-a-time non-VR/VR inventory projection using the game's shared
+  `ItemContainerProvider`, including nested-container navigation and foreign-owner red styling;
+- a Containers page in the F12 debug overlay showing UUID, compact handle, owner, revision,
+  capacity, parent edge, and direct cold-item count.
+
+Physical shell replication remains the normal item system. Only contents are detached. A shell
+collected by multiplayer Lost and Found retains its graph unchanged; retrieving the shell does not
+eagerly instantiate its descendants.
 
 ## Goal
 
@@ -163,7 +191,8 @@ The cold edge is never removed before the physical object is fully initialized a
 
 ### Deposit
 
-1. Authenticate and authorize the depositor.
+1. Authenticate the depositor and verify both current possession and persistent ownership. A
+   stolen, borrowed, or ownerless item cannot cross into a player's private cold-storage graph.
 2. Resolve the canonical physical item and destination shell/record.
 3. Call the running game's compatibility policy and validate capacity, cycles, depth, ownership invariants, and expected revisions.
 4. Snapshot all detached item state without mutating or unregistering the physical object.
@@ -249,10 +278,9 @@ A lost physical container produces one Lost-and-Found root entry. Its cold desce
 - Opening the retrieved container performs normal authorized browse hydration.
 - Contents do not become individual Lost-and-Found entries.
 - Clearing/destroying a container is different and must explicitly relocate or recover each child.
-- A player disconnect cannot persist foreign-owned contents inside that player's private graph.
-  Before the departing graph is saved, the host detaches each foreign-owned record and moves it
-  exactly once to its persistent owner's Lost and Found, regardless of recall eligibility or red
-  inventory styling. The owner may be offline.
+- New deposits cannot introduce foreign-owned contents: both the Unity-facing server boundary and
+  the pure graph reject an item whose persistent owner is not the requesting container owner.
+- Import validation must reject any foreign-owned edge from malformed or externally edited data.
 
 ## Save integration
 
@@ -426,6 +454,7 @@ The host must load and validate that chunk before exposing container browse oper
 
 - unauthorized users cannot discover or mutate contents;
 - physical possession does not grant access;
+- a player cannot deposit an item owned by another player, even while holding it;
 - owner can browse without Unity materialization;
 - withdraw creates exactly one canonical item and NetId;
 - deposit creates exactly one cold record and retires the representation;

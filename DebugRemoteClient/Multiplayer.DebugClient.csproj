@@ -8,7 +8,18 @@
     <DerailValleyManagedDir Condition="'$(DerailValleyManagedDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Derail Valley\DerailValley_Data\Managed</DerailValleyManagedDir>
     <ReferencePath>$(DerailValleyManagedDir)\;$(DerailValleyManagedDir)\UnityModManager\;</ReferencePath>
     <AssemblySearchPaths>$(AssemblySearchPaths);$(ReferencePath);</AssemblySearchPaths>
+    <DvmpBuildNumberFile>$(MSBuildProjectDirectory)\..\build\dvmp-build-number.txt</DvmpBuildNumberFile>
+    <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == '' AND Exists('$(DvmpBuildNumberFile)')">$([System.IO.File]::ReadAllText('$(DvmpBuildNumberFile)').Trim())</DvmpBuildNumber>
+    <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == ''">$([System.DateTime]::Now.ToString('yyyy.MM.dd.HHmm'))</DvmpBuildNumber>
+    <InformationalVersion>$(DvmpBuildNumber)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>DVMPBuildNumber</_Parameter1>
+      <_Parameter2>$(DvmpBuildNumber)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
   <ItemGroup>
     <!-- The SDK's default glob is relative to Debug/, so explicitly exclude the independent
          transport-spike project (including its generated obj assembly attributes). -->

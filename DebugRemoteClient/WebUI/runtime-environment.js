@@ -16,7 +16,8 @@ environmentView.innerHTML = `
     <label>Shared host/client port<input id="environment-port" type="number" value="7777"></label>
     <label>Shared host/client password<input id="environment-password" type="password"></label>
     <label>Server name<input id="environment-server-name" value="DVMP automated test"></label>
-    <label><span>Managed windows</span><span><input id="environment-minimize-windows" type="checkbox" checked> Minimize without taking focus</span></label>
+    <label><span>Managed windows</span><span><input id="environment-minimize-windows" type="checkbox"> Minimize windows</span></label>
+    <label><span>Test input</span><span><input id="environment-disable-window-input" type="checkbox" checked> Keep visible but ignore mouse and keyboard</span></label>
   </div>
   <p class="environment-help">Address tells the client where to connect (use 127.0.0.1 for two local instances). The host listens on the shared port and requires the shared password; the client connects with those same values.</p>
   <div class="environment-actions"><button id="environment-start">Launch host + client</button><button id="environment-stop" class="quiet">Stop managed processes</button></div>
@@ -39,6 +40,7 @@ for (const name of environmentFields) {
   input.addEventListener("input", scheduleEnvironmentConfigurationSave);
 }
 $("environment-minimize-windows").addEventListener("change", scheduleEnvironmentConfigurationSave);
+$("environment-disable-window-input").addEventListener("change", scheduleEnvironmentConfigurationSave);
 
 function environmentRequest() { return {
   executablePath: $("environment-exe").value.trim(), workingDirectory: $("environment-working").value.trim(),
@@ -47,6 +49,7 @@ function environmentRequest() { return {
   port: Number($("environment-port").value), password: $("environment-password").value,
   serverName: $("environment-server-name").value.trim() || "DVMP automated test", maxPlayers: 2,
   minimizeManagedWindows: $("environment-minimize-windows").checked,
+  disableManagedWindowInput: $("environment-disable-window-input").checked,
   agentTimeoutSeconds: 120, worldTimeoutSeconds: 300
 }; }
 
@@ -61,7 +64,8 @@ function applyEnvironmentConfiguration(value) {
   $("environment-port").value = value.port || 7777;
   $("environment-password").value = value.password || "";
   $("environment-server-name").value = value.serverName || "DVMP automated test";
-  $("environment-minimize-windows").checked = value.minimizeManagedWindows !== false;
+  $("environment-minimize-windows").checked = value.minimizeManagedWindows === true;
+  $("environment-disable-window-input").checked = value.disableManagedWindowInput !== false;
 }
 async function saveEnvironmentConfiguration() {
   await waitForEnvironmentSession();

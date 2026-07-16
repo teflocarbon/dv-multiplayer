@@ -537,3 +537,13 @@ The supplied code now covers the ordinary inventory, Get/recall, storage, contai
 
 1. The concrete inventory presentation methods (`AssignInventoryLayer`, `AssignWorldItemLayer`, `ForceEndInteraction`, and `GetPlayerTransform`) if host-side world/in-hand presentation still diverges.
 2. The provider implementing `IsEssentialItemsGetterAllowed`, if multiplayer needs to reproduce the exact circumstances under which the Get button is disabled.
+
+## Multiplayer cold-container implementation note
+
+Multiplayer-owned container contents no longer need to mirror Derail Valley's recursively live
+`Storage_ItemContainers` objects. The physical container remains an ordinary item shell, while its
+direct children are stored by the host as bounded detached records. The integration deliberately
+continues to ask the running game's `AItemContainer.ValidItem`/prefab components for compatibility,
+so the folder/registrator/briefcase/toolbox/crate policy follows game updates without a duplicated
+hard-coded table. Both desktop and VR use the shared `ItemContainerProvider`, which is now the
+single presentation seam for bounded cold views.

@@ -53,6 +53,9 @@ public static class Multiplayer
     }
 
     public static string LocalBuildInfo => BuildInfo.BUILD_VERSION_MAJOR.ToString() + " - " + BuildInfo.BUILDBOT_INFO;
+    public static string BuildNumber => typeof(Multiplayer).Assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .FirstOrDefault(attribute => attribute.Key == "DVMPBuildNumber")?.Value ?? "unknown";
     public static string ProcessSessionId => processSessionId;
     public static string LogFilePath => logFilePath;
     public static DateTime SessionStartedUtc => sessionStartedUtc;

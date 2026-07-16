@@ -9,6 +9,7 @@ using DV.Scenarios.Common;
 using DV.ServicePenalty;
 using DV.ThingTypes;
 using DV.WeatherSystem;
+using DV.Utils;
 using Humanizer;
 using LiteNetLib;
 using LiteNetLib.Utils;
@@ -19,6 +20,8 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Components.Networking.World.Containers;
+using Multiplayer.Core.Containers;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
@@ -274,6 +277,8 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundContainerBrowsePacket, ITransportPeer>(OnServerboundContainerBrowsePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundContainerMutationPacket, ITransportPeer>(OnServerboundContainerMutationPacket);
     }
 
     //allow mods to register their own packets
@@ -2654,6 +2659,119 @@ public class NetworkServer : NetworkManager
         Log($"[LostAndFound Recall] Retrieval result sent: player=P{player.PlayerId}, " +
             $"request={packet.RequestId}, handle={packet.LostHandle}, accepted={accepted}, " +
             $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
+    }
+
+    private void OnServerboundContainerBrowsePacket(ServerboundContainerBrowsePacket packet,
+        ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        ColdContainerView view;
+        ContainerOperationResult result = packet.ShellNetId != 0
+            ? NetworkedColdContainerManager.Browse(player, packet.ShellNetId, packet.Offset,
+                packet.Count, out view)
+            : NetworkedColdContainerManager.Browse(player, packet.ContainerHandle, packet.Offset,
+                packet.Count, out view);
+        SendPacket(peer, ProjectContainerView(packet.RequestId, result, view),
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundContainerMutationPacket(ServerboundContainerMutationPacket packet,
+        ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        Guid operationId = packet.OperationId?.Length == 16
+            ? new Guid(packet.OperationId) : Guid.Empty;
+        ContainerOperationResult result;
+        ushort materializedNetId = 0;
+        if (operationId == Guid.Empty)
+        {
+            result = new ContainerOperationResult
+            {
+                Kind = (ContainerOperationKind)packet.Kind,
+                Status = ContainerOperationStatus.InvalidRecord,
+                Reason = "operation-id-invalid"
+            };
+        }
+        else
+        {
+            switch ((ContainerOperationKind)packet.Kind)
+            {
+                case ContainerOperationKind.Deposit:
+                    result = NetworkedColdContainerManager.Deposit(player, operationId,
+                        packet.ShellNetId, packet.DestinationContainerHandle,
+                        packet.ExpectedDestinationRevision,
+                        packet.DestinationSlot, packet.ItemNetId);
+                    break;
+                case ContainerOperationKind.Withdraw:
+                    CoroutineManager.Instance.StartCoroutine(
+                        NetworkedColdContainerManager.Withdraw(player, operationId,
+                        packet.SourceContainerHandle, packet.ExpectedSourceRevision,
+                        packet.SourceSlot, packet.DestinationSlot,
+                        (withdrawalResult, withdrawnNetId) =>
+                            SendContainerMutationResult(peer, packet, operationId,
+                                withdrawalResult, withdrawnNetId)));
+                    return;
+                case ContainerOperationKind.Move:
+                    result = NetworkedColdContainerManager.Move(player, operationId,
+                        packet.SourceContainerHandle, packet.ExpectedSourceRevision,
+                        packet.SourceSlot, packet.DestinationContainerHandle,
+                        packet.ExpectedDestinationRevision, packet.DestinationSlot);
+                    break;
+                default:
+                    result = new ContainerOperationResult
+                    {
+                        OperationId = operationId,
+                        Kind = (ContainerOperationKind)packet.Kind,
+                        Status = ContainerOperationStatus.InvalidRecord,
+                        Reason = "container-mutation-kind-invalid"
+                    };
+                    break;
+            }
+        }
+        SendContainerMutationResult(peer, packet, operationId, result, materializedNetId);
+    }
+
+    private void SendContainerMutationResult(ITransportPeer peer,
+        ServerboundContainerMutationPacket packet, Guid operationId,
+        ContainerOperationResult result, ushort materializedNetId)
+    {
+        SendPacket(peer, new ClientboundContainerMutationResultPacket
+        {
+            RequestId = packet.RequestId,
+            OperationId = operationId.ToByteArray(),
+            Kind = (byte)result.Kind,
+            Accepted = result.Accepted,
+            Status = (byte)result.Status,
+            RejectionReason = result.Reason ?? string.Empty,
+            SourceRevision = result.SourceRevision,
+            DestinationRevision = result.DestinationRevision,
+            MaterializedItemNetId = materializedNetId
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private static ClientboundContainerViewPacket ProjectContainerView(uint requestId,
+        ContainerOperationResult result, ColdContainerView view)
+    {
+        ColdContainerSlotView[] slots = view?.Slots?.ToArray() ?? Array.Empty<ColdContainerSlotView>();
+        return new ClientboundContainerViewPacket
+        {
+            RequestId = requestId,
+            Accepted = result.Accepted,
+            RejectionReason = result.Reason ?? string.Empty,
+            ContainerHandle = view?.ContainerHandle ?? 0,
+            Revision = view?.Revision ?? 0,
+            Capacity = view?.Capacity ?? 0,
+            Offset = view?.Offset ?? 0,
+            HasMore = view?.HasMore ?? false,
+            Slots = slots.Select(slot => slot.Slot).ToArray(),
+            ItemHandles = slots.Select(slot => slot.ItemHandle).ToArray(),
+            PrefabNames = slots.Select(slot => slot.PrefabName ?? string.Empty).ToArray(),
+            DisplayNames = slots.Select(slot => slot.DisplayName ?? string.Empty).ToArray(),
+            ForeignOwned = slots.Select(slot => slot.ForeignOwned).ToArray(),
+            ChildContainerHandles = slots.Select(slot => slot.ChildContainerHandle).ToArray(),
+            ChildItemCounts = slots.Select(slot => slot.ChildItemCount).ToArray(),
+            StateVersions = slots.Select(slot => slot.StateVersion).ToArray()
+        };
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet, ITransportPeer peer)

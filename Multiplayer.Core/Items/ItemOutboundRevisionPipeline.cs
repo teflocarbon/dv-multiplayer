@@ -36,4 +36,14 @@ public sealed class ItemOutboundRevisionPipeline
         if (nextRevision < canonicalRevision)
             nextRevision = canonicalRevision;
     }
+
+    /// <summary>
+    /// Starts a new network identity lifetime. Pooled Unity representations must not carry
+    /// speculative or acknowledged revisions from the item that previously occupied them.
+    /// </summary>
+    public void Reset()
+    {
+        nextRevision = 0;
+        initialized = false;
+    }
 }

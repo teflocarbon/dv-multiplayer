@@ -17,6 +17,9 @@ using Multiplayer.Core.Replication;
 using DV.Booklets;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Networking.Data.Jobs;
+using Multiplayer.Components.Networking.World.Containers;
+using Multiplayer.Integrations.Inventory;
+using Multiplayer.Integrations.Storage;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -182,6 +185,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         if (NetworkLifecycle.Instance.IsHost())
             NetworkLifecycle.Instance.OnTick -= Common_OnTick;
         NetworkedLostAndFoundManager.Clear();
+        NetworkedColdContainerManager.Clear();
     }
 
     public void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)
@@ -218,6 +222,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         if (NetworkLifecycle.Instance.IsHost())
         {
             NetworkedLostAndFoundManager.HostTick(tick);
+            NetworkedColdContainerManager.HostTick(tick);
             UpdatePlayerItemLists();
             ProcessChanged(tick);
         }
@@ -558,6 +563,8 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                 data: new Dictionary<string, object>(destroyData, StringComparer.Ordinal));
             bool lostAndFoundProjection =
                 snapshot.TransitionReason == ItemTransitionReason.LostAndFoundCollection;
+            bool coldContainerProjection =
+                snapshot.TransitionReason == ItemTransitionReason.ContainerDeposit;
             if (lostAndFoundProjection)
             {
                 ClientLostAndFoundTombstones.Add(snapshot.ItemNetId);
@@ -567,7 +574,17 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                     representation.ApplyClientLostAndFoundProjection(snapshot);
             }
             else
+            {
+                if (netItem != null)
+                {
+                    if (coldContainerProjection)
+                        netItem.BeginColdStorageRetirement();
+                    StorageIntegration.MoveTo(netItem.Item, StorageMembership.None);
+                    InventoryIntegration.RevokeMembership(netItem.gameObject, netItem.NetId);
+                    InventoryIntegration.PurgeContainerMembership(netItem.gameObject);
+                }
                 SendToCache(netItem);
+            }
             destroyData["destroyApplied"] = true;
             destroyData["applyResult"] = netItem == null ? "already-absent" :
                 lostAndFoundProjection ? "lost-and-found-projection" : "cached";
@@ -638,6 +655,18 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             //Make sure we have a NetworkedItem
             newItem = gameObject.GetOrAddComponent<NetworkedItem>();
             TraceItem("item.instantiated", newItem, new() { ["prefabName"] = snapshot.PrefabName });
+        }
+
+        if (reusedFromCache)
+        {
+            ushort previousNetId = newItem.NetId;
+            newItem.ResetClientNetworkLifetime();
+            TraceItem("item.cache-lifetime-reset", newItem, new()
+            {
+                ["previousNetId"] = previousNetId,
+                ["nextNetId"] = snapshot.ItemNetId,
+                ["prefabName"] = snapshot.PrefabName
+            });
         }
 
         newItem.NetId = snapshot.ItemNetId;
@@ -1040,8 +1069,10 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
     private void SendToCache(NetworkedItem netItem)
     {
-        if (netItem == null || CachedItemSet.Contains(netItem))
+        if (netItem == null)
             return;
+
+        bool alreadyCached = CachedItemSet.Contains(netItem);
 
         string prefabName = netItem?.Item?.InventorySpecs?.itemPrefabName;
         if (string.IsNullOrEmpty(prefabName))
@@ -1053,11 +1084,15 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                 netItem.NetId = 0;
             return;
         }
-        TraceItem("item.cache-enter", netItem, new() { ["prefabName"] = prefabName ?? string.Empty });
+        TraceItem(alreadyCached ? "item.cache-reentry" : "item.cache-enter", netItem,
+            new() { ["prefabName"] = prefabName ?? string.Empty });
 
         //NetworkLifecycle.Instance.Client.LogDebug(() => $"Caching Spawned Item: {prefabName ?? ""}");
 
         netItem.SetClientNetworkBinding(false);
+        StorageIntegration.MoveTo(netItem.Item, StorageMembership.None);
+        InventoryIntegration.RevokeMembership(netItem.gameObject, netItem.NetId);
+        InventoryIntegration.PurgeContainerMembership(netItem.gameObject);
         netItem.gameObject.SetActive(false);
         RespawnOnDrop respawn = netItem.Item.GetComponent<RespawnOnDrop>();
 
@@ -1091,9 +1126,33 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         {
             CachedItems[prefabName] = new List<NetworkedItem>();
         }
-        CachedItems[prefabName].Add(netItem);
+        if (!CachedItems[prefabName].Contains(netItem))
+            CachedItems[prefabName].Add(netItem);
         CachedItemSet.Add(netItem);
     }
+
+#if DEBUG
+    internal void PurgeClientFixtureRepresentation(NetworkedItem netItem)
+    {
+        if (netItem == null || NetworkLifecycle.Instance.IsHost())
+            return;
+        ushort netId = netItem.NetId;
+        bool isCanonical = netId != 0 && NetworkedItem.TryGet(netId,
+            out NetworkedItem canonical) && canonical == netItem;
+        foreach (List<NetworkedItem> cached in CachedItems.Values)
+            cached.RemoveAll(candidate => candidate == null || candidate == netItem);
+        CachedItemSet.Remove(netItem);
+        netItem.BeginColdStorageRetirement();
+        StorageIntegration.MoveTo(netItem.Item, StorageMembership.None);
+        InventoryIntegration.RevokeMembership(netItem.gameObject,
+            isCanonical ? netId : (ushort)0);
+        InventoryIntegration.PurgeContainerMembership(netItem.gameObject);
+        netItem.SetClientNetworkBinding(false);
+        netItem.gameObject.SetActive(false);
+        netItem.NetId = 0;
+        Destroy(netItem.gameObject);
+    }
+#endif
 
     private static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
     {

@@ -48,4 +48,17 @@ public sealed class ItemOutboundRevisionPipelineTests
         Assert.That(pipeline.Reserve(uint.MaxValue), Is.EqualTo(uint.MaxValue));
         Assert.That(pipeline.Reserve(uint.MaxValue), Is.EqualTo(uint.MaxValue));
     }
+
+    [Test]
+    public void Reset_StartsFreshNetworkLifetime()
+    {
+        ItemOutboundRevisionPipeline pipeline = new();
+        Assert.That(pipeline.Reserve(12), Is.EqualTo(12));
+        Assert.That(pipeline.Reserve(12), Is.EqualTo(13));
+
+        pipeline.Reset();
+
+        Assert.That(pipeline.Reserve(1), Is.EqualTo(1));
+        Assert.That(pipeline.Reserve(1), Is.EqualTo(2));
+    }
 }

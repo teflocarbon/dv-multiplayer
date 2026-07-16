@@ -110,7 +110,9 @@ internal static class Program
                     SessionId = sessionId, ProcessId = pid,
                     ProcessStartedUtc = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
                     StartedUtc = now, HeartbeatUtc = now, Role = "standalone", PlayerName = profile.Username,
-                    ApiToken = Guid.NewGuid().ToString("N"), GameBuild = profile.BuildVersion,
+                    ApiToken = Guid.NewGuid().ToString("N"),
+                    BuildNumber = global::Multiplayer.Multiplayer.BuildNumber,
+                    GameBuild = profile.BuildVersion,
                     LogPath = Path.Combine(debugRoot, $"dvmp-debug-{sessionId}.jsonl")
                 };
                 traceFile = new AsyncJsonlSink(traceStore, debugSession.LogPath);
