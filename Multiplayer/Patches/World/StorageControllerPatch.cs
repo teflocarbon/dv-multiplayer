@@ -3,6 +3,7 @@ using DV.ThingTypes;
 using HarmonyLib;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Integrations.Inventory;
 
 namespace Multiplayer.Patches.World;
 
@@ -22,6 +23,13 @@ internal static class MultiplayerStoragePatchGuard
             return authority.PersistentOwnerPlayerId != 0;
         return networked.PersistentOwnerPlayerId != 0;
     }
+}
+
+[HarmonyPatch(typeof(StorageController), "OnInventoryStatusChanged")]
+internal static class StorageControllerInventoryStatusPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix() => !InventoryIntegration.AuthoritativeRemovalActive;
 }
 
 [HarmonyPatch(typeof(StorageController), nameof(StorageController.AddItemToLostAndFound))]

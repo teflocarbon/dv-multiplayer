@@ -16,18 +16,23 @@ internal static class RuntimeTestCatalog
         new() { TestId = "player.teleport", DisplayName = "Native player teleport", Category = "Arrangement", Fidelity = "GameplayMethod", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "player-teleport" }, TimeoutMilliseconds = 15000 },
         new() { TestId = "item.pickup", DisplayName = "Raycast world pickup", Category = "Items", Fidelity = "GameplayMethod", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "non-vr-item-interaction" }, TimeoutMilliseconds = 10000 },
         new() { TestId = "item.drop", DisplayName = "Held-item drop", Category = "Items", Fidelity = "GameplayMethod", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "non-vr-item-interaction" }, TimeoutMilliseconds = 10000 },
-        new() { TestId = "item.throw", DisplayName = "Held-item throw", Category = "Items", Fidelity = "GameplayMethod", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "non-vr-item-interaction" }, TimeoutMilliseconds = 10000 }
+        new() { TestId = "item.throw", DisplayName = "Held-item throw", Category = "Items", Fidelity = "GameplayMethod", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "non-vr-item-interaction" }, TimeoutMilliseconds = 10000 },
+        new() { TestId = "inventory.inspect", DisplayName = "Inspect local inventory", Category = "Inventory", Fidelity = "ReadOnly", MutationKind = RuntimeTestMutationKind.ReadOnly, RequiredCapabilities = new[] { "inventory-runtime-arrangement" }, TimeoutMilliseconds = 5000 },
+        new() { TestId = "inventory.prefab-catalog", DisplayName = "List item prefabs", Category = "Inventory", Fidelity = "ReadOnly", MutationKind = RuntimeTestMutationKind.ReadOnly, RequiredCapabilities = new[] { "inventory-runtime-arrangement" }, TimeoutMilliseconds = 5000 },
+        new() { TestId = "inventory.fixture-create", DisplayName = "Create authoritative inventory fixture", Category = "Inventory", Fidelity = "DirectState+ServerAuthority", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "host-inventory-fixtures" }, TimeoutMilliseconds = 15000 },
+        new() { TestId = "inventory.fixture-place", DisplayName = "Place authoritative inventory fixture", Category = "Inventory", Fidelity = "DirectState+ServerAuthority", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "host-inventory-fixtures" }, TimeoutMilliseconds = 10000 },
+        new() { TestId = "inventory.fixture-destroy", DisplayName = "Retire authoritative inventory fixture", Category = "Inventory", Fidelity = "DirectState+ServerAuthority", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "host-inventory-fixtures" }, TimeoutMilliseconds = 10000 },
+        new() { TestId = "inventory.fixture-clean-local", DisplayName = "Purge local runtime fixture representations", Category = "Inventory", Fidelity = "DirectState+FixtureIdentity", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "inventory-runtime" }, TimeoutMilliseconds = 10000 },
+        new() { TestId = "inventory.local-place", DisplayName = "Arrange item through local DV inventory", Category = "Inventory", Fidelity = "GameplayMethod", MutationKind = RuntimeTestMutationKind.IsolatedMutation, RequiredCapabilities = new[] { "inventory-runtime-arrangement" }, TimeoutMilliseconds = 10000 }
     };
 
-    public static string[] Commands => descriptors.Select(item => item.TestId).ToArray();
-    public static RuntimeTestDescriptorDto[] Descriptors => descriptors.Select(Clone).ToArray();
-    public static RuntimeTestDescriptorDto Find(string id) => descriptors.FirstOrDefault(item => string.Equals(item.TestId, id, StringComparison.Ordinal));
+    private static RuntimeTestDescriptorDto[] AllDescriptors => descriptors
+        .Concat(RuntimeTestScenarioRegistry.Descriptors).ToArray();
 
-    private static RuntimeTestDescriptorDto Clone(RuntimeTestDescriptorDto value) => new()
-    {
-        TestId = value.TestId, DisplayName = value.DisplayName, Category = value.Category,
-        Fidelity = value.Fidelity, MutationKind = value.MutationKind,
-        RequiredCapabilities = value.RequiredCapabilities.ToArray(), TimeoutMilliseconds = value.TimeoutMilliseconds
-    };
+    public static string[] Commands => AllDescriptors.Select(item => item.TestId).ToArray();
+    public static RuntimeTestDescriptorDto[] Descriptors => AllDescriptors
+        .Select(RuntimeTestDescriptorCloner.Clone).ToArray();
+    public static RuntimeTestDescriptorDto Find(string id) => AllDescriptors.FirstOrDefault(item =>
+        string.Equals(item.TestId, id, StringComparison.Ordinal));
 }
 #endif

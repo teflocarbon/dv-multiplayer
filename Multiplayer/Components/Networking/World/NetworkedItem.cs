@@ -127,6 +127,9 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private uint recallPreparationOperationId;
     private bool hostStateObservationPending;
     private bool clientBindingGateApplied;
+    private bool placementSnapshotPending;
+    private bool coldStorageRetirement;
+    private bool coldMaterializationPending;
     private bool interactionAllowedBeforeBindingGate;
     private readonly ItemOutboundRevisionPipeline outboundRevisionPipeline = new();
     internal ClientItemUnboundState UnboundState { get; private set; }
@@ -183,6 +186,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     protected void LateUpdate()
     {
+        if (coldMaterializationPending)
+            return;
         if (!NetworkLifecycle.Instance.IsHost() &&
             NetworkedItemManager.Instance?.IsClientLostAndFoundTombstoned(NetId) == true)
         {
@@ -212,7 +217,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         EntityDebugRegistry.Unregister("Item", NetId.ToString());
         DebugDesyncDetector.Forget(NetId);
 
-        if (!suppressNetworkDestroy && NetworkLifecycle.Instance.IsHost())
+        if (!suppressNetworkDestroy && NetworkLifecycle.Instance.IsHost() &&
+            !coldStorageRetirement && !coldMaterializationPending)
         {
             var updateData = CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
             if (updateData != null)
@@ -581,6 +587,52 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
     }
 
+    /// <summary>
+    /// Clears authority and transition state that belongs to the previous NetId represented by
+    /// this pooled Unity object. Tracked-value registration intentionally survives pooling; the
+    /// authoritative Create snapshot will replace the values for the new lifetime.
+    /// </summary>
+    internal void ResetClientNetworkLifetime()
+    {
+        if (NetworkLifecycle.Instance.IsHost())
+            return;
+
+        // A cached representation has no live network identity. Be defensive here because a
+        // partially completed cache entry may otherwise leave the old dictionary key pointing at
+        // the object and make the next lifetime appear to exist under two NetIds.
+        NetId = 0;
+        pendingSnapshots.Clear();
+        outboundRevisionPipeline.Reset();
+        AuthorityRevision = 0;
+        PersistentOwnerPlayerId = 0;
+        InventoryClaimPlayerId = 0;
+        InventoryClaimSlot = -1;
+        InventoryClaimFlags = ItemInventoryClaimFlags.None;
+        LastTransitionReason = ItemTransitionReason.Unknown;
+        playerBelongsToId = 0;
+        playerBelongsTo = null;
+        UnboundState = ClientItemUnboundState.None;
+        recallPreparationPending = false;
+        recallPreparationOperationId = 0;
+        hostStateObservationPending = false;
+        placementSnapshotPending = false;
+        coldStorageRetirement = false;
+        coldMaterializationPending = false;
+        applyingRemoteSnapshot = false;
+        stateDirty = false;
+        wasThrown = false;
+        wasRemoved = false;
+        hasLastSentState = false;
+        lastSentProjection = default;
+        thrownPosition = default;
+        thrownRotation = default;
+        throwDirection = default;
+        LastDirtyTick = 0;
+        if (Item?.InventorySpecs != null)
+            Item.InventorySpecs.BelongsToPlayer = false;
+        MarkValuesClean();
+    }
+
     internal void AllowUnboundLocalInteraction()
     {
         UnboundState = ClientItemUnboundState.None;
@@ -638,7 +690,8 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         // ForceEndInteraction, inventory purges and GrabHandlerItem.Throw raise the same base-game
         // callbacks as a local interaction. While projecting an authoritative snapshot those
         // callbacks are side effects, not new player intent, and must not enqueue an echo packet.
-        if (applyingRemoteSnapshot || recallPreparationPending)
+        if (applyingRemoteSnapshot || recallPreparationPending || coldStorageRetirement ||
+            coldMaterializationPending || placementSnapshotPending)
             return;
         stateDirty = true;
         if (!NetworkLifecycle.Instance.IsHost())
@@ -647,8 +700,17 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     internal void ProcessLocalStateObservation(string reason)
     {
+        if (coldStorageRetirement || coldMaterializationPending)
+            return;
         if (Item == null && !Register())
             return;
+        if (placementSnapshotPending)
+        {
+            stateDirty = false;
+            PublishLocalState("item.snapshot-suppressed", GetItemState(), lastState, reason,
+                "authoritative-placement-pending");
+            return;
+        }
         ItemState previousObservedState = lastState;
         ItemState currentState = GetItemState();
         if (recallPreparationPending)
@@ -796,6 +858,7 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         registrationComplete = true;
         int queuedCount = pendingSnapshots.Count;
 
+        bool releasePlacementGate = placementSnapshotPending;
         while (pendingSnapshots.TryDequeue(out ItemUpdateData pending))
         {
             Multiplayer.LogDebug(() => $"NetworkedItem.FinaliseTrackedValues() itemNetId: {NetId}, item name: {name}. Dequeuing");
@@ -816,6 +879,9 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             }
             DebugDiagnostics.QueueApplied("ItemPendingSnapshot", NetId.ToString(), pendingSnapshots.Count, NetworkLifecycle.Instance.Tick);
         }
+        placementSnapshotPending = false;
+        if (releasePlacementGate && !NetworkLifecycle.Instance.IsHost())
+            SetClientNetworkBinding(true);
 
         DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "tracked-values-not-finalised");
         DebugRuntime.Publish("item", "item.tracked-values-finalized", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
@@ -871,6 +937,13 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     public ItemUpdateData GetSnapshot(bool reserveClientRevision = false)
     {
+        if (coldStorageRetirement || coldMaterializationPending)
+        {
+            hostStateObservationPending = false;
+            stateDirty = false;
+            MarkValuesClean();
+            return null;
+        }
         ItemUpdateData snapshot;
         ItemUpdateData.ItemUpdateType updateType = ItemUpdateData.ItemUpdateType.None;
 
@@ -962,6 +1035,43 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         return snapshot;
     }
 
+    internal void BeginColdStorageRetirement()
+    {
+        coldStorageRetirement = true;
+        hostStateObservationPending = false;
+        stateDirty = false;
+        wasThrown = false;
+        wasRemoved = false;
+        MarkValuesClean();
+    }
+
+    internal void BeginColdMaterialization()
+    {
+        coldMaterializationPending = true;
+        hostStateObservationPending = false;
+        stateDirty = false;
+        wasThrown = false;
+        wasRemoved = false;
+        MarkValuesClean();
+    }
+
+    internal void CompleteColdMaterialization()
+    {
+        coldMaterializationPending = false;
+        coldStorageRetirement = false;
+        hostStateObservationPending = false;
+        stateDirty = false;
+        wasThrown = false;
+        wasRemoved = false;
+        MarkValuesClean();
+    }
+
+    internal void AbortColdMaterialization()
+    {
+        coldMaterializationPending = false;
+        BeginColdStorageRetirement();
+    }
+
     public void ReceiveSnapshot(ItemUpdateData snapshot)
     {
         if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
@@ -1011,6 +1121,9 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                 lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
                     ProjectionFromSnapshot(snapshot));
                 hasLastSentState = true;
+                placementSnapshotPending = true;
+                if (!NetworkLifecycle.Instance.IsHost())
+                    SetClientNetworkBinding(false);
             }
             Multiplayer.Log($"NetworkedItem.ReceiveSnapshot() netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}. Queuing");
             PendingEnqueueResult enqueue = pendingSnapshots.Enqueue(snapshot);
@@ -2038,7 +2151,16 @@ public class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             playerBelongsToId = localPlayerId;
 
             if (plan.Action == RemoteItemProjectionAction.LocalInventory)
-                RestoreLocalInventoryClaim(snapshot);
+            {
+                // Retrieval claims reserve an exact silhouette slot. Ordinary inventory
+                // possession has no claim metadata, so it must use DV's normal free-slot
+                // insertion path instead of trying to restore slot -1.
+                if (snapshot.InventoryClaimSlot >= 0)
+                    RestoreLocalInventoryClaim(snapshot);
+                else if (InventoryIntegration.AddActive(gameObject) < 0)
+                    PublishClaimInvariant("local-inventory-placement-failed", -1,
+                        ItemState.InInventory);
+            }
             else if (plan.Activate)
                 gameObject.SetActive(true);
 

@@ -33,24 +33,29 @@ internal static class InventoryOwnershipUiPatch
         NetworkedItem item = spec != null
             ? spec.GetComponent<NetworkedItem>() ?? spec.GetComponentInParent<NetworkedItem>()
             : null;
+        ColdContainerItemProxy coldProxy = data?.Spec as ColdContainerItemProxy;
         InventoryItemPresentation presentation = InventoryIntegration.Project(item,
             item != null && NetworkedLostAndFoundManager.Contains(item.NetId));
         ForeignItemInventoryMarker marker = __instance.itemImage.gameObject.GetComponent<ForeignItemInventoryMarker>() ??
             __instance.itemImage.gameObject.AddComponent<ForeignItemInventoryMarker>();
-        bool foreign = presentation.ShowForeignStyle;
+        bool foreign = coldProxy?.ForeignOwned == true || presentation.ShowForeignStyle;
         marker.SetForeign(foreign);
         if (!foreign)
             return;
 
         __instance.getButton?.gameObject.SetActive(false);
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
-        string key = $"{item.NetId}:{item.PersistentOwnerPlayerId}:{localPlayerId}";
+        string key = coldProxy != null
+            ? $"cold:{coldProxy.ContainerHandle}:{coldProxy.ItemHandle}:{localPlayerId}"
+            : $"{item.NetId}:{item.PersistentOwnerPlayerId}:{localPlayerId}";
         if (markedEvents.Add(key))
             DebugRuntime.Publish("item", "item.foreign-item-ui-marked", DebugRuntimeSide.Client,
-                entityType: "Item", entityId: item.NetId.ToString(), data: new()
+                entityType: coldProxy != null ? "Container" : "Item",
+                entityId: coldProxy != null ? coldProxy.ContainerHandle.ToString() : item.NetId.ToString(), data: new()
                 {
                     ["localPlayerId"] = localPlayerId,
-                    ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+                    ["persistentOwnerPlayerId"] = item?.PersistentOwnerPlayerId ?? 0,
+                    ["coldItemHandle"] = coldProxy?.ItemHandle ?? 0,
                     ["color"] = "red"
                 });
     }

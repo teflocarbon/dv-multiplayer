@@ -3,10 +3,13 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +18,15 @@ namespace Multiplayer.Debugging.Protocol;
 
 public sealed class DebugHttpServer : IDisposable
 {
+    private const uint HandleFlagInherit = 0x00000001;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetHandleInformation(IntPtr handle,
+        uint mask, uint flags);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetHandleInformation(IntPtr handle,
+        out uint flags);
+
     private readonly DebugEventStore store;
     private readonly Func<DebugSessionInfo> session;
     private readonly Func<IEnumerable<DebugEntityDto>> entities;
@@ -23,6 +35,7 @@ public sealed class DebugHttpServer : IDisposable
     private readonly Func<IEnumerable<DebugSessionInfo>> sessions;
     private readonly Func<IEnumerable<ReplicationOperationSummaryDto>> replicationOperations;
     private readonly Func<string, ReplicationOperationDto> replicationOperation;
+    private readonly Func<DebugEventQueryDto, IEnumerable<DebugEvent>> historicalEvents;
     private readonly int requestedPort;
     private readonly Action<DebugRuntimeSettingsDto> updateSettings;
     private readonly Action<string> mark;
@@ -30,6 +43,7 @@ public sealed class DebugHttpServer : IDisposable
     private readonly Func<string> stopCapture;
 #if DEBUG
     private Func<RuntimeTestCapabilitiesDto> runtimeTestCapabilities;
+    private Func<IEnumerable<RuntimeTestRunSummaryDto>> runtimeTestRuns;
     private Func<RuntimeTestCommandDto, RuntimeTestCommandAcceptedDto> enqueueRuntimeTest;
     private Func<string, RuntimeTestRunDto> runtimeTestRun;
     private Func<string, bool> cancelRuntimeTest;
@@ -41,6 +55,7 @@ public sealed class DebugHttpServer : IDisposable
     private Action shutdownDashboard;
 #endif
     private readonly ConcurrentDictionary<Guid, BlockingCollection<DebugEvent>> subscribers = new();
+    private readonly ConcurrentDictionary<Guid, TcpClient> clients = new();
     private CancellationTokenSource cancellation;
     private TcpListener listener;
 
@@ -53,7 +68,9 @@ public sealed class DebugHttpServer : IDisposable
         Action<string> mark = null, Func<string, string, string> startCapture = null,
         Func<string> stopCapture = null, Func<IEnumerable<DebugSessionInfo>> sessions = null,
         Func<IEnumerable<ReplicationOperationSummaryDto>> replicationOperations = null,
-        Func<string, ReplicationOperationDto> replicationOperation = null, int requestedPort = 0)
+        Func<string, ReplicationOperationDto> replicationOperation = null,
+        Func<DebugEventQueryDto, IEnumerable<DebugEvent>> historicalEvents = null,
+        int requestedPort = 0)
     {
         this.store = store;
         this.session = session;
@@ -63,6 +80,7 @@ public sealed class DebugHttpServer : IDisposable
         this.sessions = sessions ?? (() => new[] { session() });
         this.replicationOperations = replicationOperations ?? (() => Array.Empty<ReplicationOperationSummaryDto>());
         this.replicationOperation = replicationOperation ?? (_ => null);
+        this.historicalEvents = historicalEvents ?? (_ => Array.Empty<DebugEvent>());
         this.requestedPort = requestedPort;
         this.updateSettings = updateSettings ?? (_ => { });
         this.mark = mark ?? (_ => { });
@@ -72,10 +90,12 @@ public sealed class DebugHttpServer : IDisposable
 
 #if DEBUG
     public void ConfigureRuntimeTests(Func<RuntimeTestCapabilitiesDto> capabilities,
+        Func<IEnumerable<RuntimeTestRunSummaryDto>> listRuns,
         Func<RuntimeTestCommandDto, RuntimeTestCommandAcceptedDto> enqueue,
         Func<string, RuntimeTestRunDto> getRun, Func<string, bool> cancel)
     {
         runtimeTestCapabilities = capabilities;
+        runtimeTestRuns = listRuns;
         enqueueRuntimeTest = enqueue;
         runtimeTestRun = getRun;
         cancelRuntimeTest = cancel;
@@ -102,6 +122,26 @@ public sealed class DebugHttpServer : IDisposable
         if (listener != null) return;
         TcpListener candidate = new(IPAddress.Loopback, requestedPort);
         candidate.Start();
+        if (!SetHandleInformation(candidate.Server.Handle, HandleFlagInherit, 0))
+        {
+            int error = Marshal.GetLastWin32Error();
+            candidate.Stop();
+            throw new Win32Exception(error,
+                "Could not mark the dashboard listener socket as non-inheritable.");
+        }
+        if (!GetHandleInformation(candidate.Server.Handle, out uint handleFlags))
+        {
+            int error = Marshal.GetLastWin32Error();
+            candidate.Stop();
+            throw new Win32Exception(error,
+                "Could not verify dashboard listener socket inheritance flags.");
+        }
+        if ((handleFlags & HandleFlagInherit) != 0)
+        {
+            candidate.Stop();
+            throw new InvalidOperationException(
+                "Dashboard listener socket is still inheritable after initialization.");
+        }
         listener = candidate;
         Port = ((IPEndPoint)candidate.LocalEndpoint).Port;
         cancellation = new CancellationTokenSource();
@@ -116,7 +156,13 @@ public sealed class DebugHttpServer : IDisposable
             try
             {
                 TcpClient client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
-                _ = Task.Run(() => HandleClient(client));
+                Guid clientId = Guid.NewGuid();
+                clients[clientId] = client;
+                _ = Task.Run(() =>
+                {
+                    try { HandleClient(client); }
+                    finally { clients.TryRemove(clientId, out _); }
+                });
             }
             catch (ObjectDisposedException) when (cancellation.IsCancellationRequested) { }
             catch (SocketException) when (cancellation.IsCancellationRequested) { }
@@ -182,6 +228,11 @@ public sealed class DebugHttpServer : IDisposable
             DebugSessionInfo current = session();
             WriteJson(stream, 200, new DashboardAutomationInfoDto
             {
+                BuildNumber = !string.IsNullOrWhiteSpace(current?.BuildNumber)
+                    ? current.BuildNumber
+                    : Assembly.GetEntryAssembly()?.GetCustomAttribute<
+                        AssemblyInformationalVersionAttribute>()?.InformationalVersion ??
+                      "development",
                 ProcessId = current?.ProcessId ?? 0,
                 SessionId = current?.SessionId ?? string.Empty,
                 RuntimeTestsAvailable = runtimeTestCapabilities != null,
@@ -194,7 +245,12 @@ public sealed class DebugHttpServer : IDisposable
         {
             if (!Authorized(request, stream)) return;
             DebugEventQueryDto query = ReadJson<DebugEventQueryDto>(request) ?? new DebugEventQueryDto();
-            IEnumerable<DebugEvent> matches = store.Snapshot();
+            IEnumerable<DebugEvent> matches = store.Snapshot()
+                .Concat(historicalEvents(query) ?? Array.Empty<DebugEvent>())
+                .GroupBy(item => !string.IsNullOrWhiteSpace(item.EventKey)
+                    ? item.EventKey
+                    : $"{item.SessionId}:{item.SourceSequence}", StringComparer.Ordinal)
+                .Select(group => group.First());
             if (query.SinceUtc.HasValue) matches = matches.Where(item => item.TimestampUtc >= query.SinceUtc.Value);
             if (!string.IsNullOrWhiteSpace(query.SessionId)) matches = matches.Where(item => string.Equals(item.SessionId, query.SessionId, StringComparison.Ordinal));
             if (!string.IsNullOrWhiteSpace(query.Category)) matches = matches.Where(item => string.Equals(item.Category, query.Category, StringComparison.OrdinalIgnoreCase));
@@ -230,6 +286,12 @@ public sealed class DebugHttpServer : IDisposable
             if (enqueueRuntimeTest == null) { WriteEmpty(stream, 404); return; }
             RuntimeTestCommandAcceptedDto accepted = enqueueRuntimeTest(ReadJson<RuntimeTestCommandDto>(request));
             WriteJson(stream, accepted?.Accepted == true ? 202 : 400, accepted); return;
+        }
+        if (path == "/api/runtime-tests/runs" && request.Method == "GET")
+        {
+            if (!Authorized(request, stream)) return;
+            if (runtimeTestRuns == null) { WriteEmpty(stream, 404); return; }
+            WriteJson(stream, 200, runtimeTestRuns()); return;
         }
         if (path.StartsWith("/api/runtime-tests/runs/", StringComparison.Ordinal))
         {
@@ -385,6 +447,9 @@ public sealed class DebugHttpServer : IDisposable
         cancellation?.Cancel();
         foreach (BlockingCollection<DebugEvent> queue in subscribers.Values) queue.CompleteAdding();
         try { listener?.Stop(); } catch { }
+        foreach (TcpClient client in clients.Values)
+            try { client.Close(); } catch { }
+        clients.Clear();
         listener = null;
         cancellation?.Dispose();
         cancellation = null;

@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -68,6 +69,7 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
     private readonly ConcurrentDictionary<string, byte> cancelled = new(StringComparer.Ordinal);
     private RuntimeTestCapabilitiesDto cachedCapabilities = UnavailableCapabilities();
     private readonly DerailValleyItemTestDriver itemDriver = new();
+    private readonly InventoryRuntimeFixtureDriver inventoryFixtures = new();
     private Coroutine active;
     private float nextCapabilityRefresh;
     private bool sceneAnchorsDirty = true;
@@ -133,6 +135,11 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
     public RuntimeTestRunDto GetRun(string requestId) =>
         requestId != null && runs.TryGetValue(requestId, out RuntimeTestRunDto run) ? Clone(run) : null;
 
+    public IEnumerable<RuntimeTestRunSummaryDto> GetRuns() => runs.Values
+        .OrderByDescending(run => run.QueuedUtc)
+        .Select(Summarize)
+        .ToArray();
+
     public bool Cancel(string requestId)
     {
         if (string.IsNullOrWhiteSpace(requestId) || !runs.TryGetValue(requestId, out RuntimeTestRunDto run) || IsTerminal(run.Status)) return false;
@@ -165,7 +172,14 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             "item.pickup" => itemDriver.Pickup(command, run),
             "item.drop" => itemDriver.Drop(command, run),
             "item.throw" => itemDriver.Throw(command, run),
-            _ => null
+            "inventory.inspect" => inventoryFixtures.Inspect(command, run),
+            "inventory.prefab-catalog" => inventoryFixtures.PrefabCatalog(command, run),
+            "inventory.fixture-create" => inventoryFixtures.CreateFixture(command, run),
+            "inventory.fixture-place" => inventoryFixtures.PlaceFixture(command, run),
+            "inventory.fixture-destroy" => inventoryFixtures.DestroyFixture(command, run),
+            "inventory.fixture-clean-local" => inventoryFixtures.CleanupLocalFixtures(command, run),
+            "inventory.local-place" => inventoryFixtures.PlaceLocal(command, run),
+            _ => RuntimeTestScenarioRegistry.CreateExecution(command.Command, command, run)
         };
         if (operation == null)
         {
@@ -352,6 +366,7 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             ["playerName"] = session?.PlayerName ?? string.Empty,
             ["sessionId"] = session?.SessionId ?? string.Empty,
             ["processId"] = session?.ProcessId ?? 0,
+            ["buildNumber"] = session?.BuildNumber ?? Multiplayer.BuildNumber,
             ["serverRunning"] = lifecycle?.IsServerRunning == true,
             ["clientRunning"] = lifecycle?.IsClientRunning == true,
             ["activeScene"] = SceneManager.GetActiveScene().name
@@ -403,6 +418,13 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         if (PlayerManager.PlayerTransform != null && WorldMover.Instance != null) capabilities.Add("player-teleport");
         if (VRManager.IsVREnabled()) capabilities.Add("vr-runtime"); else capabilities.Add("non-vr-runtime");
         if (itemDriver.TryResolve(out _)) capabilities.Add("non-vr-item-interaction");
+        if (DV.InventorySystem.Inventory.Instance != null)
+            capabilities.Add("inventory-runtime-arrangement");
+        if (NetworkLifecycle.Instance?.IsServerRunning == true)
+            capabilities.Add("host-inventory-fixtures");
+        if (!VRManager.IsVREnabled() && DV.InventorySystem.Inventory.Instance != null &&
+            NetworkLifecycle.Instance?.IsClientRunning == true)
+            capabilities.Add("cold-container-quick-move-scenario");
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (lifecycle?.IsServerRunning == true) capabilities.Add("server-runtime");
         if (lifecycle?.IsClientRunning == true) capabilities.Add("client-runtime");
@@ -466,13 +488,24 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
 
     private static RuntimeTestRunDto Clone(RuntimeTestRunDto source)
     {
-        lock (source) return new RuntimeTestRunDto
+        // Result contains live phase/assertion/resource collections. A shallow copy lets the
+        // HTTP worker enumerate those collections while the main-thread coroutine mutates
+        // them, intermittently returning HTTP 500 from status polling. Serialize the complete
+        // DTO while holding its mutation gate so every response is an immutable point-in-time
+        // snapshot.
+        lock (source)
+            return JsonConvert.DeserializeObject<RuntimeTestRunDto>(
+                DebugJson.Serialize(source), DebugJson.Settings);
+    }
+
+    private static RuntimeTestRunSummaryDto Summarize(RuntimeTestRunDto source)
+    {
+        lock (source) return new RuntimeTestRunSummaryDto
         {
             RequestId = source.RequestId, RunId = source.RunId, CaseId = source.CaseId,
-            PhaseId = source.PhaseId, StepId = source.StepId, Command = source.Command,
-            Status = source.Status, QueuedUtc = source.QueuedUtc, StartedUtc = source.StartedUtc,
-            CompletedUtc = source.CompletedUtc, Role = source.Role, PlayerId = source.PlayerId,
-            Error = source.Error, Result = new Dictionary<string, object>(source.Result, StringComparer.Ordinal)
+            Command = source.Command, Status = source.Status, QueuedUtc = source.QueuedUtc,
+            StartedUtc = source.StartedUtc, CompletedUtc = source.CompletedUtc,
+            PhaseId = source.PhaseId, StepId = source.StepId, Error = source.Error
         };
     }
 
@@ -523,12 +556,8 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         parts.Reverse(); return string.Join("/", parts);
     }
     private static RuntimeTestCapabilitiesDto UnavailableCapabilities() => new() { Available = false, MainThreadAgentReady = false };
-    private static RuntimeTestDescriptorDto CloneDescriptor(RuntimeTestDescriptorDto value) => new()
-    {
-        TestId = value.TestId, DisplayName = value.DisplayName, Category = value.Category,
-        Fidelity = value.Fidelity, MutationKind = value.MutationKind,
-        RequiredCapabilities = value.RequiredCapabilities.ToArray(), TimeoutMilliseconds = value.TimeoutMilliseconds
-    };
+    private static RuntimeTestDescriptorDto CloneDescriptor(RuntimeTestDescriptorDto value) =>
+        RuntimeTestDescriptorCloner.Clone(value);
 
     private void OnDestroy()
     {

@@ -6,6 +6,7 @@ using JetBrains.Annotations;
 using Multiplayer.Components.Networking;
 using Multiplayer.Networking.Data;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Components.Networking.World.Containers;
 using Newtonsoft.Json.Linq;
 using System;
 
@@ -91,6 +92,7 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
         Multiplayer.LogDebug(() => $"Updated save data: {players.ToString()}");
         root.SetJObject(PLAYERS_KEY, players);
         NetworkedLostAndFoundManager.WriteSave(root);
+        NetworkedColdContainerManager.WriteSave(root);
         data.SetJObject(ROOT_KEY, root);
     }
 

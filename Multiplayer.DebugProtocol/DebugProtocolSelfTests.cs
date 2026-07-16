@@ -5,6 +5,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
 
 namespace Multiplayer.Debugging.Protocol;
 
@@ -17,10 +20,31 @@ public static class DebugProtocolSelfTests
         TestFingerprint();
         TestStateFingerprintAndSourceIdentity();
         TestDiscoveryAndRandomPort();
+        TestServerReleasesSseSockets();
         TestCapturePreRoll();
 #if DEBUG
+        TestRuntimeScenarioDescriptorSerialization();
         TestRuntimeTestEndpoints();
 #endif
+    }
+
+    private static void TestServerReleasesSseSockets()
+    {
+        DebugSessionInfo session = Session(Process.GetCurrentProcess());
+        DebugEventStore store = new(10);
+        using DebugHttpServer server = new(store, () => session);
+        server.Start();
+        int port = server.Port;
+        using TcpClient sse = new();
+        sse.Connect(IPAddress.Loopback, port);
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET /events HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n");
+        sse.GetStream().Write(request, 0, request.Length);
+        Thread.Sleep(25);
+        server.Dispose();
+        TcpListener replacement = new(IPAddress.Loopback, port);
+        try { replacement.Start(); }
+        finally { replacement.Stop(); }
     }
 
     private static void TestSerializationAndRedaction()
@@ -29,7 +53,9 @@ public static class DebugProtocolSelfTests
         Require((string)snapshot["Password"] == "<redacted>" && (string)snapshot["Token"] == "<redacted>", "sensitive values were not redacted");
         string json = DebugJson.Serialize(new DebugEvent { SessionId = "test", Category = "item", EventName = "item.test", Data = snapshot });
         JObject parsed = JObject.Parse(json);
-        Require((string)parsed["sessionId"] == "test" && (int)parsed["schemaVersion"] == 1, "event JSON contract is invalid");
+        Require((string)parsed["sessionId"] == "test" &&
+            (int)parsed["schemaVersion"] == DebugSessionInfo.CurrentSchemaVersion,
+            "event JSON contract is invalid");
     }
 
     private static void TestBoundedStoreAndPriority()
@@ -103,18 +129,60 @@ public static class DebugProtocolSelfTests
     }
 
 #if DEBUG
+    private static void TestRuntimeScenarioDescriptorSerialization()
+    {
+        RuntimeTestDescriptorDto descriptor = new()
+        {
+            TestId = "scenario.self-test",
+            IsScenario = true,
+            ScenarioOrchestration = RuntimeScenarioOrchestrationKind.InventoryFixturePair,
+            FixturePolicy = RuntimeScenarioFixturePolicy.InventoryContainerAndItem,
+            CleanupPolicy = RuntimeScenarioCleanupPolicy.RetireInventoryFixturesAndPurgeRepresentations,
+            FixtureContainerOwnership = RuntimeScenarioFixtureOwnership.TargetPlayer,
+            FixtureItemOwnership = RuntimeScenarioFixtureOwnership.HostPlayer,
+            DefaultContainerPrefabName = "ItemContainerCrate",
+            DefaultItemPrefabName = "lighter"
+        };
+        string json = DebugJson.Serialize(descriptor);
+        RuntimeTestDescriptorDto restored = JsonConvert.DeserializeObject<RuntimeTestDescriptorDto>(
+            json, DebugJson.Settings);
+        Require(restored?.IsScenario == true &&
+            restored.ScenarioOrchestration == RuntimeScenarioOrchestrationKind.InventoryFixturePair &&
+            restored.FixturePolicy == RuntimeScenarioFixturePolicy.InventoryContainerAndItem &&
+            restored.CleanupPolicy == RuntimeScenarioCleanupPolicy.RetireInventoryFixturesAndPurgeRepresentations &&
+            restored.FixtureContainerOwnership == RuntimeScenarioFixtureOwnership.TargetPlayer &&
+            restored.FixtureItemOwnership == RuntimeScenarioFixtureOwnership.HostPlayer &&
+            restored.DefaultContainerPrefabName == descriptor.DefaultContainerPrefabName &&
+            restored.DefaultItemPrefabName == descriptor.DefaultItemPrefabName,
+            "runtime scenario descriptor metadata did not round-trip");
+    }
+
     private static void TestRuntimeTestEndpoints()
     {
         DebugSessionInfo session = Session(Process.GetCurrentProcess());
+        session.BuildNumber = "2026.07.16.0001";
         RuntimeTestRunDto status = new()
         {
             RequestId = "request-1", RunId = "run-1", Command = "runtime.self-check",
             Status = RuntimeTestCommandStatus.Queued, QueuedUtc = DateTime.UtcNow
         };
         DebugEventStore serverStore = new(100);
-        using DebugHttpServer server = new(serverStore, () => session);
+        DebugEvent historicalEvent = new()
+        {
+            TimestampUtc = DateTime.UtcNow.AddMilliseconds(-1), SessionId = "historical-session",
+            SourceSequence = 7, EventKey = "historical-session:7", Category = "packet",
+            EventName = "packet.raw.send", EntityType = "Item", EntityId = "43",
+            Severity = DebugSeverity.Info, CorrelationId = "query-test", TestRunId = "scenario-run"
+        };
+        using DebugHttpServer server = new(serverStore, () => session,
+            historicalEvents: query => query.TestRunId == "scenario-run"
+                ? new[] { historicalEvent }
+                : Array.Empty<DebugEvent>());
         server.ConfigureRuntimeTests(
             () => new RuntimeTestCapabilitiesDto { Available = true, MainThreadAgentReady = true, Commands = new[] { "runtime.self-check" } },
+            () => new[] { new RuntimeTestRunSummaryDto { RequestId = status.RequestId,
+                RunId = status.RunId, Command = status.Command, Status = status.Status,
+                QueuedUtc = status.QueuedUtc } },
             command => new RuntimeTestCommandAcceptedDto
             {
                 RequestId = command.RequestId, RunId = command.RunId, Accepted = true,
@@ -149,8 +217,9 @@ public static class DebugProtocolSelfTests
         Require(client.DownloadString(server.Url + "runtime-environment.js").Contains("/api/runtime-environment/start"), "debug environment dashboard script was not served");
         DashboardAutomationInfoDto automation = JsonConvert.DeserializeObject<DashboardAutomationInfoDto>(
             client.DownloadString(server.Url + "api/automation"), DebugJson.Settings);
-        Require(automation?.ApiVersion == 1 && automation.RuntimeTestsAvailable && automation.RuntimeEnvironmentAvailable,
-            "dashboard automation discovery endpoint failed");
+        Require(automation?.ApiVersion == 1 && automation.BuildNumber == session.BuildNumber &&
+            automation.RuntimeTestsAvailable && automation.RuntimeEnvironmentAvailable,
+            "dashboard automation discovery endpoint did not report the runtime build");
         JObject capabilities = JObject.Parse(client.DownloadString(server.Url + "api/runtime-tests/capabilities"));
         Require((bool)capabilities["available"] && (bool)capabilities["mainThreadAgentReady"], "runtime-test capabilities endpoint failed");
         client.Headers[HttpRequestHeader.ContentType] = "application/json";
@@ -164,9 +233,15 @@ public static class DebugProtocolSelfTests
         RuntimeTestRunDto returned = JsonConvert.DeserializeObject<RuntimeTestRunDto>(
             client.DownloadString(server.Url + "api/runtime-tests/runs/" + status.RequestId), DebugJson.Settings);
         Require(returned?.Status == RuntimeTestCommandStatus.Queued, "runtime-test status endpoint failed");
+        RuntimeTestRunSummaryDto[] history = JsonConvert.DeserializeObject<RuntimeTestRunSummaryDto[]>(
+            client.DownloadString(server.Url + "api/runtime-tests/runs"), DebugJson.Settings);
+        Require(history?.Length == 1 && history[0].RequestId == status.RequestId,
+            "runtime-test history endpoint failed");
         DebugEvent[] queriedEvents = JsonConvert.DeserializeObject<DebugEvent[]>(client.UploadString(server.Url + "api/events/query",
             DebugJson.Serialize(new DebugEventQueryDto { CorrelationId = "query-test", EntityType = "Item", TestRunId = "scenario-run", Limit = 10 })), DebugJson.Settings);
-        Require(queriedEvents?.Length == 1 && queriedEvents[0].EntityId == "42", "filtered event query endpoint failed");
+        Require(queriedEvents?.Length == 2 && queriedEvents.Any(item => item.EntityId == "42") &&
+            queriedEvents.Any(item => item.EntityId == "43"),
+            "filtered live and historical event query endpoint failed");
         RuntimeEnvironmentStatusDto initialEnvironment = JsonConvert.DeserializeObject<RuntimeEnvironmentStatusDto>(
             client.DownloadString(server.Url + "api/runtime-environment/status"), DebugJson.Settings);
         Require(initialEnvironment?.Stage == RuntimeEnvironmentStage.Idle, "runtime environment status endpoint failed");

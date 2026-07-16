@@ -18,6 +18,8 @@ internal sealed class RuntimeEnvironmentSupervisor : IDisposable
     private static extern bool SetWindowText(IntPtr window, string text);
     [DllImport("user32.dll")]
     private static extern bool ShowWindowAsync(IntPtr window, int command);
+    [DllImport("user32.dll")]
+    private static extern bool EnableWindow(IntPtr window, bool enable);
 
     private const int ShowMinimizedNoActivate = 7;
 
@@ -79,7 +81,7 @@ internal sealed class RuntimeEnvironmentSupervisor : IDisposable
             host = Launch(request, request.HostArguments);
             SetProcess(true, host.Id);
             _ = ApplyManagedWindow(host, "Derail Valley — DVMP HOST",
-                request.MinimizeManagedWindows, token);
+                request.MinimizeManagedWindows, request.DisableManagedWindowInput, token);
 
             // Unity Mod Manager uses shared on-disk cache state. Let the host finish that
             // narrow phase before starting the second process, then overlap game/scene boot.
@@ -90,7 +92,7 @@ internal sealed class RuntimeEnvironmentSupervisor : IDisposable
             client = Launch(request, request.ClientArguments);
             SetProcess(false, client.Id);
             _ = ApplyManagedWindow(client, "Derail Valley — DVMP CLIENT",
-                request.MinimizeManagedWindows, token);
+                request.MinimizeManagedWindows, request.DisableManagedWindowInput, token);
             Task<DebugSessionInfo> clientAgent = WaitForSession(client.Id, request.AgentTimeoutSeconds, token);
             Task<DebugSessionInfo> clientMenuReady = WaitForClientMenu(clientAgent, request.AgentTimeoutSeconds, token);
 
@@ -142,7 +144,7 @@ internal sealed class RuntimeEnvironmentSupervisor : IDisposable
         Process process = Process.Start(new ProcessStartInfo
         {
             FileName = request.ExecutablePath, WorkingDirectory = working,
-            Arguments = JoinArguments(request.CommonArguments, roleArguments), UseShellExecute = false,
+            Arguments = JoinArguments(request.CommonArguments, roleArguments), UseShellExecute = true,
             WindowStyle = request.MinimizeManagedWindows
                 ? ProcessWindowStyle.Minimized : ProcessWindowStyle.Normal
         });
@@ -150,7 +152,7 @@ internal sealed class RuntimeEnvironmentSupervisor : IDisposable
     }
 
     private static async Task ApplyManagedWindow(Process process, string title, bool minimize,
-        CancellationToken token)
+        bool disableInput, CancellationToken token)
     {
         DateTime deadline = DateTime.UtcNow.AddMinutes(2);
         while (DateTime.UtcNow < deadline && !token.IsCancellationRequested)
@@ -162,6 +164,7 @@ internal sealed class RuntimeEnvironmentSupervisor : IDisposable
                 if (process.MainWindowHandle != IntPtr.Zero)
                 {
                     SetWindowText(process.MainWindowHandle, title);
+                    EnableWindow(process.MainWindowHandle, !disableInput);
                     if (minimize)
                         ShowWindowAsync(process.MainWindowHandle, ShowMinimizedNoActivate);
                 }

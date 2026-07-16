@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.15.0+69c94b687f44de8559c255c781e745388ac8b8a0",
-  "Fingerprint": "0a9c7ac30ee3147f33720eb8a597965ff5cc3f6635294aebabed185ea1b249e2",
+  "BuildVersion": "0.1.15.0+5d770cc764bc38f5424f4f1deb8d3d4b99b10d48",
+  "Fingerprint": "1f844c123fb7e87151561fcc4ff5eb3147d849e0c64e044326aa765ddbf37b93",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -292,6 +292,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "44078F51AFD6EDC3",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundContainerMutationResultPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "46F2FF8836956344",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundTrainDeleteRequestPacket",
       "Direction": "Serverbound",
@@ -314,6 +323,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonTrainCouplePacket",
       "Direction": "Bidirectional",
       "Category": "Common.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "51C715FC4985151E",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundContainerMutationPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -575,6 +593,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.CommonChatPacket",
       "Direction": "Bidirectional",
       "Category": "Common",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "A2FC86DF38741B9F",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundContainerBrowsePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -857,6 +884,15 @@
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
+    },
+    {
+      "Hash": "FDFE0650DA42CB64",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundContainerViewPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     }
   ],
   "Enums": {
@@ -1020,7 +1056,8 @@
       "JobBookletSummon": 6,
       "FullSync": 7,
       "LostAndFoundCollection": 8,
-      "LostAndFoundRetrieval": 9
+      "LostAndFoundRetrieval": 9,
+      "ContainerDeposit": 10
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+Hand": {
       "nonVR": 0,

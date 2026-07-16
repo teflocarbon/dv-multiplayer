@@ -14,7 +14,7 @@ internal sealed class RuntimeTestScenarioContext
         public string Kind;
         public string Id;
         public string ExpectedFinalState;
-        public Action Cleanup;
+        public Func<IEnumerator> Cleanup;
         public bool Restored;
     }
 
@@ -71,6 +71,13 @@ internal sealed class RuntimeTestScenarioContext
     public void RegisterResource(string kind, string id, string expectedFinalState,
         Action cleanup)
     {
+        RegisterResource(kind, id, expectedFinalState, cleanup == null ? null :
+            () => RunSynchronousCleanup(cleanup));
+    }
+
+    public void RegisterResource(string kind, string id, string expectedFinalState,
+        Func<IEnumerator> cleanup)
+    {
         resources.Add(new Resource
         {
             Kind = kind ?? string.Empty,
@@ -121,40 +128,67 @@ internal sealed class RuntimeTestScenarioContext
     public IEnumerator Cleanup()
     {
         EnterPhase("cleanup", "cleanup-resources");
-        CleanupSynchronously();
+        if (cleanupFinished) yield break;
+        for (int index = resources.Count - 1; index >= 0; index--)
+        {
+            Resource resource = resources[index];
+            if (resource.Restored || resource.Cleanup == null) continue;
+            IEnumerator operation = null;
+            Exception failure = null;
+            try { operation = resource.Cleanup(); }
+            catch (Exception exception) { failure = exception.GetBaseException(); }
+            while (failure == null && operation != null)
+            {
+                bool moved = false;
+                object current = null;
+                try
+                {
+                    moved = operation.MoveNext();
+                    if (moved) current = operation.Current;
+                }
+                catch (Exception exception)
+                {
+                    failure = exception.GetBaseException();
+                }
+                if (failure != null || !moved) break;
+                yield return current;
+            }
+            (operation as IDisposable)?.Dispose();
+            if (failure == null)
+                resource.Restored = true;
+            else
+            {
+                lock (run)
+                    cleanupFailures.Add(resource.Kind + ":" + resource.Id + ":" +
+                        failure.Message);
+            }
+            PublishResources();
+        }
+        cleanupFinished = true;
+        PublishResources();
+        lock (run) run.Result["cleanupClean"] = CleanupClean;
         yield return null;
     }
 
     public void AbortCleanup()
     {
         if (cleanupFinished) return;
-        CleanupSynchronously();
+        cleanupFinished = true;
+        foreach (Resource resource in resources)
+            if (!resource.Restored)
+            {
+                lock (run)
+                    cleanupFailures.Add(resource.Kind + ":" + resource.Id +
+                        ":cleanup-coroutine-aborted");
+            }
+        PublishResources();
+        lock (run) run.Result["cleanupClean"] = false;
     }
 
-    private void CleanupSynchronously()
+    private static IEnumerator RunSynchronousCleanup(Action cleanup)
     {
-        if (cleanupFinished) return;
-        cleanupFinished = true;
-        for (int index = resources.Count - 1; index >= 0; index--)
-        {
-            Resource resource = resources[index];
-            if (resource.Restored || resource.Cleanup == null) continue;
-            try
-            {
-                resource.Cleanup();
-                resource.Restored = true;
-            }
-            catch (Exception exception)
-            {
-                cleanupFailures.Add(resource.Kind + ":" + resource.Id + ":" +
-                    exception.GetBaseException().Message);
-            }
-        }
-        PublishResources();
-        lock (run)
-        {
-            run.Result["cleanupClean"] = CleanupClean;
-        }
+        cleanup();
+        yield break;
     }
 
     private void RecordAssertion(string assertionId, bool passed, float elapsed,

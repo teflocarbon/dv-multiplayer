@@ -63,6 +63,7 @@ public static class DebugRuntime
                 StartedUtc = started,
                 HeartbeatUtc = started,
                 ApiToken = Guid.NewGuid().ToString("N"),
+                BuildNumber = Multiplayer.BuildNumber,
                 GameBuild = Multiplayer.LocalBuildInfo,
                 ModCommit = GetCommit(),
                 LogPath = Path.Combine(root, $"dvmp-debug-{sessionId}.jsonl")
@@ -142,7 +143,8 @@ public static class DebugRuntime
     private static void ConfigureRuntimeTests(RuntimeTestAgent agent)
     {
         httpServer?.ConfigureRuntimeTests(agent == null ? null : agent.GetCapabilities,
-            agent == null ? null : agent.Enqueue, agent == null ? null : agent.GetRun,
+            agent == null ? null : agent.GetRuns, agent == null ? null : agent.Enqueue,
+            agent == null ? null : agent.GetRun,
             agent == null ? null : agent.Cancel);
     }
 #endif
@@ -268,7 +270,8 @@ public static class DebugRuntime
             ProcessStartedUtc = session.ProcessStartedUtc, StartedUtc = session.StartedUtc, HeartbeatUtc = DateTime.UtcNow,
             Role = session.Role, PlayerName = session.PlayerName, PlayerId = session.PlayerId,
             FirehosePort = session.FirehosePort, FirehoseUrl = session.FirehoseUrl, ApiToken = session.ApiToken,
-            LogPath = session.LogPath, GameBuild = session.GameBuild, ModCommit = session.ModCommit
+            LogPath = session.LogPath, BuildNumber = session.BuildNumber,
+            GameBuild = session.GameBuild, ModCommit = session.ModCommit
         };
     }
 
