@@ -116,6 +116,10 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool EnableDebugFileLogging = true;
     [Draw("Enable Debug Firehose", Tooltip = "Serve the local debug UI on a random loopback port.", VisibleOn = "EnableDebugSystem|true")]
     public bool EnableDebugFirehose = true;
+#if DEBUG
+    [Draw("Enable Runtime Test Harness", Tooltip = "Allow authenticated debug clients to run game-native integration tests.", VisibleOn = "EnableDebugSystem|true")]
+    public bool EnableRuntimeTestHarness = true;
+#endif
     // Kept for settings-file compatibility. Raw capture is intentionally armed only from
     // the in-game packet inspector for the current session because persisting it can make
     // startup unusable on packet-heavy worlds.

@@ -1,6 +1,7 @@
 const events = [];
 let paused = false, renderQueued = false, pinned = null, localSession = null, capturing = false;
-let replicationOperations = [], selectedReplicationId = null, selectedReplication = null, knownSessions = [], replicationVisible = false;
+let replicationOperations = [], selectedReplicationId = null, selectedReplication = null, knownSessions = [], activeView = "events";
+const auxiliaryViews = new Map();
 const $ = id => document.getElementById(id);
 const list = $("events"), template = $("event-template");
 const filters = [$("search"), $("session-filter"), $("category-filter"), $("severity-filter")];
@@ -47,6 +48,7 @@ $("pause").addEventListener("click", event => { paused = !paused; event.target.t
 $("clear").addEventListener("click", () => { events.length = 0; pinned = null; $("inspector").hidden = true; render(); });
 $("close-inspector").addEventListener("click", () => { pinned = null; $("inspector").hidden = true; render(); });
 async function post(path, body) { return fetch(path, { method:"POST", headers:{"Content-Type":"application/json", "X-DVMP-Debug-Token":localSession?.apiToken || ""}, body:JSON.stringify(body || {}) }); }
+async function authenticatedGet(path) { return fetch(path, {headers:{"X-DVMP-Debug-Token":localSession?.apiToken || ""}}); }
 $("mark").addEventListener("click", async () => { const text = prompt("Marker text"); if (text) await post("/api/mark", {text}); });
 $("capture").addEventListener("click", async event => { if (!capturing) { const name = prompt("Capture name", "capture"); if (!name) return; await post("/api/capture/start", {name}); capturing = true; event.target.textContent = "Stop capture"; } else { await post("/api/capture/stop", {}); capturing = false; event.target.textContent = "Start capture"; } });
 $("raw").addEventListener("click", async event => { const current = await fetch("/api/settings").then(response => response.json()); current.traceMode = current.traceMode === "Raw" ? "Summary" : "Raw"; current.rawPacketCapture = current.traceMode === "Raw"; await post("/api/settings", current); event.target.textContent = `Raw: ${current.rawPacketCapture ? "on" : "off"}`; });
@@ -63,15 +65,17 @@ stream.onopen = () => { $("connection").textContent = "Live event stream connect
 stream.onerror = () => { $("connection").textContent = "Reconnecting…"; $("connection").classList.remove("live"); };
 stream.onmessage = message => add(JSON.parse(message.data));
 
-function showView(replication) {
-  replicationVisible = replication;
-  $("events-tab").classList.toggle("active", !replication); $("replication-tab").classList.toggle("active", replication);
-  $("event-toolbar").hidden = replication; $("event-stats").hidden = replication; $("events").hidden = replication;
-  $("inspector").hidden = true; $("replication-view").hidden = !replication;
-  if (replication) refreshReplication(); else render();
+function showView(view) {
+  activeView = view;
+  $("events-tab").classList.toggle("active", view === "events"); $("replication-tab").classList.toggle("active", view === "replication");
+  $("event-toolbar").hidden = view !== "events"; $("event-stats").hidden = view !== "events"; $("events").hidden = view !== "events";
+  $("inspector").hidden = true; $("replication-view").hidden = view !== "replication";
+  for (const [id, extension] of auxiliaryViews) { extension.tab.classList.toggle("active", view === id); extension.section.hidden = view !== id; }
+  if (view === "replication") refreshReplication(); else if (view === "events") render(); else auxiliaryViews.get(view)?.onShow?.();
 }
-$("events-tab").addEventListener("click", () => showView(false));
-$("replication-tab").addEventListener("click", () => showView(true));
+window.registerDashboardView = (id, tab, section, onShow) => { auxiliaryViews.set(id, {tab, section, onShow}); tab.addEventListener("click", () => showView(id)); };
+$("events-tab").addEventListener("click", () => showView("events"));
+$("replication-tab").addEventListener("click", () => showView("replication"));
 
 function sessionLabel(id) {
   const session = knownSessions.find(value => value.sessionId === id);
@@ -136,7 +140,7 @@ function stateComparison(operation) {
   const columns = [{name:"Origin",state:origin},{name:"Host",state:host},...recipients.map(value=>({name:`P${value.playerId}`,state:value.resultingState||{}}))]; const keys=[...new Set(columns.flatMap(column=>Object.keys(column.state)))].sort().slice(0,60); const table=document.createElement("table");table.className="state-table";const head=document.createElement("thead"),headRow=document.createElement("tr");["Field",...columns.map(value=>value.name)].forEach(value=>{const cell=document.createElement("th");cell.textContent=value;headRow.append(cell);});head.append(headRow);table.append(head);const body=document.createElement("tbody");for(const key of keys){const row=document.createElement("tr"),field=document.createElement("td");field.textContent=key;row.append(field);for(const column of columns){const cell=document.createElement("td");cell.textContent=valueText(column.state[key]);row.append(cell);}body.append(row);}if(!keys.length){const row=document.createElement("tr"),cell=document.createElement("td");cell.colSpan=columns.length+1;cell.className="empty";cell.textContent="No post-apply states have been correlated yet.";row.append(cell);body.append(row);}table.append(body);return table;
 }
 function replicationSummary(operation) { const lines=[`Item ${operation.entityId} · ${operation.updateType || "Update"} · ${operation.status}`,`${operation.operationId} · ${operation.correlationConfidence} correlation`,operation.discontinuityReason?`Discontinuity: ${operation.discontinuityReason}`:"",""];for(const stage of operation.stages||[])lines.push(`${new Date(stage.timestampUtc).toISOString().substring(11,23)}  ${sessionLabel(stage.sessionId)}  ${stage.eventName}  t${stage.networkTick??"-"}`);for(const recipient of operation.recipients||[])lines.push(`P${recipient.playerId} expected=${recipient.expected} sent=${recipient.sent} received=${recipient.received} handled=${recipient.handled} applied=${recipient.applied} acknowledged=${recipient.acknowledgedWithoutApply||false} ${recipient.discontinuity||""}`);for(const comparison of operation.stateComparisons||[])for(const difference of comparison.differences||[])lines.push(`${sessionLabel(comparison.sessionId)} STATE ${difference.code}: ${difference.field} expected=${difference.expected} actual=${difference.actual}${difference.detail?` (${difference.detail})`:""}`);return lines.filter((value,index)=>value||index===3).join("\n"); }
-async function refreshReplication() { if (!replicationVisible) return; try { replicationOperations = await fetch("/api/replication").then(response => response.json()); renderReplicationList(); if(selectedReplicationId) await selectReplication(selectedReplicationId); } catch {} }
+async function refreshReplication() { if (activeView !== "replication") return; try { replicationOperations = await fetch("/api/replication").then(response => response.json()); renderReplicationList(); if(selectedReplicationId) await selectReplication(selectedReplicationId); } catch {} }
 [$("replication-search"),$("replication-status"),$("replication-problems")].forEach(control=>control.addEventListener("input",renderReplicationList));
 $("replication-captures").addEventListener("click", async event => { const current=await fetch("/api/settings").then(response=>response.json());current.automaticReplicationCaptures=!current.automaticReplicationCaptures;await post("/api/settings",current);event.target.textContent=`Auto captures: ${current.automaticReplicationCaptures?"on":"off"}`; });
 setInterval(refreshReplication, 750);

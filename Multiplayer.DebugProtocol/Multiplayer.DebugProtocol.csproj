@@ -6,8 +6,16 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Newtonsoft.Json" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="..\DebugRemoteClient\WebUI\index.html" Link="WebUI\index.html" LogicalName="Multiplayer.Debugging.Protocol.WebUI.index.html" />
     <EmbeddedResource Include="..\DebugRemoteClient\WebUI\app.css" Link="WebUI\app.css" LogicalName="Multiplayer.Debugging.Protocol.WebUI.app.css" />
     <EmbeddedResource Include="..\DebugRemoteClient\WebUI\app.js" Link="WebUI\app.js" LogicalName="Multiplayer.Debugging.Protocol.WebUI.app.js" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <EmbeddedResource Include="..\DebugRemoteClient\WebUI\runtime-tests.css" Link="WebUI\runtime-tests.css" LogicalName="Multiplayer.Debugging.Protocol.WebUI.runtime-tests.css" />
+    <EmbeddedResource Include="..\DebugRemoteClient\WebUI\runtime-tests.js" Link="WebUI\runtime-tests.js" LogicalName="Multiplayer.Debugging.Protocol.WebUI.runtime-tests.js" />
+    <EmbeddedResource Include="..\DebugRemoteClient\WebUI\runtime-environment.css" Link="WebUI\runtime-environment.css" LogicalName="Multiplayer.Debugging.Protocol.WebUI.runtime-environment.css" />
+    <EmbeddedResource Include="..\DebugRemoteClient\WebUI\runtime-environment.js" Link="WebUI\runtime-environment.js" LogicalName="Multiplayer.Debugging.Protocol.WebUI.runtime-environment.js" />
   </ItemGroup>
 </Project>
