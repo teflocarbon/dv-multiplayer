@@ -1,0 +1,11 @@
+.runtime-test-toolbar { display:grid; grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) auto auto; gap:.65rem; margin:1rem 0; }
+.runtime-test-parameters { display:grid; gap:.4rem; margin:1rem 0; color:var(--muted); }
+.runtime-test-parameters textarea { width:100%; box-sizing:border-box; resize:vertical; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:.75rem; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.runtime-test-result { display:grid; gap:.75rem; }
+.runtime-test-process { background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--muted); border-radius:6px; padding:.75rem; }
+.runtime-test-process.passed { border-left-color:#64d98b; }
+.runtime-test-process.failed { border-left-color:#ff6b6b; }
+.runtime-test-process.unsupported { border-left-color:#f0c36a; }
+.runtime-test-process h3 { margin:0 0 .5rem; }
+.runtime-test-process pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+@media (max-width:800px) { .runtime-test-toolbar { grid-template-columns:1fr; } }

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,8 @@ namespace Multiplayer.DebugClient;
 
 internal static class DashboardMode
 {
+    private const int DashboardPort = 7781;
+
     public static int Run(string requestedRoot)
     {
         string root = ResolveRoot(requestedRoot);
@@ -31,7 +34,14 @@ internal static class DashboardMode
             ApiToken = Guid.NewGuid().ToString("N")
         };
         DebugRuntimeSettingsDto dashboardSettings = new();
+        RuntimeEnvironmentConfigurationStore environmentConfiguration = new();
+        using ManualResetEventSlim shutdown = new(false);
         using DashboardMerger merger = new(root, store);
+#if DEBUG
+        RuntimeTestCoordinator runtimeTests = new(merger.Sessions,
+            startCapture: merger.StartCapture, stopCapture: merger.StopCapture);
+        using RuntimeEnvironmentSupervisor runtimeEnvironment = new(merger.Sessions);
+#endif
         using DebugHttpServer server = new(store, () => dashboard,
             settings: () => dashboardSettings,
             updateSettings: value => { dashboardSettings = value ?? new DebugRuntimeSettingsDto(); merger.UpdateSettings(dashboardSettings); },
@@ -40,19 +50,66 @@ internal static class DashboardMode
             stopCapture: merger.StopCapture,
             sessions: merger.Sessions,
             replicationOperations: merger.ReplicationOperations,
-            replicationOperation: merger.ReplicationOperation);
-        server.Start();
+            replicationOperation: merger.ReplicationOperation,
+            requestedPort: DashboardPort);
+#if DEBUG
+        server.ConfigureRuntimeTests(runtimeTests.GetCapabilities, runtimeTests.Enqueue, runtimeTests.GetRun, runtimeTests.Cancel);
+        server.ConfigureRuntimeEnvironment(runtimeEnvironment.GetStatus,
+            request => { environmentConfiguration.Save(request); return runtimeEnvironment.Start(request); },
+            runtimeEnvironment.Stop, environmentConfiguration.Get, environmentConfiguration.Save);
+        server.ConfigureDashboardControl(() =>
+        {
+            shutdown.Set();
+            // Active firehose readers can outlive the main loop while their sockets unwind.
+            // Never leave a dead dashboard holding the stable automation port indefinitely.
+            _ = Task.Run(() =>
+            {
+                Thread.Sleep(1500);
+                Environment.Exit(0);
+            });
+        });
+#endif
+        StartWithTakeover(server);
         dashboard.FirehosePort = server.Port;
         dashboard.FirehoseUrl = server.Url;
         merger.Start();
         Console.WriteLine($"Combined dashboard: {server.Url}");
-        Console.WriteLine("All live sessions are merged automatically. Type /quit to stop.");
-        while (true)
+        Console.WriteLine("All live sessions are merged automatically. Type /quit to stop or start another dashboard to hand off.");
+        _ = Task.Run(() =>
         {
-            string command = Console.ReadLine();
-            if (command == null || string.Equals(command, "/quit", StringComparison.OrdinalIgnoreCase)) break;
-        }
+            while (!shutdown.IsSet)
+            {
+                string command = Console.ReadLine();
+                if (command == null || string.Equals(command, "/quit", StringComparison.OrdinalIgnoreCase)) { shutdown.Set(); break; }
+            }
+        });
+        shutdown.Wait();
         return 0;
+    }
+
+    private static void StartWithTakeover(DebugHttpServer server)
+    {
+        RequestExistingDashboardShutdown();
+        SocketException last = null;
+        for (int attempt = 0; attempt < 30; attempt++)
+        {
+            try { server.Start(); return; }
+            catch (SocketException exception) { last = exception; Thread.Sleep(100); }
+        }
+        throw new InvalidOperationException($"Dashboard port {DashboardPort} is still occupied after handoff.", last);
+    }
+
+    private static void RequestExistingDashboardShutdown()
+    {
+        try
+        {
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create($"http://127.0.0.1:{DashboardPort}/api/dashboard/shutdown");
+            request.Method = "POST";
+            request.ContentLength = 0;
+            request.Timeout = 750;
+            using WebResponse response = request.GetResponse();
+        }
+        catch (WebException) { }
     }
 
     private static string ResolveRoot(string requested)
@@ -62,6 +119,52 @@ internal static class DashboardMode
         if (Directory.Exists(standard)) return standard;
         return Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "Multiplayer.Debug"));
     }
+}
+
+internal sealed class RuntimeEnvironmentConfigurationStore
+{
+    private readonly object gate = new();
+    private readonly string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "DVMultiplayer", "debug-environment.json");
+    private RuntimeEnvironmentStartRequestDto value;
+    private bool exists;
+
+    public RuntimeEnvironmentConfigurationStore()
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                value = JsonConvert.DeserializeObject<RuntimeEnvironmentStartRequestDto>(File.ReadAllText(path));
+                exists = value != null;
+            }
+        }
+        catch { value = null; exists = false; }
+        value ??= new RuntimeEnvironmentStartRequestDto();
+    }
+
+    public RuntimeEnvironmentConfigurationDto Get()
+    {
+        lock (gate) return new RuntimeEnvironmentConfigurationDto { Exists = exists, Configuration = Clone(value) };
+    }
+
+    public void Save(RuntimeEnvironmentStartRequestDto configuration)
+    {
+        if (configuration == null) return;
+        lock (gate)
+        {
+            value = Clone(configuration);
+            string directory = Path.GetDirectoryName(path);
+            Directory.CreateDirectory(directory);
+            string temporary = path + ".tmp";
+            File.WriteAllText(temporary, JsonConvert.SerializeObject(value, Formatting.Indented));
+            if (File.Exists(path)) File.Replace(temporary, path, null); else File.Move(temporary, path);
+            exists = true;
+        }
+    }
+
+    private static RuntimeEnvironmentStartRequestDto Clone(RuntimeEnvironmentStartRequestDto source) =>
+        JsonConvert.DeserializeObject<RuntimeEnvironmentStartRequestDto>(JsonConvert.SerializeObject(source)) ?? new RuntimeEnvironmentStartRequestDto();
 }
 
 internal sealed class DashboardMerger : IDisposable

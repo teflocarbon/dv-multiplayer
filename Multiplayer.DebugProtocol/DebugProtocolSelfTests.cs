@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Diagnostics;
@@ -17,6 +18,9 @@ public static class DebugProtocolSelfTests
         TestStateFingerprintAndSourceIdentity();
         TestDiscoveryAndRandomPort();
         TestCapturePreRoll();
+#if DEBUG
+        TestRuntimeTestEndpoints();
+#endif
     }
 
     private static void TestSerializationAndRedaction()
@@ -97,6 +101,92 @@ public static class DebugProtocolSelfTests
         }
         finally { TryDelete(root); }
     }
+
+#if DEBUG
+    private static void TestRuntimeTestEndpoints()
+    {
+        DebugSessionInfo session = Session(Process.GetCurrentProcess());
+        RuntimeTestRunDto status = new()
+        {
+            RequestId = "request-1", RunId = "run-1", Command = "runtime.self-check",
+            Status = RuntimeTestCommandStatus.Queued, QueuedUtc = DateTime.UtcNow
+        };
+        DebugEventStore serverStore = new(100);
+        using DebugHttpServer server = new(serverStore, () => session);
+        server.ConfigureRuntimeTests(
+            () => new RuntimeTestCapabilitiesDto { Available = true, MainThreadAgentReady = true, Commands = new[] { "runtime.self-check" } },
+            command => new RuntimeTestCommandAcceptedDto
+            {
+                RequestId = command.RequestId, RunId = command.RunId, Accepted = true,
+                StatusUrl = "/api/runtime-tests/runs/" + command.RequestId
+            },
+            requestId => requestId == status.RequestId ? status : null,
+            requestId => requestId == status.RequestId);
+        RuntimeEnvironmentStatusDto environment = new() { Stage = RuntimeEnvironmentStage.Idle, Message = "idle" };
+        RuntimeEnvironmentStartRequestDto savedEnvironment = new() { Address = "127.0.0.1", Port = 7777 };
+        serverStore.Publish(new DebugEvent { SessionId = session.SessionId, Category = "runtime-test", EventName = "runtime-test.completed", EntityType = "Item", EntityId = "42", Severity = DebugSeverity.Info, CorrelationId = "query-test", TestRunId = "scenario-run" });
+        server.ConfigureRuntimeEnvironment(() => environment, request =>
+        {
+            environment = new RuntimeEnvironmentStatusDto { Stage = RuntimeEnvironmentStage.LaunchingHost, Active = true, Message = request.ExecutablePath };
+            return environment;
+        }, () => environment = new RuntimeEnvironmentStatusDto { Stage = RuntimeEnvironmentStage.Stopped, Message = "stopped" },
+            () => new RuntimeEnvironmentConfigurationDto { Exists = true, Configuration = savedEnvironment },
+            request => savedEnvironment = request);
+        server.Start();
+
+        using WebClient unauthorized = new();
+        bool forbidden = false;
+        try { unauthorized.DownloadString(server.Url + "api/runtime-tests/capabilities"); }
+        catch (WebException exception) { forbidden = (exception.Response as HttpWebResponse)?.StatusCode == HttpStatusCode.Forbidden; }
+        Require(forbidden, "runtime-test capabilities did not require authentication");
+
+        using WebClient client = new();
+        client.Headers["X-DVMP-Debug-Token"] = session.ApiToken;
+        string dashboard = client.DownloadString(server.Url);
+        Require(dashboard.Contains("/runtime-tests.js") && dashboard.Contains("/runtime-tests.css") &&
+            dashboard.Contains("/runtime-environment.js") && dashboard.Contains("/runtime-environment.css"), "debug runtime dashboard assets were not injected");
+        Require(client.DownloadString(server.Url + "runtime-tests.js").Contains("/api/runtime-tests/commands"), "debug runtime-test dashboard script was not served");
+        Require(client.DownloadString(server.Url + "runtime-environment.js").Contains("/api/runtime-environment/start"), "debug environment dashboard script was not served");
+        DashboardAutomationInfoDto automation = JsonConvert.DeserializeObject<DashboardAutomationInfoDto>(
+            client.DownloadString(server.Url + "api/automation"), DebugJson.Settings);
+        Require(automation?.ApiVersion == 1 && automation.RuntimeTestsAvailable && automation.RuntimeEnvironmentAvailable,
+            "dashboard automation discovery endpoint failed");
+        JObject capabilities = JObject.Parse(client.DownloadString(server.Url + "api/runtime-tests/capabilities"));
+        Require((bool)capabilities["available"] && (bool)capabilities["mainThreadAgentReady"], "runtime-test capabilities endpoint failed");
+        client.Headers[HttpRequestHeader.ContentType] = "application/json";
+        string body = DebugJson.Serialize(new RuntimeTestCommandDto
+        {
+            RequestId = status.RequestId, RunId = status.RunId, Command = status.Command
+        });
+        RuntimeTestCommandAcceptedDto accepted = JsonConvert.DeserializeObject<RuntimeTestCommandAcceptedDto>(
+            client.UploadString(server.Url + "api/runtime-tests/commands", body), DebugJson.Settings);
+        Require(accepted?.Accepted == true && accepted.RequestId == status.RequestId, "runtime-test command endpoint failed");
+        RuntimeTestRunDto returned = JsonConvert.DeserializeObject<RuntimeTestRunDto>(
+            client.DownloadString(server.Url + "api/runtime-tests/runs/" + status.RequestId), DebugJson.Settings);
+        Require(returned?.Status == RuntimeTestCommandStatus.Queued, "runtime-test status endpoint failed");
+        DebugEvent[] queriedEvents = JsonConvert.DeserializeObject<DebugEvent[]>(client.UploadString(server.Url + "api/events/query",
+            DebugJson.Serialize(new DebugEventQueryDto { CorrelationId = "query-test", EntityType = "Item", TestRunId = "scenario-run", Limit = 10 })), DebugJson.Settings);
+        Require(queriedEvents?.Length == 1 && queriedEvents[0].EntityId == "42", "filtered event query endpoint failed");
+        RuntimeEnvironmentStatusDto initialEnvironment = JsonConvert.DeserializeObject<RuntimeEnvironmentStatusDto>(
+            client.DownloadString(server.Url + "api/runtime-environment/status"), DebugJson.Settings);
+        Require(initialEnvironment?.Stage == RuntimeEnvironmentStage.Idle, "runtime environment status endpoint failed");
+        RuntimeEnvironmentConfigurationDto initialConfiguration = JsonConvert.DeserializeObject<RuntimeEnvironmentConfigurationDto>(
+            client.DownloadString(server.Url + "api/runtime-environment/config"), DebugJson.Settings);
+        Require(initialConfiguration?.Exists == true && initialConfiguration.Configuration?.Port == 7777, "runtime environment configuration GET endpoint failed");
+        client.UploadString(server.Url + "api/runtime-environment/config", DebugJson.Serialize(new RuntimeEnvironmentStartRequestDto
+        {
+            ExecutablePath = "persisted-game.exe", Address = "10.0.0.2", Port = 7788, Password = "test-password"
+        }));
+        Require(savedEnvironment?.ExecutablePath == "persisted-game.exe" && savedEnvironment.Address == "10.0.0.2" &&
+            savedEnvironment.Port == 7788 && savedEnvironment.Password == "test-password", "runtime environment configuration POST endpoint failed");
+        RuntimeEnvironmentStatusDto startedEnvironment = JsonConvert.DeserializeObject<RuntimeEnvironmentStatusDto>(
+            client.UploadString(server.Url + "api/runtime-environment/start", DebugJson.Serialize(new RuntimeEnvironmentStartRequestDto { ExecutablePath = "test-game.exe" })), DebugJson.Settings);
+        Require(startedEnvironment?.Stage == RuntimeEnvironmentStage.LaunchingHost, "runtime environment start endpoint failed");
+        RuntimeEnvironmentStatusDto stoppedEnvironment = JsonConvert.DeserializeObject<RuntimeEnvironmentStatusDto>(
+            client.UploadString(server.Url + "api/runtime-environment/stop", "{}"), DebugJson.Settings);
+        Require(stoppedEnvironment?.Stage == RuntimeEnvironmentStage.Stopped, "runtime environment stop endpoint failed");
+    }
+#endif
 
     private static DebugSessionInfo Session(Process process) => new()
     {

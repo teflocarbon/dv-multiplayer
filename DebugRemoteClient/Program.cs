@@ -63,7 +63,14 @@ internal static class Program
     {
         if (args.Length > 0 && string.Equals(args[0], "--self-test", StringComparison.OrdinalIgnoreCase))
         {
-            try { DebugProtocolSelfTests.Run(); DebugPacketProjectorSelfTests.Run(); ReplicationCoordinator.RunSelfTest(); Console.WriteLine("Debug protocol, packet projection, and replication coordinator self-tests passed."); return 0; }
+            try
+            {
+                DebugProtocolSelfTests.Run(); DebugPacketProjectorSelfTests.Run(); ReplicationCoordinator.RunSelfTest();
+#if DEBUG
+                RuntimeTestCoordinator.RunSelfTest();
+#endif
+                Console.WriteLine("Debug protocol, packet projection, replication coordinator, and available debug coordinator self-tests passed."); return 0;
+            }
             catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
         }
         if (args.Length > 0 && string.Equals(args[0], "--dashboard", StringComparison.OrdinalIgnoreCase))
