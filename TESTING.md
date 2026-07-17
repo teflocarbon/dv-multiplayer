@@ -175,6 +175,35 @@ malformed-load rejection, quotas, depth, detached-state budgets, operation repla
 graph behavior remain covered by `Multiplayer.Core.Tests`; packet contracts remain covered by
 `Multiplayer.Protocol.Tests`.
 
+### Lost-and-Found runtime regression suite
+
+Run every `scenario.lost-and-found-*` entry against the client target. These scenarios use the
+single-item fixture orchestration: the dashboard creates exactly one tagged item, waits for its
+client inventory projection, captures the host/client network window, and retires that item from
+inventory, world, or virtual Lost and Found during unconditional cleanup. Every run must finish
+with `cleanupClean=true` and no tagged Unity representation, inventory slot, or registry entry.
+
+| Scenario | Runtime invariant |
+| --- | --- |
+| `scenario.lost-and-found-automatic-round-trip` | A personal item dropped beyond both players and left past the grace period is collected, privately listed with a compact handle, then restored through the real client/server retrieval API to its original slot and owner. |
+| `scenario.lost-and-found-stale-revision-recovery` | A stale revision is rejected without consuming the record; a current-revision retry succeeds. |
+| `scenario.lost-and-found-full-inventory-recovery` | Server-side slot planning rejects full-inventory evidence without losing the item, then accepts a valid retry. |
+| `scenario.lost-and-found-essential-star-recall` | The base-game essential-item Return/star route accepts a stale silhouette projection and revives the exact reserved slot. |
+| `scenario.lost-and-found-repeated-round-trip` | Two collection/retrieval cycles advance authority revisions, allocate fresh compact handles, preserve ownership, and leave no stale list entry. |
+| `scenario.lost-and-found-owner-nearby-protection` | A personal world item within the owner-protection radius remains materialized beyond the collection grace period. |
+| `scenario.lost-and-found-other-player-nearby-protection` | The owner can leave the area while another player near the item prevents collection. |
+| `scenario.lost-and-found-container-shell-round-trip` | A player-owned storage-container shell is collected and retrieved without losing its runtime identity or ownership. |
+| `scenario.lost-and-found-nonpersonal-exclusion` | Ordinary world junk is never promoted into a player's virtual Lost and Found. |
+| `scenario.lost-and-found-private-owner-list` | A collected item owned by the host disappears from the acting client's interest without being disclosed in that client's list. |
+| `scenario.lost-and-found-unknown-handle-rejection` | An unknown compact handle is rejected and cannot mutate an unrelated inventory fixture. |
+
+The deterministic `LostAndFoundTests` suite separately covers every policy branch, exact distance
+and grace boundaries, unknown positions, interaction/container exclusions, license exclusion,
+registry identity and privacy indexes, durable UUID/compact-handle separation, stale canonical
+invalidation, silhouette precedence, slot fallback, full inventory, wrong owner, stale revision,
+and unavailable inventory. `LostAndFoundPacketTests` verifies list, request-evidence, and result
+contracts independently of Unity.
+
 ### Adding runtime scenarios
 
 Runtime scenarios are self-registering Debug-only classes. Add one file under

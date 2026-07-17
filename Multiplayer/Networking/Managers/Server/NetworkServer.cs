@@ -2655,7 +2655,10 @@ public class NetworkServer : NetworkManager
             AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
             RejectionReason = rejectionReason ?? string.Empty
         }, DeliveryMethod.ReliableOrdered);
-        SendLostItemsSnapshot(player, packet.RequestId);
+        // Successful retrievals publish the changed owner snapshot at the shared commit point.
+        // Rejections can still invalidate a stale registry entry, so retain the explicit refresh.
+        if (!accepted)
+            SendLostItemsSnapshot(player, packet.RequestId);
         Log($"[LostAndFound Recall] Retrieval result sent: player=P{player.PlayerId}, " +
             $"request={packet.RequestId}, handle={packet.LostHandle}, accepted={accepted}, " +
             $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");

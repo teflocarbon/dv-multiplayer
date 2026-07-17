@@ -21,13 +21,29 @@ internal sealed class RuntimeTestCoordinator
             Available = true, MainThreadAgentReady = true, Role = session.Role, PlayerId = session.PlayerId,
             Capabilities = new[] { "runtime-self-check", "cold-container-quick-move-scenario" },
             Commands = new[] { "runtime.self-check", "scenario.cold-container-round-trip",
-                "scenario.cold-container-foreign-rejection" },
+                "scenario.cold-container-foreign-rejection",
+                "scenario.lost-and-found-self-test" },
             Tests = new[]
             {
                 new RuntimeTestDescriptorDto { TestId = "runtime.self-check", DisplayName = "Runtime self-check", Category = "Harness" },
                 ScenarioDescriptor("scenario.cold-container-round-trip", RuntimeScenarioFixtureOwnership.TargetPlayer),
-                ScenarioDescriptor("scenario.cold-container-foreign-rejection", RuntimeScenarioFixtureOwnership.HostPlayer)
+                ScenarioDescriptor("scenario.cold-container-foreign-rejection", RuntimeScenarioFixtureOwnership.HostPlayer),
+                ItemScenarioDescriptor()
             }
+        };
+        private static RuntimeTestDescriptorDto ItemScenarioDescriptor() => new()
+        {
+            TestId = "scenario.lost-and-found-self-test",
+            DisplayName = "Lost and Found item fixture self-test",
+            Category = "Scenarios",
+            MutationKind = RuntimeTestMutationKind.IsolatedMutation,
+            TimeoutMilliseconds = 60000,
+            IsScenario = true,
+            ScenarioOrchestration = RuntimeScenarioOrchestrationKind.InventoryItemFixture,
+            FixturePolicy = RuntimeScenarioFixturePolicy.InventoryItem,
+            CleanupPolicy = RuntimeScenarioCleanupPolicy.RetireInventoryFixturesAndPurgeRepresentations,
+            FixtureItemOwnership = RuntimeScenarioFixtureOwnership.TargetPlayer,
+            DefaultItemPrefabName = "CommsRadio"
         };
         private static RuntimeTestDescriptorDto ScenarioDescriptor(string id,
             RuntimeScenarioFixtureOwnership ownership,
@@ -144,6 +160,7 @@ internal sealed class RuntimeTestCoordinator
         public string ContainerPrefabName;
         public string ItemPrefabName;
         public bool ForeignOwnedItem;
+        public bool ItemOnly;
         public int ProjectionAttempt;
         public DateTime ProjectionDeadlineUtc;
         public DateTime ProjectionNextPollUtc;
@@ -204,7 +221,7 @@ internal sealed class RuntimeTestCoordinator
         };
         RuntimeTestCoordinator coordinator = new(() => new[] { host, client }, session => clients[session.SessionId]);
         RuntimeTestCapabilitiesDto capabilities = coordinator.GetCapabilities();
-        if (!capabilities.Available || capabilities.Commands.Length != 3 || capabilities.Tests.Length != 3)
+        if (!capabilities.Available || capabilities.Commands.Length != 4 || capabilities.Tests.Length != 4)
             throw new InvalidOperationException("Runtime-test coordinator self-test failed capability aggregation.");
         RuntimeTestCommandAcceptedDto accepted = coordinator.Enqueue(new RuntimeTestCommandDto
         {
@@ -266,6 +283,22 @@ internal sealed class RuntimeTestCoordinator
             foreignRun.Processes.Count != 9 || captureStarts != 2 || captureStops != 2)
             throw new InvalidOperationException(
                 "Runtime-test coordinator self-test failed foreign rejection fixture lifecycle.");
+
+        RuntimeTestCommandAcceptedDto itemAccepted = scenarioCoordinator.Enqueue(
+            new RuntimeTestCommandDto
+            {
+                RequestId = "lost-item-parent", RunId = "lost-item-run",
+                CaseId = "lost-and-found", Command = "scenario.lost-and-found-self-test",
+                TargetSessionId = client.SessionId,
+                MutationKind = RuntimeTestMutationKind.IsolatedMutation
+            });
+        RuntimeTestRunDto itemRun = WaitForSelfTestRun(
+            scenarioCoordinator, "lost-item-parent");
+        if (!itemAccepted.Accepted || itemRun?.Status != RuntimeTestCommandStatus.Passed ||
+            !Equals(itemRun.Result["cleanupClean"], true) ||
+            itemRun.Processes.Count != 7 || captureStarts != 3 || captureStops != 3)
+            throw new InvalidOperationException(
+                "Runtime-test coordinator self-test failed item-only fixture lifecycle.");
     }
 
     private static RuntimeTestRunDto WaitForSelfTestRun(
@@ -328,8 +361,9 @@ internal sealed class RuntimeTestCoordinator
         if (scenario && runs.Values.Any(candidate => !Terminal(candidate.Parent.Status) &&
                 candidate.IsScenario))
             return Rejected(command, "another-scenario-is-running");
-        if (scenario && descriptor.ScenarioOrchestration ==
-            RuntimeScenarioOrchestrationKind.InventoryFixturePair)
+        if (scenario && descriptor.ScenarioOrchestration is
+            RuntimeScenarioOrchestrationKind.InventoryFixturePair or
+            RuntimeScenarioOrchestrationKind.InventoryItemFixture)
             return EnqueueFixtureBackedScenario(command, descriptor);
         if (scenario && descriptor.ScenarioOrchestration !=
             RuntimeScenarioOrchestrationKind.None)
@@ -466,7 +500,9 @@ internal sealed class RuntimeTestCoordinator
     private RuntimeTestCommandAcceptedDto EnqueueFixtureBackedScenario(
         RuntimeTestCommandDto command, RuntimeTestDescriptorDto descriptor)
     {
-        if (descriptor.FixturePolicy != RuntimeScenarioFixturePolicy.InventoryContainerAndItem)
+        bool itemOnly = descriptor.FixturePolicy == RuntimeScenarioFixturePolicy.InventoryItem;
+        if (!itemOnly && descriptor.FixturePolicy !=
+            RuntimeScenarioFixturePolicy.InventoryContainerAndItem)
             return Rejected(command, "unsupported-scenario-fixture-policy:" +
                 descriptor.FixturePolicy);
         if (descriptor.CleanupPolicy !=
@@ -504,7 +540,8 @@ internal sealed class RuntimeTestCoordinator
             {
                 RequestId = command.RequestId, RunId = command.RunId,
                 CaseId = command.CaseId, PhaseId = "arrange",
-                StepId = "create-container-fixture", Command = command.Command,
+                StepId = itemOnly ? "create-item-fixture" : "create-container-fixture",
+                Command = command.Command,
                 Status = RuntimeTestCommandStatus.Running, QueuedUtc = DateTime.UtcNow,
                 StartedUtc = DateTime.UtcNow, Role = "dashboard"
             },
@@ -520,7 +557,9 @@ internal sealed class RuntimeTestCoordinator
                     descriptor.DefaultItemPrefabName),
                 ForeignOwnedItem = descriptor.FixtureItemOwnership ==
                     RuntimeScenarioFixtureOwnership.HostPlayer,
-                Stage = FixtureScenarioStage.CreatingContainer
+                ItemOnly = itemOnly,
+                Stage = itemOnly ? FixtureScenarioStage.CreatingItem :
+                    FixtureScenarioStage.CreatingContainer
             }
         };
         if (startCapture != null)
@@ -535,15 +574,25 @@ internal sealed class RuntimeTestCoordinator
         coordinated.Parent.Result["fixtureOwnerPlayerId"] = clientTargets[0].PlayerId;
         coordinated.Parent.Result["foreignOwnedItem"] =
             coordinated.FixtureScenario.ForeignOwnedItem;
-        coordinated.FixtureScenario.ActiveChild = EnqueueStage(coordinated,
-            hosts[0], "create-container-fixture", "inventory.fixture-create",
-            "arrange", FixtureParameters(command, container: true,
-                descriptor.FixtureContainerOwnership ==
-                    RuntimeScenarioFixtureOwnership.HostPlayer
-                        ? hosts[0].PlayerId.Value
-                        : clientTargets[0].PlayerId.Value,
-                clientTargets[0].PlayerId.Value,
-                coordinated.FixtureScenario.ContainerPrefabName), 15000);
+        if (itemOnly)
+            coordinated.FixtureScenario.ActiveChild = EnqueueStage(coordinated,
+                hosts[0], "create-item-fixture", "inventory.fixture-create", "arrange",
+                FixtureParameters(command, container: false,
+                    coordinated.FixtureScenario.ForeignOwnedItem
+                        ? hosts[0].PlayerId.Value : clientTargets[0].PlayerId.Value,
+                    clientTargets[0].PlayerId.Value,
+                    coordinated.FixtureScenario.ItemPrefabName,
+                    descriptor.FixtureItemIsPersonal), 15000);
+        else
+            coordinated.FixtureScenario.ActiveChild = EnqueueStage(coordinated,
+                hosts[0], "create-container-fixture", "inventory.fixture-create",
+                "arrange", FixtureParameters(command, container: true,
+                    descriptor.FixtureContainerOwnership ==
+                        RuntimeScenarioFixtureOwnership.HostPlayer
+                            ? hosts[0].PlayerId.Value
+                            : clientTargets[0].PlayerId.Value,
+                    clientTargets[0].PlayerId.Value,
+                    coordinated.FixtureScenario.ContainerPrefabName), 15000);
         runs[command.RequestId] = coordinated;
         Publish(coordinated.Parent);
         return new RuntimeTestCommandAcceptedDto
@@ -613,7 +662,8 @@ internal sealed class RuntimeTestCoordinator
                             scenario.ForeignOwnedItem ? scenario.Host.PlayerId.Value :
                                 scenario.Client.PlayerId.Value,
                             scenario.Client.PlayerId.Value,
-                            scenario.ItemPrefabName), 15000);
+                            scenario.ItemPrefabName,
+                            scenario.Descriptor.FixtureItemIsPersonal), 15000);
                     break;
 
                 case FixtureScenarioStage.CreatingItem:
@@ -621,7 +671,8 @@ internal sealed class RuntimeTestCoordinator
                         !TryResultUShort(child?.Last, "netId", out scenario.ItemNetId))
                     {
                         SetScenarioFailure(scenario, child, "item-fixture-create-failed");
-                        BeginContainerCleanup(run);
+                        if (scenario.ItemOnly) FinishFixtureScenario(run);
+                        else BeginContainerCleanup(run);
                         break;
                     }
                     run.Parent.Result["itemNetId"] = scenario.ItemNetId;
@@ -629,7 +680,8 @@ internal sealed class RuntimeTestCoordinator
                             out scenario.ItemFixtureToken))
                     {
                         SetScenarioFailure(scenario, child, "item-fixture-token-missing");
-                        BeginContainerCleanup(run);
+                        if (scenario.ItemOnly) FinishFixtureScenario(run);
+                        else BeginContainerCleanup(run);
                         break;
                     }
                     if (scenario.CancellationRequested)
@@ -689,7 +741,9 @@ internal sealed class RuntimeTestCoordinator
                         ["itemNetId"] = scenario.ItemNetId.ToString(
                             CultureInfo.InvariantCulture),
                         ["shellFixtureToken"] = scenario.ShellFixtureToken,
-                        ["itemFixtureToken"] = scenario.ItemFixtureToken
+                        ["itemFixtureToken"] = scenario.ItemFixtureToken,
+                        ["itemBelongsToPlayer"] = scenario.Descriptor.FixtureItemIsPersonal
+                            ? "true" : "false"
                     };
                     scenario.ActiveChild = EnqueueStage(run, scenario.Client,
                         "client-scenario", scenario.Command.Command, "act", parameters,
@@ -719,7 +773,15 @@ internal sealed class RuntimeTestCoordinator
                     if (!StagePassed(child))
                         scenario.CleanupFailures.Add("item-fixture:" +
                             StageError(child, "destroy-failed"));
-                    BeginContainerCleanup(run);
+                    if (scenario.ItemOnly)
+                    {
+                        scenario.Stage = FixtureScenarioStage.CleaningHostFixtures;
+                        scenario.ActiveChild = EnqueueStage(run, scenario.Host,
+                            "purge-host-fixture-representations",
+                            "inventory.fixture-clean-local", "cleanup",
+                            FixtureCleanupParameters(scenario), 10000);
+                    }
+                    else BeginContainerCleanup(run);
                     break;
 
                 case FixtureScenarioStage.DestroyingContainer:
@@ -730,11 +792,7 @@ internal sealed class RuntimeTestCoordinator
                     scenario.ActiveChild = EnqueueStage(run, scenario.Host,
                         "purge-host-fixture-representations",
                         "inventory.fixture-clean-local", "cleanup",
-                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            ["shellFixtureToken"] = scenario.ShellFixtureToken,
-                            ["itemFixtureToken"] = scenario.ItemFixtureToken
-                        }, 10000);
+                        FixtureCleanupParameters(scenario), 10000);
                     break;
 
                 case FixtureScenarioStage.CleaningHostFixtures:
@@ -745,11 +803,7 @@ internal sealed class RuntimeTestCoordinator
                     scenario.ActiveChild = EnqueueStage(run, scenario.Client,
                         "purge-client-fixture-representations",
                         "inventory.fixture-clean-local", "cleanup",
-                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            ["shellFixtureToken"] = scenario.ShellFixtureToken,
-                            ["itemFixtureToken"] = scenario.ItemFixtureToken
-                        }, 10000);
+                        FixtureCleanupParameters(scenario), 10000);
                     break;
 
                 case FixtureScenarioStage.CleaningClientFixtures:
@@ -883,7 +937,7 @@ internal sealed class RuntimeTestCoordinator
 
     private static Dictionary<string, string> FixtureParameters(
         RuntimeTestCommandDto command, bool container, byte ownerPlayerId,
-        byte holderPlayerId, string defaultPrefabName)
+        byte holderPlayerId, string defaultPrefabName, bool belongsToPlayer = true)
     {
         Dictionary<string, string> result = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -893,6 +947,8 @@ internal sealed class RuntimeTestCoordinator
             ["holderPlayerId"] = holderPlayerId.ToString(CultureInfo.InvariantCulture),
             ["placement"] = "inventory"
         };
+        if (!container)
+            result["belongsToPlayer"] = belongsToPlayer ? "true" : "false";
         return result;
     }
 
@@ -904,6 +960,21 @@ internal sealed class RuntimeTestCoordinator
         ["materializedNetId"] = scenario.MaterializedNetId.ToString(
             CultureInfo.InvariantCulture)
     };
+
+    private static Dictionary<string, string> FixtureCleanupParameters(
+        FixtureScenario scenario)
+    {
+        Dictionary<string, string> result = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["itemFixtureToken"] = scenario.ItemFixtureToken,
+            ["itemNetId"] = scenario.ItemNetId.ToString(CultureInfo.InvariantCulture),
+            ["materializedNetId"] = scenario.MaterializedNetId.ToString(
+                CultureInfo.InvariantCulture)
+        };
+        if (!scenario.ItemOnly)
+            result["shellFixtureToken"] = scenario.ShellFixtureToken;
+        return result;
+    }
 
     private static string Parameter(RuntimeTestCommandDto command, string key,
         string fallback) => command.Parameters != null &&
@@ -1024,13 +1095,13 @@ internal sealed class RuntimeTestCoordinator
         {
             ushort netId = item.Value<ushort?>("netId") ?? 0;
             string prefab = item.Value<string>("prefabName") ?? string.Empty;
-            if (netId == scenario.ShellNetId || netId == itemId)
+            if ((!scenario.ItemOnly && netId == scenario.ShellNetId) || netId == itemId)
             {
                 error = "fixture-netid-still-present:" + netId;
                 return false;
             }
-            if (netId == 0 && (string.Equals(prefab, scenario.ContainerPrefabName,
-                    StringComparison.OrdinalIgnoreCase) ||
+            if (netId == 0 && ((!scenario.ItemOnly && string.Equals(prefab,
+                    scenario.ContainerPrefabName, StringComparison.OrdinalIgnoreCase)) ||
                 string.Equals(prefab, scenario.ItemPrefabName,
                     StringComparison.OrdinalIgnoreCase)))
             {
@@ -1064,20 +1135,20 @@ internal sealed class RuntimeTestCoordinator
             return false;
         }
         JArray items = raw as JArray ?? JArray.FromObject(raw ?? Array.Empty<object>());
-        JObject shell = items.OfType<JObject>().FirstOrDefault(item =>
+        JObject shell = scenario.ItemOnly ? null : items.OfType<JObject>().FirstOrDefault(item =>
             (item.Value<ushort?>("netId") ?? 0) == scenario.ShellNetId);
         JObject payload = items.OfType<JObject>().FirstOrDefault(item =>
             (item.Value<ushort?>("netId") ?? 0) == scenario.ItemNetId);
-        if (shell == null || payload == null)
+        if ((!scenario.ItemOnly && shell == null) || payload == null)
         {
-            error = $"missing:{(shell == null ? "container" : string.Empty)}" +
-                $"{(shell == null && payload == null ? "," : string.Empty)}" +
+            error = $"missing:{(!scenario.ItemOnly && shell == null ? "container" : string.Empty)}" +
+                $"{(!scenario.ItemOnly && shell == null && payload == null ? "," : string.Empty)}" +
                 $"{(payload == null ? "item" : string.Empty)}";
             return false;
         }
-        if (shell.Value<bool?>("normalVisibleSlot") != true ||
+        if ((!scenario.ItemOnly && (shell.Value<bool?>("normalVisibleSlot") != true ||
+            shell.Value<bool?>("returnedByActiveQuery") != true)) ||
             payload.Value<bool?>("normalVisibleSlot") != true ||
-            shell.Value<bool?>("returnedByActiveQuery") != true ||
             payload.Value<bool?>("returnedByActiveQuery") != true)
         {
             error = "fixtures-not-visible-in-active-inventory-query";

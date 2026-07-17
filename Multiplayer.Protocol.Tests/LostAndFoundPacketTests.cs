@@ -48,6 +48,34 @@ public sealed class LostAndFoundPacketTests
     }
 
     [Test]
+    public void Snapshot_RoundTripsMultiplePrivateListRowsInOrder()
+    {
+        ClientboundLostItemsSnapshotPacket result = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ClientboundLostItemsSnapshotPacket>(packet => result =
+            new ClientboundLostItemsSnapshotPacket
+            {
+                Handles = packet.Handles, NetIds = packet.NetIds,
+                Revisions = packet.Revisions, PrefabNames = packet.PrefabNames,
+                DisplayNames = packet.DisplayNames, Reasons = packet.Reasons,
+                LostUtcTicks = packet.LostUtcTicks
+            });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundLostItemsSnapshotPacket
+        {
+            Handles = new uint[] { 1, 2 }, NetIds = new ushort[] { 700, 701 },
+            Revisions = new uint[] { 5, 8 },
+            PrefabNames = new[] { "CommsRadio", "RouteMap" },
+            DisplayNames = new[] { "Radio", "Map" }, Reasons = new byte[] { 0, 5 },
+            LostUtcTicks = new long[] { 10, 20 }
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+        Assert.That(result.Handles, Is.EqualTo(new uint[] { 1, 2 }));
+        Assert.That(result.NetIds, Is.EqualTo(new ushort[] { 700, 701 }));
+        Assert.That(result.PrefabNames, Is.EqualTo(new[] { "CommsRadio", "RouteMap" }));
+    }
+
+    [Test]
     public void RetrievalRequest_RoundTripsInventoryEvidence()
     {
         ServerboundLostItemRetrievePacket result = null;

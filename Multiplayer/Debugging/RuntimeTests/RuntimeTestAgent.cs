@@ -1,6 +1,7 @@
 #if DEBUG
 using DV.Interaction;
 using DV.Common;
+using DV.InventorySystem;
 using DV.UI;
 using DV.UI.PresetEditors;
 using Multiplayer.API;
@@ -428,6 +429,8 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (lifecycle?.IsServerRunning == true) capabilities.Add("server-runtime");
         if (lifecycle?.IsClientRunning == true) capabilities.Add("client-runtime");
+        if (lifecycle?.IsClientRunning == true && Inventory.Instance != null)
+            capabilities.Add("lost-and-found-runtime-scenario");
 
         Dictionary<string, object> anchors = new(StringComparer.Ordinal);
         if (sceneAnchorsDirty)

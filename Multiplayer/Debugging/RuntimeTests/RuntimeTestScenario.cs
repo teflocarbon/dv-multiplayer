@@ -228,23 +228,36 @@ internal static class RuntimeTestScenarioRunner
     public static IEnumerator Run(RuntimeTestScenarioContext context, IEnumerator body)
     {
         Exception failure = null;
+        Stack<IEnumerator> operations = new();
+        operations.Push(body);
         try
         {
-            while (true)
+            while (operations.Count > 0)
             {
+                IEnumerator operation = operations.Peek();
                 bool moved;
                 object current = null;
                 try
                 {
-                    moved = body.MoveNext();
-                    if (moved) current = body.Current;
+                    moved = operation.MoveNext();
+                    if (moved) current = operation.Current;
                 }
                 catch (Exception exception)
                 {
                     failure = exception.GetBaseException();
                     break;
                 }
-                if (!moved) break;
+                if (!moved)
+                {
+                    operations.Pop();
+                    (operation as IDisposable)?.Dispose();
+                    continue;
+                }
+                if (current is IEnumerator nested)
+                {
+                    operations.Push(nested);
+                    continue;
+                }
                 yield return current;
             }
 
@@ -254,7 +267,8 @@ internal static class RuntimeTestScenarioRunner
         finally
         {
             context.AbortCleanup();
-            (body as IDisposable)?.Dispose();
+            while (operations.Count > 0)
+                (operations.Pop() as IDisposable)?.Dispose();
         }
 
         if (failure != null) throw failure;

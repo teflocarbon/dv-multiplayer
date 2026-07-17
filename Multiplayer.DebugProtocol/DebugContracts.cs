@@ -66,8 +66,8 @@ public sealed class DebugEvent
 #if DEBUG
 public enum RuntimeTestCommandStatus { Queued, Running, Passed, Failed, FailedDirty, Cancelled, Unsupported }
 public enum RuntimeTestMutationKind { ReadOnly, IsolatedMutation, Destructive }
-public enum RuntimeScenarioOrchestrationKind { None, InventoryFixturePair }
-public enum RuntimeScenarioFixturePolicy { None, InventoryContainerAndItem }
+public enum RuntimeScenarioOrchestrationKind { None, InventoryFixturePair, InventoryItemFixture }
+public enum RuntimeScenarioFixturePolicy { None, InventoryContainerAndItem, InventoryItem }
 public enum RuntimeScenarioCleanupPolicy { ScenarioOwned, RetireInventoryFixturesAndPurgeRepresentations }
 public enum RuntimeScenarioFixtureOwnership { TargetPlayer, HostPlayer }
 
@@ -102,6 +102,7 @@ public sealed class RuntimeTestDescriptorDto
     public RuntimeScenarioCleanupPolicy CleanupPolicy { get; set; }
     public RuntimeScenarioFixtureOwnership FixtureContainerOwnership { get; set; }
     public RuntimeScenarioFixtureOwnership FixtureItemOwnership { get; set; }
+    public bool FixtureItemIsPersonal { get; set; } = true;
     public string DefaultContainerPrefabName { get; set; } = string.Empty;
     public string DefaultItemPrefabName { get; set; } = string.Empty;
 }
