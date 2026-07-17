@@ -2244,6 +2244,24 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
+#if DEBUG
+    internal void RequestLostItemRetrievalForRuntimeTest(uint requestId, uint lostHandle,
+        uint expectedRevision, int requestedSlot, int existingItemSlot,
+        int inventoryCapacity, int[] occupiedSlots)
+    {
+        SendPacketToServer(new ServerboundLostItemRetrievePacket
+        {
+            RequestId = requestId,
+            LostHandle = lostHandle,
+            ExpectedRevision = expectedRevision,
+            RequestedSlot = requestedSlot,
+            ExistingItemSlot = existingItemSlot,
+            InventoryCapacity = inventoryCapacity,
+            OccupiedSlots = occupiedSlots ?? Array.Empty<int>()
+        }, DeliveryMethod.ReliableOrdered);
+    }
+#endif
+
     public void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot)
     {
         SendPacketToServer(new ServerboundItemRecallPacket

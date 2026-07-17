@@ -80,6 +80,7 @@ internal static class RuntimeTestDescriptorCloner
         CleanupPolicy = value.CleanupPolicy,
         FixtureContainerOwnership = value.FixtureContainerOwnership,
         FixtureItemOwnership = value.FixtureItemOwnership,
+        FixtureItemIsPersonal = value.FixtureItemIsPersonal,
         DefaultContainerPrefabName = value.DefaultContainerPrefabName,
         DefaultItemPrefabName = value.DefaultItemPrefabName
     };

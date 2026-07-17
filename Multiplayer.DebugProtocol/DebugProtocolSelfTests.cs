@@ -140,6 +140,7 @@ public static class DebugProtocolSelfTests
             CleanupPolicy = RuntimeScenarioCleanupPolicy.RetireInventoryFixturesAndPurgeRepresentations,
             FixtureContainerOwnership = RuntimeScenarioFixtureOwnership.TargetPlayer,
             FixtureItemOwnership = RuntimeScenarioFixtureOwnership.HostPlayer,
+            FixtureItemIsPersonal = false,
             DefaultContainerPrefabName = "ItemContainerCrate",
             DefaultItemPrefabName = "lighter"
         };
@@ -152,9 +153,19 @@ public static class DebugProtocolSelfTests
             restored.CleanupPolicy == RuntimeScenarioCleanupPolicy.RetireInventoryFixturesAndPurgeRepresentations &&
             restored.FixtureContainerOwnership == RuntimeScenarioFixtureOwnership.TargetPlayer &&
             restored.FixtureItemOwnership == RuntimeScenarioFixtureOwnership.HostPlayer &&
+            restored.FixtureItemIsPersonal == false &&
             restored.DefaultContainerPrefabName == descriptor.DefaultContainerPrefabName &&
             restored.DefaultItemPrefabName == descriptor.DefaultItemPrefabName,
             "runtime scenario descriptor metadata did not round-trip");
+
+        descriptor.ScenarioOrchestration = RuntimeScenarioOrchestrationKind.InventoryItemFixture;
+        descriptor.FixturePolicy = RuntimeScenarioFixturePolicy.InventoryItem;
+        restored = JsonConvert.DeserializeObject<RuntimeTestDescriptorDto>(
+            DebugJson.Serialize(descriptor), DebugJson.Settings);
+        Require(restored?.ScenarioOrchestration ==
+                RuntimeScenarioOrchestrationKind.InventoryItemFixture &&
+            restored.FixturePolicy == RuntimeScenarioFixturePolicy.InventoryItem,
+            "item-only runtime scenario metadata did not round-trip");
     }
 
     private static void TestRuntimeTestEndpoints()

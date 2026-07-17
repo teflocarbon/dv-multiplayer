@@ -185,7 +185,8 @@ internal sealed class InventoryRuntimeFixtureDriver
             throw new InvalidOperationException("fixture-netid-allocation-failed");
         }
         if (item.Item?.InventorySpecs != null)
-            item.Item.InventorySpecs.BelongsToPlayer = ownerId != 0;
+            item.Item.InventorySpecs.BelongsToPlayer = OptionalBool(command,
+                "belongsToPlayer", ownerId != 0);
         item.BeginColdMaterialization();
         bool interactionAllowed = item.Item?.InteractionAllowed == true;
         Rigidbody body = item.Item?.ItemRigidbody;
@@ -377,6 +378,7 @@ internal sealed class InventoryRuntimeFixtureDriver
             yield break;
         }
         ushort netId = item.NetId;
+        NetworkedLostAndFoundManager.RemoveRuntimeFixture(netId);
         ItemUpdateData destroy = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy) ??
             throw new InvalidOperationException("fixture-destroy-snapshot-unavailable");
         if (AuthoritativeItemRegistry.TryGet(netId,
@@ -409,6 +411,11 @@ internal sealed class InventoryRuntimeFixtureDriver
     public IEnumerator CleanupLocalFixtures(RuntimeTestCommandDto command,
         RuntimeTestRunDto run)
     {
+        foreach (string key in new[] { "itemNetId", "materializedNetId" })
+            if (command.Parameters.TryGetValue(key, out string idText) &&
+                ushort.TryParse(idText, NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out ushort id) && id != 0)
+                NetworkedLostAndFoundManager.RemoveRuntimeFixture(id);
         HashSet<Guid> tokens = new();
         foreach (string key in new[] { "itemFixtureToken", "shellFixtureToken" })
             if (command.Parameters.TryGetValue(key, out string raw) &&
@@ -426,6 +433,7 @@ internal sealed class InventoryRuntimeFixtureDriver
         {
             NetworkedItem item = marker.GetComponent<NetworkedItem>();
             if (item == null) continue;
+            NetworkedLostAndFoundManager.RemoveRuntimeFixture(item.NetId);
             if (NetworkLifecycle.Instance.IsHost())
                 PurgeHostFixtureRepresentation(item, marker.Token);
             else
@@ -626,6 +634,9 @@ internal sealed class InventoryRuntimeFixtureDriver
         command.Parameters.TryGetValue(key, out string text) &&
         byte.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out byte value)
             ? value : fallback;
+    private static bool OptionalBool(RuntimeTestCommandDto command, string key, bool fallback) =>
+        command.Parameters.TryGetValue(key, out string text) &&
+        bool.TryParse(text, out bool value) ? value : fallback;
     private static ushort RequiredUShort(RuntimeTestCommandDto command, string key) =>
         command.Parameters.TryGetValue(key, out string text) &&
         ushort.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture,
