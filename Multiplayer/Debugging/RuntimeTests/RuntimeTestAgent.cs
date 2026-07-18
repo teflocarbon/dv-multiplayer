@@ -4,6 +4,8 @@ using DV.Common;
 using DV.InventorySystem;
 using DV.UI;
 using DV.UI.PresetEditors;
+using DV.UserManagement;
+using DV.UserManagement.Data;
 using Multiplayer.API;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.UI.ServerBrowser;
@@ -88,7 +90,8 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
     private void Update()
     {
         if (Time.unscaledTime >= nextCapabilityRefresh) RefreshCapabilities();
-        if (active == null && queued.TryDequeue(out RuntimeTestCommandDto command))
+        if (active == null && !RuntimeTestControlState.TestsPaused &&
+            queued.TryDequeue(out RuntimeTestCommandDto command))
             active = StartCoroutine(Execute(command));
     }
 
@@ -159,18 +162,24 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             AddRuntimeContext(run);
         }
         RuntimeTestScope.Set(command);
+        RuntimeTestControlState.SetActiveTest(command.Command, command.RunId);
         DebugRuntime.Publish("runtime-test", "runtime-test.started", DebugRuntimeSide.Shared,
             correlationId: command.RunId, data: new() { ["requestId"] = command.RequestId, ["command"] = command.Command });
 
         IEnumerator operation = command.Command switch
         {
             "runtime.self-check" => SelfCheck(run),
+            "runtime.control-status" => ControlStatus(run),
+            "runtime.interaction-mode" => InteractionMode(command, run),
+            "runtime.neutralize" => RuntimeTestGameState.EnsureNeutral(run, "neutralize"),
             "environment.status" => EnvironmentStatus(run),
             "environment.save-catalog" => SaveCatalog(run),
             "environment.host-save" => HostSave(command, run),
             "environment.host-latest-save" => HostSave(command, run),
             "environment.connect-client" => ConnectClient(command, run),
             "player.teleport" => Teleport(command, run),
+            "player.position" => PlayerPosition(command, run),
+            "item.look-at" => itemDriver.LookAt(command, run),
             "item.pickup" => itemDriver.Pickup(command, run),
             "item.drop" => itemDriver.Drop(command, run),
             "item.throw" => itemDriver.Throw(command, run),
@@ -190,9 +199,18 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             yield break;
         }
 
+        operation = PrepareAndRun(run, operation);
+
         float deadline = Time.realtimeSinceStartup + command.TimeoutMilliseconds / 1000f;
         while (true)
         {
+            if (RuntimeTestControlState.TestsPaused)
+            {
+                // Human control is an explicit suspension, not test execution time.
+                deadline += Time.unscaledDeltaTime;
+                yield return null;
+                continue;
+            }
             if (cancelled.ContainsKey(command.RequestId))
             {
                 (operation as IDisposable)?.Dispose();
@@ -234,7 +252,62 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             yield return yielded;
         }
         (operation as IDisposable)?.Dispose();
+
+        // Every command leaves the game at a known gameplay boundary, even when
+        // the command failed, timed out, or was cancelled. This prevents an open
+        // container, inventory, pause menu, or screenspace mode contaminating the
+        // next queued scenario.
+        Exception neutralFailure = null;
+        IEnumerator neutral = RuntimeTestGameState.EnsureNeutral(run, "neutralAfter", 4f);
+        while (true)
+        {
+            if (RuntimeTestControlState.TestsPaused)
+            {
+                yield return null;
+                continue;
+            }
+            bool moved = false;
+            object yielded = null;
+            try
+            {
+                moved = neutral.MoveNext();
+                if (moved) yielded = neutral.Current;
+            }
+            catch (Exception exception)
+            {
+                neutralFailure = exception.GetBaseException();
+            }
+            if (neutralFailure != null || !moved) break;
+            yield return yielded;
+        }
+        (neutral as IDisposable)?.Dispose();
+        if (neutralFailure != null)
+        {
+            lock (run)
+            {
+                run.Status = RuntimeTestCommandStatus.FailedDirty;
+                run.Error = string.IsNullOrEmpty(run.Error) ? neutralFailure.Message :
+                    run.Error + ";neutralization-failed:" + neutralFailure.Message;
+                run.CompletedUtc = DateTime.UtcNow;
+            }
+        }
         Finish(command, run);
+    }
+
+    private static IEnumerator PrepareAndRun(RuntimeTestRunDto run, IEnumerator operation)
+    {
+        IEnumerator preparation = RuntimeTestGameState.EnsureNeutral(run, "neutralBefore");
+        try
+        {
+            while (preparation.MoveNext()) yield return preparation.Current;
+        }
+        finally { (preparation as IDisposable)?.Dispose(); }
+
+        try
+        {
+            while (operation.MoveNext()) yield return operation.Current;
+        }
+        finally { (operation as IDisposable)?.Dispose(); }
     }
 
     private static IEnumerator SelfCheck(RuntimeTestRunDto run)
@@ -258,6 +331,40 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         if (WorldMover.Instance == null) throw new InvalidOperationException("world-mover-unavailable");
     }
 
+    private static IEnumerator ControlStatus(RuntimeTestRunDto run)
+    {
+        yield return null;
+        lock (run)
+        {
+            run.Result["control"] = RuntimeTestControlState.Snapshot();
+            run.Result["gameState"] = RuntimeTestGameState.Snapshot();
+        }
+    }
+
+    private static IEnumerator InteractionMode(RuntimeTestCommandDto command,
+        RuntimeTestRunDto run)
+    {
+        string requested = OptionalString(command, "mode", "Pickup").Trim();
+        RuntimeTestInteractionMode mode = requested.Equals("Screenspace",
+            StringComparison.OrdinalIgnoreCase) || requested.Equals("Alt",
+            StringComparison.OrdinalIgnoreCase)
+                ? RuntimeTestInteractionMode.Screenspace
+                : requested.Equals("Pickup", StringComparison.OrdinalIgnoreCase)
+                    ? RuntimeTestInteractionMode.Pickup
+                    : throw new ArgumentException("invalid-interaction-mode:" + requested);
+        RuntimeTestControlState.SetInteractionMode(mode);
+        yield return null;
+        bool actualScreenspace = ScreenspaceMouse.Instance?.on == true;
+        lock (run)
+        {
+            run.Result["requestedMode"] = mode.ToString();
+            run.Result["actualMode"] = actualScreenspace ? "Screenspace" : "Pickup";
+            run.Result["control"] = RuntimeTestControlState.Snapshot();
+        }
+        if (actualScreenspace != (mode == RuntimeTestInteractionMode.Screenspace))
+            throw new InvalidOperationException("interaction-mode-not-applied");
+    }
+
     private static IEnumerator EnvironmentStatus(RuntimeTestRunDto run)
     {
         yield return null;
@@ -273,6 +380,9 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             run.Result["clientRunning"] = lifecycle?.IsClientRunning == true;
             run.Result["networkLoadState"] = lifecycle?.Client?.LoadingState.ToString() ?? "None";
             run.Result["networkComplete"] = lifecycle?.Client?.LoadingState == Networking.Data.PlayerLoadingState.Complete;
+            run.Result["control"] = RuntimeTestControlState.Snapshot();
+            run.Result["gameState"] = RuntimeTestGameState.Snapshot();
+            RuntimeTestBaselineSaveTracker.AddStatus(run.Result);
         }
     }
 
@@ -350,19 +460,31 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             throw new InvalidOperationException("configured-manual-save-ambiguous:" + AvailableSaveSummary(matches));
         ISaveGame selectedSave = matches[0];
 
-        // Do not invoke the generic Continue button here.  That button resolves DV's
-        // latest save before this exact selection is applied, which lets a newer
-        // autosave contaminate the supposedly clean test environment.  Enter the
-        // selected-save path directly with the exact manual save object instead.
-        MethodInfo continueSelected = typeof(MainMenuController).GetMethod("OnContinueGameRequested", BindingFlags.Instance | BindingFlags.NonPublic);
-        if (continueSelected == null) throw new InvalidOperationException("continue-selected-save-action-unavailable");
-        continueSelected.Invoke(menu, new object[] { selectedSave });
-        yield return null;
-        yield return null;
+        // Configure DV's real launcher with the exact manual save.  Invoking
+        // MainMenuController.OnContinueGameRequested directly skips the launcher;
+        // it immediately calls AStartGameData.Continue and begins loading.  The
+        // normal launcher path is important because its Run action also fires the
+        // menu's ContinueGameRequested pipeline used by multiplayer hosting.
+        RuntimeTestBaselineSaveTracker.Begin(selectedSave);
+        LauncherController launcher = menu.rightPaneController?.launcherController;
+        if (launcher == null) throw new InvalidOperationException("save-launcher-unavailable");
+        launcher.SetData(selectedSave, selector.userProfileProvider,
+            selector.scenariosProvider, null);
 
-        LauncherController launcher = FindObjectOfType<LauncherController>();
+        // The SetData postfix independently records what DV's launcher received.
+        // Refuse to run if that object is not the configured baseline.
+        ISaveGame launcherSave = null;
+        LauncherController verifiedLauncher = null;
+        if (!RuntimeTestBaselineSaveTracker.TryGetVerifiedLauncher(
+                out verifiedLauncher, out launcherSave) ||
+            verifiedLauncher != launcher ||
+            !RuntimeTestBaselineSaveTracker.SameSave(selectedSave, launcherSave))
+            throw new InvalidOperationException("configured-launcher-save-mismatch:" +
+                AvailableSaveSummary(launcherSave == null ? Array.Empty<ISaveGame>() :
+                    new[] { launcherSave }));
+
         MethodInfo runSelected = typeof(LauncherController).GetMethod("OnRunClicked", BindingFlags.Instance | BindingFlags.NonPublic);
-        if (launcher == null || runSelected == null) throw new InvalidOperationException("save-launcher-unavailable");
+        if (runSelected == null) throw new InvalidOperationException("save-launcher-unavailable");
         lock (run)
         {
             run.Result["port"] = port;
@@ -371,15 +493,46 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             run.Result["saveTypePolicy"] = "ManualOnly";
             run.Result["selectionMode"] = "configured-exact-manual";
             run.Result["action"] = "launch-selected-save";
+            run.Result["baselineLauncherVerified"] = true;
         }
         runSelected.Invoke(launcher, null);
-        yield return null;
+
+        ISaveGame startDataSave = null;
+        for (int frame = 0; frame < 300 &&
+             !RuntimeTestBaselineSaveTracker.IsStartDataVerified(out startDataSave);
+             frame++)
+            yield return null;
+        if (!RuntimeTestBaselineSaveTracker.SameSave(selectedSave, startDataSave))
+            throw new InvalidOperationException("start-game-data-save-mismatch:" +
+                AvailableSaveSummary(startDataSave == null ? Array.Empty<ISaveGame>() :
+                    new[] { startDataSave }));
+        lock (run)
+        {
+            run.Result["baselineStartDataVerified"] = true;
+            RuntimeTestBaselineSaveTracker.AddStatus(run.Result);
+        }
     }
 
     private static ISaveGame[] GetAvailableSaves(ContinueLoadNewController selector)
     {
-        return new[] { selector.career?.CurrentThing, selector.freeRoam?.CurrentThing }
-            .Where(session => session != null)
+        // ContinueLoadNewController only exposes the session currently selected in
+        // each mode.  A previous test/autosave can change that selection, making a
+        // perfectly valid configured baseline in another session invisible.  The
+        // test harness must search the user's complete session catalogue.
+        HashSet<IGameSession> sessions = new();
+        if (selector.career?.CurrentThing != null)
+            sessions.Add(selector.career.CurrentThing);
+        if (selector.freeRoam?.CurrentThing != null)
+            sessions.Add(selector.freeRoam.CurrentThing);
+        User user = UserManager.Instance?.CurrentUser;
+        if (user?.Sessions != null)
+            foreach (var modeSessions in user.Sessions.Values)
+                if (modeSessions != null)
+                    foreach (IGameSession session in modeSessions)
+                        if (session != null)
+                            sessions.Add(session);
+
+        return sessions
             .SelectMany(session => session.Saves == null ? Enumerable.Empty<ISaveGame>() : session.Saves)
             .Where(save => save != null)
             .GroupBy(save => $"{save.ParentSession?.BasePath}|{save.UID}", StringComparer.OrdinalIgnoreCase)
@@ -439,6 +592,8 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             ["clientRunning"] = lifecycle?.IsClientRunning == true,
             ["activeScene"] = SceneManager.GetActiveScene().name
         };
+        run.Result["control"] = RuntimeTestControlState.Snapshot();
+        run.Result["gameState"] = RuntimeTestGameState.Snapshot();
     }
 
     private static IEnumerator Teleport(RuntimeTestCommandDto command, RuntimeTestRunDto run)
@@ -465,6 +620,27 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         if (error > tolerance) throw new InvalidOperationException($"teleport-position-error:{error:0.###}");
     }
 
+    private static IEnumerator PlayerPosition(RuntimeTestCommandDto command,
+        RuntimeTestRunDto run)
+    {
+        yield return null;
+        if (PlayerManager.PlayerTransform == null || WorldMover.Instance == null)
+            throw new InvalidOperationException("player-position-unavailable");
+        Vector3 local = PlayerManager.PlayerTransform.position;
+        Vector3 absolute = local - WorldMover.currentMove;
+        bool copy = OptionalString(command, "copyToClipboard", "false")
+            .Equals("true", StringComparison.OrdinalIgnoreCase);
+        string copied = copy ? RuntimeTestControlState.CopyAbsolutePosition() : string.Empty;
+        lock (run)
+        {
+            run.Result["positionLocal"] = DebugValueSnapshotter.Snapshot(local);
+            run.Result["positionAbsolute"] = DebugValueSnapshotter.Snapshot(absolute);
+            run.Result["worldMove"] = DebugValueSnapshotter.Snapshot(WorldMover.currentMove);
+            run.Result["copiedToClipboard"] = copy && copied.Length > 0;
+            run.Result["clipboardText"] = copied;
+        }
+    }
+
     private void Finish(RuntimeTestCommandDto command, RuntimeTestRunDto run)
     {
         cancelled.TryRemove(command.RequestId, out _);
@@ -476,16 +652,22 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
                 ["status"] = run.Status.ToString(), ["error"] = run.Error
             });
         RuntimeTestScope.Clear();
+        RuntimeTestControlState.ClearActiveTest();
         active = null;
     }
 
     private void RefreshCapabilities()
     {
         nextCapabilityRefresh = Time.unscaledTime + 2f;
-        List<string> capabilities = new() { "main-thread-command-queue", "runtime-self-check", "environment-orchestration" };
+        List<string> capabilities = new() { "main-thread-command-queue", "runtime-self-check", "environment-orchestration",
+            "runtime-input-control", "neutral-world-state" };
         if (PlayerManager.PlayerTransform != null && WorldMover.Instance != null) capabilities.Add("player-teleport");
         if (VRManager.IsVREnabled()) capabilities.Add("vr-runtime"); else capabilities.Add("non-vr-runtime");
-        if (itemDriver.TryResolve(out _)) capabilities.Add("non-vr-item-interaction");
+        if (itemDriver.TryResolve(out _))
+        {
+            capabilities.Add("non-vr-item-interaction");
+            capabilities.Add("camera-item-targeting");
+        }
         if (DV.InventorySystem.Inventory.Instance != null)
             capabilities.Add("inventory-runtime-arrangement");
         if (NetworkLifecycle.Instance?.IsServerRunning == true)
@@ -503,6 +685,8 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             capabilities.Add("world-item-sync-runtime-scenario");
 
         Dictionary<string, object> anchors = new(StringComparer.Ordinal);
+        anchors["controlState"] = RuntimeTestControlState.Snapshot();
+        anchors["gameState"] = RuntimeTestGameState.Snapshot();
         if (sceneAnchorsDirty)
         {
             sceneAnchorsDirty = false;

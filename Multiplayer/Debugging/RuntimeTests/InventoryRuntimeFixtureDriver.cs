@@ -432,11 +432,15 @@ internal sealed class InventoryRuntimeFixtureDriver
     public IEnumerator CleanupLocalFixtures(RuntimeTestCommandDto command,
         RuntimeTestRunDto run)
     {
-        foreach (string key in new[] { "itemNetId", "materializedNetId" })
+        HashSet<ushort> fixtureNetIds = new();
+        foreach (string key in new[] { "shellNetId", "itemNetId", "materializedNetId" })
             if (command.Parameters.TryGetValue(key, out string idText) &&
                 ushort.TryParse(idText, NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out ushort id) && id != 0)
+            {
+                fixtureNetIds.Add(id);
                 NetworkedLostAndFoundManager.RemoveRuntimeFixture(id);
+            }
         HashSet<Guid> tokens = new();
         foreach (string key in new[] { "itemFixtureToken", "shellFixtureToken" })
             if (command.Parameters.TryGetValue(key, out string raw) &&
@@ -449,14 +453,20 @@ internal sealed class InventoryRuntimeFixtureDriver
             .FindObjectsOfTypeAll<RuntimeFixtureMarker>()
             .Where(marker => marker != null && tokens.Contains(marker.Token))
             .Distinct().ToArray();
+        NetworkedItem[] representations = markers
+            .Select(marker => marker.GetComponent<NetworkedItem>())
+            .Concat(Resources.FindObjectsOfTypeAll<NetworkedItem>()
+                .Where(item => item != null && fixtureNetIds.Contains(item.NetId)))
+            .Where(item => item != null)
+            .Distinct().ToArray();
         int purged = 0;
-        foreach (RuntimeFixtureMarker marker in markers)
+        foreach (NetworkedItem item in representations)
         {
-            NetworkedItem item = marker.GetComponent<NetworkedItem>();
-            if (item == null) continue;
+            RuntimeFixtureMarker marker = item.GetComponent<RuntimeFixtureMarker>();
+            Guid token = marker != null ? marker.Token : Guid.Empty;
             NetworkedLostAndFoundManager.RemoveRuntimeFixture(item.NetId);
             if (NetworkLifecycle.Instance.IsHost())
-                PurgeHostFixtureRepresentation(item, marker.Token);
+                PurgeHostFixtureRepresentation(item, token);
             else
                 NetworkedItemManager.Instance.PurgeClientFixtureRepresentation(item);
             purged++;
@@ -467,15 +477,20 @@ internal sealed class InventoryRuntimeFixtureDriver
         yield return new WaitForEndOfFrame();
         int remaining = Resources.FindObjectsOfTypeAll<RuntimeFixtureMarker>()
             .Count(marker => marker != null && tokens.Contains(marker.Token));
+        int remainingByNetId = Resources.FindObjectsOfTypeAll<NetworkedItem>()
+            .Count(item => item != null && fixtureNetIds.Contains(item.NetId));
         lock (run)
         {
             run.Result["fixtureTokens"] = tokens.Select(token => token.ToString("D")).ToArray();
-            run.Result["representationsFound"] = markers.Length;
+            run.Result["fixtureNetIds"] = fixtureNetIds.OrderBy(id => id).ToArray();
+            run.Result["representationsFound"] = representations.Length;
             run.Result["representationsPurged"] = purged;
             run.Result["representationsRemaining"] = remaining;
+            run.Result["representationsRemainingByNetId"] = remainingByNetId;
         }
-        if (remaining != 0)
-            throw new InvalidOperationException("fixture-representations-remain:" + remaining);
+        if (remaining != 0 || remainingByNetId != 0)
+            throw new InvalidOperationException(
+                $"fixture-representations-remain:markers={remaining},netids={remainingByNetId}");
     }
 
     private static void PurgeHostFixtureRepresentation(NetworkedItem item, Guid token)

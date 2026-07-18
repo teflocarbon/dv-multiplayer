@@ -127,7 +127,14 @@ catalogue from each live process and requires an explicit target before executin
 The initial catalogue contains:
 
 - `runtime.self-check`;
+- `runtime.control-status`, which reports automation/user input ownership, pause state, interaction
+  mode, neutral-world state, and the absolute player position;
+- `runtime.interaction-mode` using `Pickup` or `Screenspace`/`Alt`;
+- `runtime.neutralize`, which closes the inventory and pause menu and restores pickup mode;
+- `player.position`, with optional `copyToClipboard=true`;
 - `player.teleport` using absolute-coordinate parameters;
+- `item.look-at`, which aims the real non-VR camera and verifies the production raycaster acquired
+  the requested item;
 - `item.pickup` using `{"netId":"123"}`;
 - `item.drop` with an optional NetId assertion;
 - `item.throw` with an optional NetId and optional `directionX/Y/Z`;
@@ -226,10 +233,25 @@ assertions, resource tracking, cleanup, phases, and `FailedDirty` reporting stay
 feature-specific mechanics in a shared driver when multiple scenario definitions exercise the same
 system, as the cold-container definitions do.
 
-For pickup, manually arrange the player so the normal desktop crosshair is aimed at the requested
-item. The test refreshes DV's real raycaster and fails on a target mismatch; it does not force the
-item into the hand. Drop and throw require a genuinely held networked item. VR reports
-`Unsupported` until a VRTK-specific driver exists.
+Managed runtime agents own keyboard and mouse input through DV's own input-request system. Press
+`Ctrl+Shift+F5` in a game process to return both devices to the user; active tests pause and their
+timeouts stop advancing until automation control is restored with the same key. The overlay shows
+input ownership, pause state, pickup/screenspace mode, the active test, and the absolute position.
+Press `Ctrl+Shift+F2` to copy that position directly.
+Managed host and client processes are muted at Unity's master listener for the duration of harness
+control; the overlay reports `Audio: MUTED`, and shutdown restores the previous volume.
+
+Every runtime operation begins and ends at a neutral-world boundary: inventory and pause menus are
+closed and pickup mode is restored. A failed postcondition marks the run `FailedDirty`, preventing
+a later test from silently inheriting UI state.
+
+Pickup automatically aims using DV's non-VR view controller, refreshes the production raycaster,
+and records `camera-aligned-raycast` when the normal path succeeds. When geometry or a moving train
+makes the target impossible to acquire, it may use DV's real force-hold request as an explicit
+fallback; the result records `fallbackUsed`, `fallbackReason`, and `pickupPath`. Set
+`allowForceHoldFallback=false` when a scenario specifically requires raycast fidelity. Drop and
+throw still require a genuinely held networked item. VR reports `Unsupported` until a VRTK-specific
+driver exists.
 
 The round-trip scenario is self-contained when invoked through the dashboard. It accepts optional
 `containerPrefabName` and `itemPrefabName` parameters (defaulting to `ItemContainerCrate` and
