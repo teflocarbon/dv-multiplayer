@@ -116,10 +116,16 @@ internal sealed class RuntimeEnvironmentSupervisor : IDisposable
                     ["saveBasePath"] = request.HostSaveBasePath ?? string.Empty
                 }, token).ConfigureAwait(false);
             lock (gate) { status.HostSaveSelection = new(saveRun.Result ?? new()); status.UpdatedUtc = DateTime.UtcNow; }
+            if (!Bool(saveRun.Result, "baselineLauncherVerified") ||
+                !Bool(saveRun.Result, "baselineStartDataVerified"))
+                throw new InvalidOperationException("exact-manual-baseline-was-not-attested-by-game");
 
             Set(RuntimeEnvironmentStage.WaitingForHostServer, "Waiting for the save, player, and host server to become ready.");
             await WaitUntil(hostSession, request.WorldTimeoutSeconds, token,
-                result => Bool(result, "serverRunning") && Bool(result, "clientRunning") && Bool(result, "playerReady") && Bool(result, "itemsLoaded"), true).ConfigureAwait(false);
+                result => Bool(result, "serverRunning") && Bool(result, "clientRunning") &&
+                          Bool(result, "playerReady") && Bool(result, "itemsLoaded") &&
+                          Bool(result, "baselineLauncherVerified") &&
+                          Bool(result, "baselineStartDataVerified"), true).ConfigureAwait(false);
 
             Set(RuntimeEnvironmentStage.WaitingForClientAgent, "Host server is ready; waiting for the already-running client menu.");
             DebugSessionInfo clientSession = await clientMenuReady.ConfigureAwait(false);

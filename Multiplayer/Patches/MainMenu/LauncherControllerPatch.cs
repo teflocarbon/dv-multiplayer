@@ -5,6 +5,9 @@ using DV.UI.PresetEditors;
 using DV.UIFramework;
 using HarmonyLib;
 using Multiplayer.Components.MainMenu;
+#if DEBUG
+using Multiplayer.Debugging.RuntimeTests;
+#endif
 using Multiplayer.Utils;
 using UnityEngine;
 using UnityEngine.UI;
@@ -68,6 +71,9 @@ public static class LauncherController_Patch
     [HarmonyPatch(typeof(LauncherController), "SetData", new Type[] { typeof(ISaveGame), typeof(AUserProfileProvider) , typeof(AScenarioProvider) , typeof(LauncherController.UpdateRequest) })]
     private static void SetData(LauncherController __instance, ISaveGame saveGame, AUserProfileProvider userProvider, AScenarioProvider scenarioProvider, LauncherController.UpdateRequest updateCallback)
     {
+#if DEBUG
+        RuntimeTestBaselineSaveTracker.RecordLauncher(__instance, saveGame);
+#endif
         if (RightPaneController_Patch.hgpInstance == null)
             return;
 

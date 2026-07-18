@@ -64,8 +64,19 @@ internal sealed class DerailValleyItemTestDriver
         if (requested == null) throw new RuntimeTestUnsupportedException("item-has-no-non-vr-grab-handler:" + netId);
         if (grabber.CurrentItemHeld != null) throw new InvalidOperationException("grabber-already-holding-item");
 
+        RuntimeTestControlState.SetInteractionMode(RuntimeTestInteractionMode.Pickup);
+        yield return null;
+
         raycaster.UpdateRaycast();
         AGrabHandler selected = raycaster.CurrentlyRaycasted;
+        bool autoLook = OptionalBool(command, "autoLook", true);
+        if (selected != requested && autoLook)
+        {
+            IEnumerator aiming = AimAtItem(item, requested, run);
+            while (aiming.MoveNext()) yield return aiming.Current;
+            raycaster.UpdateRaycast();
+            selected = raycaster.CurrentlyRaycasted;
+        }
         ushort selectedNetId = selected == null ? (ushort)0 : selected.GetComponentInParent<NetworkedItem>()?.NetId ?? 0;
         lock (run)
         {
@@ -74,7 +85,30 @@ internal sealed class DerailValleyItemTestDriver
             run.Result["raycastedHandler"] = selected?.GetType().FullName ?? string.Empty;
         }
         if (selected != requested)
-            throw new InvalidOperationException($"raycast-target-mismatch:expected={netId},actual={selectedNetId}");
+        {
+            if (!OptionalBool(command, "allowForceHoldFallback", true))
+                throw new InvalidOperationException($"raycast-target-mismatch:expected={netId},actual={selectedNetId}");
+
+            // This remains a real DV interaction entry point, but intentionally
+            // bypasses the raycast when geometry, a moving train, or an obstructing
+            // item makes a faithful pickup impossible. The result advertises the
+            // lower-fidelity path so a scenario may reject it when raycast fidelity
+            // is part of what that scenario is testing.
+            interaction.RequestForceHold(requested);
+            yield return null;
+            if (grabber.CurrentItemHeld != requested || !requested.IsGrabbed())
+                throw new InvalidOperationException("force-hold-fallback-failed:" + netId);
+            lock (run)
+            {
+                run.Result["heldNetId"] = netId;
+                run.Result["itemState"] = item.DebugCurrentState.ToString();
+                run.Result["pickupPath"] = "force-hold-fallback";
+                run.Result["fallbackUsed"] = true;
+                run.Result["fallbackReason"] =
+                    $"raycast-target-mismatch:expected={netId},actual={selectedNetId}";
+            }
+            yield break;
+        }
 
         interaction.RequestStartInteraction();
         yield return null;
@@ -84,7 +118,37 @@ internal sealed class DerailValleyItemTestDriver
         {
             run.Result["heldNetId"] = netId;
             run.Result["itemState"] = item.DebugCurrentState.ToString();
+            run.Result["pickupPath"] = autoLook ? "camera-aligned-raycast" : "existing-raycast";
+            run.Result["fallbackUsed"] = false;
         }
+    }
+
+    public IEnumerator LookAt(RuntimeTestCommandDto command, RuntimeTestRunDto run)
+    {
+        RequireResolved();
+        ushort netId = RequiredNetId(command);
+        if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
+            throw new InvalidOperationException("item-not-found:" + netId);
+        GrabHandlerItem requested = item.GetComponent<GrabHandlerItem>();
+        if (requested == null)
+            throw new RuntimeTestUnsupportedException("item-has-no-non-vr-grab-handler:" + netId);
+        RuntimeTestControlState.SetInteractionMode(RuntimeTestInteractionMode.Pickup);
+        yield return null;
+        IEnumerator aiming = AimAtItem(item, requested, run);
+        while (aiming.MoveNext()) yield return aiming.Current;
+        raycaster.UpdateRaycast();
+        AGrabHandler selected = raycaster.CurrentlyRaycasted;
+        ushort selectedNetId = selected == null ? (ushort)0 :
+            selected.GetComponentInParent<NetworkedItem>()?.NetId ?? 0;
+        lock (run)
+        {
+            run.Result["requestedNetId"] = netId;
+            run.Result["raycastedNetId"] = selectedNetId;
+            run.Result["targetAcquired"] = selected == requested;
+        }
+        if (selected != requested)
+            throw new InvalidOperationException(
+                $"camera-target-not-acquired:expected={netId},actual={selectedNetId}");
     }
 
     public IEnumerator Drop(RuntimeTestCommandDto command, RuntimeTestRunDto run)
@@ -133,6 +197,51 @@ internal sealed class DerailValleyItemTestDriver
         if (!TryResolve(out string reason)) throw new RuntimeTestUnsupportedException(reason);
     }
 
+    private IEnumerator AimAtItem(NetworkedItem item, GrabHandlerItem requested,
+        RuntimeTestRunDto run)
+    {
+        CustomFirstPersonController controller =
+            UnityEngine.Object.FindObjectOfType<CustomFirstPersonController>();
+        Camera camera = PlayerManager.ActiveCamera;
+        if (controller == null || camera == null)
+            throw new RuntimeTestUnsupportedException("non-vr-camera-controller-unavailable");
+
+        Collider[] colliders = item.GetComponentsInChildren<Collider>(true);
+        Collider targetCollider = colliders.FirstOrDefault(candidate =>
+            candidate != null && candidate.enabled && !candidate.isTrigger);
+        Vector3 target = targetCollider != null ? targetCollider.bounds.center :
+            item.transform.position;
+        Vector3 direction = target - camera.transform.position;
+        if (direction.sqrMagnitude < 0.0001f)
+            throw new InvalidOperationException("camera-target-coincident-with-camera");
+        Quaternion rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+
+        bool acquired = false;
+        for (int frame = 0; frame < 4; frame++)
+        {
+            // DV's naming is from the character body's perspective: this keeps the
+            // character upright while splitting yaw onto the body and pitch onto the
+            // camera. ForceLookRotation applies the full quaternion to the character,
+            // and the locomotion controller removes its pitch on the following frame.
+            controller.ForceLookRotationNoTilt(rotation);
+            yield return null;
+            raycaster.UpdateRaycast();
+            if (raycaster.CurrentlyRaycasted == requested)
+            {
+                acquired = true;
+                break;
+            }
+        }
+        lock (run)
+        {
+            run.Result["cameraTargetAbsolute"] =
+                DebugValueSnapshotter.Snapshot(target - WorldMover.currentMove);
+            run.Result["cameraTargetAcquired"] = acquired;
+            run.Result["cameraForward"] =
+                DebugValueSnapshotter.Snapshot(camera.transform.forward);
+        }
+    }
+
     private GrabHandlerItem RequireHeld(RuntimeTestCommandDto command, out NetworkedItem item)
     {
         GrabHandlerItem held = grabber.CurrentItemHeld as GrabHandlerItem;
@@ -162,5 +271,9 @@ internal sealed class DerailValleyItemTestDriver
         return command.Parameters.TryGetValue(key, out string value) &&
             float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
     }
+
+    private static bool OptionalBool(RuntimeTestCommandDto command, string key,
+        bool fallback) => command.Parameters.TryGetValue(key, out string value) &&
+        bool.TryParse(value, out bool parsed) ? parsed : fallback;
 }
 #endif

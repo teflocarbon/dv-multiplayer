@@ -1115,7 +1115,11 @@ internal sealed class RuntimeTestCoordinator
                 CultureInfo.InvariantCulture)
         };
         if (!scenario.ItemOnly)
+        {
             result["shellFixtureToken"] = scenario.ShellFixtureToken;
+            result["shellNetId"] = scenario.ShellNetId.ToString(
+                CultureInfo.InvariantCulture);
+        }
         return result;
     }
 

@@ -42,7 +42,7 @@ public static class CustomFirstPersonControllerPatch
     [HarmonyPatch("RotateView")]
     private static bool RotateViewForManagedHarness()
     {
-        return !global::Multiplayer.Debugging.DebugRuntime.PreventCursorCapture;
+        return !global::Multiplayer.Debugging.RuntimeTests.RuntimeTestControlState.AutomationOwnsMouse;
     }
 #endif
 }

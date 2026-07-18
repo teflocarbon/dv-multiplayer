@@ -22,9 +22,19 @@ Use the **Item replication** page to inspect correlated client → host → reci
 
 In Debug builds, use the **Runtime tests** page to discover game-native test commands, target one
 host/client process explicitly, run or cancel the command, and inspect each process result. The
-initial catalogue covers harness self-check, native teleport, and desktop pickup/drop/throw. Item
-pickup expects the player to be aimed at the requested network item so the test exercises DV's real
-raycast and grab state machine.
+catalogue includes self-check, neutral-world/input status, absolute position copy, native teleport,
+camera targeting, and desktop pickup/drop/throw. Pickup first aims through DV's view controller and
+exercises the real raycast/grab state machine; an inaccessible target may use the real force-hold
+request as an explicitly reported fallback.
+
+Managed test agents suppress background keyboard and mouse input through Derail Valley's own input
+request system. `Ctrl+Shift+F5` returns both devices to the user and pauses tests (including timeout
+accounting) until pressed again. `Ctrl+Shift+F2` copies the current absolute world position. The
+in-game status overlay shows ownership, pickup/screenspace mode, active test, and position. Every
+managed test process also keeps Unity's master audio listener muted for the lifetime of the harness,
+and restores the previous volume when the harness shuts down. Every command begins and ends by
+closing inventory/pause UI and restoring pickup mode; a failed final
+neutralization is reported as `FailedDirty`.
 
 The Tests page retains up to 250 parent runs in
 `%LOCALAPPDATA%\DVMultiplayer\test-runs`. Its Actions-style history and detail view show live phase

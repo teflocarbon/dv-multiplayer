@@ -89,7 +89,11 @@ public static class DebugRuntime
             runtimeObject = new GameObject("[Multiplayer Debug Runtime]");
             runtimeObject.AddComponent<DebugRuntimeBehaviour>();
 #if DEBUG
-            if (settings.EnableRuntimeTestHarness) runtimeObject.AddComponent<RuntimeTestAgent>();
+            if (settings.EnableRuntimeTestHarness)
+            {
+                runtimeObject.AddComponent<RuntimeTestAgent>();
+                runtimeObject.AddComponent<RuntimeTestControlOverlay>();
+            }
 #endif
             Object.DontDestroyOnLoad(runtimeObject);
             if (settings.EnableDebugFirehose) StartHttpServer();
@@ -110,8 +114,11 @@ public static class DebugRuntime
         DebugWorldLabelManager.SetEnabled(settings.EnableDebugWorldLabels);
 #if DEBUG
         RuntimeTestAgent agent = runtimeObject == null ? null : runtimeObject.GetComponent<RuntimeTestAgent>();
+        RuntimeTestControlOverlay control = runtimeObject == null ? null : runtimeObject.GetComponent<RuntimeTestControlOverlay>();
         if (settings.EnableRuntimeTestHarness && agent == null) agent = runtimeObject.AddComponent<RuntimeTestAgent>();
         else if (!settings.EnableRuntimeTestHarness && agent != null) Object.Destroy(agent);
+        if (settings.EnableRuntimeTestHarness && control == null) runtimeObject.AddComponent<RuntimeTestControlOverlay>();
+        else if (!settings.EnableRuntimeTestHarness && control != null) Object.Destroy(control);
         ConfigureRuntimeTests(settings.EnableRuntimeTestHarness ? agent : null);
 #endif
         if (settings.EnableDebugFileLogging && fileSink == null) fileSink = new AsyncJsonlSink(store, session.LogPath);
@@ -361,6 +368,9 @@ internal sealed class DebugRuntimeBehaviour : MonoBehaviour
     private static void ReleaseManagedCursor()
     {
         if (!DebugRuntime.PreventCursorCapture) return;
+#if DEBUG
+        if (!RuntimeTestControlState.AutomationOwnsMouse) return;
+#endif
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }

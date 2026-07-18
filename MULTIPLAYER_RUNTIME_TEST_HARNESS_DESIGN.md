@@ -111,18 +111,35 @@ into explicitly targeted child commands without changing the main-thread queue i
 
 ```text
 runtime.self-check  {}
+runtime.control-status {}
+runtime.interaction-mode {"mode": "Pickup|Screenspace"}
+runtime.neutralize {}
+player.position     {"copyToClipboard": "true"}              # optional
 player.teleport     {"x": "...", "y": "...", "z": "...",             # absolute position
                      "yaw": "...", "tolerance": "0.5"}                  # optional
-item.pickup         {"netId": "123"}
+item.look-at        {"netId": "123"}
+item.pickup         {"netId": "123", "autoLook": "true",
+                     "allowForceHoldFallback": "true"}
 item.drop           {"netId": "123"}                         # netId optional
 item.throw          {"netId": "123", "directionX": "0",     # all fields optional
                      "directionY": "0", "directionZ": "1"}
 ```
 
-The pickup command deliberately does not teleport or aim the player. The requested item must be
-the exact handler selected by the production `GrabberRaycasterDV` at execution time. A mismatch is
-a failed gameplay action with both requested and raycasted NetIds in the result, rather than a
-fallback to force-hold or direct parenting.
+The pickup command aims with DV's `CustomFirstPersonController`, then requires the production
+`GrabberRaycasterDV` to select the requested handler. If acquisition is impossible, the default
+fallback enters through `GrabberInteractionHandlerDV.RequestForceHold`; it is never direct
+parenting, and the result prominently records the fallback and mismatch. Fidelity-sensitive cases
+can disable it. `item.look-at` always fails on mismatch and therefore tests camera/raycaster
+acquisition independently.
+
+The managed agent suppresses background keyboard and mouse input through DV's input request
+system, not operating-system hooks. `Ctrl+Shift+F5` toggles user ownership; queued/running tests
+pause without consuming their timeout while the user owns input. Each test boundary closes
+inventory and pause UI and restores pickup mode. `Ctrl+Shift+F2` copies the origin-shift-corrected
+absolute player position. The in-game overlay keeps ownership, mode, active test, and position
+visible while the game windows remain inspectable. Managed agents also force Unity's master
+listener volume to zero so unattended host/client runs are silent; the prior volume is restored
+when harness control is removed.
 
 The initial item driver is desktop-only. In VR it reports `Unsupported`; it does not pretend that a
 desktop grab proves the VRTK path. Drop and throw require a genuinely held networked item. The
