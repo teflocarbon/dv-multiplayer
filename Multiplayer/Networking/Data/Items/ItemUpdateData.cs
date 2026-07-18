@@ -54,6 +54,18 @@ public class ItemUpdateData
     public ItemInventoryClaimFlags InventoryClaimFlags { get; set; }
     public ItemTransitionReason TransitionReason { get; set; }
     public byte OriginatingPlayerId { get; set; }
+    /// <summary>Stable identity of a scene-authored representation. Present only on Create.</summary>
+    public string AuthoredItemKey { get; set; }
+    /// <summary>
+    /// Derail Valley's durable personal-item classification. Create carries this because an
+    /// interest-retired projection may have had all local storage membership quarantined.
+    /// </summary>
+    public bool BelongsToPlayer { get; set; }
+    public ItemWorldParentKind WorldParentKind { get; set; }
+    public ushort WorldParentNetId { get; set; }
+    public string WorldParentKey { get; set; }
+    public Vector3 ParentLocalPosition { get; set; }
+    public Quaternion ParentLocalRotation { get; set; }
 
     // Detached local observability correlation. This is deliberately not serialized.
     internal string DebugCorrelationFingerprint { get; set; }
@@ -76,7 +88,11 @@ public class ItemUpdateData
         writer.Put((byte)data.ItemState);
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create))
+        {
             writer.Put(data.PrefabName);
+            writer.Put(data.AuthoredItemKey ?? string.Empty);
+            writer.Put(data.BelongsToPlayer);
+        }
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create) || data.UpdateType.HasFlag(ItemUpdateType.ItemState))
         {
@@ -84,6 +100,16 @@ public class ItemUpdateData
             {
                 Vector3Serializer.Serialize(writer, data.ItemPosition);
                 QuaternionSerializer.Serialize(writer, data.ItemRotation);
+                writer.Put((byte)data.WorldParentKind);
+                if (data.WorldParentKind == ItemWorldParentKind.TrainInterior)
+                    writer.Put(data.WorldParentNetId);
+                else if (data.WorldParentKind == ItemWorldParentKind.StaticParent)
+                    writer.Put(data.WorldParentKey ?? string.Empty);
+                if (data.WorldParentKind != ItemWorldParentKind.World)
+                {
+                    Vector3Serializer.Serialize(writer, data.ParentLocalPosition);
+                    QuaternionSerializer.Serialize(writer, data.ParentLocalRotation);
+                }
 
                 if (data.ItemState == ItemState.Thrown)
                     Vector3Serializer.Serialize(writer, data.ThrowDirection);
@@ -134,13 +160,27 @@ public class ItemUpdateData
         data.ItemState = (ItemState)reader.GetByte();
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create))
+        {
             data.PrefabName = reader.GetString();
+            data.AuthoredItemKey = reader.GetString();
+            data.BelongsToPlayer = reader.GetBool();
+        }
         if (data.UpdateType.HasFlag(ItemUpdateType.Create) || data.UpdateType.HasFlag(ItemUpdateType.ItemState))
         {
             if (data.ItemState == ItemState.Dropped || data.ItemState == ItemState.Thrown) // || data.UpdateType.HasFlag(ItemUpdateType.ItemPosition)
             {
                 data.ItemPosition = Vector3Serializer.Deserialize(reader);
                 data.ItemRotation = QuaternionSerializer.Deserialize(reader);
+                data.WorldParentKind = (ItemWorldParentKind)reader.GetByte();
+                if (data.WorldParentKind == ItemWorldParentKind.TrainInterior)
+                    data.WorldParentNetId = reader.GetUShort();
+                else if (data.WorldParentKind == ItemWorldParentKind.StaticParent)
+                    data.WorldParentKey = reader.GetString();
+                if (data.WorldParentKind != ItemWorldParentKind.World)
+                {
+                    data.ParentLocalPosition = Vector3Serializer.Deserialize(reader);
+                    data.ParentLocalRotation = QuaternionSerializer.Deserialize(reader);
+                }
 
                 if (data.ItemState == ItemState.Thrown)
                 {

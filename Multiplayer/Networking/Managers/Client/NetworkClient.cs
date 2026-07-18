@@ -263,6 +263,10 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
         netPacketProcessor.SubscribeReusable<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
         netPacketProcessor.SubscribeReusable<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundWorldItemCataloguePacket>(OnClientboundWorldItemCataloguePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialLeasePacket>(OnClientboundItemSpatialLeasePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialSamplePacket>(OnClientboundItemSpatialSamplePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialCommitPacket>(OnClientboundItemSpatialCommitPacket);
         netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
         netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
@@ -325,8 +329,9 @@ public class NetworkClient : NetworkManager
 
         Log($"Starting Item Manager...");
         NetworkedItemManager.Instance.CheckInstance();
-        Log($"Caching World Items...");
-        NetworkedItemManager.Instance.CacheWorldItems();
+        Log($"Quarantining unbound client items...");
+        NetworkedItemManager.Instance.QuarantineUnboundClientItems();
+        SendWorldItemCatalogue();
         Log($"Initialising Cash Registers...");
         NetworkedCashRegisterWithModules.InitialiseCashRegisters();
         Log($"Initialising Pit Stops...");
@@ -2175,6 +2180,16 @@ public class NetworkClient : NetworkManager
                 DeliveryMethod.ReliableOrdered);
     }
 
+    internal void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)
+    {
+        SendPacketToServer(new ServerboundWorldItemProjectionAckPacket
+        {
+            ItemNetId = netId,
+            AuthorityRevision = revision,
+            Projected = projected
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
     public void SendJobBookletSummonRequest(uint stationNetId)
     {
         SendPacketToServer(new ServerboundJobBookletSummonRequestPacket
@@ -2185,6 +2200,7 @@ public class NetworkClient : NetworkManager
 
     public void SendItemAdoption(ItemAdoptionRequestData request)
     {
+        // TEMPORARY compatibility only. This is not a general client creation API.
         SendPacketToServer(new ServerboundItemAdoptionPacket
         {
             Request = request
@@ -2242,6 +2258,57 @@ public class NetworkClient : NetworkManager
             InventoryCapacity = capacity,
             OccupiedSlots = occupied.ToArray()
         }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void SendWorldItemCatalogue()
+    {
+        var summary = NetworkedItemManager.Instance.GetAuthoredCatalogueSummary();
+        SendPacketToServer(new ServerboundWorldItemCataloguePacket
+        {
+            ItemCount = summary.Count,
+            CollisionCount = summary.Collisions,
+            Digest = summary.Digest
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnClientboundWorldItemCataloguePacket(ClientboundWorldItemCataloguePacket packet)
+    {
+        NetworkedItemManager.Instance.SetAuthoredCatalogueNegotiationResult(packet?.Accepted == true);
+        DebugRuntime.Publish("item-world", "world-item.catalogue-result", DebugRuntimeSide.Client,
+            packet?.Accepted == true ? DebugSeverity.Info : DebugSeverity.Error, data: new()
+            {
+                ["accepted"] = packet?.Accepted == true,
+                ["hostCount"] = packet?.HostItemCount ?? 0,
+                ["hostCollisionCount"] = packet?.HostCollisionCount ?? 0,
+                ["hostDigest"] = packet?.HostDigest ?? string.Empty,
+                ["reason"] = packet?.Reason ?? "missing-response"
+            });
+    }
+
+    private void OnClientboundItemSpatialLeasePacket(ClientboundItemSpatialLeasePacket packet) =>
+        NetworkedItemManager.Instance?.ReceiveItemSpatialLease(packet);
+
+    private void OnClientboundItemSpatialSamplePacket(ClientboundItemSpatialSamplePacket packet)
+    {
+        if (packet?.State != null)
+            NetworkedItemManager.Instance?.ReceiveItemSpatialSample(packet.State);
+    }
+
+    private void OnClientboundItemSpatialCommitPacket(ClientboundItemSpatialCommitPacket packet) =>
+        NetworkedItemManager.Instance?.ReceiveItemSpatialCommit(packet);
+
+    internal void SendItemSpatialSample(ItemSpatialStateData state)
+    {
+        if (state == null) return;
+        SendPacketToServer(new ServerboundItemSpatialSamplePacket { State = state },
+            DeliveryMethod.Unreliable);
+    }
+
+    internal void SendItemSpatialSettlement(ItemSpatialStateData state)
+    {
+        if (state == null) return;
+        SendPacketToServer(new ServerboundItemSpatialSettlementPacket { State = state },
+            DeliveryMethod.ReliableOrdered);
     }
 
 #if DEBUG

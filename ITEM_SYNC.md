@@ -79,7 +79,7 @@ The host is authoritative for ID allocation because `IsIdServerAuthoritative` is
 
 ### 3.2 `NetworkedItemManager`
 
-The manager performs host-side interest management and client-side object caching.
+The manager performs host-side interest management and client-side projection management.
 
 Host responsibilities:
 
@@ -91,11 +91,12 @@ Host responsibilities:
 
 Client responsibilities:
 
-- build a prefab-name-to-`InventoryItemSpec` lookup;
-- cache most locally spawned non-essential world items;
-- instantiate or reuse an object for a received `Create`;
-- return objects to the cache for `Destroy`;
-- remove cached items from Derail Valley storage collections.
+- build a prefab-name-to-`InventoryItemSpec` lookup for host-requested dynamic projections;
+- catalogue exact scene-authored objects and keep them dormant until bound by stable key;
+- instantiate a fresh dynamic object for every received `Create` lifetime;
+- destroy dynamic projections and deactivate authored projections on host retirement;
+- destroy unauthorized unbound client objects after classification;
+- never turn an ordinary client state update into canonical existence.
 
 ### 3.3 Per-player server state
 
@@ -119,9 +120,13 @@ Each host item has a canonical record containing:
 - retained inventory-claim player, slot, and lock/reserve/dropped flags;
 - prefab, last world pose, and transition reason.
 
-Every accepted host-local change, client update, first-interaction adoption, and owner recall is converted into a canonical transition before it is applied or broadcast. The host replaces packet holder fields with the authenticated actor and returns the resulting revision and ownership projection to the sender. A client update with an old revision is rejected as `stale-authority-revision`; a non-possessor attempting to mutate a held/inventory item is rejected as `sender-not-current-possessor`.
+Every accepted host-local change, client update, temporary compatibility adoption, and owner recall is converted into a canonical transition before it is applied or broadcast. The host replaces packet holder fields with the authenticated actor and returns the resulting revision and ownership projection to the sender. A client update with an old revision is rejected as `stale-authority-revision`; a non-possessor attempting to mutate a held/inventory item is rejected as `sender-not-current-possessor`.
 
-First-interaction adoption is idempotent per authenticated player and temporary token. A duplicate pending token cannot allocate another object, and a retry after completion receives the original accepted NetId or stable rejection. On the client, one local Unity object can have only one pending adoption and a result is applied at most once.
+`TemporaryClientAdoptionCompatibility` is an explicitly temporary bridge for unconverted DV item
+producers. It permits only non-authored, non-job items marked as player property and associated with
+player/storage state. Its token exchange remains idempotent, but it is not general client creation
+authority. Convert each producer to a named host operation, then remove this policy, its packets,
+coordinators, and `ClientAdoption` transition.
 
 `InventoryItemSpec.BelongsToPlayer` and `IsEssential` are used only to establish initial persistent ownership. They are not treated as the current holder. Physical state remains `World`, `PlayerHand`, `PlayerInventory`, or `Attached`, independently of any retained inventory reservation.
 
@@ -139,17 +144,12 @@ Current limitation: the red indicator uses colour/outline only; it does not yet 
 
 ### 4.1 Client world preparation
 
-After the client world finishes loading, `NetworkClient.SyncWorldState()` starts the item manager and calls `CacheWorldItems()` before reporting `ReadyForItems`.
+After the client world finishes loading, `NetworkClient.SyncWorldState()` starts the item manager and calls `QuarantineUnboundClientItems()` before reporting `ReadyForItems`.
 
-`CacheWorldItems()` skips the host and, on a remote client, deactivates most items which are:
-
-- non-essential;
-- not currently grabbed; and
-- not in the client's local inventory storage.
-
-Cached objects are grouped by prefab name. They are also removed from world, inventory, and lost-and-found storage lists, marked as not belonging to the player, assigned network ID `0`, and have `RespawnOnDrop` destroyed.
-
-Items which are essential, grabbed, or already in local inventory remain in the client world. This is a deliberate exception in the current code, but reconciliation between those retained objects and host-authoritative objects is not complete.
+`QuarantineUnboundClientItems()` skips the host. On a remote client it builds the authored catalogue,
+deactivates exact scene-authored objects for later stable-key binding, retains only items accepted by
+the explicitly temporary compatibility-adoption policy, and destroys every other unbound dynamic
+object. There is no prefab-name pool and no generic retained-inventory exception.
 
 ### 4.2 Loading-state handshake
 
@@ -177,9 +177,12 @@ For every nearby item absent from `KnownItems`, the host creates an `ItemUpdateT
 - state-dependent placement/ownership data;
 - all registered tracked values.
 
-The item is then marked known at the current network tick. The remote client obtains an object with that prefab name from its cache or instantiates it from `Globals.G.Items`, activates it, assigns the host ID, and applies the snapshot.
+The item is then marked known at the current network tick. For a dynamic record, the remote client
+instantiates a fresh object from `Globals.G.Items`, assigns the host ID, and applies the snapshot. For
+an authored record, it binds the exact dormant catalogue object by stable authored key.
 
-If the same network ID already exists on the client, the existing object is first sent back to the cache and a replacement/reused object is created.
+If the same network ID already exists on the client, the invalid dynamic projection is destroyed or
+the authored projection is returned to dormancy before the authoritative representation binds.
 
 ### 4.5 Items deliberately intended to use another sync system
 
@@ -207,7 +210,7 @@ There is no persistent item GUID in this general sync path. A network ID identif
 | Flag | Meaning in current implementation |
 |---|---|
 | `Create` | Create/reconcile an item and include prefab name, state data, and all tracked values. |
-| `Destroy` | Remove the client item to its cache. Only ID is serialized. |
+| `Destroy` | Retire the client projection. Dynamic objects are destroyed; authored objects become dormant. Only ID is serialized. |
 | `ItemState` | Send a high-level lifecycle transition. |
 | `ItemPosition` | Defined, but not independently implemented end to end. |
 | `ObjectState` | Send dirty registered values. |
@@ -310,7 +313,9 @@ This catch-up mechanism lets a known item receive a full state after missing a h
 
 Destroying a host item outside scene unloading creates a `Destroy` snapshot and removes the object from every player's known/nearby sets. The manager adds that destroy to the next bulk update for each eligible player, then clears the destroy list.
 
-On a client, destroy means cache/deactivate rather than actually destroy the object.
+On a client, retirement destroys a dynamic projection. An exact scene-authored projection is instead
+deactivated and retained for later stable-key re-entry. Lost and Found and cold containers retain
+their explicit subsystem-specific retirement semantics.
 
 ## 8. Player inventory and save-data interaction
 
@@ -323,22 +328,17 @@ The save packet currently populates `PlayerItems` from a hard-coded test list (s
 
 This means initial personal inventory sync is scaffolding and is not yet reconciled with the host's runtime `NetworkedItem` identities or `BelongsTo` ownership. Duplicate retained client inventory items and later host-created items are therefore a known design risk.
 
-## 9. Client caching behaviour
+## 9. Client projection lifetime
 
-The cache exists to avoid leaving the client's independently spawned copy of the world alongside the host copy and to reduce repeated instantiation.
+There is no generic dynamic item cache. A dynamic Unity projection represents exactly one canonical
+host lifetime and is destroyed when that lifetime is retired. This deliberately favors correctness
+over allocation savings: component state, subscriptions, tracked values, and other untracked prefab
+state cannot leak into a different logical item.
 
-When an object is cached:
-
-- it is deactivated;
-- `RespawnOnDrop` is destroyed;
-- it is removed from world/inventory/lost-and-found storage collections;
-- `InventorySpecs.BelongsToPlayer` is cleared;
-- its network ID is set to zero;
-- it is stored under its item prefab name.
-
-When a create arrives, a cached object of the same prefab is preferred. The object is activated, assigned the received ID, and given the create snapshot.
-
-The cache currently retains component state, event subscriptions, tracked-value registrations, and other prefab runtime state. Snapshot setters reset only the explicitly tracked fields. Any untracked state can leak from one logical item lifetime to the next.
+Authored objects are different. Their Unity identity is part of the loaded scene and may be
+referenced by other scene components, so the exact object is deactivated outside host interest and
+rebound by stable authored key on re-entry. It is never selected by prefab name or repurposed as
+another logical item.
 
 ## 10. Known issues and gaps
 
@@ -350,15 +350,10 @@ The following findings are grouped by likely impact. Severity describes the pote
 
 `IdMonoBehaviour.NetId` releases the old ID and registers the new one, but it does not remove the old key from the static ID-to-object dictionary. Normal `OnDestroy()` also does not remove the individual entry; the dictionary is cleared only during a particular unload path.
 
-Consequences include:
-
-- caching an item with `NetId = 0` leaves its previous ID pointing at the cached object;
-- reusing that object under a new ID can leave several IDs pointing to it;
-- a delayed packet for an old ID can mutate the wrong logical item;
-- ID reuse can overwrite mappings unpredictably;
-- destroyed objects can remain discoverable through stale lookup entries.
-
-This should be fixed before relying on cache reuse or adversarial/out-of-order testing.
+Consequences include stale lookup entries after ordinary identity changes or destruction, delayed
+packets resolving an object after its logical lifetime, and unpredictable collisions after ID reuse.
+Generic dynamic projection reuse has been removed, which eliminates the cross-lifetime pooling case,
+but lookup removal must still remain correct for authored dormancy and normal destruction.
 
 #### B. Initial creation is proximity-filtered, but relayed client updates are not
 
@@ -407,7 +402,9 @@ The unused `OwnedItems` collection further increases the risk of two ownership s
 
 `ClientboundSaveGameDataPacket.CreatePacket()` currently creates a hard-coded item list. It does not enumerate the connecting player's stored server inventory, preserve runtime network IDs, or establish host ownership for the resulting client objects.
 
-The retained-local-inventory exception in `CacheWorldItems()` can therefore conflict with later proximity creates and produce duplicate or unnetworked items.
+The temporary compatibility-adoption path still exists for player-marked objects produced by DV
+systems not yet converted to explicit host operations. Those producers remain migration work, but
+unrelated unbound inventory/world objects are no longer retained or pooled.
 
 #### G. There is no item-sync completion barrier
 
@@ -421,7 +418,7 @@ As described earlier, `DoNotCreateItem(nearbyItem.GetType())` checks `NetworkedI
 
 Additionally, job item wrappers are initialized as useful items but do not register/finalise tracked values in the general item patches, so a mistakenly received general snapshot can remain queued indefinitely.
 
-#### I. Leaving interest range does not despawn or cache an item
+#### I. Leaving interest range must retire the correct projection kind
 
 Removing an item from `NearbyItems` stops host tick updates but leaves the item in `KnownItems` and alive on the client. This may be an intentional bandwidth-only culling policy, but it should be named as such.
 
@@ -429,7 +426,7 @@ If object-count culling is desired, the protocol needs a distinction between tem
 
 #### J. Destroy delivery is one-tick and global
 
-Every destroy is appended to every eligible player's next bulk packet, including players who never knew the item. Calling `SendToCache(null)` for an unknown destroyed ID can throw and is only contained by the outer per-snapshot exception handler.
+Every destroy is appended to every eligible player's next bulk packet, including players who never knew the item. Unknown destroyed IDs must remain null-safe; a known dynamic projection is destroyed and a known authored projection becomes dormant.
 
 Players below `ReadyForItems` are skipped, after which `DestroyedItems` is cleared. A player which retained a special/essential local version may never receive the removal. Destroy should be targeted to known players, null-safe, and represented in initial authoritative state for late joiners.
 
@@ -459,7 +456,7 @@ If an `InHand` or `InInventory` snapshot references a player which the receiving
 
 `ItemUpdateData.PlayerHand` exists but is neither serialized nor used. Cleanup explicitly checks only `RightHandItemGO`, with a TODO for VR. Left/right-hand ownership and two-hand edge cases are therefore unsupported.
 
-### 10.4 Tracked-value and cache gaps
+### 10.4 Tracked-value and projection gaps
 
 #### P. Tracked-value schema is implicit
 
@@ -467,11 +464,12 @@ Keys and types are string-based and must match on every peer. Unknown keys are o
 
 There is no per-item schema/version marker, duplicate-key prevention, range validation, or compatibility negotiation beyond the broader protocol manifest.
 
-#### Q. Cache reuse does not reset all logical state
+#### Q. Authored re-entry must reset network lifetime without resetting scene identity
 
-Only values represented in the incoming snapshot are deliberately reset. Untracked component state, destroyed `RespawnOnDrop`, pending queues, one-shot flags, subscriptions, and mod-added components can survive cache reuse.
-
-A cache reset contract is needed per prefab, or cached objects should be reconstructed when safe reset cannot be guaranteed.
+Dynamic projection reuse has been removed. Exact authored objects still survive interest retirement
+because other scene components may reference them. Their network identity, authority metadata,
+pending snapshots, and presentation must be reset before stable-key rebinding without erasing their
+authored classification or unrelated scene wiring.
 
 #### R. Useful-item registration can stall snapshot application
 
@@ -534,11 +532,11 @@ The following order addresses identity and authority before adding more item typ
 4. Add dependency queues/retries for player and train references.
 5. Implement hand selection for VR and left/right hands.
 
-### Phase 5: Physics, caching, and scale
+### Phase 5: Physics, projections, and scale
 
 1. Decide which items need periodic transform/rigidbody correction after throws.
 2. Add sleep/rest snapshots or low-rate authoritative corrections rather than full continuous physics for every item.
-3. Define a per-prefab cache reset contract and bound snapshot queues.
+3. Verify authored dormancy/re-entry reset invariants and bound snapshot queues.
 4. Fix the job-item exclusion to use `TrackedItemType`, and document ownership between job sync and general item sync.
 5. Profile spatial scans and bulk packet size under realistic worst cases.
 
@@ -556,7 +554,7 @@ The current implementation would benefit from repeatable two- and three-player t
 | Modify flashlight battery on a client | Host rejects it and no other client applies the forged value. |
 | Update an item unknown to a distant client | Distant client receives neither an unusable delta nor a permanent desync. |
 | Destroy an item unknown to a client | No exception; no later ghost create. |
-| Cache ID A, reuse object as ID B, deliver late A packet | Late packet cannot resolve to or mutate B. |
+| Retire dynamic ID A, create same prefab as ID B, deliver late A packet | Fresh projection B cannot be resolved or mutated through A. |
 | Join with inventory items | No duplicate local/host copies; IDs and ownership are canonical. |
 | Attach before train dependency exists | Attachment is retried and eventually converges. |
 | Job overview/booklet/report creation | Exactly one subsystem creates each document. |

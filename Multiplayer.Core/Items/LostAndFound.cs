@@ -98,6 +98,7 @@ public sealed class LostItemRecord
     public string OwnerIdentity { get; set; } = string.Empty;
     public string PrefabName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public string AuthoredItemKey { get; set; } = string.Empty;
     public byte InventoryClaimPlayerId { get; set; }
     public int InventoryClaimSlot { get; set; } = -1;
     public byte InventoryClaimFlags { get; set; }

@@ -45,8 +45,9 @@ The suite also covers:
 - repeated pickup/drop cycles and a deterministic 2,000-operation mixed-transition invariant run.
 - recipient completion with zero, one, and multiple clients, exact timeout boundaries, recovery,
   stable multi-client discontinuity selection, and validation rejection;
-- client adoption token/item uniqueness, unknown and duplicate result handling, invalid accepted
-  mappings, and host token idempotency scoped per authenticated player;
+- temporary compatibility-adoption token/item uniqueness, policy rejection, unknown and duplicate
+  result handling, invalid accepted mappings, and host token idempotency scoped per authenticated
+  player; remove these tests with the compatibility bridge after all producers become host-created;
 - all 16 combinations of inventory/world/lost-and-found/container storage membership normalized
   to one target without silent overlap;
 - local hand, local inventory, remote hand, remote inventory, missing-player, and invalid remote

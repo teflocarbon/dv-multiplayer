@@ -2,6 +2,10 @@
 
 This document records item-ownership behaviour that is technically valid but depends on subjective game-design decisions. It is not a commitment to the current policy.
 
+Implemented lifecycle and ownership-establishment rules are canonicalized in
+[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md). This document should
+only hold unresolved or explicitly deferred game-design choices.
+
 ## Separate concepts
 
 The implementation must continue to distinguish these values:
@@ -84,7 +88,8 @@ Each path needs an explicit answer:
 
 - Starting inventory
 - Shop purchase
-- Client adoption of an existing local item
+- Temporary compatibility adoption from an unconverted DV producer (must be replaced by an
+  explicit host operation, not retained as a permanent creation path)
 - Job reward or generated document
 - Item spawned by a machine or printer
 - World-authored personal item

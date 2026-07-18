@@ -261,10 +261,13 @@ public static class DebugProtocolSelfTests
         Require(initialConfiguration?.Exists == true && initialConfiguration.Configuration?.Port == 7777, "runtime environment configuration GET endpoint failed");
         client.UploadString(server.Url + "api/runtime-environment/config", DebugJson.Serialize(new RuntimeEnvironmentStartRequestDto
         {
-            ExecutablePath = "persisted-game.exe", Address = "10.0.0.2", Port = 7788, Password = "test-password"
+            ExecutablePath = "persisted-game.exe", Address = "10.0.0.2", Port = 7788, Password = "test-password",
+            HostSaveGameMode = "Career", HostSaveUid = 42, HostSaveName = "DVMP Test Baseline"
         }));
         Require(savedEnvironment?.ExecutablePath == "persisted-game.exe" && savedEnvironment.Address == "10.0.0.2" &&
-            savedEnvironment.Port == 7788 && savedEnvironment.Password == "test-password", "runtime environment configuration POST endpoint failed");
+            savedEnvironment.Port == 7788 && savedEnvironment.Password == "test-password" &&
+            savedEnvironment.HostSaveGameMode == "Career" && savedEnvironment.HostSaveUid == 42 &&
+            savedEnvironment.HostSaveName == "DVMP Test Baseline", "runtime environment configuration POST endpoint failed");
         RuntimeEnvironmentStatusDto startedEnvironment = JsonConvert.DeserializeObject<RuntimeEnvironmentStatusDto>(
             client.UploadString(server.Url + "api/runtime-environment/start", DebugJson.Serialize(new RuntimeEnvironmentStartRequestDto { ExecutablePath = "test-game.exe" })), DebugJson.Settings);
         Require(startedEnvironment?.Stage == RuntimeEnvironmentStage.LaunchingHost, "runtime environment start endpoint failed");

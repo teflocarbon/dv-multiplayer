@@ -32,6 +32,45 @@ internal static class StorageControllerInventoryStatusPatch
     private static bool Prefix() => !InventoryIntegration.AuthoritativeRemovalActive;
 }
 
+[HarmonyPatch(typeof(StorageController), nameof(StorageController.AddItemToStorageItemList),
+    typeof(StorageBase), typeof(ItemBase))]
+internal static class StorageControllerAddManagedItemPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix(StorageController __instance, StorageBase storage, ItemBase item)
+    {
+        if (!MultiplayerStoragePatchGuard.IsManaged(item, out _))
+            return true;
+
+        if (storage == null)
+        {
+            global::Multiplayer.Multiplayer.LogWarning(
+                $"Cannot add managed item {item.name} to a null DV storage.");
+            return false;
+        }
+
+        InventoryItemSpec spec = item.InventorySpecs;
+        if (spec == null)
+        {
+            global::Multiplayer.Multiplayer.LogWarning(
+                $"Cannot add managed item {item.name} to {storage.name}: missing InventoryItemSpec.");
+            return false;
+        }
+
+        if (!spec.BelongsToPlayer && !storage.acceptsNonEssential)
+            return false;
+
+        // DV finishes every storage insertion by invoking RespawnOnDrop.UpdateSpawnParams().
+        // Network-created projections do not necessarily carry that component, and managed
+        // items must not run an independent single-player respawn policy even when they do.
+        // Preserve DV's storage membership bookkeeping while leaving lifecycle authority with
+        // the host's item registry.
+        __instance.RemoveItemFromStorageItemList(item);
+        storage.AddItem(item);
+        return false;
+    }
+}
+
 [HarmonyPatch(typeof(StorageController), nameof(StorageController.AddItemToLostAndFound))]
 internal static class StorageControllerAddLostItemPatch
 {

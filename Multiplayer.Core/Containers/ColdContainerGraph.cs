@@ -87,6 +87,7 @@ public sealed class ColdStoredItemRecord
     public string PrefabName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string PersistentOwnerIdentity { get; set; } = string.Empty;
+    public string AuthoredItemKey { get; set; } = string.Empty;
     public Guid ParentContainerId { get; set; }
     public int Slot { get; set; } = -1;
     public Guid? ChildContainerId { get; set; }
@@ -102,6 +103,7 @@ public sealed class ColdStoredItemRecord
         PrefabName = PrefabName,
         DisplayName = DisplayName,
         PersistentOwnerIdentity = PersistentOwnerIdentity,
+        AuthoredItemKey = AuthoredItemKey,
         ParentContainerId = ParentContainerId,
         Slot = Slot,
         ChildContainerId = ChildContainerId,
@@ -535,7 +537,7 @@ public sealed class ColdContainerGraph
 
     public ColdContainerGraphSnapshot ExportSnapshot() => new()
     {
-        Version = 2,
+        Version = 3,
         Containers = containers.Values.Select(value => value.Clone()).ToList(),
         Items = items.Values.Where(value =>
             value.LifecycleState != ColdItemLifecycleState.Materialized).Select(value =>
@@ -551,7 +553,7 @@ public sealed class ColdContainerGraph
 
     public ContainerOperationResult ImportSnapshot(ColdContainerGraphSnapshot snapshot)
     {
-        if (snapshot == null || snapshot.Version != 2)
+        if (snapshot == null || snapshot.Version != 3)
             return Reject(Guid.Empty, ContainerOperationKind.Browse,
                 ContainerOperationStatus.InvalidRecord, "snapshot-version-invalid");
         ColdContainerGraph candidate = new(Limits, compatibility);

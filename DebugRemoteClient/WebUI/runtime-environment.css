@@ -1,6 +1,7 @@
 .environment-grid { display:grid; grid-template-columns:repeat(2,minmax(260px,1fr)); gap:.75rem; margin:1rem 0; }
 .environment-grid label { display:grid; gap:.35rem; color:var(--muted); }
-.environment-grid input { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:.7rem; }
+.environment-grid input,.environment-grid select { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:.7rem; }
+.environment-grid small { color:var(--muted); }
 .environment-actions { display:flex; gap:.7rem; margin:1rem 0; }
 .environment-help { color:var(--muted); max-width:80ch; }
 .environment-status { display:grid; gap:1rem; }
@@ -12,4 +13,9 @@
 .environment-card-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .environment-card-head h3 { margin-bottom:.5rem; }
 .environment-readiness pre { white-space:pre-wrap; overflow-wrap:anywhere; overflow:auto; max-height:32rem; }
+.environment-save-catalog { display:grid; gap:.65rem; }
+.environment-save-catalog>p { margin:0; }
+.environment-save-card { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.8rem; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
+.environment-save-card>div { display:grid; gap:.25rem; min-width:0; }
+.environment-save-card code { overflow-wrap:anywhere; color:#89cfc0; }
 @media(max-width:800px){.environment-grid,.environment-readiness{grid-template-columns:1fr;}}

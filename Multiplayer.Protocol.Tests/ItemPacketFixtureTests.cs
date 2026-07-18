@@ -78,6 +78,8 @@ public sealed class ItemPacketFixtureTests
         ItemUpdateData result = RoundTrip(Fixture(ItemUpdateData.ItemUpdateType.Create, ItemState.Dropped));
         Assert.Multiple(() => {
             Assert.That(result.PrefabName, Is.EqualTo("Cup2"));
+            Assert.That(result.AuthoredItemKey, Is.EqualTo("0123456789abcdef0123456789abcdef"));
+            Assert.That(result.BelongsToPlayer, Is.True);
             Assert.That(result.States["bool"], Is.EqualTo(true));
             Assert.That(result.States["int"], Is.EqualTo(-2));
             Assert.That(result.States["uint"], Is.EqualTo(7u));
@@ -85,6 +87,39 @@ public sealed class ItemPacketFixtureTests
             Assert.That(result.States["string"], Is.EqualTo("state"));
         });
         AssertWorldTransform(result);
+    }
+
+    [TestCase(ItemWorldParentKind.TrainInterior)]
+    [TestCase(ItemWorldParentKind.StaticParent)]
+    public void WorldParentRoundTripsCompactAnchorAndLocalPose(ItemWorldParentKind kind)
+    {
+        ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.ItemState, ItemState.Dropped);
+        source.WorldParentKind = kind;
+        source.WorldParentNetId = 91;
+        source.WorldParentKey = "fedcba9876543210fedcba9876543210";
+        source.ParentLocalPosition = new Vector3(1.5f, .25f, -3f);
+        source.ParentLocalRotation = new Quaternion(.182574f, .365148f, .547723f, .730297f);
+
+        ItemUpdateData result = RoundTrip(source);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.WorldParentKind, Is.EqualTo(kind));
+            Assert.That(result.WorldParentNetId,
+                Is.EqualTo(kind == ItemWorldParentKind.TrainInterior ? 91 : 0));
+            Assert.That(result.WorldParentKey,
+                Is.EqualTo(kind == ItemWorldParentKind.StaticParent
+                    ? "fedcba9876543210fedcba9876543210"
+                    : null));
+        });
+        AssertVector(result.ParentLocalPosition, source.ParentLocalPosition);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ParentLocalRotation.x, Is.EqualTo(source.ParentLocalRotation.x).Within(.0001f));
+            Assert.That(result.ParentLocalRotation.y, Is.EqualTo(source.ParentLocalRotation.y).Within(.0001f));
+            Assert.That(result.ParentLocalRotation.z, Is.EqualTo(source.ParentLocalRotation.z).Within(.0001f));
+            Assert.That(result.ParentLocalRotation.w, Is.EqualTo(source.ParentLocalRotation.w).Within(.0001f));
+        });
     }
 
     [Test]
@@ -99,6 +134,37 @@ public sealed class ItemPacketFixtureTests
             Assert.That(result.PrefabName, Is.Null);
             Assert.That(result.States, Is.Null);
         });
+    }
+
+    [Test]
+    public void TemporaryAdoptionEnvelopeRoundTripsCompatibilityClassification()
+    {
+        ItemAdoptionRequestData source = new()
+        {
+            AdoptionToken = "temporary-token",
+            PrefabName = "Flashlight",
+            PlayerProperty = true,
+            AuthoredItemKey = string.Empty,
+            Position = new Vector3(12f, 34f, 56f),
+            Rotation = Quaternion.identity,
+            Snapshot = Fixture(ItemUpdateData.ItemUpdateType.FullSync, ItemState.InInventory)
+        };
+        var writer = new NetDataWriter();
+        ItemAdoptionRequestData.Serialize(writer, source);
+        var reader = new NetDataReader(writer.Data, 0, writer.Length);
+        ItemAdoptionRequestData result = ItemAdoptionRequestData.Deserialize(reader);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(reader.AvailableBytes, Is.Zero);
+            Assert.That(result.AdoptionToken, Is.EqualTo(source.AdoptionToken));
+            Assert.That(result.PrefabName, Is.EqualTo(source.PrefabName));
+            Assert.That(result.PlayerProperty, Is.True);
+            Assert.That(result.AuthoredItemKey, Is.Empty);
+            Assert.That(result.Snapshot.UpdateType, Is.EqualTo(ItemUpdateData.ItemUpdateType.FullSync));
+            Assert.That(result.Snapshot.ItemState, Is.EqualTo(ItemState.InInventory));
+        });
+        AssertVector(result.Position, source.Position);
     }
 
     [TestCase(ItemUpdateData.ItemUpdateType.ObjectState)]
@@ -159,6 +225,8 @@ public sealed class ItemPacketFixtureTests
         TransitionReason = ItemTransitionReason.ClientState,
         OriginatingPlayerId = 2,
         PrefabName = "Cup2",
+        AuthoredItemKey = "0123456789abcdef0123456789abcdef",
+        BelongsToPlayer = true,
         ItemState = state,
         ItemPosition = new Vector3(9469.9f, 120.599f, 13616.892f),
         ItemRotation = new Quaternion(.175f, .732f, -.211f, .624f),

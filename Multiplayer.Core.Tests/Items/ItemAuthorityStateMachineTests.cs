@@ -440,6 +440,9 @@ public sealed class ItemAuthorityStateMachineTests
     [TestCase(AuthorityPlacement.LostAndFound)]
     [TestCase(AuthorityPlacement.Installed)]
     [TestCase(AuthorityPlacement.Destroyed)]
+    [TestCase(AuthorityPlacement.TrainInterior)]
+    [TestCase(AuthorityPlacement.StaticParent)]
+    [TestCase(AuthorityPlacement.SnappedAttachment)]
     public void NonPlayerPlacements_AlwaysClearPlacementPlayer(AuthorityPlacement placement)
     {
         ItemAuthorityState original = State(revision: 1,
@@ -491,7 +494,8 @@ public sealed class ItemAuthorityStateMachineTests
                     ActorPlayerId = (byte)random.Next(1, 4),
                     ExpectedRevision = expected,
                     AppliesPlacement = true,
-                    RequestedPlacement = (AuthorityPlacement)random.Next(0, 8),
+                    RequestedPlacement = (AuthorityPlacement)random.Next(0,
+                        Enum.GetValues(typeof(AuthorityPlacement)).Length),
                     InventoryClaimSlot = random.Next(0, 10),
                     InventoryClaimFlags = (AuthorityClaimFlags)random.Next(0, 16)
                 };

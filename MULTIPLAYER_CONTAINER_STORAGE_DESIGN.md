@@ -30,6 +30,10 @@ Physical shell replication remains the normal item system. Only contents are det
 collected by multiplayer Lost and Found retains its graph unchanged; retrieving the shell does not
 eagerly instantiate its descendants.
 
+The relationship between materialized shells, detached contents, persistent ownership, Lost and
+Found, and presentation retirement is canonicalized in
+[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md).
+
 ## Goal
 
 Make item containers scalable, host-authoritative, private by default, and resistant to client crashes or bandwidth abuse. Closed contents live as detached host records backed by the host save. Clients receive a physical container shell and no contents until authorized access requires a bounded view.

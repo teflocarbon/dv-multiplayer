@@ -67,6 +67,9 @@ function Wait-Environment {
     do {
         $status = Invoke-HarnessApi 'GET' 'api/runtime-environment/status'
         if ([bool]$status.ready) { return $status }
+        if ([string]$status.stage -eq 'BaselineRequired') {
+            throw "runtime-environment-baseline-required:$($status.message)"
+        }
         if ([string]$status.stage -eq 'Failed') {
             throw "runtime-environment-failed:$($status.error):$($status.message)"
         }

@@ -9,7 +9,7 @@ namespace Multiplayer.Core.Containers;
 public static class ColdContainerSnapshotCodec
 {
     private const uint Magic = 0x43435644; // DVCC
-    private const ushort FormatVersion = 2;
+    private const ushort FormatVersion = 3;
     public const int MaximumEncodedBytes = 16 * 1024 * 1024;
     public const int MaximumDetachedStateBytes = 512 * 1024;
     private const int MaximumStringBytes = 4096;
@@ -40,6 +40,7 @@ public static class ColdContainerSnapshotCodec
                 WriteString(writer, item.PrefabName);
                 WriteString(writer, item.DisplayName);
                 WriteString(writer, item.PersistentOwnerIdentity);
+                WriteString(writer, item.AuthoredItemKey);
                 WriteGuid(writer, item.ParentContainerId);
                 writer.Write(item.Slot);
                 writer.Write(item.ChildContainerId.HasValue);
@@ -101,6 +102,7 @@ public static class ColdContainerSnapshotCodec
                 string prefab = ReadString(reader);
                 string display = ReadString(reader);
                 string owner = ReadString(reader);
+                string authoredItemKey = ReadString(reader);
                 Guid parent = ReadGuid(reader);
                 int slot = reader.ReadInt32();
                 Guid? child = reader.ReadBoolean() ? ReadGuid(reader) : null;
@@ -116,6 +118,7 @@ public static class ColdContainerSnapshotCodec
                     PrefabName = prefab,
                     DisplayName = display,
                     PersistentOwnerIdentity = owner,
+                    AuthoredItemKey = authoredItemKey,
                     ParentContainerId = parent,
                     Slot = slot,
                     ChildContainerId = child,
@@ -128,7 +131,7 @@ public static class ColdContainerSnapshotCodec
                 throw new InvalidDataException("snapshot-trailing-data");
             snapshot = new ColdContainerGraphSnapshot
             {
-                Version = 2,
+                Version = 3,
                 Containers = containers,
                 Items = items
             };

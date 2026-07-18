@@ -4,10 +4,16 @@ using UnityEngine;
 
 namespace Multiplayer.Networking.Data.Items;
 
+/// <summary>
+/// TEMPORARY wire bridge for unconverted DV item producers. Remove once all item creation is an
+/// explicit host-authoritative operation.
+/// </summary>
 public struct ItemAdoptionRequestData
 {
     public string AdoptionToken { get; set; }
     public string PrefabName { get; set; }
+    public bool PlayerProperty { get; set; }
+    public string AuthoredItemKey { get; set; }
     public Vector3 Position { get; set; }
     public Quaternion Rotation { get; set; }
     public ItemUpdateData Snapshot { get; set; }
@@ -16,6 +22,8 @@ public struct ItemAdoptionRequestData
     {
         writer.Put(data.AdoptionToken ?? string.Empty);
         writer.Put(data.PrefabName ?? string.Empty);
+        writer.Put(data.PlayerProperty);
+        writer.Put(data.AuthoredItemKey ?? string.Empty);
         Vector3Serializer.Serialize(writer, data.Position);
         QuaternionSerializer.Serialize(writer, data.Rotation);
         ItemUpdateData.Serialize(writer, data.Snapshot ?? new ItemUpdateData());
@@ -27,6 +35,8 @@ public struct ItemAdoptionRequestData
         {
             AdoptionToken = reader.GetString(),
             PrefabName = reader.GetString(),
+            PlayerProperty = reader.GetBool(),
+            AuthoredItemKey = reader.GetString(),
             Position = Vector3Serializer.Deserialize(reader),
             Rotation = QuaternionSerializer.Deserialize(reader),
             Snapshot = ItemUpdateData.Deserialize(reader)
@@ -34,6 +44,7 @@ public struct ItemAdoptionRequestData
     }
 }
 
+/// <summary>Result for the temporary compatibility-adoption bridge.</summary>
 public struct ItemAdoptionResultData
 {
     public string AdoptionToken { get; set; }
