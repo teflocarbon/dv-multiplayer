@@ -186,9 +186,10 @@ public sealed class RuntimeTestProcessRunDto
 
 public enum RuntimeEnvironmentStage
 {
-    Idle, LaunchingHost, WaitingForHostAgent, LoadingHostSave, WaitingForHostServer,
-    LaunchingClient, WaitingForClientAgent, ConnectingClient, WaitingForClientWorld,
-    Ready, Stopping, Stopped, Failed
+    Idle, DiscoveringBaselineSaves, BaselineRequired, LaunchingHost,
+    WaitingForHostAgent, LoadingHostSave, WaitingForHostServer, LaunchingClient,
+    WaitingForClientAgent, ConnectingClient, WaitingForClientWorld, Ready, Stopping,
+    Stopped, Failed
 }
 
 public sealed class RuntimeEnvironmentStartRequestDto
@@ -202,6 +203,10 @@ public sealed class RuntimeEnvironmentStartRequestDto
     public int Port { get; set; } = 7777;
     public string Password { get; set; } = string.Empty;
     public string ServerName { get; set; } = "DVMP automated test";
+    public string HostSaveGameMode { get; set; } = string.Empty;
+    public int? HostSaveUid { get; set; }
+    public string HostSaveName { get; set; } = string.Empty;
+    public string HostSaveBasePath { get; set; } = string.Empty;
     public int MaxPlayers { get; set; } = 2;
     public bool MinimizeManagedWindows { get; set; }
     public bool DisableManagedWindowInput { get; set; } = true;
@@ -256,6 +261,8 @@ public sealed class RuntimeEnvironmentStatusDto
     public int? ClientProcessId { get; set; }
     public string HostSessionId { get; set; } = string.Empty;
     public string ClientSessionId { get; set; } = string.Empty;
+    public Dictionary<string, object> AvailableSaves { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, object> HostSaveSelection { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, object> HostReadiness { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, object> ClientReadiness { get; set; } = new(StringComparer.Ordinal);
 }

@@ -162,7 +162,8 @@ internal sealed class InventoryRuntimeFixtureDriver
         byte holderId = OptionalByte(command, "holderPlayerId", ownerId);
         string placement = OptionalString(command, "placement", "inventory")
             .Trim().ToLowerInvariant();
-        if (!lifecycle.Server.TryGetServerPlayer(ownerId, out ServerPlayer owner))
+        ServerPlayer owner = null;
+        if (ownerId != 0 && !lifecycle.Server.TryGetServerPlayer(ownerId, out owner))
             throw new ArgumentException("owner-player-not-found:" + ownerId);
         ServerPlayer holder = null;
         if (placement != "world" &&
@@ -218,7 +219,23 @@ internal sealed class InventoryRuntimeFixtureDriver
             player.RemoveOwnedItem(item.NetId);
         AuthoritativeItemRegistry.Remove(item.NetId);
         snapshot.AuthorityRevision = 0;
-        item.ServerInitialiseAdoptedItem(owner, snapshot);
+        if (ownerId == 0)
+        {
+            if (!lifecycle.Server.TryGetServerPlayer(lifecycle.Server.SelfId,
+                    out ServerPlayer hostActor))
+                throw new InvalidOperationException("host-player-not-found");
+            snapshot.PersistentOwnerPlayerId = 0;
+            if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, hostActor,
+                    ItemTransitionReason.HostLocalState, true, out string rejection))
+                throw new InvalidOperationException("fixture-unowned-transition-rejected:" +
+                    rejection);
+            item.ApplyServerCanonicalSnapshot(snapshot);
+            NetworkedItemManager.Instance.RegisterHostWorldItem(item);
+        }
+        else
+        {
+            item.ServerInitialiseAdoptedItem(owner, snapshot);
+        }
         if (placement != "world" && holderId != ownerId)
         {
             ItemUpdateData heldSnapshot = item.CreateUpdateData(
@@ -359,9 +376,13 @@ internal sealed class InventoryRuntimeFixtureDriver
     public IEnumerator DestroyFixture(RuntimeTestCommandDto command, RuntimeTestRunDto run)
     {
         RequireHost();
+        ushort requestedNetId = RequiredUShort(command, "netId");
         string tokenText = RequiredString(command, "fixtureToken");
         if (!Guid.TryParse(tokenText, out Guid token) || token == Guid.Empty)
             throw new ArgumentException("invalid-fixture-token:" + tokenText);
+        // Virtual records outlive a retired Unity projection by design. Always remove the test
+        // fixture's semantic Lost and Found state, even when its representation has already gone.
+        NetworkedLostAndFoundManager.RemoveRuntimeFixture(requestedNetId);
         if (!fixtureItems.TryGetValue(token, out NetworkedItem item) || item == null)
         {
             bool stillCold = coldFixtureTokens.Values.Contains(token);

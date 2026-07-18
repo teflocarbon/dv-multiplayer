@@ -57,8 +57,13 @@ authority; local placement uses Derail Valley's inventory/grabber entry points. 
 dropped, reserved, and locked state so hidden silhouettes cannot be mistaken for ordinary slots.
 
 The Debug-only **Environment** page can launch the pair as well. Supply `DerailValley.exe`, optional
-working/role arguments, and local port/password settings. It loads the host profile's latest save,
-waits until the server is fully ready, then starts and connects the client. The dashboard exposes
+working/role arguments, and local port/password settings. A deterministic baseline can be selected
+by game mode, `ISaveGame.UID`, and an optional exact-name safeguard; leaving all three blank retains
+the legacy latest-save fallback. The selected save identity is shown in environment status. It
+waits until the server is fully ready, then starts and connects the client. Cursor-protected
+launches carry a debug-only flag handled inside the game so Unity cannot lock or hide the desktop
+cursor; the dashboard does not disable or manipulate the Windows game windows, and the ordinary
+game remains unchanged. The dashboard exposes
 authenticated `GET status`, `POST start`, and `POST stop` operations under
 `/api/runtime-environment/`; stop affects only processes launched by that dashboard run.
 

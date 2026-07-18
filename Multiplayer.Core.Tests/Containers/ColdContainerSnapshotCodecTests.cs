@@ -33,6 +33,7 @@ public sealed class ColdContainerSnapshotCodecTests
                     PersistentItemId = itemId,
                     ParentContainerId = containerId,
                     PersistentOwnerIdentity = "owner",
+                    AuthoredItemKey = "0123456789abcdef0123456789abcdef",
                     PrefabName = "Folder",
                     DisplayName = "Folder",
                     Slot = 4,
@@ -51,6 +52,7 @@ public sealed class ColdContainerSnapshotCodecTests
         Assert.That(restored.Containers[0].PrefabName, Is.EqualTo("Crate"));
         Assert.That(restored.Items[0].SessionHandle, Is.Zero);
         Assert.That(restored.Items[0].DetachedState, Is.EqualTo(new byte[] { 1, 2, 3 }));
+        Assert.That(restored.Items[0].AuthoredItemKey, Is.EqualTo("0123456789abcdef0123456789abcdef"));
         ColdContainerGraph graph = new();
         Assert.That(graph.ImportSnapshot(restored).Accepted, Is.True);
     }

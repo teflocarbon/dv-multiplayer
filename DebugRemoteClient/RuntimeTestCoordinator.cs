@@ -181,6 +181,7 @@ internal sealed class RuntimeTestCoordinator
         public bool CaptureStarted;
         public bool CaptureStopped;
         public FixtureScenario FixtureScenario;
+        public RuntimeTestCommandDto PendingScenarioCommand;
     }
 
     private readonly Func<IEnumerable<DebugSessionInfo>> sessions;
@@ -192,6 +193,9 @@ internal sealed class RuntimeTestCoordinator
     private readonly Func<string, IEnumerable<string>> captureFiles;
     private readonly ConcurrentDictionary<string, CoordinatedRun> runs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> published = new(StringComparer.Ordinal);
+    private readonly object scenarioQueueGate = new();
+    private readonly Queue<RuntimeTestCommandDto> pendingScenarios = new();
+    private string activeScenarioRequestId = string.Empty;
 
     public RuntimeTestCoordinator(Func<IEnumerable<DebugSessionInfo>> sessions,
         Func<DebugSessionInfo, IRuntimeTestProcessClient> clientFactory = null,
@@ -299,6 +303,30 @@ internal sealed class RuntimeTestCoordinator
             itemRun.Processes.Count != 7 || captureStarts != 3 || captureStops != 3)
             throw new InvalidOperationException(
                 "Runtime-test coordinator self-test failed item-only fixture lifecycle.");
+
+        RuntimeTestCoordinator queueCoordinator = new(() => new[] { host, client },
+            session => clients[session.SessionId]);
+        RuntimeTestCommandAcceptedDto firstQueued = queueCoordinator.Enqueue(new RuntimeTestCommandDto
+        {
+            RequestId = "queue-first", RunId = "queue-first-run",
+            Command = "scenario.lost-and-found-self-test", TargetSessionId = client.SessionId,
+            MutationKind = RuntimeTestMutationKind.IsolatedMutation
+        });
+        RuntimeTestCommandAcceptedDto secondQueued = queueCoordinator.Enqueue(new RuntimeTestCommandDto
+        {
+            RequestId = "queue-second", RunId = "queue-second-run",
+            Command = "scenario.lost-and-found-self-test", TargetSessionId = client.SessionId,
+            MutationKind = RuntimeTestMutationKind.IsolatedMutation
+        });
+        RuntimeTestRunDto waiting = queueCoordinator.GetRun("queue-second");
+        RuntimeTestRunDto firstResult = WaitForSelfTestRun(queueCoordinator, "queue-first");
+        RuntimeTestRunDto secondResult = WaitForSelfTestRun(queueCoordinator, "queue-second");
+        if (!firstQueued.Accepted || !secondQueued.Accepted ||
+            waiting?.Status != RuntimeTestCommandStatus.Queued ||
+            firstResult?.Status != RuntimeTestCommandStatus.Passed ||
+            secondResult?.Status != RuntimeTestCommandStatus.Passed)
+            throw new InvalidOperationException(
+                "Runtime-test coordinator self-test failed durable serial scenario queue.");
     }
 
     private static RuntimeTestRunDto WaitForSelfTestRun(
@@ -358,9 +386,16 @@ internal sealed class RuntimeTestCoordinator
         if (runs.ContainsKey(command.RequestId)) return Rejected(command, "duplicate-request-id");
         RuntimeTestDescriptorDto descriptor = FindDescriptor(command.Command);
         bool scenario = descriptor?.IsScenario == true;
-        if (scenario && runs.Values.Any(candidate => !Terminal(candidate.Parent.Status) &&
-                candidate.IsScenario))
-            return Rejected(command, "another-scenario-is-running");
+        if (scenario)
+        {
+            lock (scenarioQueueGate)
+            {
+                if (!string.IsNullOrEmpty(activeScenarioRequestId) &&
+                    runs.TryGetValue(activeScenarioRequestId, out CoordinatedRun activeScenario) &&
+                    !Terminal(activeScenario.Parent.Status))
+                    return QueueScenario(command);
+            }
+        }
         if (scenario && descriptor.ScenarioOrchestration is
             RuntimeScenarioOrchestrationKind.InventoryFixturePair or
             RuntimeScenarioOrchestrationKind.InventoryItemFixture)
@@ -414,6 +449,8 @@ internal sealed class RuntimeTestCoordinator
         if (!coordinated.Children.Any(child => child.Last.Status != RuntimeTestCommandStatus.Failed))
             return Rejected(command, "all-runtime-sessions-rejected-command");
         runs[command.RequestId] = coordinated;
+        if (scenario)
+            lock (scenarioQueueGate) activeScenarioRequestId = command.RequestId;
         Publish(coordinated.Parent);
         return new RuntimeTestCommandAcceptedDto
         {
@@ -428,11 +465,15 @@ internal sealed class RuntimeTestCoordinator
             return journal?.Get(requestId);
         lock (run)
         {
+            if (run.PendingScenarioCommand != null)
+                return Clone(run.Parent);
             if (run.FixtureScenario != null)
             {
                 AdvanceFixtureScenario(run);
                 Publish(run.Parent);
-                return Clone(run.Parent);
+                RuntimeTestRunDto fixtureResult = Clone(run.Parent);
+                if (Terminal(run.Parent.Status)) StartNextScenario(run.Parent.RequestId);
+                return fixtureResult;
             }
             foreach (Child child in run.Children.Where(child => !Terminal(child.Last.Status)))
             {
@@ -446,13 +487,17 @@ internal sealed class RuntimeTestCoordinator
             }
             RefreshParent(run);
             Publish(run.Parent);
-            return Clone(run.Parent);
+            RuntimeTestRunDto result = Clone(run.Parent);
+            if (run.IsScenario && Terminal(run.Parent.Status))
+                StartNextScenario(run.Parent.RequestId);
+            return result;
         }
     }
 
     public RuntimeTestRunSummaryDto[] GetRuns()
     {
         foreach (string requestId in runs.Keys.ToArray()) GetRun(requestId);
+        StartNextScenario(null);
         return journal?.List() ?? runs.Values.Select(item => item.Parent)
             .OrderByDescending(item => item.QueuedUtc)
             .Select(item => new RuntimeTestRunSummaryDto
@@ -470,6 +515,15 @@ internal sealed class RuntimeTestCoordinator
         if (requestId == null || !runs.TryGetValue(requestId, out CoordinatedRun run)) return false;
         lock (run)
         {
+            if (run.PendingScenarioCommand != null)
+            {
+                run.PendingScenarioCommand = null;
+                run.Parent.Status = RuntimeTestCommandStatus.Cancelled;
+                run.Parent.Error = "cancelled-before-start";
+                run.Parent.CompletedUtc = DateTime.UtcNow;
+                Publish(run.Parent);
+                return true;
+            }
             if (run.FixtureScenario != null)
             {
                 run.FixtureScenario.CancellationRequested = true;
@@ -496,6 +550,92 @@ internal sealed class RuntimeTestCoordinator
             return requested;
         }
     }
+
+    private RuntimeTestCommandAcceptedDto QueueScenario(RuntimeTestCommandDto command)
+    {
+        CoordinatedRun queued = new()
+        {
+            IsScenario = true,
+            PendingScenarioCommand = CloneCommand(command),
+            Parent = new RuntimeTestRunDto
+            {
+                RequestId = command.RequestId, RunId = command.RunId,
+                CaseId = command.CaseId, PhaseId = "queue", StepId = "waiting-for-prior-scenario",
+                Command = command.Command, Status = RuntimeTestCommandStatus.Queued,
+                QueuedUtc = DateTime.UtcNow, Role = "dashboard"
+            }
+        };
+        queued.Parent.Result["serverQueued"] = true;
+        queued.Parent.Result["queuePosition"] = pendingScenarios.Count + 1;
+        if (!runs.TryAdd(command.RequestId, queued))
+            return Rejected(command, "duplicate-request-id");
+        pendingScenarios.Enqueue(CloneCommand(command));
+        Publish(queued.Parent);
+        return new RuntimeTestCommandAcceptedDto
+        {
+            RequestId = command.RequestId, RunId = command.RunId, Accepted = true,
+            StatusUrl = "/api/runtime-tests/runs/" + Uri.EscapeDataString(command.RequestId)
+        };
+    }
+
+    private void StartNextScenario(string completedRequestId)
+    {
+        RuntimeTestCommandDto next = null;
+        lock (scenarioQueueGate)
+        {
+            if (!string.IsNullOrEmpty(completedRequestId) &&
+                string.Equals(activeScenarioRequestId, completedRequestId, StringComparison.Ordinal))
+                activeScenarioRequestId = string.Empty;
+            if (!string.IsNullOrEmpty(activeScenarioRequestId)) return;
+            while (pendingScenarios.Count > 0)
+            {
+                RuntimeTestCommandDto candidate = pendingScenarios.Dequeue();
+                if (!runs.TryGetValue(candidate.RequestId, out CoordinatedRun pending) ||
+                    pending.PendingScenarioCommand == null || Terminal(pending.Parent.Status))
+                    continue;
+                runs.TryRemove(candidate.RequestId, out _);
+                published.TryRemove(candidate.RequestId, out _);
+                next = candidate;
+                // Reserve the single active scenario slot before releasing the queue
+                // lock. Multiple browser/status pollers can observe the same completed
+                // run concurrently; without this reservation each can dequeue a test.
+                activeScenarioRequestId = candidate.RequestId;
+                break;
+            }
+        }
+        if (next == null) return;
+        RuntimeTestCommandAcceptedDto accepted = Enqueue(next);
+        if (accepted?.Accepted == true) return;
+        CoordinatedRun failed = new()
+        {
+            IsScenario = true,
+            Parent = new RuntimeTestRunDto
+            {
+                RequestId = next.RequestId, RunId = next.RunId, CaseId = next.CaseId,
+                Command = next.Command, Status = RuntimeTestCommandStatus.Failed,
+                QueuedUtc = DateTime.UtcNow, CompletedUtc = DateTime.UtcNow,
+                Role = "dashboard", Error = accepted?.Reason ?? "queued-scenario-start-failed"
+            }
+        };
+        runs[next.RequestId] = failed;
+        Publish(failed.Parent);
+        lock (scenarioQueueGate)
+            if (string.Equals(activeScenarioRequestId, next.RequestId, StringComparison.Ordinal))
+                activeScenarioRequestId = string.Empty;
+        StartNextScenario(null);
+    }
+
+    private static RuntimeTestCommandDto CloneCommand(RuntimeTestCommandDto source) => new()
+    {
+        SchemaVersion = source.SchemaVersion, RequestId = source.RequestId,
+        RunId = source.RunId, CaseId = source.CaseId, PhaseId = source.PhaseId,
+        StepId = source.StepId, Command = source.Command,
+        TargetSessionId = source.TargetSessionId, TargetRole = source.TargetRole,
+        TargetPlayerId = source.TargetPlayerId, MutationKind = source.MutationKind,
+        TimeoutMilliseconds = source.TimeoutMilliseconds,
+        Parameters = new Dictionary<string, string>(source.Parameters ?? new(),
+            StringComparer.OrdinalIgnoreCase)
+    };
 
     private RuntimeTestCommandAcceptedDto EnqueueFixtureBackedScenario(
         RuntimeTestCommandDto command, RuntimeTestDescriptorDto descriptor)
@@ -578,6 +718,7 @@ internal sealed class RuntimeTestCoordinator
             coordinated.FixtureScenario.ActiveChild = EnqueueStage(coordinated,
                 hosts[0], "create-item-fixture", "inventory.fixture-create", "arrange",
                 FixtureParameters(command, container: false,
+                    !descriptor.FixtureItemIsPersonal ? (byte)0 :
                     coordinated.FixtureScenario.ForeignOwnedItem
                         ? hosts[0].PlayerId.Value : clientTargets[0].PlayerId.Value,
                     clientTargets[0].PlayerId.Value,
@@ -594,6 +735,7 @@ internal sealed class RuntimeTestCoordinator
                     clientTargets[0].PlayerId.Value,
                     coordinated.FixtureScenario.ContainerPrefabName), 15000);
         runs[command.RequestId] = coordinated;
+        lock (scenarioQueueGate) activeScenarioRequestId = command.RequestId;
         Publish(coordinated.Parent);
         return new RuntimeTestCommandAcceptedDto
         {
@@ -659,6 +801,7 @@ internal sealed class RuntimeTestCoordinator
                     scenario.ActiveChild = EnqueueStage(run, scenario.Host,
                         "create-item-fixture", "inventory.fixture-create", "arrange",
                         FixtureParameters(scenario.Command, container: false,
+                            !scenario.Descriptor.FixtureItemIsPersonal ? (byte)0 :
                             scenario.ForeignOwnedItem ? scenario.Host.PlayerId.Value :
                                 scenario.Client.PlayerId.Value,
                             scenario.Client.PlayerId.Value,
@@ -945,7 +1088,7 @@ internal sealed class RuntimeTestCoordinator
                 "itemPrefabName", defaultPrefabName),
             ["ownerPlayerId"] = ownerPlayerId.ToString(CultureInfo.InvariantCulture),
             ["holderPlayerId"] = holderPlayerId.ToString(CultureInfo.InvariantCulture),
-            ["placement"] = "inventory"
+            ["placement"] = belongsToPlayer ? "inventory" : "world"
         };
         if (!container)
             result["belongsToPlayer"] = belongsToPlayer ? "true" : "false";
@@ -1139,6 +1282,20 @@ internal sealed class RuntimeTestCoordinator
             (item.Value<ushort?>("netId") ?? 0) == scenario.ShellNetId);
         JObject payload = items.OfType<JObject>().FirstOrDefault(item =>
             (item.Value<ushort?>("netId") ?? 0) == scenario.ItemNetId);
+        if (scenario.ItemOnly && !scenario.Descriptor.FixtureItemIsPersonal)
+        {
+            if (run.Result.TryGetValue("representations", out object representationsRaw))
+            {
+                JArray representations = representationsRaw as JArray ??
+                    JArray.FromObject(representationsRaw ?? Array.Empty<object>());
+                JObject world = representations.OfType<JObject>().FirstOrDefault(item =>
+                    (item.Value<ushort?>("netId") ?? 0) == scenario.ItemNetId);
+                if (world != null && world.Value<bool?>("activeSelf") == true)
+                    return true;
+            }
+            error = "missing:world-item";
+            return false;
+        }
         if ((!scenario.ItemOnly && shell == null) || payload == null)
         {
             error = $"missing:{(!scenario.ItemOnly && shell == null ? "container" : string.Empty)}" +

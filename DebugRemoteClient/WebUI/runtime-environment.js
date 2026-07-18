@@ -16,13 +16,19 @@ environmentView.innerHTML = `
     <label>Shared host/client port<input id="environment-port" type="number" value="7777"></label>
     <label>Shared host/client password<input id="environment-password" type="password"></label>
     <label>Server name<input id="environment-server-name" value="DVMP automated test"></label>
+    <label>Baseline save game mode<select id="environment-save-game-mode"><option value="">Select an explicit game mode</option><option value="Career">Career</option><option value="FreeRoam">Free Roam</option></select></label>
+    <label>Baseline save UID<input id="environment-save-uid" type="number" placeholder="Required"><small>UID 0 is valid. No latest-save fallback exists.</small></label>
+    <label>Baseline save name<input id="environment-save-name" placeholder="Required exact name"></label>
+    <label>Baseline save path<input id="environment-save-base-path" placeholder="Required relative save path"></label>
     <label><span>Managed windows</span><span><input id="environment-minimize-windows" type="checkbox"> Minimize windows</span></label>
-    <label><span>Test input</span><span><input id="environment-disable-window-input" type="checkbox" checked> Keep visible but ignore mouse and keyboard</span></label>
+    <label><span>Test input</span><span><input id="environment-disable-window-input" type="checkbox" checked> Prevent managed games from locking or hiding the desktop cursor</span></label>
   </div>
-  <p class="environment-help">Address tells the client where to connect (use 127.0.0.1 for two local instances). The host listens on the shared port and requires the shared password; the client connects with those same values.</p>
+  <p class="environment-help">Tests launch only an exact <strong>manual</strong> baseline: UID, name, game mode, and relative save path must all match. Autosaves are never candidates. If the baseline is incomplete, the dashboard only discovers and lists manual saves.</p>
   <div class="environment-actions"><button id="environment-start">Launch host + client</button><button id="environment-stop" class="quiet">Stop managed processes</button></div>
   <section id="environment-status" class="environment-status">
     <div id="environment-stage" class="environment-stage idle"><h2 id="environment-stage-name">Idle</h2><p id="environment-stage-message">Environment is idle.</p><p id="environment-stage-error" class="error" hidden></p><p id="environment-processes" class="meta">Host PID — · Client PID —</p></div>
+    <section id="environment-available-saves" hidden><h3>Available manual saves</h3><div id="environment-save-catalog" class="environment-save-catalog"></div></section>
+    <div><h3>Selected host save</h3><pre id="environment-host-save">No save selected yet.</pre></div>
     <div class="environment-readiness">
       <div><div class="environment-card-head"><h3>Host</h3><button class="quiet environment-copy" data-copy="host">Copy</button></div><pre id="environment-host-readiness">{}</pre></div>
       <div><div class="environment-card-head"><h3>Client</h3><button class="quiet environment-copy" data-copy="client">Copy</button></div><pre id="environment-client-readiness">{}</pre></div>
@@ -31,7 +37,7 @@ environmentView.innerHTML = `
 document.querySelector("main").append(environmentView);
 window.registerDashboardView("environment", environmentTab, environmentView, refreshEnvironment);
 
-const environmentFields = ["exe","working","common-args","host-args","client-args","address","port","password","server-name"];
+const environmentFields = ["exe","working","common-args","host-args","client-args","address","port","password","server-name","save-game-mode","save-uid","save-name","save-base-path"];
 let environmentSaveTimer = null;
 let browserEnvironmentConfigurationPresent = false;
 for (const name of environmentFields) {
@@ -48,6 +54,10 @@ function environmentRequest() { return {
   clientArguments: $("environment-client-args").value, address: $("environment-address").value.trim() || "127.0.0.1",
   port: Number($("environment-port").value), password: $("environment-password").value,
   serverName: $("environment-server-name").value.trim() || "DVMP automated test", maxPlayers: 2,
+  hostSaveGameMode: $("environment-save-game-mode").value,
+  hostSaveUid: $("environment-save-uid").value === "" ? null : Number($("environment-save-uid").value),
+  hostSaveName: $("environment-save-name").value.trim(),
+  hostSaveBasePath: $("environment-save-base-path").value.trim(),
   minimizeManagedWindows: $("environment-minimize-windows").checked,
   disableManagedWindowInput: $("environment-disable-window-input").checked,
   agentTimeoutSeconds: 120, worldTimeoutSeconds: 300
@@ -64,6 +74,10 @@ function applyEnvironmentConfiguration(value) {
   $("environment-port").value = value.port || 7777;
   $("environment-password").value = value.password || "";
   $("environment-server-name").value = value.serverName || "DVMP automated test";
+  $("environment-save-game-mode").value = value.hostSaveGameMode || "";
+  $("environment-save-uid").value = value.hostSaveUid == null ? "" : value.hostSaveUid;
+  $("environment-save-name").value = value.hostSaveName || "";
+  $("environment-save-base-path").value = value.hostSaveBasePath || "";
   $("environment-minimize-windows").checked = value.minimizeManagedWindows === true;
   $("environment-disable-window-input").checked = value.disableManagedWindowInput !== false;
 }
@@ -111,11 +125,39 @@ function renderEnvironment(value) {
   error.textContent = value.error || "";
   error.hidden = !value.error;
   $("environment-processes").textContent = `Host PID ${value.hostProcessId || "—"} · Client PID ${value.clientProcessId || "—"}`;
+  const selectedSave = value.hostSaveSelection || {};
+  $("environment-host-save").textContent = Object.keys(selectedSave).length
+    ? JSON.stringify(selectedSave, null, 2) : "No save selected yet.";
+  renderEnvironmentSaveCatalog(value.availableSaves || {});
   updateEnvironmentReadiness("host", value.hostReadiness);
   updateEnvironmentReadiness("client", value.clientReadiness);
   $("environment-start").disabled = !!value.active;
   clearTimeout(runtimeEnvironmentTimer);
   if (value.active) runtimeEnvironmentTimer = setTimeout(refreshEnvironment, 1000);
+}
+function renderEnvironmentSaveCatalog(catalog) {
+  const section = $("environment-available-saves"), root = $("environment-save-catalog");
+  const saves = Array.isArray(catalog.saves) ? catalog.saves : [];
+  section.hidden = !Object.keys(catalog).length;
+  root.replaceChildren();
+  if (!Object.keys(catalog).length) return;
+  root.append(runtimeTestText("p", `${catalog.saveTypePolicy || "ManualOnly"} · ${saves.length} manual save${saves.length === 1 ? "" : "s"}${catalog.ignoredNonManualSaveCount ? ` · ${catalog.ignoredNonManualSaveCount} non-manual save(s) excluded` : ""}`, "meta"));
+  if (!saves.length) { root.append(runtimeTestText("p", "No manual saves were found.", "empty")); return; }
+  for (const save of saves) {
+    const card = document.createElement("article"); card.className = "environment-save-card";
+    const text = document.createElement("div");
+    text.append(runtimeTestText("strong", save.saveName || "Unnamed manual save"));
+    text.append(runtimeTestText("span", `${save.saveGameMode || "Unknown mode"} · UID ${save.saveUid}`, "meta"));
+    text.append(runtimeTestText("code", save.saveBasePath || "Missing path"));
+    const use = runtimeTestButton("Use as baseline", () => {
+      $("environment-save-game-mode").value = save.saveGameMode || "";
+      $("environment-save-uid").value = save.saveUid == null ? "" : save.saveUid;
+      $("environment-save-name").value = save.saveName || "";
+      $("environment-save-base-path").value = save.saveBasePath || "";
+      scheduleEnvironmentConfigurationSave();
+    }, "quiet");
+    card.append(text, use); root.append(card);
+  }
 }
 function updateEnvironmentReadiness(role, data) {
   const pre = $(`environment-${role}-readiness`), next = JSON.stringify(data || {}, null, 2);

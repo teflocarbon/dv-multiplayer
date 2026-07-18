@@ -7,6 +7,7 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Networking.Data;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.Networking.World.Containers;
+using Multiplayer.Components.Networking.World.WorldItems;
 using Newtonsoft.Json.Linq;
 using System;
 
@@ -83,6 +84,7 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
             SaveGameData saveGameData = new();
             playerData.Remove(INVENTORY_KEY);
             StorageSerializer.SaveStorage(player.Inventory, saveGameData);
+            WorldItemPersistenceManager.RemoveVanillaStorageDuplicates(saveGameData);
             playerData.Merge(saveGameData.GetJsonObject());
 
             players.SetJObject(player.Guid.ToString(), playerData);
@@ -93,6 +95,8 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
         root.SetJObject(PLAYERS_KEY, players);
         NetworkedLostAndFoundManager.WriteSave(root);
         NetworkedColdContainerManager.WriteSave(root);
+        WorldItemPersistenceManager.RemoveVanillaStorageDuplicates(data);
+        WorldItemPersistenceManager.WriteSave(root);
         data.SetJObject(ROOT_KEY, root);
     }
 

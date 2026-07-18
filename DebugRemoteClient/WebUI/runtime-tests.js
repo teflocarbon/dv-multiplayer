@@ -5,6 +5,9 @@ let selectedRuntimeTestRun = null;
 let selectedRuntimeTestFingerprint = "";
 let selectedRuntimeTestEvents = [];
 let runtimeTestPoll = null;
+let runtimeScenarioSelections = new Set();
+let runtimeScenarioQueue = [];
+let runtimeScenarioQueueRunning = false;
 
 const runtimeTestTab = document.createElement("button");
 runtimeTestTab.id = "runtime-tests-tab";
@@ -18,6 +21,7 @@ runtimeTestView.innerHTML = `
   <section id="runtime-scenario-launcher" class="runtime-scenario-launcher" hidden>
     <div class="runtime-scenario-launcher-head">
       <div><p class="eyebrow">AUTOMATED SCENARIOS</p><h2>Multiplayer regression scenarios</h2><p class="meta">Self-contained host/client workflows with assertions, captures, and verified cleanup.</p></div>
+      <div class="runtime-scenario-actions"><span id="runtime-scenario-selection-summary" class="meta">0 selected · queue empty</span><button id="runtime-scenario-select-all" class="quiet">Select all</button><button id="runtime-scenario-clear-selection" class="quiet" disabled>Clear selection</button><button id="runtime-scenario-run-selected" disabled>Run selected</button><button id="runtime-scenario-clear-queue" class="quiet" disabled>Clear queue</button></div>
     </div>
     <div id="runtime-scenario-list" class="runtime-scenario-list"></div>
   </section>
@@ -93,11 +97,6 @@ async function refreshRuntimeTestCapabilities() {
     cases.replaceChildren(new Option("Select a runtime test", ""));
     const tests = runtimeTestCapabilities.tests || [];
     const scenarios = tests.filter(isRuntimeScenario);
-    if (scenarios.length) {
-      const group = document.createElement("optgroup"); group.label = "Automated scenarios";
-      for (const test of scenarios) group.append(new Option(test.displayName, test.testId));
-      cases.append(group);
-    }
     const testsByCategory = tests.filter(test => !isRuntimeScenario(test)).reduce((groups, test) => {
       (groups[test.category || "Other"] ||= []).push(test); return groups;
     }, {});
@@ -145,26 +144,124 @@ function renderRuntimeScenarioLauncher(scenarios) {
   const launcher = $("runtime-scenario-launcher"), root = $("runtime-scenario-list");
   root.replaceChildren();
   launcher.hidden = !scenarios.length;
+  const ids = new Set(scenarios.map(scenario => scenario.testId));
+  runtimeScenarioSelections = new Set([...runtimeScenarioSelections].filter(id => ids.has(id)));
   for (const scenario of scenarios) {
-    const card = document.createElement("article"); card.className = "runtime-scenario-card";
+    const selected = runtimeScenarioSelections.has(scenario.testId);
+    const card = document.createElement("article"); card.className = `runtime-scenario-card${selected ? " selected" : ""}`;
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox";
+    checkbox.checked = selected; checkbox.setAttribute("aria-label", `Select ${scenario.displayName}`);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) runtimeScenarioSelections.add(scenario.testId);
+      else runtimeScenarioSelections.delete(scenario.testId);
+      renderRuntimeScenarioLauncher(scenarios);
+    });
     const copy = document.createElement("div");
     copy.append(runtimeTestText("strong", scenario.displayName));
     copy.append(runtimeTestText("code", scenario.testId));
     copy.append(runtimeTestText("span", `${scenario.fidelity} · ${Math.round((scenario.timeoutMilliseconds || 0) / 1000)}s timeout`, "meta"));
-    card.append(copy, runtimeTestButton("Run scenario", () => runRuntimeScenario(scenario.testId), ""));
+    card.append(checkbox, copy);
     root.append(card);
   }
+  updateRuntimeScenarioControls(scenarios);
 }
 
-async function runRuntimeScenario(testId) {
-  $("runtime-test-case").value = testId;
+function updateRuntimeScenarioControls(scenarios = []) {
+  const selected = runtimeScenarioSelections.size, pending = runtimeScenarioQueue.filter(item => ["Queued", "Submitting", "Scheduled"].includes(item.status)).length;
+  const running = runtimeScenarioQueue.find(item => item.status === "Running");
+  $("runtime-scenario-selection-summary").textContent = `${selected} selected · ${pending} queued${running ? ` · running ${running.test.displayName}` : ""}`;
+  $("runtime-scenario-select-all").disabled = !scenarios.length || selected === scenarios.length;
+  $("runtime-scenario-clear-selection").disabled = selected === 0;
+  $("runtime-scenario-run-selected").disabled = selected === 0;
+  $("runtime-scenario-run-selected").textContent = selected ? `Queue selected (${selected})` : "Run selected";
+  $("runtime-scenario-clear-queue").disabled = pending === 0;
+}
+
+function defaultRuntimeScenarioTarget() {
   const target = $("runtime-test-target");
   if (!target.value) {
     const clients = knownSessions.filter(session => session.role === "client");
     if (clients.length === 1) target.value = clients[0].sessionId;
   }
-  updateRuntimeTestDescription();
-  await startRuntimeTest();
+  return target.value;
+}
+
+function queueSelectedRuntimeScenarios() {
+  const target = defaultRuntimeScenarioTarget();
+  if (!target) { alert("Select a runtime process before queueing scenarios."); return; }
+  const scenarios = (runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario);
+  const alreadyQueued = new Set(runtimeScenarioQueue.filter(item => ["Queued", "Submitting", "Scheduled", "Running"].includes(item.status)).map(item => item.test.testId));
+  for (const scenario of scenarios) {
+    if (runtimeScenarioSelections.has(scenario.testId) && !alreadyQueued.has(scenario.testId))
+      runtimeScenarioQueue.push({test:scenario, targetSessionId:target, status:"Queued", requestId:"", error:""});
+  }
+  runtimeScenarioSelections.clear();
+  renderRuntimeScenarioLauncher(scenarios);
+  void runRuntimeScenarioQueue();
+}
+
+async function runRuntimeScenarioQueue() {
+  if (runtimeScenarioQueueRunning) return;
+  runtimeScenarioQueueRunning = true;
+  try {
+    const monitors = [];
+    for (;;) {
+      const next = runtimeScenarioQueue.find(item => item.status === "Queued");
+      if (!next) break;
+      next.status = "Submitting";
+      renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+      try {
+        const accepted = await enqueueRuntimeTest(next.test, next.targetSessionId, {});
+        next.requestId = accepted.requestId;
+        next.status = "Scheduled";
+        monitors.push(monitorRuntimeScenarioQueueItem(next));
+      } catch (error) {
+        next.status = "Failed";
+        next.error = error.message || String(error);
+      }
+      renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+    }
+    await refreshRuntimeTestHistory(true);
+    await Promise.all(monitors);
+  } finally {
+    runtimeScenarioQueueRunning = false;
+    updateRuntimeScenarioControls((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+  }
+}
+
+async function monitorRuntimeScenarioQueueItem(item) {
+  try {
+    const result = await waitForRuntimeTestTerminal(item.requestId,
+      item.test.timeoutMilliseconds || 60000);
+    item.status = result.status;
+    item.error = result.error || "";
+  } catch (error) {
+    item.status = "Failed";
+    item.error = error.message || String(error);
+  }
+  renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+}
+
+async function waitForRuntimeTestTerminal(requestId, timeoutMilliseconds) {
+  const queueDeadline = Date.now() + 4 * 60 * 60 * 1000;
+  let executionDeadline = null;
+  for (;;) {
+    const response = await authenticatedGet(`/api/runtime-tests/runs/${encodeURIComponent(requestId)}`);
+    if (!response.ok) throw new Error(`Queued scenario status unavailable (${response.status})`);
+    const run = await response.json();
+    if (requestId === selectedRuntimeTestRequestId) {
+      selectedRuntimeTestRun = run;
+      renderRuntimeTestDetail(run);
+    }
+    if (terminalRuntimeTestStatuses.has(run.status)) return run;
+    if (run.status !== "Queued" && executionDeadline == null)
+      executionDeadline = Date.now() + Math.max(15000, timeoutMilliseconds + 30000);
+    if (run.status === "Queued" && Date.now() >= queueDeadline)
+      throw new Error("queued-scenario-start-timeout");
+    if (executionDeadline != null && Date.now() >= executionDeadline)
+      throw new Error("queued-scenario-execution-timeout");
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
 }
 
 function updateRuntimeTestDescription() {
@@ -427,7 +524,14 @@ function renderRuntimeTestEvents() {
 }
 
 async function rerunRuntimeTest(run) {
-  const option = Array.from($("runtime-test-case").options).find(value => value.value === run.caseId || value.value === run.command);
+  const testId = run.caseId || run.command;
+  const scenario = (runtimeTestCapabilities?.tests || []).find(test => test.testId === testId);
+  if (isRuntimeScenario(scenario)) {
+    runtimeScenarioSelections.add(scenario.testId);
+    queueSelectedRuntimeScenarios();
+    return;
+  }
+  const option = Array.from($("runtime-test-case").options).find(value => value.value === testId);
   if (option) $("runtime-test-case").value = option.value;
   await startRuntimeTest();
 }
@@ -439,14 +543,21 @@ async function startRuntimeTest() {
   try { parameters = JSON.parse($("runtime-test-params").value || "{}"); }
   catch { alert("Parameters must be valid JSON."); return; }
   parameters = Object.fromEntries(Object.entries(parameters).map(([key, value]) => [key, String(value)]));
+  try {
+    const accepted = await enqueueRuntimeTest(test, target, parameters);
+    await refreshRuntimeTestHistory();
+    await selectRuntimeTestRun(accepted.requestId);
+    startRuntimeTestPolling();
+  } catch (error) { alert(error.message || String(error)); }
+}
+
+async function enqueueRuntimeTest(test, target, parameters) {
   const requestId = globalThis.crypto?.randomUUID ? crypto.randomUUID().replaceAll("-", "") : `${Date.now()}${Math.random().toString(16).slice(2)}`;
   const request = {requestId, runId:`dashboard-${requestId}`, caseId:test.testId, phaseId:"act", stepId:test.testId, command:test.testId, targetSessionId:target, mutationKind:test.mutationKind, timeoutMilliseconds:test.timeoutMilliseconds, parameters};
   const response = await post("/api/runtime-tests/commands", request);
   const accepted = await response.json();
-  if (!response.ok || !accepted.accepted) { alert(accepted.reason || `Request failed (${response.status})`); return; }
-  await refreshRuntimeTestHistory();
-  await selectRuntimeTestRun(accepted.requestId);
-  startRuntimeTestPolling();
+  if (!response.ok || !accepted.accepted) throw new Error(accepted.reason || `Request failed (${response.status})`);
+  return accepted;
 }
 
 function startRuntimeTestPolling() { if (runtimeTestPoll) return; runtimeTestPoll = setInterval(() => selectedRuntimeTestRequestId && loadRuntimeTest(selectedRuntimeTestRequestId), 750); }
@@ -454,6 +565,18 @@ function stopRuntimeTestPolling() { clearInterval(runtimeTestPoll); runtimeTestP
 
 $("runtime-test-case").addEventListener("change", updateRuntimeTestDescription);
 $("runtime-test-run").addEventListener("click", startRuntimeTest);
+$("runtime-scenario-select-all").addEventListener("click", () => {
+  for (const scenario of (runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario)) runtimeScenarioSelections.add(scenario.testId);
+  renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+});
+$("runtime-scenario-clear-selection").addEventListener("click", () => {
+  runtimeScenarioSelections.clear(); renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+});
+$("runtime-scenario-run-selected").addEventListener("click", queueSelectedRuntimeScenarios);
+$("runtime-scenario-clear-queue").addEventListener("click", () => {
+  runtimeScenarioQueue = runtimeScenarioQueue.filter(item => !["Queued", "Submitting"].includes(item.status));
+  renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+});
 $("runtime-test-cancel").addEventListener("click", async () => { if (selectedRuntimeTestRequestId) await post(`/api/runtime-tests/runs/${encodeURIComponent(selectedRuntimeTestRequestId)}/cancel`, {}); });
 $("runtime-test-refresh").addEventListener("click", () => refreshRuntimeTestHistory());
 $("runtime-test-search").addEventListener("input", renderRuntimeTestHistory);

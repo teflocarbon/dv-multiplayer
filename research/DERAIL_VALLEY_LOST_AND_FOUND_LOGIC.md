@@ -223,7 +223,11 @@ The vocabulary exists, but Lost and Found is not yet an authoritative runtime tr
 - Career Manager integration currently patches fees and license purchasing only; there is no custom list/detail screen or controller input path for lost items.
 - `PersistentOwnerPlayerId` is currently established from a retrieval claim. Items without a reserved/locked claim may therefore remain owner `0` even when humans would describe them as "the player's item." Lost-item eligibility must not guess an owner from `BelongsToPlayer`.
 
-The existing `StorageControllerPatch` is entirely commented out, and `RespawnOnDropDebugPatch` is observational only. `NetworkedItemManager.SendToCache()` does destroy `RespawnOnDrop`, but only when a client scene item is being converted into an inactive reusable cache entry; that cache-specific behavior is not an existing Lost and Found override and should not be generalized to canonical lost items.
+The existing `StorageControllerPatch` is entirely commented out, and `RespawnOnDropDebugPatch` is
+observational only. The former generic client cache and its `RespawnOnDrop` destruction were removed.
+Current client projection retirement either makes the exact authored object dormant or destroys a
+dynamic projection; neither operation is an authoritative Lost and Found transition and must not be
+generalized to canonical lost items.
 
 The implementation must address these gaps deliberately. In particular, do not encode a lost item as merely `Dropped` plus `activeSelf = false`; that recreates an ambiguous split between authority state and Unity presentation. The registry delta and canonical authority record must explicitly agree that the placement is `LostAndFound`.
 
@@ -797,7 +801,7 @@ Post-test invariant fixes:
   client it sends the full Lost and Found retrieval request; on the host it uses `Server.SelfId`
   rather than assuming a local client object exists;
 - a client receiving `LostAndFoundCollection` keeps the inactive canonical component bound to its
-  NetId and ownership metadata instead of sending it through the generic destroyed-item cache;
+  NetId and ownership metadata instead of applying ordinary dynamic-projection destruction;
   this preserves the inventory silhouette's Return action. Retrieval reactivates that same client
   projection in place, and authoritative personal-item metadata repairs projections corrupted by
   older builds;

@@ -11,7 +11,17 @@ public enum ItemPlacementKind : byte
     Attached,
     LostAndFound,
     Installed,
-    Destroyed
+    Destroyed,
+    TrainInterior,
+    StaticParent,
+    SnappedAttachment
+}
+
+public enum ItemWorldParentKind : byte
+{
+    World,
+    TrainInterior,
+    StaticParent
 }
 
 public enum ItemTransitionReason : byte
@@ -20,13 +30,19 @@ public enum ItemTransitionReason : byte
     InitialRegistration,
     HostLocalState,
     ClientState,
+    // TEMPORARY compatibility reason for unconverted DV item producers. Remove with the adoption
+    // protocol once all creation paths are explicit host operations.
     ClientAdoption,
     OwnerRecall,
     JobBookletSummon,
     FullSync,
     LostAndFoundCollection,
     LostAndFoundRetrieval,
-    ContainerDeposit
+    ContainerDeposit,
+    InterestRetirement,
+    AuthoredProjectionBinding,
+    PersistenceRestore,
+    SpatialSettlement
 }
 
 [Flags]

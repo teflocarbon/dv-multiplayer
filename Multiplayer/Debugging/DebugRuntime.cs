@@ -29,12 +29,15 @@ public static class DebugRuntime
     private static GameObject runtimeObject;
     private static DebugRuntimeSettingsDto runtimeSettings;
     private static int highFrequencyCounter;
+    private static readonly bool preventCursorCapture = Environment.GetCommandLineArgs().Any(argument =>
+        string.Equals(argument, "--dvmp-no-cursor-capture", StringComparison.OrdinalIgnoreCase));
 
     public static bool Enabled { get; private set; }
     public static DebugEventStore Store => store;
     public static DebugSessionInfo Session => SnapshotSession();
     public static DebugCaptureManager Captures => captures;
     public static DebugRuntimeSettingsDto RuntimeSettings => runtimeSettings;
+    internal static bool PreventCursorCapture => preventCursorCapture;
 
     public static void ApplySettings(Settings settings)
     {
@@ -338,10 +341,28 @@ internal sealed class DebugRuntimeBehaviour : MonoBehaviour
 
     private void Awake()
     {
+        ReleaseManagedCursor();
         gameObject.AddComponent<DebugOverlayController>();
         gameObject.AddComponent<DebugInventoryObserver>();
         SceneManager.sceneLoaded += OnSceneLoaded;
         SceneManager.sceneUnloaded += OnSceneUnloaded;
+    }
+
+    private void LateUpdate()
+    {
+        ReleaseManagedCursor();
+    }
+
+    private void OnApplicationFocus(bool focused)
+    {
+        if (focused) ReleaseManagedCursor();
+    }
+
+    private static void ReleaseManagedCursor()
+    {
+        if (!DebugRuntime.PreventCursorCapture) return;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     private void OnAboutToMoveWorld(Vector3 previous, Vector3 next)

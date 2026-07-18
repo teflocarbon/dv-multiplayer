@@ -180,8 +180,9 @@ internal sealed class LostAndFoundRuntimeScenarioDriver
         yield return CollectFarAway(state);
         LostItemData lost = RequireListed(state);
         state.Context.EnterPhase("act", "invoke-base-game-star-recall-route");
+        NetworkedItem recallItem = ResolveCanonical(state);
         state.Context.Assert("star-recall-request-routed",
-            NetworkedItemManager.Instance.RequestItemRecall(state.Item,
+            recallItem != null && NetworkedItemManager.Instance.RequestItemRecall(recallItem,
                 state.OriginalSlot));
         yield return state.Context.Eventually("star-recall-removed-lost-entry",
             () => FindListed(state.NetId) == null, 15f, SnapshotList);
@@ -360,14 +361,46 @@ internal sealed class LostAndFoundRuntimeScenarioDriver
 
     private static IEnumerator PlaceWorld(State state, Vector3 absolute)
     {
-        state.Item.Item?.ForceEndInteraction();
-        Inventory.Instance.DropItemFromHandsOrInventory(state.Item.gameObject);
-        state.Item.transform.position = absolute + WorldMover.currentMove;
+        try
+        {
+            state.Item.Item?.ForceEndInteraction();
+        }
+        catch (Exception exception)
+        {
+            throw ArrangementFailure("force-end-interaction", exception);
+        }
+        try
+        {
+            Inventory.Instance.DropItemFromHandsOrInventory(state.Item.gameObject);
+        }
+        catch (Exception exception)
+        {
+            throw ArrangementFailure("drop-from-inventory", exception);
+        }
+        try
+        {
+            state.Item.transform.position = absolute + WorldMover.currentMove;
+        }
+        catch (Exception exception)
+        {
+            throw ArrangementFailure("set-world-position", exception);
+        }
         yield return null;
         yield return new WaitForEndOfFrame();
-        state.Item.ProcessLocalStateObservation("runtime-lost-and-found-arrangement");
+        try
+        {
+            state.Item.ProcessLocalStateObservation("runtime-lost-and-found-arrangement");
+        }
+        catch (Exception exception)
+        {
+            throw ArrangementFailure("observe-local-state", exception);
+        }
         yield return null;
     }
+
+    private static InvalidOperationException ArrangementFailure(string stage,
+        Exception exception) => new("lost-and-found-arrangement-" + stage + ":" +
+            exception);
 
     private static void RequestNormal(State state, LostItemData lost, int slot)
     {
@@ -394,14 +427,31 @@ internal sealed class LostAndFoundRuntimeScenarioDriver
         yield return state.Context.Eventually("retrieved-entry-removed-from-list",
             () => FindListed(state.NetId) == null, 15f, SnapshotList);
         yield return state.Context.Eventually("retrieved-item-restored-to-inventory",
-            () => Inventory.Instance.IndexOf(state.Item.gameObject) == slot &&
-                InventoryIntegration.ContainsActive(state.Item.gameObject), 15f,
-            () => Inventory.Instance.IndexOf(state.Item.gameObject));
+            () =>
+            {
+                NetworkedItem current = ResolveCanonical(state);
+                return current != null && Inventory.Instance.IndexOf(current.gameObject) == slot &&
+                    InventoryIntegration.ContainsActive(current.gameObject);
+            }, 15f,
+            () =>
+            {
+                NetworkedItem current = ResolveCanonical(state);
+                return current == null ? -1 : Inventory.Instance.IndexOf(current.gameObject);
+            });
+        NetworkedItem restored = ResolveCanonical(state) ??
+            throw new InvalidOperationException("retrieved-canonical-item-missing:" + state.NetId);
         state.Context.Assert("retrieval-preserved-persistent-owner",
-            state.Item.PersistentOwnerPlayerId == state.OwnerPlayerId,
-            state.Item.PersistentOwnerPlayerId);
+            restored.PersistentOwnerPlayerId == state.OwnerPlayerId,
+            restored.PersistentOwnerPlayerId);
         state.Context.Assert("retrieval-advanced-authority-revision",
-            state.Item.AuthorityRevision > lost.Revision, state.Item.AuthorityRevision);
+            restored.AuthorityRevision > lost.Revision, restored.AuthorityRevision);
+    }
+
+    private static NetworkedItem ResolveCanonical(State state)
+    {
+        if (NetworkedItem.TryGet(state.NetId, out NetworkedItem current) && current != null)
+            state.Item = current;
+        return state.Item != null && state.Item.NetId == state.NetId ? state.Item : current;
     }
 
     private static LostItemData RequireListed(State state) => FindListed(state.NetId) ??

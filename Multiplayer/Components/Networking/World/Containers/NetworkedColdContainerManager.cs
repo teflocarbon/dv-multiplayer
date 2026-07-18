@@ -15,6 +15,7 @@ using Multiplayer.Integrations.Inventory;
 using Multiplayer.Integrations.Storage;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -174,6 +175,7 @@ public static class NetworkedColdContainerManager
             DisplayName = item.Item.InventorySpecs?.LocalizedName ?? item.name,
             PersistentOwnerIdentity = ResolveOwnerIdentity(authority.PersistentOwnerPlayerId) ??
                 actor.Guid.ToString("D"),
+            AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
             ChildContainerId = childId,
             StateVersion = 1,
             DetachedState = detached == null ? Array.Empty<byte>() :
@@ -216,6 +218,7 @@ public static class NetworkedColdContainerManager
             {
                 player.NearbyItems.Remove(item);
                 player.KnownItems.Remove(item);
+                player.AcknowledgedWorldItems.Remove(item.NetId);
             }
             NetworkLifecycle.Instance.Server.SendItemUpdatePacket(destroy);
             item.Item.ForceEndInteraction();
@@ -311,6 +314,8 @@ public static class NetworkedColdContainerManager
                 spec.BelongsToPlayer = string.Equals(record.PersistentOwnerIdentity,
                     actor.Guid.ToString("D"), StringComparison.Ordinal);
             item = instance.GetOrAddComponent<NetworkedItem>();
+            if (WorldItemStableIdentity.IsValid(record.AuthoredItemKey))
+                item.AdoptAuthoredItemKey(record.AuthoredItemKey);
             item?.BeginColdMaterialization();
         }
         catch (Exception exception)

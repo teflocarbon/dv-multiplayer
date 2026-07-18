@@ -31,4 +31,18 @@ public static class CustomFirstPersonControllerPatch
     {
         OnJump?.Invoke();
     }
+
+#if DEBUG
+    // Rewired continues reporting raw mouse delta while a managed test game is in the
+    // background. Unlocking Unity's cursor therefore prevents capture but does not stop
+    // DV's first-person controller from rotating the camera. Suppress only the native
+    // human-look step for harness-managed launches; teleport and explicit test rotations
+    // use separate controller methods and remain available.
+    [HarmonyPrefix]
+    [HarmonyPatch("RotateView")]
+    private static bool RotateViewForManagedHarness()
+    {
+        return !global::Multiplayer.Debugging.DebugRuntime.PreventCursorCapture;
+    }
+#endif
 }

@@ -20,7 +20,6 @@ using System.Reflection;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.UI;
 
 namespace Multiplayer.Debugging.RuntimeTests;
 
@@ -167,7 +166,9 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         {
             "runtime.self-check" => SelfCheck(run),
             "environment.status" => EnvironmentStatus(run),
-            "environment.host-latest-save" => HostLatestSave(command, run),
+            "environment.save-catalog" => SaveCatalog(run),
+            "environment.host-save" => HostSave(command, run),
+            "environment.host-latest-save" => HostSave(command, run),
             "environment.connect-client" => ConnectClient(command, run),
             "player.teleport" => Teleport(command, run),
             "item.pickup" => itemDriver.Pickup(command, run),
@@ -275,15 +276,30 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         }
     }
 
-    private static IEnumerator HostLatestSave(RuntimeTestCommandDto command, RuntimeTestRunDto run)
+    private static IEnumerator SaveCatalog(RuntimeTestRunDto run)
+    {
+        yield return null;
+        ContinueLoadNewController selector = FindObjectOfType<MainMenuController>()?
+            .rightPaneController?.continueLoadNewController;
+        if (selector == null) throw new InvalidOperationException("continue-session-selector-unavailable");
+        ISaveGame[] allSaves = GetAvailableSaves(selector);
+        ISaveGame[] manualSaves = allSaves.Where(save => save.Type == SaveType.Manual)
+            .OrderByDescending(save => save.Timestamp).ToArray();
+        lock (run)
+        {
+            run.Result["saveTypePolicy"] = "ManualOnly";
+            run.Result["count"] = manualSaves.Length;
+            run.Result["ignoredNonManualSaveCount"] = allSaves.Length - manualSaves.Length;
+            run.Result["saves"] = manualSaves.Select(SaveDescription).ToArray();
+        }
+    }
+
+    private static IEnumerator HostSave(RuntimeTestCommandDto command, RuntimeTestRunDto run)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance ?? throw new InvalidOperationException("network-lifecycle-unavailable");
         if (lifecycle.IsServerRunning || lifecycle.IsClientRunning) throw new InvalidOperationException("network-already-running");
         MainMenuController menu = FindObjectOfType<MainMenuController>();
         if (menu == null) throw new InvalidOperationException("main-menu-not-ready");
-        Button button = menu.continueButton;
-        if (button == null) throw new InvalidOperationException("continue-button-unavailable");
-
         int port = RequiredInt(command, "port");
         string password = OptionalString(command, "password", string.Empty);
         string serverName = OptionalString(command, "serverName", "DVMP automated test");
@@ -304,25 +320,43 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             MultiplayerVersion = Multiplayer.Ver, ServerDetails = "Automated runtime-test environment"
         };
         lifecycle.IsSinglePlayer = false;
-        // Continue opens the session selector; loading does not begin until its selected
-        // save is passed through the Launcher and the Launcher's Run action is invoked.
-        button.onClick.Invoke();
-        yield return null;
-        yield return null;
-
         ContinueLoadNewController selector = menu.rightPaneController?.continueLoadNewController;
         if (selector == null) throw new InvalidOperationException("continue-session-selector-unavailable");
-        ISaveGame careerSave = selector.career?.CurrentThing?.LatestSave;
-        ISaveGame freeRoamSave = selector.freeRoam?.CurrentThing?.LatestSave;
-        ISaveGame latestSave = new[] { careerSave, freeRoamSave }
-            .Where(save => save != null)
-            .OrderByDescending(save => save.Timestamp)
-            .FirstOrDefault();
-        if (latestSave == null) throw new InvalidOperationException("no-existing-save-found");
+        // The test environment must always begin from an explicitly created manual
+        // seed.  DV may create newer autosaves while a test is running, but those
+        // are never valid launch candidates: using one would contaminate the next
+        // run with the previous run's world state.
+        ISaveGame[] allAvailableSaves = GetAvailableSaves(selector);
+        ISaveGame[] availableSaves = allAvailableSaves
+            .Where(save => save.Type == SaveType.Manual)
+            .ToArray();
+        if (availableSaves.Length == 0)
+            throw new InvalidOperationException("no-manual-save-found:" + AvailableSaveSummary(allAvailableSaves));
+        int requestedUid = RequiredInt(command, "saveUid");
+        string requestedName = OptionalString(command, "saveName", string.Empty).Trim();
+        string requestedGameMode = OptionalString(command, "saveGameMode", string.Empty).Trim();
+        string requestedBasePath = OptionalString(command, "saveBasePath", string.Empty).Trim();
+        if (requestedName.Length == 0 || requestedGameMode.Length == 0 || requestedBasePath.Length == 0)
+            throw new InvalidOperationException("exact-manual-baseline-required:saveUid,saveName,saveGameMode,saveBasePath");
+        ISaveGame[] matches = availableSaves.Where(save =>
+                save.UID == requestedUid &&
+                string.Equals(save.Name, requestedName, StringComparison.Ordinal) &&
+                string.Equals(save.GameMode, requestedGameMode, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(save.BasePath, requestedBasePath, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (matches.Length == 0)
+            throw new InvalidOperationException("configured-manual-save-not-found:" + AvailableSaveSummary(availableSaves));
+        if (matches.Length != 1)
+            throw new InvalidOperationException("configured-manual-save-ambiguous:" + AvailableSaveSummary(matches));
+        ISaveGame selectedSave = matches[0];
 
+        // Do not invoke the generic Continue button here.  That button resolves DV's
+        // latest save before this exact selection is applied, which lets a newer
+        // autosave contaminate the supposedly clean test environment.  Enter the
+        // selected-save path directly with the exact manual save object instead.
         MethodInfo continueSelected = typeof(MainMenuController).GetMethod("OnContinueGameRequested", BindingFlags.Instance | BindingFlags.NonPublic);
         if (continueSelected == null) throw new InvalidOperationException("continue-selected-save-action-unavailable");
-        continueSelected.Invoke(menu, new object[] { latestSave });
+        continueSelected.Invoke(menu, new object[] { selectedSave });
         yield return null;
         yield return null;
 
@@ -333,13 +367,46 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         {
             run.Result["port"] = port;
             run.Result["serverName"] = serverName;
-            run.Result["saveName"] = latestSave.Name;
-            run.Result["saveGameMode"] = latestSave.GameMode;
-            run.Result["saveTimestamp"] = latestSave.Timestamp.ToString("O");
-            run.Result["action"] = "launch-latest-save";
+            foreach (KeyValuePair<string, object> field in SaveDescription(selectedSave)) run.Result[field.Key] = field.Value;
+            run.Result["saveTypePolicy"] = "ManualOnly";
+            run.Result["selectionMode"] = "configured-exact-manual";
+            run.Result["action"] = "launch-selected-save";
         }
         runSelected.Invoke(launcher, null);
         yield return null;
+    }
+
+    private static ISaveGame[] GetAvailableSaves(ContinueLoadNewController selector)
+    {
+        return new[] { selector.career?.CurrentThing, selector.freeRoam?.CurrentThing }
+            .Where(session => session != null)
+            .SelectMany(session => session.Saves == null ? Enumerable.Empty<ISaveGame>() : session.Saves)
+            .Where(save => save != null)
+            .GroupBy(save => $"{save.ParentSession?.BasePath}|{save.UID}", StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+    }
+
+    private static Dictionary<string, object> SaveDescription(ISaveGame save)
+    {
+        return new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["saveUid"] = save.UID,
+            ["saveName"] = save.Name ?? string.Empty,
+            ["saveType"] = save.Type.ToString(),
+            ["saveGameMode"] = save.GameMode ?? string.Empty,
+            ["saveTimestamp"] = save.Timestamp.ToString("O"),
+            ["saveBasePath"] = save.BasePath ?? string.Empty,
+            ["sessionId"] = save.ParentSession?.SessionID ?? 0,
+            ["sessionName"] = save.ParentSession?.Name ?? string.Empty,
+            ["sessionBasePath"] = save.ParentSession?.BasePath ?? string.Empty
+        };
+    }
+
+    private static string AvailableSaveSummary(IEnumerable<ISaveGame> saves)
+    {
+        return string.Join(";", saves.Select(save =>
+            $"{save.GameMode}/{save.UID}/{save.Type}/{save.Name}/{save.Timestamp:O}"));
     }
 
     private static IEnumerator ConnectClient(RuntimeTestCommandDto command, RuntimeTestRunDto run)
@@ -431,6 +498,9 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         if (lifecycle?.IsClientRunning == true) capabilities.Add("client-runtime");
         if (lifecycle?.IsClientRunning == true && Inventory.Instance != null)
             capabilities.Add("lost-and-found-runtime-scenario");
+        if (!VRManager.IsVREnabled() && lifecycle?.IsClientRunning == true &&
+            Inventory.Instance != null && PlayerManager.PlayerTransform != null)
+            capabilities.Add("world-item-sync-runtime-scenario");
 
         Dictionary<string, object> anchors = new(StringComparer.Ordinal);
         if (sceneAnchorsDirty)

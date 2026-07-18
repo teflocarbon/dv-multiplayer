@@ -409,7 +409,8 @@ For inventory events:
 
 1. inspect both primary and secondary slot states;
 2. resolve the exact `NetworkedItem` from the supplied `GameObject`;
-3. if its NetId is zero and this is a legitimate local inventory/equip transition, request host adoption immediately;
+3. if its NetId is zero, accept it only through the explicitly temporary compatibility-adoption
+   policy for unconverted player-item producers; otherwise quarantine and destroy it;
 4. otherwise send a location delta containing the action flags and resulting slot state;
 5. sample the settled physical/storage state after the operation when needed;
 6. deduplicate compound events by Unity frame plus item instance ID and resulting revision/state.
