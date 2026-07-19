@@ -1,0 +1,32 @@
+{
+  "testId": "external.runtime-self-check",
+  "displayName": "External host/client runtime self-check",
+  "category": "External scenarios",
+  "fidelity": "ExternalOrchestration+ReadOnly",
+  "timeoutMilliseconds": 15000,
+  "requiredCapabilities": [ "runtime-self-check" ],
+  "steps": [
+    {
+      "id": "host-self-check",
+      "command": "runtime.self-check",
+      "target": "host",
+      "assertions": [
+        { "path": "playerReady", "equals": true, "message": "Host player was not ready." }
+      ],
+      "capture": { "hostScene": "activeScene" }
+    },
+    {
+      "id": "client-self-check",
+      "command": "runtime.self-check",
+      "target": "client",
+      "assertions": [
+        { "path": "playerReady", "equals": true, "message": "Client player was not ready." },
+        { "path": "networkLifecycleReady", "equals": true, "message": "Client network lifecycle was not ready." }
+      ]
+    }
+  ],
+  "cleanup": [
+    { "id": "neutralize-host", "command": "runtime.neutralize", "target": "host" },
+    { "id": "neutralize-client", "command": "runtime.neutralize", "target": "client" }
+  ]
+}

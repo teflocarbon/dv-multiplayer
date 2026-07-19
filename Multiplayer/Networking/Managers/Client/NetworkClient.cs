@@ -12,6 +12,7 @@ using DV.ServicePenalty.UI;
 using DV.ThingTypes;
 using DV.UI;
 using DV.UserManagement;
+using DV.Utils;
 using DV.WeatherSystem;
 using LiteNetLib;
 using LiteNetLib.Utils;
@@ -149,6 +150,8 @@ public class NetworkClient : NetworkManager
     public override void Stop()
     {
         Log("Stopping client");
+        trainsetRelocationRevisions.Clear();
+        pendingTrainsetRelocationRevisions.Clear();
         if (!isAlsoHost && originalSession != null)
         {
             LogDebug(() => $"NetworkClient.Stop() destroying session... Original session is Null: {originalSession == null}");
@@ -212,6 +215,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundDestroyTrainCarPacket>(OnClientboundDestroyTrainCarPacket);
         netPacketProcessor.SubscribeReusable<ClientboundRerailTrainPacket>(OnClientboundRerailTrainPacket);
         netPacketProcessor.SubscribeReusable<ClientboundMoveTrainPacket>(OnClientboundMoveTrainPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundTrainsetRelocationPacket>(OnClientboundTrainsetRelocationPacket);
 
         netPacketProcessor.SubscribeReusable<ClientboundTrainsetPhysicsPacket>(OnClientboundTrainPhysicsPacket);
         netPacketProcessor.SubscribeReusable<CommonTrainPortsPacket>(OnCommonSimFlowPacket);
@@ -2178,6 +2182,83 @@ public class NetworkClient : NetworkManager
 
         SendPacketToServer(new CommonItemUpdatePacket { ItemData = updateData },
                 DeliveryMethod.ReliableOrdered);
+    }
+
+    private readonly Dictionary<ushort, uint> trainsetRelocationRevisions = new();
+    private readonly Dictionary<ushort, uint> pendingTrainsetRelocationRevisions = new();
+
+    private void OnClientboundTrainsetRelocationPacket(ClientboundTrainsetRelocationPacket packet)
+    {
+        if (packet == null || packet.RootNetId == 0 || packet.Cars == null) return;
+        if (trainsetRelocationRevisions.TryGetValue(packet.RootNetId, out uint applied) &&
+            packet.Revision <= applied)
+        {
+            LogDebug(() => $"Ignoring stale trainset relocation {packet.OperationId} " +
+                $"revision {packet.Revision}, applied {applied}");
+            SendTrainsetRelocationAck(packet, 1, "stale-ignored", applied);
+            return;
+        }
+        if (pendingTrainsetRelocationRevisions.TryGetValue(packet.RootNetId, out uint pending) &&
+            packet.Revision <= pending)
+        {
+            SendTrainsetRelocationAck(packet, 1, "pending-newer-or-equal", pending);
+            return;
+        }
+        pendingTrainsetRelocationRevisions[packet.RootNetId] = packet.Revision;
+        SingletonBehaviour<CoroutineManager>.Instance.Run(ApplyTrainsetRelocation(packet));
+    }
+
+    private IEnumerator ApplyTrainsetRelocation(ClientboundTrainsetRelocationPacket packet)
+    {
+        float deadline = Time.realtimeSinceStartup + 10f;
+        string failure;
+        while (!NetworkedCarSpawner.TryApplyRelocation(packet.Cars, packet.HostTick, out failure))
+        {
+            if (!pendingTrainsetRelocationRevisions.TryGetValue(packet.RootNetId,
+                    out uint pending) || pending != packet.Revision)
+            {
+                SendTrainsetRelocationAck(packet, 1, "superseded-before-apply", pending);
+                yield break;
+            }
+            bool dependency = failure.StartsWith("missing-car:", StringComparison.Ordinal) ||
+                failure.StartsWith("missing-track:", StringComparison.Ordinal);
+            if (!dependency || Time.realtimeSinceStartup >= deadline)
+            {
+                LogError($"Trainset relocation {packet.OperationId} could not be applied: {failure}");
+                SendTrainsetRelocationAck(packet, 2,
+                    dependency ? "deferred-dependency-timeout:" + failure : failure, 0);
+                if (pendingTrainsetRelocationRevisions.TryGetValue(packet.RootNetId,
+                        out uint current) && current == packet.Revision)
+                    pendingTrainsetRelocationRevisions.Remove(packet.RootNetId);
+                yield break;
+            }
+            yield return null;
+        }
+        trainsetRelocationRevisions[packet.RootNetId] = packet.Revision;
+        pendingTrainsetRelocationRevisions.Remove(packet.RootNetId);
+        uint appliedHash = TrainsetRelocationHash.Compute(packet.Cars);
+        DebugRuntime.Publish("train-relocation", "train-relocation.client-applied",
+            DebugRuntimeSide.Client, entityId: "train:" + packet.RootNetId,
+            correlationId: packet.OperationId, data: new()
+            {
+                ["revision"] = packet.Revision, ["carCount"] = packet.Cars.Length,
+                ["hostTick"] = packet.HostTick
+            });
+        if (packet.CommittedHash != 0 && packet.CommittedHash != appliedHash)
+            SendTrainsetRelocationAck(packet, 3, "hash-mismatch", appliedHash);
+        else
+            SendTrainsetRelocationAck(packet, 0, "applied", appliedHash);
+    }
+
+    private void SendTrainsetRelocationAck(ClientboundTrainsetRelocationPacket packet,
+        byte status, string reason, uint hash)
+    {
+        SendPacketToServer(new ServerboundTrainsetRelocationAckPacket
+        {
+            OperationId = packet.OperationId, Revision = packet.Revision,
+            RootNetId = packet.RootNetId, Status = status,
+            ReasonCode = reason ?? string.Empty, AppliedHash = hash
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     internal void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)

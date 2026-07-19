@@ -9,8 +9,20 @@ using System.Linq;
 
 namespace Multiplayer.DebugClient;
 
-internal sealed class RuntimeTestCoordinator
+internal sealed partial class RuntimeTestCoordinator
 {
+    private static readonly RuntimeTestDescriptorDto CSharpConsoleDescriptor = new()
+    {
+        TestId = "runtime.csharp",
+        DisplayName = "C# console",
+        Category = "Harness",
+        Fidelity = "ExternallyCompiled+UnrestrictedDebugCode+MainThread",
+        MutationKind = RuntimeTestMutationKind.IsolatedMutation,
+        RequiredCapabilities = new[] { "runtime-csharp-execution" },
+        TimeoutMilliseconds = 120000
+    };
+    private readonly ExternalScenarioCatalog externalScenarios = new();
+
     private sealed class FakeClient : IRuntimeTestProcessClient
     {
         private readonly DebugSessionInfo session;
@@ -20,12 +32,13 @@ internal sealed class RuntimeTestCoordinator
         {
             Available = true, MainThreadAgentReady = true, Role = session.Role, PlayerId = session.PlayerId,
             Capabilities = new[] { "runtime-self-check", "cold-container-quick-move-scenario" },
-            Commands = new[] { "runtime.self-check", "scenario.cold-container-round-trip",
+            Commands = new[] { "runtime.self-check", "runtime.neutralize", "scenario.cold-container-round-trip",
                 "scenario.cold-container-foreign-rejection",
                 "scenario.lost-and-found-self-test" },
             Tests = new[]
             {
                 new RuntimeTestDescriptorDto { TestId = "runtime.self-check", DisplayName = "Runtime self-check", Category = "Harness" },
+                new RuntimeTestDescriptorDto { TestId = "runtime.neutralize", DisplayName = "Neutralize", Category = "Harness", MutationKind = RuntimeTestMutationKind.IsolatedMutation },
                 ScenarioDescriptor("scenario.cold-container-round-trip", RuntimeScenarioFixtureOwnership.TargetPlayer),
                 ScenarioDescriptor("scenario.cold-container-foreign-rejection", RuntimeScenarioFixtureOwnership.HostPlayer),
                 ItemScenarioDescriptor()
@@ -77,7 +90,13 @@ internal sealed class RuntimeTestCoordinator
         {
             RuntimeTestCommandDto command = commands[requestId];
             Dictionary<string, object> result = new() { ["session"] = session.SessionId };
-            if (command.Command == "inventory.fixture-create")
+            if (command.Command == "runtime.self-check")
+            {
+                result["playerReady"] = true;
+                result["activeScene"] = "game_w3";
+                result["networkLifecycleReady"] = true;
+            }
+            else if (command.Command == "inventory.fixture-create")
             {
                 bool container = command.Parameters.TryGetValue("prefabName", out string prefab) &&
                     prefab.IndexOf("Container", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -182,6 +201,7 @@ internal sealed class RuntimeTestCoordinator
         public bool CaptureStopped;
         public FixtureScenario FixtureScenario;
         public RuntimeTestCommandDto PendingScenarioCommand;
+        public ExternalExecution ExternalScenario;
     }
 
     private readonly Func<IEnumerable<DebugSessionInfo>> sessions;
@@ -217,15 +237,19 @@ internal sealed class RuntimeTestCoordinator
     public static void RunSelfTest()
     {
         RuntimeTestRunJournal.RunSelfTest();
+        RuntimeCSharpCompiler.RunSelfTest();
         DebugSessionInfo host = new() { SessionId = "host", Role = "host", PlayerId = 1, FirehoseUrl = "http://127.0.0.1:1/", ApiToken = "host-token" };
         DebugSessionInfo client = new() { SessionId = "client", Role = "client", PlayerId = 2, FirehoseUrl = "http://127.0.0.1:2/", ApiToken = "client-token" };
         Dictionary<string, FakeClient> clients = new()
         {
             [host.SessionId] = new FakeClient(host), [client.SessionId] = new FakeClient(client)
         };
-        RuntimeTestCoordinator coordinator = new(() => new[] { host, client }, session => clients[session.SessionId]);
+        int coordinatorUpdates = 0;
+        RuntimeTestCoordinator coordinator = new(() => new[] { host, client },
+            session => clients[session.SessionId], runUpdated: _ => coordinatorUpdates++);
         RuntimeTestCapabilitiesDto capabilities = coordinator.GetCapabilities();
-        if (!capabilities.Available || capabilities.Commands.Length != 4 || capabilities.Tests.Length != 4)
+        if (!capabilities.Available || capabilities.Commands.Length != 5 ||
+            capabilities.Tests.Count(test => !test.TestId.StartsWith("external.", StringComparison.Ordinal)) != 5)
             throw new InvalidOperationException("Runtime-test coordinator self-test failed capability aggregation.");
         RuntimeTestCommandAcceptedDto accepted = coordinator.Enqueue(new RuntimeTestCommandDto
         {
@@ -244,6 +268,25 @@ internal sealed class RuntimeTestCoordinator
         });
         if (ambiguous.Accepted || ambiguous.Reason != "target-selector-required")
             throw new InvalidOperationException("Runtime-test coordinator self-test accepted an ambiguous multi-process target.");
+        if (capabilities.Tests.Any(test => test.TestId == "external.runtime-self-check"))
+        {
+            RuntimeTestCommandAcceptedDto externalAccepted = coordinator.Enqueue(new RuntimeTestCommandDto
+            {
+                RequestId = "external-parent", RunId = "external-run",
+                CaseId = "external.runtime-self-check", Command = "external.runtime-self-check",
+                TargetSessionId = client.SessionId, MutationKind = RuntimeTestMutationKind.IsolatedMutation
+            });
+            RuntimeTestRunDto externalRun = WaitForSelfTestRun(coordinator, "external-parent");
+            if (!externalAccepted.Accepted || externalRun?.Status != RuntimeTestCommandStatus.Passed ||
+                externalRun.Processes.Count != 4 || !Equals(externalRun.Result["cleanupClean"], true))
+                throw new InvalidOperationException("Runtime-test coordinator self-test failed external scenario execution.");
+            int terminalUpdateCount = coordinatorUpdates;
+            coordinator.GetRun("external-parent");
+            coordinator.GetRun("external-parent");
+            if (coordinatorUpdates != terminalUpdateCount)
+                throw new InvalidOperationException(
+                    "Runtime-test coordinator self-test republished a terminal external scenario while polling.");
+        }
 
         int captureStarts = 0;
         int captureStops = 0;
@@ -361,10 +404,20 @@ internal sealed class RuntimeTestCoordinator
             BuildConfiguration = "Debug",
             Role = "dashboard",
             Capabilities = snapshots.SelectMany(item => item.Capabilities.Capabilities)
+                .Concat(snapshots.Any(item => item.Capabilities.Capabilities.Contains(
+                    "runtime-csharp-execution", StringComparer.Ordinal)) ?
+                    new[] { "external-csharp-console" } : Array.Empty<string>())
                 .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray(),
             Commands = snapshots.SelectMany(item => item.Capabilities.Commands)
+                .Concat(snapshots.Any(item => item.Capabilities.Commands.Contains(
+                    "runtime.csharp-execute", StringComparer.Ordinal)) ?
+                    new[] { CSharpConsoleDescriptor.TestId } : Array.Empty<string>())
                 .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray(),
             Tests = snapshots.SelectMany(item => item.Capabilities.Tests)
+                .Concat(snapshots.Any(item => item.Capabilities.Capabilities.Contains(
+                    "runtime-csharp-execution", StringComparer.Ordinal)) ?
+                    new[] { CSharpConsoleDescriptor } : Array.Empty<RuntimeTestDescriptorDto>())
+                .Concat(externalScenarios.Descriptors)
                 .GroupBy(item => item.TestId, StringComparer.Ordinal).Select(group => group.First())
                 .OrderBy(item => item.Category).ThenBy(item => item.DisplayName).ToArray(),
             Anchors = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -385,17 +438,29 @@ internal sealed class RuntimeTestCoordinator
         command.RunId = string.IsNullOrWhiteSpace(command.RunId) ? "run-" + Guid.NewGuid().ToString("N") : command.RunId.Trim();
         if (runs.ContainsKey(command.RequestId)) return Rejected(command, "duplicate-request-id");
         RuntimeTestDescriptorDto descriptor = FindDescriptor(command.Command);
+        RuntimeCSharpCompilation csharpCompilation = null;
+        if (string.Equals(command.Command, CSharpConsoleDescriptor.TestId, StringComparison.Ordinal))
+        {
+            try { csharpCompilation = RuntimeCSharpCompiler.Compile(command); }
+            catch (Exception exception) { return Rejected(command, exception.GetBaseException().Message); }
+        }
         bool scenario = descriptor?.IsScenario == true;
         if (scenario)
         {
             lock (scenarioQueueGate)
             {
+                // StartNextScenario reserves the next request ID before it removes the
+                // queued placeholder and calls back into Enqueue.  Every other scenario
+                // must remain queued throughout that hand-off; otherwise a submission
+                // arriving in the remove/re-add window can start concurrently.
                 if (!string.IsNullOrEmpty(activeScenarioRequestId) &&
-                    runs.TryGetValue(activeScenarioRequestId, out CoordinatedRun activeScenario) &&
-                    !Terminal(activeScenario.Parent.Status))
+                    !string.Equals(activeScenarioRequestId, command.RequestId,
+                        StringComparison.Ordinal))
                     return QueueScenario(command);
             }
         }
+        ExternalScenarioDefinition externalDefinition = externalScenarios.Find(command.Command);
+        if (externalDefinition != null) return EnqueueExternal(command, externalDefinition);
         if (scenario && descriptor.ScenarioOrchestration is
             RuntimeScenarioOrchestrationKind.InventoryFixturePair or
             RuntimeScenarioOrchestrationKind.InventoryItemFixture)
@@ -432,6 +497,15 @@ internal sealed class RuntimeTestCoordinator
             IRuntimeTestProcessClient client = clientFactory(target);
             string childId = command.RequestId + "-" + target.SessionId;
             RuntimeTestCommandDto childCommand = CloneForChild(command, childId);
+            if (csharpCompilation != null)
+            {
+                childCommand.Command = "runtime.csharp-execute";
+                childCommand.Parameters.Remove("code");
+                childCommand.Parameters.Remove("mode");
+                childCommand.Parameters["entryType"] = csharpCompilation.EntryType;
+                childCommand.Parameters["assemblyBase64"] = csharpCompilation.AssemblyBase64;
+                childCommand.Parameters["assemblySha256"] = csharpCompilation.AssemblySha256;
+            }
             RuntimeTestCommandAcceptedDto accepted;
             try { accepted = client.Enqueue(childCommand); }
             catch (Exception exception) { accepted = Rejected(childCommand, exception.GetBaseException().Message); }
@@ -467,6 +541,14 @@ internal sealed class RuntimeTestCoordinator
         {
             if (run.PendingScenarioCommand != null)
                 return Clone(run.Parent);
+            if (run.ExternalScenario != null)
+            {
+                AdvanceExternal(run);
+                Publish(run.Parent);
+                RuntimeTestRunDto externalResult = Clone(run.Parent);
+                if (Terminal(run.Parent.Status)) StartNextScenario(run.Parent.RequestId);
+                return externalResult;
+            }
             if (run.FixtureScenario != null)
             {
                 AdvanceFixtureScenario(run);

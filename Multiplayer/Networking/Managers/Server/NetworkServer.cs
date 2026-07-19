@@ -249,6 +249,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundTrainControlAuthorityPacket, ITransportPeer>(OnServerboundTrainControlAuthorityPacket);
         netPacketProcessor.SubscribeReusable<CommonCouplerInteractionPacket, ITransportPeer>(OnCommonCouplerInteractionPacket);
         netPacketProcessor.SubscribeReusable<CommonTrainUncouplePacket, ITransportPeer>(OnCommonTrainUncouplePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundTrainsetRelocationAckPacket, ITransportPeer>(OnServerboundTrainsetRelocationAckPacket);
         netPacketProcessor.SubscribeReusable<CommonHoseConnectedPacket, ITransportPeer>(OnCommonHoseConnectedPacket);
         netPacketProcessor.SubscribeReusable<CommonHoseDisconnectedPacket, ITransportPeer>(OnCommonHoseDisconnectedPacket);
         netPacketProcessor.SubscribeReusable<CommonMuConnectedPacket, ITransportPeer>(OnCommonMuConnectedPacket);
@@ -1166,6 +1167,30 @@ public class NetworkServer : NetworkManager
             TraceItemDeliveryExpected(packet, sendToPlayer.Peer, DeliveryMethod.ReliableOrdered);
             SendPacket(sendToPlayer.Peer, packet, DeliveryMethod.ReliableOrdered);
         }
+    }
+
+    public void SendTrainsetRelocation(ClientboundTrainsetRelocationPacket packet)
+    {
+        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered,
+            PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+    }
+
+    private void OnServerboundTrainsetRelocationAckPacket(
+        ServerboundTrainsetRelocationAckPacket packet, ITransportPeer peer)
+    {
+        peerToPlayer.TryGetValue(peer, out ServerPlayer player);
+        DebugRuntime.Publish("train-relocation", "train-relocation.ack-received",
+            DebugRuntimeSide.Server,
+            packet.Status == 0 || packet.Status == 1 ? DebugSeverity.Info : DebugSeverity.Error,
+            entityId: "train:" + packet.RootNetId, correlationId: packet.OperationId,
+            data: new()
+            {
+                ["revision"] = packet.Revision, ["status"] = packet.Status,
+                ["reasonCode"] = packet.ReasonCode ?? string.Empty,
+                ["appliedHash"] = packet.AppliedHash,
+                ["playerId"] = player?.PlayerId ?? 0,
+                ["playerName"] = player?.Username ?? string.Empty
+            });
     }
 
     public void SendItemSpatialLease(NetworkedItem item, ClientboundItemSpatialLeasePacket packet)

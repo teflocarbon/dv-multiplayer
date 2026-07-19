@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.15.0+e75636565a54f952c6b35cfe49923daa4609c91e",
-  "Fingerprint": "8f46e06ec22770c78f3ee2c5416af5b4e35669d4319e04c1781de27d364a0139",
+  "BuildVersion": "0.1.15.0+be0b7a0038c41c22f7ef4904b3bb7d96a256cf5b",
+  "Fingerprint": "971ac6dc0a48c66e20bff2a88338cecbe12c524f04dab56689fd690586a8e281",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -265,6 +265,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "3E4AD84BA249B163",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundTrainsetRelocationAckPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "3EF8F1FEC8CCE294",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundTrainSyncRequestPacket",
       "Direction": "Serverbound",
@@ -440,6 +449,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.CommonRotateTurntablePacket",
       "Direction": "Bidirectional",
       "Category": "Common",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "6DD4F4E912870B02",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundTrainsetRelocationPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Train",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

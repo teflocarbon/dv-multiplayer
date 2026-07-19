@@ -2115,5 +2115,15 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (handCarBarController != null)
             handCarBarController.enabled = shouldEnable;
     }
+    public void Client_ResetRelocationBaseline(float speed, uint tick)
+    {
+        Client_trainSpeedQueue?.Clear();
+        Client_trainRigidbodyQueue?.Clear();
+        client_bogie1Queue?.Clear();
+        client_bogie2Queue?.Clear();
+        Client_trainSpeedQueue?.ReceiveSnapshot(speed, tick);
+        TrainCar?.stress?.ResetTrainStress();
+        kinematicCycles = 0;
+    }
     #endregion
 }

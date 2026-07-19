@@ -340,17 +340,34 @@ internal sealed class DashboardMerger : IDisposable
         {
             try
             {
+                HashSet<string> liveSessionIds = new(StringComparer.Ordinal);
                 if (Directory.Exists(directory))
                     foreach (string file in Directory.GetFiles(directory, "*.json"))
                     {
                         DebugSessionInfo info;
                         try { info = JsonConvert.DeserializeObject<DebugSessionInfo>(File.ReadAllText(file), DebugJson.Settings); }
                         catch { continue; }
-                        if (!DebugDiscoveryFile.IsLive(info, DateTime.UtcNow, TimeSpan.FromSeconds(10))) { sessions.TryRemove(info?.SessionId ?? string.Empty, out _); continue; }
+                        if (!DebugDiscoveryFile.IsLive(info, DateTime.UtcNow, TimeSpan.FromSeconds(10)))
+                        {
+                            string staleSessionId = info?.SessionId ?? string.Empty;
+                            sessions.TryRemove(staleSessionId, out _);
+                            readers.TryRemove(staleSessionId, out _);
+                            continue;
+                        }
+                        liveSessionIds.Add(info.SessionId);
                         sessions[info.SessionId] = info;
-                        replication.UpdateSessions(sessions.Values);
                         Task readerTask = readers.GetOrAdd(info.SessionId, _ => Task.Run(() => ReadSession(info)));
                     }
+                // A normal process shutdown disposes its discovery file.  Sweep cached
+                // entries that no longer have a live file as well as entries whose file
+                // explicitly failed the heartbeat/process check.
+                foreach (string staleSessionId in sessions.Keys.Where(id =>
+                    !liveSessionIds.Contains(id)).ToArray())
+                {
+                    sessions.TryRemove(staleSessionId, out _);
+                    readers.TryRemove(staleSessionId, out _);
+                }
+                replication.UpdateSessions(sessions.Values);
             }
             catch { }
             await Task.Delay(2000, cancellation.Token).ConfigureAwait(false);

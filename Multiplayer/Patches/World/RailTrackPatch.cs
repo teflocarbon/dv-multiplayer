@@ -6,8 +6,9 @@ namespace Multiplayer.Patches.World;
 [HarmonyPatch(typeof(RailTrack), nameof(RailTrack.Awake))]
 public static class RailTrack_Awake_Patch
 {
-    private static void Prefix(NetworkedRailTrack __instance)
+    private static void Prefix(RailTrack __instance)
     {
-        __instance.gameObject.AddComponent<NetworkedRailTrack>();
+        if (__instance != null && __instance.GetComponent<NetworkedRailTrack>() == null)
+            __instance.gameObject.AddComponent<NetworkedRailTrack>();
     }
 }
