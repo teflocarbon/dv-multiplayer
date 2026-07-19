@@ -45,6 +45,7 @@ public class ServerPlayer : IDisposable
     public Guid Guid { get; set; }
     public string CharacterId { get; set; }
     public bool IsVR { get; }
+    public uint LastHighPingTickLogged { get; set; }
 
     public PlayerTrackingData TrackingData { get; set; }
     public PlayerPostureFlags Posture { get; set; }        // already exists — keep
