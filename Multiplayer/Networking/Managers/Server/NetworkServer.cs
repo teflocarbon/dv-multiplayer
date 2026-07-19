@@ -285,6 +285,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundWorldItemProjectionAckPacket, ITransportPeer>(OnServerboundWorldItemProjectionAckPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemSpatialSamplePacket, ITransportPeer>(OnServerboundItemSpatialSamplePacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemSpatialSettlementPacket, ITransportPeer>(OnServerboundItemSpatialSettlementPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemTrainWakeWitnessPacket, ITransportPeer>(OnServerboundItemTrainWakeWitnessPacket);
     }
 
     private void OnServerboundItemSpatialSamplePacket(ServerboundItemSpatialSamplePacket packet,
@@ -301,6 +302,14 @@ public class NetworkServer : NetworkManager
         if (packet?.State == null || !TryGetServerPlayer(peer, out ServerPlayer player))
             return;
         NetworkedItemManager.Instance?.ReceiveItemSpatialSettlement(packet.State, player);
+    }
+
+    private void OnServerboundItemTrainWakeWitnessPacket(
+        ServerboundItemTrainWakeWitnessPacket packet, ITransportPeer peer)
+    {
+        if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        NetworkedItemManager.Instance?.ReceiveItemTrainWakeWitness(packet, player);
     }
 
     private void OnServerboundWorldItemCataloguePacket(ServerboundWorldItemCataloguePacket packet, ITransportPeer peer)

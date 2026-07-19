@@ -340,29 +340,36 @@ internal sealed class DashboardMerger : IDisposable
         {
             try
             {
-                HashSet<string> liveSessionIds = new(StringComparer.Ordinal);
+                HashSet<string> discoveryFileSessionIds = new(StringComparer.Ordinal);
                 if (Directory.Exists(directory))
                     foreach (string file in Directory.GetFiles(directory, "*.json"))
                     {
+                        string fileSessionId = Path.GetFileNameWithoutExtension(file);
+                        if (!string.IsNullOrWhiteSpace(fileSessionId))
+                            discoveryFileSessionIds.Add(fileSessionId);
                         DebugSessionInfo info;
                         try { info = JsonConvert.DeserializeObject<DebugSessionInfo>(File.ReadAllText(file), DebugJson.Settings); }
                         catch { continue; }
-                        if (!DebugDiscoveryFile.IsLive(info, DateTime.UtcNow, TimeSpan.FromSeconds(10)))
+                        // Runtime discovery is backed by a live-process check as well as the
+                        // heartbeat. A dense diagnostic burst can delay the timer thread without
+                        // making the runtime unreachable, so do not flap a scenario target after
+                        // one short scheduling stall.
+                        if (!DebugDiscoveryFile.IsLive(info, DateTime.UtcNow, TimeSpan.FromSeconds(30)))
                         {
                             string staleSessionId = info?.SessionId ?? string.Empty;
                             sessions.TryRemove(staleSessionId, out _);
                             readers.TryRemove(staleSessionId, out _);
                             continue;
                         }
-                        liveSessionIds.Add(info.SessionId);
                         sessions[info.SessionId] = info;
                         Task readerTask = readers.GetOrAdd(info.SessionId, _ => Task.Run(() => ReadSession(info)));
                     }
                 // A normal process shutdown disposes its discovery file.  Sweep cached
-                // entries that no longer have a live file as well as entries whose file
-                // explicitly failed the heartbeat/process check.
+                // entries that no longer have a discovery file. A transient read failure
+                // during the writer's atomic replacement must retain the cached session;
+                // explicit heartbeat/process failures were already removed above.
                 foreach (string staleSessionId in sessions.Keys.Where(id =>
-                    !liveSessionIds.Contains(id)).ToArray())
+                    !discoveryFileSessionIds.Contains(id)).ToArray())
                 {
                     sessions.TryRemove(staleSessionId, out _);
                     readers.TryRemove(staleSessionId, out _);

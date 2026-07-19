@@ -31,20 +31,25 @@ internal sealed class InventoryRuntimeFixtureDriver
     private static readonly Dictionary<ushort, Guid> fixtureTokens = new();
     private static readonly Dictionary<Guid, NetworkedItem> fixtureItems = new();
     private static readonly Dictionary<Guid, Guid> coldFixtureTokens = new();
+    private static readonly Dictionary<Guid, string> fixtureTags = new();
 
     private sealed class RuntimeFixtureMarker : MonoBehaviour
     {
         public Guid Token;
+        public string TestTag = string.Empty;
     }
 
-    internal static void TrackLocalFixture(NetworkedItem item, string tokenText)
+    internal static void TrackLocalFixture(NetworkedItem item, string tokenText,
+        string testTag = "")
     {
         if (item == null || !Guid.TryParse(tokenText, out Guid token) || token == Guid.Empty)
             return;
         RuntimeFixtureMarker marker = item.GetComponent<RuntimeFixtureMarker>() ??
             item.gameObject.AddComponent<RuntimeFixtureMarker>();
         marker.Token = token;
+        marker.TestTag = testTag ?? string.Empty;
         fixtureItems[token] = item;
+        if (!string.IsNullOrWhiteSpace(testTag)) fixtureTags[token] = testTag.Trim();
     }
 
     internal static void TransferFixtureToCold(ushort retiredNetId, Guid persistentItemId)
@@ -69,7 +74,8 @@ internal sealed class InventoryRuntimeFixtureDriver
             materialized != null)
         {
             fixtureItems[token] = materialized;
-            TrackLocalFixture(materialized, token.ToString("D"));
+            fixtureTags.TryGetValue(token, out string tag);
+            TrackLocalFixture(materialized, token.ToString("D"), tag);
         }
     }
 
@@ -267,14 +273,17 @@ internal sealed class InventoryRuntimeFixtureDriver
         }
 
         Guid token = Guid.NewGuid();
+        string testTag = OptionalString(command, "testTag", command.RunId).Trim();
         fixtureTokens[item.NetId] = token;
         fixtureItems[token] = item;
-        TrackLocalFixture(item, token.ToString("D"));
+        if (testTag.Length > 0) fixtureTags[token] = testTag;
+        TrackLocalFixture(item, token.ToString("D"), testTag);
         yield return null;
         yield return new WaitForEndOfFrame();
         lock (run)
         {
             run.Result["fixtureToken"] = token.ToString("D");
+            run.Result["testTag"] = testTag;
             run.Result["netId"] = item.NetId;
             run.Result["prefabName"] = snapshot.PrefabName;
             run.Result["ownerPlayerId"] = ownerId;
@@ -416,6 +425,7 @@ internal sealed class InventoryRuntimeFixtureDriver
         InventoryIntegration.RevokeMembership(item.gameObject, netId);
         fixtureTokens.Remove(netId);
         fixtureItems.Remove(token);
+        fixtureTags.Remove(token);
         UnityEngine.Object.Destroy(item.gameObject);
         yield return null;
         yield return new WaitForEndOfFrame();
@@ -427,6 +437,98 @@ internal sealed class InventoryRuntimeFixtureDriver
         }
         if (NetworkedItem.TryGet(netId, out _))
             throw new InvalidOperationException("fixture-destruction-not-observed");
+    }
+
+    public IEnumerator FixtureStatus(RuntimeTestCommandDto command, RuntimeTestRunDto run)
+    {
+        string requestedTag = OptionalString(command, "testTag", string.Empty).Trim();
+        yield return null;
+        RefreshFixtureMarkerIndex();
+        List<Dictionary<string, object>> fixtures = fixtureItems
+            .Where(pair => pair.Value != null &&
+                (requestedTag.Length == 0 || (fixtureTags.TryGetValue(pair.Key, out string tag) &&
+                    string.Equals(tag, requestedTag, StringComparison.Ordinal))))
+            .Select(pair => FixtureSnapshot(pair.Key, pair.Value)).OrderBy(value =>
+                Convert.ToString(value["testTag"]), StringComparer.Ordinal)
+            .ThenBy(value => Convert.ToUInt16(value["netId"]))
+            .ToList();
+        List<Dictionary<string, object>> groups = fixtures
+            .GroupBy(value => Convert.ToString(value["testTag"]) ?? string.Empty,
+                StringComparer.Ordinal)
+            .Select(group => new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["testTag"] = group.Key, ["count"] = group.Count(),
+                ["netIds"] = group.Select(value => Convert.ToUInt16(value["netId"])).ToArray()
+            }).ToList();
+        lock (run)
+        {
+            run.Result["fixtures"] = fixtures;
+            run.Result["groups"] = groups;
+            run.Result["fixtureCount"] = fixtures.Count;
+            run.Result["coldFixtureCount"] = coldFixtureTokens.Count(pair => requestedTag.Length == 0 ||
+                (fixtureTags.TryGetValue(pair.Value, out string tag) && string.Equals(tag,
+                    requestedTag, StringComparison.Ordinal)));
+        }
+    }
+
+    public IEnumerator DestroyFixtureTag(RuntimeTestCommandDto command, RuntimeTestRunDto run)
+    {
+        RequireHost();
+        string testTag = RequiredString(command, "testTag").Trim();
+        RefreshFixtureMarkerIndex();
+        Guid[] tokens = fixtureTags.Where(pair => string.Equals(pair.Value, testTag,
+            StringComparison.Ordinal)).Select(pair => pair.Key).ToArray();
+        List<ushort> destroyed = new();
+        List<string> failures = new();
+        foreach (Guid token in tokens)
+        {
+            if (!fixtureItems.TryGetValue(token, out NetworkedItem item) || item == null)
+            {
+                failures.Add(token.ToString("D") + ":not-materialized");
+                continue;
+            }
+            ushort netId = item.NetId;
+            RuntimeTestCommandDto destroyCommand = new()
+            {
+                RunId = command.RunId,
+                Parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["netId"] = netId.ToString(CultureInfo.InvariantCulture),
+                    ["fixtureToken"] = token.ToString("D")
+                }
+            };
+            RuntimeTestRunDto child = new();
+            IEnumerator destroy = DestroyFixture(destroyCommand, child);
+            bool failed = false;
+            while (true)
+            {
+                object current;
+                try
+                {
+                    if (!destroy.MoveNext()) break;
+                    current = destroy.Current;
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(netId + ":" + exception.GetBaseException().Message);
+                    failed = true;
+                    break;
+                }
+                yield return current;
+            }
+            if (!failed) destroyed.Add(netId);
+        }
+        lock (run)
+        {
+            run.Result["testTag"] = testTag;
+            run.Result["matched"] = tokens.Length;
+            run.Result["destroyed"] = destroyed.ToArray();
+            run.Result["destroyedCount"] = destroyed.Count;
+            run.Result["failures"] = failures.ToArray();
+        }
+        if (failures.Count > 0)
+            throw new InvalidOperationException("fixture-tag-cleanup-incomplete:" +
+                string.Join(",", failures.ToArray()));
     }
 
     public IEnumerator CleanupLocalFixtures(RuntimeTestCommandDto command,
@@ -472,7 +574,10 @@ internal sealed class InventoryRuntimeFixtureDriver
             purged++;
         }
         foreach (Guid token in tokens)
+        {
             fixtureItems.Remove(token);
+            fixtureTags.Remove(token);
+        }
         yield return null;
         yield return new WaitForEndOfFrame();
         int remaining = Resources.FindObjectsOfTypeAll<RuntimeFixtureMarker>()
@@ -608,6 +713,38 @@ internal sealed class InventoryRuntimeFixtureDriver
             ["fixtureToken"] = networked != null && fixtureTokens.TryGetValue(networked.NetId,
                 out Guid token) ? token.ToString("D") : string.Empty
         };
+    }
+
+    private static Dictionary<string, object> FixtureSnapshot(Guid token, NetworkedItem item)
+    {
+        fixtureTags.TryGetValue(token, out string testTag);
+        return new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["testTag"] = testTag ?? string.Empty,
+            ["fixtureToken"] = token.ToString("D"),
+            ["netId"] = item.NetId,
+            ["prefabName"] = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
+            ["itemState"] = item.DebugCurrentState.ToString(),
+            ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+            ["active"] = item.gameObject.activeInHierarchy,
+            ["position"] = DebugValueSnapshotter.Snapshot(item.transform.position - WorldMover.currentMove)
+        };
+    }
+
+    private static void RefreshFixtureMarkerIndex()
+    {
+        foreach (RuntimeFixtureMarker marker in Resources.FindObjectsOfTypeAll<RuntimeFixtureMarker>())
+        {
+            if (marker == null || marker.Token == Guid.Empty) continue;
+            NetworkedItem item = marker.GetComponent<NetworkedItem>();
+            if (item != null)
+            {
+                fixtureItems[marker.Token] = item;
+                if (item.NetId != 0) fixtureTokens[item.NetId] = marker.Token;
+            }
+            if (!string.IsNullOrWhiteSpace(marker.TestTag))
+                fixtureTags[marker.Token] = marker.TestTag.Trim();
+        }
     }
 
     private static void ApplyRequestedPlacement(ItemUpdateData snapshot, string placement,

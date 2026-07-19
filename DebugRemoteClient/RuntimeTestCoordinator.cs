@@ -247,6 +247,21 @@ internal sealed partial class RuntimeTestCoordinator
         int coordinatorUpdates = 0;
         RuntimeTestCoordinator coordinator = new(() => new[] { host, client },
             session => clients[session.SessionId], runUpdated: _ => coordinatorUpdates++);
+        DebugSessionInfo[] transientSessions = { host, client };
+        RuntimeTestCoordinator targetPinCoordinator = new(() => transientSessions,
+            session => clients[session.SessionId]);
+        ExternalExecution targetPinExecution = new()
+        {
+            Command = new RuntimeTestCommandDto { TargetRole = "host" }
+        };
+        DebugSessionInfo firstPinnedHost = targetPinCoordinator.SelectExternalTarget(
+            targetPinExecution, "host");
+        transientSessions = new[] { client };
+        DebugSessionInfo retainedPinnedHost = targetPinCoordinator.SelectExternalTarget(
+            targetPinExecution, "host");
+        if (firstPinnedHost != host || retainedPinnedHost != host)
+            throw new InvalidOperationException(
+                "Runtime-test coordinator self-test lost a pinned external scenario target.");
         RuntimeTestCapabilitiesDto capabilities = coordinator.GetCapabilities();
         if (!capabilities.Available || capabilities.Commands.Length != 5 ||
             capabilities.Tests.Count(test => !test.TestId.StartsWith("external.", StringComparison.Ordinal)) != 5)

@@ -1,0 +1,1254 @@
+{
+  "testId": "external.train-item-wake-de2-cabin-motion",
+  "displayName": "Drive captured DE2 cabin lab at speed",
+  "category": "Train Item Wake System",
+  "fidelity": "CapturedTrainLocalLab+SustainedGameplayControls+BatchCanonicalPose",
+  "timeoutMilliseconds": 300000,
+  "requiredCapabilities": [
+    "host-train-fixtures",
+    "train-item-wake-lab",
+    "inventory-runtime-arrangement"
+  ],
+  "sourceProfile": "../Labs/de2-cabin-box-stack.lab.json",
+  "steps": [
+    {
+      "id": "create-train",
+      "command": "train.fixture-create",
+      "target": "host",
+      "parameters": {
+        "fixtureId": "de2-cabin-lab-motion-${run.id}",
+        "locationId": "steel-mill-north-test-track",
+        "liveries": "LocoDE2",
+        "roles": "Locomotive",
+        "preventDerailment": "true",
+        "protectFuses": "true",
+        "preventDamage": "true",
+        "sustainEngine": "true",
+        "maximumSpeedKph": "80"
+      },
+      "capture": {
+        "carNetId": "fixture.cars[0].netId",
+        "trainNetIds": "fixture.netIds"
+      }
+    },
+    {
+      "id": "observe-train-client",
+      "command": "train.fixture-observe",
+      "target": "client",
+      "parameters": {
+        "fixtureId": "de2-cabin-lab-motion-${run.id}",
+        "netIds": "${var.trainNetIds}"
+      }
+    },
+    {
+      "id": "board-host",
+      "command": "train.fixture-place-player",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "anchor": "cab"
+      },
+      "assertions": [
+        {
+          "path": "insideResolvedCab",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "board-client",
+      "command": "train.fixture-place-player",
+      "target": "client",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "anchor": "cab"
+      },
+      "assertions": [
+        {
+          "path": "insideResolvedCab",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "create-item-0",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "PaperBox",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item0NetId": "netId",
+        "item0Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-0",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item0NetId}",
+        "layout": "line",
+        "x": "0.8239417",
+        "y": "1.54508185",
+        "z": "-0.8714006",
+        "rotationX": "-0.000451653585",
+        "rotationY": "-0.8936615",
+        "rotationZ": "-0.0004244284",
+        "rotationW": "-0.4487411"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-1",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "PaperBox",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item1NetId": "netId",
+        "item1Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-1",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item1NetId}",
+        "layout": "line",
+        "x": "0.9156618",
+        "y": "1.95169318",
+        "z": "-0.661875367",
+        "rotationX": "-0.2193519",
+        "rotationY": "0.673735559",
+        "rotationZ": "-0.668745041",
+        "rotationW": "-0.225267187"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-2",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "EOTLantern",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item2NetId": "netId",
+        "item2Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-2",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item2NetId}",
+        "layout": "line",
+        "x": "-0.7785242",
+        "y": "1.8176831",
+        "z": "-0.314486474",
+        "rotationX": "0.5092376",
+        "rotationY": "-0.733674",
+        "rotationZ": "-0.4294764",
+        "rotationW": "-0.1339755"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-3",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "BottlePlastic",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item3NetId": "netId",
+        "item3Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-3",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item3NetId}",
+        "layout": "line",
+        "x": "-0.812799",
+        "y": "1.58735955",
+        "z": "-0.875037",
+        "rotationX": "-0.00122178392",
+        "rotationY": "-0.668567359",
+        "rotationZ": "-0.0019331784",
+        "rotationW": "-0.7436481"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-4",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "PaperBox",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item4NetId": "netId",
+        "item4Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-4",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item4NetId}",
+        "layout": "line",
+        "x": "-0.9494554",
+        "y": "1.54495752",
+        "z": "-0.369397342",
+        "rotationX": "-0.0000867592244",
+        "rotationY": "-0.530673444",
+        "rotationZ": "-0.000142593257",
+        "rotationW": "0.8475763"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-5",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "Mug",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item5NetId": "netId",
+        "item5Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-5",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item5NetId}",
+        "layout": "line",
+        "x": "-0.965062737",
+        "y": "1.62466872",
+        "z": "-0.4313085",
+        "rotationX": "0.6857909",
+        "rotationY": "-0.391507655",
+        "rotationZ": "-0.173930526",
+        "rotationW": "0.588354468"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-6",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "Trashbin",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item6NetId": "netId",
+        "item6Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-6",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item6NetId}",
+        "layout": "line",
+        "x": "-0.8996059",
+        "y": "1.54775643",
+        "z": "-0.937791169",
+        "rotationX": "-0.000009031025",
+        "rotationY": "-0.973914742",
+        "rotationZ": "-0.0000248766864",
+        "rotationW": "0.226914063"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-7",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "Map",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item7NetId": "netId",
+        "item7Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-7",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item7NetId}",
+        "layout": "line",
+        "x": "-0.2554387",
+        "y": "2.46874285",
+        "z": "0.08584541",
+        "rotationX": "0.03920066",
+        "rotationY": "-0.159621134",
+        "rotationZ": "0.00592828263",
+        "rotationW": "-0.9863819"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-8",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "BottlePlastic",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item8NetId": "netId",
+        "item8Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-8",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item8NetId}",
+        "layout": "line",
+        "x": "-0.945198536",
+        "y": "1.61809611",
+        "z": "-1.01161468",
+        "rotationX": "-0.190550268",
+        "rotationY": "-0.618689239",
+        "rotationZ": "-0.446540415",
+        "rotationW": "0.617669642"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-9",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "PaperBox",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item9NetId": "netId",
+        "item9Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-9",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item9NetId}",
+        "layout": "line",
+        "x": "1.00038838",
+        "y": "2.28366",
+        "z": "-0.8507339",
+        "rotationX": "-0.6286917",
+        "rotationY": "0.326943874",
+        "rotationZ": "-0.318219036",
+        "rotationW": "-0.6297549"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-10",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "BottlePlastic",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item10NetId": "netId",
+        "item10Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-10",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item10NetId}",
+        "layout": "line",
+        "x": "-0.9903044",
+        "y": "1.61862767",
+        "z": "-0.9644028",
+        "rotationX": "0.16259867",
+        "rotationY": "-0.5077334",
+        "rotationZ": "-0.451078475",
+        "rotationW": "0.715749"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-11",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "Mug",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item11NetId": "netId",
+        "item11Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-11",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item11NetId}",
+        "layout": "line",
+        "x": "-0.978427649",
+        "y": "1.70205712",
+        "z": "-1.01291585",
+        "rotationX": "-0.522393942",
+        "rotationY": "-0.816155",
+        "rotationZ": "0.2376233",
+        "rotationW": "0.06731077"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-12",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "PaperBox",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item12NetId": "netId",
+        "item12Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-12",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item12NetId}",
+        "layout": "line",
+        "x": "0.861789",
+        "y": "2.61746621",
+        "z": "-0.883907557",
+        "rotationX": "-0.6743983",
+        "rotationY": "-0.217644736",
+        "rotationZ": "0.224568471",
+        "rotationW": "-0.6688697"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-13",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "Mug",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item13NetId": "netId",
+        "item13Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-13",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item13NetId}",
+        "layout": "line",
+        "x": "-0.490238577",
+        "y": "2.50334835",
+        "z": "0.174354911",
+        "rotationX": "-0.4867969",
+        "rotationY": "-0.6350488",
+        "rotationZ": "-0.473289371",
+        "rotationW": "-0.368427515"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-14",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "MapSchematic",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item14NetId": "netId",
+        "item14Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-14",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item14NetId}",
+        "layout": "line",
+        "x": "1.00606525",
+        "y": "2.39388037",
+        "z": "0.295405269",
+        "rotationX": "-0.00000334500669",
+        "rotationY": "-0.65842557",
+        "rotationZ": "-4.74200277e-7",
+        "rotationW": "0.75264585"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-15",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "ElectricStove",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item15NetId": "netId",
+        "item15Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-15",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item15NetId}",
+        "layout": "line",
+        "x": "-0.4079284",
+        "y": "2.76045656",
+        "z": "-1.22127891",
+        "rotationX": "0.00293332757",
+        "rotationY": "-0.9996807",
+        "rotationZ": "-0.004359682",
+        "rotationW": "-0.0247165039"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-16",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "LaptopOpen",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item16NetId": "netId",
+        "item16Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-16",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item16NetId}",
+        "layout": "line",
+        "x": "0.267461121",
+        "y": "2.72421217",
+        "z": "0.4357822",
+        "rotationX": "0.255562067",
+        "rotationY": "0.009576571",
+        "rotationZ": "0.008644327",
+        "rotationW": "-0.9667066"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "create-item-17",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": {
+        "prefabName": "CoffeePot",
+        "ownerPlayerId": "0",
+        "placement": "world",
+        "belongsToPlayer": "false"
+      },
+      "capture": {
+        "item17NetId": "netId",
+        "item17Token": "fixtureToken"
+      }
+    },
+    {
+      "id": "place-item-17",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item17NetId}",
+        "layout": "line",
+        "x": "-0.398628622",
+        "y": "2.87057137",
+        "z": "-1.30138183",
+        "rotationX": "0.265636832",
+        "rotationY": "-0.847177148",
+        "rotationZ": "-0.1805998",
+        "rotationW": "-0.423215955"
+      },
+      "assertions": [
+        {
+          "path": "arrangedCount",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "verify-stopped-host",
+      "command": "train.item-lab-verify",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item0NetId},${var.item1NetId},${var.item2NetId},${var.item3NetId},${var.item4NetId},${var.item5NetId},${var.item6NetId},${var.item7NetId},${var.item8NetId},${var.item9NetId},${var.item10NetId},${var.item11NetId},${var.item12NetId},${var.item13NetId},${var.item14NetId},${var.item15NetId},${var.item16NetId},${var.item17NetId}",
+        "expectedLocalPositions": "0.8239417,1.54508185,-0.8714006;0.9156618,1.95169318,-0.661875367;-0.7785242,1.8176831,-0.314486474;-0.812799,1.58735955,-0.875037;-0.9494554,1.54495752,-0.369397342;-0.965062737,1.62466872,-0.4313085;-0.8996059,1.54775643,-0.937791169;-0.2554387,2.46874285,0.08584541;-0.945198536,1.61809611,-1.01161468;1.00038838,2.28366,-0.8507339;-0.9903044,1.61862767,-0.9644028;-0.978427649,1.70205712,-1.01291585;0.861789,2.61746621,-0.883907557;-0.490238577,2.50334835,0.174354911;1.00606525,2.39388037,0.295405269;-0.4079284,2.76045656,-1.22127891;0.267461121,2.72421217,0.4357822;-0.398628622,2.87057137,-1.30138183",
+        "maximumLayoutDrift": "0.2",
+        "waitSeconds": "20"
+      },
+      "assertions": [
+        {
+          "path": "expectedCount",
+          "equals": 18
+        },
+        {
+          "path": "settledCount",
+          "equals": 18
+        },
+        {
+          "path": "physicallyParentedCount",
+          "equals": 18
+        },
+        {
+          "path": "singleProjectionCount",
+          "equals": 18
+        },
+        {
+          "path": "layoutStableCount",
+          "equals": 18
+        },
+        {
+          "path": "finiteCount",
+          "equals": 18
+        },
+        {
+          "path": "activeCount",
+          "equals": 0
+        },
+        {
+          "path": "allValid",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "start-train",
+      "command": "train.fixture-start",
+      "target": "host",
+      "parameters": {
+        "fixtureId": "de2-cabin-lab-motion-${run.id}",
+        "targetSpeedKph": "40",
+        "reverser": "1"
+      }
+    },
+    {
+      "id": "wait-for-initial-motion",
+      "command": "train.fixture-wait-motion",
+      "target": "host",
+      "parameters": {
+        "fixtureId": "de2-cabin-lab-motion-${run.id}",
+        "minimumSpeedKph": "15",
+        "waitSeconds": "25"
+      },
+      "assertions": [
+        {
+          "path": "moving",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "continue-accelerating",
+      "command": "runtime.wait",
+      "target": "host",
+      "parameters": {
+        "seconds": "15"
+      },
+      "assertions": [
+        {
+          "path": "completed",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "wait-for-decent-speed",
+      "command": "train.fixture-wait-motion",
+      "target": "host",
+      "parameters": {
+        "fixtureId": "de2-cabin-lab-motion-${run.id}",
+        "minimumSpeedKph": "20",
+        "waitSeconds": "25"
+      },
+      "assertions": [
+        {
+          "path": "moving",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "sustain-motion",
+      "command": "runtime.wait",
+      "target": "host",
+      "parameters": {
+        "seconds": "15"
+      },
+      "assertions": [
+        {
+          "path": "completed",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "verify-moving-host",
+      "command": "train.item-lab-verify",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item0NetId},${var.item1NetId},${var.item2NetId},${var.item3NetId},${var.item4NetId},${var.item5NetId},${var.item6NetId},${var.item7NetId},${var.item8NetId},${var.item9NetId},${var.item10NetId},${var.item11NetId},${var.item12NetId},${var.item13NetId},${var.item14NetId},${var.item15NetId},${var.item16NetId},${var.item17NetId}",
+        "expectedLocalPositions": "0.8239417,1.54508185,-0.8714006;0.9156618,1.95169318,-0.661875367;-0.7785242,1.8176831,-0.314486474;-0.812799,1.58735955,-0.875037;-0.9494554,1.54495752,-0.369397342;-0.965062737,1.62466872,-0.4313085;-0.8996059,1.54775643,-0.937791169;-0.2554387,2.46874285,0.08584541;-0.945198536,1.61809611,-1.01161468;1.00038838,2.28366,-0.8507339;-0.9903044,1.61862767,-0.9644028;-0.978427649,1.70205712,-1.01291585;0.861789,2.61746621,-0.883907557;-0.490238577,2.50334835,0.174354911;1.00606525,2.39388037,0.295405269;-0.4079284,2.76045656,-1.22127891;0.267461121,2.72421217,0.4357822;-0.398628622,2.87057137,-1.30138183",
+        "maximumLayoutDrift": "0.2",
+        "waitSeconds": "20"
+      },
+      "assertions": [
+        {
+          "path": "expectedCount",
+          "equals": 18
+        },
+        {
+          "path": "settledCount",
+          "equals": 18
+        },
+        {
+          "path": "physicallyParentedCount",
+          "equals": 18
+        },
+        {
+          "path": "singleProjectionCount",
+          "equals": 18
+        },
+        {
+          "path": "layoutStableCount",
+          "equals": 18
+        },
+        {
+          "path": "finiteCount",
+          "equals": 18
+        },
+        {
+          "path": "activeCount",
+          "equals": 0
+        },
+        {
+          "path": "allValid",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "verify-moving-client",
+      "command": "train.item-lab-verify",
+      "target": "client",
+      "parameters": {
+        "carNetId": "${var.carNetId}",
+        "itemNetIds": "${var.item0NetId},${var.item1NetId},${var.item2NetId},${var.item3NetId},${var.item4NetId},${var.item5NetId},${var.item6NetId},${var.item7NetId},${var.item8NetId},${var.item9NetId},${var.item10NetId},${var.item11NetId},${var.item12NetId},${var.item13NetId},${var.item14NetId},${var.item15NetId},${var.item16NetId},${var.item17NetId}",
+        "expectedLocalPositions": "0.8239417,1.54508185,-0.8714006;0.9156618,1.95169318,-0.661875367;-0.7785242,1.8176831,-0.314486474;-0.812799,1.58735955,-0.875037;-0.9494554,1.54495752,-0.369397342;-0.965062737,1.62466872,-0.4313085;-0.8996059,1.54775643,-0.937791169;-0.2554387,2.46874285,0.08584541;-0.945198536,1.61809611,-1.01161468;1.00038838,2.28366,-0.8507339;-0.9903044,1.61862767,-0.9644028;-0.978427649,1.70205712,-1.01291585;0.861789,2.61746621,-0.883907557;-0.490238577,2.50334835,0.174354911;1.00606525,2.39388037,0.295405269;-0.4079284,2.76045656,-1.22127891;0.267461121,2.72421217,0.4357822;-0.398628622,2.87057137,-1.30138183",
+        "maximumLayoutDrift": "0.2",
+        "waitSeconds": "20"
+      },
+      "assertions": [
+        {
+          "path": "expectedCount",
+          "equals": 18
+        },
+        {
+          "path": "settledCount",
+          "equals": 18
+        },
+        {
+          "path": "physicallyParentedCount",
+          "equals": 18
+        },
+        {
+          "path": "singleProjectionCount",
+          "equals": 18
+        },
+        {
+          "path": "layoutStableCount",
+          "equals": 18
+        },
+        {
+          "path": "finiteCount",
+          "equals": 18
+        },
+        {
+          "path": "activeCount",
+          "equals": 0
+        },
+        {
+          "path": "allValid",
+          "equals": true
+        }
+      ]
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "stop-train",
+      "command": "train.fixture-stop",
+      "target": "host",
+      "requiredVariables": [
+        "carNetId"
+      ],
+      "parameters": {
+        "fixtureId": "de2-cabin-lab-motion-${run.id}"
+      }
+    },
+    {
+      "id": "evacuate-host",
+      "command": "train.fixture-evacuate-player",
+      "target": "host",
+      "requiredVariables": [
+        "carNetId"
+      ],
+      "parameters": {
+        "carNetId": "${var.carNetId}"
+      }
+    },
+    {
+      "id": "evacuate-client",
+      "command": "train.fixture-evacuate-player",
+      "target": "client",
+      "requiredVariables": [
+        "carNetId"
+      ],
+      "parameters": {
+        "carNetId": "${var.carNetId}"
+      }
+    },
+    {
+      "id": "destroy-item-0",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item0NetId",
+        "item0Token"
+      ],
+      "parameters": {
+        "netId": "${var.item0NetId}",
+        "fixtureToken": "${var.item0Token}"
+      }
+    },
+    {
+      "id": "destroy-item-1",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item1NetId",
+        "item1Token"
+      ],
+      "parameters": {
+        "netId": "${var.item1NetId}",
+        "fixtureToken": "${var.item1Token}"
+      }
+    },
+    {
+      "id": "destroy-item-2",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item2NetId",
+        "item2Token"
+      ],
+      "parameters": {
+        "netId": "${var.item2NetId}",
+        "fixtureToken": "${var.item2Token}"
+      }
+    },
+    {
+      "id": "destroy-item-3",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item3NetId",
+        "item3Token"
+      ],
+      "parameters": {
+        "netId": "${var.item3NetId}",
+        "fixtureToken": "${var.item3Token}"
+      }
+    },
+    {
+      "id": "destroy-item-4",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item4NetId",
+        "item4Token"
+      ],
+      "parameters": {
+        "netId": "${var.item4NetId}",
+        "fixtureToken": "${var.item4Token}"
+      }
+    },
+    {
+      "id": "destroy-item-5",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item5NetId",
+        "item5Token"
+      ],
+      "parameters": {
+        "netId": "${var.item5NetId}",
+        "fixtureToken": "${var.item5Token}"
+      }
+    },
+    {
+      "id": "destroy-item-6",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item6NetId",
+        "item6Token"
+      ],
+      "parameters": {
+        "netId": "${var.item6NetId}",
+        "fixtureToken": "${var.item6Token}"
+      }
+    },
+    {
+      "id": "destroy-item-7",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item7NetId",
+        "item7Token"
+      ],
+      "parameters": {
+        "netId": "${var.item7NetId}",
+        "fixtureToken": "${var.item7Token}"
+      }
+    },
+    {
+      "id": "destroy-item-8",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item8NetId",
+        "item8Token"
+      ],
+      "parameters": {
+        "netId": "${var.item8NetId}",
+        "fixtureToken": "${var.item8Token}"
+      }
+    },
+    {
+      "id": "destroy-item-9",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item9NetId",
+        "item9Token"
+      ],
+      "parameters": {
+        "netId": "${var.item9NetId}",
+        "fixtureToken": "${var.item9Token}"
+      }
+    },
+    {
+      "id": "destroy-item-10",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item10NetId",
+        "item10Token"
+      ],
+      "parameters": {
+        "netId": "${var.item10NetId}",
+        "fixtureToken": "${var.item10Token}"
+      }
+    },
+    {
+      "id": "destroy-item-11",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item11NetId",
+        "item11Token"
+      ],
+      "parameters": {
+        "netId": "${var.item11NetId}",
+        "fixtureToken": "${var.item11Token}"
+      }
+    },
+    {
+      "id": "destroy-item-12",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item12NetId",
+        "item12Token"
+      ],
+      "parameters": {
+        "netId": "${var.item12NetId}",
+        "fixtureToken": "${var.item12Token}"
+      }
+    },
+    {
+      "id": "destroy-item-13",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item13NetId",
+        "item13Token"
+      ],
+      "parameters": {
+        "netId": "${var.item13NetId}",
+        "fixtureToken": "${var.item13Token}"
+      }
+    },
+    {
+      "id": "destroy-item-14",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item14NetId",
+        "item14Token"
+      ],
+      "parameters": {
+        "netId": "${var.item14NetId}",
+        "fixtureToken": "${var.item14Token}"
+      }
+    },
+    {
+      "id": "destroy-item-15",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item15NetId",
+        "item15Token"
+      ],
+      "parameters": {
+        "netId": "${var.item15NetId}",
+        "fixtureToken": "${var.item15Token}"
+      }
+    },
+    {
+      "id": "destroy-item-16",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item16NetId",
+        "item16Token"
+      ],
+      "parameters": {
+        "netId": "${var.item16NetId}",
+        "fixtureToken": "${var.item16Token}"
+      }
+    },
+    {
+      "id": "destroy-item-17",
+      "command": "inventory.fixture-destroy",
+      "target": "host",
+      "requiredVariables": [
+        "item17NetId",
+        "item17Token"
+      ],
+      "parameters": {
+        "netId": "${var.item17NetId}",
+        "fixtureToken": "${var.item17Token}"
+      }
+    },
+    {
+      "id": "delete-train",
+      "command": "train.fixture-cleanup",
+      "target": "host",
+      "parameters": {
+        "fixtureId": "de2-cabin-lab-motion-${run.id}",
+        "ignoreMissing": "true"
+      }
+    },
+    {
+      "id": "neutralize-host",
+      "command": "runtime.neutralize",
+      "target": "host"
+    },
+    {
+      "id": "neutralize-client",
+      "command": "runtime.neutralize",
+      "target": "client"
+    }
+  ]
+}

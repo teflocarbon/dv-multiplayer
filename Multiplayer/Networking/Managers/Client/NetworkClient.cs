@@ -2392,6 +2392,12 @@ public class NetworkClient : NetworkManager
             DeliveryMethod.ReliableOrdered);
     }
 
+    internal void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)
+    {
+        if (packet == null) return;
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+    }
+
 #if DEBUG
     internal void RequestLostItemRetrievalForRuntimeTest(uint requestId, uint lostHandle,
         uint expectedRevision, int requestedSlot, int existingItemSlot,

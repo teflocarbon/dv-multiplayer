@@ -82,7 +82,10 @@ internal static class RuntimeTestDescriptorCloner
         FixtureItemOwnership = value.FixtureItemOwnership,
         FixtureItemIsPersonal = value.FixtureItemIsPersonal,
         DefaultContainerPrefabName = value.DefaultContainerPrefabName,
-        DefaultItemPrefabName = value.DefaultItemPrefabName
+        DefaultItemPrefabName = value.DefaultItemPrefabName,
+        ParameterSchema = value.ParameterSchema == null
+            ? new Dictionary<string, object>(StringComparer.Ordinal)
+            : new Dictionary<string, object>(value.ParameterSchema, StringComparer.Ordinal)
     };
 }
 #endif

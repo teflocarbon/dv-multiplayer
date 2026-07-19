@@ -13,6 +13,9 @@ identity, lifecycle, placement, interest, and persistence, while this design own
 motion and the reliable commit of the resulting resting pose.
 The cross-feature states and precedence rules consumed by both designs are canonicalized in
 [`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md).
+Train-specific reactivation of settled items after support removal, item impacts, hard train
+motion, and derailment is specified separately in
+[`MULTIPLAYER_TRAIN_ITEM_WAKE_SYSTEM_DESIGN.md`](MULTIPLAYER_TRAIN_ITEM_WAKE_SYSTEM_DESIGN.md).
 
 The immediate bug motivating this work is:
 

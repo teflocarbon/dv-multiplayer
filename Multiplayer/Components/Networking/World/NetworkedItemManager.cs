@@ -73,6 +73,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     private readonly Dictionary<byte, HashSet<WorldItemCellCoord>> HostPlayerCells = new();
     private bool authoredCatalogueAccepted;
     private NetworkedItemSpatialManager Spatial;
+    private NetworkedTrainItemWakeManager TrainItemWake;
     private AuthoredWorldItemReplenishmentManager Replenishment;
 
     private sealed class PendingWorldProjection
@@ -90,6 +91,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     {
         base.Awake();
         Spatial = new NetworkedItemSpatialManager(this);
+        TrainItemWake = new NetworkedTrainItemWakeManager(this, Spatial);
         Replenishment = new AuthoredWorldItemReplenishmentManager(this);
     }
 
@@ -105,6 +107,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     {
         ProcessTrackedValueFinalizations();
         ProcessPendingLocalStateObservations();
+        TrainItemWake?.Update();
         Spatial?.Update();
         Replenishment?.Update();
         if (NetworkLifecycle.Instance.IsHost())
@@ -230,6 +233,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
             NetworkLifecycle.Instance.OnTick -= Common_OnTick;
         NetworkedLostAndFoundManager.Clear();
         NetworkedColdContainerManager.Clear();
+        TrainItemWake?.Clear();
         Spatial?.Clear();
         Replenishment?.Clear();
         ClientDetachedAuthoredSlots.Clear();

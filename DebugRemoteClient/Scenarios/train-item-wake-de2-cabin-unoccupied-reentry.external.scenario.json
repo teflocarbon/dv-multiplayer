@@ -1,0 +1,212 @@
+{
+  "testId": "external.train-item-wake-de2-cabin-unoccupied-reentry",
+  "displayName": "Both players leave and re-enter a moving DE2 two-box lab",
+  "category": "Train Item Wake System",
+  "fidelity": "TrainInteriorInterestRetirement+ZeroOccupants+HostAuthority+ClientReprojection",
+  "timeoutMilliseconds": 240000,
+  "requiredCapabilities": [ "host-train-fixtures", "train-item-wake-lab", "inventory-runtime-arrangement" ],
+  "steps": [
+    {
+      "id": "create-train",
+      "command": "train.fixture-create",
+      "target": "host",
+      "parameters": {
+        "fixtureId": "wake-unoccupied-reentry-${run.id}",
+        "locationId": "steel-mill-north-test-track",
+        "liveries": "LocoDE2",
+        "roles": "Locomotive",
+        "preventDerailment": "true",
+        "protectFuses": "true",
+        "preventDamage": "true",
+        "sustainEngine": "true",
+        "maximumSpeedKph": "80"
+      },
+      "capture": { "carNetId": "fixture.cars[0].netId", "trainNetIds": "fixture.netIds" }
+    },
+    {
+      "id": "observe-train-client",
+      "command": "train.fixture-observe",
+      "target": "client",
+      "parameters": { "fixtureId": "wake-unoccupied-reentry-${run.id}", "netIds": "${var.trainNetIds}" }
+    },
+    {
+      "id": "board-host",
+      "command": "train.fixture-place-player",
+      "target": "host",
+      "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" },
+      "assertions": [ { "path": "insideResolvedCab", "equals": true } ]
+    },
+    {
+      "id": "board-client",
+      "command": "train.fixture-place-player",
+      "target": "client",
+      "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" },
+      "assertions": [ { "path": "insideResolvedCab", "equals": true } ]
+    },
+    {
+      "id": "create-item-0",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": { "prefabName": "PaperBox", "ownerPlayerId": "0", "placement": "world", "belongsToPlayer": "false" },
+      "capture": { "item0NetId": "netId", "item0Token": "fixtureToken" }
+    },
+    {
+      "id": "place-item-0",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}", "itemNetIds": "${var.item0NetId}", "layout": "line",
+        "x": "0.8239417", "y": "1.54508185", "z": "-0.8714006",
+        "rotationX": "-0.000451653585", "rotationY": "-0.8936615", "rotationZ": "-0.0004244284", "rotationW": "-0.4487411"
+      },
+      "assertions": [ { "path": "arrangedCount", "equals": 1 } ]
+    },
+    {
+      "id": "create-item-1",
+      "command": "inventory.fixture-create",
+      "target": "host",
+      "parameters": { "prefabName": "PaperBox", "ownerPlayerId": "0", "placement": "world", "belongsToPlayer": "false" },
+      "capture": { "item1NetId": "netId", "item1Token": "fixtureToken" }
+    },
+    {
+      "id": "place-item-1",
+      "command": "train.item-lab-arrange",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}", "itemNetIds": "${var.item1NetId}", "layout": "line",
+        "x": "0.9156618", "y": "1.95169318", "z": "-0.661875367",
+        "rotationX": "-0.2193519", "rotationY": "0.673735559", "rotationZ": "-0.668745041", "rotationW": "-0.225267187"
+      },
+      "assertions": [ { "path": "arrangedCount", "equals": 1 } ]
+    },
+    {
+      "id": "start-train",
+      "command": "train.fixture-start",
+      "target": "host",
+      "parameters": { "fixtureId": "wake-unoccupied-reentry-${run.id}", "targetSpeedKph": "40", "reverser": "1" }
+    },
+    {
+      "id": "wait-for-motion",
+      "command": "train.fixture-wait-motion",
+      "target": "host",
+      "parameters": { "fixtureId": "wake-unoccupied-reentry-${run.id}", "minimumSpeedKph": "15", "waitSeconds": "35" },
+      "assertions": [ { "path": "moving", "equals": true } ]
+    },
+    {
+      "id": "verify-host-before-exit",
+      "command": "train.item-lab-verify",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}", "itemNetIds": "${var.item0NetId},${var.item1NetId}",
+        "expectedLocalPositions": "0.8239417,1.54508185,-0.8714006;0.9156618,1.95169318,-0.661875367",
+        "maximumLayoutDrift": "0.2", "waitSeconds": "20"
+      },
+      "assertions": [
+        { "path": "expectedCount", "equals": 2 }, { "path": "settledCount", "equals": 2 },
+        { "path": "physicallyParentedCount", "equals": 2 }, { "path": "singleProjectionCount", "equals": 2 },
+        { "path": "layoutStableCount", "equals": 2 }, { "path": "finiteCount", "equals": 2 },
+        { "path": "activeCount", "equals": 0 }, { "path": "allValid", "equals": true }
+      ]
+    },
+    {
+      "id": "verify-client-before-exit",
+      "command": "train.item-lab-verify",
+      "target": "client",
+      "parameters": {
+        "carNetId": "${var.carNetId}", "itemNetIds": "${var.item0NetId},${var.item1NetId}",
+        "expectedLocalPositions": "0.8239417,1.54508185,-0.8714006;0.9156618,1.95169318,-0.661875367",
+        "maximumLayoutDrift": "0.2", "waitSeconds": "20"
+      },
+      "assertions": [
+        { "path": "expectedCount", "equals": 2 }, { "path": "settledCount", "equals": 2 },
+        { "path": "physicallyParentedCount", "equals": 2 }, { "path": "singleProjectionCount", "equals": 2 },
+        { "path": "layoutStableCount", "equals": 2 }, { "path": "finiteCount", "equals": 2 },
+        { "path": "activeCount", "equals": 0 }, { "path": "allValid", "equals": true }
+      ]
+    },
+    {
+      "id": "evacuate-host",
+      "command": "train.fixture-evacuate-player",
+      "target": "host",
+      "parameters": { "carNetId": "${var.carNetId}", "distance": "400" }
+    },
+    {
+      "id": "evacuate-client",
+      "command": "train.fixture-evacuate-player",
+      "target": "client",
+      "parameters": { "carNetId": "${var.carNetId}", "distance": "400" }
+    },
+    {
+      "id": "dwell-with-zero-occupants",
+      "command": "runtime.wait",
+      "target": "host",
+      "parameters": { "seconds": "15" },
+      "assertions": [ { "path": "completed", "equals": true } ]
+    },
+    {
+      "id": "return-host-to-cabin",
+      "command": "train.fixture-place-player",
+      "target": "host",
+      "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" },
+      "assertions": [ { "path": "insideResolvedCab", "equals": true } ]
+    },
+    {
+      "id": "verify-host-after-zero-occupancy",
+      "command": "train.item-lab-verify",
+      "target": "host",
+      "parameters": {
+        "carNetId": "${var.carNetId}", "itemNetIds": "${var.item0NetId},${var.item1NetId}",
+        "expectedLocalPositions": "0.8239417,1.54508185,-0.8714006;0.9156618,1.95169318,-0.661875367",
+        "maximumLayoutDrift": "0.2", "waitSeconds": "20"
+      },
+      "assertions": [
+        { "path": "expectedCount", "equals": 2 }, { "path": "settledCount", "equals": 2 },
+        { "path": "physicallyParentedCount", "equals": 2 }, { "path": "singleProjectionCount", "equals": 2 },
+        { "path": "layoutStableCount", "equals": 2 }, { "path": "finiteCount", "equals": 2 },
+        { "path": "activeCount", "equals": 0 }, { "path": "allValid", "equals": true }
+      ]
+    },
+    {
+      "id": "return-client-to-cabin",
+      "command": "train.fixture-place-player",
+      "target": "client",
+      "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" },
+      "assertions": [ { "path": "insideResolvedCab", "equals": true } ]
+    },
+    {
+      "id": "verify-client-reprojection-after-zero-occupancy",
+      "command": "train.item-lab-verify",
+      "target": "client",
+      "parameters": {
+        "carNetId": "${var.carNetId}", "itemNetIds": "${var.item0NetId},${var.item1NetId}",
+        "expectedLocalPositions": "0.8239417,1.54508185,-0.8714006;0.9156618,1.95169318,-0.661875367",
+        "maximumLayoutDrift": "0.2", "waitSeconds": "20"
+      },
+      "assertions": [
+        { "path": "expectedCount", "equals": 2 }, { "path": "settledCount", "equals": 2 },
+        { "path": "physicallyParentedCount", "equals": 2 }, { "path": "singleProjectionCount", "equals": 2 },
+        { "path": "layoutStableCount", "equals": 2 }, { "path": "finiteCount", "equals": 2 },
+        { "path": "activeCount", "equals": 0 }, { "path": "allValid", "equals": true }
+      ]
+    },
+    {
+      "id": "visual-dwell-after-reentry",
+      "command": "runtime.wait",
+      "target": "client",
+      "parameters": { "seconds": "5" },
+      "assertions": [ { "path": "completed", "equals": true } ]
+    }
+  ],
+  "cleanup": [
+    { "id": "stop-train", "command": "train.fixture-stop", "target": "host", "requiredVariables": [ "carNetId" ], "parameters": { "fixtureId": "wake-unoccupied-reentry-${run.id}" } },
+    { "id": "evacuate-host", "command": "train.fixture-evacuate-player", "target": "host", "requiredVariables": [ "carNetId" ], "parameters": { "carNetId": "${var.carNetId}" } },
+    { "id": "evacuate-client", "command": "train.fixture-evacuate-player", "target": "client", "requiredVariables": [ "carNetId" ], "parameters": { "carNetId": "${var.carNetId}" } },
+    { "id": "destroy-item-0", "command": "inventory.fixture-destroy", "target": "host", "requiredVariables": [ "item0NetId", "item0Token" ], "parameters": { "netId": "${var.item0NetId}", "fixtureToken": "${var.item0Token}" } },
+    { "id": "destroy-item-1", "command": "inventory.fixture-destroy", "target": "host", "requiredVariables": [ "item1NetId", "item1Token" ], "parameters": { "netId": "${var.item1NetId}", "fixtureToken": "${var.item1Token}" } },
+    { "id": "purge-client-item-0", "command": "inventory.fixture-clean-local", "target": "client", "requiredVariables": [ "item0NetId", "item0Token" ], "parameters": { "itemNetId": "${var.item0NetId}", "itemFixtureToken": "${var.item0Token}" } },
+    { "id": "purge-client-item-1", "command": "inventory.fixture-clean-local", "target": "client", "requiredVariables": [ "item1NetId", "item1Token" ], "parameters": { "itemNetId": "${var.item1NetId}", "itemFixtureToken": "${var.item1Token}" } },
+    { "id": "delete-train", "command": "train.fixture-cleanup", "target": "host", "parameters": { "fixtureId": "wake-unoccupied-reentry-${run.id}", "ignoreMissing": "true" } },
+    { "id": "neutralize-host", "command": "runtime.neutralize", "target": "host" },
+    { "id": "neutralize-client", "command": "runtime.neutralize", "target": "client" }
+  ]
+}

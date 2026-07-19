@@ -20,6 +20,8 @@ internal sealed partial class RuntimeTestCoordinator
         public string Failure = string.Empty;
         public readonly List<string> CleanupFailures = new();
         public readonly Dictionary<string, string> Variables = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, DebugSessionInfo> PinnedTargets =
+            new(StringComparer.OrdinalIgnoreCase);
     }
 
     private RuntimeTestCommandAcceptedDto EnqueueExternal(RuntimeTestCommandDto command,
@@ -115,7 +117,7 @@ internal sealed partial class RuntimeTestCoordinator
             else execution.Failure = step.Id + ": unsupported primitive " + step.Command;
             execution.Index++; StartExternalStep(run); return;
         }
-        DebugSessionInfo target = SelectExternalTarget(execution.Command, step.Target);
+        DebugSessionInfo target = SelectExternalTarget(execution, step.Target);
         if (target == null)
         {
             if (execution.Cleaning) execution.CleanupFailures.Add(step.Id + ": target unavailable " + step.Target);
@@ -168,10 +170,18 @@ internal sealed partial class RuntimeTestCoordinator
         return string.Empty;
     }
 
-    private DebugSessionInfo SelectExternalTarget(RuntimeTestCommandDto command, string selector)
+    private DebugSessionInfo SelectExternalTarget(ExternalExecution execution, string selector)
     {
-        if (string.IsNullOrWhiteSpace(selector) || selector == "selected") return SelectTargets(command).FirstOrDefault();
-        return LiveRuntimes().FirstOrDefault(item => string.Equals(item.Role, selector, StringComparison.OrdinalIgnoreCase));
+        string key = string.IsNullOrWhiteSpace(selector) ? "selected" : selector.Trim();
+        if (execution.PinnedTargets.TryGetValue(key, out DebugSessionInfo pinned))
+            return pinned;
+        DebugSessionInfo selected = string.Equals(key, "selected",
+                StringComparison.OrdinalIgnoreCase)
+            ? SelectTargets(execution.Command).FirstOrDefault()
+            : LiveRuntimes().FirstOrDefault(item => string.Equals(item.Role, key,
+                StringComparison.OrdinalIgnoreCase));
+        if (selected != null) execution.PinnedTargets[key] = selected;
+        return selected;
     }
 
     private static ExternalScenarioStep CurrentExternalStep(ExternalExecution execution) =>

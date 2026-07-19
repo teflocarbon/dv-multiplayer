@@ -221,6 +221,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         bool suppressNetworkDestroy = UnloadWatcher.isQuitting || UnloadWatcher.isUnloading;
 
         if (!suppressNetworkDestroy)
+            NetworkedItemManager.Instance?.OnTrainItemRemoved(NetId);
+
+        if (!suppressNetworkDestroy)
             DebugRuntime.Publish("item", "item.destroyed", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
                 entityType: "Item", entityId: NetId.ToString(), data: EntityDebugRegistry.ItemState(this));
         EntityDebugRegistry.Unregister("Item", NetId.ToString());
