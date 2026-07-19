@@ -14,9 +14,9 @@ namespace Multiplayer.Components.Networking.World;
 
 public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggableObject>
 {
-    private const float DISTANCE_TOLERANCE = 1.05f; //allow 5% tolerance for interactions coming from clients
+    private const float DISTANCE_TOLERANCE = 1.1f; //allow 10% tolerance for interactions coming from clients
     private const float GRAB_SQR_DISTANCE = GrabberRaycaster.SPHERE_CAST_MAX_DIST * GrabberRaycaster.SPHERE_CAST_MAX_DIST * DISTANCE_TOLERANCE;
-    private const float DOCK_SQR_DISTANCE = 2f * 2f * DISTANCE_TOLERANCE; //no accessible constant available, hardcoded in to `PluggableObject.ScanForHit()`
+    private const float DOCK_SQR_DISTANCE = 3f * 3f * DISTANCE_TOLERANCE; // 2f is hardcoded into `PluggableObject.ScanForHit()`, however this is the distance from the plug to the socket, not the distance from the player to the plug. 3f is a more reasonable distance for docking plugs.
 
     private const sbyte INVALID_SOCKET = -1;
     private const ushort INVALID_NETID = 0;
@@ -313,6 +313,7 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
 
             //verify distance to socket
             float sqrDistance = (socket.transform.GetWorldAbsolutePosition() - PluggableObject.transform.GetWorldAbsolutePosition()).sqrMagnitude;
+            Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ValidateInteraction() NetId: {NetId}, {interactionType}, trainCar: [{networkedTrainCar.CurrentID}, {packet.TrainCarNetId}], socket No.: {packet.SocketIndex} player pos: {player.AbsoluteWorldPosition}, plug pos: {PluggableObject.transform.GetWorldAbsolutePosition()}, socket pos: {socket.transform.GetWorldAbsolutePosition()}, sqrDistance: {sqrDistance}, Dock distance: {DOCK_SQR_DISTANCE}");
             if (sqrDistance > DOCK_SQR_DISTANCE)
             {
                 NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to dock a plug into {networkedTrainCar.TrainCar.ID}, but socket is too far away!");
