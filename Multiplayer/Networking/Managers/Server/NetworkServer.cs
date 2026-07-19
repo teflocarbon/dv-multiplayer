@@ -63,6 +63,7 @@ namespace Multiplayer.Networking.Managers.Server;
 public class NetworkServer : NetworkManager
 {
     private const int WEATHER_UPDATE_INTERVAL = 30; //seconds
+    private const int HIGH_PING_LOG_INTERVAL = 60; //only log high ping once every 60 seconds per player
 
     public Action<ServerPlayer> PlayerConnected;
     public Action<ServerPlayer> PlayerDisconnected;
@@ -621,7 +622,11 @@ public class NetworkServer : NetworkManager
 
         if (latency > LATENCY_FLAG)
         {
-            LogWarning($"High Ping Detected! Player: \"{player.Username}\", ping: {latency}ms");
+            if ((NetworkLifecycle.Instance.Tick - player.LastHighPingTickLogged) > NetworkLifecycle.TICK_RATE * HIGH_PING_LOG_INTERVAL)
+            {
+                LogWarning($"High Ping Detected! Player: \"{player.Username}\", ping: {latency}ms");
+                player.LastHighPingTickLogged = NetworkLifecycle.Instance.Tick;
+            }
         }
 
         // Ensure we don't send a TickSync packet to ourselves
