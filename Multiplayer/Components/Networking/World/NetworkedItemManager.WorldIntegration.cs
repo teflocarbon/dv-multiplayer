@@ -22,6 +22,7 @@ using Multiplayer.Integrations.Inventory;
 using Multiplayer.Integrations.Storage;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Networking.Packets.Clientbound;
+using Multiplayer.Networking.Packets.Serverbound;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -74,6 +75,7 @@ public partial class NetworkedItemManager
         if (!NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0)
             return;
         RefreshHostWorldItem(item);
+        TrainItemWake?.ObserveCanonicalItem(item);
     }
 
     internal void UnregisterHostWorldItem(NetworkedItem item)
@@ -197,6 +199,7 @@ public partial class NetworkedItemManager
         AuthoritativeItemRegistry.Record record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {
+        TrainItemWake?.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
         Spatial?.OnAuthoritativeTransitionCommitted(item, snapshot, record, actor, previousPlacement,
             appliesPlacement);
         Replenishment?.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
@@ -232,7 +235,49 @@ public partial class NetworkedItemManager
         Spatial?.ReceiveSpatialCommit(packet);
 
     internal void AppendSpatialDebugState(ushort itemNetId, Dictionary<string, object> state) =>
+        AppendItemPhysicsDebugState(itemNetId, state);
+
+    private void AppendItemPhysicsDebugState(ushort itemNetId, Dictionary<string, object> state)
+    {
         Spatial?.AppendDebugState(itemNetId, state);
+        TrainItemWake?.AppendDebugState(itemNetId, state);
+    }
+
+    internal void OnTrainItemSpatialSettled(NetworkedItem item, ItemSpatialStateData state,
+        AuthoritativeItemRegistry.Record record) =>
+        TrainItemWake?.OnSpatialSettled(item, state, record);
+
+    internal void ObserveTrainItemCollision(NetworkedItem source, NetworkedItem target,
+        Collision collision) => TrainItemWake?.ObserveCollision(source, target, collision);
+
+    internal void ReceiveItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet,
+        ServerPlayer sender) => TrainItemWake?.ReceiveImpactWitness(packet, sender);
+
+    internal void OnTrainItemRemoved(ushort itemNetId) => TrainItemWake?.OnItemRemoved(itemNetId);
+
+    internal bool ForceTrainItemWake(ushort itemNetId, TrainItemWakeReason reason,
+        Vector3 initialLocalVelocity, out string rejection)
+    {
+        if (TrainItemWake != null)
+            return TrainItemWake.ForceWake(itemNetId, reason, initialLocalVelocity, out rejection);
+        rejection = "train-item-wake-manager-unavailable";
+        return false;
+    }
+
+    internal Dictionary<string, object> TrainItemWakeSnapshot(ushort itemNetId = 0,
+        ushort carNetId = 0) => TrainItemWake?.Snapshot(itemNetId, carNetId) ?? new();
+
+#if DEBUG
+    internal bool DebugArrangeSettledTrainItem(ushort itemNetId, ushort carNetId,
+        Vector3 parentLocalPosition, Quaternion parentLocalRotation, out string rejection)
+    {
+        if (Spatial != null)
+            return Spatial.DebugArrangeSettledTrainItem(itemNetId, carNetId,
+                parentLocalPosition, parentLocalRotation, out rejection);
+        rejection = "spatial-manager-unavailable";
+        return false;
+    }
+#endif
 
     internal bool TryGetLatestSpatialState(ushort itemNetId, out ItemSpatialStateData state)
     {

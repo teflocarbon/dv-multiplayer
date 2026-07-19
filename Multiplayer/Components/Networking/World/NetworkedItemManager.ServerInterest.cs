@@ -22,6 +22,7 @@ using Multiplayer.Integrations.Inventory;
 using Multiplayer.Integrations.Storage;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Networking.Packets.Clientbound;
+using Multiplayer.Components.Networking.Train;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -39,7 +40,7 @@ public partial class NetworkedItemManager
             WorldItemCellCoord centre = WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition);
             HashSet<WorldItemCellCoord> desiredCells = WorldItemCellCoord.Neighbourhood(centre);
             bool cellsChanged = !HostPlayerCells.TryGetValue(player.PlayerId, out HashSet<WorldItemCellCoord> previousCells) ||
-                                !previousCells.SetEquals(desiredCells) || player.NearbyItems.Count == 0;
+                                !previousCells.SetEquals(desiredCells);
             HashSet<NetworkedItem> desiredItems = new(HostNonSpatialItems.Where(item =>
                 IsNonSpatialRelevantTo(item, player, desiredCells) &&
                 (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
@@ -124,8 +125,33 @@ public partial class NetworkedItemManager
         // retrieval. Nearby observers still receive the same item through its spatial cell index.
         if (record.PersistentOwnerPlayerId == recipient.PlayerId && HasOwnerRecallClaim(record))
             return true;
-        if (record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.TrainInterior or
-            ItemPlacementKind.SnappedAttachment)
+        if (record.Placement == ItemPlacementKind.TrainInterior)
+        {
+            // A settled train item stores an absolute position from the instant it settled, while
+            // its physical representation continues moving with the car. Using that stored position
+            // for interest eventually retires the item from clients who are still riding the train.
+            if (record.WorldParentKind == ItemWorldParentKind.TrainInterior &&
+                record.WorldParentNetId != 0)
+            {
+                // Keep the containing car's occupants subscribed even during origin shifts or while
+                // the authoritative car transform is briefly unavailable.
+                if (recipient.CarId == record.WorldParentNetId)
+                    return true;
+                if (NetworkedTrainCar.TryGet(record.WorldParentNetId, out TrainCar parentCar) &&
+                    parentCar != null)
+                {
+                    Transform parent = parentCar.interior ?? parentCar.transform;
+                    Vector3 currentAbsolutePosition =
+                        parent.TransformPoint(record.ParentLocalPosition) - WorldMover.currentMove;
+                    return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(currentAbsolutePosition));
+                }
+            }
+
+            // Preserve relevance during incomplete legacy/restored metadata until the train parent
+            // can be resolved. New train-interior settlements take the live-parent path above.
+            return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
+        }
+        if (record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment)
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
         return false;
     }

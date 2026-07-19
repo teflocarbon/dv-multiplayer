@@ -83,7 +83,7 @@ internal sealed class DebugTrainPlayerRuntimeDriver
         ushort netId = RequiredUShort(command, "carNetId");
         if (!NetworkedTrainCar.TryGet(netId, out TrainCar car) || car == null)
             throw new InvalidOperationException("fixture-car-projection-unavailable:" + netId);
-        float distance = Mathf.Clamp(OptionalFloat(command, "distance", 12f), 5f, 100f);
+        float distance = Mathf.Clamp(OptionalFloat(command, "distance", 12f), 5f, 512f);
         Vector3 destination = car.transform.position + car.transform.right * distance + Vector3.up;
         PlayerManager.TeleportPlayer(destination, car.transform.rotation, null, true, false);
         yield return null;

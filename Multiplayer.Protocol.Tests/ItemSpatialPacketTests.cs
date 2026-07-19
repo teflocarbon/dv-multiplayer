@@ -103,6 +103,47 @@ public sealed class ItemSpatialPacketTests
         Assert.That(received.State.AuthorityRevision, Is.EqualTo(42));
     }
 
+    [Test]
+    public void TrainWakeWitnessPreservesEpochAndPhysicalEvidence()
+    {
+        ServerboundItemTrainWakeWitnessPacket received = null;
+        NetPacketProcessor processor = Processor();
+        processor.SubscribeReusable<ServerboundItemTrainWakeWitnessPacket>(packet => received = packet);
+        ServerboundItemTrainWakeWitnessPacket source = new()
+        {
+            WitnessId = 77,
+            SourceItemNetId = 701,
+            SourceAuthorityRevision = 8,
+            SourceSimulationEpoch = 3,
+            TargetItemNetId = 702,
+            TargetAuthorityRevision = 11,
+            TrainCarNetId = 44,
+            SourceTick = 912,
+            RelativeVelocity = new Vector3(3f, -0.5f, 1f),
+            Impulse = new Vector3(1.5f, 0.25f, 0.5f),
+            AbsoluteContactPoint = new Vector3(100f, 4f, 200f)
+        };
+
+        NetDataWriter writer = new();
+        processor.Write(writer, source);
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(received.WitnessId, Is.EqualTo(source.WitnessId));
+            Assert.That(received.SourceItemNetId, Is.EqualTo(source.SourceItemNetId));
+            Assert.That(received.SourceAuthorityRevision, Is.EqualTo(source.SourceAuthorityRevision));
+            Assert.That(received.SourceSimulationEpoch, Is.EqualTo(source.SourceSimulationEpoch));
+            Assert.That(received.TargetItemNetId, Is.EqualTo(source.TargetItemNetId));
+            Assert.That(received.TargetAuthorityRevision, Is.EqualTo(source.TargetAuthorityRevision));
+            Assert.That(received.TrainCarNetId, Is.EqualTo(source.TrainCarNetId));
+            Assert.That(received.SourceTick, Is.EqualTo(source.SourceTick));
+            Assert.That(received.RelativeVelocity, Is.EqualTo(source.RelativeVelocity));
+            Assert.That(received.Impulse, Is.EqualTo(source.Impulse));
+            Assert.That(received.AbsoluteContactPoint, Is.EqualTo(source.AbsoluteContactPoint));
+        });
+    }
+
     private static NetPacketProcessor Processor()
     {
         NetPacketProcessor processor = new();

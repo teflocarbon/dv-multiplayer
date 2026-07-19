@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -142,7 +143,12 @@ public static class DebugProtocolSelfTests
             FixtureItemOwnership = RuntimeScenarioFixtureOwnership.HostPlayer,
             FixtureItemIsPersonal = false,
             DefaultContainerPrefabName = "ItemContainerCrate",
-            DefaultItemPrefabName = "lighter"
+            DefaultItemPrefabName = "lighter",
+            ParameterSchema = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["type"] = "object",
+                ["required"] = new[] { "netId" }
+            }
         };
         string json = DebugJson.Serialize(descriptor);
         RuntimeTestDescriptorDto restored = JsonConvert.DeserializeObject<RuntimeTestDescriptorDto>(
@@ -155,7 +161,8 @@ public static class DebugProtocolSelfTests
             restored.FixtureItemOwnership == RuntimeScenarioFixtureOwnership.HostPlayer &&
             restored.FixtureItemIsPersonal == false &&
             restored.DefaultContainerPrefabName == descriptor.DefaultContainerPrefabName &&
-            restored.DefaultItemPrefabName == descriptor.DefaultItemPrefabName,
+            restored.DefaultItemPrefabName == descriptor.DefaultItemPrefabName &&
+            Convert.ToString(restored.ParameterSchema["type"]) == "object",
             "runtime scenario descriptor metadata did not round-trip");
 
         descriptor.ScenarioOrchestration = RuntimeScenarioOrchestrationKind.InventoryItemFixture;

@@ -180,6 +180,7 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             "runtime.control-status" => ControlStatus(run),
             "runtime.interaction-mode" => InteractionMode(command, run),
             "runtime.neutralize" => RuntimeTestGameState.EnsureNeutral(run, "neutralize"),
+            "runtime.wait" => Wait(command, run),
             "runtime.csharp-execute" => csharp.Execute(command, run),
             "environment.status" => EnvironmentStatus(run),
             "environment.save-catalog" => SaveCatalog(run),
@@ -197,6 +198,8 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             "inventory.fixture-create" => inventoryFixtures.CreateFixture(command, run),
             "inventory.fixture-place" => inventoryFixtures.PlaceFixture(command, run),
             "inventory.fixture-destroy" => inventoryFixtures.DestroyFixture(command, run),
+            "inventory.fixture-status" => inventoryFixtures.FixtureStatus(command, run),
+            "inventory.fixture-destroy-tag" => inventoryFixtures.DestroyFixtureTag(command, run),
             "inventory.fixture-clean-local" => inventoryFixtures.CleanupLocalFixtures(command, run),
             "inventory.local-place" => inventoryFixtures.PlaceLocal(command, run),
             "train.track-catalog" => trainTracks.Catalog(command, run),
@@ -218,6 +221,18 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             "train.fixture-cleanup" => trainFixtures.Cleanup(command, run),
             "train.fixture-cleanup-orphans" => trainFixtures.CleanupOrphans(command, run),
             "train.item-observe-motion" => trainItems.ObserveMotion(command, run),
+            "train.item-lab-status" => trainItems.LabStatus(command, run),
+            "train.item-lab-verify" => trainItems.LabVerify(command, run),
+            "train.item-lab-index-status" => trainItems.LabIndexStatus(command, run),
+            "train.item-lab-index-add-look" => trainItems.LabIndexAddLook(command, run),
+            "train.item-lab-index-add-nearby" => trainItems.LabIndexAddNearby(command, run),
+            "train.item-lab-index-remove" => trainItems.LabIndexRemove(command, run),
+            "train.item-lab-index-clear" => trainItems.LabIndexClear(command, run),
+            "train.item-lab-throw-from-view" => trainItems.LabThrowFromView(command, run),
+            "train.item-lab-arrange" => trainItems.LabArrange(command, run),
+            "train.item-lab-wake" => trainItems.LabWake(command, run),
+            "train.item-lab-throw-at" => trainItems.LabThrowAt(command, run),
+            "train.item-lab-wait-cycle" => trainItems.LabWaitForWakeCycle(command, run),
             _ => RuntimeTestScenarioRegistry.CreateExecution(command.Command, command, run)
         };
         if (operation == null)
@@ -669,6 +684,20 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         }
     }
 
+    private static IEnumerator Wait(RuntimeTestCommandDto command, RuntimeTestRunDto run)
+    {
+        float seconds = Mathf.Clamp(OptionalFloat(command, "seconds", 5f), 0.1f, 60f);
+        float startedAt = Time.realtimeSinceStartup;
+        float deadline = startedAt + seconds;
+        while (Time.realtimeSinceStartup < deadline) yield return null;
+        lock (run)
+        {
+            run.Result["requestedSeconds"] = seconds;
+            run.Result["elapsedSeconds"] = Time.realtimeSinceStartup - startedAt;
+            run.Result["completed"] = true;
+        }
+    }
+
     private void Finish(RuntimeTestCommandDto command, RuntimeTestRunDto run)
     {
         cancelled.TryRemove(command.RequestId, out _);
@@ -715,6 +744,8 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         {
             capabilities.Add("train-track-catalog");
             capabilities.Add("train-fixture-observation");
+            capabilities.Add("train-item-spatial-observation");
+            capabilities.Add("train-item-wake-lab");
             if (lifecycle?.IsServerRunning == true && lifecycle.IsHost())
                 capabilities.Add("host-train-fixtures");
         }

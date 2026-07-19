@@ -15,36 +15,47 @@ let runtimeTestHistoryRefreshTimer = null;
 const runtimeTestDetailRequests = new Map();
 let runtimeTestEventRenderTimer = null;
 let selectedRuntimeTestEventKeys = new Set();
+let runtimeAutomationSection = "scenarios";
+let runtimeScenarioCategory = "";
+let runtimeFixtureRefreshRunning = false;
 
 const runtimeTestPageSize = 30;
 
 const runtimeTestTab = document.createElement("button");
 runtimeTestTab.id = "runtime-tests-tab";
-runtimeTestTab.textContent = "Tests";
+runtimeTestTab.textContent = "Automation";
 document.querySelector(".view-tabs").append(runtimeTestTab);
 
 const runtimeTestView = document.createElement("section");
 runtimeTestView.id = "runtime-tests-view";
 runtimeTestView.hidden = true;
 runtimeTestView.innerHTML = `
-  <section id="runtime-scenario-launcher" class="runtime-scenario-launcher" hidden>
+  <nav class="runtime-automation-tabs" aria-label="Automation sections">
+    <button class="selected" data-runtime-automation-section="scenarios">Test scenarios</button>
+    <button class="quiet" data-runtime-automation-section="commands">Commands</button>
+    <button class="quiet" data-runtime-automation-section="fixtures">Test fixtures</button>
+  </nav>
+  <section id="runtime-scenario-launcher" class="runtime-scenario-launcher" data-runtime-automation-panel="scenarios" hidden>
     <div class="runtime-scenario-launcher-head">
       <div><p class="eyebrow">AUTOMATED SCENARIOS</p><h2>Multiplayer regression scenarios</h2><p class="meta">Self-contained host/client workflows with assertions, captures, and verified cleanup.</p></div>
       <div class="runtime-scenario-actions"><span id="runtime-scenario-selection-summary" class="meta">0 selected · queue empty</span><button id="runtime-scenario-select-all" class="quiet">Select all</button><button id="runtime-scenario-clear-selection" class="quiet" disabled>Clear selection</button><button id="runtime-scenario-run-selected" disabled>Run selected</button><button id="runtime-scenario-clear-queue" class="quiet" disabled>Clear queue</button></div>
     </div>
+    <div class="runtime-scenario-categories"><label>Category <select id="runtime-scenario-category"><option value="">All categories</option></select></label><span id="runtime-scenario-category-summary" class="meta"></span></div>
     <div id="runtime-scenario-list" class="runtime-scenario-list"></div>
     <nav class="runtime-test-pagination" aria-label="Scenario pages"><button id="runtime-scenario-page-prev" class="quiet">Previous</button><span id="runtime-scenario-page-summary" class="meta">Page 1 of 1</span><button id="runtime-scenario-page-next" class="quiet">Next</button></nav>
   </section>
+  <section class="runtime-command-panel" data-runtime-automation-panel="commands" hidden>
   <section class="runtime-test-runner">
+    <div class="runtime-command-heading"><p class="eyebrow">COMMAND CONSOLE</p><h2>Runtime commands</h2><p class="meta">Single-process debug operations. Test scenarios live in their own categorized view.</p></div>
     <div class="runtime-test-toolbar">
-      <select id="runtime-test-case"><option value="">Select a runtime test</option></select>
+      <select id="runtime-test-case"><option value="">Select a command</option></select>
       <select id="runtime-test-target"><option value="">Select a process</option></select>
-      <button id="runtime-test-run">Run test</button>
+      <button id="runtime-test-run">Run command</button>
       <button id="runtime-test-cancel" class="quiet" disabled>Cancel</button>
     </div>
     <div class="runtime-test-runner-meta">
-      <p id="runtime-test-description" class="meta">Debug runtime tests are loading.</p>
-      <details class="runtime-test-parameters"><summary>Parameters</summary><textarea id="runtime-test-params" rows="5" spellcheck="false">{}</textarea></details>
+      <p id="runtime-test-description" class="meta">Debug commands are loading.</p>
+      <details class="runtime-test-parameters" open><summary>Parameters and JSON Schema</summary><div class="runtime-test-parameter-grid"><div><label>Parameters JSON</label><textarea id="runtime-test-params" rows="10" spellcheck="false">{}</textarea></div><div><label>Accepted shape</label><pre id="runtime-test-parameter-schema">Select a command to see its schema.</pre></div></div></details>
     </div>
   </section>
   <details class="runtime-console">
@@ -57,14 +68,21 @@ runtimeTestView.innerHTML = `
     <textarea id="runtime-console-code" rows="8" spellcheck="false">PlayerManager.PlayerTransform.position - WorldMover.currentMove</textarea>
     <pre id="runtime-console-output">No console command has run yet.</pre>
   </details>
+  </section>
+  <section id="runtime-fixture-panel" class="runtime-fixture-panel" data-runtime-automation-panel="fixtures" hidden>
+    <div class="runtime-fixture-head"><div><p class="eyebrow">LIVE TEST FIXTURES</p><h2>Spawned trains and items</h2><p class="meta">Host-authoritative fixture ledgers. Choose which local players board or evacuate train cars.</p></div><button id="runtime-fixture-refresh" class="quiet">Refresh fixtures</button></div>
+    <div class="runtime-fixture-role-picker"><strong>Player actions</strong><label><input id="runtime-fixture-role-host" type="checkbox" checked> Host</label><label><input id="runtime-fixture-role-client" type="checkbox" checked> Client</label><span id="runtime-fixture-status" class="meta">Refresh to inspect live fixtures.</span></div>
+    <section><div class="runtime-fixture-section-head"><h3>Train fixtures</h3><span id="runtime-fixture-train-count" class="meta">0 trains</span></div><div id="runtime-fixture-trains" class="runtime-fixture-grid"><p class="empty">No fixture snapshot loaded.</p></div></section>
+    <section><div class="runtime-fixture-section-head"><h3>Tagged item fixtures</h3><span id="runtime-fixture-item-count" class="meta">0 items</span></div><div id="runtime-fixture-items" class="runtime-fixture-grid"><p class="empty">No fixture snapshot loaded.</p></div></section>
+  </section>
   <div class="runtime-test-layout">
     <aside class="runtime-test-sidebar">
-      <div class="runtime-test-sidebar-head"><div><p class="eyebrow">RUN HISTORY</p><strong id="runtime-test-history-count">0 runs</strong></div><button id="runtime-test-refresh" class="quiet">Refresh</button></div>
+      <div class="runtime-test-sidebar-head"><div><p class="eyebrow">AUTOMATION HISTORY</p><strong id="runtime-test-history-count">0 runs</strong></div><button id="runtime-test-refresh" class="quiet">Refresh</button></div>
       <div class="runtime-test-filters"><input id="runtime-test-search" placeholder="Filter runs"><select id="runtime-test-status"><option value="">All statuses</option><option>Running</option><option>Passed</option><option>Failed</option><option>FailedDirty</option><option>Cancelled</option><option>Unsupported</option></select></div>
       <div id="runtime-test-history" class="runtime-test-history"><p class="empty">No test runs yet.</p></div>
       <nav class="runtime-test-pagination runtime-test-history-pagination" aria-label="Run history pages"><button id="runtime-test-history-page-prev" class="quiet">Previous</button><span id="runtime-test-history-page-summary" class="meta">Page 1 of 1</span><button id="runtime-test-history-page-next" class="quiet">Next</button></nav>
     </aside>
-    <section id="runtime-test-detail" class="runtime-test-detail"><div class="runtime-test-empty"><p class="eyebrow">RUNTIME TESTS</p><h2>Select a run</h2><p>Run history, assertions, cleanup, process steps, captures, and correlated events appear here.</p></div></section>
+    <section id="runtime-test-detail" class="runtime-test-detail"><div class="runtime-test-empty"><p class="eyebrow">AUTOMATION</p><h2>Select a run</h2><p>Scenario assertions, command results, cleanup, captures, and correlated events appear here.</p></div></section>
   </div>`;
 document.querySelector("main").append(runtimeTestView);
 window.registerDashboardView("runtime-tests", runtimeTestTab, runtimeTestView, refreshRuntimeTests);
@@ -115,7 +133,7 @@ async function refreshRuntimeTestCapabilities() {
     if (!response.ok) throw new Error(`Capabilities unavailable (${response.status})`);
     runtimeTestCapabilities = await response.json();
     const cases = $("runtime-test-case"), selectedCase = cases.value;
-    cases.replaceChildren(new Option("Select a runtime test", ""));
+    cases.replaceChildren(new Option("Select a command", ""));
     const tests = runtimeTestCapabilities.tests || [];
     const scenarios = tests.filter(isRuntimeScenario);
     const testsByCategory = tests.filter(test => !isRuntimeScenario(test)).reduce((groups, test) => {
@@ -140,8 +158,10 @@ async function refreshRuntimeTestCapabilities() {
       consoleTargets.value = selectedConsoleTarget;
     else if (targets.value) consoleTargets.value = targets.value;
     $("runtime-console-run").disabled = !tests.some(test => test.testId === "runtime.csharp");
+    updateRuntimeScenarioCategories(scenarios);
     renderRuntimeScenarioLauncher(scenarios);
     updateRuntimeTestDescription();
+    setRuntimeAutomationSection(runtimeAutomationSection);
   } catch (error) {
     $("runtime-test-description").textContent = error.message;
   }
@@ -160,8 +180,9 @@ async function refreshRuntimeTestHistoryCore(selectNewest = false) {
     if (!response.ok) throw new Error(`Run history unavailable (${response.status})`);
     runtimeTestHistory = await response.json();
     renderRuntimeTestHistory();
-    if ((selectNewest || !selectedRuntimeTestRequestId) && runtimeTestHistory.length)
-      await selectRuntimeTestRun(runtimeTestHistory[0].requestId);
+    const newestVisible = runtimeTestHistory.find(run => run.caseId !== "dashboard.fixture-monitor");
+    if ((selectNewest || !selectedRuntimeTestRequestId) && newestVisible)
+      await selectRuntimeTestRun(newestVisible.requestId);
   } catch (error) {
     $("runtime-test-history").replaceChildren(runtimeTestText("p", error.message, "empty"));
   }
@@ -184,16 +205,29 @@ function isRuntimeScenario(test) {
     test?.testId?.startsWith("scenario.");
 }
 
+function filteredRuntimeScenarios(scenarios = (runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario)) {
+  return runtimeScenarioCategory ? scenarios.filter(scenario => (scenario.category || "Other") === runtimeScenarioCategory) : scenarios;
+}
+
+function updateRuntimeScenarioCategories(scenarios) {
+  const select = $("runtime-scenario-category"), selected = runtimeScenarioCategory;
+  const categories = [...new Set(scenarios.map(item => item.category || "Other"))].sort();
+  select.replaceChildren(new Option("All categories", ""));
+  for (const category of categories) select.add(new Option(`${category} (${scenarios.filter(item => (item.category || "Other") === category).length})`, category));
+  if (categories.includes(selected)) select.value = selected; else runtimeScenarioCategory = "";
+}
+
 function renderRuntimeScenarioLauncher(scenarios) {
   const launcher = $("runtime-scenario-launcher"), root = $("runtime-scenario-list");
   root.replaceChildren();
   launcher.hidden = !scenarios.length;
   const ids = new Set(scenarios.map(scenario => scenario.testId));
   runtimeScenarioSelections = new Set([...runtimeScenarioSelections].filter(id => ids.has(id)));
-  const pageCount = Math.max(1, Math.ceil(scenarios.length / runtimeTestPageSize));
+  const visibleScenarios = filteredRuntimeScenarios(scenarios);
+  const pageCount = Math.max(1, Math.ceil(visibleScenarios.length / runtimeTestPageSize));
   runtimeScenarioPage = Math.min(Math.max(0, runtimeScenarioPage), pageCount - 1);
   const pageStart = runtimeScenarioPage * runtimeTestPageSize;
-  for (const scenario of scenarios.slice(pageStart, pageStart + runtimeTestPageSize)) {
+  for (const scenario of visibleScenarios.slice(pageStart, pageStart + runtimeTestPageSize)) {
     const selected = runtimeScenarioSelections.has(scenario.testId);
     const card = document.createElement("article"); card.className = `runtime-scenario-card${selected ? " selected" : ""}`;
     const checkbox = document.createElement("input"); checkbox.type = "checkbox";
@@ -206,14 +240,17 @@ function renderRuntimeScenarioLauncher(scenarios) {
     const copy = document.createElement("div");
     copy.append(runtimeTestText("strong", scenario.displayName));
     copy.append(runtimeTestText("code", scenario.testId));
+    copy.append(runtimeTestText("span", scenario.category || "Other", "runtime-scenario-category-badge"));
     copy.append(runtimeTestText("span", `${scenario.fidelity} · ${Math.round((scenario.timeoutMilliseconds || 0) / 1000)}s timeout`, "meta"));
     card.append(checkbox, copy);
     root.append(card);
   }
-  $("runtime-scenario-page-summary").textContent = `${scenarios.length ? pageStart + 1 : 0}-${Math.min(pageStart + runtimeTestPageSize, scenarios.length)} of ${scenarios.length} · Page ${runtimeScenarioPage + 1} of ${pageCount}`;
+  $("runtime-scenario-category-summary").textContent = runtimeScenarioCategory ? `${visibleScenarios.length} in ${runtimeScenarioCategory}` : `${scenarios.length} scenarios across ${new Set(scenarios.map(item => item.category || "Other")).size} categories`;
+  $("runtime-scenario-page-summary").textContent = `${visibleScenarios.length ? pageStart + 1 : 0}-${Math.min(pageStart + runtimeTestPageSize, visibleScenarios.length)} of ${visibleScenarios.length} · Page ${runtimeScenarioPage + 1} of ${pageCount}`;
   $("runtime-scenario-page-prev").disabled = runtimeScenarioPage === 0;
   $("runtime-scenario-page-next").disabled = runtimeScenarioPage >= pageCount - 1;
-  updateRuntimeScenarioControls(scenarios);
+  updateRuntimeScenarioControls(visibleScenarios);
+  if (runtimeAutomationSection !== "scenarios") launcher.hidden = true;
 }
 
 function updateRuntimeScenarioControls(scenarios = []) {
@@ -227,26 +264,40 @@ function updateRuntimeScenarioControls(scenarios = []) {
   $("runtime-scenario-clear-queue").disabled = pending === 0;
 }
 
-function defaultRuntimeScenarioTarget() {
-  const target = $("runtime-test-target");
-  if (!target.value) {
-    const clients = knownSessions.filter(session => session.role === "client");
-    if (clients.length === 1) target.value = clients[0].sessionId;
-  }
-  return target.value;
+function runtimeScenarioCompatibleSessions(scenario) {
+  const required = scenario?.requiredCapabilities || [];
+  const processes = runtimeTestCapabilities?.anchors?.processes || [];
+  return knownSessions.filter(session => session.role !== "dashboard" && session.role !== "standalone")
+    .filter(session => {
+      const process = processes.find(value => value.sessionId === session.sessionId);
+      const available = new Set(process?.capabilities || []);
+      return required.every(capability => available.has(capability));
+    });
+}
+
+function defaultRuntimeScenarioTarget(scenario) {
+  const compatible = runtimeScenarioCompatibleSessions(scenario);
+  const selected = $("runtime-test-target").value;
+  if (selected && compatible.some(session => session.sessionId === selected)) return selected;
+  // Retain the client as the natural default for player/inventory workflows, while
+  // host-authoritative scenarios automatically resolve to the only capable host.
+  return (compatible.find(session => session.role === "client") || compatible[0])?.sessionId || "";
 }
 
 function queueSelectedRuntimeScenarios() {
-  const target = defaultRuntimeScenarioTarget();
-  if (!target) { alert("Select a runtime process before queueing scenarios."); return; }
   const scenarios = (runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario);
   const alreadyQueued = new Set(runtimeScenarioQueue.filter(item => ["Queued", "Submitting", "Scheduled", "Running"].includes(item.status)).map(item => item.test.testId));
+  const unavailable = [];
   for (const scenario of scenarios) {
-    if (runtimeScenarioSelections.has(scenario.testId) && !alreadyQueued.has(scenario.testId))
+    if (runtimeScenarioSelections.has(scenario.testId) && !alreadyQueued.has(scenario.testId)) {
+      const target = defaultRuntimeScenarioTarget(scenario);
+      if (!target) { unavailable.push(scenario.displayName || scenario.testId); continue; }
       runtimeScenarioQueue.push({test:scenario, targetSessionId:target, status:"Queued", requestId:"", error:""});
+    }
   }
   runtimeScenarioSelections.clear();
   renderRuntimeScenarioLauncher(scenarios);
+  if (unavailable.length) alert(`No compatible live process is available for:\n${unavailable.join("\n")}`);
   void runRuntimeScenarioQueue();
 }
 
@@ -316,17 +367,19 @@ async function waitForRuntimeTestTerminal(requestId, timeoutMilliseconds) {
 
 function updateRuntimeTestDescription() {
   const test = selectedRuntimeTest();
-  $("runtime-test-run").textContent = isRuntimeScenario(test) ? "Run scenario" : "Run test";
+  $("runtime-test-run").textContent = "Run command";
   $("runtime-test-description").textContent = test
     ? `${test.fidelity} · ${test.mutationKind} · ${(test.requiredCapabilities || []).join(", ") || "no special capability required"}`
-    : "Select a debug test and the runtime process that should perform it.";
+    : "Select a debug command and the runtime process that should perform it.";
+  const schema = test?.parameterSchema;
+  $("runtime-test-parameter-schema").textContent = schema ? JSON.stringify(schema, null, 2) : "No parameter schema is published for this command.";
 }
 
 function renderRuntimeTestHistory() {
   const root = $("runtime-test-history");
   const term = $("runtime-test-search").value.trim().toLowerCase();
   const status = $("runtime-test-status").value;
-  const visible = runtimeTestHistory.filter(run => (!status || run.status === status) && (!term || `${run.command} ${run.caseId} ${run.runId} ${run.error}`.toLowerCase().includes(term)));
+  const visible = runtimeTestHistory.filter(run => run.caseId !== "dashboard.fixture-monitor" && (!status || run.status === status) && (!term || `${run.command} ${run.caseId} ${run.runId} ${run.error}`.toLowerCase().includes(term)));
   $("runtime-test-history-count").textContent = `${visible.length} ${visible.length === 1 ? "run" : "runs"}`;
   const pageCount = Math.max(1, Math.ceil(visible.length / runtimeTestPageSize));
   runtimeTestHistoryPage = Math.min(Math.max(0, runtimeTestHistoryPage), pageCount - 1);
@@ -661,7 +714,7 @@ async function rerunRuntimeTest(run) {
 
 async function startRuntimeTest() {
   const test = selectedRuntimeTest(), target = $("runtime-test-target").value;
-  if (!test || !target) { alert("Select a test and target process."); return; }
+  if (!test || !target) { alert("Select a command and target process."); return; }
   let parameters;
   try { parameters = JSON.parse($("runtime-test-params").value || "{}"); }
   catch { alert("Parameters must be valid JSON."); return; }
@@ -697,23 +750,133 @@ async function runRuntimeConsole() {
   } catch (error) { output.textContent = error.message || String(error); }
 }
 
-async function enqueueRuntimeTest(test, target, parameters) {
+async function enqueueRuntimeTest(test, target, parameters, caseId = test.testId) {
   const requestId = globalThis.crypto?.randomUUID ? crypto.randomUUID().replaceAll("-", "") : `${Date.now()}${Math.random().toString(16).slice(2)}`;
-  const request = {requestId, runId:`dashboard-${requestId}`, caseId:test.testId, phaseId:"act", stepId:test.testId, command:test.testId, targetSessionId:target, mutationKind:test.mutationKind, timeoutMilliseconds:test.timeoutMilliseconds, parameters};
+  const request = {requestId, runId:`dashboard-${requestId}`, caseId, phaseId:"act", stepId:test.testId, command:test.testId, targetSessionId:target, mutationKind:test.mutationKind, timeoutMilliseconds:test.timeoutMilliseconds, parameters};
   const response = await post("/api/runtime-tests/commands", request);
   const accepted = await response.json();
   if (!response.ok || !accepted.accepted) throw new Error(accepted.reason || `Request failed (${response.status})`);
   return accepted;
 }
 
+function setRuntimeAutomationSection(section) {
+  runtimeAutomationSection = section;
+  for (const button of document.querySelectorAll("[data-runtime-automation-section]")) {
+    const selected = button.dataset.runtimeAutomationSection === section;
+    button.classList.toggle("selected", selected); button.classList.toggle("quiet", !selected);
+  }
+  for (const panel of document.querySelectorAll("[data-runtime-automation-panel]"))
+    panel.hidden = panel.dataset.runtimeAutomationPanel !== section;
+  if (section === "fixtures") void refreshRuntimeFixtures();
+}
+
+function runtimeSession(role) {
+  return knownSessions.find(session => session.role === role);
+}
+
+function selectedRuntimeFixtureSessions() {
+  const roles = [];
+  if ($("runtime-fixture-role-host").checked) roles.push("host");
+  if ($("runtime-fixture-role-client").checked) roles.push("client");
+  return roles.map(runtimeSession).filter(Boolean);
+}
+
+function runtimeFixtureResult(run) {
+  return run?.processes?.[0]?.result || run?.result || {};
+}
+
+async function executeRuntimeFixtureCommand(testId, sessionId, parameters = {}, monitor = false) {
+  const descriptor = (runtimeTestCapabilities?.tests || []).find(test => test.testId === testId);
+  if (!descriptor) throw new Error(`${testId} is unavailable in the running build.`);
+  const accepted = await enqueueRuntimeTest(descriptor, sessionId, Object.fromEntries(Object.entries(parameters).map(([key, value]) => [key, String(value)])), monitor ? "dashboard.fixture-monitor" : testId);
+  const run = await waitForRuntimeTestTerminal(accepted.requestId, descriptor.timeoutMilliseconds || 30000);
+  if (run.status !== "Passed") throw new Error(run.error || `${testId}: ${run.status}`);
+  return runtimeFixtureResult(run);
+}
+
+async function refreshRuntimeFixtures() {
+  if (runtimeFixtureRefreshRunning || runtimeAutomationSection !== "fixtures") return;
+  const host = runtimeSession("host");
+  if (!host) { $("runtime-fixture-status").textContent = "No live host runtime."; return; }
+  runtimeFixtureRefreshRunning = true;
+  $("runtime-fixture-refresh").disabled = true;
+  $("runtime-fixture-status").textContent = "Reading host fixture ledgers…";
+  try {
+    const trainResult = await executeRuntimeFixtureCommand("train.fixture-status", host.sessionId, {}, true);
+    let itemResult = {fixtures:[], fixtureCount:0};
+    if ((runtimeTestCapabilities?.tests || []).some(test => test.testId === "inventory.fixture-status"))
+      itemResult = await executeRuntimeFixtureCommand("inventory.fixture-status", host.sessionId, {}, true);
+    renderRuntimeTrainFixtures(trainResult.fixtures || []);
+    renderRuntimeItemFixtures(itemResult.fixtures || []);
+    $("runtime-fixture-status").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  } catch (error) {
+    $("runtime-fixture-status").textContent = error.message || String(error);
+  } finally {
+    runtimeFixtureRefreshRunning = false; $("runtime-fixture-refresh").disabled = false;
+  }
+}
+
+function renderRuntimeTrainFixtures(fixtures) {
+  const root = $("runtime-fixture-trains"); root.replaceChildren();
+  const live = fixtures.filter(fixture => (fixture.cars || []).some(car => car.alive !== false));
+  $("runtime-fixture-train-count").textContent = `${live.length} ${live.length === 1 ? "train" : "trains"}`;
+  if (!live.length) { root.append(runtimeTestText("p", "No live train fixtures.", "empty")); return; }
+  for (const fixture of live) {
+    const car = (fixture.cars || []).find(value => value.alive !== false) || fixture.cars?.[0] || {};
+    const card = document.createElement("article"); card.className = "runtime-fixture-card";
+    const head = document.createElement("header");
+    const title = document.createElement("div"); title.append(runtimeTestText("strong", fixture.fixtureId || `Train ${car.netId}`), runtimeTestText("code", `${car.liveryId || car.carId || "car"} · NetId ${car.netId || "—"}`));
+    head.append(title, runtimeTestText("span", fixture.state || "Unknown", `runtime-fixture-state ${String(fixture.state || "").toLowerCase()}`));
+    const facts = runtimeTestText("p", `${Number(car.speedKph || 0).toFixed(1)} km/h · target ${Number(fixture.targetSpeedKph || 0).toFixed(0)} · ${fixture.speedControllerState || "manual"}`, "meta");
+    const controls = document.createElement("div"); controls.className = "runtime-fixture-controls";
+    const speed = document.createElement("input"); speed.type = "number"; speed.min = "0"; speed.max = String(fixture.maximumSpeedKph || 80); speed.value = String(fixture.targetSpeedKph || 20); speed.title = "Target km/h";
+    const action = async work => { for (const button of controls.querySelectorAll("button")) button.disabled = true; try { await work(); await refreshRuntimeFixtures(); } catch (error) { alert(error.message || String(error)); } finally { for (const button of controls.querySelectorAll("button")) button.disabled = false; } };
+    controls.append(speed,
+      runtimeTestButton("Start", () => action(() => executeRuntimeFixtureCommand("train.fixture-start", runtimeSession("host").sessionId, {fixtureId:fixture.fixtureId,targetSpeedKph:speed.value,reverser:1}))),
+      runtimeTestButton("Stop", () => action(() => executeRuntimeFixtureCommand("train.fixture-stop", runtimeSession("host").sessionId, {fixtureId:fixture.fixtureId}))),
+      runtimeTestButton("Board", () => action(async () => { const sessions = selectedRuntimeFixtureSessions(); if (!sessions.length) throw new Error("Select Host and/or Client for player actions."); for (const session of sessions) await executeRuntimeFixtureCommand("train.fixture-place-player", session.sessionId, {carNetId:car.netId,anchor:"cab"}); })),
+      runtimeTestButton("Evacuate", () => action(async () => { const sessions = selectedRuntimeFixtureSessions(); if (!sessions.length) throw new Error("Select Host and/or Client for player actions."); for (const session of sessions) await executeRuntimeFixtureCommand("train.fixture-evacuate-player", session.sessionId, {carNetId:car.netId,distance:25}); })),
+      runtimeTestButton("Delete", () => action(async () => { if (!confirm(`Delete test train ${fixture.fixtureId}? All live players will be evacuated first.`)) return; const host = runtimeSession("host"); await executeRuntimeFixtureCommand("train.fixture-stop", host.sessionId, {fixtureId:fixture.fixtureId}); for (const session of [runtimeSession("host"),runtimeSession("client")].filter(Boolean)) { try { await executeRuntimeFixtureCommand("train.fixture-evacuate-player", session.sessionId, {carNetId:car.netId,distance:25}); } catch {} } await executeRuntimeFixtureCommand("train.fixture-cleanup", host.sessionId, {fixtureId:fixture.fixtureId,ignoreMissing:true}); }), "danger"));
+    card.append(head, facts, controls); root.append(card);
+  }
+}
+
+function renderRuntimeItemFixtures(fixtures) {
+  const root = $("runtime-fixture-items"); root.replaceChildren();
+  $("runtime-fixture-item-count").textContent = `${fixtures.length} ${fixtures.length === 1 ? "item" : "items"}`;
+  if (!fixtures.length) { root.append(runtimeTestText("p", "No tagged item fixtures in the host ledger.", "empty")); return; }
+  const groups = Map.groupBy ? Map.groupBy(fixtures, item => item.testTag || "") : fixtures.reduce((map, item) => map.set(item.testTag || "", [...(map.get(item.testTag || "") || []), item]), new Map());
+  for (const [tag, items] of groups) {
+    const card = document.createElement("article"); card.className = "runtime-fixture-card";
+    const head = document.createElement("header"); const title = document.createElement("div");
+    title.append(runtimeTestText("strong", tag || "Untagged fixtures"), runtimeTestText("span", `${items.length} item${items.length === 1 ? "" : "s"}`, "meta"));
+    const remove = runtimeTestButton("Delete tagged items", async () => { if (!tag || !confirm(`Delete all ${items.length} item fixtures tagged ${tag}?`)) return; remove.disabled = true; try { await executeRuntimeFixtureCommand("inventory.fixture-destroy-tag", runtimeSession("host").sessionId, {testTag:tag}); await refreshRuntimeFixtures(); } catch (error) { alert(error.message || String(error)); } finally { remove.disabled = false; } }, "danger");
+    remove.disabled = !tag; head.append(title, remove); card.append(head);
+    const list = document.createElement("div"); list.className = "runtime-fixture-item-list";
+    for (const item of items) list.append(runtimeTestText("code", `${item.prefabName || "item"} · NetId ${item.netId} · ${item.itemState || "unknown"}`));
+    card.append(list); root.append(card);
+  }
+}
+
 function startRuntimeTestPolling() { if (runtimeTestPoll) return; runtimeTestPoll = setInterval(() => activeView === "runtime-tests" && !document.hidden && selectedRuntimeTestRequestId && loadRuntimeTest(selectedRuntimeTestRequestId), 1500); }
 function stopRuntimeTestPolling() { clearInterval(runtimeTestPoll); runtimeTestPoll = null; }
 
-$("runtime-test-case").addEventListener("change", updateRuntimeTestDescription);
+for (const button of document.querySelectorAll("[data-runtime-automation-section]"))
+  button.addEventListener("click", () => setRuntimeAutomationSection(button.dataset.runtimeAutomationSection));
+$("runtime-test-case").addEventListener("change", () => {
+  updateRuntimeTestDescription();
+  const schema = selectedRuntimeTest()?.parameterSchema, defaults = {};
+  for (const [key, value] of Object.entries(schema?.properties || {})) if (value.default != null) defaults[key] = value.default;
+  $("runtime-test-params").value = JSON.stringify(defaults, null, 2);
+});
 $("runtime-test-run").addEventListener("click", startRuntimeTest);
 $("runtime-console-run").addEventListener("click", runRuntimeConsole);
 $("runtime-scenario-select-all").addEventListener("click", () => {
-  for (const scenario of (runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario)) runtimeScenarioSelections.add(scenario.testId);
+  for (const scenario of filteredRuntimeScenarios()) runtimeScenarioSelections.add(scenario.testId);
+  renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+});
+$("runtime-scenario-category").addEventListener("change", event => {
+  runtimeScenarioCategory = event.target.value; runtimeScenarioPage = 0;
   renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
 });
 $("runtime-scenario-clear-selection").addEventListener("click", () => {
@@ -730,6 +893,7 @@ $("runtime-scenario-page-prev").addEventListener("click", () => {
 $("runtime-scenario-page-next").addEventListener("click", () => {
   runtimeScenarioPage++; renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
 });
+$("runtime-fixture-refresh").addEventListener("click", refreshRuntimeFixtures);
 $("runtime-test-cancel").addEventListener("click", async () => { if (selectedRuntimeTestRequestId) await post(`/api/runtime-tests/runs/${encodeURIComponent(selectedRuntimeTestRequestId)}/cancel`, {}); });
 $("runtime-test-refresh").addEventListener("click", () => refreshRuntimeTestHistory());
 $("runtime-test-search").addEventListener("input", () => { runtimeTestHistoryPage = 0; renderRuntimeTestHistory(); });

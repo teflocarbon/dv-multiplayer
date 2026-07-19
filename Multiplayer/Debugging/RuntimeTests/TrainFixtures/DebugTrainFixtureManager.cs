@@ -332,7 +332,9 @@ internal sealed class DebugTrainFixtureManager
             throw new InvalidOperationException("fixture-not-found:" + fixtureId);
         float minimumSpeedKph = Mathf.Clamp(OptionalFloat(command, "minimumSpeedKph", 1f),
             0.1f, fixture.MaximumSpeedKph);
-        float timeoutSeconds = Mathf.Clamp(OptionalFloat(command, "waitSeconds", 20f), 1f, 25f);
+        // A cold DE2 carrying a fully materialized item lab needs materially longer than 25
+        // seconds to reach road speed. Keep this a barrier, not an acceleration benchmark.
+        float timeoutSeconds = Mathf.Clamp(OptionalFloat(command, "waitSeconds", 20f), 1f, 60f);
         float deadline = Time.realtimeSinceStartup + timeoutSeconds;
         float speedKph = 0f;
         while (Time.realtimeSinceStartup <= deadline)

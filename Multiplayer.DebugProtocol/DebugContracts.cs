@@ -105,6 +105,8 @@ public sealed class RuntimeTestDescriptorDto
     public bool FixtureItemIsPersonal { get; set; } = true;
     public string DefaultContainerPrefabName { get; set; } = string.Empty;
     public string DefaultItemPrefabName { get; set; } = string.Empty;
+    /// <summary>JSON Schema describing the command's string-valued parameters.</summary>
+    public Dictionary<string, object> ParameterSchema { get; set; } = new(StringComparer.Ordinal);
 }
 
 public sealed class RuntimeTestCommandDto

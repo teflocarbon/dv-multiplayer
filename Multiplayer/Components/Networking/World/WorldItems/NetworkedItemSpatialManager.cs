@@ -333,7 +333,8 @@ internal sealed class NetworkedItemSpatialManager
         leases[item.NetId] = lease;
         bool localSimulator = state.SimulatorPlayerId == NetworkLifecycle.Instance.Client.PlayerId;
         ConfigureLeasePresentation(item, localSimulator, state);
-        if (localSimulator && packet.Reason?.StartsWith("lease-transfer:", StringComparison.Ordinal) == true)
+        if (localSimulator && (packet.Reason?.StartsWith("lease-transfer:", StringComparison.Ordinal) == true ||
+                               packet.Reason?.StartsWith("train-wake:", StringComparison.Ordinal) == true))
             ApplySimulationVelocity(item, state);
         Publish("item.spatial-lease-applied", item.NetId, new()
         {
@@ -428,6 +429,252 @@ internal sealed class NetworkedItemSpatialManager
             return false;
         state = committed.Clone();
         return true;
+    }
+
+    internal bool TryGetActiveLeaseIdentity(ushort itemNetId, out uint authorityRevision,
+        out uint simulationEpoch, out byte simulatorPlayerId, out ItemSpatialStateData state)
+    {
+        authorityRevision = 0;
+        simulationEpoch = 0;
+        simulatorPlayerId = 0;
+        state = null;
+        if (!leases.TryGetValue(itemNetId, out Lease lease) || lease.LastAccepted == null)
+            return false;
+        authorityRevision = lease.AuthorityRevision;
+        simulationEpoch = lease.Epoch;
+        simulatorPlayerId = lease.SimulatorPlayerId;
+        state = lease.LastAccepted.Clone();
+        return true;
+    }
+
+    internal bool TryBeginTrainWake(ushort itemNetId, byte preferredSimulatorPlayerId,
+        Vector3 initialLocalVelocity, string reason, out byte simulatorPlayerId,
+        out string rejection)
+    {
+        simulatorPlayerId = 0;
+        rejection = string.Empty;
+        if (!NetworkLifecycle.Instance.IsHost())
+        {
+            rejection = "host-required";
+            return false;
+        }
+        if (leases.ContainsKey(itemNetId))
+        {
+            rejection = "item-already-active";
+            return false;
+        }
+        if (!NetworkedItem.TryGet(itemNetId, out NetworkedItem item) || item == null ||
+            !AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record))
+        {
+            rejection = "item-representation-unavailable";
+            return false;
+        }
+        if (record.Placement != ItemPlacementKind.TrainInterior ||
+            record.WorldParentKind != ItemWorldParentKind.TrainInterior || record.WorldParentNetId == 0)
+        {
+            rejection = "item-not-settled-in-train";
+            return false;
+        }
+        if (!TrySelectTrainWakeSimulator(item, record, preferredSimulatorPlayerId,
+                out ServerPlayer simulator))
+        {
+            rejection = "no-eligible-train-item-simulator";
+            return false;
+        }
+
+        ItemSpatialStateData baseline;
+        if (!committedStates.TryGetValue(itemNetId, out ItemSpatialStateData committed) ||
+            committed == null || committed.AuthorityRevision != record.Revision ||
+            committed.WorldParentKind != ItemWorldParentKind.TrainInterior ||
+            committed.WorldParentNetId != record.WorldParentNetId)
+        {
+            baseline = new ItemSpatialStateData
+            {
+                ItemNetId = itemNetId,
+                AuthorityRevision = record.Revision,
+                AbsolutePosition = record.Position,
+                Rotation = record.Rotation,
+                WorldParentKind = ItemWorldParentKind.TrainInterior,
+                WorldParentNetId = record.WorldParentNetId,
+                ParentLocalPosition = record.ParentLocalPosition,
+                ParentLocalRotation = record.ParentLocalRotation,
+                Phase = ItemSpatialPhase.Settled,
+                Sleeping = true
+            };
+        }
+        else
+            baseline = committed.Clone();
+
+        uint epoch = epochs.TryGetValue(itemNetId, out uint previous) ? previous + 1 :
+            Math.Max(1u, baseline.SimulationEpoch + 1);
+        epochs[itemNetId] = epoch;
+        baseline.AuthorityRevision = record.Revision;
+        baseline.SimulationEpoch = epoch;
+        baseline.SampleSequence = 0;
+        baseline.SourceTick = NetworkLifecycle.Instance.Tick;
+        baseline.SimulatorPlayerId = simulator.PlayerId;
+        baseline.Phase = ItemSpatialPhase.Sliding;
+        baseline.LinearVelocity = Vector3.ClampMagnitude(initialLocalVelocity, 6f);
+        baseline.AngularVelocity = Vector3.zero;
+        baseline.Sleeping = false;
+        float now = Time.realtimeSinceStartup;
+        Lease lease = new()
+        {
+            ItemNetId = itemNetId,
+            AuthorityRevision = record.Revision,
+            Epoch = epoch,
+            SimulatorPlayerId = simulator.PlayerId,
+            StartedAt = now,
+            LastAcceptedAt = now,
+            LastAccepted = baseline.Clone(),
+            Target = baseline.Clone()
+        };
+        leases[itemNetId] = lease;
+        simulatorPlayerId = simulator.PlayerId;
+        bool localHost = simulator.PlayerId == NetworkLifecycle.Instance.Server.SelfId;
+        ConfigureLeasePresentation(item, localHost, baseline);
+        if (localHost)
+            ApplySimulationVelocity(item, baseline);
+        NetworkLifecycle.Instance.Server.SendItemSpatialLease(item,
+            new ClientboundItemSpatialLeasePacket
+            {
+                Active = true,
+                Reason = "train-wake:" + (reason ?? "unknown"),
+                State = baseline.Clone()
+            });
+        Publish("item.spatial-train-wake-granted", itemNetId, new(SpatialDebug(baseline))
+        {
+            ["reason"] = reason ?? string.Empty
+        });
+        return true;
+    }
+
+#if DEBUG
+    internal bool DebugArrangeSettledTrainItem(ushort itemNetId, ushort carNetId,
+        Vector3 parentLocalPosition, Quaternion parentLocalRotation, out string rejection)
+    {
+        rejection = string.Empty;
+        if (!NetworkLifecycle.Instance.IsHost() ||
+            !NetworkedItem.TryGet(itemNetId, out NetworkedItem item) || item == null ||
+            !AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record) ||
+            leases.ContainsKey(itemNetId) ||
+            !NetworkedTrainCar.TryGet(carNetId, out TrainCar car) || car == null)
+        {
+            rejection = "item-not-arrangeable-settled-train-item";
+            return false;
+        }
+        if (record.Placement != ItemPlacementKind.TrainInterior ||
+            record.WorldParentKind != ItemWorldParentKind.TrainInterior ||
+            record.WorldParentNetId != carNetId)
+        {
+            if (record.Placement != ItemPlacementKind.World ||
+                !NetworkLifecycle.Instance.Server.TryGetServerPlayer(
+                    NetworkLifecycle.Instance.Server.SelfId, out ServerPlayer host))
+            {
+                rejection = "item-not-world-or-settled-train-item";
+                return false;
+            }
+            Transform targetAnchor = car.interior ?? car.transform;
+            ItemUpdateData snapshot = item.CreateUpdateData(
+                ItemUpdateData.ItemUpdateType.FullSync);
+            if (snapshot == null)
+            {
+                rejection = "item-snapshot-unavailable";
+                return false;
+            }
+            snapshot.ItemState = ItemState.Dropped;
+            snapshot.PlayerId = 0;
+            snapshot.ItemPosition = targetAnchor.TransformPoint(parentLocalPosition) -
+                WorldMover.currentMove;
+            snapshot.ItemRotation = targetAnchor.rotation * parentLocalRotation;
+            snapshot.ThrowDirection = Vector3.zero;
+            snapshot.WorldParentKind = ItemWorldParentKind.TrainInterior;
+            snapshot.WorldParentNetId = carNetId;
+            snapshot.ParentLocalPosition = parentLocalPosition;
+            snapshot.ParentLocalRotation = parentLocalRotation;
+            snapshot.InventoryClaimSlot = -1;
+            snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
+            snapshot.AuthorityRevision = record.Revision;
+            if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, host,
+                    ItemTransitionReason.HostLocalState, true, out rejection))
+                return false;
+            item.ApplyServerCanonicalSnapshot(snapshot);
+            if (!AuthoritativeItemRegistry.TryGet(itemNetId, out record))
+            {
+                rejection = "canonical-record-missing-after-arrange-transition";
+                return false;
+            }
+        }
+        uint epoch = epochs.TryGetValue(itemNetId, out uint previous) ? previous + 1 : 1;
+        epochs[itemNetId] = epoch;
+        Transform anchor = car.interior ?? car.transform;
+        ItemSpatialStateData state = new()
+        {
+            ItemNetId = itemNetId,
+            AuthorityRevision = record.Revision,
+            SimulationEpoch = epoch,
+            SampleSequence = 0,
+            SourceTick = NetworkLifecycle.Instance.Tick,
+            SimulatorPlayerId = NetworkLifecycle.Instance.Server.SelfId,
+            Phase = ItemSpatialPhase.Settled,
+            AbsolutePosition = anchor.TransformPoint(parentLocalPosition) - WorldMover.currentMove,
+            Rotation = anchor.rotation * parentLocalRotation,
+            WorldParentKind = ItemWorldParentKind.TrainInterior,
+            WorldParentNetId = carNetId,
+            ParentLocalPosition = parentLocalPosition,
+            ParentLocalRotation = parentLocalRotation,
+            Sleeping = true
+        };
+        if (!AuthoritativeItemRegistry.TryCommitSpatialPose(item, record.Revision, state,
+                out AuthoritativeItemRegistry.Record committed, out rejection))
+            return false;
+        state.AuthorityRevision = committed.Revision;
+        committedStates[itemNetId] = state.Clone();
+        ApplyPose(item, state, immediate: true);
+        ApplyCommitMetadata(item, state);
+        owner.RefreshHostSpatialPosition(item, state.AbsolutePosition, state.WorldParentKind);
+        Rigidbody body = item.Item?.ItemRigidbody;
+        if (body != null)
+        {
+            body.isKinematic = true;
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.Sleep();
+        }
+        NetworkLifecycle.Instance.Server.SendItemSpatialCommit(item,
+            new ClientboundItemSpatialCommitPacket { State = state.Clone() });
+        owner.OnTrainItemSpatialSettled(item, state, committed);
+        Publish("item.spatial-debug-arranged", itemNetId, new(SpatialDebug(state)));
+        return true;
+    }
+#endif
+
+    private static bool TrySelectTrainWakeSimulator(NetworkedItem item,
+        AuthoritativeItemRegistry.Record record, byte preferredPlayerId, out ServerPlayer selected)
+    {
+        selected = null;
+        if (NetworkLifecycle.Instance?.Server == null || item == null || record == null)
+            return false;
+        Vector3 absolute = record.Position;
+        if (NetworkedTrainCar.TryGet(record.WorldParentNetId, out TrainCar parentCar) &&
+            parentCar != null)
+            absolute = (parentCar.interior ?? parentCar.transform)
+                .TransformPoint(record.ParentLocalPosition) - WorldMover.currentMove;
+        IEnumerable<ServerPlayer> eligible = NetworkLifecycle.Instance.Server.ServerPlayers
+            .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems &&
+                (player.CarId == record.WorldParentNetId ||
+                 (player.AbsoluteWorldPosition - absolute).sqrMagnitude <=
+                    MaximumSimulatorDistance * MaximumSimulatorDistance))
+            .Where(player => player.PlayerId == NetworkLifecycle.Instance.Server.SelfId
+                ? item.gameObject.activeInHierarchy
+                : player.KnownItems.ContainsKey(item) &&
+                  player.AcknowledgedWorldItems.Contains(item.NetId));
+        selected = eligible
+            .OrderByDescending(player => player.PlayerId == preferredPlayerId)
+            .ThenByDescending(player => player.CarId == record.WorldParentNetId)
+            .ThenBy(player => (player.AbsoluteWorldPosition - absolute).sqrMagnitude)
+            .FirstOrDefault();
+        return selected != null;
     }
 
     internal void ApplyLatestAcceptedToSnapshot(ItemUpdateData snapshot)
@@ -846,6 +1093,7 @@ internal sealed class NetworkedItemSpatialManager
         }
         NetworkLifecycle.Instance.Server.SendItemSpatialCommit(item,
             new ClientboundItemSpatialCommitPacket { State = state });
+        owner.OnTrainItemSpatialSettled(item, state, record);
         Publish("item.spatial-commit-accepted", item.NetId, new(SpatialDebug(state))
         {
             ["reason"] = reason ?? string.Empty
