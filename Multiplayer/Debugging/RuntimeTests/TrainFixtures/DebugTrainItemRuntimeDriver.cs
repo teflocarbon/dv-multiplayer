@@ -73,7 +73,7 @@ internal sealed class DebugTrainItemRuntimeDriver
                 Vector3.Distance(initialLocal, local));
             Rigidbody itemBody = item.Item?.ItemRigidbody;
             Vector3 relativeVelocity = itemBody == null ? Vector3.zero :
-                anchor.InverseTransformDirection(itemBody.velocity - (car.rb?.velocity ?? Vector3.zero));
+                anchor.InverseTransformDirection(itemBody.velocity);
             maxRelativeSpeedObserved = Mathf.Max(maxRelativeSpeedObserved,
                 relativeVelocity.magnitude);
             maxTrainSpeedKphObserved = Mathf.Max(maxTrainSpeedKphObserved,
@@ -86,7 +86,7 @@ internal sealed class DebugTrainItemRuntimeDriver
         bool activeSpatialLease = NetworkedItemManager.Instance?.HasActiveSpatialState(itemNetId) == true;
         bool hasCommitted = NetworkedItemManager.Instance != null &&
             NetworkedItemManager.Instance.TryGetCommittedSpatialState(itemNetId, out committed);
-        TrainCar physicalParent = item.GetComponentInParent<TrainCar>();
+        item.TryGetPhysicalTrainParent(out TrainCar physicalParent);
         ushort physicalParentNetId = physicalParent?.GetNetId() ?? 0;
         Vector3 finalLocal = anchor.InverseTransformPoint(item.transform.position);
         bool committedParentMatches = hasCommitted &&

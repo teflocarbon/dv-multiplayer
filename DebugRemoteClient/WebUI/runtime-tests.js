@@ -10,6 +10,11 @@ let runtimeScenarioQueue = [];
 let runtimeScenarioQueueRunning = false;
 let runtimeScenarioPage = 0;
 let runtimeTestHistoryPage = 0;
+let runtimeTestHistoryRequest = null;
+let runtimeTestHistoryRefreshTimer = null;
+const runtimeTestDetailRequests = new Map();
+let runtimeTestEventRenderTimer = null;
+let selectedRuntimeTestEventKeys = new Set();
 
 const runtimeTestPageSize = 30;
 
@@ -143,6 +148,13 @@ async function refreshRuntimeTestCapabilities() {
 }
 
 async function refreshRuntimeTestHistory(selectNewest = false) {
+  if (runtimeTestHistoryRequest) return runtimeTestHistoryRequest;
+  runtimeTestHistoryRequest = refreshRuntimeTestHistoryCore(selectNewest);
+  try { return await runtimeTestHistoryRequest; }
+  finally { runtimeTestHistoryRequest = null; }
+}
+
+async function refreshRuntimeTestHistoryCore(selectNewest = false) {
   try {
     const response = await authenticatedGet("/api/runtime-tests/runs");
     if (!response.ok) throw new Error(`Run history unavailable (${response.status})`);
@@ -153,6 +165,14 @@ async function refreshRuntimeTestHistory(selectNewest = false) {
   } catch (error) {
     $("runtime-test-history").replaceChildren(runtimeTestText("p", error.message, "empty"));
   }
+}
+
+function scheduleRuntimeTestHistoryRefresh(selectNewest = false) {
+  if (activeView !== "runtime-tests" || runtimeTestHistoryRefreshTimer) return;
+  runtimeTestHistoryRefreshTimer = setTimeout(() => {
+    runtimeTestHistoryRefreshTimer = null;
+    void refreshRuntimeTestHistory(selectNewest);
+  }, 300);
 }
 
 function selectedRuntimeTest() {
@@ -337,14 +357,23 @@ async function selectRuntimeTestRun(requestId) {
   selectedRuntimeTestRequestId = requestId;
   selectedRuntimeTestFingerprint = "";
   selectedRuntimeTestEvents = [];
+  selectedRuntimeTestEventKeys = new Set();
   renderRuntimeTestHistory();
   await loadRuntimeTest(requestId);
   await loadRuntimeTestEvents();
 }
 
 async function loadRuntimeTest(requestId) {
-  const response = await authenticatedGet(`/api/runtime-tests/runs/${encodeURIComponent(requestId)}`);
-  if (!response.ok) return;
+  if (requestId !== selectedRuntimeTestRequestId) return;
+  let request = runtimeTestDetailRequests.get(requestId);
+  if (!request) {
+    request = authenticatedGet(`/api/runtime-tests/runs/${encodeURIComponent(requestId)}`);
+    runtimeTestDetailRequests.set(requestId, request);
+  }
+  let response;
+  try { response = await request; }
+  finally { if (runtimeTestDetailRequests.get(requestId) === request) runtimeTestDetailRequests.delete(requestId); }
+  if (!response?.ok || requestId !== selectedRuntimeTestRequestId) return;
   const run = await response.json();
   const fingerprint = JSON.stringify(run);
   selectedRuntimeTestRun = run;
@@ -359,6 +388,15 @@ async function loadRuntimeTest(requestId) {
 
 function renderRuntimeTestDetail(run) {
   const root = $("runtime-test-detail");
+  const stepViewStates = new Map(Array.from(root.querySelectorAll(".runtime-test-step[data-step-key]"), row => {
+    const json = row.querySelector("pre");
+    return [row.dataset.stepKey, {open:row.open, scrollTop:json?.scrollTop || 0, scrollLeft:json?.scrollLeft || 0}];
+  }));
+  const rawWasOpen = root.querySelector(".runtime-test-raw")?.open === true;
+  const rawJson = root.querySelector(".runtime-test-raw pre");
+  const rawScrollTop = rawJson?.scrollTop || 0, rawScrollLeft = rawJson?.scrollLeft || 0;
+  const previousScrollTop = root.scrollTop;
+  const jsonScrollRestorations = [];
   root.replaceChildren();
   const header = document.createElement("header");
   header.className = "runtime-test-detail-head";
@@ -392,13 +430,28 @@ function renderRuntimeTestDetail(run) {
   if (processes.length) {
     root.append(runtimeTestText("h3", "Job steps"));
     const timeline = document.createElement("div"); timeline.className = "runtime-test-timeline";
-    for (const process of processes) {
+    for (const [processIndex, process] of processes.entries()) {
       const row = document.createElement("details"); row.className = `runtime-test-step ${runtimeTestStatusClass(process.status)}`;
+      const stepKey = process.requestId || `${process.phaseId || "run"}:${process.stepId || process.command || processIndex}:${process.role || ""}`;
+      row.dataset.stepKey = stepKey;
       const step = document.createElement("summary");
       step.append(runtimeTestText("span", runtimeTestStatusIcon(process.status), "runtime-test-step-icon"));
       const name = document.createElement("span"); name.append(runtimeTestText("strong", runtimeTestProcessLabel(process))); name.append(runtimeTestText("span", `${process.phaseId || "run"} · ${process.role}${process.playerId == null ? "" : ` P${process.playerId}`} · ${process.status}`, "meta"));
       step.append(name); row.append(step);
-      const pre = runtimeTestText("pre", JSON.stringify({error:process.error || undefined, result:process.result}, null, 2)); row.append(pre); timeline.append(row);
+      const stepViewState = stepViewStates.get(stepKey);
+      let processJsonLoaded = stepViewState?.open === true;
+      row.open = processJsonLoaded;
+      if (processJsonLoaded) {
+        const json = runtimeTestText("pre", JSON.stringify({error:process.error || undefined, result:process.result}, null, 2));
+        row.append(json);
+        jsonScrollRestorations.push({json, scrollTop:stepViewState.scrollTop, scrollLeft:stepViewState.scrollLeft});
+      }
+      row.addEventListener("toggle", () => {
+        if (!row.open || processJsonLoaded) return;
+        processJsonLoaded = true;
+        row.append(runtimeTestText("pre", JSON.stringify({error:process.error || undefined, result:process.result}, null, 2)));
+      });
+      timeline.append(row);
     }
     root.append(timeline);
   }
@@ -447,7 +500,26 @@ function renderRuntimeTestDetail(run) {
 
   root.append(runtimeTestText("h3", "All correlated events"));
   const eventRoot = document.createElement("div"); eventRoot.id = "runtime-test-events"; eventRoot.className = "runtime-test-events"; root.append(eventRoot); renderRuntimeTestEvents();
-  const raw = document.createElement("details"); raw.className = "runtime-test-raw"; raw.append(runtimeTestText("summary", "Raw result"), runtimeTestText("pre", JSON.stringify(run, null, 2))); root.append(raw);
+  const raw = document.createElement("details"); raw.className = "runtime-test-raw"; raw.append(runtimeTestText("summary", "Raw result"));
+  let rawLoaded = rawWasOpen;
+  raw.open = rawWasOpen;
+  if (rawLoaded) {
+    const json = runtimeTestText("pre", JSON.stringify(run, null, 2));
+    raw.append(json); jsonScrollRestorations.push({json, scrollTop:rawScrollTop, scrollLeft:rawScrollLeft});
+  }
+  raw.addEventListener("toggle", () => {
+    if (!raw.open || rawLoaded) return;
+    rawLoaded = true; raw.append(runtimeTestText("pre", JSON.stringify(run, null, 2)));
+  });
+  root.append(raw);
+  root.scrollTop = previousScrollTop;
+  requestAnimationFrame(() => {
+    root.scrollTop = previousScrollTop;
+    for (const state of jsonScrollRestorations) {
+      state.json.scrollTop = state.scrollTop;
+      state.json.scrollLeft = state.scrollLeft;
+    }
+  });
 }
 
 async function loadRuntimeTestEvents() {
@@ -456,8 +528,22 @@ async function loadRuntimeTestEvents() {
   if (!response.ok) return;
   selectedRuntimeTestEvents = await response.json();
   selectedRuntimeTestEvents.sort((left, right) => new Date(left.timestampUtc) - new Date(right.timestampUtc) || (left.sequence || 0) - (right.sequence || 0));
+  selectedRuntimeTestEventKeys = new Set(selectedRuntimeTestEvents.map(runtimeTestEventKey));
   renderRuntimeTestNetworkActivity();
   renderRuntimeTestEvents();
+}
+
+function runtimeTestEventKey(event) { return `${event.sessionId || ""}:${event.sequence ?? ""}`; }
+
+function scheduleRuntimeTestEventRender() {
+  if (runtimeTestEventRenderTimer || activeView !== "runtime-tests" || document.hidden) return;
+  runtimeTestEventRenderTimer = setTimeout(() => {
+    runtimeTestEventRenderTimer = null;
+    if (activeView !== "runtime-tests" || document.hidden) return;
+    selectedRuntimeTestEvents.sort((left, right) => new Date(left.timestampUtc) - new Date(right.timestampUtc) || (left.sequence || 0) - (right.sequence || 0));
+    renderRuntimeTestNetworkActivity();
+    renderRuntimeTestEvents();
+  }, 300);
 }
 
 function runtimeTestEventsInRunWindow() {
@@ -620,7 +706,7 @@ async function enqueueRuntimeTest(test, target, parameters) {
   return accepted;
 }
 
-function startRuntimeTestPolling() { if (runtimeTestPoll) return; runtimeTestPoll = setInterval(() => selectedRuntimeTestRequestId && loadRuntimeTest(selectedRuntimeTestRequestId), 750); }
+function startRuntimeTestPolling() { if (runtimeTestPoll) return; runtimeTestPoll = setInterval(() => activeView === "runtime-tests" && !document.hidden && selectedRuntimeTestRequestId && loadRuntimeTest(selectedRuntimeTestRequestId), 1500); }
 function stopRuntimeTestPolling() { clearInterval(runtimeTestPoll); runtimeTestPoll = null; }
 
 $("runtime-test-case").addEventListener("change", updateRuntimeTestDescription);
@@ -653,14 +739,19 @@ $("runtime-test-history-page-next").addEventListener("click", () => { runtimeTes
 window.addEventListener("dvmp-debug-event", event => {
   const item = event.detail;
   if (item?.eventName === "runtime-test.run-updated") {
-    refreshRuntimeTestHistory(!selectedRuntimeTestRequestId);
-    if (item.entityId === selectedRuntimeTestRequestId) loadRuntimeTest(selectedRuntimeTestRequestId);
+    scheduleRuntimeTestHistoryRefresh(!selectedRuntimeTestRequestId);
+    if (activeView === "runtime-tests" && item.entityId === selectedRuntimeTestRequestId) loadRuntimeTest(selectedRuntimeTestRequestId);
   }
   if (selectedRuntimeTestRun?.runId && item?.testRunId === selectedRuntimeTestRun.runId) {
-    if (!selectedRuntimeTestEvents.some(existing => existing.sessionId === item.sessionId && existing.sequence === item.sequence)) selectedRuntimeTestEvents.push(item);
-    selectedRuntimeTestEvents.sort((left, right) => new Date(left.timestampUtc) - new Date(right.timestampUtc) || (left.sequence || 0) - (right.sequence || 0));
-    renderRuntimeTestNetworkActivity();
-    renderRuntimeTestEvents();
+    const key = runtimeTestEventKey(item);
+    if (!selectedRuntimeTestEventKeys.has(key)) {
+      selectedRuntimeTestEventKeys.add(key); selectedRuntimeTestEvents.push(item);
+      if (selectedRuntimeTestEvents.length > 500) {
+        const removed = selectedRuntimeTestEvents.splice(0, selectedRuntimeTestEvents.length - 500);
+        for (const old of removed) selectedRuntimeTestEventKeys.delete(runtimeTestEventKey(old));
+      }
+      scheduleRuntimeTestEventRender();
+    }
   }
 });
 setInterval(() => { if (activeView === "runtime-tests") refreshRuntimeTestHistory(); }, 5000);

@@ -539,6 +539,9 @@ internal sealed partial class RuntimeTestCoordinator
             return journal?.Get(requestId);
         lock (run)
         {
+            // Completed runs are immutable. Avoid repeatedly polling every child process
+            // whenever the dashboard refreshes its history list.
+            if (Terminal(run.Parent.Status)) return Clone(run.Parent);
             if (run.PendingScenarioCommand != null)
                 return Clone(run.Parent);
             if (run.ExternalScenario != null)
@@ -578,7 +581,8 @@ internal sealed partial class RuntimeTestCoordinator
 
     public RuntimeTestRunSummaryDto[] GetRuns()
     {
-        foreach (string requestId in runs.Keys.ToArray()) GetRun(requestId);
+        foreach (KeyValuePair<string, CoordinatedRun> item in runs.ToArray())
+            if (!Terminal(item.Value.Parent.Status)) GetRun(item.Key);
         StartNextScenario(null);
         return journal?.List() ?? runs.Values.Select(item => item.Parent)
             .OrderByDescending(item => item.QueuedUtc)
@@ -1485,7 +1489,6 @@ internal sealed partial class RuntimeTestCoordinator
     private void Publish(RuntimeTestRunDto run)
     {
         if (run == null) return;
-        journal?.Upsert(run);
         string fingerprint = DebugJson.Serialize(new
         {
             run.Status, run.PhaseId, run.StepId, run.Error, run.CompletedUtc,
@@ -1497,6 +1500,9 @@ internal sealed partial class RuntimeTestCoordinator
         if (published.TryGetValue(run.RequestId, out string previous) &&
             string.Equals(previous, fingerprint, StringComparison.Ordinal)) return;
         published[run.RequestId] = fingerprint;
+        // Persist only observable state transitions. Polling an unchanged run used to
+        // clone and serialize its entire result on every request.
+        journal?.Upsert(run);
         runUpdated?.Invoke(Clone(run));
     }
 

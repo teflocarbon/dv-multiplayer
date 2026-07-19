@@ -656,7 +656,7 @@ public partial class NetworkedItem
         }
         else if (lastState is ItemState.Dropped or ItemState.Thrown)
         {
-            TrainCar parentCar = GetComponentInParent<TrainCar>();
+            TryGetPhysicalTrainParent(out TrainCar parentCar);
             ItemStaticParent staticParent = GetComponentInParent<ItemStaticParent>();
             if (parentCar != null)
             {

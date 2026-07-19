@@ -27,6 +27,9 @@ internal sealed class NetworkedItemSpatialManager
     internal const float LowLinearSpeed = 0.05f;
     internal const float LowAngularSpeed = 0.1f;
     internal const float SettlementDwellSeconds = 0.5f;
+    internal const float TrainLocalSettlementDwellSeconds = 1f;
+    internal const float TrainLocalSettlementPositionTolerance = 0.01f;
+    internal const float TrainLocalSettlementRotationToleranceDegrees = 3f;
     internal const float MinimumEpochSeconds = 0.25f;
     internal const float SampleTimeoutSeconds = 3f;
     internal const float UnresolvedMotionWarningSeconds = 30f;
@@ -50,6 +53,10 @@ internal sealed class NetworkedItemSpatialManager
         public float LastAcceptedAt;
         public float LastSentAt;
         public float LowMotionSince = -1f;
+        public float StableTrainPoseSince = -1f;
+        public Vector3 StableTrainLocalPosition;
+        public Quaternion StableTrainLocalRotation = Quaternion.identity;
+        public bool HasStableTrainPose;
         public bool SettlementSent;
         public bool UnresolvedMotionWarningEmitted;
         public ItemSpatialStateData LastAccepted;
@@ -397,7 +404,8 @@ internal sealed class NetworkedItemSpatialManager
             body.velocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
             body.Sleep();
-            if (state.SimulatorPlayerId != NetworkLifecycle.Instance.Client.PlayerId)
+            if (state.WorldParentKind == ItemWorldParentKind.TrainInterior ||
+                state.SimulatorPlayerId != NetworkLifecycle.Instance.Client.PlayerId)
                 body.isKinematic = true;
         }
         Publish("item.spatial-commit-applied", item.NetId, SpatialDebug(state), DebugRuntimeSide.Client);
@@ -594,8 +602,11 @@ internal sealed class NetworkedItemSpatialManager
         bool sleeping = body.IsSleeping();
         bool lowMotion = linearSpeed <= LowLinearSpeed && angularSpeed <= LowAngularSpeed;
         lease.LowMotionSince = lowMotion ? (lease.LowMotionSince < 0f ? now : lease.LowMotionSince) : -1f;
+        bool stableTrainPose = linearSpeed <= LowLinearSpeed &&
+                               HasStableTrainLocalPose(item, lease, now);
         bool settled = now - lease.StartedAt >= MinimumEpochSeconds &&
-                       (sleeping || lease.LowMotionSince >= 0f && now - lease.LowMotionSince >= SettlementDwellSeconds);
+                       (sleeping || (lease.LowMotionSince >= 0f &&
+                            now - lease.LowMotionSince >= SettlementDwellSeconds) || stableTrainPose);
         if (!settled && now - lease.LastSentAt < interval)
             return;
 
@@ -604,8 +615,12 @@ internal sealed class NetworkedItemSpatialManager
             settled ? ItemSpatialPhase.Settled : linearSpeed > 1f ? ItemSpatialPhase.InFlight : ItemSpatialPhase.Sliding);
         state.Sleeping = sleeping || settled;
         lease.LastSentAt = now;
+        Dictionary<string, object> debug = SpatialDebug(state);
+        if (settled)
+            debug["settlementBasis"] = sleeping ? "rigidbody-sleep" : stableTrainPose
+                ? "stable-train-local-pose" : "low-motion-dwell";
         Publish(settled ? "item.spatial-settlement-proposed" : "item.spatial-sample-sent",
-            item.NetId, SpatialDebug(state), host ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            item.NetId, debug, host ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
             highFrequency: !settled);
         if (settled)
         {
@@ -825,7 +840,8 @@ internal sealed class NetworkedItemSpatialManager
             body.velocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
             body.Sleep();
-            if (lease.SimulatorPlayerId != NetworkLifecycle.Instance.Server.SelfId)
+            if (state.WorldParentKind == ItemWorldParentKind.TrainInterior ||
+                lease.SimulatorPlayerId != NetworkLifecycle.Instance.Server.SelfId)
                 body.isKinematic = true;
         }
         NetworkLifecycle.Instance.Server.SendItemSpatialCommit(item,
@@ -858,7 +874,7 @@ internal sealed class NetworkedItemSpatialManager
             ParentLocalRotation = Quaternion.identity,
             Sleeping = body == null || body.IsSleeping()
         };
-        TrainCar car = item.GetComponentInParent<TrainCar>();
+        item.TryGetPhysicalTrainParent(out TrainCar car);
         ItemStaticParent staticParent = item.GetComponentInParent<ItemStaticParent>();
         Transform anchor = null;
         Rigidbody anchorBody = null;
@@ -880,30 +896,70 @@ internal sealed class NetworkedItemSpatialManager
         {
             state.ParentLocalPosition = anchor.InverseTransformPoint(item.transform.position);
             state.ParentLocalRotation = Quaternion.Inverse(anchor.rotation) * item.transform.rotation;
-            state.LinearVelocity = anchor.InverseTransformDirection((body?.velocity ?? Vector3.zero) -
-                (anchorBody?.velocity ?? Vector3.zero));
-            state.AngularVelocity = anchor.InverseTransformDirection((body?.angularVelocity ?? Vector3.zero) -
-                (anchorBody?.angularVelocity ?? Vector3.zero));
+            // CabItemRigidbody already represents residual motion relative to its receiving train.
+            // Subtracting TrainCar.rb here charges the train's movement against the item and makes
+            // a stationary cab item look as if it is moving backward at train speed forever.
+            Vector3 linearVelocity = body?.velocity ?? Vector3.zero;
+            Vector3 angularVelocity = body?.angularVelocity ?? Vector3.zero;
+            if (car == null)
+            {
+                linearVelocity -= anchorBody?.velocity ?? Vector3.zero;
+                angularVelocity -= anchorBody?.angularVelocity ?? Vector3.zero;
+            }
+            state.LinearVelocity = anchor.InverseTransformDirection(linearVelocity);
+            state.AngularVelocity = anchor.InverseTransformDirection(angularVelocity);
         }
         return state;
     }
 
     private static Vector3 RelativeLinearVelocity(NetworkedItem item, Rigidbody body)
     {
-        TrainCar car = item.GetComponentInParent<TrainCar>();
+        item.TryGetPhysicalTrainParent(out TrainCar car);
         if (car == null) return body.velocity;
         Transform anchor = car.interior ?? car.transform;
-        Rigidbody anchorBody = car.rb;
-        return anchor.InverseTransformDirection(body.velocity - (anchorBody?.velocity ?? Vector3.zero));
+        return anchor.InverseTransformDirection(body.velocity);
     }
 
     private static Vector3 RelativeAngularVelocity(NetworkedItem item, Rigidbody body)
     {
-        TrainCar car = item.GetComponentInParent<TrainCar>();
+        item.TryGetPhysicalTrainParent(out TrainCar car);
         if (car == null) return body.angularVelocity;
         Transform anchor = car.interior ?? car.transform;
-        Rigidbody anchorBody = car.rb;
-        return anchor.InverseTransformDirection(body.angularVelocity - (anchorBody?.angularVelocity ?? Vector3.zero));
+        return anchor.InverseTransformDirection(body.angularVelocity);
+    }
+
+    private static bool HasStableTrainLocalPose(NetworkedItem item, Lease lease, float now)
+    {
+        if (item == null || lease == null ||
+            !item.TryGetPhysicalTrainParent(out TrainCar car) || car == null)
+        {
+            if (lease != null)
+            {
+                lease.HasStableTrainPose = false;
+                lease.StableTrainPoseSince = -1f;
+            }
+            return false;
+        }
+
+        Transform anchor = car.interior ?? car.transform;
+        Vector3 localPosition = anchor.InverseTransformPoint(item.transform.position);
+        Quaternion localRotation = Quaternion.Inverse(anchor.rotation) * item.transform.rotation;
+        bool outsideTolerance = !lease.HasStableTrainPose ||
+            Vector3.Distance(lease.StableTrainLocalPosition, localPosition) >
+                TrainLocalSettlementPositionTolerance ||
+            Quaternion.Angle(lease.StableTrainLocalRotation, localRotation) >
+                TrainLocalSettlementRotationToleranceDegrees;
+        if (outsideTolerance)
+        {
+            lease.HasStableTrainPose = true;
+            lease.StableTrainPoseSince = now;
+            lease.StableTrainLocalPosition = localPosition;
+            lease.StableTrainLocalRotation = localRotation;
+            return false;
+        }
+
+        return lease.StableTrainPoseSince >= 0f &&
+               now - lease.StableTrainPoseSince >= TrainLocalSettlementDwellSeconds;
     }
 
     private static void ApplyPose(NetworkedItem item, ItemSpatialStateData state, bool immediate)
@@ -1015,12 +1071,15 @@ internal sealed class NetworkedItemSpatialManager
         else if (anchor != null)
             anchorBody = anchor.GetComponentInParent<Rigidbody>();
         body.isKinematic = false;
+        bool trainRelativeBody = state.WorldParentKind == ItemWorldParentKind.TrainInterior;
         body.velocity = anchor == null
             ? state.LinearVelocity
-            : anchor.TransformDirection(state.LinearVelocity) + (anchorBody?.velocity ?? Vector3.zero);
+            : anchor.TransformDirection(state.LinearVelocity) +
+                (trainRelativeBody ? Vector3.zero : anchorBody?.velocity ?? Vector3.zero);
         body.angularVelocity = anchor == null
             ? state.AngularVelocity
-            : anchor.TransformDirection(state.AngularVelocity) + (anchorBody?.angularVelocity ?? Vector3.zero);
+            : anchor.TransformDirection(state.AngularVelocity) +
+                (trainRelativeBody ? Vector3.zero : anchorBody?.angularVelocity ?? Vector3.zero);
         body.WakeUp();
     }
 
