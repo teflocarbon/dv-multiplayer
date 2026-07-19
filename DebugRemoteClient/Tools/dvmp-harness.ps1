@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('status','sessions','config-get','config-set','environment-start','environment-wait','environment-status','environment-stop','capabilities','runs','run','wait','cancel','capture-start','capture-stop','events','restart-dashboard')]
+    [ValidateSet('status','sessions','config-get','config-set','environment-start','environment-wait','environment-status','environment-stop','capabilities','runs','run','console','wait','cancel','capture-start','capture-stop','events','restart-dashboard')]
     [string]$Command,
     [string]$BaseUrl = 'http://127.0.0.1:7782/',
     [string]$InputJson,
@@ -11,6 +11,10 @@ param(
     [string]$RequestId,
     [string]$MutationKind,
     [string]$ParametersJson = '{}',
+    [string]$Code,
+    [string]$CodeFile,
+    [ValidateSet('expression','body')]
+    [string]$CodeMode = 'expression',
     [string]$Name = 'codex-capture',
     [int]$TimeoutSeconds = 120,
     [string]$ProjectRoot
@@ -182,6 +186,26 @@ switch ($Command) {
         }
         $accepted = Invoke-HarnessApi 'POST' 'api/runtime-tests/commands' $request
         if (-not $accepted.accepted) { throw "runtime-test-rejected:$($accepted.reason)" }
+        Write-RunResult (Wait-Run $accepted.requestId)
+    }
+    'console' {
+        if (-not [string]::IsNullOrWhiteSpace($CodeFile)) {
+            $Code = Get-Content -LiteralPath $CodeFile -Raw
+        }
+        if ([string]::IsNullOrWhiteSpace($Code)) { throw 'console-requires-Code-or-CodeFile' }
+        if ([string]::IsNullOrWhiteSpace($TargetSessionId) -and [string]::IsNullOrWhiteSpace($TargetRole)) {
+            throw 'console-requires-TargetSessionId-or-TargetRole'
+        }
+        $id = [Guid]::NewGuid().ToString('N')
+        $request = [ordered]@{
+            requestId = $id; runId = ('console-' + $id); caseId = 'runtime-csharp-console'
+            phaseId = 'console'; stepId = 'execute'; command = 'runtime.csharp'
+            targetSessionId = $TargetSessionId; targetRole = $TargetRole
+            mutationKind = 'IsolatedMutation'; timeoutMilliseconds = [Math]::Max(1000, $TimeoutSeconds * 1000)
+            parameters = @{ code = $Code; mode = $CodeMode }
+        }
+        $accepted = Invoke-HarnessApi 'POST' 'api/runtime-tests/commands' $request
+        if (-not $accepted.accepted) { throw "runtime-console-rejected:$($accepted.reason)" }
         Write-RunResult (Wait-Run $accepted.requestId)
     }
     'wait' {

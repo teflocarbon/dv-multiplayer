@@ -1,0 +1,52 @@
+{
+  "testId": "external.moving-train-item-client-drop",
+  "displayName": "Client drop remains inside a moving locomotive",
+  "category": "Moving train items",
+  "fidelity": "GameplayMethods+ClientAction+HostAuthority+TrainRelativeSpatialReplication",
+  "timeoutMilliseconds": 120000,
+  "requiredCapabilities": [ "host-train-fixtures", "train-item-spatial-observation", "inventory-runtime-arrangement" ],
+  "steps": [
+    { "id": "client-identity", "command": "runtime.self-check", "target": "client", "capture": { "actorPlayerId": "runtime.playerId" } },
+    { "id": "create-train", "command": "train.fixture-create", "target": "host",
+      "parameters": { "fixtureId": "moving-client-drop-${run.id}", "locationId": "steel-mill-north-test-track", "liveries": "LocoDE2", "roles": "Locomotive", "preventDerailment": "true", "protectFuses": "true", "preventDamage": "true", "sustainEngine": "true", "maximumSpeedKph": "12" },
+      "capture": { "carNetId": "fixture.cars[0].netId", "trainNetIds": "fixture.netIds" } },
+    { "id": "observe-train-client", "command": "train.fixture-observe", "target": "client", "parameters": { "fixtureId": "moving-client-drop-${run.id}", "netIds": "${var.trainNetIds}" } },
+    { "id": "board-host", "command": "train.fixture-place-player", "target": "host", "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" }, "assertions": [ { "path": "insideResolvedCab", "equals": true, "message": "Host was not placed inside the resolved cab footprint." }, { "path": "reparentTargetPresent", "equals": true, "message": "Host train projection had no authored reparent target." }, { "path": "anchorSource", "equals": "livery-authored-surface", "message": "Host did not use the verified DE2 cab surface." } ] },
+    { "id": "board-client", "command": "train.fixture-place-player", "target": "client", "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" }, "assertions": [ { "path": "insideResolvedCab", "equals": true, "message": "Client was not placed inside the resolved cab footprint." }, { "path": "reparentTargetPresent", "equals": true, "message": "Client train projection had no authored reparent target." }, { "path": "anchorSource", "equals": "livery-authored-surface", "message": "Client did not use the verified DE2 cab surface." } ] },
+    { "id": "create-client-item", "command": "inventory.fixture-create", "target": "host",
+      "parameters": { "prefabName": "lighter", "ownerPlayerId": "${var.actorPlayerId}", "holderPlayerId": "${var.actorPlayerId}", "placement": "inventory", "belongsToPlayer": "true" },
+      "capture": { "itemNetId": "netId", "itemFixtureToken": "fixtureToken" } },
+    { "id": "hold-client-item", "command": "inventory.local-place", "target": "client", "parameters": { "netId": "${var.itemNetId}", "placement": "hand" },
+      "assertions": [ { "path": "itemState", "equals": "InHand" } ] },
+    { "id": "drop-inside-stopped-cab", "command": "item.drop", "target": "client", "parameters": { "netId": "${var.itemNetId}" } },
+    { "id": "start-train", "command": "train.fixture-start", "target": "host", "parameters": { "fixtureId": "moving-client-drop-${run.id}", "targetSpeedKph": "4", "reverser": "1" } },
+    { "id": "wait-for-motion", "command": "train.fixture-wait-motion", "target": "host", "parameters": { "fixtureId": "moving-client-drop-${run.id}", "minimumSpeedKph": "1", "waitSeconds": "20" },
+      "assertions": [ { "path": "moving", "equals": true } ] },
+    { "id": "verify-host-train-relative-item", "command": "train.item-observe-motion", "target": "host",
+      "parameters": { "itemNetId": "${var.itemNetId}", "carNetId": "${var.carNetId}", "requireSettled": "true", "sampleSeconds": "2", "maximumLocalDrift": "0.75", "maximumRelativeSpeed": "2" },
+      "assertions": [
+        { "path": "trainMoving", "equals": true }, { "path": "physicallyParentedToExpectedCar", "equals": true },
+        { "path": "spatialSettled", "equals": true }, { "path": "committedParentMatches", "equals": true },
+        { "path": "committedPoseMatches", "equals": true }, { "path": "localPoseStable", "equals": true },
+        { "path": "relativeVelocityBounded", "equals": true }, { "path": "singleProjection", "equals": true }, { "path": "finite", "equals": true }
+      ] },
+    { "id": "verify-client-train-relative-item", "command": "train.item-observe-motion", "target": "client",
+      "parameters": { "itemNetId": "${var.itemNetId}", "carNetId": "${var.carNetId}", "requireSettled": "true", "sampleSeconds": "2", "maximumLocalDrift": "0.75", "maximumRelativeSpeed": "2" },
+      "assertions": [
+        { "path": "trainMoving", "equals": true }, { "path": "physicallyParentedToExpectedCar", "equals": true },
+        { "path": "spatialSettled", "equals": true }, { "path": "committedParentMatches", "equals": true },
+        { "path": "committedPoseMatches", "equals": true }, { "path": "localPoseStable", "equals": true },
+        { "path": "relativeVelocityBounded", "equals": true }, { "path": "singleProjection", "equals": true }, { "path": "finite", "equals": true }
+      ] }
+  ],
+  "cleanup": [
+    { "id": "stop-train", "command": "train.fixture-stop", "target": "host", "requiredVariables": [ "carNetId" ], "parameters": { "fixtureId": "moving-client-drop-${run.id}" } },
+    { "id": "evacuate-host", "command": "train.fixture-evacuate-player", "target": "host", "requiredVariables": [ "carNetId" ], "parameters": { "carNetId": "${var.carNetId}" } },
+    { "id": "evacuate-client", "command": "train.fixture-evacuate-player", "target": "client", "requiredVariables": [ "carNetId" ], "parameters": { "carNetId": "${var.carNetId}" } },
+    { "id": "destroy-item", "command": "inventory.fixture-destroy", "target": "host", "requiredVariables": [ "itemNetId", "itemFixtureToken" ], "parameters": { "netId": "${var.itemNetId}", "fixtureToken": "${var.itemFixtureToken}" } },
+    { "id": "purge-client-item", "command": "inventory.fixture-clean-local", "target": "client", "requiredVariables": [ "itemNetId", "itemFixtureToken" ], "parameters": { "itemNetId": "${var.itemNetId}", "itemFixtureToken": "${var.itemFixtureToken}" } },
+    { "id": "delete-train", "command": "train.fixture-cleanup", "target": "host", "parameters": { "fixtureId": "moving-client-drop-${run.id}", "ignoreMissing": "true" } },
+    { "id": "neutralize-host", "command": "runtime.neutralize", "target": "host" },
+    { "id": "neutralize-client", "command": "runtime.neutralize", "target": "client" }
+  ]
+}

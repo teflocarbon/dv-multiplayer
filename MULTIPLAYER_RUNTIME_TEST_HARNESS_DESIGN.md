@@ -9,6 +9,10 @@
 > in-game test agent must be compiled only in `DEBUG` builds. They must not be present but disabled
 > in a release assembly.
 
+The debug-only host-authoritative train fixture model and the production trainset relocation
+transaction it requires are specified separately in
+[`MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md`](MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md).
+
 ## Purpose
 
 The existing pure and protocol tests cover canonical state machines, container graphs, packet

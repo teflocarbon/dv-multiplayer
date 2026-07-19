@@ -22,6 +22,8 @@ using System.Reflection;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Multiplayer.Debugging.RuntimeTests.TrainFixtures;
+using Multiplayer.Debugging.RuntimeConsole;
 
 namespace Multiplayer.Debugging.RuntimeTests;
 
@@ -72,6 +74,11 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
     private RuntimeTestCapabilitiesDto cachedCapabilities = UnavailableCapabilities();
     private readonly DerailValleyItemTestDriver itemDriver = new();
     private readonly InventoryRuntimeFixtureDriver inventoryFixtures = new();
+    private readonly DebugTrainTrackRuntimeDriver trainTracks = new();
+    private readonly DebugTrainFixtureManager trainFixtures = new();
+    private readonly DebugTrainPlayerRuntimeDriver trainPlayers = new();
+    private readonly DebugTrainItemRuntimeDriver trainItems = new();
+    private readonly RuntimeCSharpExecutionDriver csharp = new();
     private Coroutine active;
     private float nextCapabilityRefresh;
     private bool sceneAnchorsDirty = true;
@@ -89,6 +96,7 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
 
     private void Update()
     {
+        trainFixtures.Tick();
         if (Time.unscaledTime >= nextCapabilityRefresh) RefreshCapabilities();
         if (active == null && !RuntimeTestControlState.TestsPaused &&
             queued.TryDequeue(out RuntimeTestCommandDto command))
@@ -172,6 +180,7 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             "runtime.control-status" => ControlStatus(run),
             "runtime.interaction-mode" => InteractionMode(command, run),
             "runtime.neutralize" => RuntimeTestGameState.EnsureNeutral(run, "neutralize"),
+            "runtime.csharp-execute" => csharp.Execute(command, run),
             "environment.status" => EnvironmentStatus(run),
             "environment.save-catalog" => SaveCatalog(run),
             "environment.host-save" => HostSave(command, run),
@@ -190,6 +199,25 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
             "inventory.fixture-destroy" => inventoryFixtures.DestroyFixture(command, run),
             "inventory.fixture-clean-local" => inventoryFixtures.CleanupLocalFixtures(command, run),
             "inventory.local-place" => inventoryFixtures.PlaceLocal(command, run),
+            "train.track-catalog" => trainTracks.Catalog(command, run),
+            "train.track-nearest" => trainTracks.Nearest(command, run),
+            "train.fixture-location-catalog" => trainTracks.FixtureLocations(command, run),
+            "train.fixture-teleport-location" => trainTracks.TeleportToFixtureLocation(command, run),
+            "train.fixture-create" => trainFixtures.Create(command, run),
+            "train.fixture-catalog" => trainFixtures.Catalog(command, run),
+            "train.fixture-observe" => trainFixtures.Observe(command, run),
+            "train.fixture-status" => trainFixtures.Status(command, run),
+            "train.fixture-acquire-route" => trainFixtures.AcquireRoute(command, run),
+            "train.fixture-start" => trainFixtures.Start(command, run),
+            "train.fixture-stop" => trainFixtures.Stop(command, run),
+            "train.fixture-wait-motion" => trainFixtures.WaitForMotion(command, run),
+            "train.fixture-set-control" => trainFixtures.SetFixtureControl(command, run),
+            "train.fixture-relocate" => trainFixtures.Relocate(command, run),
+            "train.fixture-place-player" => trainPlayers.Place(command, run),
+            "train.fixture-evacuate-player" => trainPlayers.Evacuate(command, run),
+            "train.fixture-cleanup" => trainFixtures.Cleanup(command, run),
+            "train.fixture-cleanup-orphans" => trainFixtures.CleanupOrphans(command, run),
+            "train.item-observe-motion" => trainItems.ObserveMotion(command, run),
             _ => RuntimeTestScenarioRegistry.CreateExecution(command.Command, command, run)
         };
         if (operation == null)
@@ -660,7 +688,7 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
     {
         nextCapabilityRefresh = Time.unscaledTime + 2f;
         List<string> capabilities = new() { "main-thread-command-queue", "runtime-self-check", "environment-orchestration",
-            "runtime-input-control", "neutral-world-state" };
+            "runtime-input-control", "neutral-world-state", "runtime-csharp-execution" };
         if (PlayerManager.PlayerTransform != null && WorldMover.Instance != null) capabilities.Add("player-teleport");
         if (VRManager.IsVREnabled()) capabilities.Add("vr-runtime"); else capabilities.Add("non-vr-runtime");
         if (itemDriver.TryResolve(out _))
@@ -683,6 +711,13 @@ internal sealed class RuntimeTestAgent : MonoBehaviour
         if (!VRManager.IsVREnabled() && lifecycle?.IsClientRunning == true &&
             Inventory.Instance != null && PlayerManager.PlayerTransform != null)
             capabilities.Add("world-item-sync-runtime-scenario");
+        if (RailTrackRegistryBase.Instance != null && RailTrackRegistryBase.RailTracks?.Length > 0)
+        {
+            capabilities.Add("train-track-catalog");
+            capabilities.Add("train-fixture-observation");
+            if (lifecycle?.IsServerRunning == true && lifecycle.IsHost())
+                capabilities.Add("host-train-fixtures");
+        }
 
         Dictionary<string, object> anchors = new(StringComparer.Ordinal);
         anchors["controlState"] = RuntimeTestControlState.Snapshot();

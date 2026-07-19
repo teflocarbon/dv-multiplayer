@@ -8,6 +8,10 @@ let runtimeTestPoll = null;
 let runtimeScenarioSelections = new Set();
 let runtimeScenarioQueue = [];
 let runtimeScenarioQueueRunning = false;
+let runtimeScenarioPage = 0;
+let runtimeTestHistoryPage = 0;
+
+const runtimeTestPageSize = 30;
 
 const runtimeTestTab = document.createElement("button");
 runtimeTestTab.id = "runtime-tests-tab";
@@ -24,6 +28,7 @@ runtimeTestView.innerHTML = `
       <div class="runtime-scenario-actions"><span id="runtime-scenario-selection-summary" class="meta">0 selected · queue empty</span><button id="runtime-scenario-select-all" class="quiet">Select all</button><button id="runtime-scenario-clear-selection" class="quiet" disabled>Clear selection</button><button id="runtime-scenario-run-selected" disabled>Run selected</button><button id="runtime-scenario-clear-queue" class="quiet" disabled>Clear queue</button></div>
     </div>
     <div id="runtime-scenario-list" class="runtime-scenario-list"></div>
+    <nav class="runtime-test-pagination" aria-label="Scenario pages"><button id="runtime-scenario-page-prev" class="quiet">Previous</button><span id="runtime-scenario-page-summary" class="meta">Page 1 of 1</span><button id="runtime-scenario-page-next" class="quiet">Next</button></nav>
   </section>
   <section class="runtime-test-runner">
     <div class="runtime-test-toolbar">
@@ -37,11 +42,22 @@ runtimeTestView.innerHTML = `
       <details class="runtime-test-parameters"><summary>Parameters</summary><textarea id="runtime-test-params" rows="5" spellcheck="false">{}</textarea></details>
     </div>
   </section>
+  <details class="runtime-console">
+    <summary><span><strong>C# console</strong><small>Externally compiled, Unity main-thread execution</small></span></summary>
+    <div class="runtime-console-toolbar">
+      <select id="runtime-console-target"><option value="">Select a process</option></select>
+      <select id="runtime-console-mode"><option value="expression">Expression</option><option value="body">Method body</option></select>
+      <button id="runtime-console-run">Run C#</button>
+    </div>
+    <textarea id="runtime-console-code" rows="8" spellcheck="false">PlayerManager.PlayerTransform.position - WorldMover.currentMove</textarea>
+    <pre id="runtime-console-output">No console command has run yet.</pre>
+  </details>
   <div class="runtime-test-layout">
     <aside class="runtime-test-sidebar">
       <div class="runtime-test-sidebar-head"><div><p class="eyebrow">RUN HISTORY</p><strong id="runtime-test-history-count">0 runs</strong></div><button id="runtime-test-refresh" class="quiet">Refresh</button></div>
       <div class="runtime-test-filters"><input id="runtime-test-search" placeholder="Filter runs"><select id="runtime-test-status"><option value="">All statuses</option><option>Running</option><option>Passed</option><option>Failed</option><option>FailedDirty</option><option>Cancelled</option><option>Unsupported</option></select></div>
       <div id="runtime-test-history" class="runtime-test-history"><p class="empty">No test runs yet.</p></div>
+      <nav class="runtime-test-pagination runtime-test-history-pagination" aria-label="Run history pages"><button id="runtime-test-history-page-prev" class="quiet">Previous</button><span id="runtime-test-history-page-summary" class="meta">Page 1 of 1</span><button id="runtime-test-history-page-next" class="quiet">Next</button></nav>
     </aside>
     <section id="runtime-test-detail" class="runtime-test-detail"><div class="runtime-test-empty"><p class="eyebrow">RUNTIME TESTS</p><h2>Select a run</h2><p>Run history, assertions, cleanup, process steps, captures, and correlated events appear here.</p></div></section>
   </div>`;
@@ -111,6 +127,14 @@ async function refreshRuntimeTestCapabilities() {
     for (const session of knownSessions.filter(value => value.role !== "dashboard" && value.role !== "standalone"))
       targets.add(new Option(`${session.role}${session.playerId == null ? "" : ` P${session.playerId}`} · ${session.playerName || session.sessionId}`, session.sessionId));
     if (Array.from(targets.options).some(option => option.value === selectedTarget)) targets.value = selectedTarget;
+    const consoleTargets = $("runtime-console-target"), selectedConsoleTarget = consoleTargets.value;
+    consoleTargets.replaceChildren(new Option("Select a process", ""));
+    for (const option of Array.from(targets.options).slice(1))
+      consoleTargets.add(new Option(option.textContent, option.value));
+    if (Array.from(consoleTargets.options).some(option => option.value === selectedConsoleTarget))
+      consoleTargets.value = selectedConsoleTarget;
+    else if (targets.value) consoleTargets.value = targets.value;
+    $("runtime-console-run").disabled = !tests.some(test => test.testId === "runtime.csharp");
     renderRuntimeScenarioLauncher(scenarios);
     updateRuntimeTestDescription();
   } catch (error) {
@@ -146,7 +170,10 @@ function renderRuntimeScenarioLauncher(scenarios) {
   launcher.hidden = !scenarios.length;
   const ids = new Set(scenarios.map(scenario => scenario.testId));
   runtimeScenarioSelections = new Set([...runtimeScenarioSelections].filter(id => ids.has(id)));
-  for (const scenario of scenarios) {
+  const pageCount = Math.max(1, Math.ceil(scenarios.length / runtimeTestPageSize));
+  runtimeScenarioPage = Math.min(Math.max(0, runtimeScenarioPage), pageCount - 1);
+  const pageStart = runtimeScenarioPage * runtimeTestPageSize;
+  for (const scenario of scenarios.slice(pageStart, pageStart + runtimeTestPageSize)) {
     const selected = runtimeScenarioSelections.has(scenario.testId);
     const card = document.createElement("article"); card.className = `runtime-scenario-card${selected ? " selected" : ""}`;
     const checkbox = document.createElement("input"); checkbox.type = "checkbox";
@@ -163,6 +190,9 @@ function renderRuntimeScenarioLauncher(scenarios) {
     card.append(checkbox, copy);
     root.append(card);
   }
+  $("runtime-scenario-page-summary").textContent = `${scenarios.length ? pageStart + 1 : 0}-${Math.min(pageStart + runtimeTestPageSize, scenarios.length)} of ${scenarios.length} · Page ${runtimeScenarioPage + 1} of ${pageCount}`;
+  $("runtime-scenario-page-prev").disabled = runtimeScenarioPage === 0;
+  $("runtime-scenario-page-next").disabled = runtimeScenarioPage >= pageCount - 1;
   updateRuntimeScenarioControls(scenarios);
 }
 
@@ -273,14 +303,18 @@ function updateRuntimeTestDescription() {
 }
 
 function renderRuntimeTestHistory() {
-  const root = $("runtime-test-history"), previousScroll = root.scrollTop;
+  const root = $("runtime-test-history");
   const term = $("runtime-test-search").value.trim().toLowerCase();
   const status = $("runtime-test-status").value;
   const visible = runtimeTestHistory.filter(run => (!status || run.status === status) && (!term || `${run.command} ${run.caseId} ${run.runId} ${run.error}`.toLowerCase().includes(term)));
   $("runtime-test-history-count").textContent = `${visible.length} ${visible.length === 1 ? "run" : "runs"}`;
+  const pageCount = Math.max(1, Math.ceil(visible.length / runtimeTestPageSize));
+  runtimeTestHistoryPage = Math.min(Math.max(0, runtimeTestHistoryPage), pageCount - 1);
+  const pageStart = runtimeTestHistoryPage * runtimeTestPageSize;
+  const page = visible.slice(pageStart, pageStart + runtimeTestPageSize);
   root.replaceChildren();
   if (!visible.length) root.append(runtimeTestText("p", "No matching test runs.", "empty"));
-  for (const run of visible) {
+  for (const run of page) {
     const button = document.createElement("button");
     button.className = `runtime-test-run-card ${runtimeTestStatusClass(run.status)}${run.requestId === selectedRuntimeTestRequestId ? " selected" : ""}`;
     const icon = runtimeTestText("span", runtimeTestStatusIcon(run.status), "runtime-test-status-icon");
@@ -293,7 +327,10 @@ function renderRuntimeTestHistory() {
     button.addEventListener("click", () => selectRuntimeTestRun(run.requestId));
     root.append(button);
   }
-  root.scrollTop = previousScroll;
+  root.scrollTop = 0;
+  $("runtime-test-history-page-summary").textContent = `${visible.length ? pageStart + 1 : 0}-${Math.min(pageStart + runtimeTestPageSize, visible.length)} of ${visible.length} · Page ${runtimeTestHistoryPage + 1} of ${pageCount}`;
+  $("runtime-test-history-page-prev").disabled = runtimeTestHistoryPage === 0;
+  $("runtime-test-history-page-next").disabled = runtimeTestHistoryPage >= pageCount - 1;
 }
 
 async function selectRuntimeTestRun(requestId) {
@@ -551,6 +588,29 @@ async function startRuntimeTest() {
   } catch (error) { alert(error.message || String(error)); }
 }
 
+async function runRuntimeConsole() {
+  const target = $("runtime-console-target").value;
+  const code = $("runtime-console-code").value;
+  if (!target || !code.trim()) { alert("Select a process and enter C# code."); return; }
+  const descriptor = (runtimeTestCapabilities?.tests || []).find(test => test.testId === "runtime.csharp");
+  if (!descriptor) { alert("The running game build does not expose the C# execution bridge."); return; }
+  const output = $("runtime-console-output");
+  output.textContent = "Compiling and queueingâ€¦";
+  try {
+    const accepted = await enqueueRuntimeTest(descriptor, target, {code, mode:$("runtime-console-mode").value});
+    let run;
+    for (;;) {
+      const response = await fetch(`/api/runtime-tests/runs/${encodeURIComponent(accepted.requestId)}`);
+      run = await response.json();
+      if (terminalRuntimeTestStatuses.has(run.status)) break;
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    output.textContent = JSON.stringify(run, null, 2);
+    await refreshRuntimeTestHistory();
+    await selectRuntimeTestRun(accepted.requestId);
+  } catch (error) { output.textContent = error.message || String(error); }
+}
+
 async function enqueueRuntimeTest(test, target, parameters) {
   const requestId = globalThis.crypto?.randomUUID ? crypto.randomUUID().replaceAll("-", "") : `${Date.now()}${Math.random().toString(16).slice(2)}`;
   const request = {requestId, runId:`dashboard-${requestId}`, caseId:test.testId, phaseId:"act", stepId:test.testId, command:test.testId, targetSessionId:target, mutationKind:test.mutationKind, timeoutMilliseconds:test.timeoutMilliseconds, parameters};
@@ -565,6 +625,7 @@ function stopRuntimeTestPolling() { clearInterval(runtimeTestPoll); runtimeTestP
 
 $("runtime-test-case").addEventListener("change", updateRuntimeTestDescription);
 $("runtime-test-run").addEventListener("click", startRuntimeTest);
+$("runtime-console-run").addEventListener("click", runRuntimeConsole);
 $("runtime-scenario-select-all").addEventListener("click", () => {
   for (const scenario of (runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario)) runtimeScenarioSelections.add(scenario.testId);
   renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
@@ -577,10 +638,18 @@ $("runtime-scenario-clear-queue").addEventListener("click", () => {
   runtimeScenarioQueue = runtimeScenarioQueue.filter(item => !["Queued", "Submitting"].includes(item.status));
   renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
 });
+$("runtime-scenario-page-prev").addEventListener("click", () => {
+  runtimeScenarioPage--; renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+});
+$("runtime-scenario-page-next").addEventListener("click", () => {
+  runtimeScenarioPage++; renderRuntimeScenarioLauncher((runtimeTestCapabilities?.tests || []).filter(isRuntimeScenario));
+});
 $("runtime-test-cancel").addEventListener("click", async () => { if (selectedRuntimeTestRequestId) await post(`/api/runtime-tests/runs/${encodeURIComponent(selectedRuntimeTestRequestId)}/cancel`, {}); });
 $("runtime-test-refresh").addEventListener("click", () => refreshRuntimeTestHistory());
-$("runtime-test-search").addEventListener("input", renderRuntimeTestHistory);
-$("runtime-test-status").addEventListener("input", renderRuntimeTestHistory);
+$("runtime-test-search").addEventListener("input", () => { runtimeTestHistoryPage = 0; renderRuntimeTestHistory(); });
+$("runtime-test-status").addEventListener("input", () => { runtimeTestHistoryPage = 0; renderRuntimeTestHistory(); });
+$("runtime-test-history-page-prev").addEventListener("click", () => { runtimeTestHistoryPage--; renderRuntimeTestHistory(); });
+$("runtime-test-history-page-next").addEventListener("click", () => { runtimeTestHistoryPage++; renderRuntimeTestHistory(); });
 window.addEventListener("dvmp-debug-event", event => {
   const item = event.detail;
   if (item?.eventName === "runtime-test.run-updated") {
