@@ -14,12 +14,18 @@ function matches(event) {
   const corpus = `${event.sessionId} ${event.role} ${event.category} ${event.eventName} ${event.entityType} ${event.entityId} ${packetType(event)} ${summary(event)} ${JSON.stringify(event.data || {})}`.toLowerCase();
   return (!term || corpus.includes(term)) && (!$("session-filter").value || event.sessionId === $("session-filter").value) && (!$("category-filter").value || event.category === $("category-filter").value) && (!$("severity-filter").value || event.severity === $("severity-filter").value);
 }
-function addOption(select, value, label = value) { if (!value || Array.from(select.options).some(option => option.value === value)) return; select.add(new Option(label, value)); }
+function addOption(select, value, label = value) {
+  if (!value) return;
+  select.__knownValues ||= new Set(Array.from(select.options, option => option.value));
+  if (select.__knownValues.has(value)) return;
+  select.__knownValues.add(value); select.add(new Option(label, value));
+}
 function add(event) {
   events.push(event); if (events.length > 50000) events.splice(0, events.length - 50000);
   window.dispatchEvent(new CustomEvent("dvmp-debug-event", {detail:event}));
   addOption($("session-filter"), event.sessionId, `${event.role || "session"} · ${event.sessionId}`);
   addOption($("category-filter"), event.category);
+  if (activeView !== "events") return;
   if (!paused && pinned === null) scheduleRender(); else updateStats();
 }
 function render() {
@@ -36,7 +42,14 @@ function render() {
   }
   updateStats(visible.length);
 }
-function scheduleRender() { if (renderQueued) return; renderQueued = true; setTimeout(() => { renderQueued = false; render(); }, 100); }
+function scheduleRender() {
+  if (renderQueued || activeView !== "events" || document.hidden) return;
+  renderQueued = true;
+  setTimeout(() => {
+    renderQueued = false;
+    if (activeView === "events" && !document.hidden) render();
+  }, 250);
+}
 function updateStats(visible) { $("count").textContent = `${events.length.toLocaleString()} events`; $("filtered").textContent = visible === undefined ? "Paused or pinned; events continue buffering" : `${visible.toLocaleString()} shown`; }
 function openInspector(event) {
   pinned = event.sequence; $("inspector").hidden = false;

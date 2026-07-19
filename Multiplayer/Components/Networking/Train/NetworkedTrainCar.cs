@@ -78,6 +78,31 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return trainCarsToNetworkedTrainCars.TryGetValue(trainCar, out networkedTrainCar);
     }
 
+    /// <summary>
+    /// Resolves a transform parented to a car's detached interior hierarchy. DV keeps some
+    /// interiors outside the TrainCar transform hierarchy, so GetComponentInParent cannot be
+    /// relied on for loose cab items.
+    /// </summary>
+    public static bool TryGetFromInteriorHierarchy(Transform candidate, out TrainCar trainCar)
+    {
+        trainCar = null;
+        if (candidate == null)
+            return false;
+
+        foreach (TrainCar registeredCar in trainCarsToNetworkedTrainCars.Keys)
+        {
+            if (registeredCar == null)
+                continue;
+            Transform interior = registeredCar.interior ?? registeredCar.transform;
+            if (candidate == interior || candidate.IsChildOf(interior))
+            {
+                trainCar = registeredCar;
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static bool TryGetNetId(TrainCar trainCar, out ushort netId)
     {
         netId = 0;

@@ -429,8 +429,15 @@ replication moves the parent; item replication does not resend that inherited mo
 
 If an item is still sliding, rolling, or bouncing inside the train, its simulator sends local-space
 samples under a train-anchored spatial epoch. Settlement uses relative linear/angular motion, not the
-train's world velocity. Never-settling train-local motion remains part of the deferred runaway-item
-research rather than receiving a speculative recovery rule.
+train's world velocity. Long-running train-local motion must not be mistaken for settlement merely
+because the train itself is moving.
+
+DV can keep a physically stationary cab item awake with small recurring angular-velocity impulses.
+For train interiors, settlement therefore also accepts a one-second dwell inside a tight train-local
+pose envelope (one centimetre and three degrees) while linear motion remains low. After the host
+commits that pose, the item remains physically parented and becomes kinematic until a later release
+starts a new simulation lease. This freezes only proven train-local jitter; genuine sliding, rolling,
+or bouncing continues to reset the pose dwell.
 
 Train parenting must use Derail Valley's complete item-reparenting operation, not only
 `Transform.SetParent`. Specifically, `ItemReparentingBase.ParentItemExternal` must receive
@@ -440,10 +447,12 @@ Train parenting must use Derail Valley's complete item-reparenting operation, no
 still behaves as world-relative; using `GetComponent<Rigidbody>()` on the car is not equivalent to
 using DV's `TrainCar.rb` reference.
 
-Captured train-local linear and angular velocities subtract `trainCar.rb` motion before conversion
-to interior-local space. Applying a train-local state adds that same body motion exactly once. A
-settled item inherits movement through its train parent and must not receive the train's world
-velocity again through item replication.
+For an item physically parented through `CabItemRigidbody`, DV already exposes the item's residual
+linear and angular motion relative to the receiving train. Capture converts those body velocities
+to interior-local space without subtracting `trainCar.rb` velocity, and application converts them
+back without adding it. Subtracting the train body makes a stationary cab item appear to move
+backward at train speed forever. A settled item inherits movement through its train parent and must
+not receive the train's world velocity again through item replication.
 
 Parent changes are authoritative boundaries:
 
