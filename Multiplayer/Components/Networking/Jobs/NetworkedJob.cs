@@ -318,12 +318,6 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         yield break;
     }
 
-    public bool TryGetNetworkedStationControllerHandlingNetworkedJob(out NetworkedStationController networkedStationController)
-    {
-        networkedStationController = NetworkedStationController.stationControllerToNetworkedStationController.Values.ToArray().FirstOrDefault(sc => sc.NetworkedJobs.Contains(this));
-        return (networkedStationController == null) ? false : true;
-    }
-
     public void AddReport(NetworkedItem item)
     {
         if (item == null || !item.UsefulItem)

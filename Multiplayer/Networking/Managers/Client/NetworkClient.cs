@@ -1363,15 +1363,15 @@ public class NetworkClient : NetworkManager
                     {
                         var cars = Traverse.Create(task).Field("cars").GetValue<IList<Car>>();
                         Car carToReplace = cars.FirstOrDefault(c => c.ID == car.ID);
-                        if (cars != null && cars.Remove(carToReplace))
+                        if (cars != null && cars.Contains(carToReplace))
                         {
                             var job = task.Job;
                             var jobToCarsDict = SingletonBehaviour<JobsManager>.Instance.jobToJobCars;
                             if (jobToCarsDict.TryGetValue(job, out var dictCars)) jobToCarsDict[job] = (dictCars?.Replace(carToReplace, car).ToHashSet());
-                            if (NetworkedJob.TryGetFromJob(job, out var netJob) && netJob.TryGetNetworkedStationControllerHandlingNetworkedJob(out var nsc))
+                            if (NetworkedJob.TryGetFromJob(job, out var netJob) && netJob.Station != null)
                             {
-                                cars.Add(car);
-                                nsc.UpdateCarPlates([packet.CarNetID], job.ID);
+                                cars.Replace(carToReplace, car);
+                                netJob.Station.UpdateCarPlates([packet.CarNetID], job.ID);
                                 LogDebug(() => $"ProcessClientboundTaskUpdatePackets() successfully updated car reference {car.ID} in {task.GetType().Name} with netId {packet.TaskNetId} for job {task.Job.ID}");
                             }
                             else LogError($"Why..., just WHY ?!?");
