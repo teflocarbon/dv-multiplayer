@@ -60,9 +60,19 @@ public static class StationLocoSpawner_Start_Patch
             return;
         List<TrainCarLivery> trainCarTypes = new(stationLocoSpawner.locoTypeGroupsToSpawn[stationLocoSpawner.nextLocoGroupSpawnIndex].liveries);
         stationLocoSpawner.nextLocoGroupSpawnIndex = Random.Range(0, stationLocoSpawner.locoTypeGroupsToSpawn.Count);
+
         List<Car> unusedTrainCars =
-            CarSpawner.Instance.SpawnCarTypesOnTrack(trainCarTypes, null, stationLocoSpawner.locoSpawnTrack, true, true, flipTrainConsist: stationLocoSpawner.spawnRotationFlipped)
-            .Select(TC => TC.logicCar).ToList();
+            CarSpawner.Instance.SpawnCarTypesOnTrack
+            (
+                trainCarTypes,
+                null,
+                stationLocoSpawner.locoSpawnTrack,
+                true,
+                true,
+                flipTrainConsist: stationLocoSpawner.spawnRotationFlipped
+            )
+            ?.Select(TC => TC.logicCar)
+            ?.ToList();
 
         if (unusedTrainCars != null)
             UnusedTrainCarDeleter.Instance.MarkForDelete(unusedTrainCars);
