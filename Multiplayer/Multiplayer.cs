@@ -1,7 +1,5 @@
 using DV;
-using DV.Logic.Job;
 using DV.UIFramework;
-using DV.Utils;
 using HarmonyLib;
 using JetBrains.Annotations;
 using LiteNetLib;
@@ -14,7 +12,6 @@ using Multiplayer.Models;
 using Multiplayer.Patches.Mods;
 using Multiplayer.Patches.World;
 using System;
-using System.Collections;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -52,15 +49,7 @@ public static class Multiplayer
 
     public static string LocalBuildInfo => BuildInfo.BUILD_VERSION_MAJOR.ToString() + " - " + BuildInfo.BUILDBOT_INFO;
 
-
     public static bool specLog = false;
-
-    public static bool PersJobs = false;
-    public static MethodInfo PersJobsJobTrackChangedEventRegMethod;
-    public static MethodInfo PersJobsJobTrackChangedEventUnregMethod;
-    public static MethodInfo PersJobsJobCarChangedEventRegMethod;
-    public static MethodInfo PersJobsJobCarChangedEventUnregMethod;
-    public static FieldInfo PersJobsResumeCoroRunningField;
 
     [UsedImplicitly]
     public static bool Load(UnityModManager.ModEntry modEntry)
@@ -116,7 +105,7 @@ public static class Multiplayer
                 RemoteDispatchPatch.Patch(harmony, remoteDispatch.Assembly);
             }
 
-            TryLoadPersistentJobs();
+            PersistentJobs.TryLoadPersistentJobs();
 
             Log("Loading Assets...");
             if (!LoadAssets())
@@ -183,47 +172,6 @@ public static class Multiplayer
         AssetIndex = indices[0];
 
         return true;
-    }
-
-    private static void TryLoadPersistentJobs()
-    {
-        UnityModManager.ModEntry persistentJobs = UnityModManager.FindMod("PersistentJobsMod");
-        if (persistentJobs?.Enabled == true)
-        {
-            Log("Found Persistent Jobs, waiting for it to load");
-            SingletonBehaviour<CoroutineManager>.Instance.Run(WaitForPersistentJobsAndLoad(persistentJobs));
-        }
-    }
-
-    private static IEnumerator WaitForPersistentJobsAndLoad(UnityModManager.ModEntry persistentJobs)
-    {
-        float timeout = 1000f;
-        float start = Time.realtimeSinceStartup;
-
-        yield return new WaitUntil(() => persistentJobs?.Loaded == true || Time.realtimeSinceStartup - start > timeout);
-
-        if (!persistentJobs.Loaded)
-        {
-            Log("Timed out waiting for PersistentJobs.");
-            yield break;
-        }
-
-        try
-        {
-            LogDebug(() => "Loading compat with PersistentJobs");
-
-            PersJobsJobTrackChangedEventRegMethod = AccessTools.Method(AccessTools.TypeByName("PersistentJobsMod.ModInteraction.PersistentJobsModInteractionFeatures"), "RegisterJobTracksChangedListener", [typeof(Action<Job>)]);
-            PersJobsJobTrackChangedEventUnregMethod = AccessTools.Method(AccessTools.TypeByName("PersistentJobsMod.ModInteraction.PersistentJobsModInteractionFeatures"), "UnregisterJobTracksChangedListener", [typeof(Action<Job>)]);
-            PersJobsJobCarChangedEventRegMethod = AccessTools.Method(AccessTools.TypeByName("PersistentJobsMod.ModInteraction.PersistentJobsModInteractionFeatures"), "RegisterJobCarsChangedListener", [typeof(Action<(Job, Car)>)]);
-            PersJobsJobCarChangedEventUnregMethod = AccessTools.Method(AccessTools.TypeByName("PersistentJobsMod.ModInteraction.PersistentJobsModInteractionFeatures"), "UnegisterJobCarsChangedListener", [typeof(Action<(Job, Car)>)]);
-            PersJobsResumeCoroRunningField = AccessTools.Field(AccessTools.TypeByName("PersistentJobsMod.Optimization.FarCarOpt"), "ResumeCoroRunning");
-            PersJobs = true;
-        }
-        catch
-        {
-            LogWarning("Persistent Jobs load failed");
-            PersJobs = false;
-        }
     }
 
     private static void LateUpdate(UnityModManager.ModEntry modEntry, float deltaTime)

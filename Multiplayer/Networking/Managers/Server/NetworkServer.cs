@@ -20,6 +20,7 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.ModCompatibility;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
@@ -2109,10 +2110,10 @@ public class NetworkServer : NetworkManager
 
     private IEnumerator SendJobsToClientsOnRequest(ServerboundJobsRequestPacket packet, NetworkedStationController networkedStationController)
     {
-        if (Multiplayer.PersJobs)
+        if (PersistentJobs.Active)
         {
-            if ((bool)Multiplayer.PersJobsResumeCoroRunningField.GetValue(null)) LogDebug(() => $"ServerboundJobsRequestPacket station {packet.StationNetId} is probably resuming cars, waiting");
-            while ((bool)Multiplayer.PersJobsResumeCoroRunningField.GetValue(null)) yield return null;
+            if (PersistentJobs.ResumeCoroRunning) LogDebug(() => $"ServerboundJobsRequestPacket station {packet.StationNetId} is probably resuming cars, waiting");
+            while (PersistentJobs.ResumeCoroRunning) yield return null;
         }
 
         if (packet.GenerateJobs)
@@ -2130,10 +2131,10 @@ public class NetworkServer : NetworkManager
             }
         }
 
-        if (Multiplayer.PersJobs)
+        if (PersistentJobs.Active)
         {
-            if ((bool)Multiplayer.PersJobsResumeCoroRunningField.GetValue(null)) LogDebug(() => $"ServerboundJobsRequestPacket station {packet.StationNetId} is probably resuming cars, waiting");
-            while ((bool)Multiplayer.PersJobsResumeCoroRunningField.GetValue(null)) yield return null;
+            if (PersistentJobs.ResumeCoroRunning) LogDebug(() => $"ServerboundJobsRequestPacket station {packet.StationNetId} is probably resuming cars, waiting");
+            while (PersistentJobs.ResumeCoroRunning) yield return null;
         }
 
         if (networkedStationController.StationController.ProceduralJobsController.IsJobGenerationActive) LogDebug(() => $"Station {networkedStationController.StationController.stationInfo.YardID} is still generating jobs, will wait with sending");

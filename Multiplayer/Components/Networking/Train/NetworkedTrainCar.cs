@@ -13,6 +13,7 @@ using JetBrains.Annotations;
 using LocoSim.Definitions;
 using LocoSim.Implementations;
 using Multiplayer.Components.Networking.Player;
+using Multiplayer.ModCompatibility;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Train;
 using Multiplayer.Networking.Packets.Clientbound.Train;
@@ -874,7 +875,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
         else
         {
-            if ((tick - startTick > 120) && !((bool)Multiplayer.PersJobsResumeCoroRunningField?.GetValue(null) == true)) doNotUpdate = false;
+            if ((tick - startTick > 120) && !PersistentJobs.ResumeCoroRunning) doNotUpdate = false;
         }
     }
 

@@ -3,6 +3,7 @@ using DV.Utils;
 using HarmonyLib;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Train;
+using Multiplayer.ModCompatibility;
 using Multiplayer.Utils;
 using System.Collections;
 using System.Collections.Generic;
@@ -126,7 +127,7 @@ public static class CarSpawner_Patch
             yield return null;
 
             Multiplayer.LogDebug(() => $"CarSpawnerPatch: waiting with newly resumed car physics updates for all cars to resume");
-            yield return new WaitUntil(() => !((bool)Multiplayer.PersJobsResumeCoroRunningField?.GetValue(null) == true));
+            yield return new WaitUntil(() => !PersistentJobs.ResumeCoroRunning);
             yield return WaitFor.SecondsRealtime(3f);
             Multiplayer.LogDebug(() => $"CarSpawnerPatch: car resuming finished, will allow physics updates for cars {(string.Join(", ", carIdsWithNoUpdates))}");
 

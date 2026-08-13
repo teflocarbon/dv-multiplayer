@@ -2,14 +2,12 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.Logic.Job;
 using DV.Utils;
-using HarmonyLib;
-using Multiplayer.API;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.ModCompatibility;
 using Multiplayer.Networking.Data.Jobs;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Components.Networking.Jobs;
@@ -132,9 +130,6 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
     private readonly List<NetworkedItem> JobReports = [];
 
-    private object[] OnJobTrackChengeEventRegistrator;
-    private object[] OnJobCarChangedEventRegistrator;
-
     public Guid OwnedBy { get; set; } = Guid.Empty;
     public JobValidator JobValidator { get; set; }
 
@@ -181,12 +176,10 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         job.JobCompleted += OnJobCompleted;
         job.JobExpired += OnJobExpired;
 
-        if (Multiplayer.PersJobs)
+        if (PersistentJobs.Active)
         {
-            OnJobTrackChengeEventRegistrator = [(Action<Job>)OnJobTrackChanged];
-            OnJobCarChangedEventRegistrator = [(Action<(Job, Car)>)OnJobCarChanged];
-            Multiplayer.PersJobsJobTrackChangedEventRegMethod.Invoke(null, OnJobTrackChengeEventRegistrator);
-            Multiplayer.PersJobsJobCarChangedEventRegMethod.Invoke(null, OnJobCarChangedEventRegistrator);
+            PersistentJobs.OnTrackChanged += OnJobTrackChanged;
+            PersistentJobs.OnCarChanged += OnJobCarChanged;
         }
 
         // If this is called after Start(), we need to add to cache here
@@ -245,7 +238,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
             Multiplayer.LogError($"NetworkedJob.SetTasksFromServer(): netIdToTask is null for jobId {Job?.ID}");
             return;
         }
-        
+
         foreach (var kvp in netIdToTask)
         {
             CreateNetworkedTask(kvp.Value, kvp.Key);
@@ -295,7 +288,17 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
     private void OnJobTrackChanged(Job job)
     {
-        if (job.ID == Job.ID) foreach (var task in job.tasks) NetworkedTask.DoOnActualTask(task, t => { if (NetworkedTask.TryGet(t, out var netTask)) netTask.UpdateDestinationTrack(); });
+        if (job.ID == Job.ID)
+        {
+            foreach (var task in job.tasks)
+            {
+                NetworkedTask.DoOnActualTask(task, t =>
+                {
+                    if (NetworkedTask.TryGet(t, out var netTask))
+                        netTask.UpdateDestinationTrack();
+                });
+            }
+        }
     }
 
     private void OnJobCarChanged((Job, Car) jct)
@@ -306,11 +309,11 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
     private IEnumerator OnJobCarChangedDelayed((Job, Car) jct)
     {
-        if (Multiplayer.PersJobs)
+        if (PersistentJobs.Active)
         {
-            if ((bool)Multiplayer.PersJobsResumeCoroRunningField.GetValue(null)) Multiplayer.LogDebug(() => $"Cars still resuming, waiting with job car changes");
-            //while ((bool)Multiplayer.PersJobsResumeCoroRunningField.GetValue(null)) yield return WaitFor.EndOfFrame;
-            yield return new WaitUntil(() => (bool)Multiplayer.PersJobsResumeCoroRunningField.GetValue(null) == false);
+            if (PersistentJobs.ResumeCoroRunning) Multiplayer.LogDebug(() => $"Cars still resuming, waiting with job car changes");
+
+            yield return new WaitUntil(() => PersistentJobs.ResumeCoroRunning == false);
         }
         yield return null;
         var (job, car) = jct;
@@ -398,12 +401,10 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         Job.JobCompleted -= OnJobCompleted;
         Job.JobExpired -= OnJobExpired;
 
-        if (Multiplayer.PersJobs)
+        if (PersistentJobs.Active)
         {
-            Multiplayer.PersJobsJobTrackChangedEventUnregMethod.Invoke(null, OnJobTrackChengeEventRegistrator);
-            Multiplayer.PersJobsJobCarChangedEventUnregMethod.Invoke(null, OnJobCarChangedEventRegistrator);
-            OnJobTrackChengeEventRegistrator = null;
-            OnJobCarChangedEventRegistrator = null;
+            PersistentJobs.OnTrackChanged -= OnJobTrackChanged;
+            PersistentJobs.OnCarChanged -= OnJobCarChanged;
         }
 
         Destroy(this);
