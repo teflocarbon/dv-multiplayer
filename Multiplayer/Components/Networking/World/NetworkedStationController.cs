@@ -2,10 +2,14 @@ using DV.Booklets;
 using DV.Logic.Job;
 using DV.ServicePenalty;
 using DV.ThingTypes;
+using HarmonyLib;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.Train;
+using Multiplayer.ModCompatibility;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
+using Multiplayer.Networking.Packets.Clientbound.Jobs;
+using Multiplayer.Networking.Packets.Serverbound.Jobs;
 using Multiplayer.Utils;
 using System;
 using System.Collections;
@@ -170,6 +174,9 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
     public static readonly HashSet<uint> WaitingNSCs = [];
     public static readonly HashSet<ushort> DelayedJobs = [];
 
+    private static readonly Dictionary<ushort, List<JobUpdateStruct>> jobNetIdToPendingJobUpdates = [];
+    public static readonly Dictionary<ushort, List<(ushort, List<ClientboundTaskUpdatePacket>)>> JobNetIdToTaskNetIdPendingTaskUpdatesTuples = [];
+
     private readonly HashSetQueue<CarPlateUpdate> CarPlateUpdates = new();
 
     const int MAX_FRAMES = 120;
@@ -180,12 +187,12 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
     public JobValidator JobValidator;
 
-    private Coroutine UpdateCarPlatesRoutine;
+    private Coroutine updateCarPlatesRoutine;
 
     public HashSet<NetworkedJob> NetworkedJobs { get; } = [];
     private readonly List<NetworkedJob> NewJobs = [];
     private readonly List<NetworkedJob> DirtyJobs = [];
-    private readonly HashSet<ushort> TimeoutJobs = [];
+    public readonly HashSet<ushort> TimeoutJobs = [];
 
     private List<Job> availableJobs;
     private List<Job> takenJobs;
@@ -199,7 +206,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         StationController = GetComponent<StationController>();
         StartCoroutine(WaitForLogicStation());
         if (!NetworkLifecycle.Instance.IsHost())
-            UpdateCarPlatesRoutine = StartCoroutine(UpdateCarPlatesCoro());
+            updateCarPlatesRoutine = StartCoroutine(UpdateCarPlatesCoro());
     }
 
     protected void Start()
@@ -216,7 +223,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
     protected void OnDisable()
     {
-        if (UpdateCarPlatesRoutine is not null) StopCoroutine(UpdateCarPlatesRoutine);
+        if (updateCarPlatesRoutine is not null) StopCoroutine(updateCarPlatesRoutine);
 
         if (UnloadWatcher.isQuitting)
             return;
@@ -316,11 +323,59 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         //Send jobs with a changed status
         if (DirtyJobs.Count > 0)
         {
-            //todo send packet with updates
             NetworkLifecycle.Instance.Server.SendJobsUpdatePacket(NetId, DirtyJobs.ToArray());
             DirtyJobs.Clear();
         }
     }
+
+    public IEnumerator SendJobsToClientsOnRequest(ServerboundJobsRequestPacket packet)
+    {
+        if (PersistentJobs.Active)
+        {
+            if (PersistentJobs.ResumeCoroRunning)
+                Multiplayer.LogDebug(() => $"ServerboundJobsRequestPacket station {packet.StationNetId} is probably resuming cars, waiting");
+
+            while (PersistentJobs.ResumeCoroRunning)
+                yield return null;
+        }
+
+        if (packet.GenerateJobs)
+        {
+            Multiplayer.LogDebug(() => $"ServerboundJobsRequestPacket requested job generation for station {packet.StationNetId}");
+
+            if (!this.StationController.ProceduralJobsController.IsJobGenerationActive)
+            {
+                this.StationController.ProceduralJobsController.TryToGenerateJobs();
+                yield return null;
+            }
+            else
+            {
+                Multiplayer.LogDebug(() => $"ServerboundJobsRequestPacket station {packet.StationNetId} is already generating, won´t trigger again");
+            }
+        }
+
+        if (PersistentJobs.Active)
+        {
+            if (PersistentJobs.ResumeCoroRunning)
+                Multiplayer.LogDebug(() => $"ServerboundJobsRequestPacket station {packet.StationNetId} is probably resuming cars, waiting");
+
+            while (PersistentJobs.ResumeCoroRunning)
+                yield return null;
+        }
+
+        if (this.StationController.ProceduralJobsController.IsJobGenerationActive)
+            Multiplayer.LogDebug(() => $"Station {this.StationController.stationInfo.YardID} is still generating jobs, will wait with sending");
+
+        while (this.StationController.ProceduralJobsController.IsJobGenerationActive)
+            yield return null;
+
+        NetworkedJob[] send = (packet.SpecificJobsNetIds.Any())
+            ? this.NetworkedJobs.Where(nj => packet.SpecificJobsNetIds.Contains(nj.NetId)).ToArray()
+            : this.NetworkedJobs.Where(nj => !packet.ExcludeJobNetId.Contains(nj.NetId)).ToArray();
+
+        NetworkLifecycle.Instance.Server.SendJobsCreatePacket(this, send);
+    }
+
     #endregion Server
 
     #region Client
@@ -340,9 +395,10 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         foreach (JobData jobData in jobs)
         {
             //check for duplicates and not let them pass  --> !!!TODO: this shouldn´t be neccesarry - need to find reason for second send of the jobs
-            if (NetworkedJobs.Any(nj => nj.Job.ID == jobData.ID))
+            var duplicate = NetworkedJobs.FirstOrDefault(nj => nj.Job.ID == jobData.ID);
+            if (duplicate != null)
             {
-                Multiplayer.LogWarning($"Client already has job {jobData.ID}, not adding second copy");
+                Multiplayer.LogWarning($"Client already has job [{duplicate.Job.ID}, {duplicate.NetId}], not adding second copy [{jobData.ID}, {jobData.NetID}]. {(jobData.NetID != duplicate.NetId ? "!!! Different NetID for same job !!!" : "")}");
                 DelayedJobs.Remove(jobData.NetID);
                 TimeoutJobs.Remove(jobData.NetID);
                 continue;
@@ -379,36 +435,77 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
             return;
         }
 
-        if (networkedJob.Job.State == JobState.Available)
+        if (JobNetIdToTaskNetIdPendingTaskUpdatesTuples.TryGetValue(jobData.NetID, out var taskToUpdatesTuples))
         {
-            StationController.logicStation.AddJobToStation(newJob);
-            StationController.processedNewJobs.Add(newJob);
-
-            if (jobData.ItemNetID != 0)
+            foreach (var tuple in taskToUpdatesTuples)
             {
-                GenerateOverview(networkedJob, jobData.ItemNetID, jobData.ItemPosition);
+                if (NetworkedTask.TryGet(tuple.Item1, out NetworkedTask netTask))
+                {
+                    tuple.Item2.Do(p => StartCoroutine(netTask.ApplyTaskUpdate(p)));
+                }
+                else
+                {
+                    Multiplayer.LogError($"Job [{jobData.ID}, {jobData.NetID}] doesn´t have task with id {tuple.Item1}");
+                }
             }
         }
-        else if (networkedJob.Job.State == JobState.InProgress)
+
+        switch (networkedJob.Job.State)
         {
-            StationController.logicStation.AddJobToStation(newJob);
-            StationController.processedNewJobs.Add(newJob);
+            case JobState.Available:
+                StationController.logicStation.AddJobToStation(newJob);
+                StationController.processedNewJobs.Add(newJob);
 
-            takenJobs.Add(newJob);
-            newJob.TakeJob(true); //take job as if loaded from save to prevent debt controller kicking in
+                if (jobData.ItemNetID != 0)
+                {
+                    GenerateOverview(networkedJob, jobData.ItemNetID, jobData.ItemPosition);
+                }
+
+                availableJobs.Add(newJob);
+                break;
+            case JobState.InProgress:
+                StationController.logicStation.AddJobToStation(newJob);
+                StationController.processedNewJobs.Add(newJob);
+
+                takenJobs.Add(newJob);
+                JobsManager.Instance.TakeJob(newJob, true); //take job as if loaded from save to prevent debt controller kicking in
+
+                //spawn booklet for job already in progress upon client join, booklet is untracked - this should be re-done with proper item sync!
+                _ = BookletCreator.CreateJobBooklet(networkedJob.Job, JobValidator.bookletPrinter.spawnAnchor.position, JobValidator.bookletPrinter.spawnAnchor.rotation, WorldMover.OriginShiftParent, true);
+                break;
+            case JobState.Completed:
+                //potentially add to StationController.logicStation.completedJobs as well, but it hasn´t got any uses currently afaik
+                completedJobs.Add(newJob);
+                JobsManager.Instance.finishedJobs.Add(newJob);
+                break;
+            case JobState.Abandoned:
+                abandonedJobs.Add(newJob);
+                JobsManager.Instance.abandonedJobs.Add(newJob);
+                break;
+            //default:
+                //we don't need to update anything, so we'll return
+                //Maybe item sync will require knowledge of the job for expired/failed/completed reports, but we currently only sync these for connected players
+                //return;
         }
-        else
+
+        if (jobNetIdToPendingJobUpdates.TryGetValue(jobData.NetID, out var updates) && updates != null)
         {
-            //we don't need to update anything, so we'll return
-            //Maybe item sync will require knowledge of the job for expired/failed/completed reports, but we currently only sync these for connected players
-            return;
+            foreach (var update in updates)
+            {
+                UpdateJobStateAndTimes(networkedJob, update);
+                UpdateJobOverview(networkedJob, update);
+            }
+
+            jobNetIdToPendingJobUpdates.Remove(jobData.NetID);
         }
 
+        if (networkedJob.Job.State == JobState.Available || networkedJob.Job.State == JobState.InProgress)
+        {
+            Multiplayer.LogDebug(() => $"AddJob({jobData.ID}) Starting plate update {newJob.ID} count: {jobData.GetCars().Count}");
+            UpdateCarPlates(carNetIds, newJob.ID);
+        }
 
-        Multiplayer.LogDebug(() => $"AddJob({jobData.ID}) Starting plate update {newJob.ID} count: {jobData.GetCars().Count}");
-        UpdateCarPlates(carNetIds, newJob.ID);
-
-        Multiplayer.Log($"Added NetworkedJob {newJob.ID} to NetworkedStationController {StationController.logicStation.ID}");
+        Multiplayer.Log($"Added NetworkedJob {newJob.ID} (state: {networkedJob.Job.State}) to NetworkedStationController {StationController.logicStation.ID}");
         DelayedJobs.Remove(jobData.NetID);
         TimeoutJobs.Remove(jobData.NetID);
     }
@@ -494,20 +591,30 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
         if (!NetworkedJob.Get(job.JobNetID, out NetworkedJob netJob))
         {
-            NetworkLifecycle.Instance.Client.LogWarning($"Unknown or invalid jobNetId {job.JobNetID}, aksing server to re-send jobs and skipping update!");
-            RequestAdditionalJobs(false);
+            NetworkLifecycle.Instance.Client.LogWarning($"Unknown or invalid jobNetId {job.JobNetID}, aksing server to re-send jobs and saving update for later!");
+
+            if (jobNetIdToPendingJobUpdates.TryGetValue(job.JobNetID, out var updates))
+            {
+                updates.Add(job);
+            }
+            else
+            {
+                jobNetIdToPendingJobUpdates.Add(job.JobNetID, [job]);
+            }
+
+                RequestAdditionalJobs(false);
             yield break;
         }
 
-        netJob.Job.startTime = job.StartTime;
-        netJob.Job.finishTime = job.FinishTime;
-
-        UpdateJobState(netJob, job);
+        UpdateJobStateAndTimes(netJob, job);
         UpdateJobOverview(netJob, job);
     }
 
-    private void UpdateJobState(NetworkedJob netJob, JobUpdateStruct job)
+    private void UpdateJobStateAndTimes(NetworkedJob netJob, JobUpdateStruct job)
     {
+        netJob.Job.startTime = job.StartTime;
+        netJob.Job.finishTime = job.FinishTime;
+
         if (netJob.Job.State != job.JobState)
         {
             netJob.Job.State = job.JobState;
@@ -567,8 +674,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
                 availableJobs.Remove(netJob.Job);
                 takenJobs.Add(netJob.Job);
 
-                netJob.Job.TakeJob(true); //take job as if loaded from save to prevent debt controller kicking in
-                JobsManager.Instance.currentJobs.Add(netJob.Job);
+                JobsManager.Instance.TakeJob(netJob.Job, true); //take job as if loaded from save to prevent debt controller kicking in
 
                 if (canPrint)
                 {
@@ -662,7 +768,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
             Multiplayer.LogDebug(() => $"Car plate update to {jobId} for cars with netIds {string.Join(", ", carNetIds)} alredy scheduled!");
     }
 
-    public IEnumerator UpdateCarPlatesCoro()
+    private IEnumerator UpdateCarPlatesCoro()
     {
         while (this.isActiveAndEnabled == true)
         {
