@@ -346,6 +346,16 @@ public partial class NetworkedItem
             return;
         }
 
+        // The host's acceptance of our own desktop drop, a round trip later. Applying it put the
+        // item back at the pose it was released from with zero velocity, yanking a falling item
+        // back up mid-air. Like a throw, take the revision and keep simulating; if the item does
+        // end up somewhere else the host's convergence pass corrects it once it settles.
+        if (IsLocalDropAcknowledgement(snapshot))
+        {
+            ApplyLocalThrowAcknowledgement(snapshot);
+            return;
+        }
+
         if (!registrationComplete && snapshot.States is { Count: > 0 })
         {
             if (ItemUpdateData.IncludesItemState(snapshot.UpdateType))
@@ -507,6 +517,15 @@ public partial class NetworkedItem
         MarkValuesClean();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
     }
+
+    private bool IsLocalDropAcknowledgement(ItemUpdateData snapshot) =>
+        !NetworkLifecycle.Instance.IsHost() &&
+        snapshot.TransitionReason == ItemTransitionReason.ClientState &&
+        snapshot.ItemState == ItemState.Dropped &&
+        snapshot.OriginatingPlayerId != 0 &&
+        snapshot.OriginatingPlayerId == NetworkLifecycle.Instance.Client?.PlayerId &&
+        Item != null && !Item.IsGrabbed() &&
+        GetItemState() == ItemState.Dropped;
 
     private void ApplyLocalThrowAcknowledgement(ItemUpdateData snapshot)
     {
@@ -758,7 +777,7 @@ public partial class NetworkedItem
         return updateData;
     }
 
-    private ItemState GetItemState()
+    internal ItemState GetItemState()
     {
         //Multiplayer.LogDebug(() => $"GetItemState() NetId: {NetId}, {name}, Parent: {Item.transform.parent} WorldMover: {WorldMover.OriginShiftParent}, wasThrown: {wasThrown}, isGrabbed: {Item.IsGrabbed()} Inventory.Contains(): {Inventory.Instance.Contains(this.gameObject, false)} Storage.Contains: {StorageController.Instance.StorageInventory.ContainsItem(Item)}");
 
