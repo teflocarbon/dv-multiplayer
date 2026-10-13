@@ -17,7 +17,7 @@ echo "== client holds an item"
 # A fresh mug at the client's feet, so the test doesn't depend on loose items nearby.
 $D eval -t host -m coroutine -u "$U" -a who=client -f DevTools/Scenarios/train-items/spawn-mug.cs >/dev/null
 before=$($D eval -t client -m coroutine -u "$U" -f $P/hold.cs)
-held=$(echo "$before" | field held); inventory=$(echo "$before" | field inventory); names=$(echo "$before" | field names)
+held=$(echo "$before" | field held); inventory=$(echo "$before" | field inventory); names=$(echo "$before" | field names); slots=$(echo "$before" | field slots)
 echo "   holding $held ($(echo "$before" | field heldName)); owns $(echo "$inventory" | tr ',' '\n' | grep -c .) items"
 
 client_pid=$($D status | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(o.agents.find(a=>a.role==="client").pid)')
@@ -40,7 +40,7 @@ fi
 
 echo "== client rejoins"; $D up >/dev/null
 $D eval -t client -m coroutine 'yield return new WaitForSeconds(8);' >/dev/null
-r2=$($D eval -t client -m body -u "$U" -a names=$names -f $P/after-rejoin.cs)
-echo "   owned $(echo "$r2" | field owned): $(echo "$r2" | field failures)"
+r2=$($D eval -t client -m body -u "$U" -a names=$names -a slots=$slots -f $P/after-rejoin.cs)
+echo "   owned $(echo "$r2" | field owned): $(echo "$r2" | field failures)"; m=$(echo "$r2" | field moved); [ "$m" = "[]" ] || echo "   warning: slots changed $m"
 [ "$(echo "$r2" | field pass)" = "true" ] || { echo "FAIL after rejoin"; exit 1; }
 echo "PASS"
