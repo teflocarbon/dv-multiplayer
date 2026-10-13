@@ -2202,7 +2202,7 @@ public class NetworkServer : NetworkManager
         TrainControlCommitResult result = float.IsNaN(packet.Position) || float.IsInfinity(packet.Position)
             ? TrainControlCommitResult.InvalidValue
             : ValidateControlEnvelope(player, car, packet.ExpectedRevision,
-                packet.OperationId, requireLease: false, null);
+                packet.OperationId, requireLease: false, null, skipRangeCheck: packet.ViaRemote);
         if (result == TrainControlCommitResult.Accepted &&
             !NetworkLifecycle.Instance.IsHost(player))
             car.TrainCar.brakeSystem.SetHandbrakePosition(Mathf.Clamp01(packet.Position));
@@ -2354,11 +2354,11 @@ public class NetworkServer : NetworkManager
 
     private TrainControlCommitResult ValidateControlEnvelope(ServerPlayer player,
         NetworkedTrainCar car, uint expectedRevision, ulong operationId, bool requireLease,
-        uint[] portIds)
+        uint[] portIds, bool skipRangeCheck = false)
     {
         if (player == null || car?.TrainCar == null)
             return TrainControlCommitResult.UnknownControl;
-        if (!NetworkLifecycle.Instance.IsHost(player) &&
+        if (!skipRangeCheck && !NetworkLifecycle.Instance.IsHost(player) &&
             (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
             return TrainControlCommitResult.OutOfRange;
         if (requireLease && !car.Server_HasPortAuthority(player, portIds))
@@ -2431,7 +2431,9 @@ public class NetworkServer : NetworkManager
             if (!NetworkedTrainCar.TryGet(packet.PrimaryCarNetId,
                     out NetworkedTrainCar primary) || primary?.TrainCar == null)
                 return false;
-            if ((player.WorldPosition - primary.transform.position).sqrMagnitude > primary.CarLengthSq)
+            // A remote controller is used from a distance; only the coupler check below applies.
+            if (!packet.ViaRemote &&
+                (player.WorldPosition - primary.transform.position).sqrMagnitude > primary.CarLengthSq)
                 return false;
             if (!packet.HasSecondary)
                 return true;

@@ -1440,7 +1440,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         Common_SendPaintThemes();
     }
 
-    private void Common_SendHandbrakePosition()
+    private void Common_SendHandbrakePosition() => Common_SendHandbrakePosition(viaRemote: false);
+
+    /// <summary>Sends a pending handbrake change now, marked as made by a remote controller (vanilla
+    /// sets handbrakes when coupling by remote, with the player possibly far from the cars).</summary>
+    internal void Client_FlushHandbrakeViaRemote() => Common_SendHandbrakePosition(viaRemote: true);
+
+    private void Common_SendHandbrakePosition(bool viaRemote)
     {
         if (!handbrakeDirty)
             return;
@@ -1448,7 +1454,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             return;
 
         handbrakeDirty = false;
-        ulong operationId = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition);
+        ulong operationId = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
         if (!NetworkLifecycle.Instance.IsHost())
             client_pendingHandbrakeOperation = operationId;
     }
