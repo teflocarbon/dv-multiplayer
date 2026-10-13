@@ -196,8 +196,11 @@ public class NetworkClient : NetworkManager
         };
 
         Log("Sending Login Packet");
-        netPacketProcessor.Write(cachedWriter, serverboundClientLoginPacket);
-        selfPeer = Connect(address, port, cachedWriter);
+        // Its own writer: the transport holds on to it until the connection completes, and the
+        // shared cachedWriter is reset by every other send in the meantime.
+        NetDataWriter loginWriter = new();
+        netPacketProcessor.Write(loginWriter, serverboundClientLoginPacket);
+        selfPeer = Connect(address, port, loginWriter);
 
         isAlsoHost = NetworkLifecycle.Instance.IsServerRunning;
         originalSession = UserManager.Instance.CurrentUser.CurrentSession;
