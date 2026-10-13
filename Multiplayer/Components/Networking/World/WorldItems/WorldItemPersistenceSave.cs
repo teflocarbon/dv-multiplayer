@@ -1,6 +1,8 @@
 using DV.CabControls;
 using DV.InventorySystem;
+using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Networking.Managers.Server;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Linq;
@@ -103,6 +105,20 @@ internal static partial class WorldItemPersistenceManager
     internal static bool IsJobSystemDocument(string prefabName) =>
         prefabName is "JobOverview" or "JobBooklet";
 
+    /// <summary>
+    /// An item in another player's inventory, connected or not. Vanilla saves only the host's own
+    /// inventory, so without this a friend's purchases and pickups were gone after every reload.
+    /// Restored, it waits for that player to connect and goes back into their inventory.
+    /// </summary>
+    internal static bool IsRemotePlayerInventory(AuthoritativeItemRegistry.Record record)
+    {
+        if (record?.Placement != ItemPlacementKind.PlayerInventory || record.PlacementPlayerIdentity == Guid.Empty)
+            return false;
+        NetworkServer server = NetworkLifecycle.Instance?.Server;
+        return server == null || !server.TryGetServerPlayer(server.SelfId, out ServerPlayer host) ||
+               host.Guid != record.PlacementPlayerIdentity;
+    }
+
     private static bool ShouldPersist(AuthoritativeItemRegistry.Record record)
     {
         if (record == null || record.Placement is ItemPlacementKind.Container or
@@ -121,7 +137,7 @@ internal static partial class WorldItemPersistenceManager
                 item?.Item?.InventorySpecs?.BelongsToPlayer != true)
                 return false;
             return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
-                ItemPlacementKind.StaticParent;
+                ItemPlacementKind.StaticParent || IsRemotePlayerInventory(record);
         }
 
         if (!WorldItemStableIdentity.IsValid(record.AuthoredItemKey))
