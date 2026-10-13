@@ -7,6 +7,8 @@ using DV.LocoRestoration;
 using DV.Logic.Job;
 using DV.Scenarios.Common;
 using DV.ServicePenalty;
+using DV.Shops;
+using DV.CabControls;
 using DV.ThingTypes;
 using DV.WeatherSystem;
 using DV.Utils;
@@ -289,6 +291,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
         netPacketProcessor.SubscribeReusable<ServerboundShopPaymentPacket, ITransportPeer>(OnServerboundShopPaymentPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundShopPurchasePacket, ITransportPeer>(OnServerboundShopPurchasePacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
@@ -1743,6 +1746,7 @@ public class NetworkServer : NetworkManager
 
                 // Send weather state
                 SendWeatherState(peer);
+                SendShopStock(peer);
 
                 // Send junctions and turntables
                 SendPacket(peer, new ClientboundRailwayStatePacket
@@ -3073,6 +3077,98 @@ public class NetworkServer : NetworkManager
             return;
         player.ShopCashInRegisters -= refund;
         Inventory.Instance.AddMoney(refund);
+    }
+
+    // Players buy within a few metres of the till; the margin covers walking off while it sends.
+    private const float MaxShopPurchaseDistance = 50f;
+    private const double ShopPriceTolerance = 0.5;
+
+    private void OnServerboundShopPurchasePacket(ServerboundShopPurchasePacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        GlobalShopController shops = GlobalShopController.Instance;
+        Shop shop = shops != null && packet.ShopIndex >= 0 && packet.ShopIndex < shops.globalShopList.Count
+            ? shops.globalShopList[packet.ShopIndex]
+            : null;
+        ShopItemData data = shop != null ? shops.GetShopItemData(packet.ItemPrefabName ?? string.Empty) : null;
+        if (data == null || packet.Amount <= 0)
+        {
+            LogWarning($"Shop purchase from P{player.PlayerId} rejected: shop {packet.ShopIndex}, item '{packet.ItemPrefabName}' x{packet.Amount}");
+            SendShopStock(peer);
+            return;
+        }
+
+        double cost = (double)data.basePrice * packet.Amount;
+        string rejection = null;
+        if (player.ShopCashInRegisters + ShopPriceTolerance < cost)
+            rejection = $"paid ${player.ShopCashInRegisters:N2} of ${cost:N2}";
+        else if (data.ItemsInStock < packet.Amount)
+            rejection = $"only {data.ItemsInStock} in stock";
+        else if ((player.AbsoluteWorldPosition - (shop.itemSpawnTransform.position - WorldMover.currentMove)).sqrMagnitude >
+                 MaxShopPurchaseDistance * MaxShopPurchaseDistance)
+            rejection = "too far from the shop";
+
+        if (rejection != null)
+        {
+            LogWarning($"Shop purchase of {packet.ItemPrefabName} x{packet.Amount} from P{player.PlayerId} rejected: {rejection}");
+            // The client has already taken its basket's price out of the register; give back what it paid.
+            double refund = Math.Min(cost, player.ShopCashInRegisters);
+            if (refund > double.Epsilon)
+            {
+                player.ShopCashInRegisters -= refund;
+                Inventory.Instance.AddMoney(refund);
+            }
+            SendShopStock(peer);
+            return;
+        }
+
+        player.ShopCashInRegisters = Math.Max(0, player.ShopCashInRegisters - cost);
+        Log($"P{player.PlayerId} bought {packet.ItemPrefabName} x{packet.Amount} for ${cost:N2}");
+        data.purchasedItems += packet.Amount;
+        UnlockablesManager.Instance.UnlockItem(data.item.ItemPrefabName);
+        CoroutineManager.Instance.StartCoroutine(SpawnShopPurchase(data.item.ItemPrefabName, shop, packet.Amount));
+        shops.Fire_GlobalShopDataChanged();
+        SendShopStock();
+    }
+
+    // As GlobalShopController.InstantiatePurchasedItems, but always at the shop: that one leaves
+    // items in the Lost and Found when the host is not near the shop.
+    private static System.Collections.IEnumerator SpawnShopPurchase(string itemPrefabName, Shop shop, int amount)
+    {
+        for (int i = 0; i < amount; i++)
+        {
+            if (shop == null)
+                yield break;
+            GameObject obj = UnityEngine.Object.Instantiate(Resources.Load(itemPrefabName) as GameObject,
+                shop.itemSpawnTransform.position, Quaternion.identity);
+            obj.GetComponent<InventoryItemSpec>().BelongsToPlayer = true;
+            if (obj.TryGetComponent(out ShopRestocker restocker))
+                restocker.restockOnItemDestroyed = true;
+            ItemBase item = obj.GetComponent<ItemBase>();
+            StorageController.Instance.AddItemToWorldStorage(item);
+            item.ItemRigidbody.velocity = Vector3.zero;
+            item.ItemRigidbody.angularVelocity = Vector3.zero;
+            if (obj.TryGetComponent(out APurchaseTrigger trigger))
+                trigger.OnPurchased(obj);
+            yield return WaitFor.Seconds(0.5f);
+        }
+    }
+
+    public void SendShopStock(ITransportPeer peer = null)
+    {
+        GlobalShopController shops = GlobalShopController.Instance;
+        if (shops == null)
+            return;
+        ClientboundShopStockPacket packet = new()
+        {
+            ItemPrefabNames = shops.shopItemsData.Select(d => d.item.ItemPrefabName).ToArray(),
+            PurchasedItems = shops.shopItemsData.Select(d => d.purchasedItems).ToArray()
+        };
+        if (peer != null)
+            SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+        else
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, excludeSelf: true);
     }
 
     private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)
