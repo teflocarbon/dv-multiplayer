@@ -2334,12 +2334,12 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    internal void ReconcileTrainTopologyAfterDerailment()
+    internal void RestoreCanonicalTrainTopology()
     {
         if (trainTopology.ReapplyCurrent(out string failure))
             return;
 
-        LogWarning("Failed to restore canonical topology after derailment physics: " + failure);
+        LogWarning("Failed to restore canonical topology after local physics: " + failure);
         RequestTrainTopologySync();
         if (trainTopology.HasPending)
             StartTrainTopologyRetry();
