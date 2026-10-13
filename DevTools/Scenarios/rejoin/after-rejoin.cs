@@ -21,4 +21,15 @@ for (int slot = 0; slot < inventory.Capacity; slot++)
 var expected = ctx.Args["names"].Split(',').Where(s => s.Length > 0).ToList();
 foreach (var name in expected.Distinct())
     if (!mine.Any(n => n.name.Replace("(Clone)", "") == name)) failures.Add($"{name} not returned");
-return new { pass = failures.Count == 0, owned = mine.Count, failures };
+// Each item back in the slot it had. Reported, not failed: the host doesn't track where ordinary
+// items sit, so a rearranged inventory comes back in the starting layout (known limitation).
+var moved = new List<string>();
+foreach (var entry in (ctx.Args.TryGetValue("slots", out var s) ? s : "").Split(',').Where(e => e.Contains("@")))
+{
+    string name = entry.Substring(0, entry.LastIndexOf('@'));
+    int slot = int.Parse(entry.Substring(entry.LastIndexOf('@') + 1));
+    var item = mine.FirstOrDefault(n => n.name.Replace("(Clone)", "") == name);
+    int now = item != null ? inventory.IndexOf(item.gameObject) : -1;
+    if (item != null && now != slot) moved.Add($"{name} {slot}->{now}");
+}
+return new { pass = failures.Count == 0, owned = mine.Count, failures, moved };

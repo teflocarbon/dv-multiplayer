@@ -14,5 +14,6 @@ ctx.Result = new
     held = (int)Hands.Held.NetId,
     heldName = Hands.Held.name,
     inventory = string.Join(",", owned.Select(n => n.NetId)),
-    names = string.Join(",", owned.Select(n => n.name.Replace("(Clone)", "")).OrderBy(s => s))
+    names = string.Join(",", owned.Select(n => n.name.Replace("(Clone)", "")).OrderBy(s => s)),
+    slots = string.Join(",", owned.Select(n => n.name.Replace("(Clone)", "") + "@" + DV.InventorySystem.Inventory.Instance.IndexOf(n.gameObject)).OrderBy(s => s))
 };
