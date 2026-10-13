@@ -216,6 +216,14 @@ public class SteamWorksTransport : ITransport
 
         SteamNetworkingUtils.FakeRecvPacketLag = chance;
         SteamNetworkingUtils.FakeSendPacketLag = chance;
+
+        // Steam's defaults (512 KB send buffer, send rate fixed at 256 KB/s) are sized for chat-
+        // like traffic. A join burst (a packet per trainset and job, topology, items) can exceed
+        // the buffer, and Steam then refuses reliable messages outright. Give it room, and let
+        // its congestion control use more bandwidth when the link allows.
+        SteamNetworkingUtils.SendBufferSize = 16 * 1024 * 1024;
+        SteamNetworkingUtils.SendRateMin = 256 * 1024;
+        SteamNetworkingUtils.SendRateMax = 4 * 1024 * 1024;
     }
 
     #endregion
@@ -437,8 +445,16 @@ public class SteamPeer : ITransportPeer
             _ => SendType.Reliable
         };
 
-        connection.SendMessage(writer.Data, 0, writer.Length, sendType);
+        Result result = connection.SendMessage(writer.Data, 0, writer.Length, sendType);
+        // A refused reliable message is lost for good (a permanent desync), so never drop it silently.
+        if (result != Result.OK && sendType == SendType.Reliable && Time.unscaledTime >= nextSendFailureLogAt)
+        {
+            nextSendFailureLogAt = Time.unscaledTime + 1f;
+            Multiplayer.LogError($"SteamPeer {Id}: reliable send of {writer.Length} bytes failed: {result}");
+        }
     }
+
+    private float nextSendFailureLogAt;
 
     public void Disconnect(NetDataWriter data = null)
     {
