@@ -109,6 +109,7 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundItemRecallPacket),
         typeof(ServerboundItemRecallPreparedPacket),
         typeof(ServerboundMoneyItemDepositPacket),
+        typeof(ServerboundShopPaymentPacket),
         typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
@@ -2860,6 +2861,12 @@ public class NetworkClient : NetworkManager
     public void SendMoneyItemDeposit(ushort itemNetId)
     {
         SendPacketToServer(new ServerboundMoneyItemDepositPacket { ItemNetId = itemNetId },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendShopPayment(double amount)
+    {
+        SendPacketToServer(new ServerboundShopPaymentPacket { Amount = amount },
             DeliveryMethod.ReliableOrdered);
     }
 

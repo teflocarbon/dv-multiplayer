@@ -288,6 +288,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundShopPaymentPacket, ITransportPeer>(OnServerboundShopPaymentPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
@@ -3036,6 +3037,42 @@ public class NetworkServer : NetworkManager
         if (amount > double.Epsilon)
             Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
         UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
+    }
+
+    // Well above any basket; refunds are further capped by what the player has paid in.
+    private const double MaxShopPayment = 1_000_000;
+
+    private void OnServerboundShopPaymentPacket(ServerboundShopPaymentPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        if (double.IsNaN(packet.Amount) || Math.Abs(packet.Amount) <= double.Epsilon ||
+            Math.Abs(packet.Amount) > MaxShopPayment)
+        {
+            LogWarning($"Shop payment from P{player.PlayerId} rejected: amount {packet.Amount}");
+            return;
+        }
+
+        if (packet.Amount > 0)
+        {
+            // The client has already taken it from its copy of the wallet; if the shared wallet is
+            // shorter than it thought (a teammate spent meanwhile), take what there is.
+            double paid = Math.Min(packet.Amount, Inventory.Instance.PlayerMoney);
+            Log($"P{player.PlayerId} paid ${paid:N2} into a shop register");
+            if (paid <= double.Epsilon)
+                return;
+            player.ShopCashInRegisters += paid;
+            Inventory.Instance.RemoveMoney(paid); // MoneyChanged broadcasts the new balance
+            return;
+        }
+
+        // Change or a cancelled basket: never more than this player has put into shop registers.
+        double refund = Math.Min(-packet.Amount, player.ShopCashInRegisters);
+        Log($"P{player.PlayerId} got ${refund:N2} back from a shop register (asked for ${-packet.Amount:N2})");
+        if (refund <= double.Epsilon)
+            return;
+        player.ShopCashInRegisters -= refund;
+        Inventory.Instance.AddMoney(refund);
     }
 
     private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)

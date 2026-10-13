@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+eae970da68bf29c8e1602c1b9dcef4c14d9b9a0b",
-  "Fingerprint": "850baba31bda15dac415c652a4cdfa4cee25032b52a5e13ad54c3a027ac36a19",
+  "BuildVersion": "0.1.16.14+ee020c6f81bd63103aa87174577deff8fda03fc0",
+  "Fingerprint": "e93e392d02a024c77b378dfbda87bdbd1db0f8a7546aae5311df2e6204f5a531",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -1043,6 +1043,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonHoseDisconnectedPacket",
       "Direction": "Bidirectional",
       "Category": "Common.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "F6005F058FA030CC",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundShopPaymentPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
