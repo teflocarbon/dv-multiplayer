@@ -16,13 +16,16 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float MaxCorrectionSpeed = 3f;        // m/s, plus a share of the host's speed
     private const float MaxCorrectionSpeedFraction = 0.25f;
     private const float StaleSampleSeconds = 0.5f;
-    private const float MaxCommandAcceleration = 8f; // m/s², well above what DV trains do outside collisions
+    private const float MaxSpeedAcceleration = 8f;      // m/s², easing the host's speed between samples
+    private const float MaxCorrectionAcceleration = 4f; // m/s², easing the position correction
+    private const float ImpactSpeedStep = 1.5f;         // m/s jump in the host's speed: only impacts make one
 
     private TrainCar trainCar;
     private NetworkedBogie[] bogies;
     private float targetSpeed;
     private float lastSampleTime = float.NegativeInfinity;
-    private float commandedSpeed;
+    private float easedSpeed;
+    private float easedCorrection;
     private bool driving;
 
     protected override void OnEnable()
@@ -60,20 +63,32 @@ public class TrainSpeedQueue : TickedQueue<float>
             return;
         }
 
-        float speed = targetSpeed;
+        float correction = 0f;
         if (TryGetAlongTrackError(out float error) && Mathf.Abs(error) > CorrectionDeadband)
         {
             float limit = MaxCorrectionSpeed + Mathf.Abs(targetSpeed) * MaxCorrectionSpeedFraction;
-            speed += Mathf.Clamp(error * CorrectionGain, -limit, limit);
+            correction = Mathf.Clamp(error * CorrectionGain, -limit, limit);
         }
 
-        // Samples arrive at the network tick rate, slower than physics, and carry some noise;
-        // rate-limit the command so the car accelerates smoothly instead of in steps.
+        // Samples arrive at the network tick rate, slower than physics, and carry some noise:
+        // ease the host's speed and the correction so the car accelerates smoothly instead of in
+        // steps. Taking over a moving car starts from its own speed so it doesn't jerk.
         if (!driving)
-            commandedSpeed = Vector3.Dot(trainCar.rb.velocity, trainCar.transform.forward);
+        {
+            easedSpeed = targetSpeed;
+            easedCorrection = Vector3.Dot(trainCar.rb.velocity, trainCar.transform.forward) - targetSpeed;
+        }
         driving = true;
-        commandedSpeed = Mathf.MoveTowards(commandedSpeed, speed, MaxCommandAcceleration * Time.fixedDeltaTime);
-        ApplySpeed(commandedSpeed);
+        // A jump in the host's speed that easing isn't meant for is an impact (a shunt, a
+        // collision) reversing the host's car at once. Easing all of it kept the car going for a
+        // second, metres too far, then hauled it back hard (upstream #141). Take it at once but for
+        // the last bit.
+        float jump = targetSpeed - easedSpeed;
+        if (Mathf.Abs(jump) > ImpactSpeedStep)
+            easedSpeed += jump - Mathf.Sign(jump) * ImpactSpeedStep;
+        easedSpeed = Mathf.MoveTowards(easedSpeed, targetSpeed, MaxSpeedAcceleration * Time.fixedDeltaTime);
+        easedCorrection = Mathf.MoveTowards(easedCorrection, correction, MaxCorrectionAcceleration * Time.fixedDeltaTime);
+        ApplySpeed(easedSpeed + easedCorrection);
     }
 
     private bool TryGetAlongTrackError(out float error)
