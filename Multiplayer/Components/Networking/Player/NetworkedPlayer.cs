@@ -134,7 +134,9 @@ public partial class NetworkedPlayer : MonoBehaviour
         nameTag = GetComponentInChildren<NameTag>();
 
         nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
-        PlayerManager.CameraChanged += () => nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
+        // A named handler so OnDestroy can remove it: the static event otherwise kept every
+        // departed player's avatar alive and threw on their destroyed name tag at each camera change.
+        PlayerManager.CameraChanged += OnCameraChanged;
 
         if (name != null)
             nameTag.SetUsername(name);
@@ -170,6 +172,13 @@ public partial class NetworkedPlayer : MonoBehaviour
     protected void OnDestroy()
     {
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
+        PlayerManager.CameraChanged -= OnCameraChanged;
+    }
+
+    private void OnCameraChanged()
+    {
+        if (nameTag != null && PlayerManager.ActiveCamera != null)
+            nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
     }
 
     private void OnSettingsUpdated(Settings settings)
