@@ -17,6 +17,7 @@
     <ItemGroup>
         <Compile Remove="Probes/**" />
         <EmbeddedResource Include="Probes/*.cs" LogicalName="probe.%(Filename)" />
+        <EmbeddedResource Include="Probes/lib/*.cs" LogicalName="lib.%(Filename)" />
     </ItemGroup>
     <ItemGroup>
       <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />

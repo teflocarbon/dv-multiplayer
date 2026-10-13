@@ -48,6 +48,58 @@ public static class McpTools
     [Description("Quits every game instance that has the dev agent (kills any that don't exit within 20s).")]
     public static async Task<string> Down(CancellationToken ct) => Render(await Session.DownAsync(ct));
 
+    [McpServerTool(Name = "dvmp_desync", ReadOnly = true)]
+    [Description("""
+        Desync checker. Snapshots the actual Unity state of every networked item and car (plus
+        money and junctions) on host and client `samples` times, compares them, and reports
+        divergences that persist across most samples, so in-flight latency is not counted.
+
+        Kinds: item.missing-on-client (host thinks the client has it), item.ghost-on-client,
+        item.unexpected-on-client (client kept an item the host retired), item.state /
+        parent / active / revision / position / kinematic, car.missing/ghost, car.coupling /
+        derailed / position / track / handbrake / brake-pipe, world.money / junction.
+        Positions are compared in absolute space, or car-local for items riding in a car.
+        Returns counts per kind and the top persistent divergences; the full report is
+        written to reportPath. Requires a running host + client (dvmp_up).
+        """)]
+    public static async Task<string> DesyncCheck(
+        [Description("Number of snapshots. Default 6.")] int samples = 6,
+        [Description("Seconds between snapshots. Default 1.")] double intervalSeconds = 1,
+        [Description("How many persistent divergences to list. Default 40.")] int top = 40,
+        CancellationToken ct = default)
+    {
+        try { return Render(await Desync.RunAsync(Math.Clamp(samples, 1, 120), Math.Clamp(intervalSeconds, 0.1, 30), Math.Clamp(top, 1, 500), ct)); }
+        catch (Exception e) when (e is AgentException or ProbeCompileException)
+        {
+            return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message });
+        }
+    }
+
+    [McpServerTool(Name = "dvmp_soak")]
+    [Description("""
+        Soak test: a seeded bot performs random item interactions (carry, throw, pick-and-drop,
+        wander) around the player on the chosen peer(s), then dvmp_desync runs. Use target "all"
+        to have host and client act at the same time (different seeds) to provoke ownership
+        conflicts. Returns per-peer action counts, any failed actions, and the desync report;
+        the full action log is written to soakLogPath. Roughly 6-8 s per action, so prefer the
+        CLI (`dvmp soak`) in the background for long runs.
+        """)]
+    public static async Task<string> SoakTest(
+        [Description("client (default), host, or all.")] string target = "client",
+        [Description("Actions per peer. Default 15.")] int actions = 15,
+        [Description("Random seed; the same seed replays the same choices. Default 1.")] int seed = 1,
+        [Description("Radius in metres around the starting point to pick items from. Default 40.")] double radius = 40,
+        [Description("Seconds between actions. Default 1.")] double pause = 1,
+        [Description("Desync samples afterwards. Default 6.")] int desyncSamples = 6,
+        CancellationToken ct = default)
+    {
+        try { return Render(await Soak.RunAsync(target, Math.Clamp(actions, 1, 500), seed, Math.Clamp(radius, 2, 500), Math.Clamp(pause, 0, 30), Math.Clamp(desyncSamples, 1, 60), ct)); }
+        catch (Exception e) when (e is AgentException or ProbeCompileException)
+        {
+            return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message });
+        }
+    }
+
     [McpServerTool(Name = "dvmp_eval")]
     [Description("""
         Compiles C# and runs it inside running game process(es) on Unity's main thread,

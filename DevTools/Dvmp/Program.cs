@@ -15,6 +15,8 @@ internal static class Program
           dvmp up [--fresh] [--save NAME|UID] [--visible] [--fps N] [--sound]
                                              start/reuse a joined host + client (minimised, muted)
           dvmp down                                  quit all agent-enabled games
+          dvmp desync [-n samples] [-i seconds] [--top N]   cross-peer desync report
+          dvmp soak [-t client|host|all] [-n actions] [--seed S] [-r radius] [--pause s] [--samples n]
           dvmp eval [-t target] [-m mode] [-u usings] (CODE | -f FILE)
           dvmp screenshot [-t target] [-w maxWidth] [-o DIR]
           dvmp logs [-t target] [-l minLevel] [-c contains] [-n max]
@@ -43,6 +45,13 @@ internal static class Program
                         Sound: args.Contains("--sound")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
                 "down" => Print(await Session.DownAsync(CancellationToken.None)),
+                "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),
+                    double.Parse(Opt(args, "-r") ?? "40", System.Globalization.CultureInfo.InvariantCulture),
+                    double.Parse(Opt(args, "--pause") ?? "1", System.Globalization.CultureInfo.InvariantCulture),
+                    int.Parse(Opt(args, "--samples") ?? "6"), CancellationToken.None)),
+                "desync" => Print(await Desync.RunAsync(int.Parse(Opt(args, "-n") ?? "6"),
+                    double.Parse(Opt(args, "-i") ?? "1", System.Globalization.CultureInfo.InvariantCulture),
+                    int.Parse(Opt(args, "--top") ?? "40"), CancellationToken.None)),
                 "eval" => await EvalAsync(args),
                 "screenshot" => await ScreenshotAsync(args),
                 "logs" => Print(await Operations.LogsAsync(Opt(args, "-t"), Opt(args, "-l") ?? "warning",
