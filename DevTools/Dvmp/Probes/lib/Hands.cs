@@ -151,11 +151,23 @@ namespace Dvmp.Lib
         /// height when moving far can put the player inside a hill, and they fall through it.</summary>
         public static IEnumerator TeleportToGround(float absX, float absZ, float settleSeconds = 1f)
         {
-            Vector3 above = Dev.World(new Vector3(absX, 2000f, absZ));
-            int ground = LayerMask.GetMask("Terrain", "Default");
-            float y = Physics.Raycast(above, Vector3.down, out RaycastHit hit, 4000f, ground, QueryTriggerInteraction.Ignore)
-                ? Dev.Abs(hit.point).y : (Dev.PlayerAbs?.y ?? 150f) + 20f;
-            yield return TeleportAbs(new Vector3(absX, y + 0.3f, absZ), settleSeconds);
+            int ground = LayerMask.GetMask("Terrain");
+            float? GroundY() =>
+                Physics.Raycast(Dev.World(new Vector3(absX, 3000f, absZ)), Vector3.down, out RaycastHit hit, 5000f,
+                    ground, QueryTriggerInteraction.Ignore) ? Dev.Abs(hit.point).y : (float?)null;
+            float? y = GroundY();
+            if (y == null)
+            {
+                // The terrain there isn't streamed in yet (a guessed height put players under
+                // it once it loaded): wait above the spot until it is.
+                yield return TeleportAbs(new Vector3(absX, 1500f, absZ), 0f);
+                float t0 = Time.realtimeSinceStartup;
+                while ((y = GroundY()) == null && Time.realtimeSinceStartup - t0 < 30f)
+                    yield return null;
+                if (y == null)
+                    throw new InvalidOperationException($"terrain at ({absX:F0}, {absZ:F0}) never loaded");
+            }
+            yield return TeleportAbs(new Vector3(absX, y.Value + 0.3f, absZ), settleSeconds);
         }
 
         /// <summary>Teleports next to a networked item so it is within reach, facing it.</summary>
