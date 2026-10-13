@@ -41,14 +41,27 @@ public partial class NetworkedItemManager
             HashSet<WorldItemCellCoord> desiredCells = WorldItemCellCoord.Neighbourhood(centre);
             bool cellsChanged = !HostPlayerCells.TryGetValue(player.PlayerId, out HashSet<WorldItemCellCoord> previousCells) ||
                                 !previousCells.SetEquals(desiredCells);
-            HashSet<NetworkedItem> desiredItems = new(HostNonSpatialItems.Where(item =>
-                IsNonSpatialRelevantTo(item, player, desiredCells) &&
-                (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
-            foreach (WorldItemCellCoord cell in desiredCells)
+            HashSet<NetworkedItem> RelevantItems(HashSet<WorldItemCellCoord> cells)
             {
-                if (HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> indexed))
-                    desiredItems.UnionWith(indexed.Where(item => item != null &&
-                        (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                HashSet<NetworkedItem> items = new(HostNonSpatialItems.Where(item =>
+                    IsNonSpatialRelevantTo(item, player, cells) &&
+                    (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                foreach (WorldItemCellCoord cell in cells)
+                {
+                    if (HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> indexed))
+                        items.UnionWith(indexed.Where(item => item != null &&
+                            (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                }
+                return items;
+            }
+            HashSet<NetworkedItem> desiredItems = RelevantItems(desiredCells);
+            // Hysteresis: items enter at the 3x3 neighbourhood but only leave once outside 5x5.
+            // Without it, walking along a cell boundary destroyed and re-created everything on
+            // the other side each time the player stepped across it.
+            if (player.NearbyItems.Count > 0)
+            {
+                HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, 2));
+                desiredItems.UnionWith(player.NearbyItems.Keys.Where(item => item != null && retainable.Contains(item)));
             }
             bool membershipChanged = cellsChanged || player.NearbyItems.Count != desiredItems.Count ||
                                      player.NearbyItems.Keys.Any(item => !desiredItems.Contains(item));
