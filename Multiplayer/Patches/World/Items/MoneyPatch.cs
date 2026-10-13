@@ -1,6 +1,4 @@
-using System;
 using System.Globalization;
-using DV.InventorySystem;
 using HarmonyLib;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World;
@@ -34,32 +32,22 @@ public static class MoneyPatch
             serverAuthoritative: true);
         netItem.FinaliseTrackedValues();
     }
-}
 
-/// <summary>
-/// Vanilla spends a money item into the local wallet the moment it enters the inventory. The
-/// wallet is shared and owned by the host (clients only mirror its balance), so on a client
-/// that deposit was overwritten by the next balance update and the note survived on the host.
-/// Hand the deposit to the host instead; the local copy is still consumed as normal.
-/// </summary>
-[HarmonyPatch(typeof(Inventory), nameof(Inventory.AddItemToInventory),
-    [typeof(GameObject), typeof(int), typeof(bool), typeof(bool)])]
-public static class InventoryMoneyDepositPatch
-{
+    /// <summary>
+    /// Every way a client uses up a note or coin (inventory pickup, stashing it on the wallet,
+    /// paying a cash register) spends it here. The wallet is shared and owned by the host, which
+    /// never heard about these: the value was credited only to the client's mirrored balance
+    /// (overwritten by the host's next update) and the note survived on the host. Deposit it
+    /// with the host first; the local flow then carries on and the host's balance corrects ours.
+    /// </summary>
+    [HarmonyPatch(nameof(Money.TrySpend))]
     [HarmonyPrefix]
-    private static void Prefix(Inventory __instance, GameObject item, int slot)
+    private static void TrySpend(Money __instance)
     {
-        if (item == null || NetworkLifecycle.Instance == null || NetworkLifecycle.Instance.IsHost() ||
-            !NetworkLifecycle.Instance.IsClientRunning)
+        if (__instance.Amount <= double.Epsilon || NetworkLifecycle.Instance == null ||
+            NetworkLifecycle.Instance.IsHost() || !NetworkLifecycle.Instance.IsClientRunning)
             return;
-        if (!item.TryGetComponent(out IMoney money) || !money.ShouldDestroyOnUse)
-            return;
-        if (!InventoryUtils.IsValidInventoryIndex(slot) || __instance.Contains(item, includeDropped: false))
-            return; // vanilla rejects these before spending
-
-        // Zero the local copy so vanilla doesn't credit the mirrored wallet itself.
-        money.TrySpend(money.Amount);
-        if (item.TryGetComponent(out NetworkedItem networked) && networked.NetId != 0)
+        if (__instance.TryGetComponent(out NetworkedItem networked) && networked.NetId != 0)
             NetworkLifecycle.Instance.Client.SendMoneyItemDeposit(networked.NetId);
     }
 }
