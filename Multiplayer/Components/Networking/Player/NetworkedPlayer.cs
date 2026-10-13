@@ -408,21 +408,22 @@ public partial class NetworkedPlayer : MonoBehaviour
             EntityDebugRegistry.RegisterPlayer(this);
             return EntityDebugRegistry.Get("Player", PlayerId.ToString())?.LatestState;
         }, highFrequency: true);
+        SetPosture(posture);
+
+        // Positions are car-local when on a car and absolute otherwise. If this packet's frame doesn't
+        // match ours (e.g. their car isn't spawned here yet), skip it: applying it first meant a
+        // car-local position was read as a world one and the avatar jumped toward the origin.
+        if (IsOnCar != movePacketIsOnCar)
+            return;
+
         if (trackingData.Position.HasValue)
             targetPos = trackingData.Position.Value;
 
         if (trackingData.MoveDirection.HasValue)
-        {
             targetMoveDir = trackingData.MoveDirection.Value;
-        }
 
         if (trackingData.SitHeight.HasValue)
             currentSitHeight = Mathf.Clamp01(trackingData.SitHeight.Value);
-
-        SetPosture(posture);
-
-        if (IsOnCar != movePacketIsOnCar)
-            return;
 
         if (trackingData.RotationY.HasValue)
             targetRotation = Quaternion.Euler(0, trackingData.RotationY.Value, 0);
@@ -476,13 +477,16 @@ public partial class NetworkedPlayer : MonoBehaviour
     public void UpdateCar(ushort netId)
     {
         string previousCar = OccupiedCar?.ID ?? string.Empty;
-        IsOnCar = NetworkedTrainCar.TryGet(netId, out TrainCar trainCar);
+        bool onCar = NetworkedTrainCar.TryGet(netId, out TrainCar trainCar);
+        // Called for every tracking packet; only reparent when the car actually changes. Leaving a car
+        // parented the avatar to nothing, outside the origin-shift parent it was created under, so it
+        // slid every time the world shifted.
+        if (onCar == IsOnCar && trainCar == OccupiedCar && selfTransform.parent != null)
+            return;
+        IsOnCar = onCar;
         OccupiedCar = trainCar;
 
-        if (IsOnCar)
-            selfTransform.SetParent(OccupiedCar.transform, true);
-        else
-            selfTransform.SetParent(null, true);
+        selfTransform.SetParent(IsOnCar ? OccupiedCar.transform : WorldMover.OriginShiftParent, true);
 
         DebugRuntime.Publish("player", "player.car-attachment", DebugRuntimeSide.Client, entityType: "Player", entityId: PlayerId.ToString(),
             data: new() { ["previousCar"] = previousCar, ["carNetId"] = netId, ["currentCar"] = OccupiedCar?.ID ?? string.Empty, ["isOnCar"] = IsOnCar });
