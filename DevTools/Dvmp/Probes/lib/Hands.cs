@@ -68,7 +68,11 @@ namespace Dvmp.Lib
             GrabberRaycasterDV raycaster = grabber.GetComponent<GrabberRaycasterDV>();
             GrabberInteractionHandlerDV interaction = grabber.GetComponent<GrabberInteractionHandlerDV>();
             if (grabber.CurrentItemHeld != null) throw new InvalidOperationException("already holding an item");
-            if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
+            // A client can drop and re-create its projection of an item; give it a moment.
+            NetworkedItem item = null;
+            for (float t0 = Time.realtimeSinceStartup; (!NetworkedItem.TryGet(netId, out item) || item == null) && Time.realtimeSinceStartup - t0 < 5f;)
+                yield return null;
+            if (item == null)
                 throw new InvalidOperationException("item not found: " + netId);
             GrabHandlerItem requested = item.GetComponent<GrabHandlerItem>()
                                         ?? throw new InvalidOperationException("item has no desktop grab handler: " + netId);
