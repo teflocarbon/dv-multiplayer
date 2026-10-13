@@ -7,13 +7,15 @@
 # instead of quitting and rejoin before the host has noticed (stale-session reconnect).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
-D=DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe
+D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/rejoin
 U="using Multiplayer.Components.Networking; using Multiplayer.Components.Networking.World; using Multiplayer.Networking.Data.Items;"
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 
 echo "== up"; $D up ${FRESH:+--fresh} >/dev/null
 echo "== client holds an item"
+# A fresh mug at the client's feet, so the test doesn't depend on loose items nearby.
+$D eval -t host -m coroutine -u "$U" -a who=client -f DevTools/Scenarios/train-items/spawn-mug.cs >/dev/null
 before=$($D eval -t client -m coroutine -u "$U" -f $P/hold.cs)
 held=$(echo "$before" | field held); inventory=$(echo "$before" | field inventory); names=$(echo "$before" | field names)
 echo "   holding $held ($(echo "$before" | field heldName)); owns $(echo "$inventory" | tr ',' '\n' | grep -c .) items"

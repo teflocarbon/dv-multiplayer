@@ -136,8 +136,26 @@ namespace Dvmp.Lib
         /// <summary>Teleports the local player to an absolute position (origin shift handled).</summary>
         public static IEnumerator TeleportAbs(Vector3 absolute, float settleSeconds = 1f)
         {
-            PlayerManager.TeleportPlayer(Dev.World(absolute), PlayerManager.PlayerTransform.rotation, null, false);
+            // A falling player's controller can undo a teleport on the next frame; check and retry.
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                PlayerManager.TeleportPlayer(Dev.World(absolute), PlayerManager.PlayerTransform.rotation, null, false);
+                for (int i = 0; i < 3; i++) yield return null;
+                if (Vector3.Distance(Dev.Abs(PlayerManager.PlayerTransform.position), absolute) < 5f)
+                    break;
+            }
             yield return new WaitForSeconds(settleSeconds);
+        }
+
+        /// <summary>Teleports the local player onto the ground at an absolute x/z. Keeping the old
+        /// height when moving far can put the player inside a hill, and they fall through it.</summary>
+        public static IEnumerator TeleportToGround(float absX, float absZ, float settleSeconds = 1f)
+        {
+            Vector3 above = Dev.World(new Vector3(absX, 2000f, absZ));
+            int ground = LayerMask.GetMask("Terrain", "Default");
+            float y = Physics.Raycast(above, Vector3.down, out RaycastHit hit, 4000f, ground, QueryTriggerInteraction.Ignore)
+                ? Dev.Abs(hit.point).y : (Dev.PlayerAbs?.y ?? 150f) + 20f;
+            yield return TeleportAbs(new Vector3(absX, y + 0.3f, absZ), settleSeconds);
         }
 
         /// <summary>Teleports next to a networked item so it is within reach, facing it.</summary>
