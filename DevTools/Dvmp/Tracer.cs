@@ -8,8 +8,15 @@ internal static class Tracer
     public static async Task<JsonObject> RunAsync(string? target, string? ids, int last, CancellationToken ct)
     {
         const string usings = "using Multiplayer.Components.Networking.World;";
-        JsonObject install = await Operations.EvalAsync(Session.LoadProbe("trace-install"), target, "class", usings, null, 180, ct);
-        if (install["compileError"] is { } compile) return new JsonObject { ["ok"] = false, ["compileError"] = compile.DeepClone() };
+        // Install one game at a time: patching both at once collides on Harmony's temp files.
+        JsonObject install = new() { ["results"] = new JsonObject() };
+        foreach (Agent agent in await Agents.ResolveAsync(target, ct))
+        {
+            JsonObject one = await Operations.EvalAsync(Session.LoadProbe("trace-install"), agent.Pid.ToString(), "class", usings, null, 180, ct);
+            if (one["compileError"] is { } compile) return new JsonObject { ["ok"] = false, ["compileError"] = compile.DeepClone() };
+            foreach (var (label, node) in one["results"]!.AsObject())
+                install["results"]![label] = node?.DeepClone();
+        }
 
         Dictionary<string, string> args = new() { ["last"] = last.ToString() };
         if (!string.IsNullOrWhiteSpace(ids)) args["ids"] = ids.Replace(" ", string.Empty);

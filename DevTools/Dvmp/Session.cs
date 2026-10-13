@@ -8,7 +8,7 @@ namespace Dvmp;
 /// <param name="Background">Start minimised, below-normal priority, so the games stay out of the way.</param>
 /// <param name="FpsCap">Frame cap while focused (the agent uses a lower one in the background).</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
-    bool Background = true, int FpsCap = 30, bool Sound = false);
+    bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false);
 
 /// <summary>
 /// Brings up (or reuses) a host + client pair of real game instances joined to each other.
@@ -115,6 +115,7 @@ internal static class Session
 
             Mark("host: waiting for main menu");
             await WaitForMenuAsync(hostAgent, TimeSpan.FromSeconds(120));
+            if (o.Trace) await InstallTracerAsync(hostAgent);
             Mark("host: loading save");
             Dictionary<string, string> hostArgs = new();
             if (!string.IsNullOrWhiteSpace(o.Save)) hostArgs["save"] = o.Save!;
@@ -153,6 +154,7 @@ internal static class Session
         Agent clientAgent = await WaitForAgentAsync(clientProcess, TimeSpan.FromSeconds(90));
         Mark("client: waiting for main menu");
         await WaitForMenuAsync(clientAgent, TimeSpan.FromSeconds(120));
+        if (o.Trace) await InstallTracerAsync(clientAgent);
         Mark("client: joining");
         await RunProbeAsync(clientAgent, "join", new()
         {
@@ -165,6 +167,15 @@ internal static class Session
         Mark("client: waiting for world");
         return await WaitUntilAsync(clientAgent.Pid, a => a.Role == "client" && WorldLoaded(a), TimeSpan.FromSeconds(300),
             "client world load", failFast: ClientDisconnectAsync);
+    }
+
+    // Installed at the main menu so everything that happens while the world loads is recorded.
+    private static async Task InstallTracerAsync(Agent agent)
+    {
+        Mark($"{agent.Label}: installing tracer");
+        JsonObject r = await Operations.EvalAsync(LoadProbe("trace-install"), agent.Pid.ToString(), "class",
+            "using Multiplayer.Components.Networking.World;", null, 180);
+        if (r["compileError"] is { } compile) throw new Exception("tracer failed to compile: " + compile);
     }
 
     private static async Task<JsonObject> RunProbeExpressionAsync(Agent agent, string expression)

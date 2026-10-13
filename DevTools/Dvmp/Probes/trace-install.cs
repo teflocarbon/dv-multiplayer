@@ -31,12 +31,17 @@ public static class Probe
         var failures = new List<string>();
         foreach (MethodBase method in candidates)
         {
-            try { harmony.Patch(method, transpiler: transpiler); patched++; }
-            catch (Exception e)
+            // Patching can fail transiently with IOException (Harmony/MonoMod temp files shared
+            // between game processes), so retry before giving up on a method.
+            Exception last = null;
+            for (int attempt = 0; attempt < 4 && (attempt == 0 || last is System.IO.IOException); attempt++)
             {
-                failed++;
-                if (failures.Count < 10) failures.Add(method.DeclaringType?.Name + "." + method.Name + ": " + e.GetType().Name);
+                try { harmony.Patch(method, transpiler: transpiler); last = null; break; }
+                catch (Exception e) { last = e; }
             }
+            if (last == null) { patched++; continue; }
+            failed++;
+            if (failures.Count < 10) failures.Add(method.DeclaringType?.Name + "." + method.Name + ": " + last.GetType().Name + ": " + last.Message);
         }
         DevContext.State["dvmp.trace.installed"] = true;
         return new { installed = true, candidates = candidates.Count, patched, failed, failures, watchedObjects = watched, ms = sw.ElapsedMilliseconds };
@@ -168,13 +173,62 @@ public static class Probe
         return watch.Count;
     }
 
+    // Objects already checked and found not to belong to a networked item.
+    private static readonly HashSet<int> unrelated = new();
+
     private static void Record(UnityEngine.Object target, string op, string caller)
     {
-        if (target == null || !Watch.TryGetValue(target.GetInstanceID(), out ushort id)) return;
-        var history = History;
-        if (!history.TryGetValue(id, out Queue<string> queue)) history[id] = queue = new Queue<string>();
-        queue.Enqueue($"{Time.time:F2}s f{Time.frameCount} {op} <- {caller}");
+        if (target == null) return;
+        int instance = target.GetInstanceID();
+        if (!Watch.TryGetValue(instance, out ushort id))
+        {
+            // Not pre-registered (e.g. spawned after install, or installed before the world
+            // loaded): walk up the hierarchy once to find the owning networked item.
+            if (unrelated.Contains(instance)) return;
+            NetworkedItem owner = OwningItem(target);
+            if (owner == null) { unrelated.Add(instance); return; }
+            if (owner.NetId == 0)
+            {
+                // Not registered yet (e.g. during world load): keep the events under the item
+                // instance and merge them once it gets its NetId.
+                Append(Pending, owner.GetInstanceID(), Describe(target, op, caller));
+                return;
+            }
+            Watch[instance] = id = owner.NetId;
+            if (Pending.TryGetValue(owner.GetInstanceID(), out Queue<string> early))
+            {
+                Pending.Remove(owner.GetInstanceID());
+                foreach (string e in early) Append(History, id, e);
+            }
+        }
+        Append(History, id, Describe(target, op, caller));
+    }
+
+    private static Dictionary<int, Queue<string>> Pending =>
+        (Dictionary<int, Queue<string>>)(DevContext.State.TryGetValue("dvmp.trace.pending", out object p) ? p : DevContext.State["dvmp.trace.pending"] = new Dictionary<int, Queue<string>>());
+
+    private static string Describe(UnityEngine.Object target, string op, string caller)
+    {
+        string where = target is Component c ? " @" + V(c.transform.position) : target is GameObject g ? " @" + V(g.transform.position) : "";
+        return $"{Time.time:F2}s f{Time.frameCount} {op}{where} <- {caller}";
+    }
+
+    private static void Append<TKey>(Dictionary<TKey, Queue<string>> map, TKey key, string entry)
+    {
+        if (!map.TryGetValue(key, out Queue<string> queue)) map[key] = queue = new Queue<string>();
+        queue.Enqueue(entry);
         while (queue.Count > HistoryPerItem) queue.Dequeue();
+    }
+
+    private static NetworkedItem OwningItem(UnityEngine.Object target)
+    {
+        Transform t = target is Component c ? c.transform : target is GameObject g ? g.transform : null;
+        for (int depth = 0; t != null && depth < 8; depth++, t = t.parent)
+        {
+            NetworkedItem item = t.GetComponent<NetworkedItem>();
+            if (item != null) return item;
+        }
+        return null;
     }
 
     private static string V(Vector3 v) => Dev.Abs(v).ToString("F2");
