@@ -26,6 +26,16 @@ public sealed class HarnessMode : MonoBehaviour
     public static bool Muted { get; set; } = true;
     public static bool LowGraphics { get; set; } = true;
 
+    /// <summary>
+    /// Whether real keyboard/mouse input reaches the game. Off by default so an accidental click
+    /// on a background test window can't move the player or capture the cursor. Toggle in-game
+    /// with Ctrl+Shift+F5, or launch with -dvmp-input.
+    /// </summary>
+    public static bool UserInput { get; set; }
+
+    private static readonly object inputRequester = new();
+    private bool? appliedUserInput;
+
     private float nextGraphicsPass;
     private float nextForegroundCheck;
     private bool foreground;
@@ -41,6 +51,7 @@ public sealed class HarnessMode : MonoBehaviour
         BackgroundFpsCap = IntArg(args, "-dvmp-bg-fps", BackgroundFpsCap);
         Muted = !args.Contains("-dvmp-sound");
         LowGraphics = !args.Contains("-dvmp-full-graphics");
+        UserInput = args.Contains("-dvmp-input");
         host.AddComponent<HarnessMode>();
     }
 
@@ -52,6 +63,10 @@ public sealed class HarnessMode : MonoBehaviour
             nextForegroundCheck = Time.unscaledTime + 1f;
             foreground = IsForeground();
         }
+
+        if (Input.GetKey(KeyCode.LeftControl) && Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.F5))
+            UserInput = !UserInput;
+        ApplyInputOwnership();
 
         QualitySettings.vSyncCount = 0;
         Application.targetFrameRate = foreground ? FpsCap : BackgroundFpsCap;
@@ -70,8 +85,25 @@ public sealed class HarnessMode : MonoBehaviour
         }
     }
 
+    // Uses DV's own input/cursor request systems (keyed by requester), so probes that take and
+    // release control (Hands) stack with this instead of overriding it. Re-applied every frame
+    // until the managers exist (they are recreated across scene loads).
+    private void ApplyInputOwnership()
+    {
+        try
+        {
+            if (appliedUserInput == UserInput && DV.UI.CursorManager.Instance != null) return;
+            DV.Interaction.Inputs.InputManager.SetKeyboardAndMouseEnabled(inputRequester, UserInput);
+            if (DV.UI.CursorManager.Instance == null) return;
+            if (UserInput) DV.UI.CursorManager.Instance.RemoveRequest(inputRequester);
+            else DV.UI.CursorManager.Instance.RequestCursor(inputRequester, true, 5000);
+            appliedUserInput = UserInput;
+        }
+        catch { /* input systems not up yet (bootstrap); retry next frame */ }
+    }
+
     internal static object Snapshot() => Active
-        ? new { active = true, fpsCap = FpsCap, backgroundFpsCap = BackgroundFpsCap, muted = Muted, lowGraphics = LowGraphics, targetFrameRate = Application.targetFrameRate }
+        ? new { active = true, fpsCap = FpsCap, backgroundFpsCap = BackgroundFpsCap, muted = Muted, lowGraphics = LowGraphics, userInput = UserInput, targetFrameRate = Application.targetFrameRate }
         : (object)new { active = false };
 
     private static bool IsForeground()

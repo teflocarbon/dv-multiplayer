@@ -32,7 +32,20 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 | `dvmp_screenshot` | `dvmp screenshot [-t ...] [-o DIR]` | What each window shows. |
 | `dvmp_logs` | `dvmp logs [-t ...] [-l warning]` | Unity/Multiplayer log lines and exceptions. |
 | `dvmp_desync` | `dvmp desync [-n 6] [-i 1]` | Snapshot real Unity state on host and client repeatedly and report divergences that persist (items, cars, money, junctions). Full report in `%LOCALAPPDATA%\dvmp\reports`. |
-| `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
+| `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1] [--filter JobOverview]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
+| `dvmp_trace` | `dvmp trace [--ids 12,34]` | Mutation tracer: which code froze/moved/reparented/hid/destroyed an item, with the calling method. `dvmp up --trace` installs it before the world loads. |
+
+## Regression scenarios
+
+Run after changing item, session or persistence code. Each exits non-zero on failure.
+
+| Scenario | What it guards |
+|---|---|
+| `bash DevTools/Scenarios/rejoin/run.sh` | Client quits holding an item: host keeps every item and drops the held one; client rejoins and gets exactly one of each item back in its inventory (no duplicates, nothing dropped). `FRESH=1` restarts both games first. |
+| `SESSION="DVMP Test Career 2" bash DevTools/Scenarios/save-reload/run.sh` | Repeated host save + reload: item and job-overview counts don't grow, nothing is active in the sky, nothing drifts into Lost and Found, the host's inventory stays recorded as inventory. |
+
+Test saves are separate sessions ("DVMP Test Career", "DVMP Test Career 2"); create more with
+`dvmp up --new career --name "..."`.
 
 ## Writing probes
 
@@ -82,6 +95,8 @@ acts; `Hands.ReleaseControl()` hands it back.
   started with `-dvmp-role`; nothing is written to the game's settings. Override with
   `dvmp up --visible --fps 60 --sound` (or the `background`/`fpsCap`/`sound` tool arguments).
   Probes can change it live via `HarnessMode.FpsCap`, `HarnessMode.Muted`, etc.
+- Real keyboard/mouse are ignored by harness-launched games, so a stray click on a test window
+  can't move a player. Press Ctrl+Shift+F5 in a game window to take (or give back) control.
 - Screenshots of a minimised game briefly restore its window without taking focus.
 - The client joins as `DVMP-Client` with a fixed GUID via in-memory patches, so the shared
   `Settings.xml` is never modified.
