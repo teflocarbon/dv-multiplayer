@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "dvmp": {
+      "type": "stdio",
+      "command": "DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe",
+      "args": ["mcp"]
+    }
+  }
+}

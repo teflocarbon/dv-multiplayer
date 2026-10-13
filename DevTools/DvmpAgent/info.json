@@ -1,0 +1,8 @@
+{
+    "Id": "MultiplayerDevTools",
+    "Version": "0.1.0",
+    "DisplayName": "Multiplayer Dev Tools (debug only)",
+    "Author": "Teflo",
+    "EntryMethod": "Dvmp.Agent.AgentMain.Load",
+    "ManagerVersion": "0.27.3"
+}
