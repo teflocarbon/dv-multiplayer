@@ -320,8 +320,14 @@ public static class NetworkedCarSpawner
             trainCar.frontCoupler.preventAutoCouple = spawnPart.FrontCoupling.PreventAutoCouple;
             trainCar.rearCoupler.preventAutoCouple = spawnPart.RearCoupling.PreventAutoCouple;
 
-            trainCar.frontCoupler.AttemptAutoCouple();
-            trainCar.rearCoupler.AttemptAutoCouple();
+            // The host auto-couples its own copy and broadcasts the result in its next topology
+            // snapshot. Auto-coupling here as well made a local guess (half a second later, outside
+            // any packet scope) whose hose and cock side effects were sent to the host as commands.
+            if (NetworkLifecycle.Instance.IsHost())
+            {
+                trainCar.frontCoupler.AttemptAutoCouple();
+                trainCar.rearCoupler.AttemptAutoCouple();
+            }
 
             return;
         }
