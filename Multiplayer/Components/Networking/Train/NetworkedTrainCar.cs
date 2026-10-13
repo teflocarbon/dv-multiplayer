@@ -201,7 +201,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private const uint MIN_KINEMATIC_CYCLES = 10;
     private const float DISTANCE_TOLERANCE = 2f;
     private const float MAX_PAINT_DISTANCE_SQ = (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE) * (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE);
-    private const float POSITION_UPDATE_THRESHOLD = 0.1f; // TrainCar must have a bigger delta to apply position update
+    // Periodic full-sync positions are only a safety net: TrainSpeedQueue steers on-rail cars to
+    // the host's bogie positions continuously, and snapping a moving car to a latency-old pose
+    // yanks it backwards. Only snap when the car is clearly somewhere else.
+    private const float POSITION_UPDATE_THRESHOLD = 5f;
     private const float INTERIOR_CONTROLS_TIMEOUT = 2f;
 
     #region Port and Fuse Map
@@ -2068,10 +2071,12 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             //move the car to the correct position first - maybe?
             if (movementPart.typeFlag.HasFlag(TrainsetMovementPart.MovementType.Position))
             {
-                Vector3 worldPos = movementPart.Position + WorldMover.currentMove;
+                // Project the host's pose to now so a moving car isn't compared against the past.
+                float ageSeconds = Mathf.Clamp((NetworkLifecycle.Instance.Tick - (float)tick) / NetworkLifecycle.TICK_RATE, 0f, 0.5f);
+                Vector3 worldPos = movementPart.Position + WorldMover.currentMove +
+                                   movementPart.Rotation * Vector3.forward * (movementPart.Speed * ageSeconds);
 
-                // Only apply position update if change exceeds threshold (stops cariages from jittering while stationary)
-                float positionDelta = Vector3.Distance(TrainCar.transform.position, worldPos);
+                float positionDelta = Vector3.Distance(TrainCar.rb != null ? TrainCar.rb.position : TrainCar.transform.position, worldPos);
 
                 if (positionDelta > POSITION_UPDATE_THRESHOLD)
                 {
