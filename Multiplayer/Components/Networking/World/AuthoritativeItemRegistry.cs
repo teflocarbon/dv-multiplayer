@@ -426,6 +426,11 @@ public static class AuthoritativeItemRegistry
 
         byte previousPossessor = record.PlacementPlayerId;
         ApplyCore(record, result.State);
+        // The identity rebinds the placement when the player rejoins; left as the previous
+        // holder's, a recalled item was handed back to that player's old session, and the
+        // rejoining player got a second one.
+        record.PlacementPlayerIdentity = record.PlacementPlayerId == requester.PlayerId
+            ? requester.Guid : Guid.Empty;
         record.LastReason = ItemTransitionReason.OwnerRecall;
         snapshot = prepared;
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
