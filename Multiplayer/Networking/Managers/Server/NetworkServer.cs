@@ -1493,14 +1493,6 @@ public class NetworkServer : NetworkManager
         packet.Username = packet.Username.Trim().Replace(' ', '_').Truncate(Settings.MAX_USERNAME_LENGTH);
         string overrideUsername = packet.Username;
 
-        // ensure the username is unique
-        int uniqueName = ServerPlayers.Where(player => player.OriginalUsername.ToLower() == packet.Username.ToLower()).Count();
-
-        if (uniqueName > 0)
-        {
-            overrideUsername += uniqueName;
-        }
-
         Guid guid;
         try
         {
@@ -1538,6 +1530,24 @@ public class NetworkServer : NetworkManager
             request.Reject(WritePacket(denyPacket));
             return;
         }
+
+        // The same player reconnecting (e.g. after a crash) before their old connection has timed
+        // out. Retire the stale session now: left alone it holds their slot, and when it finally
+        // times out its cleanup unbinds item ownership by identity - including from the new session.
+        ServerPlayer stale = ServerPlayers.FirstOrDefault(player =>
+            guid != Guid.Empty && player.Guid == guid && player.Peer != SelfPeer);
+        if (stale != null)
+        {
+            Log($"{packet.Username} reconnected while their previous session (player {stale.PlayerId}) was still open; closing it");
+            ITransportPeer stalePeer = stale.Peer;
+            OnPeerDisconnected(stalePeer, DisconnectReason.Reconnect);
+            stalePeer?.Disconnect();
+        }
+
+        // ensure the username is unique
+        int uniqueName = ServerPlayers.Where(player => player.OriginalUsername.ToLower() == packet.Username.ToLower()).Count();
+        if (uniqueName > 0)
+            overrideUsername += uniqueName;
 
         if (PlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
         {
