@@ -1142,12 +1142,8 @@ public class NetworkClient : NetworkManager
 
         Log($"Received DestroyTrainCarPacket for [{netTrainCar.CurrentID} {packet.NetId}]");
 
-        //Protect myself from getting deleted in race conditions
-        if (PlayerManager.Car == netTrainCar.TrainCar)
-        {
-            LogWarning($"Server attempted to delete car I'm on: {PlayerManager.Car?.ID}, netId: {packet?.NetId}");
-            PlayerManager.SetCar(null);
-        }
+        // Players on the car (us included) are stepped off it by CarDeletePlayerSafetyPatch;
+        // clearing PlayerManager.Car alone left our player parented to the deleted car.
 
         //Protect other players from getting deleted in race conditions - this should be a temporary fix, if another playe's game object is deleted we should just recreate it
         if (netTrainCar == null || netTrainCar.gameObject == null || netTrainCar.TrainCar == null)
