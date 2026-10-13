@@ -290,13 +290,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundTrainControlCommitPacket>(OnClientboundTrainControlCommitPacket);
 
         netPacketProcessor.SubscribeReusable<CommonCouplerInteractionPacket>(OnCommonCouplerInteractionPacket);
-        netPacketProcessor.SubscribeReusable<CommonTrainUncouplePacket>(OnCommonTrainUncouplePacket);
-        netPacketProcessor.SubscribeReusable<CommonHoseConnectedPacket>(OnCommonHoseConnectedPacket);
-        netPacketProcessor.SubscribeReusable<CommonHoseDisconnectedPacket>(OnCommonHoseDisconnectedPacket);
-        netPacketProcessor.SubscribeReusable<CommonCockFiddlePacket>(OnCommonCockFiddlePacket);
 
-        netPacketProcessor.SubscribeReusable<CommonMuConnectedPacket>(OnCommonMuConnectedPacket);
-        netPacketProcessor.SubscribeReusable<CommonMuDisconnectedPacket>(OnCommonMuDisconnectedPacket);
 
         netPacketProcessor.SubscribeReusable<CommonPaintThemePacket>(OnCommonPaintThemePacket);
         netPacketProcessor.SubscribeReusable<ClientboundRestorationStateChangePacket>(OnClientboundRestorationStateChangePacket);
@@ -1130,111 +1124,6 @@ public class NetworkClient : NetworkManager
     //    if (coupler.CoupleTo(otherCoupler, packet.PlayAudio, false/*B99 packet.ViaChainInteraction*/) == null)
     //        LogDebug(() => $"OnCommonTrainCouplePacket() netId: {packet.NetId}, trainCar: {trainCar.ID}, otherNetId: {packet.OtherNetId}, otherTrainCar: {otherTrainCar.ID} Failed to couple!");
     //}
-
-    private void OnCommonTrainUncouplePacket(CommonTrainUncouplePacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar))
-        {
-            LogDebug(() => $"OnCommonTrainUncouplePacket() netId: {packet.NetId}, trainCar found?: {trainCar != null}");
-            return;
-        }
-
-        //LogDebug(() => $"OnCommonTrainUncouplePacket() netId: {packet.NetId}, trainCar: {trainCar.ID}, isFront: {packet.IsFrontCoupler}, playAudio: {packet.PlayAudio}, DueToBrokenCouple: {packet.DueToBrokenCouple}, viaChainInteraction: {packet.ViaChainInteraction}");
-
-        Coupler coupler = packet.IsFrontCoupler ? trainCar.frontCoupler : trainCar.rearCoupler;
-        coupler.Uncouple(packet.PlayAudio, false, packet.DueToBrokenCouple, false/*B99 packet.ViaChainInteraction*/);
-    }
-
-    private void OnCommonHoseConnectedPacket(CommonHoseConnectedPacket packet)
-    {
-        bool foundTrainCar = NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar);
-        bool foundOtherTrainCar = NetworkedTrainCar.TryGet(packet.OtherNetId, out TrainCar otherTrainCar);
-
-        if (!foundTrainCar || trainCar == null ||
-            !foundOtherTrainCar || otherTrainCar == null)
-        {
-            LogError($"OnCommonHoseConnectedPacket() netId: {packet.NetId}, trainCar found: {foundTrainCar}, trainCar is null: {trainCar == null}, otherNetId: {packet.OtherNetId}, otherTrainCar found: {foundOtherTrainCar}, other trainCar is null:  {otherTrainCar == null}");
-            return;
-        }
-
-        string carId = $"[{trainCar?.ID}, {packet.NetId}]";
-        string otherCarId = $"[{otherTrainCar?.ID}, {packet.OtherNetId}]";
-
-        //LogDebug(() => $"OnCommonHoseConnectedPacket() trainCar: {carId}, isFront: {packet.IsFront}, otherTrainCar: {otherCarId}, isFront: {packet.OtherIsFront}, playAudio: {packet.PlayAudio}");
-
-        Coupler coupler = packet.IsFront ? trainCar.frontCoupler : trainCar.rearCoupler;
-        Coupler otherCoupler = packet.OtherIsFront ? otherTrainCar.frontCoupler : otherTrainCar.rearCoupler;
-
-        if (coupler == null || coupler.hoseAndCock == null ||
-            otherCoupler == null || otherCoupler.hoseAndCock == null)
-        {
-            LogError($"OnCommonHoseConnectedPacket() trainCar: {carId}, coupler found: {coupler != null}, otherCoupler found: {otherCoupler != null}, hoseAndCock found: {coupler.hoseAndCock != null}, otherHoseAndCock found: {otherCoupler.hoseAndCock != null}");
-            return;
-        }
-
-        if (coupler.hoseAndCock.IsHoseConnected || otherCoupler.hoseAndCock.IsHoseConnected)
-        {
-            Coupler connectedTo = null;
-            Coupler otherConnectedTo = null;
-
-            if (coupler?.hoseAndCock?.connectedTo != null)
-                NetworkedTrainCar.TryGetCoupler(coupler.hoseAndCock.connectedTo, out connectedTo);
-            if (otherCoupler?.hoseAndCock?.connectedTo != null)
-                NetworkedTrainCar.TryGetCoupler(otherCoupler.hoseAndCock.connectedTo, out otherConnectedTo);
-
-            LogWarning($"OnCommonHoseConnectedPacket() trainCar: {carId}, isFront: {packet.IsFront}, IsHoseConnected: {coupler?.hoseAndCock?.IsHoseConnected}, connectedTo: {connectedTo?.train?.ID}," +
-                       $" otherTrainCar: {otherCarId}, other isFront: {otherCoupler?.isFrontCoupler}, other IsHoseConnected: {otherCoupler?.hoseAndCock?.IsHoseConnected}, other connectedTo: {otherConnectedTo?.train?.ID}");
-        }
-        else
-        {
-            coupler.ConnectAirHose(otherCoupler, packet.PlayAudio);
-        }
-    }
-
-    private void OnCommonHoseDisconnectedPacket(CommonHoseDisconnectedPacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar netTrainCar) || netTrainCar.IsDestroying)
-            return;
-
-        TrainCar trainCar = netTrainCar.TrainCar;
-
-        //LogDebug(() => $"OnCommonHoseDisconnectedPacket() netId: {packet.NetId}, trainCar: {trainCar.ID}, isFront: {packet.IsFront}, playAudio: {packet.PlayAudio}");
-
-        Coupler coupler = packet.IsFront ? trainCar.frontCoupler : trainCar.rearCoupler;
-
-        coupler.DisconnectAirHose(packet.PlayAudio);
-    }
-
-    private void OnCommonMuConnectedPacket(CommonMuConnectedPacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar) || !NetworkedTrainCar.TryGet(packet.OtherNetId, out TrainCar otherTrainCar))
-            return;
-
-        MultipleUnitCable cable = packet.IsFront ? trainCar.muModule.frontCable : trainCar.muModule.rearCable;
-        MultipleUnitCable otherCable = packet.OtherIsFront ? otherTrainCar.muModule.frontCable : otherTrainCar.muModule.rearCable;
-
-        cable.Connect(otherCable, packet.PlayAudio);
-    }
-
-    private void OnCommonMuDisconnectedPacket(CommonMuDisconnectedPacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar))
-            return;
-
-        MultipleUnitCable cable = packet.IsFront ? trainCar.muModule.frontCable : trainCar.muModule.rearCable;
-
-        cable.Disconnect(packet.PlayAudio);
-    }
-
-    private void OnCommonCockFiddlePacket(CommonCockFiddlePacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar))
-            return;
-
-        Coupler coupler = packet.IsFront ? trainCar.frontCoupler : trainCar.rearCoupler;
-
-        coupler.IsCockOpen = packet.IsOpen;
-    }
 
     private void OnCommonBrakeCylinderReleasePacket(CommonBrakeCylinderReleasePacket packet)
     {

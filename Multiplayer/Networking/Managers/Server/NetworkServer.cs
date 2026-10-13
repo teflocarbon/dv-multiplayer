@@ -258,13 +258,7 @@ public class NetworkServer : NetworkManager
         // Train Interaction
         netPacketProcessor.SubscribeReusable<ServerboundTrainControlAuthorityPacket, ITransportPeer>(OnServerboundTrainControlAuthorityPacket);
         netPacketProcessor.SubscribeReusable<CommonCouplerInteractionPacket, ITransportPeer>(OnCommonCouplerInteractionPacket);
-        netPacketProcessor.SubscribeReusable<CommonTrainUncouplePacket, ITransportPeer>(OnCommonTrainUncouplePacket);
         netPacketProcessor.SubscribeReusable<ServerboundTrainsetRelocationAckPacket, ITransportPeer>(OnServerboundTrainsetRelocationAckPacket);
-        netPacketProcessor.SubscribeReusable<CommonHoseConnectedPacket, ITransportPeer>(OnCommonHoseConnectedPacket);
-        netPacketProcessor.SubscribeReusable<CommonHoseDisconnectedPacket, ITransportPeer>(OnCommonHoseDisconnectedPacket);
-        netPacketProcessor.SubscribeReusable<CommonMuConnectedPacket, ITransportPeer>(OnCommonMuConnectedPacket);
-        netPacketProcessor.SubscribeReusable<CommonMuDisconnectedPacket, ITransportPeer>(OnCommonMuDisconnectedPacket);
-        netPacketProcessor.SubscribeReusable<CommonCockFiddlePacket, ITransportPeer>(OnCommonCockFiddlePacket);
         netPacketProcessor.SubscribeReusable<CommonBrakeCylinderReleasePacket, ITransportPeer>(OnCommonBrakeCylinderReleasePacket);
         netPacketProcessor.SubscribeReusable<CommonHandbrakePositionPacket, ITransportPeer>(OnCommonHandbrakePositionPacket);
         netPacketProcessor.SubscribeReusable<ServerboundAddCoalPacket, ITransportPeer>(OnServerboundAddCoalPacket);
@@ -2079,85 +2073,6 @@ public class NetworkServer : NetworkManager
     //{
     //    SendPacketToAll(packet, DeliveryMethod.ReliableUnordered, peer);
     //}
-
-    private void OnCommonTrainUncouplePacket(CommonTrainUncouplePacket packet, ITransportPeer peer)
-    {
-        if (!TryGetServerPlayer(peer, out _) ||
-            !TryResolveCoupler(packet.NetId, packet.IsFrontCoupler, out Coupler coupler))
-            return;
-        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
-            if (coupler.IsCoupled())
-                coupler.Uncouple(packet.PlayAudio, false, packet.DueToBrokenCouple, false);
-        CommitObservedTrainTopology();
-    }
-
-    private void OnCommonHoseConnectedPacket(CommonHoseConnectedPacket packet, ITransportPeer peer)
-    {
-        if (!TryGetServerPlayer(peer, out _) ||
-            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
-            !TryResolveCoupler(packet.OtherNetId, packet.OtherIsFront, out Coupler otherCoupler) ||
-            coupler.hoseAndCock == null || otherCoupler.hoseAndCock == null)
-            return;
-        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
-            if (!coupler.hoseAndCock.IsHoseConnected && !otherCoupler.hoseAndCock.IsHoseConnected)
-                coupler.ConnectAirHose(otherCoupler, packet.PlayAudio);
-        CommitObservedTrainTopology();
-    }
-
-    private void OnCommonHoseDisconnectedPacket(CommonHoseDisconnectedPacket packet, ITransportPeer peer)
-    {
-        if (!TryGetServerPlayer(peer, out _) ||
-            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
-            coupler.hoseAndCock == null)
-            return;
-        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
-            if (coupler.hoseAndCock.IsHoseConnected)
-                coupler.DisconnectAirHose(packet.PlayAudio);
-        CommitObservedTrainTopology();
-    }
-
-    private void OnCommonMuConnectedPacket(CommonMuConnectedPacket packet, ITransportPeer peer)
-    {
-        if (!TryGetServerPlayer(peer, out _) ||
-            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler first) ||
-            !TryResolveCoupler(packet.OtherNetId, packet.OtherIsFront, out Coupler second))
-            return;
-        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
-            if (first.train.IsMultipleUnit && second.train.IsMultipleUnit)
-            {
-                var firstCable = packet.IsFront ? first.train.muModule.frontCable : first.train.muModule.rearCable;
-                var secondCable = packet.OtherIsFront ? second.train.muModule.frontCable : second.train.muModule.rearCable;
-                if (!firstCable.IsConnected && !secondCable.IsConnected)
-                    firstCable.Connect(secondCable, packet.PlayAudio);
-            }
-        CommitObservedTrainTopology();
-    }
-
-    private void OnCommonMuDisconnectedPacket(CommonMuDisconnectedPacket packet, ITransportPeer peer)
-    {
-        if (!TryGetServerPlayer(peer, out _) ||
-            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
-            !coupler.train.IsMultipleUnit)
-            return;
-        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
-        {
-            var cable = packet.IsFront ? coupler.train.muModule.frontCable : coupler.train.muModule.rearCable;
-            if (cable.IsConnected)
-                cable.Disconnect(packet.PlayAudio);
-        }
-        CommitObservedTrainTopology();
-    }
-
-    private void OnCommonCockFiddlePacket(CommonCockFiddlePacket packet, ITransportPeer peer)
-    {
-        if (!TryGetServerPlayer(peer, out _) ||
-            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
-            coupler.hoseAndCock == null)
-            return;
-        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
-            coupler.IsCockOpen = packet.IsOpen;
-        CommitObservedTrainTopology();
-    }
 
     private static bool TryResolveCoupler(ushort netId, bool front, out Coupler coupler)
     {
