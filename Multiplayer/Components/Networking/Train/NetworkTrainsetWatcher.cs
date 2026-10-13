@@ -179,8 +179,14 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                 // Have we exceeded the max ticks?
                 if (maxTicksReached)
                 {
-                    position = trainCar.rb.position - WorldMover.currentMove;
-                    rotation = trainCar.rb.rotation;
+                    // The body's pose is the simulated one (the transform is interpolated), but a
+                    // car only just spawned hasn't had a physics step yet: its body is still
+                    // where the pool parked it, 2 km under the map. A new car syncs on its first
+                    // tick, and clients snapped the car body there while its bogies stayed on the
+                    // rails, flinging it across the world (shaking, falling through the ground).
+                    bool bodyCaughtUp = (trainCar.rb.position - trainCar.transform.position).sqrMagnitude < 25f;
+                    position = (bodyCaughtUp ? trainCar.rb.position : trainCar.transform.position) - WorldMover.currentMove;
+                    rotation = bodyCaughtUp ? trainCar.rb.rotation : trainCar.transform.rotation;
 
                     networkedTrainCar.TicksSinceSync = 0;
                 }

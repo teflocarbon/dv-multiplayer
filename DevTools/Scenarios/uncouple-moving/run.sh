@@ -30,6 +30,7 @@ compare() { # label
     if (c.worstJump>1.0) bad.push("client snap "+c.worstJump+" m at "+c.worstAt+" s");
     // buffers can bounce a shoved wagon back on both peers; only extra travel on the client is a snap
     if (c.overshoot-h.overshoot>slack) bad.push("client wagon dragged/snapped back "+c.overshoot+" m (host "+h.overshoot+" m)");
+    if (bad.length && c.notes && c.notes.length) bad.push("client: "+c.notes.join(" / "));
     console.log((bad.length?"FAIL ":"ok ")+label+": wagon moved "+h.travelled+" m (client "+c.travelled+"), apart "+d.toFixed(2)+" m, client worst step "+c.worstJump+" m"+(bad.length?" - "+bad.join("; "):""));' "$T/h.json" "$T/c.json" "$@"; }
 for run in $(seq 1 $N); do
   s=$($D eval -t host -m coroutine --timeout 60 -a last=$LAST -f $P/setup.cs)
