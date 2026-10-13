@@ -171,9 +171,15 @@ public static class LocoRestorationControllerDeliverPartCoroPatch
 {
     [HarmonyPatch(nameof(LocoRestorationController.DeliverPartCoro))]
     [HarmonyPrefix]
-    private static bool DeliverPartCoroPatch()
+    private static bool DeliverPartCoroPatch(ref System.Collections.IEnumerator __result)
     {
         // Only allow the host to run the DeliverPartCoro
-        return NetworkLifecycle.Instance.IsHost();
+        if (NetworkLifecycle.Instance.IsHost())
+            return true;
+        // DeliverPartCoro is a coroutine factory passed straight to StartCoroutine; returning a
+        // null enumerator throws there, which aborted restoration-loco loading on clients
+        // (they never initialised and the client was kicked from career saves).
+        __result = System.Linq.Enumerable.Empty<object>().GetEnumerator();
+        return false;
     }
 }

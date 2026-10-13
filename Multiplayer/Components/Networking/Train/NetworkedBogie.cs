@@ -54,7 +54,8 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
             Multiplayer.LogError($"{gameObject.name} ({Bogie?.Car?.ID}): {nameof(NetworkedBogie)} requires a {nameof(Bogie)} component on the same GameObject! Waited {counter} iterations");
         }
 
-        if (rb == null)
+        // A bogie that loaded derailed has no Rigidbody until it is rerailed; Process picks it up then.
+        if (rb == null && Bogie != null && !Bogie.HasDerailed)
         {
             Multiplayer.LogError($"{gameObject.name} ({Bogie?.Car?.ID}): {nameof(NetworkedBogie)} requires a {nameof(rb)} component on the same GameObject! Waited {counter} iterations");
         }
@@ -71,6 +72,10 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
 
         //Multiplayer.LogDebug(()=>$"NetworkedBogie.Process({identifier}) DataFlags: {snapshot.DataFlags}, {snapshotTick}, {snapshot.TrackNetId}, {snapshot.PositionAlongTrack} {snapshot.TrackDirection}");
 
+        // Vanilla only creates the bogie's Rigidbody when it is set up on the rails (including
+        // after a rerail), so look it up again rather than caching a missing one forever.
+        if (rb == null)
+            rb = GetComponent<Rigidbody>();
         if (Bogie == null || rb == null || Bogie.HasDerailed)
             return;
 
