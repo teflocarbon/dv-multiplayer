@@ -7,8 +7,7 @@ This is what it covered, as a checklist for rebuilding the useful parts as dvmp 
 
 ## Items on moving trains
 - [x] host/client x drop/throw x train stopped/moving: `train-items` scenario
-      (`WHO=client|host MODE=drop|throw WHEN=stopped|moving`). Open issue: client drop while
-      moving loses the mug about 1 run in 3.
+      (`WHO=client|host MODE=drop|throw WHEN=stopped|moving`). All variants pass.
 - [ ] cab item "wake" (train item activity): items in an unoccupied cab, re-entry, impact,
       replay - items must not fall through or drift when players leave/return
 

@@ -98,19 +98,68 @@ namespace Dvmp.Lib
             UnityEngine.Object reparenting = UnityEngine.Object.FindObjectOfType(reparentType);
             reparentType.GetMethod("ReparentTo").Invoke(reparenting, new object[] { car.transform, false, null });
             // A moving train travels on while the teleport settles; now that the player rides with
-            // the car, put them back on its floor (in the car's current frame).
+            // the car (parented to it), put them on its floor in the car's own frame - a world
+            // position is stale by the time physics runs and left players at the cab's edge.
+            Vector3 floorLocal = car.transform.InverseTransformPoint(FloorPoint(car)) + Vector3.up * 0.1f; // fresh: `floor` is stale on a moving train
             for (int i = 0; i < 5; i++)
             {
-                PlayerManager.PlayerTransform.position = FloorPoint(car) + Vector3.up * 0.1f;
+                if (PlayerManager.PlayerTransform.parent == car.transform)
+                    PlayerManager.PlayerTransform.localPosition = floorLocal;
                 Physics.SyncTransforms();
                 yield return null;
             }
             for (int i = 0; i < 20; i++) yield return null;
             if (PlayerManager.Car != car)
                 throw new InvalidOperationException("player did not attach to " + car.ID);
-            float off = Vector3.Distance(PlayerManager.PlayerTransform.position, FloorPoint(car));
+            float off = Vector3.Distance(car.transform.InverseTransformPoint(PlayerManager.PlayerTransform.position), floorLocal);
             if (off > 3f)
                 throw new InvalidOperationException($"player ended {off:F1} m from the floor of {car.ID}");
+        }
+
+        /// <summary>Host: brings a loco to life with its own controls - all fuses on, brakes off,
+        /// reverser forward, starter held until the engine runs.</summary>
+        public static IEnumerator StartLoco(TrainCar loco)
+        {
+            var sim = loco.SimController ?? throw new InvalidOperationException(loco.ID + " has no simulation");
+            foreach (var fuse in sim.simFlow.fullFuseIdToFuse.Values)
+                fuse.ChangeState(true);
+            var o = sim.controlsOverrider;
+            o.Handbrake?.Set(0f);
+            o.IndependentBrake?.Set(0f);
+            o.Brake?.Set(0f);
+            o.Throttle?.Set(0f);
+            o.Reverser?.Set(1f);
+            float deadline = Time.time + 25f;
+            while (o.EngineOnReader != null && !o.EngineOnReader.IsOn && Time.time < deadline)
+            {
+                o.Starter?.Set(1f);
+                yield return null;
+            }
+            o.Starter?.Set(0f);
+            if (o.EngineOnReader != null && !o.EngineOnReader.IsOn)
+                throw new InvalidOperationException(loco.ID + " engine did not start");
+        }
+
+        /// <summary>Host: drives a started loco with its throttle to about <paramref name="speed"/>
+        /// m/s, holds there, then brakes to a stop - real traction and braking, no forced velocities.</summary>
+        public static IEnumerator Drive(TrainCar loco, float speed, float holdSeconds, float timeoutSeconds = 60f)
+        {
+            var o = loco.SimController.controlsOverrider;
+            float start = Time.time, heldSince = -1f;
+            while (Time.time - start < timeoutSeconds)
+            {
+                float v = Mathf.Abs(loco.GetForwardSpeed());
+                o.IndependentBrake?.Set(0f);
+                o.Throttle?.Set(v < speed ? Mathf.Clamp01((speed - v) / 2f + 0.3f) : 0f);
+                if (v >= speed * 0.9f && heldSince < 0f) heldSince = Time.time;
+                if (heldSince >= 0f && Time.time - heldSince >= holdSeconds) break;
+                yield return new WaitForFixedUpdate();
+            }
+            o.Throttle?.Set(0f);
+            o.IndependentBrake?.Set(1f);
+            float stopDeadline = Time.time + 30f;
+            while (Mathf.Abs(loco.GetForwardSpeed()) > 0.05f && Time.time < stopDeadline)
+                yield return new WaitForFixedUpdate();
         }
 
         /// <summary>Host: pushes the car's whole consist along the track - ramp to
