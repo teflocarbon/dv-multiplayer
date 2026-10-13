@@ -16,6 +16,8 @@ runs=( # name | scenario | variables
   "containers-briefcase-flashlight|containers|CONTAINER=ItemContainerBriefcase PREFAB=Flashlight"
   "manual-uncouple|manual-uncouple|N=3"
   "manual-recouple-lag|manual-uncouple|MODE=recouple N=3 LAG=150"
+  "uncouple-moving|uncouple-moving|"
+  "uncouple-moving-loco-lag|uncouple-moving|LAST=LocoDE2 LAG=150 SPEED=10"
   "fps-drop|fps-drop|"
   "rejoin|rejoin|"
   "rejoin-crash|rejoin|CRASH=1"
