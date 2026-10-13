@@ -287,6 +287,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemAdoptionPacket, ITransportPeer>(OnServerboundItemAdoptionPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
         netPacketProcessor.SubscribeReusable<ServerboundContainerBrowsePacket, ITransportPeer>(OnServerboundContainerBrowsePacket);
@@ -2968,6 +2969,37 @@ public class NetworkServer : NetworkManager
         // first, freeing the inventory slot the original is restored into.
         if (restoredOriginal != null)
             SendItemUpdatePacket(restoredOriginal, sendToPlayer: player);
+    }
+
+    private void OnServerboundMoneyItemDepositPacket(ServerboundMoneyItemDepositPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+
+        // Already spent (e.g. two players grabbed the same note): the client's local copy is gone
+        // and the next money broadcast corrects its wallet, so there is nothing to do.
+        if (!NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) || item == null ||
+            !item.TryGetComponent(out IMoney money) || !money.ShouldDestroyOnUse)
+        {
+            LogDebug(() => $"Money deposit from P{player.PlayerId} ignored: netId {packet.ItemNetId} is not live money");
+            return;
+        }
+
+        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
+            (record.Placement is ItemPlacementKind.LostAndFound or ItemPlacementKind.Container ||
+             record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
+             record.PlacementPlayerId != player.PlayerId))
+        {
+            LogWarning($"Money deposit from P{player.PlayerId} rejected: netId {item.NetId} is {record.Placement} " +
+                $"(player {record.PlacementPlayerId})");
+            return;
+        }
+
+        double amount = money.TrySpend(money.Amount);
+        Log($"P{player.PlayerId} deposited ${amount:N2} from money item {item.NetId}");
+        if (amount > double.Epsilon)
+            Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
+        UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
     }
 
     private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)
