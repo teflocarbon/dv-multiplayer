@@ -8,7 +8,8 @@ namespace Dvmp;
 /// <param name="Background">Start minimised, below-normal priority, so the games stay out of the way.</param>
 /// <param name="FpsCap">Frame cap while focused (the agent uses a lower one in the background).</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
-    bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false);
+    bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false,
+    string? NewSession = null, string? NewSessionName = null);
 
 /// <summary>
 /// Brings up (or reuses) a host + client pair of real game instances joined to each other.
@@ -119,6 +120,8 @@ internal static class Session
             Mark("host: loading save");
             Dictionary<string, string> hostArgs = new();
             if (!string.IsNullOrWhiteSpace(o.Save)) hostArgs["save"] = o.Save!;
+            if (!string.IsNullOrWhiteSpace(o.NewSession)) hostArgs["new"] = o.NewSession!;
+            if (!string.IsNullOrWhiteSpace(o.NewSessionName)) hostArgs["name"] = o.NewSessionName!;
             JsonObject hosted = await RunProbeAsync(hostAgent, "host", hostArgs);
             int port = hosted["port"]?.GetValue<int>() ?? 7777;
             string password = hosted["password"]?.GetValue<string>() ?? string.Empty;

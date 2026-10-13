@@ -27,14 +27,36 @@ public static class Probe
         var selector = menu.rightPaneController.continueLoadNewController;
 
         ISaveGame save = launcher.saveGame;
-        if (ctx.Args.TryGetValue("save", out string wanted) && !string.IsNullOrWhiteSpace(wanted))
+        string newMode = ctx.Args.TryGetValue("new", out string m) ? m : null;
+        if (newMode is "career" or "sandbox")
         {
-            save = AllSaves(selector).FirstOrDefault(s => s.Name == wanted || s.UID.ToString() == wanted)
+            // A brand-new session through DV's own new-game flow (tutorial skipped); the launcher
+            // then holds the new game's start data and Run starts it.
+            var single = newMode == "career" ? selector.career : selector.freeRoam;
+            string name = ctx.Args.TryGetValue("name", out string n) && n.Length > 0 ? n : null;
+            IGameSession existing = name == null ? null : single.Things.FirstOrDefault(s => s.Name == name);
+            if (existing != null) single.CurrentThing = existing;   // reruns reuse the named session
+            else single.CreateNewImpl(name);
+            var can = single.scenariosProvider.CanStartNewSession(single.currentSession, single.currentScenario, single.currentDifficulty);
+            if (!can.Item1) throw new Exception("DV refuses to start a new session: " + can.Item2);
+            // The career/sandbox pane is usually not on screen, so its own start event has no
+            // listeners; hand the start data straight to the launcher, as the pane would.
+            var data = new DV.UI.PresetEditors.UIStartGameData(single.currentSession, single.currentDifficulty, single.currentScenario, true);
+            launcher.SetData(data, selector.userProfileProvider, selector.scenariosProvider, null);
+            if (launcher.startGameData == null)
+                throw new Exception("the launcher did not accept the new session");
+            save = null;
+        }
+        else if (ctx.Args.TryGetValue("save", out string wanted) && !string.IsNullOrWhiteSpace(wanted))
+        {
+            // A save name, a UID, or a session name (that session's latest save).
+            save = AllSaves(selector).FirstOrDefault(s => s.Name == wanted || s.UID.ToString() == wanted || s.ParentSession?.Name == wanted)
                    ?? throw new Exception($"save '{wanted}' not found. Available: " +
                                           string.Join(", ", AllSaves(selector).Take(20).Select(s => $"{s.Name} (uid {s.UID}, {s.Type})")));
             launcher.SetData(save, selector.userProfileProvider, selector.scenariosProvider, null);
         }
-        if (save == null) throw new Exception("the launcher has no save selected; pass save=<name or uid>");
+        if (save == null && launcher.startGameData == null)
+            throw new Exception("the launcher has no save selected; pass save=<name or uid> or new=career|sandbox");
 
         // Never advertise automated test servers: skip lobby-server registration, the public
         // IP lookup and Steam lobby creation that LobbyServerManager.Start performs.
@@ -65,7 +87,9 @@ public static class Probe
 
         launcher.OnRunClicked();
 
-        return new { save = save.Name, uid = save.UID, type = save.Type.ToString(), gameMode = save.GameMode, port, password };
+        return save != null
+            ? new { save = save.Name, uid = save.UID, type = save.Type.ToString(), gameMode = save.GameMode, port, password }
+            : (object)new { save = "new " + newMode + " session: " + launcher.startGameData.session?.Name, uid = 0, type = "New", gameMode = launcher.startGameData.session?.GameMode, port, password };
     }
 
     private static bool SkipLobby(ref IEnumerator __result)

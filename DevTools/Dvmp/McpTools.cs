@@ -40,9 +40,10 @@ public static class McpTools
         [Description("Start minimised at below-normal priority (default true). Games launched by the harness are always muted and run at low graphics settings.")] bool background = true,
         [Description("Frame cap while a game window is focused. Default 30; unfocused games run at 20.")] int fpsCap = 30,
         [Description("Leave game audio on. Default false.")] bool sound = false,
+        [Description("Start a brand-new session instead of a save: \"career\" or \"sandbox\" (requires fresh or no running games).")] string? newSession = null,
         [Description("Install the mutation tracer at the main menu, before the world loads, so load-time item changes are recorded (see dvmp_trace).")] bool trace = false,
         CancellationToken ct = default) =>
-        Render(await Session.UpAsync(new UpOptions(fresh, save, 960, 540, Arrange: true, background, Math.Clamp(fpsCap, 5, 240), sound, trace),
+        Render(await Session.UpAsync(new UpOptions(fresh, save, 960, 540, Arrange: true, background, Math.Clamp(fpsCap, 5, 240), sound, trace, newSession),
             TimeSpan.FromSeconds(Math.Clamp(waitSeconds, 1, 600)), ct));
 
     [McpServerTool(Name = "dvmp_down", Destructive = true)]
