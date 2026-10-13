@@ -2,6 +2,7 @@
 // Runs identically on host and client. Positions are absolute (origin shift removed) or
 // local to the car an item rides in, so they are comparable across peers.
 using DV.InventorySystem;
+using Multiplayer.Networking.Data.Items;
 using DV.ThingTypes;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Player;
@@ -79,12 +80,38 @@ public static class Probe
                 rev = item.AuthorityRevision,
                 p = parent,
                 pos,
+                // Collision health: solid colliders the item has vs. how many are enabled.
+                ct = Solid(item, enabledOnly: false),
+                cl = Solid(item, enabledOnly: true),
+                bt = BelowTerrain(t.position),
                 k = rb != null ? (bool?)rb.isKinematic : null,
+                // Host only: where the authority registry says the item is.
+                rp = NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsServerRunning &&
+                     AuthoritativeItemRegistry.TryGet(item.NetId, out var record) ? record.Placement.ToString() : null,
                 sl = rb != null && rb.IsSleeping(),
                 v = rb != null && !rb.isKinematic ? (float)Math.Round(rb.velocity.magnitude, 2) : 0f
             });
         }
         return list;
+    }
+
+    private static int Solid(NetworkedItem item, bool enabledOnly) =>
+        item.GetComponentsInChildren<Collider>(true).Count(c => c != null && !c.isTrigger && (!enabledOnly || c.enabled));
+
+    // Metres below the terrain surface (positive = underground), or null when no terrain is
+    // loaded under the item on this peer.
+    private static float? BelowTerrain(Vector3 world)
+    {
+        foreach (Terrain terrain in Terrain.activeTerrains)
+        {
+            Vector3 origin = terrain.transform.position;
+            Vector3 size = terrain.terrainData.size;
+            if (world.x < origin.x || world.z < origin.z || world.x > origin.x + size.x || world.z > origin.z + size.z)
+                continue;
+            float surface = terrain.SampleHeight(world) + origin.y;
+            return (float)Math.Round(surface - world.y, 2);
+        }
+        return null;
     }
 
     private static List<object> Cars()
