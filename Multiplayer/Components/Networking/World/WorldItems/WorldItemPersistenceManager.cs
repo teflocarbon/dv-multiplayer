@@ -114,7 +114,7 @@ internal static partial class WorldItemPersistenceManager
                 ItemPlacementKind.SnappedAttachment or ItemPlacementKind.Destroyed;
 
         return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
-            ItemPlacementKind.StaticParent or ItemPlacementKind.Destroyed || IsRemotePlayerInventory(record);
+            ItemPlacementKind.StaticParent or ItemPlacementKind.Destroyed || IsRemotePlayerPossession(record);
     }
 
     /// <summary>Remove multiplayer-owned world entries emitted by DV before our save postfix.</summary>
