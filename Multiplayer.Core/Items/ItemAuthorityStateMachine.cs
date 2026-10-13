@@ -123,8 +123,10 @@ public static class ItemAuthorityStateMachine
         ItemAuthorityState next = current.Clone();
         bool requestedRetrievalClaim = command.InventoryClaimSlot >= 0 &&
             HasRetrievalFlag(command.InventoryClaimFlags);
+        // An unowned personal item (a purchase, for one) belongs to whoever first takes it.
         bool establishesOwner = command.EstablishPersistentOwner ||
-            command.MayEstablishPersistentOwner && requestedRetrievalClaim;
+            command.MayEstablishPersistentOwner &&
+            (requestedRetrievalClaim || command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement));
         if (command.AppliesPlacement && next.PersistentOwnerPlayerId == 0 && establishesOwner)
         {
             next.PersistentOwnerPlayerId = command.ActorPlayerId;
