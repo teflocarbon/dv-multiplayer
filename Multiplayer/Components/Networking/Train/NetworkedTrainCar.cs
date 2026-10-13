@@ -287,6 +287,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private readonly Dictionary<IScrollable, Coroutine> scrollingControls = [];
 
     private bool handbrakeDirty;
+
+    // Client: controls this client changed in operations the host hasn't committed back yet.
+    // Accepted commits are broadcast to everyone, including the sender, a round trip later; a
+    // commit for an older operation must not drag a lever back from where the player has since
+    // moved it (or leave it there once they stop).
+    private readonly Dictionary<uint, ulong> client_pendingPortOperations = new();
+    private readonly Dictionary<uint, ulong> client_pendingFuseOperations = new();
+    private ulong client_pendingHandbrakeOperation;
     private bool mainResPressureDirty;
     private bool brakeOverheatDirty;
     private float lastSentMainReservoirPressure = float.NaN;
@@ -1021,28 +1029,82 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     public void Client_ReceiveControlCommit(ClientboundTrainControlCommitPacket packet)
     {
-        if (packet == null || packet.Revision < ControlRevision)
+        if (packet == null)
             return;
+        var client = NetworkLifecycle.Instance.Client;
+        if (client != null && client.IsOwnTrainControlOperation(packet.OperationId))
+        {
+            Client_AcknowledgeControlOperation(packet.OperationId);
+            // The host didn't take our change; get its state back rather than keep ours.
+            if (packet.Result != TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost())
+                client.SendTrainSyncRequest(NetId);
+        }
+        if (packet.Revision < ControlRevision)
+            return;
+
+        // Skip controls we have newer changes in flight for: those will commit after this.
         if (packet.PortIds?.Length > 0 && packet.PortValues?.Length == packet.PortIds.Length)
-            Common_UpdatePorts(new CommonTrainPortsPacket
-            {
-                NetId = NetId,
-                PortIds = packet.PortIds,
-                PortValues = packet.PortValues
-            });
+        {
+            var (portIds, portValues) = WithoutPending(packet.PortIds, packet.PortValues, client_pendingPortOperations);
+            if (portIds.Length > 0)
+                Common_UpdatePorts(new CommonTrainPortsPacket
+                {
+                    NetId = NetId,
+                    PortIds = portIds,
+                    PortValues = portValues
+                });
+        }
         if (packet.FuseIds?.Length > 0 && packet.FuseValues?.Length == packet.FuseIds.Length)
-            Common_UpdateFuses(new CommonTrainFusesPacket
-            {
-                NetId = NetId,
-                FuseIds = packet.FuseIds,
-                FuseValues = packet.FuseValues
-            });
-        if (packet.IncludesHandbrake && brakeSystem?.hasHandbrake == true &&
+        {
+            var (fuseIds, fuseValues) = WithoutPending(packet.FuseIds, packet.FuseValues, client_pendingFuseOperations);
+            if (fuseIds.Length > 0)
+                Common_UpdateFuses(new CommonTrainFusesPacket
+                {
+                    NetId = NetId,
+                    FuseIds = fuseIds,
+                    FuseValues = fuseValues
+                });
+        }
+        if (packet.IncludesHandbrake && brakeSystem?.hasHandbrake == true && client_pendingHandbrakeOperation == 0 &&
             Math.Abs(brakeSystem.handbrakePosition - packet.HandbrakePosition) > 0.0001f)
             brakeSystem.SetHandbrakePosition(packet.HandbrakePosition);
         if (packet.BrakeCylinderReleased)
             brakeSystem?.ReleaseBrakeCylinderPressure();
         ControlRevision = packet.Revision;
+    }
+
+    // Our operation ids increase monotonically, so a commit for one settles everything we sent
+    // up to and including it.
+    private void Client_AcknowledgeControlOperation(ulong operationId)
+    {
+        if (client_pendingHandbrakeOperation != 0 && client_pendingHandbrakeOperation <= operationId)
+            client_pendingHandbrakeOperation = 0;
+        RemoveSettled(client_pendingPortOperations, operationId);
+        RemoveSettled(client_pendingFuseOperations, operationId);
+
+        static void RemoveSettled(Dictionary<uint, ulong> pending, ulong settledUpTo)
+        {
+            if (pending.Count == 0)
+                return;
+            foreach (uint id in pending.Where(entry => entry.Value <= settledUpTo).Select(entry => entry.Key).ToList())
+                pending.Remove(id);
+        }
+    }
+
+    private static (uint[] ids, T[] values) WithoutPending<T>(uint[] ids, T[] values, Dictionary<uint, ulong> pending)
+    {
+        if (pending.Count == 0)
+            return (ids, values);
+        List<uint> keptIds = new(ids.Length);
+        List<T> keptValues = new(ids.Length);
+        for (int i = 0; i < ids.Length; i++)
+        {
+            if (pending.ContainsKey(ids[i]))
+                continue;
+            keptIds.Add(ids[i]);
+            keptValues.Add(values[i]);
+        }
+        return (keptIds.ToArray(), keptValues.ToArray());
     }
 
     private void Server_BogieTrackChanged(RailTrack arg1, Bogie arg2)
@@ -1386,7 +1448,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             return;
 
         handbrakeDirty = false;
-        NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition);
+        ulong operationId = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition);
+        if (!NetworkLifecycle.Instance.IsHost())
+            client_pendingHandbrakeOperation = operationId;
     }
 
     public void Common_DirtyPorts(uint[] portNetIds)
@@ -1458,7 +1522,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             i++;
         }
 
-        NetworkLifecycle.Instance.Client.SendPorts(NetId, portIds, portValues);
+        ulong operationId = NetworkLifecycle.Instance.Client.SendPorts(NetId, portIds, portValues);
+        if (!NetworkLifecycle.Instance.IsHost())
+            foreach (uint portNetId in portIds)
+                client_pendingPortOperations[portNetId] = operationId;
     }
 
     private void Common_SendFuses()
@@ -1483,7 +1550,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         dirtyFuses.Clear();
 
-        NetworkLifecycle.Instance.Client.SendFuses(NetId, fuseIds, fuseValues);
+        ulong operationId = NetworkLifecycle.Instance.Client.SendFuses(NetId, fuseIds, fuseValues);
+        if (!NetworkLifecycle.Instance.IsHost())
+            foreach (uint fuseNetId in fuseIds)
+                client_pendingFuseOperations[fuseNetId] = operationId;
     }
 
     private void Common_SendPaintThemes()

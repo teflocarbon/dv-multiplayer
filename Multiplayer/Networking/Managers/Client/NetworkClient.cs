@@ -2369,17 +2369,19 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendHandbrakePositionChanged(ushort netId, float position)
+    public ulong SendHandbrakePositionChanged(ushort netId, float position)
     {
         uint revision = NetworkedTrainCar.TryGet(netId, out NetworkedTrainCar car)
             ? car.ControlRevision : 0;
+        ulong operationId = NextTrainControlOperationId();
         SendPacketToServer(new CommonHandbrakePositionPacket
         {
-            OperationId = NextTrainControlOperationId(),
+            OperationId = operationId,
             ExpectedRevision = revision,
             NetId = netId,
             Position = Mathf.Clamp01(position)
         }, DeliveryMethod.ReliableOrdered);
+        return operationId;
     }
 
     public void SendAddCoal(ushort netId, float coalMassDelta)
@@ -2408,13 +2410,14 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendPorts(ushort netId, uint[] portIds, float[] portValues)
+    public ulong SendPorts(ushort netId, uint[] portIds, float[] portValues)
     {
         uint revision = NetworkedTrainCar.TryGet(netId, out NetworkedTrainCar car)
             ? car.ControlRevision : 0;
+        ulong operationId = NextTrainControlOperationId();
         SendPacketToServer(new CommonTrainPortsPacket
         {
-            OperationId = NextTrainControlOperationId(),
+            OperationId = operationId,
             ExpectedRevision = revision,
             NetId = netId,
             PortIds = portIds,
@@ -2429,21 +2432,28 @@ public class NetworkClient : NetworkManager
 
         LogDebug(() => log);
         */
+        return operationId;
     }
 
-    public void SendFuses(ushort netId, uint[] fuseIds, bool[] fuseValues)
+    public ulong SendFuses(ushort netId, uint[] fuseIds, bool[] fuseValues)
     {
         uint revision = NetworkedTrainCar.TryGet(netId, out NetworkedTrainCar car)
             ? car.ControlRevision : 0;
+        ulong operationId = NextTrainControlOperationId();
         SendPacketToServer(new CommonTrainFusesPacket
         {
-            OperationId = NextTrainControlOperationId(),
+            OperationId = operationId,
             ExpectedRevision = revision,
             NetId = netId,
             FuseIds = fuseIds,
             FuseValues = fuseValues
         }, DeliveryMethod.ReliableOrdered);
+        return operationId;
     }
+
+    /// <summary>True when a train control operation id was issued by this client.</summary>
+    public bool IsOwnTrainControlOperation(ulong operationId) =>
+        operationId != 0 && (byte)(operationId >> 56) == PlayerId;
 
     private ulong NextTrainControlOperationId()
     {
