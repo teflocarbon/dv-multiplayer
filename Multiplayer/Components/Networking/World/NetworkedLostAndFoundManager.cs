@@ -636,9 +636,17 @@ public static class NetworkedLostAndFoundManager
         foreach (LostItemRecord lost in registry.GetAll())
         {
             if (!AuthoritativeItemRegistry.TryGet(lost.NetId,
-                    out AuthoritativeItemRegistry.Record authority) ||
-                authority.Placement == ItemPlacementKind.LostAndFound)
+                    out AuthoritativeItemRegistry.Record authority))
                 continue;
+            if (authority.Placement == ItemPlacementKind.LostAndFound)
+            {
+                // Entries restored from a save bound to items the load left active where they were
+                // dropped: in Lost and Found and lying in the world at once. Keep them inert.
+                if (NetworkedItem.TryGet(lost.NetId, out NetworkedItem stored) && stored != null &&
+                    stored.gameObject.activeSelf)
+                    ProjectToInertStorage(stored);
+                continue;
+            }
             NetworkedItem.TryGet(lost.NetId, out NetworkedItem item);
             RemoveStaleEntry(lost.NetId, item, "canonical-placement-changed");
         }
