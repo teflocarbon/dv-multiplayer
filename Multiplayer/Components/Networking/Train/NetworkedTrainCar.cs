@@ -336,6 +336,22 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
 
     private Coupler couplerInteraction;
+
+    // Chains the local player is dragging right now. Vanilla uncouples locally when a coupled chain
+    // is picked up; the host only hears about it on the drop. A topology snapshot applied mid-drag
+    // re-coupled the cars under the chain, and the drop then went unreported. Snapshots wait while a
+    // drag is in progress (checked live, so a destroyed chain can never block them).
+    private static readonly HashSet<Coupler> localChainDrags = new();
+
+    internal static bool IsLocalChainDragInProgress
+    {
+        get
+        {
+            localChainDrags.RemoveWhere(coupler => coupler == null || coupler.ChainScript == null ||
+                coupler.ChainScript.CurrentState != ChainCouplerInteraction.State.Being_Dragged);
+            return localChainDrags.Count > 0;
+        }
+    }
     private ChainCouplerInteraction.State originalState;
     private Coupler originalCoupledTo;
 
@@ -1440,6 +1456,17 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         Common_SendPaintThemes();
     }
 
+    /// <summary>
+    /// Whether the local player is close enough to have changed this car's controls by hand: the
+    /// same distance the host checks. A client's own simulation also sets handbrakes and fuses
+    /// (notably while the world loads); reporting those for distant cars only produced rejected
+    /// operations and resync requests. The host always reports.
+    /// </summary>
+    private bool Client_LocalPlayerCanTouch() =>
+        NetworkLifecycle.Instance.IsHost() ||
+        (PlayerManager.PlayerTransform != null &&
+         (PlayerManager.PlayerTransform.position - transform.position).sqrMagnitude <= CarLengthSq);
+
     private void Common_SendHandbrakePosition() => Common_SendHandbrakePosition(viaRemote: false);
 
     /// <summary>Sends a pending handbrake change now, marked as made by a remote controller (vanilla
@@ -1454,6 +1481,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             return;
 
         handbrakeDirty = false;
+        if (!viaRemote && !Client_LocalPlayerCanTouch())
+            return; // simulation noise (e.g. set during load), not a player action
         ulong operationId = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
         if (!NetworkLifecycle.Instance.IsHost())
             client_pendingHandbrakeOperation = operationId;
@@ -1538,6 +1567,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     {
         if (!hasSimFlow || dirtyFuses.Count == 0)
             return;
+        if (!Client_LocalPlayerCanTouch())
+        {
+            dirtyFuses.Clear(); // simulation noise (e.g. set during load), not a player action
+            return;
+        }
 
         int i = 0;
         uint[] fuseIds = dirtyFuses.ToArray();
@@ -2273,6 +2307,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         {
             case ChainCouplerInteraction.State.Being_Dragged:
                 couplerInteraction = coupler;
+                localChainDrags.Add(coupler);
                 originalState = coupler.state;
                 originalCoupledTo = coupler.coupledTo;
                 // Dragging is presentation local to the manipulating player. Sending the
@@ -2310,6 +2345,19 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     NetworkLifecycle.Instance.Client.SendChainPlacement(coupler,
                         TrainChainState.Dangling, originalCoupledTo != null);
                     couplerInteraction = null;
+                }
+                break;
+
+            case ChainCouplerInteraction.State.Attached_Tight:
+            case ChainCouplerInteraction.State.Other_Attached_Parked:
+            case ChainCouplerInteraction.State.Other_Attached_Dangling:
+                // A drop that settled in a final state not handled above (e.g. the other side's chain
+                // was attached): nothing to report, but don't leave the interaction open; take the
+                // host's state back instead.
+                if (couplerInteraction == coupler)
+                {
+                    couplerInteraction = null;
+                    NetworkLifecycle.Instance.Client?.SendTrainSyncRequest(NetId);
                 }
                 break;
 
