@@ -20,6 +20,14 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
     internal float lastLookPosition;
     internal float lastSitHeight;
     internal bool sentFinalPosition;
+
+    // Updates go unreliable and carry only changed fields, so a lost packet could leave this
+    // player's position, look or seat height stale for others until it changed again (and the
+    // reliable "stopped" packet carried nothing, since nothing had changed that tick). The stop
+    // packet and a periodic keyframe while active now carry the full state.
+    private const float KeyframeIntervalSeconds = 1f;
+    private float nextKeyframeAt;
+    private float lastActivityAt = float.NegativeInfinity;
     internal PlayerPostureFlags lastPosture;
 
     internal bool isJumping;
@@ -114,6 +122,21 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
 
         bool heightChanged = lastSitHeight != sitHeight;
 
+        bool moved = positionOrRotationChanged;
+        bool stopping = !positionOrRotationChanged && !sentFinalPosition;
+        if (moved || lookPositionChanged || heightChanged)
+            lastActivityAt = Time.unscaledTime;
+        // Keyframes while active and for a moment after (e.g. only looking around), not when idle.
+        bool keyframe = stopping || (Time.unscaledTime >= nextKeyframeAt &&
+                                     Time.unscaledTime - lastActivityAt <= KeyframeIntervalSeconds * 2f);
+        if (keyframe)
+        {
+            positionOrRotationChanged = true;
+            lookPositionChanged = true;
+            heightChanged = true;
+            nextKeyframeAt = Time.unscaledTime + KeyframeIntervalSeconds;
+        }
+
         Vector3 moveDirV3 = fps != null
             ? PlayerManager.PlayerTransform.InverseTransformDirection(fps.m_MoveDir)
             : Vector3.zero;
@@ -142,7 +165,7 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
         lastRotationY = rotationY;
         lastLookPosition = lookPosition;
         lastPosture = posture;
-        sentFinalPosition = !positionOrRotationChanged;
+        sentFinalPosition = !moved;
 
         NetworkLifecycle.Instance.Client.SendPlayerPosition(trackingData, posture, isOnCar, carNetID, isJumping || sentFinalPosition);
         isJumping = false;
