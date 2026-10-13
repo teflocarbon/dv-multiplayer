@@ -20,6 +20,40 @@ $json.Version = $Ver
 $modId = $json.Id
 $json | ConvertTo-Json -depth 32| set-content ($PSScriptRoot + '/info.json')
 
+# Unity Mod Manager folders are user-named and may include the release version.
+# If the configured conventional path is not itself the installed mod, locate the
+# one enabled installation by its stable info.json Id.
+$configuredInfo = Join-Path $GameDir 'info.json'
+$configuredMatches = $false
+if (Test-Path -LiteralPath $configuredInfo) {
+	try {
+		$configuredJson = Get-Content -LiteralPath $configuredInfo -Raw | ConvertFrom-Json
+		$configuredMatches = $configuredJson.Id -eq $modId
+	} catch {
+		$configuredMatches = $false
+	}
+}
+
+if (!$configuredMatches) {
+	$modsRoot = Split-Path -Parent $GameDir
+	$matchingInstalls = @(
+		Get-ChildItem -LiteralPath $modsRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+			$candidateInfo = Join-Path $_.FullName 'info.json'
+			if (!(Test-Path -LiteralPath $candidateInfo)) { return }
+			try {
+				$candidateJson = Get-Content -LiteralPath $candidateInfo -Raw | ConvertFrom-Json
+				if ($candidateJson.Id -eq $modId) { $_.FullName }
+			} catch { }
+		}
+	)
+	if ($matchingInstalls.Count -eq 1) {
+		$GameDir = $matchingInstalls[0]
+		Write-Host "Resolved installed mod directory: $GameDir"
+	} elseif ($matchingInstalls.Count -gt 1) {
+		throw "Multiple installed mod directories with Id '$modId' were found: $($matchingInstalls -join ', ')"
+	}
+}
+
 #Copy files to Build Dir
 Copy-Item ($PSScriptRoot + '/info.json') -Destination ("$PSScriptRoot/build/")
 Copy-Item ($Target) -Destination ("$PSScriptRoot/build/")

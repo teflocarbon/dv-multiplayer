@@ -15,6 +15,9 @@ Loose and snapped train items are covered by
 [`DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md`](DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md), and installed train
 gadgets by
 [`DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
+The host-authoritative movement, baseline, cab-control, handbrake, and streamed-interior contracts
+are recorded in
+[`DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md`](DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md).
 The game's built-in developer and debug commands, along with the underlying APIs worth reusing,
 are catalogued in
 [`DERAIL_VALLEY_DEV_CONSOLE_LOGIC.md`](DERAIL_VALLEY_DEV_CONSOLE_LOGIC.md).

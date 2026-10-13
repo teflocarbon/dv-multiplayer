@@ -1,8 +1,10 @@
 using DV.HUD;
 using HarmonyLib;
 using Multiplayer.Components.Networking;
+using Multiplayer.Components.Networking.Train;
 using Multiplayer.Networking.Data.Train;
 using Newtonsoft.Json.Linq;
+using System;
 
 namespace Multiplayer.Patches.Train;
 
@@ -11,9 +13,18 @@ namespace Multiplayer.Patches.Train;
 public static class UICouplingHelperPatch
 {
     [HarmonyPatch(nameof(UICouplingHelper.HandleCoupling))]
-    [HarmonyPostfix]
-    private static void HandleCoupling(UICouplingHelper __instance, Coupler coupler, bool advanced)
+    [HarmonyPrefix]
+    private static void BeforeHandleCoupling(out IDisposable __state)
     {
+        __state = NetworkedTrainCar.BeginLocalTopologyBatch();
+    }
+
+    [HarmonyPatch(nameof(UICouplingHelper.HandleCoupling))]
+    [HarmonyPostfix]
+    private static void HandleCoupling(UICouplingHelper __instance, Coupler coupler, bool advanced,
+        IDisposable __state)
+    {
+        __state?.Dispose();
         Multiplayer.LogDebug(() => $"UICouplingHelper.HandleCoupling({coupler?.train?.ID}, {advanced})");
 
         if (coupler == null)
@@ -60,5 +71,13 @@ public static class UICouplingHelperPatch
         }
 
         NetworkLifecycle.Instance.Client.SendCouplerInteraction(interaction, coupler, otherCoupler);
+    }
+
+    [HarmonyPatch(nameof(UICouplingHelper.HandleCoupling))]
+    [HarmonyFinalizer]
+    private static Exception DisposeTopologyBatch(Exception __exception, IDisposable __state)
+    {
+        __state?.Dispose();
+        return __exception;
     }
 }

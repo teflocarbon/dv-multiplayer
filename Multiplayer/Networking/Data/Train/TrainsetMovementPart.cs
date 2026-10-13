@@ -4,10 +4,11 @@ using System;
 using UnityEngine;
 namespace Multiplayer.Networking.Data.Train;
 
-public readonly struct TrainsetMovementPart
+public sealed class TrainsetMovementPart
 {
     public readonly ushort NetId;
     public readonly MovementType typeFlag;
+    // TrainCar.GetForwardSpeed() wire value, expressed in metres per second.
     public readonly float Speed;
     public readonly float SlowBuildUpStress;
     public readonly Vector3 Position;       //Used in sync only
@@ -56,9 +57,7 @@ public readonly struct TrainsetMovementPart
         RigidbodySnapshot = rigidbodySnapshot;
     }
 
-#pragma warning disable EPS05 // Use in-modifier for a readonly struct
     public static void Serialize(NetDataWriter writer, TrainsetMovementPart data)
-#pragma warning restore EPS05 // Use in-modifier for a readonly struct
     {
         writer.Put(data.NetId);
 

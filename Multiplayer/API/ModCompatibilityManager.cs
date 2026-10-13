@@ -105,14 +105,36 @@ public class ModCompatibilityManager : SingletonBehaviour<ModCompatibilityManage
     public ModValidationResult ValidateClientMods(ModInfo[] clientMods)
     {
         var localMods = GetLocalMods();
-        var localModIds = localMods.Select(l => l.Id);
+        clientMods ??= [];
 
-        var clientModIds = clientMods.Select(c => c.Id);
+        var localById = localMods
+            .GroupBy(mod => mod.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var clientById = clientMods
+            .GroupBy(mod => mod.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-        List<ModInfo> missing = clientMods.Where(c => !localModIds.Contains(c.Id)).ToList();
-        List<ModInfo> extra = localMods.Where(l => !clientModIds.Contains(l.Id)).ToList();
+        List<ModInfo> missing = clientMods
+            .Where(client => !localById.ContainsKey(client.Id))
+            .ToList();
+        List<ModInfo> extra = localMods
+            .Where(local => !clientById.ContainsKey(local.Id))
+            .ToList();
 
-        bool valid = (missing.Count == 0) && (extra.Count == 0);
+        // A shared gameplay mod with a different version is not compatible merely
+        // because its ID matches. Report both sides so the existing mismatch UI shows
+        // exactly which client and host packages need to be aligned.
+        foreach (ModInfo local in localMods)
+        {
+            if (!clientById.TryGetValue(local.Id, out ModInfo client) ||
+                string.Equals(local.Version, client.Version, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            extra.Add(local);
+            missing.Add(client);
+        }
+
+        bool valid = missing.Count == 0 && extra.Count == 0;
 
         return new()
         {

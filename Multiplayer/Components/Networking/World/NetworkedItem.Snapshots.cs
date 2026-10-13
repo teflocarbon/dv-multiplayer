@@ -288,6 +288,7 @@ public partial class NetworkedItem
                 });
             return;
         }
+        bool localVrReleaseAcknowledgement = IsLocalVrReleaseAcknowledgement(snapshot);
         ApplyAuthorityMetadata(snapshot);
 
         Dictionary<string, object> receivedDebugData = DebugTrace.ItemSnapshotData(snapshot);
@@ -305,6 +306,12 @@ public partial class NetworkedItem
                 ToWireState(snapshot.ItemState)))
         {
             ApplyLocalThrowAcknowledgement(snapshot);
+            return;
+        }
+
+        if (localVrReleaseAcknowledgement)
+        {
+            ApplyLocalVrReleaseAcknowledgement(snapshot);
             return;
         }
 
@@ -480,6 +487,7 @@ public partial class NetworkedItem
         stateDirty = false;
         wasThrown = false;
         hostStateObservationPending = false;
+        CompleteLocalVrReleaseAcknowledgement();
         MarkValuesClean();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
             EntityDebugRegistry.ItemState(this));
@@ -689,6 +697,7 @@ public partial class NetworkedItem
             AttachedFront = frontCoupler,
             States = states,
             PlayerId = playerBelongsToId,
+            PlayerHand = HandForState(lastState),
             AuthorityRevision = authorityRevisionOverride ?? AuthorityRevision,
             PersistentOwnerPlayerId = PersistentOwnerPlayerId,
             InventoryClaimPlayerId = InventoryClaimPlayerId,
@@ -732,7 +741,7 @@ public partial class NetworkedItem
         if (Item.IsGrabbed())
             return ItemState.InHand;
 
-        if (playerBelongsTo?.RightHandItemGO == gameObject)
+        if (playerBelongsTo?.HoldsItem(gameObject) == true)
             return ItemState.InHand;
 
         // Derail Valley exposes only this process's local inventory. Preserve another player's

@@ -32,6 +32,8 @@ public class Settings : UnityModManager.ModSettings, IDrawable
 
     [Space(10)]
     [Header("Gameplay")]
+    [Draw("Observer Mode", Tooltip = "When joining another host, act as a read-only observer. Movement, teleporting, chat, and world synchronization remain active, but this client cannot mutate trains, items, jobs, services, or switches.")]
+    public bool ObserverMode;
     [Draw("Allow clients to set their own crew names", Tooltip = "Whether to allow clients to set their own crew names.")]
     public bool AllowClientCrewNames = false;
     [Draw("Fast Travel Advances Time", Tooltip = "When players use fast travel, time will advance.")]

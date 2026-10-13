@@ -15,7 +15,7 @@ namespace Multiplayer.Components.Networking.Player;
 /// <summary>
 /// Represents a networked player in the multiplayer environment, handling movement, item holding, and visual state
 /// </summary>
-public class NetworkedPlayer : MonoBehaviour
+public partial class NetworkedPlayer : MonoBehaviour
 {
     #region Static Setup
     private static Vector3 itemAnchorOffset = new(0.2f, 1.5f, 0.4f);
@@ -116,9 +116,8 @@ public class NetworkedPlayer : MonoBehaviour
     private Quaternion currentRightHandWorldRot = Quaternion.identity;
     private bool handTrackingInitialized;
 
-    // Inventory and item holding. Item packets currently represent a single held item,
-    // so this retains the feature branch's right-hand behaviour on top of beta's
-    // newer player/VR tracking model.
+    // Inventory and item holding. Desktop uses the legacy body-relative right-hand slot;
+    // VR uses independent left/right projections implemented in NetworkedPlayer.VrItems.cs.
     private GameObject inventoryRoot;
     public GameObject RightHandItemGO { get; private set; }
     private readonly List<Collider> disabledRHItemColliders = [];
@@ -329,6 +328,11 @@ public class NetworkedPlayer : MonoBehaviour
 
     private void ApplyHeldItemPosition()
     {
+        if (IsVR)
+        {
+            ApplyVrHeldItemPositions();
+            return;
+        }
         if (RightHandItemGO == null)
             return;
 
@@ -491,31 +495,9 @@ public class NetworkedPlayer : MonoBehaviour
     /// <param name="targetPos">Optional local position offset</param>
     /// <param name="targetRot">Optional local rotation offset</param>
     /// <param name="rightHand">Indicates if the item is held in the right hand. Always true for non-VR.</param>
-    // TODO: Expand item packets and handling for left-hand and dual-hand VR items.
     public void HoldItem(GameObject itemGo, Vector3? targetPos = null, Quaternion? targetRot = null, bool rightHand = true)
     {
-        Multiplayer.LogDebug(() => $"NetworkedPlayer.HoldItem({itemGo.GetPath()}) Player: {username}, Before position: {itemGo.transform.localPosition}, rotation:  {itemGo.transform.localRotation}, Target pos: {targetPos}, Target rot: {targetRot}");
-
-        itemGo.transform.SetParent(selfTransform, true);
-        var itemGrabHandler = itemGo.GetComponentInChildren<GrabHandlerItem>();
-        if (itemGrabHandler != null)
-        {
-            itemGrabHandler.TogglePhysics(false);
-            itemGrabHandler.interactionAllowed = false;
-        }
-
-        disabledRHItemColliders.Clear();
-        foreach (Collider col in itemGo.GetComponentsInChildren<Collider>(true))
-        {
-            if (col != null && col.enabled)
-                col.enabled = false;
-
-            disabledRHItemColliders.Add(col);
-        }
-
-        RightHandItemGO = itemGo;
-        itemHoldPos = targetPos;
-        itemHoldRot = targetRot;
+        HoldDesktopItem(itemGo, targetPos, targetRot);
     }
 
     public void DropItem()
@@ -525,29 +507,6 @@ public class NetworkedPlayer : MonoBehaviour
 
     public bool DropItem(GameObject expectedItem)
     {
-        GameObject heldItem = RightHandItemGO;
-        if (heldItem == null || expectedItem != null && heldItem != expectedItem)
-            return false;
-
-        foreach (Collider col in disabledRHItemColliders)
-        {
-            if (col != null)
-                col.enabled = true;
-        }
-        disabledRHItemColliders.Clear();
-
-        var itemGrabHandler = heldItem.GetComponentInChildren<GrabHandlerItem>();
-        if (itemGrabHandler != null)
-        {
-            itemGrabHandler.TogglePhysics(true);
-            itemGrabHandler.interactionAllowed = true;
-        }
-
-        heldItem.transform.SetParent(WorldMover.OriginShiftParent, true);
-
-        RightHandItemGO = null;
-        itemHoldPos = null;
-        itemHoldRot = null;
-        return true;
+        return DropProjectedItem(expectedItem);
     }
 }

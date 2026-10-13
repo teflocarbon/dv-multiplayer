@@ -65,7 +65,7 @@ public abstract class TickedQueue<T> : MonoBehaviour
         }
     }
 
-    public void Clear()
+    public virtual void Clear()
     {
         DebugDiagnostics.QueueCleared(GetType().Name, GetID(), snapshots.Count);
         snapshots.Clear();

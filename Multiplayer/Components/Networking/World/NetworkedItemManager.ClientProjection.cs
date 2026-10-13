@@ -125,7 +125,11 @@ public partial class NetworkedItemManager
                     ["trackedItemType"] = netItem.TrackedItemType?.FullName ?? string.Empty,
                     ["prefabName"] = snapshot.PrefabName ?? string.Empty
                 });
+                netItem.SetClientNetworkBinding(true);
+                netItem.gameObject.SetActive(true);
                 netItem.ReceiveSnapshot(snapshot);
+                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+                    snapshot.AuthorityRevision, true);
                 return;
             }
 
@@ -167,6 +171,9 @@ public partial class NetworkedItemManager
                 snapshot.TransitionReason == ItemTransitionReason.LostAndFoundCollection;
             bool coldContainerProjection =
                 snapshot.TransitionReason == ItemTransitionReason.ContainerDeposit;
+            bool dormantJobDocument =
+                snapshot.TransitionReason == ItemTransitionReason.InterestRetirement &&
+                netItem != null && DoNotCreateItem(netItem);
             if (lostAndFoundProjection)
             {
                 ClientLostAndFoundTombstones.Add(snapshot.ItemNetId);
@@ -185,11 +192,15 @@ public partial class NetworkedItemManager
                     InventoryIntegration.RevokeMembership(netItem.gameObject, netItem.NetId);
                     InventoryIntegration.PurgeContainerMembership(netItem.gameObject);
                 }
-                RetireClientProjection(netItem, snapshot.TransitionReason.ToString());
+                if (dormantJobDocument)
+                    SuspendJobDocumentProjection(netItem, snapshot);
+                else
+                    RetireClientProjection(netItem, snapshot.TransitionReason.ToString());
             }
             destroyData["destroyApplied"] = true;
             destroyData["applyResult"] = netItem == null ? "already-absent" :
                 lostAndFoundProjection ? "lost-and-found-projection" :
+                dormantJobDocument ? "job-document-projection-dormant" :
                 netItem.IsSceneAuthored ? "authored-projection-dormant" : "dynamic-projection-destroyed";
             destroyData["activeInHierarchy"] = netItem != null && netItem.gameObject.activeInHierarchy;
             destroyData["boundNetIdAfter"] = netItem?.NetId ?? 0;
@@ -276,7 +287,25 @@ public partial class NetworkedItemManager
             ["prefabName"] = snapshot.PrefabName ?? string.Empty,
             ["authorityRevision"] = snapshot.AuthorityRevision
         });
+        item.SetClientNetworkBinding(true);
+        item.gameObject.SetActive(true);
         item.ReceiveSnapshot(snapshot);
+        NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+            snapshot.AuthorityRevision, true);
+    }
+
+    private static void SuspendJobDocumentProjection(NetworkedItem item, ItemUpdateData snapshot)
+    {
+        item.SetClientNetworkBinding(false);
+        item.gameObject.SetActive(false);
+        DebugRuntime.Publish("item", "item.job-document-projection-dormant",
+            DebugRuntimeSide.Client, entityType: "Item", entityId: item.NetId.ToString(),
+            data: new()
+            {
+                ["trackedItemType"] = item.TrackedItemType?.FullName ?? string.Empty,
+                ["authorityRevision"] = snapshot.AuthorityRevision,
+                ["reason"] = snapshot.TransitionReason.ToString()
+            });
     }
 
     private static bool IsJobDocumentPrefab(string prefabName) =>

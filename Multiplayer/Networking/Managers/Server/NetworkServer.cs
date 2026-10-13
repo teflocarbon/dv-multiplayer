@@ -45,6 +45,7 @@ using Multiplayer.Networking.Serialization;
 using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Core.Trains;
 using Multiplayer.Patches.MainMenu;
 using Multiplayer.Patches.World;
 using Multiplayer.Utils;
@@ -106,6 +107,13 @@ public class NetworkServer : NetworkManager
     public ChatManager ChatManager => _chatManager;
 
     private uint lastTick;
+    private uint nextTrainBaselineId;
+    private readonly TrainTopologyAuthority trainTopologyAuthority = new();
+    private uint lastBroadcastTrainTopologyRevision;
+    private bool trainTopologyCommitPending;
+    private readonly HashSet<ushort> pendingTrainTopologyControlCars = new();
+    private readonly Dictionary<(byte PlayerId, ushort CarNetId), ulong>
+        lastTrainControlOperation = new();
     private uint nextItemRecallOperationId;
     private readonly Dictionary<uint, PendingItemRecall> pendingItemRecalls = new();
     private readonly Dictionary<ushort, uint> pendingItemRecallByItem = new();
@@ -239,7 +247,9 @@ public class NetworkServer : NetworkManager
 
 
         // Train
-        netPacketProcessor.SubscribeReusable<ServerboundTrainSyncRequestPacket>(OnServerboundTrainSyncRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundTrainSyncRequestPacket, ITransportPeer>(OnServerboundTrainSyncRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundTrainTopologyCommandPacket, ITransportPeer>(OnServerboundTrainTopologyCommandPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundTrainTopologySyncRequestPacket, ITransportPeer>(OnServerboundTrainTopologySyncRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundTenderCoalPacket, ITransportPeer>(OnServerboundTenderCoalPacket);
         netPacketProcessor.SubscribeReusable<CommonTrainPortsPacket, ITransportPeer>(OnCommonTrainPortsPacket);
         netPacketProcessor.SubscribeReusable<CommonTrainFusesPacket, ITransportPeer>(OnCommonTrainFusesPacket);
@@ -439,6 +449,33 @@ public class NetworkServer : NetworkManager
         foreach (PendingItemRecall pending in pendingItemRecalls.Values.ToArray())
             if (unchecked((int)(tick - pending.DeadlineTick)) >= 0)
                 CancelPendingItemRecall(pending, "recall-prepare-timeout", true);
+
+        if (trainTopologyCommitPending)
+        {
+            trainTopologyCommitPending = false;
+            ushort[] controlCars = pendingTrainTopologyControlCars.ToArray();
+            pendingTrainTopologyControlCars.Clear();
+            ClientboundTrainTopologySnapshotPacket snapshot =
+                trainTopologyAuthority.CommitObserved(controlCars: controlCars);
+            if (snapshot.TopologyRevision == uint.MaxValue ||
+                snapshot.TopologyRevision != lastBroadcastTrainTopologyRevision ||
+                controlCars.Length > 0)
+            {
+                SendPacketToAll(snapshot, DeliveryMethod.ReliableOrdered,
+                    PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+                lastBroadcastTrainTopologyRevision = snapshot.TopologyRevision;
+                DebugRuntime.Publish("train", "train.topology-snapshot-committed",
+                    DebugRuntimeSide.Server, entityType: "Topology",
+                    entityId: snapshot.TopologyRevision.ToString(),
+                    data: DebugValueSnapshotter.SnapshotObject(new
+                    {
+                        snapshot.TopologyRevision,
+                        endpointCount = snapshot.Endpoints?.Length ?? 0,
+                        brakeLineCount = snapshot.BrakeLines?.Length ?? 0,
+                        affectedControlCount = snapshot.ControlStates?.Length ?? 0
+                    }));
+            }
+        }
     }
 
     public bool TryGetServerPlayer(ITransportPeer peer, out ServerPlayer player)
@@ -483,6 +520,11 @@ public class NetworkServer : NetworkManager
 
         if (player != null)
             NetworkedItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId);
+
+        if (player != null)
+            foreach (var key in lastTrainControlOperation.Keys
+                         .Where(value => value.PlayerId == player.PlayerId).ToArray())
+                lastTrainControlOperation.Remove(key);
 
         if (WorldStreamingInit.isLoaded)
             SaveGameManager.Instance.UpdateInternalData();
@@ -551,6 +593,9 @@ public class NetworkServer : NetworkManager
         foreach (var peer in peers.Values)
         {
             if (excludeSelf && peer == SelfPeer)
+                continue;
+
+            if (TryGetServerPlayer(peer, out var player) && player.LoadingState < minimumLoadState)
                 continue;
 
             TraceItemDeliveryExpected(packet, peer, deliveryMethod);
@@ -720,6 +765,16 @@ public class NetworkServer : NetworkManager
         }
         else
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
+
+        ClientboundTrainTopologySnapshotPacket topology = trainTopologyAuthority.CommitObserved();
+        if (sendToAll)
+        {
+            SendPacketToAll(topology, DeliveryMethod.ReliableOrdered,
+                PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+            lastBroadcastTrainTopologyRevision = topology.TopologyRevision;
+        }
+        else if (sendTo != null)
+            SendPacket(sendTo, topology, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendDestroyTrainCar(NetworkedTrainCar netTrainCar, ITransportPeer peer = null)
@@ -749,11 +804,15 @@ public class NetworkServer : NetworkManager
 
     public void SendBrakeState(ushort netId, float mainReservoirPressure, float brakePipePressure, float brakeCylinderPressure, float overheatPercent, float overheatReductionFactor, float temperature)
     {
+        TrainTopologyNativeAdapter.TryCaptureBrakeLine(netId, out BrakeLineStateData line);
         SendPacketToAll(new ClientboundBrakeStateUpdatePacket
         {
+            TopologyRevision = trainTopologyAuthority.Revision,
             NetId = netId,
+            BrakeLineAnchorCarNetId = line?.AnchorCarNetId ?? netId,
+            BrakeLineMemberDigest = line?.MemberDigest ?? 0,
             MainReservoirPressure = mainReservoirPressure,
-            BrakePipePressure = brakePipePressure,
+            BrakePipePressure = line?.PipePressure ?? brakePipePressure,
             BrakeCylinderPressure = brakeCylinderPressure,
             OverheatPercent = overheatPercent,
             OverheatReductionFactor = overheatReductionFactor,
@@ -1006,19 +1065,7 @@ public class NetworkServer : NetworkManager
 
         LogDebug(() => $"SendTrainUncouple({coupler.train.ID}, {coupler.isFrontCoupler}, {dueToBrokenCouple}, {viaChainInteraction})");
 
-        SendPacketToAll(
-            new CommonTrainUncouplePacket
-            {
-                NetId = couplerNetId,
-                IsFrontCoupler = coupler.isFrontCoupler,
-                PlayAudio = playAudio,
-                ViaChainInteraction = viaChainInteraction,
-                DueToBrokenCouple = dueToBrokenCouple,
-            },
-            DeliveryMethod.ReliableOrdered,
-            PlayerLoadingState.ReadyForTrainSets,
-            excludeSelf: true
-        );
+        CommitObservedTrainTopology();
     }
 
     public void SendHoseDisconnected(Coupler coupler, bool playAudio)
@@ -1033,34 +1080,20 @@ public class NetworkServer : NetworkManager
 
         LogDebug(() => $"SendHoseDisconnected({coupler.train.ID}, {coupler.isFrontCoupler}, {playAudio})");
 
-        SendPacketToAll
-        (
-            new CommonHoseDisconnectedPacket
-            {
-                NetId = couplerNetId,
-                IsFront = coupler.isFrontCoupler,
-                PlayAudio = playAudio
-            },
-            DeliveryMethod.ReliableOrdered,
-            PlayerLoadingState.ReadyForTrainSets,
-            excludeSelf: true
-        );
+        CommitObservedTrainTopology();
     }
 
     public void SendCockState(ushort netId, Coupler coupler, bool isOpen)
     {
-        SendPacketToAll
-        (
-            new CommonCockFiddlePacket
-            {
-                NetId = netId,
-                IsFront = coupler.isFrontCoupler,
-                IsOpen = isOpen
-            },
-            DeliveryMethod.ReliableOrdered,
-            PlayerLoadingState.ReadyForTrainSets,
-            true
-        );
+        CommitObservedTrainTopology();
+    }
+
+    public void CommitObservedTrainTopology(params ushort[] controlCars)
+    {
+        trainTopologyCommitPending = true;
+        foreach (ushort carNetId in controlCars ?? Array.Empty<ushort>())
+            if (carNetId != 0)
+                pendingTrainTopologyControlCars.Add(carNetId);
     }
 
     public void SendTrainControlAuthorityUpdate(ushort netId, uint portNetId, ControlAuthorityState state, ServerPlayer sendToPlayer = null, ServerPlayer excludePlayer = null)
@@ -1182,6 +1215,10 @@ public class NetworkServer : NetworkManager
     {
         SendPacketToAll(packet, DeliveryMethod.ReliableOrdered,
             PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+        ClientboundTrainTopologySnapshotPacket topology = trainTopologyAuthority.CommitObserved();
+        SendPacketToAll(topology, DeliveryMethod.ReliableOrdered,
+            PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+        lastBroadcastTrainTopologyRevision = topology.TopologyRevision;
     }
 
     private void OnServerboundTrainsetRelocationAckPacket(
@@ -1570,6 +1607,7 @@ public class NetworkServer : NetworkManager
             return;
         }
 
+        bool advanceLoadingState = true;
         switch (packet.LoadState)
         {
             case PlayerLoadingState.None:
@@ -1648,25 +1686,74 @@ public class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForTrainSets:
-                // Inform client of total trainsets to be loaded
-                SendPacket(peer, new ClientboundLoadStateInfoPacket
-                {
-                    LoadingState = PlayerLoadingState.ReadyForTrainSets,
-                    ItemsToLoad = (uint)Trainset.allSets.Count()
-                }, DeliveryMethod.ReliableOrdered);
-
-                // Send trains
-                foreach (Trainset set in Trainset.allSets)
+                // Freeze and serialize one authoritative snapshot before announcing its size. A
+                // trainset that cannot be represented rejects the whole baseline.
+                List<ClientboundSpawnTrainSetPacket> baselinePackets = new();
+                List<string> baselineFailures = new();
+                foreach (Trainset set in Trainset.allSets.ToArray())
                 {
                     try
                     {
-                        SendSpawnTrainset(set.cars, false, false, peer);
+                        ClientboundSpawnTrainSetPacket spawnPacket =
+                            ClientboundSpawnTrainSetPacket.FromTrainSet(set.cars.ToList(), false);
+                        if (spawnPacket.SpawnParts == null || spawnPacket.SpawnParts.Length == 0)
+                            throw new InvalidOperationException("trainset produced no spawn parts");
+                        baselinePackets.Add(spawnPacket);
                     }
                     catch (Exception e)
                     {
-                        LogWarning($"Exception when trying to send train set spawn data for [{set?.firstCar?.ID}, {set?.firstCar?.GetNetId()}]\r\n{e.Message}\r\n{e.StackTrace}");
+                        string failure = $"trainset [{set?.firstCar?.ID}, {set?.firstCar?.GetNetId()}]: {e.Message}";
+                        baselineFailures.Add(failure);
+                        LogError($"Rolling-stock baseline rejected {failure}\n{e}");
                     }
                 }
+
+                uint baselineId = ++nextTrainBaselineId;
+                if (baselineId == 0)
+                    baselineId = ++nextTrainBaselineId;
+                uint carCount = (uint)baselinePackets.Sum(value => value.SpawnParts.Length);
+
+                if (baselineFailures.Count > 0)
+                {
+                    SendPacket(peer, new ClientboundTrainBaselineBeginPacket
+                    {
+                        BaselineId = baselineId,
+                        TrainsetCount = (uint)baselinePackets.Count,
+                        CarCount = carCount,
+                        Failure = string.Join("; ", baselineFailures)
+                    }, DeliveryMethod.ReliableOrdered);
+                    advanceLoadingState = false;
+                    break;
+                }
+
+                SendPacket(peer, new ClientboundTrainBaselineBeginPacket
+                {
+                    BaselineId = baselineId,
+                    TrainsetCount = (uint)baselinePackets.Count,
+                    CarCount = carCount,
+                    Failure = string.Empty
+                }, DeliveryMethod.ReliableOrdered);
+
+                for (int index = 0; index < baselinePackets.Count; index++)
+                {
+                    baselinePackets[index].BaselineId = baselineId;
+                    baselinePackets[index].Sequence = (uint)index;
+                    SendPacket(peer, baselinePackets[index], DeliveryMethod.ReliableOrdered);
+                }
+
+                SendPacket(peer, trainTopologyAuthority.Snapshot(baselineId),
+                    DeliveryMethod.ReliableOrdered);
+
+                SendPacket(peer, new ClientboundTrainBaselineCompletePacket
+                {
+                    BaselineId = baselineId,
+                    TrainsetCount = (uint)baselinePackets.Count,
+                    CarCount = carCount
+                }, DeliveryMethod.ReliableOrdered);
+
+                // Live rolling-stock traffic remains gated until the client proves it applied the
+                // baseline by advancing to ReadyForItems.
+                advanceLoadingState = false;
 
                 break;
 
@@ -1715,7 +1802,8 @@ public class NetworkServer : NetworkManager
                 break;
         }
 
-        player.LoadingState = packet.LoadState;
+        if (advanceLoadingState)
+            player.LoadingState = packet.LoadState;
 
         if (packet.LoadState == PlayerLoadingState.Complete)
         {
@@ -1858,8 +1946,24 @@ public class NetworkServer : NetworkManager
         {
             if (netTrainCar.Server_ValidateCouplerInteraction(packet, player))
             {
-                //passed validation, send to all but the originator
-                SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+                // The listen host owns the canonical train topology. Relaying a client-local
+                // coupling without applying it here lets the requesting client join two cars
+                // while the host simulation continues to move them independently.
+                netTrainCar.SuppressAuthoritativeTopologyObservations();
+                if (packet.OtherNetId != 0 &&
+                    NetworkedTrainCar.TryGet(packet.OtherNetId, out NetworkedTrainCar otherNetTrainCar))
+                    otherNetTrainCar.SuppressAuthoritativeTopologyObservations();
+                using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+                    netTrainCar.Common_ReceiveCouplerInteraction(packet);
+
+                CouplerInteractionType flags = (CouplerInteractionType)packet.Flags;
+                CommitObservedTrainTopology();
+                // Chain dragging/screw interaction remains transient presentation. Canonical
+                // endpoint state above is the recovery/acknowledgement path.
+                if (!flags.HasFlag(CouplerInteractionType.CoupleViaUI) &&
+                    !flags.HasFlag(CouplerInteractionType.UncoupleViaUI))
+                    SendPacketToAll(packet, DeliveryMethod.ReliableOrdered,
+                        PlayerLoadingState.ReadyForTrainSets, peer, excludeSelf: true);
             }
             else
             {
@@ -1876,13 +1980,13 @@ public class NetworkServer : NetworkManager
                     },
                     DeliveryMethod.ReliableOrdered
                 );
+                SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
             }
         }
         else
         {
-            LogDebug(() => $"OnCommonCouplerInteractionPacket([{packet.Flags}, {netTrainCar.CurrentID}, {packet.NetId}], {player.PlayerId}) Sending destroy");
-            //Car doesn't exist, tell client to delete it
-            SendDestroyTrainCar(netTrainCar, peer);
+            LogWarning($"OnCommonCouplerInteractionPacket([{packet.Flags}, {packet.NetId}], " +
+                $"{player.PlayerId}) rejected unknown train car");
         }
     }
 
@@ -1893,42 +1997,133 @@ public class NetworkServer : NetworkManager
 
     private void OnCommonTrainUncouplePacket(CommonTrainUncouplePacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out _) ||
+            !TryResolveCoupler(packet.NetId, packet.IsFrontCoupler, out Coupler coupler))
+            return;
+        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+            if (coupler.IsCoupled())
+                coupler.Uncouple(packet.PlayAudio, false, packet.DueToBrokenCouple, false);
+        CommitObservedTrainTopology();
     }
 
     private void OnCommonHoseConnectedPacket(CommonHoseConnectedPacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out _) ||
+            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
+            !TryResolveCoupler(packet.OtherNetId, packet.OtherIsFront, out Coupler otherCoupler) ||
+            coupler.hoseAndCock == null || otherCoupler.hoseAndCock == null)
+            return;
+        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+            if (!coupler.hoseAndCock.IsHoseConnected && !otherCoupler.hoseAndCock.IsHoseConnected)
+                coupler.ConnectAirHose(otherCoupler, packet.PlayAudio);
+        CommitObservedTrainTopology();
     }
 
     private void OnCommonHoseDisconnectedPacket(CommonHoseDisconnectedPacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out _) ||
+            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
+            coupler.hoseAndCock == null)
+            return;
+        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+            if (coupler.hoseAndCock.IsHoseConnected)
+                coupler.DisconnectAirHose(packet.PlayAudio);
+        CommitObservedTrainTopology();
     }
 
     private void OnCommonMuConnectedPacket(CommonMuConnectedPacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out _) ||
+            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler first) ||
+            !TryResolveCoupler(packet.OtherNetId, packet.OtherIsFront, out Coupler second))
+            return;
+        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+            if (first.train.IsMultipleUnit && second.train.IsMultipleUnit)
+            {
+                var firstCable = packet.IsFront ? first.train.muModule.frontCable : first.train.muModule.rearCable;
+                var secondCable = packet.OtherIsFront ? second.train.muModule.frontCable : second.train.muModule.rearCable;
+                if (!firstCable.IsConnected && !secondCable.IsConnected)
+                    firstCable.Connect(secondCable, packet.PlayAudio);
+            }
+        CommitObservedTrainTopology();
     }
 
     private void OnCommonMuDisconnectedPacket(CommonMuDisconnectedPacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out _) ||
+            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
+            !coupler.train.IsMultipleUnit)
+            return;
+        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+        {
+            var cable = packet.IsFront ? coupler.train.muModule.frontCable : coupler.train.muModule.rearCable;
+            if (cable.IsConnected)
+                cable.Disconnect(packet.PlayAudio);
+        }
+        CommitObservedTrainTopology();
     }
 
     private void OnCommonCockFiddlePacket(CommonCockFiddlePacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out _) ||
+            !TryResolveCoupler(packet.NetId, packet.IsFront, out Coupler coupler) ||
+            coupler.hoseAndCock == null)
+            return;
+        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+            coupler.IsCockOpen = packet.IsOpen;
+        CommitObservedTrainTopology();
+    }
+
+    private static bool TryResolveCoupler(ushort netId, bool front, out Coupler coupler)
+    {
+        coupler = null;
+        if (!NetworkedTrainCar.TryGet(netId, out TrainCar car) || car == null)
+            return false;
+        coupler = front ? car.frontCoupler : car.rearCoupler;
+        return coupler != null;
     }
 
     private void OnCommonBrakeCylinderReleasePacket(CommonBrakeCylinderReleasePacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out ServerPlayer player) ||
+            !NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar car))
+            return;
+        TrainControlCommitResult result = ValidateControlEnvelope(player, car,
+            packet.ExpectedRevision, packet.OperationId, requireLease: false, null);
+        if (result == TrainControlCommitResult.Accepted)
+        {
+            try
+            {
+                if (!NetworkLifecycle.Instance.IsHost(player))
+                    car.TrainCar.brakeSystem.ReleaseBrakeCylinderPressure();
+                if (!car.TrainCar.brakeSystem.controlReservoirPressureReleased)
+                    result = TrainControlCommitResult.InvalidValue;
+            }
+            catch
+            {
+                result = TrainControlCommitResult.InvalidValue;
+            }
+        }
+        ClientboundTrainControlCommitPacket commit = ControlCommit(car, packet.OperationId,
+            result, brakeCylinderReleased: result == TrainControlCommitResult.Accepted);
+        SendControlCommit(commit, peer);
     }
 
     private void OnCommonHandbrakePositionPacket(CommonHandbrakePositionPacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out ServerPlayer player) ||
+            !NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar car))
+            return;
+        TrainControlCommitResult result = float.IsNaN(packet.Position) || float.IsInfinity(packet.Position)
+            ? TrainControlCommitResult.InvalidValue
+            : ValidateControlEnvelope(player, car, packet.ExpectedRevision,
+                packet.OperationId, requireLease: false, null);
+        if (result == TrainControlCommitResult.Accepted &&
+            !NetworkLifecycle.Instance.IsHost(player))
+            car.TrainCar.brakeSystem.SetHandbrakePosition(Mathf.Clamp01(packet.Position));
+        ClientboundTrainControlCommitPacket commit = ControlCommit(car, packet.OperationId, result,
+            includesHandbrake: true);
+        SendControlCommit(commit, peer);
     }
 
     private void OnCommonPaintThemePacket(CommonPaintThemePacket packet, ITransportPeer peer)
@@ -2017,19 +2212,28 @@ public class NetworkServer : NetworkManager
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
-        //if not the host && validation fails then ignore packet
-        if (!NetworkLifecycle.Instance.IsHost(player))
+        bool shapeValid = packet.PortIds != null && packet.PortValues != null &&
+                          packet.PortIds.Length > 0 &&
+                          packet.PortIds.Length == packet.PortValues.Length &&
+                          packet.PortValues.All(value => !float.IsNaN(value) && !float.IsInfinity(value));
+        TrainControlCommitResult result = shapeValid
+            ? ValidateControlEnvelope(player, networkedTrainCar, packet.ExpectedRevision,
+                packet.OperationId, requireLease: true, packet.PortIds)
+            : TrainControlCommitResult.InvalidValue;
+        if (result == TrainControlCommitResult.Accepted &&
+            !NetworkLifecycle.Instance.IsHost(player))
         {
-            bool flag = networkedTrainCar.Server_ValidateClientSimFlowPacket(player, packet);
-
-            //LogDebug(() => $"OnCommonTrainPortsPacket from {player.Username}, Not host, valid: {flag}");
-            if (!flag)
-            {
-                return;
-            }
+            if (!networkedTrainCar.Server_ValidateClientSimFlowPacket(player, packet))
+                result = TrainControlCommitResult.AuthorityDenied;
+            else
+                networkedTrainCar.Common_UpdatePorts(packet);
         }
-
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!networkedTrainCar.TryCapturePortValues(packet.PortIds ?? Array.Empty<uint>(),
+                out float[] acceptedValues))
+            result = TrainControlCommitResult.UnknownControl;
+        ClientboundTrainControlCommitPacket commit = ControlCommit(networkedTrainCar,
+            packet.OperationId, result, packet.PortIds, acceptedValues);
+        SendControlCommit(commit, peer);
     }
 
     private void OnServerboundTrainControlAuthorityPacket(ServerboundTrainControlAuthorityPacket packet, ITransportPeer peer)
@@ -2044,13 +2248,146 @@ public class NetworkServer : NetworkManager
 
     private void OnCommonTrainFusesPacket(CommonTrainFusesPacket packet, ITransportPeer peer)
     {
-        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, peer);
+        if (!TryGetServerPlayer(peer, out ServerPlayer player) ||
+            !NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar car))
+            return;
+        bool shapeValid = packet.FuseIds != null && packet.FuseValues != null &&
+                          packet.FuseIds.Length > 0 &&
+                          packet.FuseIds.Length == packet.FuseValues.Length;
+        TrainControlCommitResult result = shapeValid
+            ? ValidateControlEnvelope(player, car, packet.ExpectedRevision,
+                packet.OperationId, requireLease: false, null)
+            : TrainControlCommitResult.InvalidValue;
+        if (result == TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost(player))
+            car.Common_UpdateFuses(packet);
+        if (!car.TryCaptureFuseValues(packet.FuseIds ?? Array.Empty<uint>(), out bool[] acceptedValues))
+            result = TrainControlCommitResult.UnknownControl;
+        ClientboundTrainControlCommitPacket commit = ControlCommit(car, packet.OperationId,
+            result, fuseIds: packet.FuseIds, fuseValues: acceptedValues);
+        SendControlCommit(commit, peer);
     }
 
-    private void OnServerboundTrainSyncRequestPacket(ServerboundTrainSyncRequestPacket packet)
+    private TrainControlCommitResult ValidateControlEnvelope(ServerPlayer player,
+        NetworkedTrainCar car, uint expectedRevision, ulong operationId, bool requireLease,
+        uint[] portIds)
+    {
+        if (player == null || car?.TrainCar == null)
+            return TrainControlCommitResult.UnknownControl;
+        if (!NetworkLifecycle.Instance.IsHost(player) &&
+            (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
+            return TrainControlCommitResult.OutOfRange;
+        if (requireLease && !car.Server_HasPortAuthority(player, portIds))
+            return TrainControlCommitResult.AuthorityDenied;
+        var key = (player.PlayerId, car.NetId);
+        bool orderedOperationStream = operationId != 0 &&
+            (!lastTrainControlOperation.TryGetValue(key, out ulong previous) || operationId > previous);
+        if (expectedRevision != car.ControlRevision && !orderedOperationStream)
+            return TrainControlCommitResult.StaleRevision;
+        lastTrainControlOperation[key] = operationId;
+        return TrainControlCommitResult.Accepted;
+    }
+
+    private static ClientboundTrainControlCommitPacket ControlCommit(NetworkedTrainCar car,
+        ulong operationId, TrainControlCommitResult result, uint[] portIds = null,
+        float[] portValues = null, uint[] fuseIds = null, bool[] fuseValues = null,
+        bool includesHandbrake = false, bool brakeCylinderReleased = false)
+    {
+        uint revision = result == TrainControlCommitResult.Accepted
+            ? car.Server_CommitControlRevision()
+            : car.ControlRevision;
+        return new ClientboundTrainControlCommitPacket
+        {
+            NetId = car.NetId,
+            Revision = revision,
+            OperationId = operationId,
+            Result = result,
+            PortIds = portIds ?? Array.Empty<uint>(),
+            PortValues = portValues ?? Array.Empty<float>(),
+            FuseIds = fuseIds ?? Array.Empty<uint>(),
+            FuseValues = fuseValues ?? Array.Empty<bool>(),
+            IncludesHandbrake = includesHandbrake,
+            HandbrakePosition = car.TrainCar.brakeSystem.handbrakePosition,
+            BrakeCylinderReleased = brakeCylinderReleased
+        };
+    }
+
+    private void SendControlCommit(ClientboundTrainControlCommitPacket commit, ITransportPeer requester)
+    {
+        if (commit.Result == TrainControlCommitResult.Accepted)
+            SendPacketToAll(commit, DeliveryMethod.ReliableOrdered,
+                PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+        else
+            SendPacket(requester, commit, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundTrainSyncRequestPacket(ServerboundTrainSyncRequestPacket packet,
+        ITransportPeer peer)
     {
         if (NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
+        {
             networkedTrainCar.Server_DirtyAllState();
+            SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
+        }
+    }
+
+    private void OnServerboundTrainTopologyCommandPacket(
+        ServerboundTrainTopologyCommandPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player) || packet == null)
+            return;
+
+        bool IsInRange()
+        {
+            if (NetworkLifecycle.Instance.IsHost(player))
+                return true;
+            if (!NetworkedTrainCar.TryGet(packet.PrimaryCarNetId,
+                    out NetworkedTrainCar primary) || primary?.TrainCar == null)
+                return false;
+            if ((player.WorldPosition - primary.transform.position).sqrMagnitude > primary.CarLengthSq)
+                return false;
+            if (!packet.HasSecondary)
+                return true;
+            return NetworkedTrainCar.TryGet(packet.SecondaryCarNetId,
+                       out NetworkedTrainCar secondary) && secondary?.TrainCar != null &&
+                   (player.WorldPosition - secondary.transform.position).sqrMagnitude <=
+                   secondary.CarLengthSq;
+        }
+
+        ClientboundTrainTopologySnapshotPacket snapshot = trainTopologyAuthority.Execute(
+            player.PlayerId, packet, runtimeAuthorized: () => true, runtimeInRange: IsInRange);
+        if (snapshot.Result == TrainTopologyResultCode.Accepted)
+        {
+            SendPacketToAll(snapshot, DeliveryMethod.ReliableOrdered,
+                PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+            lastBroadcastTrainTopologyRevision = snapshot.TopologyRevision;
+        }
+        else
+            SendPacket(peer, snapshot, DeliveryMethod.ReliableOrdered);
+
+        DebugRuntime.Publish("train", "train.topology-command-result", DebugRuntimeSide.Server,
+            entityType: "Topology", entityId: packet.OperationId.ToString(),
+            data: DebugValueSnapshotter.SnapshotObject(new
+            {
+                player.PlayerId,
+                player.Username,
+                packet.OperationId,
+                packet.ExpectedRevision,
+                committedRevision = snapshot.TopologyRevision,
+                command = packet.Kind.ToString(),
+                result = snapshot.Result.ToString(),
+                packet.PrimaryCarNetId,
+                primaryEnd = packet.PrimaryEnd.ToString(),
+                packet.SecondaryCarNetId,
+                secondaryEnd = packet.SecondaryEnd.ToString()
+            }));
+    }
+
+    private void OnServerboundTrainTopologySyncRequestPacket(
+        ServerboundTrainTopologySyncRequestPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out _))
+            return;
+        SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
     }
 
     private void OnServerboundTrainDeleteRequestPacket(ServerboundTrainDeleteRequestPacket packet, ITransportPeer peer)

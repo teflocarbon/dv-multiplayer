@@ -14,7 +14,9 @@ public static class CouplerPatch
     {
         //Multiplayer.LogDebug(() => $"ConnectAirHose([{__instance?.train?.ID}, isFront: {__instance?.isFrontCoupler}])\r\n{new System.Diagnostics.StackTrace()}");
 
-        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket)
+        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket ||
+            NetworkedTrainCar.IsApplyingAuthoritativeTopology ||
+            NetworkedTrainCar.IsBatchingLocalTopology)
             return;
 
         //Ensure local car has initialised and brakes have been connected on spawn before sending any packets
@@ -32,7 +34,9 @@ public static class CouplerPatch
     private static void DisconnectAirHose(Coupler __instance, bool playAudio)
     {
         //Multiplayer.LogDebug(() => $"DisconnectAirHose([{__instance?.train?.ID}, isFront: {__instance?.isFrontCoupler}])\r\n{new System.Diagnostics.StackTrace()}");
-        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket)
+        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket ||
+            NetworkedTrainCar.IsApplyingAuthoritativeTopology ||
+            NetworkedTrainCar.IsBatchingLocalTopology)
             return;
 
         //Ensure local car has initialised and brakes have been connected on spawn before sending any packets

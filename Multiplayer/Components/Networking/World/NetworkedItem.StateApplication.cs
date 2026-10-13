@@ -214,11 +214,12 @@ public partial class NetworkedItem
             attachedFront = coupler.IsFront;
         }
         return new ItemWireStateProjection(ToWireState(state), playerBelongsToId,
-            carNetId, attachedFront);
+            carNetId, attachedFront, (byte)HandForState(state));
     }
 
     private static ItemWireStateProjection ProjectionFromSnapshot(ItemUpdateData snapshot) =>
-        new(ToWireState(snapshot.ItemState), snapshot.PlayerId, snapshot.CarNetId, snapshot.AttachedFront);
+        new(ToWireState(snapshot.ItemState), snapshot.PlayerId, snapshot.CarNetId,
+            snapshot.AttachedFront, (byte)snapshot.PlayerHand);
 
     private static WireItemState ToWireState(ItemState state) => state switch
     {
@@ -495,7 +496,7 @@ public partial class NetworkedItem
             ["layer"] = gameObject.layer,
             ["layerName"] = LayerMask.LayerToName(gameObject.layer) ?? string.Empty,
             ["remoteHolderPlayerId"] = playerBelongsTo?.PlayerId ?? 0,
-            ["remoteHandMember"] = playerBelongsTo?.RightHandItemGO == gameObject,
+            ["remoteHandMember"] = playerBelongsTo?.HoldsItem(gameObject) == true,
             ["placementPlayerId"] = playerBelongsToId,
             ["hostPossessorPlayerId"] = BelongsTo?.PlayerId ?? 0,
             ["authorityRevision"] = AuthorityRevision,
@@ -515,7 +516,7 @@ public partial class NetworkedItem
         try
         {
             NetworkedPlayer actualRemoteHolder = NetworkLifecycle.Instance.IsClientRunning
-                ? NetworkLifecycle.Instance.Client.ClientPlayerManager.Players.FirstOrDefault(player => player?.RightHandItemGO == gameObject)
+                ? NetworkLifecycle.Instance.Client.ClientPlayerManager.Players.FirstOrDefault(player => player?.HoldsItem(gameObject) == true)
                 : null;
             state["actualRemoteHandMember"] = actualRemoteHolder != null;
             state["actualRemoteHolderPlayerId"] = actualRemoteHolder?.PlayerId ?? 0;
@@ -672,10 +673,7 @@ public partial class NetworkedItem
                 pos = anchorOffsets.Value.anchorPositionOffset;
                 rot = anchorOffsets.Value.anchorRotationOffset;
             }
-            // A player can only have one canonical right-hand representation. Clear any
-            // previous item before installing this projection.
-            playerBelongsTo.DropItem();
-            playerBelongsTo.HoldItem(gameObject, pos, rot);
+            playerBelongsTo.HoldItem(gameObject, pos, rot, snapshot.PlayerHand);
             gameObject.SetActive(true);
         }
         else if (plan.Action == RemoteItemProjectionAction.RemoteInventory)
@@ -816,6 +814,7 @@ public partial class NetworkedItem
         InventoryClaimSlot = snapshot.InventoryClaimSlot;
         InventoryClaimFlags = snapshot.InventoryClaimFlags;
         LastTransitionReason = snapshot.TransitionReason;
+        ApplyPlayerHandMetadata(snapshot);
         // Persistent ownership is the authoritative multiplayer classification for a personal
         // item. A retrieval claim is a separate capability: ordinary adopted inventory items
         // still belong to their player and must remain eligible for Lost and Found.
@@ -829,7 +828,7 @@ public partial class NetworkedItem
         NetworkedPlayer actualRemoteHolder = null;
         if (NetworkLifecycle.Instance.IsClientRunning)
             actualRemoteHolder = NetworkLifecycle.Instance.Client.ClientPlayerManager.Players
-                .FirstOrDefault(player => player?.RightHandItemGO == gameObject);
+                .FirstOrDefault(player => player?.HoldsItem(gameObject) == true);
         List<string> violations = new();
         if (snapshot.ItemState == ItemState.InHand && snapshot.PlayerId != localPlayerId &&
             actualRemoteHolder?.PlayerId != snapshot.PlayerId)

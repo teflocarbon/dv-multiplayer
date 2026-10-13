@@ -186,7 +186,27 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
             try
             {
                 if (!UnloadWatcher.isUnloading && !UnloadWatcher.isQuitting && !IsReturningToMenu)
-                    OnTick?.Invoke(Tick);
+                {
+                    // Invoke subscribers independently. A fault in an optional subsystem
+                    // must not suppress player tracking, item authority, or every handler
+                    // registered after it for the remainder of this tick.
+                    Action<uint> handlers = OnTick;
+                    if (handlers != null)
+                    {
+                        foreach (Action<uint> handler in handlers.GetInvocationList())
+                        {
+                            try
+                            {
+                                handler(Tick);
+                            }
+                            catch (Exception e)
+                            {
+                                string owner = handler.Method.DeclaringType?.FullName ?? "unknown";
+                                Multiplayer.LogError($"Exception in OnTick subscriber {owner}.{handler.Method.Name}: {e}");
+                            }
+                        }
+                    }
+                }
             }
             catch (Exception e)
             {
