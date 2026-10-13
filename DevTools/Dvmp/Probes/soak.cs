@@ -1,5 +1,6 @@
 // Soak bot: performs random item interactions around the player's starting point.
-// Args: seed (int), actions (int), radius (metres), pause (seconds between actions).
+// Args: seed (int), actions (int), radius (metres), pause (seconds between actions),
+// filter (optional: only items whose name starts with it, e.g. "JobOverview").
 // Every action is logged to ctx output so a failing desync can be traced back to it.
 using Multiplayer.Components.Networking.World;
 using DV.Interaction;
@@ -11,6 +12,7 @@ public static class Probe
     private static IEnumerator Routine(DevContext ctx)
     {
         int seed = int.Parse(Arg(ctx, "seed", "1"));
+        string filter = Arg(ctx, "filter", string.Empty); // only items whose name starts with this
         int actions = int.Parse(Arg(ctx, "actions", "20"));
         float radius = float.Parse(Arg(ctx, "radius", "40"), System.Globalization.CultureInfo.InvariantCulture);
         float pause = float.Parse(Arg(ctx, "pause", "1"), System.Globalization.CultureInfo.InvariantCulture);
@@ -24,7 +26,7 @@ public static class Probe
             if (Hands.Held != null) yield return Steps.Try(Hands.Drop(), _ => { });
 
             string action = Pick(rng, ("carry", 4), ("throw", 3), ("drop-here", 2), ("wander", 1));
-            NetworkedItem item = action == "wander" ? null : RandomLooseItem(rng, anchor, radius);
+            NetworkedItem item = action == "wander" ? null : RandomLooseItem(rng, anchor, radius, filter);
             string error = null;
 
             if (action != "wander" && item == null)
@@ -96,11 +98,12 @@ public static class Probe
         yield return new WaitForSeconds(2);
     }
 
-    private static NetworkedItem RandomLooseItem(System.Random rng, Vector3 anchor, float radius)
+    private static NetworkedItem RandomLooseItem(System.Random rng, Vector3 anchor, float radius, string filter)
     {
         var candidates = Dev.All<NetworkedItem>()
             .Where(n => n.NetId != 0 && n.gameObject.activeInHierarchy && n.GetItemState() == ItemState.Dropped
                         && n.GetComponent<GrabHandlerItem>() != null && TrainCar.Resolve(n.transform) == null
+                        && (filter.Length == 0 || n.name.StartsWith(filter))
                         && Vector3.Distance(Dev.Abs(n.transform.position), anchor) <= radius)
             .OrderBy(n => n.NetId)
             .ToList();

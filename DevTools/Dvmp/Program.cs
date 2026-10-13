@@ -17,7 +17,7 @@ internal static class Program
           dvmp down                                  quit all agent-enabled games
           dvmp trace [-t target] [--ids 1,2] [--last N]   install/refresh tracer, show item history
           dvmp desync [-n samples] [-i seconds] [--top N]   cross-peer desync report
-          dvmp soak [-t client|host|all] [-n actions] [--seed S] [-r radius] [--pause s] [--samples n]
+          dvmp soak [-t client|host|all] [-n actions] [--seed S] [-r radius] [--pause s] [--samples n] [--filter NamePrefix]
           dvmp eval [-t target] [-m mode] [-u usings] [-a key=value ...] (CODE | -f FILE)
           dvmp screenshot [-t target] [-w maxWidth] [-o DIR]
           dvmp logs [-t target] [-l minLevel] [-c contains] [-n max]
@@ -50,7 +50,7 @@ internal static class Program
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),
                     double.Parse(Opt(args, "-r") ?? "40", System.Globalization.CultureInfo.InvariantCulture),
                     double.Parse(Opt(args, "--pause") ?? "1", System.Globalization.CultureInfo.InvariantCulture),
-                    int.Parse(Opt(args, "--samples") ?? "6"), CancellationToken.None)),
+                    int.Parse(Opt(args, "--samples") ?? "6"), CancellationToken.None, Opt(args, "--filter"))),
                 "trace" => Print(await Tracer.RunAsync(Opt(args, "-t"), Opt(args, "--ids"), int.Parse(Opt(args, "--last") ?? "20"), CancellationToken.None)),
                 "desync" => Print(await Desync.RunAsync(int.Parse(Opt(args, "-n") ?? "6"),
                     double.Parse(Opt(args, "-i") ?? "1", System.Globalization.CultureInfo.InvariantCulture),
