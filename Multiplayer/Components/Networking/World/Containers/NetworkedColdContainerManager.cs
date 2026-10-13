@@ -361,6 +361,10 @@ public static class NetworkedColdContainerManager
                     persistentOwnerPlayerId, snapshot) == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
+            // The item was indexed by its spawn position when it woke, before it had a record;
+            // re-index it as held. Left in that cell, it was never sent to the holder again
+            // (after a rejoin, the withdrawn item was missing from their inventory).
+            NetworkedItemManager.Instance?.RegisterHostWorldItem(item);
             if (actor.PlayerId == InventoryIntegration.LocalPlayerId &&
                 !InventoryIntegration.ContainsActive(instance))
                 throw new InvalidOperationException("withdraw-local-inventory-projection-failed");
