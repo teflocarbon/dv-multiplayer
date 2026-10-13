@@ -15,9 +15,10 @@ internal static class Program
           dvmp up [--fresh] [--save NAME|UID] [--visible] [--fps N] [--sound]
                                              start/reuse a joined host + client (minimised, muted)
           dvmp down                                  quit all agent-enabled games
+          dvmp trace [-t target] [--ids 1,2] [--last N]   install/refresh tracer, show item history
           dvmp desync [-n samples] [-i seconds] [--top N]   cross-peer desync report
           dvmp soak [-t client|host|all] [-n actions] [--seed S] [-r radius] [--pause s] [--samples n]
-          dvmp eval [-t target] [-m mode] [-u usings] (CODE | -f FILE)
+          dvmp eval [-t target] [-m mode] [-u usings] [-a key=value ...] (CODE | -f FILE)
           dvmp screenshot [-t target] [-w maxWidth] [-o DIR]
           dvmp logs [-t target] [-l minLevel] [-c contains] [-n max]
 
@@ -49,6 +50,7 @@ internal static class Program
                     double.Parse(Opt(args, "-r") ?? "40", System.Globalization.CultureInfo.InvariantCulture),
                     double.Parse(Opt(args, "--pause") ?? "1", System.Globalization.CultureInfo.InvariantCulture),
                     int.Parse(Opt(args, "--samples") ?? "6"), CancellationToken.None)),
+                "trace" => Print(await Tracer.RunAsync(Opt(args, "-t"), Opt(args, "--ids"), int.Parse(Opt(args, "--last") ?? "20"), CancellationToken.None)),
                 "desync" => Print(await Desync.RunAsync(int.Parse(Opt(args, "-n") ?? "6"),
                     double.Parse(Opt(args, "-i") ?? "1", System.Globalization.CultureInfo.InvariantCulture),
                     int.Parse(Opt(args, "--top") ?? "40"), CancellationToken.None)),
@@ -82,7 +84,7 @@ internal static class Program
         string? file = Opt(args, "-f");
         string? code = file != null ? await File.ReadAllTextAsync(file) : Positional(args, 1);
         if (string.IsNullOrWhiteSpace(code)) return Fail("eval needs CODE or -f FILE");
-        JsonObject result = await Operations.EvalAsync(code, Opt(args, "-t"), Opt(args, "-m"), Opt(args, "-u"), null,
+        JsonObject result = await Operations.EvalAsync(code, Opt(args, "-t"), Opt(args, "-m"), Opt(args, "-u"), ProbeArgs(args),
             int.Parse(Opt(args, "--timeout") ?? "30"));
         Print(result);
         return result["ok"]?.GetValue<bool>() == false || HasFailure(result) ? 2 : 0;
@@ -101,6 +103,16 @@ internal static class Program
             Console.WriteLine(path);
         }
         return failures == 0 ? 0 : 2;
+    }
+
+    // Repeated "-a key=value" options become probe arguments (ctx.Args).
+    private static Dictionary<string, string> ProbeArgs(string[] args)
+    {
+        Dictionary<string, string> result = new();
+        for (int i = 0; i + 1 < args.Length; i++)
+            if (args[i] == "-a" && args[i + 1].IndexOf('=') is int eq and > 0)
+                result[args[i + 1][..eq]] = args[i + 1][(eq + 1)..];
+        return result;
     }
 
     private static bool HasFailure(JsonObject result) =>

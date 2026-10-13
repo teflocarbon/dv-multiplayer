@@ -100,6 +100,29 @@ public static class McpTools
         }
     }
 
+    [McpServerTool(Name = "dvmp_trace")]
+    [Description("""
+        Mutation tracer: answers "what code did this to the item?". On first use it rewrites
+        every call site in the game and Multiplayer that changes physics freeze, colliders,
+        active state, parent, position, velocity, sleep, or destroys an object, so calls on
+        networked items are recorded with the calling method (takes a few seconds; stays
+        installed until the game restarts; later calls also refresh which items are watched,
+        e.g. items spawned since). Then returns the recorded history per item.
+        Use it on items the desync checker flags (e.g. health.below-ground) on each peer.
+        """)]
+    public static async Task<string> Trace(
+        [Description("host, client, all (default), or a pid.")] string target = "all",
+        [Description("Comma-separated item NetIds to show. Default: every item with history.")] string? ids = null,
+        [Description("Most recent events per item. Default 20.")] int last = 20,
+        CancellationToken ct = default)
+    {
+        try { return Render(await Tracer.RunAsync(target, ids, Math.Clamp(last, 1, 60), ct)); }
+        catch (Exception e) when (e is AgentException or ProbeCompileException)
+        {
+            return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message });
+        }
+    }
+
     [McpServerTool(Name = "dvmp_eval")]
     [Description("""
         Compiles C# and runs it inside running game process(es) on Unity's main thread,
