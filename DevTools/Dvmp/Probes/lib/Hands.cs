@@ -41,6 +41,9 @@ namespace Dvmp.Lib
         public static void TakeControl()
         {
             if (VRManager.IsVREnabled()) throw new InvalidOperationException("Hands only drives desktop mode");
+            // An open inventory screen (left by opening a container) blocks grabbing.
+            foreach (var ui in UnityEngine.Object.FindObjectsOfType<DV.UI.Inventory.InventoryUIController>())
+                if (ui.IsOpen) ui.Toggle(false);
             InputManager.SetKeyboardAndMouseEnabled(Requester, false);
             CursorManager.Instance?.RequestCursor(Requester, true, 10000);
             ScreenspaceMouse.Instance?.RequestOverride(Requester, false, 10000);
@@ -86,6 +89,13 @@ namespace Dvmp.Lib
                 DevContext.State["dvmp.hands.path"] = "force-hold";
             }
             yield return null;
+            // A raycast start can be refused (e.g. UI state left by an open container); force-hold then.
+            if (grabber.CurrentItemHeld != requested && allowForceHold && grabber.CurrentItemHeld == null)
+            {
+                interaction.RequestForceHold(requested);
+                DevContext.State["dvmp.hands.path"] = "force-hold";
+                yield return null;
+            }
             if (grabber.CurrentItemHeld != requested)
                 throw new InvalidOperationException("pickup did not take item " + netId);
         }

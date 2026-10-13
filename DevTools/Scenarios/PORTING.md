@@ -25,7 +25,9 @@ junction route leases.
 - [ ] repeated round trips; stale revision rejected; unknown handle rejected
 
 ## Cold containers (item storage)
-- [ ] deposit/withdraw round trip, repeated, reopen, stateful items (keep their state)
+- [x] deposit/withdraw round trip, reopen, stateful items (keep their state), foreign browse
+      rejected: `containers` scenario (`CONTAINER=` `PREFAB=`); graph rules (cycles, stale
+      revisions, foreign items, quotas) are covered by Multiplayer.Core.Tests ColdContainerGraphTests
 - [ ] move within a container; nested containers can't form a cycle
 - [ ] rejections: foreign player's private container, incompatible item, invalid slot,
       stale revision; private browse

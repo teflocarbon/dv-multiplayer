@@ -1,6 +1,10 @@
 // Host: spawn a fresh personal item next to the client, the way a shop purchase does (purchases
 // run on the host, which instantiates the item and marks it as belonging to the player).
-Vector3 at = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().First().transform.position;
+Multiplayer.Components.Networking.Player.NetworkedPlayer client = null;
+float joinWait = Time.realtimeSinceStartup;
+while ((client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().FirstOrDefault()) == null && Time.realtimeSinceStartup - joinWait < 60f) yield return null; // the client may still be joining
+if (client == null) throw new Exception("no client avatar");
+Vector3 at = client.transform.position;
 var spec = DV.Globals.G.Items.items.First(i => i.ItemPrefabName == ctx.Args["prefab"]);
 var go = UnityEngine.Object.Instantiate(spec.gameObject, at + Vector3.up * 0.6f + Vector3.right * 0.8f, Quaternion.identity, WorldMover.OriginShiftParent);
 go.GetComponent<InventoryItemSpec>().BelongsToPlayer = true;
