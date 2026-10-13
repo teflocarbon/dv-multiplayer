@@ -11,6 +11,8 @@ runs=(
   "lost-and-found|"
   "recall|"
   "recall-taken|TAKEN=1"
+  "containers|"
+  "containers-briefcase-flashlight|CONTAINER=ItemContainerBriefcase PREFAB=Flashlight"
   "fps-drop|"
   "rejoin|"
   "rejoin-crash|CRASH=1"
@@ -18,7 +20,7 @@ runs=(
 )
 failed=0
 for entry in "${runs[@]}"; do
-  name=${entry%%|*}; vars=${entry#*|}; dir=${name%%-host*}; dir=${dir%-taken}; dir=${dir%-crash}
+  name=${entry%%|*}; vars=${entry#*|}; dir=${name%%-host*}; dir=${dir%-taken}; dir=${dir%-crash}; dir=${dir%-briefcase-flashlight}
   [ -n "${ONLY:-}" ] && [[ " $ONLY " != *" $dir "* && " $ONLY " != *" $name "* ]] && continue
   start=$(date +%s)
   if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; fi
