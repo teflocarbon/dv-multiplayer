@@ -108,6 +108,7 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundItemAdoptionPacket),
         typeof(ServerboundItemRecallPacket),
         typeof(ServerboundItemRecallPreparedPacket),
+        typeof(ServerboundMoneyItemDepositPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
         typeof(ServerboundItemSpatialSamplePacket),
@@ -2854,6 +2855,12 @@ public class NetworkClient : NetworkManager
             ExpectedRevision = expectedRevision,
             RequestedSlot = requestedSlot
         }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendMoneyItemDeposit(ushort itemNetId)
+    {
+        SendPacketToServer(new ServerboundMoneyItemDepositPacket { ItemNetId = itemNetId },
+            DeliveryMethod.ReliableOrdered);
     }
 
     public void SendPaintThemeChange(NetworkedTrainCar netTraincar, TrainCarPaint.Target targetArea, uint themeId)

@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+6beccb0797212dc83618212866aedd2018b6b118",
-  "Fingerprint": "a6bb1506cdfc98a6cba3688b59c0a94cd3a9d8ac6ce761a117e39dd2220ef7c7",
+  "BuildVersion": "0.1.16.14+b601cc6ab2da4a5f86d6db172a1915ad41b5ee35",
+  "Fingerprint": "b863054537329ae708a457a2d5134ce5de8929bcd8382ff60358561f5e7befa3",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -953,6 +953,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonTrainUncouplePacket",
       "Direction": "Bidirectional",
       "Category": "Common.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "E24975144BFB996D",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundMoneyItemDepositPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
