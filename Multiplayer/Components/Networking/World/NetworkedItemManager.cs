@@ -288,10 +288,12 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
             UpdatePlayerItemLists();
             ProcessChanged(tick);
             RunConvergence();
+            RunFallRescue();
         }
         else
         {
             //ProcessClientChanges(tick);
+            RunFallRescue();
         }
     }
 

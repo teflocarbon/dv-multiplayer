@@ -109,6 +109,7 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundItemRecallPacket),
         typeof(ServerboundItemRecallPreparedPacket),
         typeof(ServerboundMoneyItemDepositPacket),
+        typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
         typeof(ServerboundItemSpatialSamplePacket),
@@ -2865,6 +2866,12 @@ public class NetworkClient : NetworkManager
             ExpectedRevision = expectedRevision,
             RequestedSlot = requestedSlot
         }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendItemBelowMapReport(ushort itemNetId, float surfaceHeight)
+    {
+        SendPacketToServer(new ServerboundItemBelowMapPacket { ItemNetId = itemNetId, SurfaceHeight = surfaceHeight },
+            DeliveryMethod.ReliableOrdered);
     }
 
     public void SendMoneyItemDeposit(ushort itemNetId)

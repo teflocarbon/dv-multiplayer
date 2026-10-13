@@ -288,6 +288,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
         netPacketProcessor.SubscribeReusable<ServerboundContainerBrowsePacket, ITransportPeer>(OnServerboundContainerBrowsePacket);
@@ -3008,6 +3009,13 @@ public class NetworkServer : NetworkManager
         // first, freeing the inventory slot the original is restored into.
         if (restoredOriginal != null)
             SendItemUpdatePacket(restoredOriginal, sendToPlayer: player);
+    }
+
+    private void OnServerboundItemBelowMapPacket(ServerboundItemBelowMapPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player) &&
+            !float.IsNaN(packet.SurfaceHeight) && !float.IsInfinity(packet.SurfaceHeight))
+            NetworkedItemManager.Instance?.Server_HandleBelowMapReport(player, packet.ItemNetId, packet.SurfaceHeight);
     }
 
     private void OnServerboundMoneyItemDepositPacket(ServerboundMoneyItemDepositPacket packet, ITransportPeer peer)
