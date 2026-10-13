@@ -34,25 +34,6 @@ public static class NetworkedLostAndFoundManager
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
 
-#if DEBUG
-    internal static void RemoveRuntimeFixture(ushort itemNetId)
-    {
-        eligibleSince.Remove(itemNetId);
-        lastEvaluations.Remove(itemNetId);
-        if (registry.RemoveStale(itemNetId, out LostItemRecord removed) ==
-            LostItemRegistryResult.Removed)
-        {
-            generation++;
-            if (NetworkLifecycle.Instance?.IsHost() == true &&
-                NetworkLifecycle.Instance.Server.TryGetServerPlayer(
-                    removed.OwnerPlayerId, out ServerPlayer owner))
-                NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
-        }
-        if (clientItems.RemoveAll(item => item.NetId == itemNetId) > 0)
-            ClientListChanged?.Invoke();
-    }
-#endif
-
     public static bool TryCreateCollectionProjection(NetworkedItem item,
         out ItemUpdateData snapshot)
     {
