@@ -285,7 +285,7 @@ internal static class TrainTopologyNativeAdapter
         return coupler != null;
     }
 
-    private static bool TryGetMuCable(Coupler coupler, out MultipleUnitCable cable)
+    internal static bool TryGetMuCable(Coupler coupler, out MultipleUnitCable cable)
     {
         cable = null;
         if (coupler?.train == null || !coupler.train.IsMultipleUnit || coupler.train.muModule == null)

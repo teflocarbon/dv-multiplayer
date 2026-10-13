@@ -2415,6 +2415,9 @@ public class NetworkServer : NetworkManager
         }
     }
 
+    // Couplers this far apart can't be joined (vanilla couples within 1.5 m); slack for latency.
+    private const float MaxTopologyCouplerGap = 4f;
+
     private void OnServerboundTrainTopologyCommandPacket(
         ServerboundTrainTopologyCommandPacket packet, ITransportPeer peer)
     {
@@ -2432,10 +2435,19 @@ public class NetworkServer : NetworkManager
                 return false;
             if (!packet.HasSecondary)
                 return true;
-            return NetworkedTrainCar.TryGet(packet.SecondaryCarNetId,
-                       out NetworkedTrainCar secondary) && secondary?.TrainCar != null &&
-                   (player.WorldPosition - secondary.transform.position).sqrMagnitude <=
-                   secondary.CarLengthSq;
+            // The player acts from the primary car (often its cab, so the other car's centre can be
+            // well over a car length away); what matters for the second car is that its coupler is
+            // actually next to the primary's, which also stops a lagging view coupling across a gap.
+            if (!NetworkedTrainCar.TryGet(packet.SecondaryCarNetId, out NetworkedTrainCar secondary) ||
+                secondary?.TrainCar == null)
+                return false;
+            Coupler primaryCoupler = packet.PrimaryEnd == TrainEnd.Front
+                ? primary.TrainCar.frontCoupler : primary.TrainCar.rearCoupler;
+            Coupler secondaryCoupler = packet.SecondaryEnd == TrainEnd.Front
+                ? secondary.TrainCar.frontCoupler : secondary.TrainCar.rearCoupler;
+            return primaryCoupler != null && secondaryCoupler != null &&
+                   (primaryCoupler.transform.position - secondaryCoupler.transform.position).sqrMagnitude <=
+                   MaxTopologyCouplerGap * MaxTopologyCouplerGap;
         }
 
         ClientboundTrainTopologySnapshotPacket snapshot = trainTopologyAuthority.Execute(
