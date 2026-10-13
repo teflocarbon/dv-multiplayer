@@ -28,6 +28,7 @@ public static class NetworkedColdContainerManager
 {
     private const string SaveKey = "ColdContainers";
     private const uint ScanIntervalTicks = 24;
+    private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly HostRuntimeCompatibility compatibility = new();
     private static ColdContainerGraph graph = new(compatibility: compatibility);
     private static readonly Dictionary<ushort, Guid> shellByNetId = new();
@@ -37,7 +38,8 @@ public static class NetworkedColdContainerManager
 
     public static void HostTick(uint tick)
     {
-        if (NetworkLifecycle.Instance?.IsHost() != true || tick % ScanIntervalTicks != 0) return;
+        if (NetworkLifecycle.Instance?.IsHost() != true || unchecked(tick - lastScanTick) < ScanIntervalTicks) return;
+        lastScanTick = tick;
         TryImportSave();
         BindPhysicalShells();
     }

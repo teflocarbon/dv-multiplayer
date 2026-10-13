@@ -21,6 +21,7 @@ namespace Multiplayer.Components.Networking.World;
 public static class NetworkedLostAndFoundManager
 {
     private const uint ScanIntervalTicks = 24;
+    private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly LostItemRegistry registry = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
     private static readonly List<LostItemData> clientItems = new();
@@ -55,8 +56,9 @@ public static class NetworkedLostAndFoundManager
 
     public static void HostTick(uint tick)
     {
-        if (!NetworkLifecycle.Instance.IsHost() || tick % ScanIntervalTicks != 0)
+        if (!NetworkLifecycle.Instance.IsHost() || unchecked(tick - lastScanTick) < ScanIntervalTicks)
             return;
+        lastScanTick = tick;
         TryImportSave();
         TryBindPendingSaveEntries();
         ReconcileCanonicalPlacements();

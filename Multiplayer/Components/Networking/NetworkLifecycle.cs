@@ -24,6 +24,9 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 {
     public const byte TICK_RATE = 24;
     private const float TICK_INTERVAL = 1.0f / TICK_RATE;
+    // Ticks run at most once a frame, so below TICK_RATE fps the tick advances by the intervals
+    // that passed (up to this many) to keep tick time in step with real time.
+    private const int MAX_TICKS_PER_STEP = TICK_RATE * 2;
 
     public LobbyServerData serverData;
     public bool IsPublicGame { get; set; } = false;
@@ -45,7 +48,6 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
     private PlayerListGUI playerList;
     private NetworkStatsGui Stats;
-    private readonly ExecutionTimer tickTimer = new();
     private readonly ExecutionTimer tickWatchdog = new(0.25f);
 
     /// <summary>
@@ -177,10 +179,18 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
     private IEnumerator PollEvents()
     {
+        float nextTickAt = Time.realtimeSinceStartup;
         while (!UnloadWatcher.isQuitting)
         {
-            Tick++;
-            tickTimer.Start();
+            // Sample ages and timeouts are counted in ticks. A peer below 24 fps used to tick
+            // slower than real time, so on a client a late sample looked fresh (its train trailed
+            // the host's by metres while the frame rate was low).
+            float now = Time.realtimeSinceStartup;
+            int steps = 1 + Mathf.Clamp(Mathf.FloorToInt((now - nextTickAt) / TICK_INTERVAL), 0, MAX_TICKS_PER_STEP - 1);
+            Tick += (uint)steps;
+            nextTickAt = now - nextTickAt > MAX_TICKS_PER_STEP * TICK_INTERVAL
+                ? now + TICK_INTERVAL // a long stall (loading): carry on from now
+                : nextTickAt + steps * TICK_INTERVAL;
 
             tickWatchdog.Start();
             try
@@ -224,8 +234,7 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
             if (Server != null)
                 TickManager(Server);
 
-            float elapsedTime = tickTimer.Stop();
-            float remainingTime = Mathf.Max(0f, TICK_INTERVAL - elapsedTime);
+            float remainingTime = nextTickAt - Time.realtimeSinceStartup;
             yield return remainingTime < 0.001f ? null : new WaitForSecondsRealtime(remainingTime);
         }
     }
