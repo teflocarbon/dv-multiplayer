@@ -14,6 +14,8 @@ runs=( # name | scenario | variables
   "recall-taken|recall|TAKEN=1"
   "containers|containers|"
   "containers-briefcase-flashlight|containers|CONTAINER=ItemContainerBriefcase PREFAB=Flashlight"
+  "manual-uncouple|manual-uncouple|N=3"
+  "manual-recouple-lag|manual-uncouple|MODE=recouple N=3 LAG=150"
   "fps-drop|fps-drop|"
   "rejoin|rejoin|"
   "rejoin-crash|rejoin|CRASH=1"
