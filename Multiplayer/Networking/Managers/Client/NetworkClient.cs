@@ -2274,6 +2274,22 @@ public class NetworkClient : NetworkManager
             }));
     }
 
+    // Topology commands sent inside this scope come from a remote controller, used from a distance.
+    private int remoteTopologyDepth;
+
+    public IDisposable BeginRemoteTopologyCommands()
+    {
+        remoteTopologyDepth++;
+        return new ScopeExit(() => remoteTopologyDepth--);
+    }
+
+    private sealed class ScopeExit : IDisposable
+    {
+        private Action onExit;
+        public ScopeExit(Action onExit) => this.onExit = onExit;
+        public void Dispose() { onExit?.Invoke(); onExit = null; }
+    }
+
     private void SendTrainTopologyCommand(TrainTopologyCommandKind kind, Coupler primary,
         Coupler secondary, bool cascadeHose, bool cascadeMu, bool playAudio,
         bool requestedValue = false, TrainChainState chainState = TrainChainState.Parked)
@@ -2322,7 +2338,8 @@ public class NetworkClient : NetworkManager
             RequestedChainState = chainState,
             CascadeHose = cascadeHose,
             CascadeMultipleUnit = cascadeMu,
-            PlayAudio = playAudio
+            PlayAudio = playAudio,
+            ViaRemote = remoteTopologyDepth > 0
         }, DeliveryMethod.ReliableOrdered);
     }
 
@@ -2374,7 +2391,7 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    public ulong SendHandbrakePositionChanged(ushort netId, float position)
+    public ulong SendHandbrakePositionChanged(ushort netId, float position, bool viaRemote = false)
     {
         uint revision = NetworkedTrainCar.TryGet(netId, out NetworkedTrainCar car)
             ? car.ControlRevision : 0;
@@ -2384,7 +2401,8 @@ public class NetworkClient : NetworkManager
             OperationId = operationId,
             ExpectedRevision = revision,
             NetId = netId,
-            Position = Mathf.Clamp01(position)
+            Position = Mathf.Clamp01(position),
+            ViaRemote = viaRemote
         }, DeliveryMethod.ReliableOrdered);
         return operationId;
     }

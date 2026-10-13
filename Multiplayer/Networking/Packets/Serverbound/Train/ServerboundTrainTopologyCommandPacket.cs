@@ -17,6 +17,8 @@ public sealed class ServerboundTrainTopologyCommandPacket
     public bool CascadeHose { get; set; }
     public bool CascadeMultipleUnit { get; set; }
     public bool PlayAudio { get; set; }
+    // Sent from a remote controller: the player may be far from the cars.
+    public bool ViaRemote { get; set; }
 
     public TrainTopologyCommand ToCore() => new()
     {
