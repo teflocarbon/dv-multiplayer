@@ -522,6 +522,9 @@ public class NetworkServer : NetworkManager
             NetworkedItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId);
 
         if (player != null)
+            NetworkedItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player);
+
+        if (player != null)
             foreach (var key in lastTrainControlOperation.Keys
                          .Where(value => value.PlayerId == player.PlayerId).ToArray())
                 lastTrainControlOperation.Remove(key);
@@ -2931,7 +2934,7 @@ public class NetworkServer : NetworkManager
 
         ItemAdoptionRequestData request = packet.Request;
         bool accepted = NetworkedItemManager.Instance.TryAdoptClientItem(player, request,
-            out ushort assignedNetId, out string rejectionReason);
+            out ushort assignedNetId, out string rejectionReason, out ItemUpdateData restoredOriginal);
         AuthoritativeItemRegistry.TryGet(assignedNetId, out AuthoritativeItemRegistry.Record authorityRecord);
         DebugRuntime.Publish("item", accepted ? "item.adoption-accepted" : "item.adoption-rejected",
             DebugRuntimeSide.Server, accepted ? DebugSeverity.Info : DebugSeverity.Warning,
@@ -2960,6 +2963,11 @@ public class NetworkServer : NetworkManager
                 InventoryClaimFlags = authorityRecord?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None
             }
         }, DeliveryMethod.ReliableOrdered);
+
+        // Sent after the rejection on the same ordered channel: the client retires its fresh copy
+        // first, freeing the inventory slot the original is restored into.
+        if (restoredOriginal != null)
+            SendItemUpdatePacket(restoredOriginal, sendToPlayer: player);
     }
 
     private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)
