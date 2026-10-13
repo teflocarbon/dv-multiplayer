@@ -105,7 +105,11 @@ public static class Multiplayer
             Log("Patching...");
             harmony = new Harmony(ModEntry.Info.Id);
 #if DEBUG
-            Harmony.DEBUG = true;
+            // Opt-in only: Harmony's debug log is a single file on the Desktop, so with two game
+            // instances running (host + client on one PC) concurrent patching fails with sharing
+            // violations and Multiplayer can fail to load. It also grows on every launch.
+            if (Environment.GetEnvironmentVariable("DVMP_HARMONY_DEBUG") == "1")
+                Harmony.DEBUG = true;
 #endif
             harmony.PatchAll();
             SimComponent_Tick_Patch.Patch(harmony);
