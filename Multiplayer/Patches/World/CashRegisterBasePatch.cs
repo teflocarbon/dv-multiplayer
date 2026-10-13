@@ -32,12 +32,40 @@ public class CashRegisterBasePatch
         }
 
         if (netCashRegister.IsShopRegister)
+        {
+            // Shops run on the client, but the money paid in came out of the client's copy of the
+            // shared wallet (or a banknote the host has just credited to it): the host's balance
+            // never paid, and its next update handed the money back - clients shopped for free.
+            if (!NetworkLifecycle.Instance.IsHost() && !NetworkLifecycle.Instance.IsProcessingPacket &&
+                amount > double.Epsilon)
+                NetworkLifecycle.Instance.Client?.SendShopPayment(amount);
             return true;
+        }
 
         Inventory.Instance.AddMoney(amount);
 
         CoroutineManager.Instance.StartCoroutine(netCashRegister.AddCash(amount));
 
+        return false;
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPatch("ReturnLeftoverDepositedCash")]
+    private static bool ReturnLeftoverDepositedCash(CashRegisterBase __instance)
+    {
+        if (__instance.DepositedCash <= double.Epsilon || NetworkLifecycle.Instance.IsHost() ||
+            NetworkLifecycle.Instance.IsProcessingPacket)
+            return true;
+
+        if (__instance is not CashRegisterWithModules cashRegisterWithModules ||
+            !NetworkedCashRegisterWithModules.TryGet(cashRegisterWithModules, out var netCashRegister) ||
+            !netCashRegister.IsShopRegister)
+            return true;
+
+        // A printed note would only exist on this client, so spending it later would credit nothing.
+        // Hand the change back through the host, which caps it at what this player paid in.
+        NetworkLifecycle.Instance.Client?.SendShopPayment(-__instance.DepositedCash);
+        __instance.SetCash(0);
         return false;
     }
 
