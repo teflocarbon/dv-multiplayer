@@ -16,7 +16,7 @@ echo "== up"; $D up ${FRESH:+--fresh} >/dev/null
 echo "== client holds an item"
 # A fresh mug at the client's feet, so the test doesn't depend on loose items nearby.
 $D eval -t host -m coroutine -u "$U" -a who=client -f DevTools/Scenarios/train-items/spawn-mug.cs >/dev/null
-before=$($D eval -t client -m coroutine -u "$U" -f $P/hold.cs)
+before=$($D eval -t client -m coroutine -u "$U" -f $P/hold.cs) || { echo "FAIL: hold: $(echo "$before" | grep -E "\"error\"|compileError" | head -2)"; exit 1; }
 held=$(echo "$before" | field held); inventory=$(echo "$before" | field inventory); names=$(echo "$before" | field names); slots=$(echo "$before" | field slots)
 echo "   holding $held ($(echo "$before" | field heldName)); owns $(echo "$inventory" | tr ',' '\n' | grep -c .) items"
 
