@@ -1,8 +1,8 @@
 {
     "Id":  "Multiplayer",
-    "Version":  "0.1.15.0",
-    "DisplayName":  "Multiplayer",
-    "Author":  "Insprill, Macka, Morm",
+    "Version":  "0.1.16.14",
+    "DisplayName":  "Multiplayer (Teflo)",
+    "Author":  "Insprill, Macka, Morm, Teflo",
     "EntryMethod":  "Multiplayer.Multiplayer.Load",
     "ManagerVersion":  "0.27.3",
     "LoadAfter":  [

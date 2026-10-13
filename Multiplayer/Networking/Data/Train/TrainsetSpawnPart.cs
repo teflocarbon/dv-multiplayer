@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace Multiplayer.Networking.Data.Train;
 
-public readonly struct TrainsetSpawnPart
+public sealed class TrainsetSpawnPart
 {
     private static readonly byte[] EMPTY_GUID = new Guid().ToByteArray(); // Empty GUID as bytes
 
@@ -43,6 +43,7 @@ public readonly struct TrainsetSpawnPart
     public readonly CouplingData RearCoupling;
 
     // Positional details
+    // TrainCar.GetForwardSpeed() wire value, expressed in metres per second.
     public readonly float Speed;
     public readonly Vector3 Position;
     public readonly Quaternion Rotation;
@@ -112,8 +113,6 @@ public readonly struct TrainsetSpawnPart
         writer.Put(data.PlayerSpawnedCar);
         writer.Put((byte)data.RestorationType);
 
-        Multiplayer.LogDebug(() => $"Serializing TrainsetSpawnPart with RestorationType: {data.RestorationType}, RestorationState: {data.RestorationState}, SecondCarNetId: {data.SecondCarNetId}");
-
         if (data.RestorationType != RestorationType.None)
         {
             writer.Put((byte)data.RestorationState);
@@ -124,10 +123,14 @@ public readonly struct TrainsetSpawnPart
             writer.PutArray(data.TransportingCarNetIds);
         }
 
-        PaintThemeLookup.Instance.TryGetNetId(data.PaintExterior, out var extPaintNetId);
+        uint extPaintNetId = 0;
+        if (data.PaintExterior != null)
+            PaintThemeLookup.Instance.TryGetNetId(data.PaintExterior, out extPaintNetId);
         writer.Put(extPaintNetId);
 
-        PaintThemeLookup.Instance.TryGetNetId(data.PaintInterior, out var intPaintNetId);
+        uint intPaintNetId = 0;
+        if (data.PaintInterior != null)
+            PaintThemeLookup.Instance.TryGetNetId(data.PaintInterior, out intPaintNetId);
         writer.Put(intPaintNetId);
 
         // Holes with no gadgets
@@ -163,8 +166,6 @@ public readonly struct TrainsetSpawnPart
         ushort secondCarNetId = 0;
         ushort[] transportationCarNetIds = null;
 
-        Multiplayer.LogDebug(() => $"Deserializing TrainsetSpawnPart for [{carId}, {netId}] with RestorationType: {restorationType}");
-
         if (restorationType != RestorationType.None)
         {
             restorationState = (LocoRestorationController.RestorationState)reader.GetByte();
@@ -174,14 +175,17 @@ public readonly struct TrainsetSpawnPart
 
             transportationCarNetIds = reader.GetUShortArray();
 
-            Multiplayer.LogDebug(() => $"Deserializing TrainsetSpawnPart for [{carId}, {netId}] with RestorationType: {restorationType}, RestorationState: {restorationState}, SecondCarNetId: {secondCarNetId}");
         }
 
         uint extThemeId = reader.GetUInt();
         uint intThemeId = reader.GetUInt();
 
-        PaintThemeLookup.Instance.TryGet(extThemeId, out PaintTheme exteriorPaint);
-        PaintThemeLookup.Instance.TryGet(intThemeId, out PaintTheme interiorPaint);
+        PaintTheme exteriorPaint = null;
+        PaintTheme interiorPaint = null;
+        if (extThemeId != 0)
+            PaintThemeLookup.Instance.TryGet(extThemeId, out exteriorPaint);
+        if (intThemeId != 0)
+            PaintThemeLookup.Instance.TryGet(intThemeId, out interiorPaint);
 
         // Holes with no gadgets
         int holeCount = reader.GetInt();

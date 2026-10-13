@@ -21,13 +21,6 @@ public class ItemUpdateData
         FullSync = ItemState | ItemPosition | ObjectState,
     }
 
-    public enum Hand : byte
-    {
-        nonVR = 0,
-        Left = 1,
-        Right = 2
-    }
-
     /// <summary>
     /// Whether this update carries authoritative placement/holder state. FullSync contains
     /// ItemState and therefore returns true; ObjectState alone deliberately returns false.
@@ -46,7 +39,7 @@ public class ItemUpdateData
     public ushort CarNetId { get; set; }
     public bool AttachedFront  { get; set; }
     public Dictionary<string, object> States { get; set; }
-    public Hand PlayerHand { get; set; }
+    public PlayerHand PlayerHand { get; set; }
     public uint AuthorityRevision { get; set; }
     public byte PersistentOwnerPlayerId { get; set; }
     public byte InventoryClaimPlayerId { get; set; }
@@ -117,6 +110,8 @@ public class ItemUpdateData
             else if (data.ItemState == ItemState.InInventory || data.ItemState == ItemState.InHand)
             {
                 writer.Put(data.PlayerId);
+                if (data.ItemState == ItemState.InHand)
+                    writer.Put((byte)data.PlayerHand);
             }
             else if (data.ItemState == ItemState.Attached)
             {
@@ -190,6 +185,8 @@ public class ItemUpdateData
             else if (data.ItemState == ItemState.InInventory || data.ItemState == ItemState.InHand)
             {
                 data.PlayerId = reader.GetByte();
+                if (data.ItemState == ItemState.InHand)
+                    data.PlayerHand = (PlayerHand)reader.GetByte();
             }
             else if (data.ItemState == ItemState.Attached)
             {

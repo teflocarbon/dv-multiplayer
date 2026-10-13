@@ -55,8 +55,13 @@ public sealed class ItemPacketFixtureTests
                 AssertVector(result.ThrowDirection, source.ThrowDirection);
                 break;
             case ItemState.InHand:
+                Assert.That(result.PlayerHand, Is.EqualTo(PlayerHand.Left));
+                Assert.That(result.PlayerId, Is.EqualTo(source.PlayerId));
+                Assert.That(result.ItemPosition, Is.EqualTo(Vector3.zero));
+                break;
             case ItemState.InInventory:
                 Assert.That(result.PlayerId, Is.EqualTo(source.PlayerId));
+                Assert.That(result.PlayerHand, Is.EqualTo(PlayerHand.None));
                 Assert.That(result.ItemPosition, Is.EqualTo(Vector3.zero));
                 break;
             case ItemState.Attached:
@@ -232,6 +237,7 @@ public sealed class ItemPacketFixtureTests
         ItemRotation = new Quaternion(.175f, .732f, -.211f, .624f),
         ThrowDirection = new Vector3(.839f, -.528f, -.132f),
         PlayerId = 2,
+        PlayerHand = PlayerHand.Left,
         CarNetId = 22,
         AttachedFront = true,
         States = new Dictionary<string, object> {

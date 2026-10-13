@@ -130,6 +130,7 @@ internal static partial class WorldItemPersistenceManager
         record.Revision = saved.Revision;
         record.Placement = saved.Placement;
         record.PlacementPlayerId = holder?.PlayerId ?? 0;
+        record.PlacementHand = PlayerHand.None;
         record.PlacementPlayerIdentity = saved.PlacementPlayerIdentity;
         record.PersistentOwnerPlayerId = owner?.PlayerId ?? 0;
         record.PersistentOwnerIdentity = saved.OwnerIdentity;
@@ -287,6 +288,7 @@ internal static partial class WorldItemPersistenceManager
         record.AuthoredItemKey = saved.AuthoredItemKey;
         record.PersistentItemId = Guid.Empty;
         record.Placement = ItemPlacementKind.Destroyed;
+        record.PlacementHand = PlayerHand.None;
         record.Revision = saved.Revision;
         record.LastReason = ItemTransitionReason.PersistenceRestore;
         return true;

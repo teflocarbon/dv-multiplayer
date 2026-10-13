@@ -234,23 +234,6 @@ public sealed class DashboardAutomationInfoDto
     public string[] Endpoints { get; set; } = Array.Empty<string>();
 }
 
-public sealed class DebugEventQueryDto
-{
-    public DateTime? SinceUtc { get; set; }
-    public string SessionId { get; set; } = string.Empty;
-    public string Category { get; set; } = string.Empty;
-    public string EventName { get; set; } = string.Empty;
-    public string EntityType { get; set; } = string.Empty;
-    public string EntityId { get; set; } = string.Empty;
-    public string CorrelationId { get; set; } = string.Empty;
-    public string TestRunId { get; set; } = string.Empty;
-    public string TestCaseId { get; set; } = string.Empty;
-    public string TestPhaseId { get; set; } = string.Empty;
-    public string TestStepId { get; set; } = string.Empty;
-    public DebugSeverity? MinimumSeverity { get; set; }
-    public int Limit { get; set; } = 200;
-}
-
 public sealed class RuntimeEnvironmentStatusDto
 {
     public RuntimeEnvironmentStage Stage { get; set; }
@@ -269,6 +252,27 @@ public sealed class RuntimeEnvironmentStatusDto
     public Dictionary<string, object> ClientReadiness { get; set; } = new(StringComparer.Ordinal);
 }
 #endif
+
+/// <summary>
+/// Query contract used by the shared debug HTTP server in both Debug and Release builds.
+/// Test correlation filters remain harmless empty fields when runtime tests are unavailable.
+/// </summary>
+public sealed class DebugEventQueryDto
+{
+    public DateTime? SinceUtc { get; set; }
+    public string SessionId { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string EventName { get; set; } = string.Empty;
+    public string EntityType { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string TestRunId { get; set; } = string.Empty;
+    public string TestCaseId { get; set; } = string.Empty;
+    public string TestPhaseId { get; set; } = string.Empty;
+    public string TestStepId { get; set; } = string.Empty;
+    public DebugSeverity? MinimumSeverity { get; set; }
+    public int Limit { get; set; } = 200;
+}
 
 public sealed class ReplicationStageDto
 {

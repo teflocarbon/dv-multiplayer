@@ -3,7 +3,7 @@
         <TargetFramework>net48</TargetFramework>
         <LangVersion>latest</LangVersion>
         <RootNamespace>Multiplayer</RootNamespace>
-        <InformationalVersion>0.1.15.0</InformationalVersion>
+        <InformationalVersion>0.1.16.14</InformationalVersion>
         <DvmpBuildNumberFile>$(MSBuildProjectDirectory)\..\build\dvmp-build-number.txt</DvmpBuildNumberFile>
         <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == '' AND '$(ManifestEmbedPass)' == 'true' AND Exists('$(DvmpBuildNumberFile)')">$([System.IO.File]::ReadAllText('$(DvmpBuildNumberFile)').Trim())</DvmpBuildNumber>
         <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == ''">$([System.DateTime]::Now.ToString('yyyy.MM.dd.HHmm'))</DvmpBuildNumber>

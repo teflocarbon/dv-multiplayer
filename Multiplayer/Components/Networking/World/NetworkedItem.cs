@@ -157,8 +157,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         {
             AuthoredItemKey = WorldItemStableIdentity.Capture(authoredItem);
             string authoredPath = WorldItemStableIdentity.HierarchyPath(transform);
-            IsReplenishableAuthoredOfficeSlot = authoredPath.IndexOf("/Offices/",
-                StringComparison.OrdinalIgnoreCase) >= 0;
+            IsReplenishableAuthoredOfficeSlot =
+                AuthoredHierarchyPolicy.ContainsNode(authoredPath, "Offices");
             IsAuthoredShopSlot = GetComponentsInParent<MonoBehaviour>(true).Any(component =>
                 component != null && (component.GetType().Namespace ?? string.Empty)
                     .StartsWith("DV.Shops", StringComparison.Ordinal));
@@ -257,12 +257,14 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void OnUngrabbed(ControlImplBase obj)
     {
+        RefreshLocalVrHandAfterInteraction();
         MarkLocalStateDirty("released");
     }
 
     private void OnGrabbed(ControlImplBase obj)
     {
         playerBelongsToId = NetworkLifecycle.Instance.Client.PlayerId;
+        RefreshLocalVrHandAfterInteraction();
         MarkLocalStateDirty("grabbed");
     }
 
@@ -291,6 +293,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         playerBelongsToId = 0;
         playerBelongsTo = null;
+        ClearPlayerHand();
         wasRemoved = true;
         MarkLocalStateDirty("removed");
     }
@@ -478,6 +481,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         wasThrown = false;
         wasRemoved = false;
         hasLastSentState = false;
+        ResetVrHandState();
         lastSentProjection = default;
         thrownPosition = default;
         thrownRotation = default;

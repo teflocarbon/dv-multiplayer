@@ -5,8 +5,20 @@ using UnityEngine;
 
 namespace Multiplayer.Components.Networking.Train;
 
-public class NetworkedBogie : TickedQueue<BogieData>
+public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
 {
+    public sealed class MovementSnapshot
+    {
+        public BogieData BogieData { get; }
+        public float SpeedMetresPerSecond { get; }
+
+        public MovementSnapshot(BogieData bogieData, float speedMetresPerSecond)
+        {
+            BogieData = bogieData;
+            SpeedMetresPerSecond = speedMetresPerSecond;
+        }
+    }
+
     private const int MAX_FRAMES = 60;
     public Bogie Bogie { get; private set; }
     private Rigidbody rb;
@@ -48,8 +60,14 @@ public class NetworkedBogie : TickedQueue<BogieData>
         }
     }
 
-    protected override void Process(BogieData snapshot, uint snapshotTick)
+    public void ReceiveSnapshot(BogieData bogieData, float speedMetresPerSecond, uint tick)
     {
+        base.ReceiveSnapshot(new MovementSnapshot(bogieData, speedMetresPerSecond), tick);
+    }
+
+    protected override void Process(MovementSnapshot movement, uint snapshotTick)
+    {
+        BogieData snapshot = movement.BogieData;
 
         //Multiplayer.LogDebug(()=>$"NetworkedBogie.Process({identifier}) DataFlags: {snapshot.DataFlags}, {snapshotTick}, {snapshot.TrackNetId}, {snapshot.PositionAlongTrack} {snapshot.TrackDirection}");
 
@@ -83,11 +101,12 @@ public class NetworkedBogie : TickedQueue<BogieData>
                 Multiplayer.LogWarning($"NetworkedBogie.Process({identifier}) No track for current bogie for bogie: {Bogie?.Car?.ID}, unable to move position!");
         }
 
-        int physicsSteps = Mathf.FloorToInt((NetworkLifecycle.Instance.Tick - (float)snapshotTick) / NetworkLifecycle.TICK_RATE / Time.fixedDeltaTime) + 1;
+        // Project the timestamped host sample to the current network tick. Do not use
+        // the client's locally simulated rigidbody velocity here: it may be stale.
+        int physicsSteps = Mathf.Max(1, Mathf.FloorToInt(
+            (NetworkLifecycle.Instance.Tick - (float)snapshotTick) /
+            NetworkLifecycle.TICK_RATE / Time.fixedDeltaTime) + 1);
         for (int i = 0; i < physicsSteps; i++)
-        {
-            var z = transform.InverseTransformDirection(rb.velocity).z;
-            Bogie.UpdatePointSetTraveller(z);
-        }
+            Bogie.UpdatePointSetTraveller(movement.SpeedMetresPerSecond);
     }
 }

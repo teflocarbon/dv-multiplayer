@@ -19,9 +19,10 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
     protected override void Awake()
     {
         base.Awake();
-        if (!NetworkLifecycle.Instance.IsHost())
-            return;
         cachedSendPacket = new ClientboundTrainsetPhysicsPacket();
+        // This component can survive a host -> menu -> remote-client transition.
+        // Keep one subscription for its lifetime and decide whether to do server work
+        // from the live lifecycle role on each tick.
         NetworkLifecycle.Instance.OnTick += Server_OnTick;
     }
 
@@ -30,7 +31,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         base.OnDestroy();
         if (UnloadWatcher.isQuitting)
             return;
-        if (NetworkLifecycle.Instance.IsHost())
+        if (NetworkLifecycle.Instance != null)
             NetworkLifecycle.Instance.OnTick -= Server_OnTick;
     }
 
@@ -38,6 +39,11 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 
     private void Server_OnTick(uint tick)
     {
+        // IsHost() was only checked in Awake previously. If a player hosted a game,
+        // returned to the menu, then joined somebody else, this stale watcher kept
+        // trying to publish physics through a null server every tick.
+        if (!NetworkLifecycle.Instance.IsHost() || NetworkLifecycle.Instance.Server == null)
+            return;
 
         cachedSendPacket.Tick = tick;
         foreach (Trainset set in Trainset.allSets)
@@ -131,7 +137,10 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             else if (!trainCar.isStationary)
                 anyCarMoving = true;
 
-            anyCarTeleporting = trainCar.IsTeleporting;
+            // Preserve an earlier car's teleport state while scanning the whole set.
+            // Assignment here allowed a later non-teleporting car to clear the flag and
+            // publish a partially relocated trainset as ordinary physics.
+            anyCarTeleporting |= trainCar.IsTeleporting;
             if (anyCarTeleporting)
                 Multiplayer.LogDebug(() => $"Server_TickSet() {trainCar?.ID} in set {set.id} is teleporting");
 
@@ -200,6 +209,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 
     public void Client_HandleTrainsetPhysicsUpdate(ClientboundTrainsetPhysicsPacket packet)
     {
+        bool derailmentTransition = false;
         Trainset set = Trainset.allSets.Find(set => set.firstCar.GetNetId() == packet.FirstNetId || set.lastCar.GetNetId() == packet.FirstNetId ||
                                                     set.firstCar.GetNetId() == packet.LastNetId || set.lastCar.GetNetId() == packet.LastNetId);
 
@@ -220,13 +230,16 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                 if (NetworkedTrainCar.TryGet(packet.TrainsetParts[i].NetId ,out NetworkedTrainCar networkedTrainCar))
                 {
                     //Multiplayer.LogDebug(()=>$"Applying TrainPhysicsUpdate to {packet.TrainsetParts[i].NetId}");
-                    networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(in packet.TrainsetParts[i], packet.Tick);
+                    derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
+                        in packet.TrainsetParts[i], packet.Tick);
                 }
                 else
                 {
                     Multiplayer.LogWarning($"Unable to apply TrainPhysicsUpdate to {packet.TrainsetParts[i].NetId}, NetworkedTrainCar not found!");
                 }
             }
+            if (derailmentTransition)
+                NetworkLifecycle.Instance.Client?.ReconcileTrainTopologyAfterDerailment();
             return;
         }
 
@@ -239,10 +252,17 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         for (int i = 0; i < packet.TrainsetParts.Length; i++)
         {
             if(set.cars[i].TryNetworked(out NetworkedTrainCar networkedTrainCar))
-                networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(in packet.TrainsetParts[i], packet.Tick);
+                derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
+                    in packet.TrainsetParts[i], packet.Tick);
             else
                 Multiplayer.LogWarning($"Unable to apply TrainPhysicsUpdate to TrainSet with FirstNetId: {packet.FirstNetId}, NetworkedTrainCar not found!");
         }
+
+        // Native derailment can alter couplers as a side effect. Consume every car's
+        // transition first, then restore the host's last committed topology once; doing
+        // this per car can create long, explosive joints to cars not processed yet.
+        if (derailmentTransition)
+            NetworkLifecycle.Instance.Client?.ReconcileTrainTopologyAfterDerailment();
     }
      
     #endregion

@@ -112,18 +112,22 @@ public partial class NetworkedItemManager
         if (item == null || recipient == null ||
             !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
             return false;
+        bool ownerHasRecallClaim = record.PersistentOwnerPlayerId == recipient.PlayerId &&
+                                   HasOwnerRecallClaim(record);
         if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
         {
-            if (record.PlacementPlayerId == recipient.PlayerId) return true;
             ServerPlayer holder = NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player =>
                 player.PlayerId == record.PlacementPlayerId);
-            return holder != null && recipientCells.Contains(WorldItemCellCoord.FromAbsolute(holder.AbsoluteWorldPosition));
+            bool holderNearby = holder != null && recipientCells.Contains(
+                WorldItemCellCoord.FromAbsolute(holder.AbsoluteWorldPosition));
+            return ItemPossessionInterestPolicy.IsRelevant(ownerHasRecallClaim,
+                record.PlacementPlayerId, recipient.PlayerId, holderNearby);
         }
         // A reserved essential-item silhouette is a non-spatial owner capability even while the
         // physical item is lying in a distant world cell. Retiring it from owner interest removes
         // the base game's Return button before Lost and Found can convert that action into a
         // retrieval. Nearby observers still receive the same item through its spatial cell index.
-        if (record.PersistentOwnerPlayerId == recipient.PlayerId && HasOwnerRecallClaim(record))
+        if (ownerHasRecallClaim)
             return true;
         if (record.Placement == ItemPlacementKind.TrainInterior)
         {

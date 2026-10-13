@@ -36,13 +36,15 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
     {
         yield return null;
 
-        while (fps == null)
+        while (fps == null && RequiresFirstPersonController)
         {
             fps = transform.GetComponent<CustomFirstPersonController>();
             yield return null;
         }
 
-        Multiplayer.Log("CustomFirstPersonController found. Continuing initialisation.");
+        Multiplayer.Log(fps == null
+            ? $"{GetType().Name} initialising without CustomFirstPersonController."
+            : "CustomFirstPersonController found. Continuing initialisation.");
 
         NetworkLifecycle.Instance.OnTick += OnTick;
 
@@ -53,6 +55,8 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
     }
 
     protected abstract void Initialize();
+
+    protected virtual bool RequiresFirstPersonController => true;
 
     protected virtual void OnDestroy()
     {
@@ -85,9 +89,10 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
 
         PlayerPostureFlags posture = PlayerPostureFlags.None;
 
-        if (!fps.underwater)
+        bool underwater = fps != null && fps.underwater;
+        if (!underwater)
         {
-            if (fps.IsCrouching)
+            if (fps != null && fps.IsCrouching)
                 posture |= PlayerPostureFlags.Crouch;
             if (isJumping)
                 posture |= PlayerPostureFlags.Jump;
@@ -109,7 +114,9 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
 
         bool heightChanged = lastSitHeight != sitHeight;
 
-        Vector3 moveDirV3 = PlayerManager.PlayerTransform.InverseTransformDirection(fps.m_MoveDir);
+        Vector3 moveDirV3 = fps != null
+            ? PlayerManager.PlayerTransform.InverseTransformDirection(fps.m_MoveDir)
+            : Vector3.zero;
         Vector2 moveDirection = new(moveDirV3.x, moveDirV3.z);
 
         var trackingData = new PlayerTrackingData

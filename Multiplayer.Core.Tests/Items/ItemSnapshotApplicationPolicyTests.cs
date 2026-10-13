@@ -29,4 +29,24 @@ public sealed class ItemSnapshotApplicationPolicyTests
         Assert.That(ItemSnapshotApplicationPolicy.IsLocalThrowAcknowledgement(
             true, 2, 2, WireItemState.Thrown), Is.False);
     }
+
+    [TestCase(1)]
+    [TestCase(2)]
+    public void OriginatingVrClientAcknowledgesDropWithoutZeroingNativeReleaseVelocity(int hand)
+    {
+        Assert.That(ItemSnapshotApplicationPolicy.IsLocalVrReleaseAcknowledgement(
+            false, 2, 2, WireItemState.InHand, WireItemState.Dropped, (byte)hand), Is.True);
+    }
+
+    [TestCase(true, 2, 2, WireItemState.InHand, WireItemState.Dropped, 1)]
+    [TestCase(false, 1, 2, WireItemState.InHand, WireItemState.Dropped, 1)]
+    [TestCase(false, 2, 2, WireItemState.Dropped, WireItemState.Dropped, 1)]
+    [TestCase(false, 2, 2, WireItemState.InHand, WireItemState.Thrown, 1)]
+    [TestCase(false, 2, 2, WireItemState.InHand, WireItemState.Dropped, 0)]
+    public void VrReleaseShortcutRequiresOriginatingClientHeldVrDrop(bool isHost,
+        int localPlayer, int origin, WireItemState previous, WireItemState received, int hand)
+    {
+        Assert.That(ItemSnapshotApplicationPolicy.IsLocalVrReleaseAcknowledgement(
+            isHost, (byte)localPlayer, (byte)origin, previous, received, (byte)hand), Is.False);
+    }
 }
