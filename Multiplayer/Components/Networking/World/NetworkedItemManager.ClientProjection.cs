@@ -1,3 +1,4 @@
+using Multiplayer.Components.Networking.Train;
 using System.Collections.Generic;
 using System.Linq;
 using DV.Utils;
@@ -224,21 +225,29 @@ public partial class NetworkedItemManager
 
     private void ProcessPendingWorldProjections()
     {
+        // The budget limits projections per tick, not readiness checks: counting checks let a
+        // handful of never-ready entries at the front of the table block every later one forever.
         int budget = 8;
         foreach (KeyValuePair<ushort, PendingWorldProjection> pair in PendingWorldProjections.ToArray())
         {
-            if (budget-- <= 0)
+            if (budget <= 0)
                 break;
             PendingWorldProjection pending = pair.Value;
             if (pending?.Create == null || !IsWorldRegionReady(pending.Create))
                 continue;
 
+            budget--;
             PendingWorldProjections.Remove(pair.Key);
             bool projected = WorldItemStableIdentity.IsValid(pending.Create.AuthoredItemKey)
                 ? TryBindAuthoredClientProjection(pending.Create, false)
                 : CreateItem(pending.Create, false);
             if (!projected)
+            {
+                // Tell the host, or it believes we have the item and only ever sends updates.
+                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(pair.Key,
+                    pending.Create.AuthorityRevision, false);
                 continue;
+            }
 
             uint appliedRevision = pending.Create.AuthorityRevision;
             foreach (ItemUpdateData update in pending.Updates)
@@ -262,6 +271,13 @@ public partial class NetworkedItemManager
 
     private static bool IsWorldRegionReady(ItemUpdateData snapshot)
     {
+        // Items riding a car are placed relative to it; their world position in the Create is
+        // where the car was when it was sent and may be long gone. What they need is the car.
+        if (snapshot.ItemState == ItemState.Attached)
+            return NetworkedTrainCar.TryGet(snapshot.CarNetId, out TrainCar attachedCar) && attachedCar != null;
+        if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior)
+            return NetworkedTrainCar.TryGet(snapshot.WorldParentNetId, out TrainCar parentCar) && parentCar != null;
+
         try
         {
             return WorldStreamingInit.Instance != null &&

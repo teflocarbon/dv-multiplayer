@@ -99,6 +99,8 @@ public class ServerPlayer : IDisposable
     public Dictionary<NetworkedItem, float> NearbyItems { get; private set; } = new Dictionary<NetworkedItem, float>(); //NetworkedItem, time since near the item
     public HashSet<ushort> OwnedItems { get; private set; } = new HashSet<ushort>();
     public HashSet<ushort> AcknowledgedWorldItems { get; } = new HashSet<ushort>();
+    // Items this player failed to project: when the host may send their Create again.
+    internal Dictionary<ushort, float> ProjectionRetryAt { get; } = new Dictionary<ushort, float>();
     public bool WorldItemCatalogueAccepted { get; internal set; }
     public StorageBase Inventory { get; private set; }
 

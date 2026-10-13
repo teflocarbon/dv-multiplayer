@@ -156,7 +156,16 @@ public partial class NetworkedItemManager
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
         }
         if (record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment)
+        {
+            // Attached items (e.g. end-of-train lanterns) ride their car; the record's position is
+            // where they were attached, so follow the car or they vanish once the train leaves.
+            if (record.AttachedCarNetId != 0 &&
+                NetworkedTrainCar.TryGet(record.AttachedCarNetId, out TrainCar attachedCar) && attachedCar != null)
+                return recipient.CarId == record.AttachedCarNetId ||
+                       recipientCells.Contains(WorldItemCellCoord.FromAbsolute(
+                           attachedCar.transform.position - WorldMover.currentMove));
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
+        }
         return false;
     }
 
@@ -227,6 +236,14 @@ public partial class NetworkedItemManager
                     dirtyUpdate != null,
                     suppressCreate: false,
                     destroyed: false);
+
+                if (delivery.Kind == ItemDeliveryKind.Create &&
+                    player.ProjectionRetryAt.TryGetValue(nearbyItem.NetId, out float retryAt))
+                {
+                    if (Time.time < retryAt)
+                        continue;
+                    player.ProjectionRetryAt.Remove(nearbyItem.NetId);
+                }
 
                 if (delivery.Kind == ItemDeliveryKind.Create)
                 {

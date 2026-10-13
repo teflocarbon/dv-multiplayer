@@ -349,6 +349,8 @@ public class NetworkServer : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
+    private const float ProjectionRetryDelaySeconds = 5f;
+
     private void OnServerboundWorldItemProjectionAckPacket(ServerboundWorldItemProjectionAckPacket packet, ITransportPeer peer)
     {
         if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player)) return;
@@ -369,6 +371,11 @@ public class NetworkServer : NetworkManager
         }
         if (packet.Projected) player.AcknowledgedWorldItems.Add(packet.ItemNetId);
         else player.AcknowledgedWorldItems.Remove(packet.ItemNetId);
+        // A client that couldn't create an item we still consider relevant doesn't have it:
+        // forget that it does, so the Create is sent again (after a pause, in case it keeps failing)
+        // instead of a stream of updates for an object it never made.
+        if (!packet.Projected && known && player.KnownItems.Remove(item))
+            player.ProjectionRetryAt[packet.ItemNetId] = Time.time + ProjectionRetryDelaySeconds;
         DebugRuntime.Publish("item-world", packet.Projected ? "world-item.projection-enter-ack" : "world-item.projection-retire-ack",
             DebugRuntimeSide.Server, entityType: "Item", entityId: packet.ItemNetId.ToString(), data: new()
             {
