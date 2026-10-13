@@ -33,6 +33,8 @@ public class SteamWorksTransport : ITransport
 
     private readonly Dictionary<int, SteamPeer> peerIdToPeer = [];
     private readonly Dictionary<Connection, SteamPeer> connectionToPeer = [];
+    private const float LatencyUpdateIntervalSeconds = 1f;
+    private float nextLatencyUpdateAt;
 
     private int nextPeerId = 1;
 
@@ -125,7 +127,11 @@ public class SteamWorksTransport : ITransport
             server?.Receive();
         }
 
-        //update pings
+        // Update pings about once a second. Doing it every poll (every tick) made the server
+        // broadcast a reliable ping packet and a tick resync per player 24 times a second.
+        if (UnityEngine.Time.unscaledTime < nextLatencyUpdateAt)
+            return;
+        nextLatencyUpdateAt = UnityEngine.Time.unscaledTime + LatencyUpdateIntervalSeconds;
         foreach (var kvp in connectionToPeer)
         {
             var peer = kvp.Value;
@@ -241,7 +247,12 @@ public class SteamWorksTransport : ITransport
             //Multiplayer.LogDebug(() => $"SteamServerManager.OnDisconnected({connection}, {info})");
             base.OnDisconnected(connection, info);
             var peer = transport.GetPeer(connection);
+            if (peer == null)
+                return;
 
+            // Forget the connection, or its peer is polled for latency (and kept) forever.
+            transport.connectionToPeer.Remove(connection);
+            transport.peerIdToPeer.Remove(peer.Id);
             transport?.OnPeerDisconnected?.Invoke(peer, NetConnectionEndToDisconnectReason(info.EndReason));
         }
 

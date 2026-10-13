@@ -738,7 +738,8 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundTickSyncPacket(ClientboundTickSyncPacket packet)
     {
-        NetworkLifecycle.Instance.Tick = (uint)(packet.ServerTick + Ping / 2.0f * (1f / NetworkLifecycle.TICK_RATE));
+        // Ping is one-way latency in ms; advance the server tick by that much travel time.
+        NetworkLifecycle.Instance.Tick = (uint)(packet.ServerTick + Mathf.RoundToInt(Ping / 1000f * NetworkLifecycle.TICK_RATE));
     }
 
     private void OnClientboundServerLoadingPacket(ClientboundServerLoadingPacket packet)
