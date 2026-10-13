@@ -5,17 +5,16 @@ headless `DebugRemoteClient` with its external JSON scenarios) was removed in fa
 This is what it covered, as a checklist for rebuilding the useful parts as dvmp scenarios
 (`DevTools/Scenarios/<name>/run.sh` + probes). Tick items off as they are ported.
 
-## Items on moving trains (highest value: nothing in dvmp covers this yet)
-- [ ] host drops an item inside a moving cab; both peers keep it in the cab (train-relative)
-- [ ] client drops an item inside a moving cab
-- [ ] host throws an item inside a moving cab; it settles in the cab on both peers
-- [ ] client throws an item inside a moving cab
+## Items on moving trains
+- [x] host/client x drop/throw x train stopped/moving: `train-items` scenario
+      (`WHO=client|host MODE=drop|throw WHEN=stopped|moving`). Open issue: client drop while
+      moving loses the mug about 1 run in 3.
 - [ ] cab item "wake" (train item activity): items in an unoccupied cab, re-entry, impact,
       replay - items must not fall through or drift when players leave/return
 
-Needs a dvmp helper to spawn a small consist (loco + car) on a free track near the players and
-drive it with real controls (the old "train fixture": create, start/stop auto speed, wait for
-motion, relocate, junction route lease, protection from derailment while testing).
+Train helpers live in `Probes/lib/Trains.cs` (spawn near the players, board a cab, push the
+consist, delete). Not yet rebuilt from the old train fixture: driving with real loco controls,
+junction route leases.
 
 ## Lost and Found
 - [ ] automatic round trip (lost item collected, retrieved by owner)

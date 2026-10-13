@@ -331,6 +331,8 @@ internal static class Session
 
     internal static string LoadProbe(string name)
     {
+        if (Paths.ProbeSourceDir is string dir && File.Exists(Path.Combine(dir, name + ".cs")))
+            return File.ReadAllText(Path.Combine(dir, name + ".cs"));
         using Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("probe." + name)
                               ?? throw new Exception($"embedded probe '{name}' missing");
         using StreamReader reader = new(stream);

@@ -24,8 +24,15 @@ internal static class ProbeCompiler
         using Dvmp.Lib;
         """;
 
-    // Shared helper sources (Probes/lib/*.cs) compiled into every probe.
-    private static readonly Lazy<List<SyntaxTree>> library = new(() =>
+    // Shared helper sources (Probes/lib/*.cs) compiled into every probe: read from source when
+    // running from the repo (so edits apply immediately), otherwise the copies embedded at build.
+    private static List<SyntaxTree> Library => Paths.ProbeSourceDir is string dir && Directory.Exists(Path.Combine(dir, "lib"))
+        ? Directory.GetFiles(Path.Combine(dir, "lib"), "*.cs")
+            .Select(f => CSharpSyntaxTree.ParseText(File.ReadAllText(f), new CSharpParseOptions(LanguageVersion.Latest), path: "lib." + Path.GetFileNameWithoutExtension(f)))
+            .ToList()
+        : embeddedLibrary.Value;
+
+    private static readonly Lazy<List<SyntaxTree>> embeddedLibrary = new(() =>
         System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceNames()
             .Where(n => n.StartsWith("lib.", StringComparison.Ordinal))
             .Select(n =>
@@ -82,7 +89,7 @@ internal static class ProbeCompiler
 
         CSharpCompilation compilation = CSharpCompilation.Create(
             "dvmp_probe_" + id,
-            library.Value.Prepend(CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))),
+            Library.Prepend(CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))),
             References(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,

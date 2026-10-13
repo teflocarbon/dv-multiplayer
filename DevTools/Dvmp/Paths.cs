@@ -12,6 +12,22 @@ internal static class Paths
     public static string ModsDir => Path.Combine(GameDir, "Mods");
     public static string DevToolsModDir => Path.Combine(ModsDir, "MultiplayerDevTools");
 
+    /// <summary>Probes/ next to the dvmp project when running from a repo build: probes and their
+    /// libraries are then read from source on every call, so edits need no rebuild of dvmp.</summary>
+    public static string? ProbeSourceDir
+    {
+        get
+        {
+            for (DirectoryInfo? dir = new(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
+            {
+                string probes = Path.Combine(dir.FullName, "Probes");
+                if (File.Exists(Path.Combine(dir.FullName, "Dvmp.csproj")) && Directory.Exists(probes))
+                    return probes;
+            }
+            return null;
+        }
+    }
+
     public static string DataRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "dvmp");
     public static string AgentsDir => Path.Combine(DataRoot, "agents");
