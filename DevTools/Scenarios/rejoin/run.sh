@@ -3,7 +3,8 @@
 #  1. client holds an item and quits
 #  2. host must keep every item of the departed player, and drop the held one into the world
 #  3. client rejoins and must get exactly one of each item back, in its inventory
-# Exit code 0 = pass. Set FRESH=1 to restart both games first.
+# Exit code 0 = pass. Set FRESH=1 to restart both games first; CRASH=1 to kill the client
+# instead of quitting and rejoin before the host has noticed (stale-session reconnect).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe
@@ -17,15 +18,23 @@ before=$($D eval -t client -m coroutine -u "$U" -f $P/hold.cs)
 held=$(echo "$before" | field held); inventory=$(echo "$before" | field inventory); names=$(echo "$before" | field names)
 echo "   holding $held ($(echo "$before" | field heldName)); owns $(echo "$inventory" | tr ',' '\n' | grep -c .) items"
 
-echo "== client quits"
 client_pid=$($D status | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(o.agents.find(a=>a.role==="client").pid)')
-$D eval -t client 'Application.Quit();' >/dev/null || true
-for i in $(seq 1 30); do tasklist //FI "PID eq $client_pid" //NH | grep -q DerailValley || break; sleep 1; done
-$D eval -t host -m coroutine 'yield return new WaitForSeconds(4);' >/dev/null
+if [ -n "${CRASH:-}" ]; then
+  # Simulated crash: kill the client and rejoin straight away, while the host still thinks the
+  # old connection is alive (it only notices on timeout).
+  echo "== client crashes"
+  taskkill //F //PID "$client_pid" >/dev/null
+  for i in $(seq 1 30); do tasklist //FI "PID eq $client_pid" //NH | grep -q DerailValley || break; sleep 1; done
+else
+  echo "== client quits"
+  $D eval -t client 'Application.Quit();' >/dev/null || true
+  for i in $(seq 1 30); do tasklist //FI "PID eq $client_pid" //NH | grep -q DerailValley || break; sleep 1; done
+  $D eval -t host -m coroutine 'yield return new WaitForSeconds(4);' >/dev/null
 
-echo "== host keeps everything"
-r1=$($D eval -t host -m body -u "$U" -a held=$held -a inventory=$inventory -f $P/after-disconnect.cs)
-echo "   $(echo "$r1" | field failures)"; [ "$(echo "$r1" | field pass)" = "true" ] || { echo "FAIL after disconnect"; exit 1; }
+  echo "== host keeps everything"
+  r1=$($D eval -t host -m body -u "$U" -a held=$held -a inventory=$inventory -f $P/after-disconnect.cs)
+  echo "   $(echo "$r1" | field failures)"; [ "$(echo "$r1" | field pass)" = "true" ] || { echo "FAIL after disconnect"; exit 1; }
+fi
 
 echo "== client rejoins"; $D up >/dev/null
 $D eval -t client -m coroutine 'yield return new WaitForSeconds(8);' >/dev/null
