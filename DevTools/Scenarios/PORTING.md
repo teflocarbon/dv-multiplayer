@@ -17,7 +17,8 @@ junction route leases.
 
 ## Lost and Found
 - [x] automatic round trip (lost item collected, retrieved by owner): `lost-and-found` scenario
-- [ ] essential item recall (owner recalls a reserved essential item)
+- [x] essential item recall (owner recalls a reserved essential item): `recall` scenario (`TAKEN=1`:
+      from another player's hands)
 - [ ] full inventory on retrieval
 - [ ] non-personal items, private owner, other player nearby, owner nearby
 - [ ] container shell round trip
