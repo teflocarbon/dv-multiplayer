@@ -9,6 +9,7 @@ using DV.LocoRestoration;
 using DV.Logic.Job;
 using DV.MultipleUnit;
 using DV.ServicePenalty.UI;
+using DV.Shops;
 using DV.ThingTypes;
 using DV.UI;
 using DV.UserManagement;
@@ -110,6 +111,7 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundItemRecallPreparedPacket),
         typeof(ServerboundMoneyItemDepositPacket),
         typeof(ServerboundShopPaymentPacket),
+        typeof(ServerboundShopPurchasePacket),
         typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
@@ -256,6 +258,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundGameParamsPacket>(OnClientboundGameParamsPacket);
         netPacketProcessor.SubscribeReusable<ClientboundSaveGameDataPacket>(OnClientboundSaveGameDataPacket);
         netPacketProcessor.SubscribeReusable<ClientboundRailwayStatePacket>(OnClientboundRailwayStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
         netPacketProcessor.SubscribeReusable<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
 
 
@@ -909,6 +912,20 @@ public class NetworkClient : NetworkManager
     private void OnClientboundTimeAdvancePacket(ClientboundTimeAdvancePacket packet)
     {
         TimeAdvance.AdvanceTime(packet.amountOfTimeToSkipInSeconds);
+    }
+
+    private void OnClientboundShopStockPacket(ClientboundShopStockPacket packet)
+    {
+        GlobalShopController shops = GlobalShopController.Instance;
+        if (shops == null || packet.ItemPrefabNames == null || packet.PurchasedItems == null)
+            return;
+        for (int i = 0; i < packet.ItemPrefabNames.Length && i < packet.PurchasedItems.Length; i++)
+        {
+            ShopItemData data = shops.GetShopItemData(packet.ItemPrefabNames[i]);
+            if (data != null)
+                data.purchasedItems = packet.PurchasedItems[i];
+        }
+        shops.Fire_GlobalShopDataChanged();
     }
 
     private void OnClientboundRailwayStatePacket(ClientboundRailwayStatePacket packet)
@@ -2862,6 +2879,16 @@ public class NetworkClient : NetworkManager
     {
         SendPacketToServer(new ServerboundMoneyItemDepositPacket { ItemNetId = itemNetId },
             DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendShopPurchase(int shopIndex, string itemPrefabName, int amount)
+    {
+        SendPacketToServer(new ServerboundShopPurchasePacket
+        {
+            ShopIndex = shopIndex,
+            ItemPrefabName = itemPrefabName,
+            Amount = amount
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendShopPayment(double amount)
