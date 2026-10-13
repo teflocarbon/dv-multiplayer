@@ -643,6 +643,13 @@ public partial class NetworkedItem
 
             if (plan.Action == RemoteItemProjectionAction.LocalInventory)
             {
+                // A rejoining player's game spawns fresh starting items that stay unbound until
+                // first used. When the host hands back the originals, the fresh copy must make
+                // way, otherwise essentials are dropped (DV allows one of each) and everything
+                // else is duplicated.
+                if (!NetworkLifecycle.Instance.IsHost())
+                    NetworkedItemManager.Instance?.DiscardUnboundLocalDuplicate(this);
+
                 // Retrieval claims reserve an exact silhouette slot. Ordinary inventory
                 // possession has no claim metadata, so it must use DV's normal free-slot
                 // insertion path instead of trying to restore slot -1.
