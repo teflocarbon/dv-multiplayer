@@ -509,30 +509,34 @@ public class NetworkServer : NetworkManager
     public override void OnPeerDisconnected(ITransportPeer peer, DisconnectReason disconnectReason)
     {
         LogDebug(() => $"OnPeerDisconnected({peer.Id})");
-        if (!peerToPlayer.TryGetValue(peer, out ServerPlayer player))
+        if (!peerToPlayer.TryGetValue(peer, out ServerPlayer player) || player == null)
+        {
             LogWarning($"Peer {peer.GetType()}, peerId: {peer.Id} disconnected but no player found");
-        else
-            Log($"Player {player?.Username} disconnected: {disconnectReason}");
+            peerToPlayer.Remove(peer);
+            return;
+        }
+        Log($"Player {player.Username} disconnected: {disconnectReason}");
 
-        if (player != null)
+        RunDisconnectStep("item recalls", () =>
+        {
             foreach (PendingItemRecall pending in pendingItemRecalls.Values
                          .Where(value => value.Player == player).ToArray())
                 CancelPendingItemRecall(pending, "requesting-player-disconnected", false);
-
-        if (player != null)
-            NetworkedItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId);
-
-        if (player != null)
-            NetworkedItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player);
-
-        if (player != null)
+        });
+        RunDisconnectStep("spatial items", () => NetworkedItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId));
+        RunDisconnectStep("held items", () => NetworkedItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player));
+        RunDisconnectStep("train controls", () =>
+        {
             foreach (var key in lastTrainControlOperation.Keys
                          .Where(value => value.PlayerId == player.PlayerId).ToArray())
                 lastTrainControlOperation.Remove(key);
+        });
 
         if (WorldStreamingInit.isLoaded)
-            SaveGameManager.Instance.UpdateInternalData();
+            RunDisconnectStep("save data", () => SaveGameManager.Instance.UpdateInternalData());
 
+        // Every step above is guarded, so this always runs: no ghost player left behind.
+        // (The save above still needs the departing player, for their position and inventory.)
         serverPlayers.Remove(player.PlayerId);
         peers.Remove(player.PlayerId);
         peerToPlayer.Remove(peer);
@@ -547,9 +551,24 @@ public class NetworkServer : NetworkManager
             PlayerLoadingState.Complete
         );
 
-        PlayerDisconnected?.Invoke(player);
+        // One subscriber throwing must not skip the others (cars release control leases here).
+        if (PlayerDisconnected != null)
+            foreach (Action<ServerPlayer> handler in PlayerDisconnected.GetInvocationList())
+                RunDisconnectStep(handler.Method.DeclaringType?.Name ?? "subscriber", () => handler(player));
 
-        player?.Dispose();
+        player.Dispose();
+    }
+
+    private void RunDisconnectStep(string step, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception e)
+        {
+            LogError($"Player disconnect cleanup ({step}) threw: {e}");
+        }
     }
 
     public override void OnNetworkLatencyUpdate(ITransportPeer peer, int latency)
@@ -2539,18 +2558,24 @@ public class NetworkServer : NetworkManager
         // Check if this is a garage loco
         bool isGarageCar = GarageCarSpawner.Spawners.TryGetValue(livery, out var selectedGarageSpawner);
 
-        // Check funds
-        if (isGarageCar)
+        // Check funds now, but only charge once every other check has passed: failures used to
+        // return after the money was taken (and some never answered the client's RPC).
+        float price = isGarageCar
+            ? Mathf.Min(selectedGarageSpawner.garageType.summonPrice, Globals.G.GameParams.WorkTrainSummonMaxPrice)
+            : 0f;
+        bool Charge()
         {
-            var price = Mathf.Min(selectedGarageSpawner.garageType.summonPrice, Globals.G.GameParams.WorkTrainSummonMaxPrice);
-            if (!Inventory.Instance.RemoveMoney(price))
-            {
-                LogWarning($"{player.Username} tried to request a work train without enough money to do so!");
-                rpcResponse.Response = SpawnResponse.ResponseType.InsufficientFunds;
-                SendRpcResponse(packet.TicketId, rpcResponse, peer);
-
-                return;
-            }
+            if (price <= 0f || Inventory.Instance.RemoveMoney(price))
+                return true;
+            LogWarning($"{player.Username} tried to request a work train without enough money to do so!");
+            rpcResponse.Response = SpawnResponse.ResponseType.InsufficientFunds;
+            SendRpcResponse(packet.TicketId, rpcResponse, peer);
+            return false;
+        }
+        if (price > 0f && Inventory.Instance.PlayerMoney < price)
+        {
+            Charge();
+            return;
         }
 
         trainCar = isGarageCar ? selectedGarageSpawner.GetCar(livery) : CarSpawner.Instance.AllCars.FirstOrDefault(tc => tc.carLivery == livery);
@@ -2560,6 +2585,7 @@ public class NetworkServer : NetworkManager
         if (packet.Index < 0 || packet.Index >= kinked.Length)
         {
             LogWarning($"{player.Username} tried to spawn a car at an invalid index: {packet.Index}");
+            SendRpcResponse(packet.TicketId, rpcResponse, peer);
             return;
         }
 
@@ -2572,6 +2598,7 @@ public class NetworkServer : NetworkManager
         if (!CarSpawner.IsThereSpaceForCarOnPoint(spawnPoint, startPoint, endpoint, carBounds.extents))
         {
             LogWarning($"{player.Username} tried to spawn a car, but there's no room on the track");
+            SendRpcResponse(packet.TicketId, rpcResponse, peer);
             return;
         }
 
@@ -2580,6 +2607,7 @@ public class NetworkServer : NetworkManager
         if (playerDistanceToSpawn > CommsRadioCarSpawner.SIGNAL_RANGE && !Mathf.Approximately(playerDistanceToSpawn, CommsRadioCarSpawner.SIGNAL_RANGE))
         {
             LogWarning($"{player.Username} tried to spawn a train {playerDistanceToSpawn:F2}m away (max: {CommsRadioCarSpawner.SIGNAL_RANGE}m)");
+            SendRpcResponse(packet.TicketId, rpcResponse, peer);
             return;
         }
 
@@ -2588,6 +2616,8 @@ public class NetworkServer : NetworkManager
         if (trainCar == null)
         {
             LogDebug(() => $"OnServerboundWorkTrainRequestPacket() {player.Username} tried to request a work train of {livery.id} but no existing car found, spawning new car");
+            if (!Charge())
+                return;
             trainCar = CarSpawner.Instance.SpawnCrewVehicle(livery, networkedRailTrack.RailTrack, (Vector3)spawnPoint.position, forward, selectedGarageSpawner);
 
             SendSpawnTrainset([trainCar], true, true);
@@ -2647,6 +2677,8 @@ public class NetworkServer : NetworkManager
             }
 
             // Checks passed, call the work train
+            if (!Charge())
+                return;
             trainCar = CarSpawner.Instance.SpawnCrewVehicle(livery, networkedRailTrack.RailTrack, (Vector3)spawnPoint.position, forward, selectedGarageSpawner);
         }
 

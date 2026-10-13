@@ -1419,7 +1419,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         // Clean up blocked controls
-        foreach (var kvp in portAuthority.Where(kvp => kvp.Value == player))
+        foreach (var kvp in portAuthority.Where(kvp => kvp.Value == player).ToArray())
         {
             portAuthority.Remove(kvp.Key);
             NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, kvp.Key, ControlAuthorityState.Released);

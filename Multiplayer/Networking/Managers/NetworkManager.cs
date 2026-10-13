@@ -188,6 +188,13 @@ public abstract class NetworkManager
         {
             Multiplayer.LogWarning($"[{GetType()}] Failed to parse packet: {e.Message}\r\n{e.StackTrace}");
         }
+        catch (Exception e)
+        {
+            // A handler bug must not escape into the transport's receive loop: that aborts the
+            // rest of the message batch (for the server, every player's) and silently drops
+            // reliable data, i.e. a permanent desync.
+            Multiplayer.LogError($"[{GetType()}] Packet handler threw: {e}");
+        }
         finally
         {
             IsProcessingPacket = false;

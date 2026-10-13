@@ -260,7 +260,14 @@ public class SteamWorksTransport : ITransport
             var reader = new NetDataReader(buffer, 0, size);
             if (peer.connectionRequest != null)
             {
-                transport?.OnConnectionRequest?.Invoke(reader, peer.connectionRequest);
+                try
+                {
+                    transport?.OnConnectionRequest?.Invoke(reader, peer.connectionRequest);
+                }
+                catch (Exception e)
+                {
+                    Multiplayer.LogError($"SteamServerManager: login handler threw: {e}");
+                }
                 peer.connectionRequest = null;
                 return;
             }
