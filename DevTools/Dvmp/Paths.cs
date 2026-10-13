@@ -28,6 +28,17 @@ internal static class Paths
         }
     }
 
+    /// <summary>The repo's Debug build output of the mod, when dvmp runs from a repo build.</summary>
+    public static string? ModBuildDir
+    {
+        get
+        {
+            if (ProbeSourceDir is not { } probes) return null;
+            string dir = Path.GetFullPath(Path.Combine(probes, "..", "..", "..", "Multiplayer", "bin", "Debug", "net48"));
+            return File.Exists(Path.Combine(dir, "Multiplayer.dll")) ? dir : null;
+        }
+    }
+
     public static string DataRoot => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "dvmp");
     public static string AgentsDir => Path.Combine(DataRoot, "agents");

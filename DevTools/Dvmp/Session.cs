@@ -72,6 +72,22 @@ internal static class Session
         }
     }
 
+    /// <summary>The post-build copy into the game fails silently while a game holds the mod's DLLs,
+    /// so a build made with games running never reaches them. With the games down, copy over any
+    /// build output that is newer than the installed copy.</summary>
+    private static void DeployStaleBuild()
+    {
+        if (Paths.ModBuildDir is not { } build || Paths.MultiplayerModDir() is not { } mod) return;
+        foreach (string name in new[] { "Multiplayer.dll", "Multiplayer.Core.dll", "Multiplayer.DebugProtocol.dll" })
+        {
+            string from = Path.Combine(build, name), to = Path.Combine(mod, name);
+            if (!File.Exists(from) || (File.Exists(to) && File.GetLastWriteTimeUtc(to) >= File.GetLastWriteTimeUtc(from)))
+                continue;
+            Mark("deploying newer " + name);
+            File.Copy(from, to, overwrite: true);
+        }
+    }
+
     private static async Task<JsonObject> RunUpAsync(UpOptions o)
     {
         try
@@ -106,6 +122,7 @@ internal static class Session
                 await DownAsync(CancellationToken.None);
             }
 
+            DeployStaleBuild();
             Mark("launching host");
             Process hostProcess = Launch("host", o);
             Agent hostAgent = await WaitForAgentAsync(hostProcess, TimeSpan.FromSeconds(90));
