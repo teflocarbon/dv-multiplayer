@@ -36,12 +36,20 @@ internal static class LogBuffer
             _ => "log"
         };
         bool keepStack = type is LogType.Exception or LogType.Error or LogType.Assert;
+        Add(level, message, keepStack ? stack : null);
+    }
+
+    /// <summary>Adds a line from a source other than Unity's log callback (e.g. the mod loader's logger).</summary>
+    public static void Append(string level, string message) => Add(level, message, null);
+
+    private static void Add(string level, string message, string stack)
+    {
         Entry entry = new()
         {
             Time = (float)(DateTime.UtcNow - start).TotalSeconds,
             Level = level,
             Message = message,
-            Stack = keepStack && !string.IsNullOrEmpty(stack)
+            Stack = !string.IsNullOrEmpty(stack)
                 ? stack.Length > MaxStackLength ? stack.Substring(0, MaxStackLength) : stack
                 : null
         };

@@ -20,6 +20,8 @@ public static class AgentMain
             // A minimised or unfocused test instance must keep ticking or every request stalls.
             Application.runInBackground = true;
             LogBuffer.Install();
+            try { ModLoggerHook.Install(); }
+            catch (Exception e) { modEntry.Logger.Warning("dvmp: could not mirror mod logs: " + e.Message); }
 
             GameObject host = new("[DvmpDevAgent]");
             UnityEngine.Object.DontDestroyOnLoad(host);
