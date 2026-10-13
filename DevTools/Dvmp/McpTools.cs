@@ -93,9 +93,10 @@ public static class McpTools
         [Description("Radius in metres around the starting point to pick items from. Default 40.")] double radius = 40,
         [Description("Seconds between actions. Default 1.")] double pause = 1,
         [Description("Desync samples afterwards. Default 6.")] int desyncSamples = 6,
+        [Description("Only touch items whose name starts with this, e.g. \"JobOverview\".")] string? filter = null,
         CancellationToken ct = default)
     {
-        try { return Render(await Soak.RunAsync(target, Math.Clamp(actions, 1, 500), seed, Math.Clamp(radius, 2, 500), Math.Clamp(pause, 0, 30), Math.Clamp(desyncSamples, 1, 60), ct)); }
+        try { return Render(await Soak.RunAsync(target, Math.Clamp(actions, 1, 500), seed, Math.Clamp(radius, 2, 500), Math.Clamp(pause, 0, 30), Math.Clamp(desyncSamples, 1, 60), ct, filter)); }
         catch (Exception e) when (e is AgentException or ProbeCompileException)
         {
             return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message });

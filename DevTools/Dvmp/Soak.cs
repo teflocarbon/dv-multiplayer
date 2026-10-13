@@ -7,7 +7,7 @@ namespace Dvmp;
 internal static class Soak
 {
     public static async Task<JsonObject> RunAsync(string? target, int actions, int seed, double radius, double pause,
-        int desyncSamples, CancellationToken ct)
+        int desyncSamples, CancellationToken ct, string? filter = null)
     {
         string probe = Session.LoadProbe("soak");
         List<Agent> agents = await Agents.ResolveAsync(target ?? "client", ct);
@@ -21,7 +21,8 @@ internal static class Soak
                 ["seed"] = (seed + index * 1000).ToString(),
                 ["actions"] = actions.ToString(),
                 ["radius"] = radius.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["pause"] = pause.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                ["pause"] = pause.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["filter"] = filter ?? string.Empty
             };
             JsonObject r = await Operations.EvalAsync(probe, agent.Pid.ToString(), "class", null, args, timeoutSeconds, ct);
             return (agent, r);
