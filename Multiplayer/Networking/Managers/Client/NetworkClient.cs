@@ -143,6 +143,7 @@ public class NetworkClient : NetworkManager
     private uint lastDeferredBrakeTopologyRevision;
     private ulong nextTrainControlOperationId;
     internal bool railwayStateLoaded = false;
+    private Action worldLoadingFinishedHandler;
 
     // One way ping in milliseconds
     public int Ping { get; private set; }
@@ -165,10 +166,9 @@ public class NetworkClient : NetworkManager
         isSinglePlayer = singlePlayer;
         ClientPlayerManager = new ClientPlayerManager();
 
-        WorldStreamingInit.LoadingFinished += () =>
-        {
-            NetworkedPlayer.CaptureItemAnchorOffset();
-        };
+        // A static method, so re-subscribing on every new client replaces instead of piling up.
+        WorldStreamingInit.LoadingFinished -= NetworkedPlayer.CaptureItemAnchorOffset;
+        WorldStreamingInit.LoadingFinished += NetworkedPlayer.CaptureItemAnchorOffset;
 
         Username = Multiplayer.Settings.GetUserName();
         characterModelId = Multiplayer.Settings.CharacterId;
@@ -220,6 +220,9 @@ public class NetworkClient : NetworkManager
         }
 
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
+        if (worldLoadingFinishedHandler != null)
+            WorldStreamingInit.LoadingFinished -= worldLoadingFinishedHandler;
+        worldLoadingFinishedHandler = null;
 
         base.Stop();
     }
@@ -381,6 +384,48 @@ public class NetworkClient : NetworkManager
         }
     }
 
+    private const float ReadyBlockTimeoutSeconds = 60f;
+    private const float RailwayStateTimeoutSeconds = 30f;
+
+    // Runs a loading coroutine so an exception ends the join with a message. Unity otherwise just
+    // stops a coroutine that throws, leaving the player on the loading screen with a half-synced
+    // world and nothing to say why.
+    private IEnumerator Guarded(IEnumerator routine, string what)
+    {
+        while (true)
+        {
+            object current;
+            try
+            {
+                if (!routine.MoveNext())
+                    yield break;
+                current = routine.Current;
+            }
+            catch (Exception e)
+            {
+                FailJoin($"Joining failed during {what}: {e.Message}", e);
+                yield break;
+            }
+            yield return current;
+        }
+    }
+
+    // The host passes no callback, and a rejected login reached it twice (on the rejection and
+    // again on the disconnect that follows); call it at most once.
+    private void InvokeOnDisconnect(DisconnectReason reason, string message)
+    {
+        Action<DisconnectReason, string> callback = onDisconnect;
+        onDisconnect = null;
+        callback?.Invoke(reason, message);
+    }
+
+    private void FailJoin(string message, Exception exception = null)
+    {
+        disconnectMessage = message;
+        LogError(exception == null ? message : $"{message}\n{exception}");
+        serverPeer?.Disconnect();
+    }
+
     private IEnumerator SyncWorldState()
     {
         /*
@@ -406,8 +451,15 @@ public class NetworkClient : NetworkManager
         foreach (string modName in readyBlocks)
             displayLoadingInfo?.OnLoadingStatusChanged($"Waiting for mod {modName} to load", false, ((float)LoadingState / (float)PlayerLoadingState.Complete) * 100);
 
-        while (readyBlocks.Count > 0)
+        float readyBlockDeadline = Time.realtimeSinceStartup + ReadyBlockTimeoutSeconds;
+        while (readyBlocks.Count > 0 && Time.realtimeSinceStartup < readyBlockDeadline)
             yield return null;
+        if (readyBlocks.Count > 0)
+        {
+            // A mod that never reports ready shouldn't strand the player on the loading screen.
+            LogWarning($"Mods still not ready after {ReadyBlockTimeoutSeconds:0}s, continuing anyway: {string.Join(", ", readyBlocks)}");
+            readyBlocks.Clear();
+        }
 
         /* 
          * ReadyForWorldState
@@ -418,8 +470,14 @@ public class NetworkClient : NetworkManager
         SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState);
         displayLoadingInfo.OnLoadingStatusChanged(Locale.LOADING_INFO__SYNC_WORLD_STATE, false, ((float)LoadingState / (float)PlayerLoadingState.Complete) * 100);
 
-        while (!railwayStateLoaded)
+        float railwayDeadline = Time.realtimeSinceStartup + RailwayStateTimeoutSeconds;
+        while (!railwayStateLoaded && Time.realtimeSinceStartup < railwayDeadline)
             yield return null;
+        if (!railwayStateLoaded)
+        {
+            FailJoin($"Timed out after {RailwayStateTimeoutSeconds:0}s waiting for the railway state (junctions and turntables)");
+            yield break;
+        }
 
         /*
          * ReadyForTrainSets
@@ -551,7 +609,7 @@ public class NetworkClient : NetworkManager
         }
 
         LogDebug(() => $"OnPeerDisconnected() calling onDisconnect({disconnectReason}, {disconnectMessage})");
-        onDisconnect(disconnectReason, disconnectMessage);
+        InvokeOnDisconnect(disconnectReason, disconnectMessage);
     }
 
     public override void OnNetworkLatencyUpdate(ITransportPeer peer, int latency)
@@ -612,10 +670,18 @@ public class NetworkClient : NetworkManager
             // Request Game Params and Save Game Data
             SendLoadStateUpdate(PlayerLoadingState.ReadyForGameData);
 
-            WorldStreamingInit.LoadingFinished += () =>
+            // LoadingFinished is static and outlives this client. The handler used to be an
+            // anonymous lambda that was never removed, so on a rejoin every earlier session's
+            // handler also fired and ran its own (stale) world sync. Subscribe once, remove it when
+            // it fires or when this client stops.
+            if (worldLoadingFinishedHandler != null)
+                WorldStreamingInit.LoadingFinished -= worldLoadingFinishedHandler;
+            worldLoadingFinishedHandler = () =>
             {
+                WorldStreamingInit.LoadingFinished -= worldLoadingFinishedHandler;
+                worldLoadingFinishedHandler = null;
                 LogDebug(() => "Loading finished, beginning sync");
-                CoroutineManager.Instance.StartCoroutine(SyncWorldState());
+                CoroutineManager.Instance.StartCoroutine(Guarded(SyncWorldState(), "world sync"));
 
                 if (WorldMover.Instance.playerTracker != null)
                 {
@@ -630,6 +696,7 @@ public class NetworkClient : NetworkManager
                     }
                 }
             };
+            WorldStreamingInit.LoadingFinished += worldLoadingFinishedHandler;
 
             return;
         }
@@ -654,7 +721,7 @@ public class NetworkClient : NetworkManager
         }
 
         Log($"Player denied: {text}");
-        onDisconnect(DisconnectReason.ConnectionRejected, text);
+        InvokeOnDisconnect(DisconnectReason.ConnectionRejected, text);
     }
 
     private void OnClientboundLoadStateInfoPacket(ClientboundLoadStateInfoPacket packet)
@@ -834,19 +901,33 @@ public class NetworkClient : NetworkManager
     {
         Log("Received railway state");
 
+        // A junction or turntable missing on this side used to return here without marking the
+        // railway loaded, and the join then waited for it forever. Apply what exists and carry on.
+        int missingJunctions = 0, missingTurntables = 0;
         for (int i = 0; i < packet.SelectedJunctionBranches.Length; i++)
         {
             if (!NetworkedJunction.Get((ushort)(i + 1), out NetworkedJunction junction))
-                return;
+            {
+                missingJunctions++;
+                continue;
+            }
             junction.Switch((byte)Junction.SwitchMode.NO_SOUND, packet.SelectedJunctionBranches[i], true);
         }
 
         for (int i = 0; i < packet.TurntableRotations.Length; i++)
         {
             if (!NetworkedTurntable.Get((byte)(i + 1), out NetworkedTurntable turntable))
-                return;
+            {
+                missingTurntables++;
+                continue;
+            }
             turntable.SetRotation(packet.TurntableRotations[i], true, true);
         }
+
+        if (missingJunctions > 0 || missingTurntables > 0)
+            LogWarning($"Railway state: {missingJunctions} of {packet.SelectedJunctionBranches.Length} junctions and " +
+                       $"{missingTurntables} of {packet.TurntableRotations.Length} turntables not found locally; " +
+                       "those keep their local position (mismatched mods or game versions?)");
 
         railwayStateLoaded = true;
     }

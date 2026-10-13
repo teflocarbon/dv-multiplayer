@@ -175,8 +175,14 @@ public class NetworkServer : NetworkManager
             started = base.Start(port);
         }
 
-        if (!started || debugLoopbackTransport == null)
-            return started;
+        if (!started)
+        {
+            // Otherwise the next world load would start ticking a server that never ran.
+            WorldStreamingInit.LoadingFinished -= OnLoaded;
+            return false;
+        }
+        if (debugLoopbackTransport == null)
+            return true;
 
         if (!debugLoopbackTransport.Start(IPAddress.Loopback, IPAddress.IPv6Loopback, settings.DebugLoopbackPort))
         {
