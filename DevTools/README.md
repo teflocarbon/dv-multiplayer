@@ -31,6 +31,8 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 | `dvmp_eval` | `dvmp eval [-t host\|client\|all] CODE` | Run C# in the game(s); see the tool description for the probe API. |
 | `dvmp_screenshot` | `dvmp screenshot [-t ...] [-o DIR]` | What each window shows. |
 | `dvmp_logs` | `dvmp logs [-t ...] [-l warning]` | Unity/Multiplayer log lines and exceptions. |
+| `dvmp_desync` | `dvmp desync [-n 6] [-i 1]` | Snapshot real Unity state on host and client repeatedly and report divergences that persist (items, cars, money, junctions). Full report in `%LOCALAPPDATA%\dvmp\reports`. |
+| `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
 
 ## Writing probes
 
@@ -47,6 +49,24 @@ var start = Dev.PlayerAbs;
 yield return new WaitForSeconds(2);
 ctx.Result = new { moved = Vector3.Distance(start.Value, Dev.PlayerAbs.Value) };
 ```
+
+Every probe also gets the shared library in `Dvmp/Probes/lib` (namespace `Dvmp.Lib`):
+
+```csharp
+// coroutine: pick up item 286 through DV's real grabber, carry it, drop it
+var item = Dev.All<NetworkedItem>().First(n => n.NetId == 286);   // add usings: Multiplayer.Components.Networking.World
+yield return LocalPlayer.GoTo(item);
+yield return Hands.Pickup(item.NetId);        // aims + raycast pickup, falls back to force-hold
+yield return LocalPlayer.TeleportAbs(Dev.PlayerAbs.Value + new Vector3(4, 0, 0));
+yield return Hands.Drop();                    // or Hands.Throw(direction)
+
+// keep going after a failed step
+string error = null;
+yield return Steps.Try(Hands.Pickup(42), e => error = e.Message);
+```
+
+`Hands` takes over the game's input (real keyboard/mouse to that window are ignored) while it
+acts; `Hands.ReleaseControl()` hands it back.
 
 - Compare positions across peers with `Dev.Abs(...)`: each process has its own floating origin.
 - Private members of game and Multiplayer types are accessible directly.

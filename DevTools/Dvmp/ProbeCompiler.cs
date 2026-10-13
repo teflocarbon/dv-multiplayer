@@ -21,7 +21,20 @@ internal static class ProbeCompiler
         using System.Linq;
         using UnityEngine;
         using Dvmp.Agent;
+        using Dvmp.Lib;
         """;
+
+    // Shared helper sources (Probes/lib/*.cs) compiled into every probe.
+    private static readonly Lazy<List<SyntaxTree>> library = new(() =>
+        System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceNames()
+            .Where(n => n.StartsWith("lib.", StringComparison.Ordinal))
+            .Select(n =>
+            {
+                using Stream s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(n)!;
+                using StreamReader r = new(s);
+                return CSharpSyntaxTree.ParseText(r.ReadToEnd(), new CSharpParseOptions(LanguageVersion.Latest), path: n);
+            })
+            .ToList());
 
     private static readonly object gate = new();
     private static List<MetadataReference>? references;
@@ -69,7 +82,7 @@ internal static class ProbeCompiler
 
         CSharpCompilation compilation = CSharpCompilation.Create(
             "dvmp_probe_" + id,
-            new[] { CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest)) },
+            library.Value.Prepend(CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))),
             References(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,
@@ -105,6 +118,9 @@ internal static class ProbeCompiler
     {
         if (!d.Location.IsInSource) return string.Empty;
         var start = d.Location.GetLineSpan().StartLinePosition;
+        string file = d.Location.SourceTree?.FilePath ?? string.Empty;
+        if (file.StartsWith("lib.", StringComparison.Ordinal))
+            return $" ({file[4..]}.cs line {start.Line + 1})";
         int line = start.Line - codeLine + 1;
         return line >= 1 ? $" (line {line}, col {start.Character + 1})" : string.Empty;
     }
