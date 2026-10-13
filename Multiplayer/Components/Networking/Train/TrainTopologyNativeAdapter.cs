@@ -105,6 +105,7 @@ internal static class TrainTopologyNativeAdapter
             failure = "secondary-endpoint-unavailable";
             return false;
         }
+        var chainsBefore = CaptureChains(new[] { primary, secondary, primary.coupledTo, secondary?.coupledTo });
 
         try
         {
@@ -164,6 +165,7 @@ internal static class TrainTopologyNativeAdapter
             failure = "native-postcondition-failed";
             return false;
         }
+        RefreshChangedChains(chainsBefore);
         return true;
     }
 
@@ -173,6 +175,12 @@ internal static class TrainTopologyNativeAdapter
         failure = string.Empty;
         if (!TrainTopologyStateMachine.Validate(desired, out failure))
             return false;
+        // Applied (via the retry) once the local player lets go of the chain.
+        if (NetworkedTrainCar.IsLocalChainDragInProgress)
+        {
+            failure = "local-chain-drag-in-progress";
+            return false;
+        }
         foreach (TrainEndpointState endpoint in desired.Endpoints)
         {
             if (!TryResolve(endpoint.Endpoint, out _))
@@ -181,6 +189,8 @@ internal static class TrainTopologyNativeAdapter
                 return false;
             }
         }
+        var chainsBefore = CaptureChains(desired.Endpoints.Select(endpoint =>
+            TryResolve(endpoint.Endpoint, out Coupler coupler) ? coupler : null));
 
         try
         {
@@ -204,6 +214,7 @@ internal static class TrainTopologyNativeAdapter
 
         if (!VerifyTopology(desired, out failure))
             return false;
+        RefreshChangedChains(chainsBefore);
         foreach (BrakeLineStateData line in brakeLines ?? Array.Empty<BrakeLineStateData>())
         {
             if (!TryCaptureBrakeLine(line.AnchorCarNetId, out BrakeLineStateData actual) ||
@@ -274,6 +285,46 @@ internal static class TrainTopologyNativeAdapter
         TrainCar train = cable.connectedTo.muModule?.train;
         ushort netId = train?.GetNetId() ?? 0;
         return netId == 0 ? (TrainEndpointId?)null : Id(netId, cable.connectedTo.isFront);
+    }
+
+    // Applied coupling changes go through the chain-interaction path, which the chain adapter
+    // deliberately ignores, so a chain that is active near a player kept showing its old state
+    // (parked while coupled, hooked while uncoupled). Re-enabling the chain makes it work out its
+    // state from the coupler again - the same refresh the menu patch already does. Inactive chains
+    // do this themselves when they activate.
+    private static Dictionary<Coupler, (Coupler CoupledTo, ChainCouplerInteraction.State State)> CaptureChains(
+        IEnumerable<Coupler> couplers)
+    {
+        var before = new Dictionary<Coupler, (Coupler, ChainCouplerInteraction.State)>();
+        foreach (Coupler coupler in couplers)
+            if (coupler != null)
+                before[coupler] = (coupler.coupledTo, coupler.state);
+        return before;
+    }
+
+    private static void RefreshChangedChains(Dictionary<Coupler, (Coupler CoupledTo, ChainCouplerInteraction.State State)> before)
+    {
+        using (NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+        {
+            foreach (var entry in before)
+            {
+                Coupler coupler = entry.Key;
+                if (coupler == null || (coupler.coupledTo == entry.Value.CoupledTo && coupler.state == entry.Value.State))
+                    continue;
+                RefreshChainVisual(coupler);
+                RefreshChainVisual(entry.Value.CoupledTo);
+                RefreshChainVisual(coupler.coupledTo);
+            }
+        }
+    }
+
+    internal static void RefreshChainVisual(Coupler coupler)
+    {
+        ChainCouplerInteraction chain = coupler != null ? coupler.ChainScript : null;
+        if (chain == null || !chain.isActiveAndEnabled)
+            return;
+        chain.enabled = false;
+        chain.enabled = true;
     }
 
     private static bool TryResolve(TrainEndpointId id, out Coupler coupler)
