@@ -1,5 +1,6 @@
 using DV.InventorySystem;
 using HarmonyLib;
+using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World;
 using System.Collections.Generic;
 using System.Linq;
@@ -27,6 +28,11 @@ public static class InventoryMembershipPatch
     [HarmonyPostfix]
     private static void ObserveItem(GameObject item, MethodBase __originalMethod)
     {
+        // Host only: on a client the inventory is loaded and adopted through its own flow (local
+        // copies are matched to the host's originals on join), and observing those adds as local
+        // state changes raced it - a rejoining player's items were never returned.
+        if (NetworkLifecycle.Instance == null || !NetworkLifecycle.Instance.IsHost())
+            return;
         NetworkedItem networked = item != null ? item.GetComponent<NetworkedItem>() : null;
         if (networked != null)
             NetworkedItemManager.Instance?.QueueLocalStateObservation(networked, "inventory." + __originalMethod.Name);
