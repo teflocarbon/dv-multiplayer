@@ -2219,7 +2219,7 @@ public class NetworkServer : NetworkManager
         bool shapeValid = packet.PortIds != null && packet.PortValues != null &&
                           packet.PortIds.Length > 0 &&
                           packet.PortIds.Length == packet.PortValues.Length &&
-                          packet.PortValues.All(value => !float.IsNaN(value) && !float.IsInfinity(value));
+                          packet.PortValues.All(value => !float.IsNaN(value)); // infinity is legitimate (e.g. DE traction motor resistance at rest)
         TrainControlCommitResult result = shapeValid
             ? ValidateControlEnvelope(player, networkedTrainCar, packet.ExpectedRevision,
                 packet.OperationId, requireLease: true, packet.PortIds)
