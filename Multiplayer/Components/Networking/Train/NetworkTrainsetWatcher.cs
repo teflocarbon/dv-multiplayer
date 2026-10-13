@@ -239,7 +239,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                 }
             }
             if (derailmentTransition)
-                NetworkLifecycle.Instance.Client?.ReconcileTrainTopologyAfterDerailment();
+                NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
             return;
         }
 
@@ -262,7 +262,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         // transition first, then restore the host's last committed topology once; doing
         // this per car can create long, explosive joints to cars not processed yet.
         if (derailmentTransition)
-            NetworkLifecycle.Instance.Client?.ReconcileTrainTopologyAfterDerailment();
+            NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
     }
      
     #endregion
