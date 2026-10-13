@@ -85,8 +85,7 @@ public partial class NetworkedItemManager
                 continue;
             if (depth.Value > BelowTerrainTolerance)
             {
-                if (!HasActiveSpatialState(item.NetId))
-                    RescueFallenItem(item, record, surfaceY, "host-terrain");
+                RescueFallenItem(item, record, surfaceY, "host-terrain");
                 continue;
             }
 
@@ -124,8 +123,7 @@ public partial class NetworkedItemManager
     internal void Server_HandleBelowMapReport(ServerPlayer reporter, ushort netId, float surfaceAbsoluteY)
     {
         if (!NetworkedItem.TryGet(netId, out NetworkedItem item) ||
-            !IsWorldPhysicsItem(item, out AuthoritativeItemRegistry.Record record) ||
-            HasActiveSpatialState(netId))
+            !IsWorldPhysicsItem(item, out AuthoritativeItemRegistry.Record record))
             return;
         // Only act if the authoritative copy is under that surface too; if just the client's copy
         // fell, convergence already puts it back to the host's pose.
@@ -149,6 +147,11 @@ public partial class NetworkedItemManager
     private void RescueFallenItem(NetworkedItem item, AuthoritativeItemRegistry.Record record,
         float surfaceAbsoluteY, string source)
     {
+        // An item under the terrain is out of the map whether or not it is mid-flight: a physics
+        // lease on it would never settle (it bobs on the water down there), so end it first.
+        if (HasActiveSpatialState(item.NetId))
+            Spatial?.RevokeLease(item.NetId, "fell-through-map");
+
         Vector3 fallenAt = item.transform.position - WorldMover.currentMove;
         Vector3 target;
         if (lastSafeAbsolutePosition.TryGetValue(item, out Vector3 safe) &&
