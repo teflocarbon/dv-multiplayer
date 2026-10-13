@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+b601cc6ab2da4a5f86d6db172a1915ad41b5ee35",
-  "Fingerprint": "b863054537329ae708a457a2d5134ce5de8929bcd8382ff60358561f5e7befa3",
+  "BuildVersion": "0.1.16.14+49d915d3d6befaebabe30ee0c62fecb338534b8b",
+  "Fingerprint": "1649b46f276f7f7f2b8a9a79551ff1e3fdcd37b2698572cb0acd9c53d846d493",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -393,6 +393,15 @@
     {
       "Hash": "54FAD63BFD3BE884",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundItemTrainWakeWitnessPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "55B645B2DA0D3B28",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundItemBelowMapPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
       "SemanticDecoder": null,
