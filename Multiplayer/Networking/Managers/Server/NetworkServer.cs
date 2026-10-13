@@ -627,7 +627,10 @@ public class NetworkServer : NetworkManager
                 continue;
 
             if (TryGetServerPlayer(peer, out var player) && player.LoadingState < minimumLoadState)
+            {
+                HoldForTrainBaseline(player, writer, deliveryMethod, minimumLoadState);
                 continue;
+            }
 
             TraceItemDeliveryExpected(packet, peer, deliveryMethod);
             DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugRuntimeSide.Server, typeof(T).Name);
@@ -644,12 +647,46 @@ public class NetworkServer : NetworkManager
                 continue;
 
             if (TryGetServerPlayer(peer, out var player) && player.LoadingState < minimumLoadState)
+            {
+                HoldForTrainBaseline(player, writer, deliveryMethod, minimumLoadState);
                 continue;
+            }
 
             TraceItemDeliveryExpected(packet, peer, deliveryMethod);
             DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugRuntimeSide.Server, typeof(T).Name);
             peer?.Send(writer, deliveryMethod);
         }
+    }
+
+    // Rolling-stock changes broadcast between a joining player's train baseline and their
+    // acknowledgement of it used to skip them entirely (they weren't ReadyForTrainSets yet), so a
+    // car spawned, deleted or coupled in that window never reached them. Hold the reliable ones.
+    private const int MaxHeldTrainPackets = 20000;
+
+    private void HoldForTrainBaseline(ServerPlayer player, NetDataWriter writer, DeliveryMethod deliveryMethod,
+        PlayerLoadingState minimumLoadState)
+    {
+        if (!player.TrainBaselinePending || minimumLoadState != PlayerLoadingState.ReadyForTrainSets ||
+            deliveryMethod is DeliveryMethod.Unreliable or DeliveryMethod.Sequenced)
+            return;
+        if (player.PendingTrainTraffic.Count >= MaxHeldTrainPackets)
+        {
+            if (player.PendingTrainTraffic.Count == MaxHeldTrainPackets)
+                LogWarning($"Holding too much rolling-stock traffic for {player.Username}; dropping further packets");
+            return;
+        }
+        player.PendingTrainTraffic.Add((writer.CopyData(), deliveryMethod));
+    }
+
+    private void FlushHeldTrainTraffic(ServerPlayer player)
+    {
+        if (!player.TrainBaselinePending)
+            return;
+        player.TrainBaselinePending = false;
+        LogDebug(() => $"Delivering {player.PendingTrainTraffic.Count} rolling-stock packets held during {player.Username}'s baseline");
+        foreach ((byte[] data, DeliveryMethod delivery) in player.PendingTrainTraffic)
+            player.Peer?.Send(NetDataWriter.FromBytes(data, false), delivery);
+        player.PendingTrainTraffic.Clear();
     }
 
     private void SendNetSerializablePacketToAll<T>(T packet, DeliveryMethod deliveryMethod, bool excludeSelf = false) where T : INetSerializable, new()
@@ -1648,6 +1685,11 @@ public class NetworkServer : NetworkManager
             return;
         }
 
+        // Moving past ReadyForTrainSets acknowledges the train baseline: deliver what was held,
+        // in order, before anything this state sends.
+        if (packet.LoadState > PlayerLoadingState.ReadyForTrainSets)
+            FlushHeldTrainTraffic(player);
+
         bool advanceLoadingState = true;
         switch (packet.LoadState)
         {
@@ -1793,8 +1835,10 @@ public class NetworkServer : NetworkManager
                 }, DeliveryMethod.ReliableOrdered);
 
                 // Live rolling-stock traffic remains gated until the client proves it applied the
-                // baseline by advancing to ReadyForItems.
+                // baseline by advancing to ReadyForItems; meanwhile it is held, not dropped.
                 advanceLoadingState = false;
+                player.PendingTrainTraffic.Clear();
+                player.TrainBaselinePending = true;
 
                 break;
 
