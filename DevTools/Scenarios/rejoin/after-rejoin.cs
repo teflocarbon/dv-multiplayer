@@ -14,7 +14,7 @@ var actual = mine.Where(n => n.GetItemState() == ItemState.InInventory).GroupBy(
 foreach (var kv in expected)
 {
     int have = actual.TryGetValue(kv.Key, out var items) ? items.Count : 0;
-    if (have < kv.Value) failures.Add($"{kv.Key}: {have} of {kv.Value} returned");
+    if (have < kv.Value) failures.Add($"{kv.Key}: {have} of {kv.Value} returned (missing: {string.Join(", ", wasInInventory.Where(id => !mine.Any(n => n.NetId == id && Name(n) == kv.Key) && !actual.Values.SelectMany(v => v).Any(n => n.NetId == id)).Select(id => id + (NetworkedItem.TryGet(id, out NetworkedItem m) && m != null ? "=" + m.GetItemState() + "/o" + m.PersistentOwnerPlayerId : "=gone")))})");
 }
 foreach (var kv in actual)
 {

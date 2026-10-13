@@ -11,7 +11,7 @@ yield return Hands.Pickup(id);
 yield return Trains.Board(loco);
 for (int i = 0; i < 20; i++) yield return null;
 if (ctx.Args["mode"] == "throw")
-    yield return Hands.Throw(loco.transform.forward * 0.6f + Vector3.up * 0.4f);
+    yield return Hands.Throw(loco.transform.forward * 0.6f - Vector3.up * 0.3f); // at the floor: a throw out of the open cab is physics, not sync
 else
     yield return Hands.Drop();
 for (int i = 0; i < 90; i++) yield return null;
