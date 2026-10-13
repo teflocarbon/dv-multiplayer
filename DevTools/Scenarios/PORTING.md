@@ -16,7 +16,7 @@ consist, delete). Not yet rebuilt from the old train fixture: driving with real 
 junction route leases.
 
 ## Lost and Found
-- [ ] automatic round trip (lost item collected, retrieved by owner)
+- [x] automatic round trip (lost item collected, retrieved by owner): `lost-and-found` scenario
 - [ ] essential item recall (owner recalls a reserved essential item)
 - [ ] full inventory on retrieval
 - [ ] non-personal items, private owner, other player nearby, owner nearby
