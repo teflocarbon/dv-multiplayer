@@ -112,8 +112,17 @@ internal static partial class WorldItemPersistenceManager
             return false;
 
         if (record.PersistentItemId != Guid.Empty)
+        {
+            // Like vanilla's world storage, only keep dynamic items a player owns. Unowned ones
+            // are respawned by their source each load (e.g. the paint station's spray can, which
+            // vanilla only skips when the player already owns one), so persisting them added a
+            // copy every load.
+            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) ||
+                item?.Item?.InventorySpecs?.BelongsToPlayer != true)
+                return false;
             return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                 ItemPlacementKind.StaticParent;
+        }
 
         if (!WorldItemStableIdentity.IsValid(record.AuthoredItemKey))
             return false;
