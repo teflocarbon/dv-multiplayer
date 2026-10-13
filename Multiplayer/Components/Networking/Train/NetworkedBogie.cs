@@ -70,8 +70,6 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
     {
         BogieData snapshot = movement.BogieData;
 
-        //Multiplayer.LogDebug(()=>$"NetworkedBogie.Process({identifier}) DataFlags: {snapshot.DataFlags}, {snapshotTick}, {snapshot.TrackNetId}, {snapshot.PositionAlongTrack} {snapshot.TrackDirection}");
-
         // Vanilla only creates the bogie's Rigidbody when it is set up on the rails (including
         // after a rerail), so look it up again rather than caching a missing one forever.
         if (rb == null)
@@ -85,6 +83,7 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
             return;
         }
 
+        RailTrack hostTrack = Bogie.track;
         if (snapshot.IncludesTrackData)
         {
             if (!NetworkedRailTrack.TryGet(snapshot.TrackNetId, out NetworkedRailTrack track))
@@ -92,26 +91,67 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
                 Multiplayer.LogWarning($"NetworkedBogie.Process({identifier}) Failed to find track {snapshot.TrackNetId} for bogie: {Bogie.Car.ID}");
                 return;
             }
-
-            if (Bogie.track != track.RailTrack)
-                Bogie.SetTrack(track.RailTrack, snapshot.PositionAlongTrack, snapshot.TrackDirection);
-            else
-                Bogie.traveller.MoveToSpan(snapshot.PositionAlongTrack);
+            hostTrack = track.RailTrack;
         }
-        else
+        if (hostTrack == null)
         {
-            if (Bogie.track)
-                Bogie.traveller.MoveToSpan(snapshot.PositionAlongTrack);
-            else
-                Multiplayer.LogWarning($"NetworkedBogie.Process({identifier}) No track for current bogie for bogie: {Bogie?.Car?.ID}, unable to move position!");
+            Multiplayer.LogWarning($"NetworkedBogie.Process({identifier}) No track for current bogie for bogie: {Bogie?.Car?.ID}, unable to move position!");
+            return;
         }
 
-        // Project the timestamped host sample to the current network tick. Do not use
-        // the client's locally simulated rigidbody velocity here: it may be stale.
-        int physicsSteps = Mathf.Max(1, Mathf.FloorToInt(
-            (NetworkLifecycle.Instance.Tick - (float)snapshotTick) /
-            NetworkLifecycle.TICK_RATE / Time.fixedDeltaTime) + 1);
-        for (int i = 0; i < physicsSteps; i++)
-            Bogie.UpdatePointSetTraveller(movement.SpeedMetresPerSecond);
+        // A bogie crossing onto the next track reaches it a little earlier or later than the
+        // host's does; it will get there on its own. Anything else (e.g. a junction thrown the
+        // other way) is a real divergence, so put the bogie on the host's track.
+        if (Bogie.track != hostTrack && !AreAdjacent(Bogie.track, hostTrack))
+            Bogie.SetTrack(hostTrack, snapshot.PositionAlongTrack, snapshot.TrackDirection);
+
+        // Note: moving the traveller here would be undone by vanilla's next FixedUpdate, which
+        // re-projects the bogie's physical position onto the track. The sample is instead used
+        // by TrainSpeedQueue to steer the car's velocity towards the host's position.
+        sampleTrack = hostTrack;
+        sampleSpan = snapshot.PositionAlongTrack;
+        sampleDirection = snapshot.TrackDirection;
+        sampleSpeed = movement.SpeedMetresPerSecond;
+        float ageSeconds = (NetworkLifecycle.Instance.Tick - (float)snapshotTick) / NetworkLifecycle.TICK_RATE;
+        sampleTime = Time.time - Mathf.Clamp(ageSeconds, 0f, MaxSampleAgeSeconds);
+        hasSample = true;
     }
+
+    public override void Clear()
+    {
+        base.Clear();
+        hasSample = false;
+    }
+
+    private const float MaxSampleAgeSeconds = 0.5f;
+    private bool hasSample;
+    private RailTrack sampleTrack;
+    private double sampleSpan;
+    private int sampleDirection;
+    private float sampleSpeed;
+    private float sampleTime;
+
+    /// <summary>
+    /// How far (metres, along the car's forward axis) the host's bogie is ahead of ours,
+    /// with the host sample projected forward to now. False when the bogies aren't on the same
+    /// track (crossing a track boundary) or there is no usable sample.
+    /// </summary>
+    public bool TryGetAlongTrackError(TrainCar car, out float metres)
+    {
+        metres = 0f;
+        if (!hasSample || Bogie == null || Bogie.HasDerailed || Bogie.track != sampleTrack ||
+            Bogie.traveller == null || Time.time - sampleTime > MaxSampleAgeSeconds * 2)
+            return false;
+
+        // Span increases along the bogie's forward when its track direction is +1.
+        float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
+        double hostSpan = sampleSpan + sampleDirection * bogieToCar * sampleSpeed * (Time.time - sampleTime);
+        metres = (float)(hostSpan - Bogie.traveller.Span) * Bogie.TrackDirectionSign * bogieToCar;
+        return true;
+    }
+
+    private static bool AreAdjacent(RailTrack a, RailTrack b) =>
+        a != null && b != null &&
+        (a.GetInBranch()?.track == b || a.GetOutBranch()?.track == b ||
+         b.GetInBranch()?.track == a || b.GetOutBranch()?.track == a);
 }

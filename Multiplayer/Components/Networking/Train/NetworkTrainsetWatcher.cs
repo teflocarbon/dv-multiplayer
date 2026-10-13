@@ -179,8 +179,8 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                 // Have we exceeded the max ticks?
                 if (maxTicksReached)
                 {
-                    position = trainCar.transform.position - WorldMover.currentMove;
-                    rotation = trainCar.transform.rotation;
+                    position = trainCar.rb.position - WorldMover.currentMove;
+                    rotation = trainCar.rb.rotation;
 
                     networkedTrainCar.TicksSinceSync = 0;
                 }
