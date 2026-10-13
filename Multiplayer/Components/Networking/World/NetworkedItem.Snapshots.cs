@@ -271,6 +271,31 @@ public partial class NetworkedItem
         BeginColdStorageRetirement();
     }
 
+    private const float ConvergencePositionTolerance = 0.25f;
+
+    private bool DisagreesWithConvergence(ItemUpdateData snapshot)
+    {
+        if (Item == null || Item.IsGrabbed())
+            return false; // a local interaction is in flight; the host will hear about it
+        if (snapshot.AuthorityRevision > AuthorityRevision)
+            return true; // a canonical change never reached us
+        if (GetItemState() is not (ItemState.Dropped or ItemState.Thrown))
+            return true; // the host has it lying in the world; we have it somewhere else
+
+        float tolerance2 = ConvergencePositionTolerance * ConvergencePositionTolerance;
+        if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior)
+        {
+            // Compare in the car's frame so differences in train motion aren't mistaken for drift.
+            if (!Train.NetworkedTrainCar.TryGet(snapshot.WorldParentNetId, out TrainCar car) || car == null)
+                return false; // that car isn't here; nothing to compare against
+            if (TrainCar.Resolve(transform) != car)
+                return true;
+            Transform frame = car.interior != null ? car.interior : car.transform;
+            return (frame.InverseTransformPoint(transform.position) - snapshot.ParentLocalPosition).sqrMagnitude > tolerance2;
+        }
+        return (transform.position - WorldMover.currentMove - snapshot.ItemPosition).sqrMagnitude > tolerance2;
+    }
+
     public void ReceiveSnapshot(ItemUpdateData snapshot)
     {
         if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
@@ -288,6 +313,12 @@ public partial class NetworkedItem
                 });
             return;
         }
+        // Host convergence re-send (NetworkedItemManager.Convergence): only act when this copy
+        // actually disagrees, so the periodic pass never nudges consistent items.
+        if (snapshot.TransitionReason == ItemTransitionReason.Convergence &&
+            !NetworkLifecycle.Instance.IsHost() && !DisagreesWithConvergence(snapshot))
+            return;
+
         bool localVrReleaseAcknowledgement = IsLocalVrReleaseAcknowledgement(snapshot);
         ApplyAuthorityMetadata(snapshot);
 

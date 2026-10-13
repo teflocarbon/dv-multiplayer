@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+febbe15df64c5345ff4cd1f04491bed1d189a579",
-  "Fingerprint": "fc30e109cd262f43aae58b7a2f9c0f60e6104f03dd7d025bf0778c13d850fd2d",
+  "BuildVersion": "0.1.16.14+6beccb0797212dc83618212866aedd2018b6b118",
+  "Fingerprint": "a6bb1506cdfc98a6cba3688b59c0a94cd3a9d8ac6ce761a117e39dd2220ef7c7",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -1264,7 +1264,8 @@
       "InterestRetirement": 11,
       "AuthoredProjectionBinding": 12,
       "PersistenceRestore": 13,
-      "SpatialSettlement": 14
+      "SpatialSettlement": 14,
+      "Convergence": 15
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+ItemUpdateType": {
       "None": 0,

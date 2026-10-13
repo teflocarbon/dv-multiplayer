@@ -42,7 +42,9 @@ public enum ItemTransitionReason : byte
     InterestRetirement,
     AuthoredProjectionBinding,
     PersistenceRestore,
-    SpatialSettlement
+    SpatialSettlement,
+    // Host re-sending canonical state so client copies that drifted heal (see Convergence).
+    Convergence
 }
 
 [Flags]
