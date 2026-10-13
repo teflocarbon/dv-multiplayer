@@ -36,6 +36,10 @@ junction route leases.
 - [ ] authoritative drop; authored (scene) item projection binding
 - [ ] throw settlement, repeated throws, settlement re-projection
 
+## Coupling by hand
+- [x] client decouples by hand (cocks, hoses, screw, chain to its hook) and recouples:
+      `manual-uncouple` scenario (`MODE=recouple`, `LAG=`, `PAUSE=`), upstream #166 / #122
+
 ## Already covered by dvmp scenarios/tools
 - rejoin (+ crash rejoin), save/reload, item soak + desync check, coupling (ad-hoc probes),
   train motion smoothness, handbrake under lag, money pickup, fall-through-map rescue
