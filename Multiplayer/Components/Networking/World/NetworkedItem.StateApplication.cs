@@ -651,11 +651,16 @@ public partial class NetworkedItem
                     NetworkedItemManager.Instance?.DiscardUnboundLocalDuplicate(this);
 
                 // Retrieval claims reserve an exact silhouette slot. Ordinary inventory
-                // possession has no claim metadata, so it must use DV's normal free-slot
-                // insertion path instead of trying to restore slot -1.
-                if (snapshot.InventoryClaimSlot >= 0)
-                    RestoreLocalInventoryClaim(snapshot);
-                else if (InventoryIntegration.AddActive(gameObject) < 0)
+                // possession uses DV's normal free-slot insertion. A slot without a retrieval
+                // reservation only records where the item was put (a Lost and Found retrieval,
+                // for one) and a rejoining player's fresh starting items can fill it: then any
+                // free slot will do. Left in the world, the item was reported dropped, the host
+                // sent it back to the inventory, and so on every update.
+                bool reserved = (snapshot.InventoryClaimFlags &
+                    (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
+                bool placed = snapshot.InventoryClaimSlot >= 0 &&
+                    (RestoreLocalInventoryClaim(snapshot) || reserved);
+                if (!placed && InventoryIntegration.AddActive(gameObject) < 0)
                     PublishClaimInvariant("local-inventory-placement-failed", -1,
                         ItemState.InInventory);
             }

@@ -97,9 +97,13 @@ public static class AuthoritativeItemRegistry
             (seed?.InventoryClaimSlot ?? -1) >= 0 &&
             HasRetrievalFlag(claimFlags);
         byte claimedOwner = seed?.PersistentOwnerPlayerId ?? 0;
+        // An unclaimed personal item belongs to the actor only if they hold it. Registration often
+        // happens when the host first replicates an item, which made the host the owner of every
+        // item bought at a shop (purchases run on the host), whoever bought it.
+        bool actorHoldsSeed = seed != null && actor != null && seed.PlayerId == actor.PlayerId &&
+            seed.ItemState is ItemState.InHand or ItemState.InInventory;
         bool actorOwnsPlayerItem = item.Item?.InventorySpecs?.BelongsToPlayer == true && actor != null &&
-            (claimedOwner == actor.PlayerId ||
-             claimedOwner == 0 && item.Item?.InventorySpecs?.BelongsToPlayer == true);
+            (claimedOwner == actor.PlayerId || claimedOwner == 0 && actorHoldsSeed);
         byte persistentOwner = actorOwnsPlayerItem ? actor.PlayerId : (byte)0;
 
         PersistentWorldItemIdentity persistentIdentity = item.GetComponent<PersistentWorldItemIdentity>();

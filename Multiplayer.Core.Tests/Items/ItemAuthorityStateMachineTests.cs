@@ -70,6 +70,35 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
+    public void PersonalItemPickup_EstablishesOwnerWithoutRetrievalClaim()
+    {
+        ItemAuthorityState original = State(revision: 2);
+        ItemTransitionCommand command = Transition(actor: 2, revision: 2,
+            placement: AuthorityPlacement.PlayerHand);
+        command.MayEstablishPersistentOwner = true;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.EqualTo(2));
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1));
+    }
+
+    [Test]
+    public void PersonalItemMovedInWorld_DoesNotEstablishOwner()
+    {
+        ItemAuthorityState original = State(revision: 2);
+        ItemTransitionCommand command = Transition(actor: 2, revision: 2,
+            placement: AuthorityPlacement.World);
+        command.MayEstablishPersistentOwner = true;
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.Zero);
+    }
+
+    [Test]
     public void ClientAdoption_EstablishesOwnerWithoutRetrievalClaim()
     {
         ItemAuthorityState original = State(revision: 0);
@@ -326,7 +355,7 @@ public sealed class ItemAuthorityStateMachineTests
     }
 
     [Test]
-    public void OrdinaryInventorySlot_DoesNotEstablishRetrievalOwnership()
+    public void OrdinaryInventorySlot_OwnsPersonalItemWithoutRetrievalClaim()
     {
         ItemAuthorityState original = State(revision: 6, placement: AuthorityPlacement.World);
         ItemTransitionCommand command = Transition(1, 6, AuthorityPlacement.PlayerInventory);
@@ -335,7 +364,7 @@ public sealed class ItemAuthorityStateMachineTests
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
 
         Assert.That(result.Accepted, Is.True);
-        Assert.That(result.State.PersistentOwnerPlayerId, Is.Zero);
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.EqualTo(1));
         Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1));
     }
 
