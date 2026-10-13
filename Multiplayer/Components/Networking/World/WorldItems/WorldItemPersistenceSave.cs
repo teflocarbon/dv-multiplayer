@@ -95,10 +95,20 @@ internal static partial class WorldItemPersistenceManager
         }
     }
 
+    /// <summary>
+    /// Job overviews and booklets belong to DV's job system, which saves jobs and recreates their
+    /// paperwork on load. Persisting them as world items as well restored a dead copy of every
+    /// board overview on each load, piling stacked duplicates onto the job boards.
+    /// </summary>
+    internal static bool IsJobSystemDocument(string prefabName) =>
+        prefabName is "JobOverview" or "JobBooklet";
+
     private static bool ShouldPersist(AuthoritativeItemRegistry.Record record)
     {
         if (record == null || record.Placement is ItemPlacementKind.Container or
             ItemPlacementKind.LostAndFound or ItemPlacementKind.Installed or ItemPlacementKind.Destroyed)
+            return false;
+        if (IsJobSystemDocument(record.PrefabName))
             return false;
 
         if (record.PersistentItemId != Guid.Empty)

@@ -50,6 +50,9 @@ internal static partial class WorldItemPersistenceManager
             });
     }
 
+    // The map's terrain tops out a few hundred metres up; DV parks inventory items ~5 km up.
+    private const float MaxPlausibleWorldHeight = 1500f;
+
     private static bool CanImport() => !importAttempted && StartingItemsController.Instance != null &&
         StartingItemsController.Instance.itemsLoaded && SaveGameManager.Instance?.data != null;
 
@@ -57,6 +60,21 @@ internal static partial class WorldItemPersistenceManager
     {
         if (saved.IsTombstone)
             return RestoreAuthoredTombstone(saved, source);
+
+        // Earlier builds recorded the host's inventory items as World (inventory adds weren't
+        // observed) and persisted them at DV's hidden inventory position, kilometres up. Restoring
+        // those dropped them out of the sky every load, duplicating the inventory and punching
+        // items through the terrain. No real world item can be that high: skip them.
+        // Saves from earlier builds contain job paperwork the job system recreates by itself.
+        if (IsJobSystemDocument(saved.PrefabName))
+            return false;
+
+        if (saved.Placement == ItemPlacementKind.World && saved.Position.y > MaxPlausibleWorldHeight)
+        {
+            Multiplayer.LogWarning($"Discarding persisted world item {saved.PrefabName} at height {saved.Position.y:0} " +
+                                   "(an inventory item saved at the hidden inventory position by an older build)");
+            return false;
+        }
 
         NetworkedItem item = FindOrCreateRepresentation(saved);
         if (item == null)
