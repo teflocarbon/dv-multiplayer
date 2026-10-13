@@ -34,6 +34,7 @@ public static class NetworkedLostAndFoundManager
     public static IReadOnlyList<LostItemData> ClientItems => clientItems;
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
+    public static int Count => registry.Count;
 
     public static bool TryCreateCollectionProjection(NetworkedItem item,
         out ItemUpdateData snapshot)
