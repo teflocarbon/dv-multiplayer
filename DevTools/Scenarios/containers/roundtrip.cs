@@ -6,7 +6,7 @@ var log = new List<string>();
 NetworkedItem Wait(ushort id) { NetworkedItem n; return NetworkedItem.TryGet(id, out n) ? n : null; }
 ushort boxId = ushort.Parse(ctx.Args["box"]), itemId = ushort.Parse(ctx.Args["item"]);
 NetworkedItem box = null, item = null;
-for (int i = 0; i < 120 && ((box = Wait(boxId)) == null || (item = Wait(itemId)) == null); i++) yield return null;
+for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 20f && ((box = Wait(boxId)) == null || (item = Wait(itemId)) == null);) yield return null; // a just-joined client can take a while
 if (box == null || item == null) throw new Exception("box or item never arrived");
 string prefab = item.Item.InventorySpecs.ItemPrefabName;
 // A stateful item must come back with its state (run.sh drains a battery on the host, which owns it).
