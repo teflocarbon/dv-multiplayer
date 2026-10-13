@@ -23,6 +23,7 @@ internal static class Desync
     // Order in which kinds are reported: structural problems first, cosmetic last.
     private static readonly string[] KindOrder =
     {
+        "health.no-collision", "health.below-ground", "authority.record-mismatch",
         "item.missing-on-client", "item.ghost-on-client", "item.unexpected-on-client",
         "car.missing-on-client", "car.ghost-on-client", "car.coupling", "car.derailed",
         "world.money", "world.junction",
@@ -107,9 +108,50 @@ internal static class Desync
 
     private static IEnumerable<Finding> Compare(JsonObject host, JsonObject client)
     {
+        foreach (Finding f in Health(host, "host")) yield return f;
+        foreach (Finding f in Health(client, "client")) yield return f;
         foreach (Finding f in CompareItems(host, client)) yield return f;
         foreach (Finding f in CompareCars(host, client)) yield return f;
         foreach (Finding f in CompareWorld(host, client)) yield return f;
+    }
+
+    // Single-peer problems that are bugs regardless of what the other peer shows: an item lying
+    // in the world with every collider disabled (it falls through the floor), or underground.
+    private static IEnumerable<Finding> Health(JsonObject snapshot, string peer)
+    {
+        foreach (var (id, item) in ById(snapshot["items"]))
+        {
+            if (peer == "host" && item["rp"] is JsonValue && RecordMismatch(item) is { } mismatch)
+                yield return new Finding("authority.record-mismatch", "host:" + id, S(item, "n"), mismatch, "-");
+
+            if (S(item, "a") != "true" || S(item, "p") == "player") continue;
+            string where = $"{peer}: {S(item, "s")} {S(item, "p")}";
+            if (F(item, "ct") > 0 && F(item, "cl") == 0)
+                yield return new Finding("health.no-collision", peer + ":" + id, S(item, "n"),
+                    peer == "host" ? where + $", 0/{S(item, "ct")} colliders enabled" : "-",
+                    peer == "client" ? where + $", 0/{S(item, "ct")} colliders enabled" : "-");
+            if (item["bt"] is JsonValue below && below.TryGetValue(out double metres) && metres > 0.5)
+                yield return new Finding("health.below-ground", peer + ":" + id, S(item, "n"),
+                    peer == "host" ? $"{where}, {metres:0.#} m underground" : "-",
+                    peer == "client" ? $"{where}, {metres:0.#} m underground" : "-");
+        }
+    }
+
+    // The host's authority record vs. what the host's own Unity object is actually doing.
+    private static string? RecordMismatch(JsonObject item)
+    {
+        string record = S(item, "rp"), state = S(item, "s");
+        bool active = S(item, "a") == "true";
+        bool ok = record switch
+        {
+            "World" or "TrainInterior" or "StaticParent" => state is "Dropped" or "Thrown",
+            "PlayerHand" => state == "InHand",
+            "PlayerInventory" => state == "InInventory",
+            "Attached" or "SnappedAttachment" => state is "Attached" or "Removed",
+            "LostAndFound" or "Container" or "Destroyed" => !active,
+            _ => true
+        };
+        return ok ? null : $"record {record}, but the object is {state}{(active ? " and active" : " (hidden)")} under {S(item, "p")}";
     }
 
     private static IEnumerable<Finding> CompareItems(JsonObject host, JsonObject client)

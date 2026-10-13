@@ -85,6 +85,20 @@ internal static class Session
                 return Result(host, client, reused: true);
             }
 
+            // A healthy host with no client (e.g. the client quit or crashed): keep the host's
+            // world as it is and only bring a client back. This is also how rejoining is tested.
+            if (!o.Fresh && host != null && agents.Count == 1)
+            {
+                Mark("host healthy; launching client only");
+                JsonObject server = await RunProbeExpressionAsync(host,
+                    "new { port = global::Multiplayer.Multiplayer.Settings.Port, password = global::Multiplayer.Multiplayer.Settings.Password ?? \"\" }");
+                Process lone = Launch("client", o);
+                Agent rejoined = await JoinAsync(lone, server["port"]!.GetValue<int>(), server["password"]!.GetValue<string>(), o);
+                Mark("ready");
+                Win32.SetTitle(rejoined.Pid, "DVMP CLIENT (" + ClientName + ")");
+                return Result(host, rejoined, reused: false);
+            }
+
             if (agents.Count > 0)
             {
                 Mark($"stopping {agents.Count} existing game(s)");
@@ -108,27 +122,12 @@ internal static class Session
             int port = hosted["port"]?.GetValue<int>() ?? 7777;
             string password = hosted["password"]?.GetValue<string>() ?? string.Empty;
 
-            Agent clientAgent = await WaitForAgentAsync(clientProcess, TimeSpan.FromSeconds(90));
             if (o.Arrange && !o.Background) Arrange(hostProcess, clientProcess, o);
 
             Mark("host: waiting for world + server");
             hostAgent = await WaitUntilAsync(hostAgent.Pid, a => a.Role == "host" && WorldLoaded(a), TimeSpan.FromSeconds(300), "host world load");
 
-            Mark("client: waiting for main menu");
-            await WaitForMenuAsync(clientAgent, TimeSpan.FromSeconds(120));
-            Mark("client: joining");
-            await RunProbeAsync(clientAgent, "join", new()
-            {
-                ["address"] = "127.0.0.1",
-                ["port"] = port.ToString(),
-                ["password"] = password,
-                ["name"] = ClientName,
-                ["guid"] = ClientGuid
-            });
-
-            Mark("client: waiting for world");
-            clientAgent = await WaitUntilAsync(clientAgent.Pid, a => a.Role == "client" && WorldLoaded(a), TimeSpan.FromSeconds(300),
-                "client world load", failFast: ClientDisconnectAsync);
+            Agent clientAgent = await JoinAsync(clientProcess, port, password, o);
 
             Mark("ready");
             Win32.SetTitle(hostAgent.Pid, "DVMP HOST");
@@ -145,6 +144,36 @@ internal static class Session
             failed["error"] = e.Message;
             return failed;
         }
+    }
+
+    // Waits for a launched client process to reach the menu, joins it to the host, and waits
+    // until its world has loaded.
+    private static async Task<Agent> JoinAsync(Process clientProcess, int port, string password, UpOptions o)
+    {
+        Agent clientAgent = await WaitForAgentAsync(clientProcess, TimeSpan.FromSeconds(90));
+        Mark("client: waiting for main menu");
+        await WaitForMenuAsync(clientAgent, TimeSpan.FromSeconds(120));
+        Mark("client: joining");
+        await RunProbeAsync(clientAgent, "join", new()
+        {
+            ["address"] = "127.0.0.1",
+            ["port"] = port.ToString(),
+            ["password"] = password,
+            ["name"] = ClientName,
+            ["guid"] = ClientGuid
+        });
+        Mark("client: waiting for world");
+        return await WaitUntilAsync(clientAgent.Pid, a => a.Role == "client" && WorldLoaded(a), TimeSpan.FromSeconds(300),
+            "client world load", failFast: ClientDisconnectAsync);
+    }
+
+    private static async Task<JsonObject> RunProbeExpressionAsync(Agent agent, string expression)
+    {
+        JsonObject r = await Operations.EvalAsync(expression, agent.Pid.ToString(), "expression", null, null, 15);
+        JsonNode? single = r["results"]?.AsObject().FirstOrDefault().Value;
+        if (r["compileError"] is { } compile) throw new Exception("probe failed to compile: " + compile);
+        if (single?["ok"]?.GetValue<bool>() != true) throw new Exception($"probe failed on {agent.Label}: {single?["error"]}");
+        return single["result"] as JsonObject ?? new JsonObject();
     }
 
     private static JsonObject Result(Agent host, Agent client, bool reused)
