@@ -139,6 +139,7 @@ public class NetworkClient : NetworkManager
     private bool trainTopologyRetryRunning;
     private ulong nextTrainTopologyOperationId;
     private float nextTrainTopologySyncRequestAt;
+    private const double MaxWeatherClockLeadSeconds = 300; // game time
     private float nextDeferredBrakeTopologyWarningAt;
     private uint lastDeferredBrakeTopologyRevision;
     private ulong nextTrainControlOperationId;
@@ -861,6 +862,18 @@ public class NetworkClient : NetworkManager
     {
         if (LoadingState < PlayerLoadingState.Complete)
             Log("Received weather state");
+
+        // The host's clock arrives one trip late, so applying it as-is stepped the client's clock
+        // back a little every update. Time-driven consumers read a backward step as a whole day
+        // passing (a lit flashlight's battery emptied at once). Keep a clock that is only slightly
+        // ahead; real changes (the host setting the time) are far larger.
+        if (LoadingState >= PlayerLoadingState.Complete && WeatherDriver.Instance.manager != null)
+        {
+            double local = WeatherDriver.Instance.manager.RealDateTime.ToOADate();
+            double behind = (local - packet.OADate) * TimeSpan.FromDays(1).TotalSeconds;
+            if (behind > 0 && behind < MaxWeatherClockLeadSeconds)
+                packet.OADate = local;
+        }
 
         WeatherDriver.Instance.LoadSaveData(JObject.FromObject(packet), Globals.G.GameParams.WeatherEditorAlwaysAllowed);
     }
