@@ -55,6 +55,7 @@ yield return Trains.Push(l, away, 3f, 1f); l.brakeSystem.SetHandbrakePosition(1f
     }
     console.log(bad.length? "FAIL "+bad.join("; ") : recouple ? "ok (coupled, chain "+h.chain+", wagon followed "+moved(h,h2).toFixed(1)+" m)" : "ok (chains "+h.chain+", loco pulled away "+h2.gap+" m)");' "$h" "$c" "$h2" "$c2")
   echo "   run $run ($L + $W): $r"
+  case "$r" in FAIL*) echo "     client steps: $(echo "$u" | field steps)";; esac
   # Clear the pair away: a later pair spawns on the same track.
   for c in $L $W; do $D eval -t host -m body -a id=$c 'Trains.Delete(Trains.Find(ctx.Args["id"])); return 0;' >/dev/null 2>&1 || true; done
   cars=""

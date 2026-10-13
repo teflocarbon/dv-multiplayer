@@ -9,7 +9,7 @@ var steps = new List<string>();
 // Chains only switch on when a camera renders them; the test games are minimised, so lock them on.
 var optimizers = new[] { a, b }.SelectMany(c => c.GetComponentsInChildren<ChainCouplerVisibilityOptimizer>(true)).ToList();
 foreach (var o in optimizers) o.LockLOD();
-for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 15f && new[] { ca.ChainScript, cb.ChainScript }.All(c => c == null || c.CurrentState == ChainCouplerInteraction.State.Disabled);) yield return null;
+for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 15f && new[] { ca.ChainScript, cb.ChainScript }.Any(c => c == null || c.CurrentState == ChainCouplerInteraction.State.Disabled);) yield return null;
 IEnumerator Pause() { for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < float.Parse(ctx.Args["pause"]);) yield return null; }
 ca.IsCockOpen = false; cb.IsCockOpen = false; steps.Add("cocks closed"); yield return Pause();
 ca.DisconnectAirHose(true); steps.Add("hoses parted: " + (ca.GetAirHoseConnectedTo() == null)); yield return Pause();
