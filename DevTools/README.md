@@ -41,13 +41,21 @@ Run after changing item, session or persistence code. Each exits non-zero on fai
 
 | Scenario | What it guards |
 |---|---|
-| `bash DevTools/Scenarios/rejoin/run.sh` | Client quits holding an item: host keeps every item and drops the held one; client rejoins and gets exactly one of each item back in its inventory (no duplicates, nothing dropped). `FRESH=1` restarts both games first. |
+| `bash DevTools/Scenarios/rejoin/run.sh` | Client quits holding an item: host keeps every item and drops the held one; client rejoins and gets exactly one of each item back in its inventory (no duplicates, nothing dropped). `FRESH=1` restarts both games first; `CRASH=1` kills the client and rejoins before the host notices. |
 | `SESSION="DVMP Test Career 2" bash DevTools/Scenarios/save-reload/run.sh` | Repeated host save + reload: item and job-overview counts don't grow, nothing is active in the sky, nothing drifts into Lost and Found, the host's inventory stays recorded as inventory. |
+| `WHO=client MODE=drop WHEN=moving bash DevTools/Scenarios/train-items/run.sh` | A player carries a mug into a DE2 cab and drops or throws it, the host pushes the train: on both peers the mug stays in the cab, attached to the loco at the same spot. `WHO=client|host`, `MODE=drop|throw`, `WHEN=stopped|moving`. |
 
 Test saves are separate sessions ("DVMP Test Career", "DVMP Test Career 2"); create more with
 `dvmp up --new career --name "..."`.
 
 ## Writing probes
+
+Probes (`Probes/*.cs`) and their shared libraries (`Probes/lib/*.cs`: `Hands`, `LocalPlayer`,
+`Trains`, `Steps`) are read from source on every call when dvmp runs from the repo, so editing
+them needs no rebuild. Only changes to dvmp itself do; while the MCP server holds
+`bin/Debug/net8.0/dvmp.exe`, build a CLI copy with
+`dotnet build DevTools/Dvmp/Dvmp.csproj -o DevTools/Dvmp/bin/cli` and point scenarios at it with
+`DVMP=DevTools/Dvmp/bin/cli/dvmp.exe`.
 
 ```csharp
 // expression
