@@ -806,21 +806,14 @@ Use the world-origin cards and `world.origin-shift.*` events when positions diff
 
 ## Build and verification
 
-Build the shared contracts, standalone client/dashboard, and mod with:
+Build the shared contracts and mod with:
 
 ```powershell
 dotnet build Multiplayer.DebugProtocol/Multiplayer.DebugProtocol.csproj -c Debug
-dotnet build DebugRemoteClient/Multiplayer.DebugClient.csproj -c Debug
 dotnet build Multiplayer/Multiplayer.csproj -c Debug
 ```
 
-Run the shared runtime smoke tests with:
-
-```powershell
-DebugRemoteClient/bin/Debug/net48/Multiplayer.DebugClient.exe --self-test
-```
-
-The self-test currently covers event serialization/schema, redaction, bounded retention, stable payload fingerprints, discovery liveness, random loopback startup, API responses, and capture pre-roll/live writes.
+In-game verification uses dvmp (see `DevTools/README.md`).
 
 Pure multiplayer authority invariants are covered separately by the NUnit suite:
 

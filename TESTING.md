@@ -1,7 +1,7 @@
 # Multiplayer testing
 
 The multiplayer implementation now has a Unity-free core test boundary in addition to the
-existing observability self-tests and in-game acceptance tests.
+in-game tests run with dvmp.
 
 ## Test layers
 
@@ -82,227 +82,22 @@ properties from decoded JSON. It also round-trips all cold-container browse/muta
 result packet shapes, including compact handles and 16-byte operation IDs. The production assembly must be built first because this suite tests
 the real mod binary rather than a copied packet schema.
 
-### Cold-container in-game acceptance pass
+### In-game tests with dvmp
 
-Run this with host and client before treating the implementation as release-ready:
+Anything that depends on the real game (physics, inventory, trains, joining, saving) is tested in
+two real game instances driven by **dvmp** (see `DevTools/README.md`): `dvmp_up` brings up a
+joined host and client, `dvmp_eval` runs C# in either game, `dvmp_desync` compares the two
+peers' state, and `dvmp_soak` drives random item interactions.
 
-1. Put ordinary items into every container type from both host and client inventories; close and
-   reopen each container and verify no contained Unity items remain active while closed.
-2. Move items between slots and between nested folder/registrator/briefcase/toolbox/crate views.
-   Confirm incompatible moves, full slots, cycles, and stale simultaneous actions are rejected.
-3. Nest to the configured depth boundary and verify the next level is rejected without losing any
-   shell or child item.
-4. Withdraw on host and client. Verify exactly one new NetId appears, the item enters the correct
-   inventory, and the cold edge disappears only after materialization succeeds.
-5. Deposit and withdraw an item owned by the other player. Verify its persistent owner never changes
-   and the row is red for the container owner.
-6. Put a populated container in Lost and Found, retrieve only its shell, then open it and verify the
-   same direct contents and revisions remain.
-7. Save/reload with nested populated containers in inventory, world, and Lost and Found. Verify UUIDs,
-   slots, detached state, owners, and child edges survive without duplicate physical objects.
-8. Disconnect/reconnect the client while a container is open and repeat one mutation; verify stale
-   UI subscriptions do not intercept an ordinary or foreign-owned container.
-9. Exercise both desktop drag/drop and VR container controls.
-10. Inspect the F12 Containers page and confirm every mutation advances only the affected graph
-    revisions and never exposes persistent UUIDs in routine packet payloads.
+Repeatable scenarios live in `DevTools/Scenarios/<name>/run.sh` (exit code 0 = pass):
 
-### Observability component tests
+- `rejoin` - disconnect/rejoin keeps every item exactly once (`CRASH=1`: kill the client and
+  rejoin before the host notices);
+- `save-reload` - items don't multiply, fall or drift into Lost and Found across reloads.
 
-The existing debug-client self-test covers protocol contracts, packet projection, and
-replication-recipient completion:
-
-```powershell
-DebugRemoteClient\bin\Debug\net48\Multiplayer.DebugClient.exe --self-test
-```
-
-These cases should gradually move into normal test projects as their production components are
-extracted from the executable assembly.
-
-### Debug-only runtime tests
-
-Build and deploy the mod in `Debug`, start the host and client with the debug system and runtime
-test harness enabled, then launch the combined dashboard. Its **Runtime tests** page discovers the
-catalogue from each live process and requires an explicit target before executing a command.
-
-The initial catalogue contains:
-
-- `runtime.self-check`;
-- `runtime.control-status`, which reports automation/user input ownership, pause state, interaction
-  mode, neutral-world state, and the absolute player position;
-- `runtime.interaction-mode` using `Pickup` or `Screenspace`/`Alt`;
-- `runtime.neutralize`, which closes the inventory and pause menu and restores pickup mode;
-- `player.position`, with optional `copyToClipboard=true`;
-- `player.teleport` using absolute-coordinate parameters;
-- `item.look-at`, which aims the real non-VR camera and verifies the production raycaster acquired
-  the requested item;
-- `item.pickup` using `{"netId":"123"}`;
-- `item.drop` with an optional NetId assertion;
-- `item.throw` with an optional NetId and optional `directionX/Y/Z`;
-- `inventory.inspect`, which reports every local slot including dropped/reserved silhouettes and
-  distinguishes a normal visible slot from internal inventory membership;
-- `inventory.prefab-catalog`, with optional `filter` and `limit` parameters;
-- `inventory.fixture-create`, `inventory.fixture-place`, and `inventory.fixture-destroy`, which
-  are host-only, authority-backed operations for disposable test items;
-- `inventory.local-place`, which moves an existing local representation to `inventory`, `hand`, or
-  `world` through DV's inventory and grabber methods;
-- `scenario.cold-container-round-trip`, which makes the dashboard create a client-owned crate and
-  compatible item on the host, waits for their client inventory projections, invokes DV's real
-  desktop quick-move path in both directions, checks NetId retirement/materialization, slot, owner,
-  prefab, detached state and graph-backed view revisions, then retires both disposable fixtures and
-  verifies the client has no surviving fixture NetIds or dead inventory slots;
-- `scenario.cold-container-foreign-rejection`, which auto-selects a compatible foreign-owned item
-  created by the host in the acting player's inventory and verifies the server rejection leaves the
-  item slot, representation, container revision, and row count unchanged.
-
-### Cold-container runtime regression suite
-
-Run every `scenario.cold-container-*` entry against the client target. Each scenario owns its host
-fixtures, captures both processes under one run ID, and must finish with `cleanupClean=true`. The
-dashboard coordinator then verifies that neither process retains a fixture-tagged inventory item or
-Unity representation.
-
-| Scenario | Runtime invariant |
-| --- | --- |
-| `scenario.cold-container-round-trip` | A normal quick-move deposit retires the physical NetId; withdrawal allocates a fresh NetId and restores slot, owner, prefab, and detached state. |
-| `scenario.cold-container-stateful-round-trip` | Item-specific save data survives cold serialization and materialization. |
-| `scenario.cold-container-reopen-round-trip` | A cold row remains authoritative while the physical container UI is closed and reopened. |
-| `scenario.cold-container-move-within` | Moving a cold row changes its slot and revision without materializing it. |
-| `scenario.cold-container-stale-revision` | A stale mutation is rejected without graph damage, followed by a successful fresh-revision withdrawal. |
-| `scenario.cold-container-invalid-withdraw-slot` | An invalid inventory destination is rejected without losing the cold record, followed by recovery to the original slot. |
-| `scenario.cold-container-incompatible-rejection` | Runtime-derived DV compatibility rejects an invalid item and leaves both projections unchanged. |
-| `scenario.cold-container-repeated-round-trip` | Repeated deposit/withdraw cycles preserve identity data, advance revisions, and never immediately reuse a retired NetId. |
-| `scenario.cold-container-foreign-rejection` | A player cannot deposit an item owned by another player. |
-| `scenario.cold-container-private-browse-rejection` | Possession of another player's shell does not disclose its cold rows or activate a private view. |
-| `scenario.cold-container-nested-cycle-guard` | A Folder can become a cold child of a Registrator, child browsing works, recursive insertion is rejected by compatibility/cycle guards, and the original edge survives. |
-
-The nested runtime case intentionally accepts either `Incompatible` or `CycleDetected` for the
-reverse edge. DV's strict container hierarchy normally rejects a wider parent before the graph's
-cycle check. `ColdContainerGraphTests.NestedMove_CannotPlaceContainerInsideItsDescendant` exercises
-the exact `CycleDetected` branch with an allow-all compatibility policy. Snapshot encoding,
-malformed-load rejection, quotas, depth, detached-state budgets, operation replay, and transactional
-graph behavior remain covered by `Multiplayer.Core.Tests`; packet contracts remain covered by
-`Multiplayer.Protocol.Tests`.
-
-### Lost-and-Found runtime regression suite
-
-Run every `scenario.lost-and-found-*` entry against the client target. These scenarios use the
-single-item fixture orchestration: the dashboard creates exactly one tagged item, waits for its
-client inventory projection, captures the host/client network window, and retires that item from
-inventory, world, or virtual Lost and Found during unconditional cleanup. Every run must finish
-with `cleanupClean=true` and no tagged Unity representation, inventory slot, or registry entry.
-
-| Scenario | Runtime invariant |
-| --- | --- |
-| `scenario.lost-and-found-automatic-round-trip` | A personal item dropped beyond both players and left past the grace period is collected, privately listed with a compact handle, then restored through the real client/server retrieval API to its original slot and owner. |
-| `scenario.lost-and-found-stale-revision-recovery` | A stale revision is rejected without consuming the record; a current-revision retry succeeds. |
-| `scenario.lost-and-found-full-inventory-recovery` | Server-side slot planning rejects full-inventory evidence without losing the item, then accepts a valid retry. |
-| `scenario.lost-and-found-essential-star-recall` | The base-game essential-item Return/star route accepts a stale silhouette projection and revives the exact reserved slot. |
-| `scenario.lost-and-found-repeated-round-trip` | Two collection/retrieval cycles advance authority revisions, allocate fresh compact handles, preserve ownership, and leave no stale list entry. |
-| `scenario.lost-and-found-owner-nearby-protection` | A personal world item within the owner-protection radius remains materialized beyond the collection grace period. |
-| `scenario.lost-and-found-other-player-nearby-protection` | The owner can leave the area while another player near the item prevents collection. |
-| `scenario.lost-and-found-container-shell-round-trip` | A player-owned storage-container shell is collected and retrieved without losing its runtime identity or ownership. |
-| `scenario.lost-and-found-nonpersonal-exclusion` | Ordinary world junk is never promoted into a player's virtual Lost and Found. |
-| `scenario.lost-and-found-private-owner-list` | A collected item owned by the host disappears from the acting client's interest without being disclosed in that client's list. |
-| `scenario.lost-and-found-unknown-handle-rejection` | An unknown compact handle is rejected and cannot mutate an unrelated inventory fixture. |
-
-The deterministic `LostAndFoundTests` suite separately covers every policy branch, exact distance
-and grace boundaries, unknown positions, interaction/container exclusions, license exclusion,
-registry identity and privacy indexes, durable UUID/compact-handle separation, stale canonical
-invalidation, silhouette precedence, slot fallback, full inventory, wrong owner, stale revision,
-and unavailable inventory. `LostAndFoundPacketTests` verifies list, request-evidence, and result
-contracts independently of Unity.
-
-### Adding runtime scenarios
-
-Runtime scenarios are self-registering Debug-only classes. Add one file under
-`Multiplayer/Debugging/RuntimeTests/Scenarios`, implement `IRuntimeTestScenarioDefinition`, and
-provide its `RuntimeTestDescriptorDto` plus `Execute` method. The registry discovers implementations
-from the Multiplayer assembly, adds their descriptors to the runtime catalogue, and dispatches their
-execution factories. No catalogue or runtime-agent switch edit is required.
-
-The descriptor is also the dashboard's orchestration contract. Set `IsScenario`,
-`ScenarioOrchestration`, `FixturePolicy`, `CleanupPolicy`, and `FixtureItemOwnership`; the dashboard
-uses those typed fields to arrange the host/client fixtures, run the selected client step, capture
-the run, and verify cleanup. It does not recognize individual scenario IDs. Scenarios that share an
-existing orchestration and fixture policy are therefore one-file additions. A genuinely new fixture
-shape or orchestration adds one reusable coordinator policy, after which scenarios using it remain
-one-file additions.
-
-Use `RuntimeTestScenarioContext` and `RuntimeTestScenarioRunner` inside the execution method so
-assertions, resource tracking, cleanup, phases, and `FailedDirty` reporting stay consistent. Keep
-feature-specific mechanics in a shared driver when multiple scenario definitions exercise the same
-system, as the cold-container definitions do.
-
-Managed runtime agents own keyboard and mouse input through DV's own input-request system. Press
-`Ctrl+Shift+F5` in a game process to return both devices to the user; active tests pause and their
-timeouts stop advancing until automation control is restored with the same key. The overlay shows
-input ownership, pause state, pickup/screenspace mode, the active test, and the absolute position.
-Press `Ctrl+Shift+F2` to copy that position directly.
-Managed host and client processes are muted at Unity's master listener for the duration of harness
-control; the overlay reports `Audio: MUTED`, and shutdown restores the previous volume.
-
-Every runtime operation begins and ends at a neutral-world boundary: inventory and pause menus are
-closed and pickup mode is restored. A failed postcondition marks the run `FailedDirty`, preventing
-a later test from silently inheriting UI state.
-
-Pickup automatically aims using DV's non-VR view controller, refreshes the production raycaster,
-and records `camera-aligned-raycast` when the normal path succeeds. When geometry or a moving train
-makes the target impossible to acquire, it may use DV's real force-hold request as an explicit
-fallback; the result records `fallbackUsed`, `fallbackReason`, and `pickupPath`. Set
-`allowForceHoldFallback=false` when a scenario specifically requires raycast fidelity. Drop and
-throw still require a genuinely held networked item. VR reports `Unsupported` until a VRTK-specific
-driver exists.
-
-The round-trip scenario is self-contained when invoked through the dashboard. It accepts optional
-`containerPrefabName` and `itemPrefabName` parameters (defaulting to `ItemContainerCrate` and
-`lighter`); the dashboard creates both fixtures on the host for the selected client and supplies
-their NetIds to the client-only gameplay step. A direct process-level invocation can still accept
-`shellNetId` and `itemNetId` for lower-level diagnosis. The foreign rejection case uses a disposable
-host-owned item held by the selected client. `assertDetachedState` defaults to `true` for the owned
-round trip.
-
-Fixture creation requires `prefabName` and accepts `ownerPlayerId`, `holderPlayerId`, `placement`,
-and optional `slot` or absolute `x/y/z`. Keeping owner and holder different creates the deliberate
-foreign-possession setup needed by rejection tests. Creation returns a fixture token; authoritative
-placement and destruction reject ordinary save items that were not created by this runtime agent.
-For exact local slot arrangement, follow the host create/placement command with
-`inventory.local-place` on the holder's process. These commands exist only in Debug builds.
-
-Scenario commands automatically begin a coordinated dashboard capture using their run ID. The
-self-contained round trip reports every host arrangement, client action, host cleanup command, and
-final client inventory verification as
-a process stage. Results contain phase records, timed assertions, resource-ledger state, operation
-UUIDs, fixture NetIds, `cleanupClean`, and capture paths. Capture filenames include the run ID so
-repeating a scenario within the same game session never overwrites an earlier run's artifacts.
-Use an operation UUID to correlate the acting client request/result with the host authority event,
-or query `/api/events/query` by `testRunId`, `testCaseId`, `testPhaseId`, or `testStepId`. A scenario
-that cannot verify cleanup ends as `FailedDirty` rather than an ordinary failure.
-
-The dashboard command is a parent barrier over its selected process or processes. Inspect the
-per-process results and test-scoped event stream before treating a pass as a multiplayer scenario
-pass. Every command result includes a `runtime` block containing the shared CalVer build number,
-role, player ID/name, session and process IDs, server/client state, and active scene so copied
-failure JSON remains attributable. The build number identifies the exact mod/dashboard source
-build; the semantic mod version remains the separate compatibility identity.
-These routes, DTOs, agents, drivers, settings, and embedded test UI are excluded from Release builds.
-
-The dashboard journals the complete parent result for the latest 250 runs as atomic JSON files in
-`%LOCALAPPDATA%\DVMultiplayer\test-runs`. `GET /api/runtime-tests/runs` returns summaries for the
-history panel and `GET /api/runtime-tests/runs/{requestId}` returns either the live coordinator
-snapshot or the persisted result. `runtime-test.run-updated` is emitted over the normal SSE stream
-whenever status, phase, step, error, or process status changes. The Tests panel uses that event for
-live progress while preserving text selection and scroll position. Its Network activity section
-separates packet wire activity from item-replication lifecycle events, and constrains both to the
-run's start/completion window. High-frequency and routine background packets are hidden from the
-focused packet list but remain available in All correlated events and the capture artifacts.
-
-The dashboard's **Environment** page automates the two-instance prerequisite. Enter the game
-executable and connection settings, then choose **Launch host + client**. The supervisor waits for
-host save load, starting items, loopback connection, and listening server before it starts the
-client. Treat the environment as usable only once its stage is `Ready` and the host/client
-readiness snapshots report completed network loading and loaded starting items.
-Managed windows launch minimized without activation by default, preventing cursor capture and
-accidental camera input while Unity continues running in the background.
+Run both after any change to item sync, inventory, persistence or joining. Old runtime-test
+coverage that still needs rebuilding as dvmp scenarios is listed in
+`DevTools/Scenarios/PORTING.md`.
 
 ### Unity adapter and in-game acceptance tests
 

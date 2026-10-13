@@ -198,10 +198,6 @@ public static class NetworkedColdContainerManager
         });
         if (!result.Accepted) return result;
 
-#if DEBUG
-        global::Multiplayer.Debugging.RuntimeTests.InventoryRuntimeFixtureDriver
-            .TransferFixtureToCold(itemNetId, record.PersistentItemId);
-#endif
         try
         {
             ItemUpdateData destroy = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
@@ -370,10 +366,6 @@ public static class NetworkedColdContainerManager
             if (!committed.Accepted)
                 throw new InvalidOperationException("withdraw-logical-commit-failed:" + committed.Reason);
             item.CompleteColdMaterialization();
-#if DEBUG
-            global::Multiplayer.Debugging.RuntimeTests.InventoryRuntimeFixtureDriver
-                .TransferFixtureFromCold(record.PersistentItemId, item.NetId);
-#endif
             PublishMaterializedItem(snapshot, item);
             Publish("container.withdrawal-committed", 0, committed, new()
             {
