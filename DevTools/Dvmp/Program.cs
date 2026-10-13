@@ -12,7 +12,7 @@ internal static class Program
 
           dvmp mcp                                   run as an MCP server over stdio
           dvmp status
-          dvmp up [--fresh] [--save NAME|UID] [--visible] [--fps N] [--sound]
+          dvmp up [--fresh] [--save NAME|UID] [--visible] [--fps N] [--sound] [--trace]
                                              start/reuse a joined host + client (minimised, muted)
           dvmp down                                  quit all agent-enabled games
           dvmp trace [-t target] [--ids 1,2] [--last N]   install/refresh tracer, show item history
@@ -43,7 +43,7 @@ internal static class Program
                 "up" => PrintResult(await Session.UpAsync(
                     new UpOptions(args.Contains("--fresh"), Opt(args, "--save"), 960, 540, Arrange: true,
                         Background: !args.Contains("--visible"), FpsCap: int.Parse(Opt(args, "--fps") ?? "30"),
-                        Sound: args.Contains("--sound")),
+                        Sound: args.Contains("--sound"), Trace: args.Contains("--trace")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
                 "down" => Print(await Session.DownAsync(CancellationToken.None)),
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),
