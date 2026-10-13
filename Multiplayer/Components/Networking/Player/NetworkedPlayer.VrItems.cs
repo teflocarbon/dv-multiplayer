@@ -118,6 +118,20 @@ public partial class NetworkedPlayer
             handPosition - itemRotation * anchorPosition, itemRotation);
     }
 
+    /// <summary>
+    /// Moves every item projected onto this avatar back into the world so destroying the avatar
+    /// does not destroy them. Held items go through the normal release path (colliders and
+    /// physics restored); inventory items keep their hidden state. Their authority records stay
+    /// keyed to the player's identity, so they are restored if the player rejoins.
+    /// </summary>
+    public void ReleaseAllItems()
+    {
+        DropProjectedItem(null);
+        foreach (World.NetworkedItem item in GetComponentsInChildren<World.NetworkedItem>(true))
+            if (item != null)
+                item.transform.SetParent(WorldMover.OriginShiftParent, true);
+    }
+
     private bool DropProjectedItem(GameObject expectedItem)
     {
         bool dropped = false;
