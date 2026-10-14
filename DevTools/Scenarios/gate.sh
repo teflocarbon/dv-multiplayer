@@ -29,6 +29,8 @@ runs=( # name | scenario | variables
   "inventory-persist|inventory-persist|"
   "borrowed-disconnect|borrowed-disconnect|"
   "shop|shop|"
+  "jobs|jobs|ACCEPT=host HANDIN=client"
+  "sandbox-cargo|sandbox-cargo|"
   "player-soak|player-soak|DURATION=120"
 )
 failed=0
