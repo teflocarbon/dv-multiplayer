@@ -912,6 +912,12 @@ public class NetworkServer : NetworkManager
         //LogDebug(()=> $"Sending Brake Pressures netId {netId}: {mainReservoirPressure}, {independentPipePressure}, {brakePipePressure}, {brakeCylinderPressure}");
     }
 
+    public void SendExplosion(ushort carNetId, global::Multiplayer.Patches.Train.ExplosionSync.Kind kind, byte index)
+    {
+        SendPacketToAll(new ClientboundExplosionPacket { CarNetId = carNetId, Kind = (byte)kind, Index = index },
+            DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+    }
+
     public void SendCargoState(NetworkedTrainCar netTraincar, bool isLoading, byte cargoModelIndex)
     {
         Car logicCar = netTraincar?.TrainCar?.logicCar;
