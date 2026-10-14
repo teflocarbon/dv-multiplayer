@@ -8,6 +8,7 @@ using Multiplayer.API;
 using Multiplayer.Components.MainMenu;
 using Multiplayer.Components.Networking;
 using Multiplayer.Editor;
+using Multiplayer.ModCompatibility;
 using Multiplayer.Models;
 using Multiplayer.Debugging;
 using Multiplayer.Patches.Mods;
@@ -120,6 +121,8 @@ public static class Multiplayer
                 Log("Found RemoteDispatch, patching...");
                 RemoteDispatchPatch.Patch(harmony, remoteDispatch.Assembly);
             }
+
+            SkinManager.Initialize();
 
             Log("Loading Assets...");
             if (!LoadAssets())
