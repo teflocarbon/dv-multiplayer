@@ -14,7 +14,7 @@ The system is deliberately additive. It observes the existing transport, packet 
 | Random loopback HTTP/SSE server | Implemented |
 | Session discovery and heartbeat | Implemented |
 | Shared embedded Web UI | Implemented |
-| Combined host/client dashboard | Implemented |
+| Combined host/client dashboard | Removed in f510e8e (with `Multiplayer.DebugClient`); two-game testing now uses the dvmp harness (`DevTools/Dvmp`, scenarios in `DevTools/Scenarios`) |
 | Generic packet receive/send summaries | Implemented |
 | Item handler, validation, application, and lifecycle tracing | Implemented |
 | Inventory, storage, container, and distance-respawn tracing | Implemented with exact game events and additive diagnostics |
