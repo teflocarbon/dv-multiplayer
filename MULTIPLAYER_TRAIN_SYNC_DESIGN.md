@@ -4,6 +4,34 @@
 > build and two-process runtime verification remain. Motion epochs and quantitative correction
 > telemetry remain the next independent stage.
 
+## Implementation status (audited 2026-10-14)
+
+Checked against the code on `fix/multiplayer-stability`. Where this differs from the design text
+below, this section describes what the code does.
+
+- **Runtime verification:** done for topology. The dvmp gate (`DevTools/Scenarios/gate.sh`) runs
+  `manual-uncouple` (hand uncouple/recouple with lag), `uncouple-moving`, `couple-impact` (coupling
+  while the buffers bounce, by menu or chain) and `fps-drop`. `host-stall` covers a host frame-rate
+  collapse.
+- **Stages 0–3:** implemented. The relay-only MU, hose and cock handlers are gone (their `Common*`
+  packet classes remain as unreferenced code).
+- **Stage 4:** control commit/ack is implemented for handbrake, fuses, release and ports. The
+  thresholded simulation snapshot with `simulationRevision` was **not** built: brake state uses the
+  brake-state packet (0.02 bar threshold, 2 s heartbeat, topology-revision gating), and host
+  simulation port values ride on control commits.
+- **Stage 5:** not started. There is no `motionEpoch`; only a >5 m snap clears a client's queues,
+  rerail doesn't reset them, and `SendTrainsetRelocation` has no caller. No correction or bandwidth
+  telemetry. Motion smoothing that did land: separate speed/correction easing with an impact step
+  (`TrainSpeedQueue`), the network tick advancing by elapsed time at any frame rate
+  (`NetworkLifecycle`), and full syncs ignoring a just-spawned car's pooled rigidbody.
+- **Stage 6:** partly done. Protocol mismatch is rejected at connect. Still present: the chain
+  drag/screw path through `CommonCouplerInteractionPacket` mutates the host with a 2 s timed
+  suppression, and the client still subscribes the legacy `Common*` control receivers.
+- **Client coupler joints** no longer break on clients (`CouplerBreakPatch`); a break that still
+  happens locally is undone from the host's topology instead of reported.
+- **Not yet built:** periodic topology digest audit, wrap-safe revision comparisons, control lease
+  expiry other than disconnect/release, the perf counters in "Performance budget".
+
 ## Goal
 
 Make the host the only authority for rolling-stock identity, topology, simulation, and motion while
