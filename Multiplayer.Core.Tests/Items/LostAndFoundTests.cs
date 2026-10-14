@@ -323,6 +323,48 @@ public sealed class LostAndFoundTests
         Assert.That(plan.Reason, Is.EqualTo(expectedReason));
     }
 
+    [Test]
+    public void RejoiningOwner_GetsTheirItemsUnderTheirNewId()
+    {
+        LostItemRegistry registry = new();
+        LostItemRecord record = Record();
+        record.OwnerIdentity = "owner-a";
+        registry.Add(record);
+
+        Assert.That(registry.UnbindOwner(1), Is.EqualTo(1));
+        Assert.That(registry.GetForOwner(1), Is.Empty, "the next player given id 1 must not see them");
+        Assert.That(registry.RemoveForRetrieval(42, 1, 7, out _), Is.EqualTo(LostItemRegistryResult.WrongOwner));
+
+        Assert.That(registry.RebindOwner("owner-a", 3), Is.EqualTo(1));
+        Assert.That(registry.GetForOwner(3), Has.Count.EqualTo(1));
+        Assert.That(registry.RemoveForRetrieval(42, 3, 7, out _), Is.EqualTo(LostItemRegistryResult.Removed));
+    }
+
+    [Test]
+    public void RebindOwner_LeavesOtherOwnersAndAnonymousRecordsAlone()
+    {
+        LostItemRegistry registry = new();
+        LostItemRecord mine = Record();
+        mine.OwnerIdentity = "owner-a";
+        LostItemRecord theirs = Record();
+        theirs.NetId = 43;
+        theirs.PersistentItemId = Guid.NewGuid();
+        theirs.OwnerIdentity = "owner-b";
+        theirs.OwnerPlayerId = 2;
+        LostItemRecord anonymous = Record();
+        anonymous.NetId = 44;
+        anonymous.PersistentItemId = Guid.NewGuid();
+        registry.Add(mine);
+        registry.Add(theirs);
+        registry.Add(anonymous);
+
+        Assert.That(registry.UnbindOwner(1), Is.EqualTo(1), "a record without an identity could never be rebound");
+        Assert.That(registry.RebindOwner("owner-a", 5), Is.EqualTo(1));
+        Assert.That(registry.GetForOwner(2), Has.Count.EqualTo(1));
+        Assert.That(registry.GetForOwner(1), Has.Count.EqualTo(1));
+        Assert.That(registry.RebindOwner(string.Empty, 6), Is.Zero);
+    }
+
     private static LostItemRecord Record() => new()
     {
         PersistentItemId = Guid.Parse("11111111-1111-1111-1111-111111111111"),

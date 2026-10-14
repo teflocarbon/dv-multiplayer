@@ -27,6 +27,7 @@ public class ServerPlayer : IDisposable
         if (PlayerId != 0)
         {
             AuthoritativeItemRegistry.UnbindPersistentOwner(this);
+            NetworkedLostAndFoundManager.OnOwnerDisconnected(this);
             idAllocator.Release(PlayerId);
             PlayerId = 0;
         }
