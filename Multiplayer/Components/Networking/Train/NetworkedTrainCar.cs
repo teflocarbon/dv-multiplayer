@@ -357,6 +357,25 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private uint kinematicCycles = 0;
 
+    // Host: where a derailed car was when it last moved more than DerailedSettleDistance.
+    private const float DerailedSettleDistance = 0.02f;
+    private Vector3 derailedAnchor;
+    private uint derailedAnchorTick;
+    private bool hasDerailedAnchor;
+
+    /// <summary>Host: whether a derailed car has moved less than 2 cm in the last second.</summary>
+    public bool Server_DerailedSettled(Vector3 position, uint tick)
+    {
+        if (!hasDerailedAnchor || (position - derailedAnchor).sqrMagnitude > DerailedSettleDistance * DerailedSettleDistance)
+        {
+            derailedAnchor = position;
+            derailedAnchorTick = tick;
+            hasDerailedAnchor = true;
+            return false;
+        }
+        return tick - derailedAnchorTick >= NetworkLifecycle.TICK_RATE;
+    }
+
     private readonly Dictionary<uint, bool> portNetIdToBlockState = [];
     private readonly Dictionary<uint, ControlImplBase> portNetIdToControl = [];
     private readonly Dictionary<ControlImplBase, uint> controlToPortNetId = [];
@@ -2216,7 +2235,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             // secondary effects while an already-derailed consist is still moving.
             becameDerailed = !TrainCar.derailed;
             if (becameDerailed)
+            {
+                // Vanilla's derail must act on a dynamic body: stop any placement first.
+                Client_trainSpeedQueue.Clear();
+                if (TrainCar.rb.isKinematic)
+                    TrainCar.rb.isKinematic = false;
+                kinematicCycles = 0;
                 TrainCar.Derail();
+            }
             Client_trainRigidbodyQueue.ReceiveSnapshot(movementPart.RigidbodySnapshot, tick);
 
             //Multiplayer.LogDebug(() => $"Derailed car {TrainCar.ID} positioned at {TrainCar.transform.position}");
@@ -2227,6 +2253,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             // Bogie samples are ignored while derailed, so it used to stay derailed for good.
             if (TrainCar.derailed)
             {
+                // A derailed car resting at the host's pose is kinematic (see UpdateDerailedKinematic);
+                // vanilla's rerail must act on a dynamic body.
+                if (TrainCar.rb != null && TrainCar.rb.isKinematic)
+                    TrainCar.rb.isKinematic = false;
+                kinematicCycles = 0;
                 Client_RerailToHost(movementPart);
                 return false;
             }
@@ -2287,23 +2318,53 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             client_bogie2Queue.ReceiveSnapshot(movementPart.Bogie2, movementPart.Speed, tick);
         }
 
-        bool kinematic = movementPart.Speed < NetworkTrainsetWatcher.VELOCITY_THRESHOLD && (movementPart.RigidbodySnapshot != null && movementPart.RigidbodySnapshot.Velocity.magnitude < NetworkTrainsetWatcher.VELOCITY_THRESHOLD);
-
-        // Only write isKinematic when it changes: the write itself disturbs the body (and an
-        // on-rail car's is always false here, with no rigidbody snapshot).
-        if (kinematic && kinematicCycles < MIN_KINEMATIC_CYCLES)
-            kinematicCycles++;
-        else if (TrainCar.rb.isKinematic != kinematic)
-            TrainCar.rb.isKinematic = kinematic;
-
-        if (!kinematic)
-        {
-            kinematicCycles = 0;
-            if (TrainCar.rb.isKinematic)
-                TrainCar.rb.isKinematic = false;
-        }
+        // Only write isKinematic when it changes: the write itself disturbs the body. On-rail cars
+        // are dynamic except while TrainSpeedQueue slides one into place.
+        if (movementPart.typeFlag == TrainsetMovementPart.MovementType.RigidBody)
+            UpdateDerailedKinematic(movementPart.RigidbodySnapshot);
+        else if (TrainCar.rb.isKinematic && !(Client_trainSpeedQueue is TrainSpeedQueue { Placing: true }))
+            TrainCar.rb.isKinematic = false;
 
         return becameDerailed;
+    }
+
+    private const float DERAILED_KINEMATIC_SPEED = 0.3f;    // m/s: the host's derailed car is nearly still ...
+    private const float DERAILED_DYNAMIC_SPEED = 0.5f;      // ... and moving again above this
+    private const float DERAILED_KINEMATIC_DISTANCE = 0.3f; // m and degrees our car must be within of the host's
+    private const float DERAILED_KINEMATIC_DEGREES = 10f;
+
+    /// <summary>
+    /// A derailed car the host has come to rest (it never quite stops: handbrakes don't act on
+    /// derailed bogies) is made kinematic at the host's pose once ours has reached it. As a
+    /// dynamic body moved there every step it was a bulldozer: after a pile-up that went a little
+    /// differently here it kept shoving the cars around it off their places.
+    /// </summary>
+    private void UpdateDerailedKinematic(RigidbodySnapshot snapshot)
+    {
+        Rigidbody rb = TrainCar.rb;
+        if (snapshot == null || rb == null)
+            return;
+        var flags = (RigidbodySnapshot.IncludedData)snapshot.IncludedDataFlags;
+        float hostSpeed = flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) ? snapshot.Velocity.magnitude : 0f;
+        if (hostSpeed > DERAILED_DYNAMIC_SPEED)
+        {
+            kinematicCycles = 0;
+            if (rb.isKinematic)
+                rb.isKinematic = false;
+            return;
+        }
+        if (rb.isKinematic || hostSpeed > DERAILED_KINEMATIC_SPEED || !flags.HasFlag(RigidbodySnapshot.IncludedData.Position))
+            return;
+        bool atPose = Vector3.Distance(rb.position, snapshot.Position + WorldMover.currentMove) < DERAILED_KINEMATIC_DISTANCE &&
+                      (!flags.HasFlag(RigidbodySnapshot.IncludedData.Rotation) ||
+                       Quaternion.Angle(rb.rotation, snapshot.Rotation) < DERAILED_KINEMATIC_DEGREES);
+        if (!atPose)
+        {
+            kinematicCycles = 0;
+            return;
+        }
+        if (++kinematicCycles >= MIN_KINEMATIC_CYCLES)
+            rb.isKinematic = true;
     }
 
     public bool Client_ReceiveBrakeStateUpdate(ClientboundBrakeStateUpdatePacket packet)

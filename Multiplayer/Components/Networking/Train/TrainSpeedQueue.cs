@@ -16,24 +16,25 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float CorrectionDeadband = 0.02f;     // metres
     private const float MaxCorrectionSpeed = 3f;        // m/s, plus a share of the host's speed
     private const float MaxCorrectionSpeedFraction = 0.25f;
-    private const float SlowCorrectionSpeedFraction = 0.5f; // see the limit in FixedUpdate
+    private const float SlowCorrectionSpeed = 0.5f;     // m/s, plus a larger share: see the limit in FixedUpdate
+    private const float SlowCorrectionSpeedFraction = 0.5f;
     private const float StaleSampleSeconds = 0.5f;
     private const float MaxSpeedAcceleration = 8f;      // m/s², easing the host's speed between samples
     private const float MaxCorrectionAcceleration = 4f; // m/s², easing the position correction
     private const float ImpactSpeedStep = 1.5f;         // m/s jump in the host's speed: only impacts make one
 
-    /// <summary>Host speeds below this (m/s) mean the host's car is stopped: hold it there.</summary>
-    public const float HoldSpeed = 0.05f;
-    private const float HoldDeadband = 0.05f;        // metres a held car may be off before it's corrected
-    private const float HoldSettled = 0.02f;         // metres: a held car's correction stops here
-    private const float HoldMinSpeed = 0.2f;         // m/s: slower than this, vanilla pins a braked bogie
-    // m/s. Held cars after a pile-up sit buffer to buffer, each a little off: driving them at the
-    // moving-train limit (3 m/s) rammed each into the next, which then drove back, and they never
-    // settled. Slow enough that buffer contacts damp out.
-    private const float HoldMaxSpeed = 0.5f;
-    private const float HoldCorrectionDelay = 0.5f;  // seconds off before correcting (see Hold)
-    private const float HoldMaxDriveSeconds = 10f;    // a held car that can't be moved is left alone ...
-    private const float HoldRetrySeconds = 10f;      // ... for this long before trying again
+    /// <summary>Host speeds below this (m/s) mean the host's car is stopped: hold it there. Vanilla's own
+    /// stationary threshold: a car creeping faster is followed, or holding it stepped it along in
+    /// slides a second apart.</summary>
+    public const float HoldSpeed = 0.01f;
+    private const float HoldDeadband = 0.05f;        // metres a held car may be off before it's placed
+    private const float HoldSettled = 0.02f;         // metres: placement stops here
+    private const float HoldCorrectionDelay = 0.5f;  // seconds off before placing (see Hold)
+    private const float PlaceSpeed = 0.5f;           // m/s a held car slides into place ...
+    private const float PlaceFastSpeed = 1f;         // ... or this, while more than PlaceFastDistance off
+    private const float PlaceFastDistance = 1f;
+    private const float ContactDistance = 1.2f;      // metres between couplers that count as touching
+    private const float ContactCheckSeconds = 0.25f;
 
     private TrainCar trainCar;
     private NetworkedBogie[] bogies;
@@ -43,8 +44,18 @@ public class TrainSpeedQueue : TickedQueue<float>
     private float easedCorrection;
     private bool driving;
     private float holdOffSince = float.NegativeInfinity;
-    private float holdDriveSince;
-    private float holdRetryAt = float.NegativeInfinity;
+    private float nextContactCheck;
+    private bool touchingFollowing;
+    private bool touchingHeld;
+
+    /// <summary>Following the host's samples of a moving car.</summary>
+    public bool Following { get; private set; }
+
+    /// <summary>Sliding into the host's stopped position; the car is kinematic meanwhile.</summary>
+    public bool Placing { get; private set; }
+
+    /// <summary>The host's car is stopped and ours is held (or being placed) where it is.</summary>
+    public bool Held => !float.IsNegativeInfinity(lastSampleTime) && Mathf.Abs(targetSpeed) < HoldSpeed;
 
     protected override void OnEnable()
     {
@@ -58,12 +69,19 @@ public class TrainSpeedQueue : TickedQueue<float>
         base.OnEnable();
     }
 
+    protected override void OnDisable()
+    {
+        EndPlacing();
+        base.OnDisable();
+    }
+
     public override void Clear()
     {
         base.Clear();
+        EndPlacing();
         lastSampleTime = float.NegativeInfinity;
         holdOffSince = float.NegativeInfinity;
-        holdRetryAt = float.NegativeInfinity;
+        Following = false;
     }
 
     protected override void Process(float snapshot, uint snapshotTick)
@@ -74,18 +92,25 @@ public class TrainSpeedQueue : TickedQueue<float>
 
     private void FixedUpdate()
     {
-        if (trainCar == null || trainCar.derailed || trainCar.rb == null || trainCar.rb.isKinematic ||
+        if (trainCar == null || trainCar.derailed || trainCar.rb == null || (trainCar.rb.isKinematic && !Placing) ||
             float.IsNegativeInfinity(lastSampleTime) || NetworkLifecycle.Instance.IsHost())
         {
+            EndPlacing();
             driving = false;
+            Following = false;
             return;
         }
 
         if (Mathf.Abs(targetSpeed) < HoldSpeed)
         {
+            Following = false;
             Hold();
             return;
         }
+
+        // The host's car is moving again.
+        EndPlacing();
+        Following = true;
 
         // The host sends every tick while a set moves. Samples stopping without the host saying
         // the car stopped means they were lost: leave the car to local physics at the host's last
@@ -99,14 +124,17 @@ public class TrainSpeedQueue : TickedQueue<float>
         }
 
         float correction = 0f;
-        if (TryGetAlongTrackError(out float error) && Mathf.Abs(error) > CorrectionDeadband)
+        RefreshContacts();
+        // Pushing a car the host has stopped (and ours has placed) back towards our host position
+        // would shove it off its own: follow the host's speed only while touching one.
+        if (!touchingHeld && TryGetAlongTrackError(out float error) && Mathf.Abs(error) > CorrectionDeadband)
         {
             // A fast train needs a fast correction to catch up after a stall, but a slow one
             // doesn't: after a pile-up, cars crawling buffer to buffer each a little off were
             // driven at 3 m/s into each other and never settled. Scale the limit with the speed.
             float speed = Mathf.Abs(targetSpeed);
             float limit = Mathf.Min(MaxCorrectionSpeed + speed * MaxCorrectionSpeedFraction,
-                HoldMaxSpeed + speed * SlowCorrectionSpeedFraction);
+                SlowCorrectionSpeed + speed * SlowCorrectionSpeedFraction);
             correction = Mathf.Clamp(error * CorrectionGain, -limit, limit);
         }
 
@@ -121,9 +149,6 @@ public class TrainSpeedQueue : TickedQueue<float>
             easedCorrection = 0f;
         }
         driving = true;
-        // When the host's car stops, Hold carries on from here with a fresh budget.
-        holdDriveSince = Time.time;
-        holdRetryAt = float.NegativeInfinity;
         // A jump in the host's speed that easing isn't meant for is an impact (a shunt, a
         // collision) reversing the host's car at once. Easing all of it kept the car going for a
         // second, metres too far, then hauled it back hard (upstream #141). Take it at once but for
@@ -137,54 +162,133 @@ public class TrainSpeedQueue : TickedQueue<float>
     }
 
     /// <summary>
-    /// The host's car is stopped. Bring ours to where it stopped and leave it there, so vanilla
-    /// can put it to sleep like the host's. Writing a rigidbody's velocity wakes it, and an awake,
-    /// unbraked car creeps and wakes every car on its track, so a car close enough is not touched
-    /// at all. Corrections wait a moment: a local loco hitting a held car is pushing it before the
-    /// host's samples for that car arrive, and correcting then would fight the push.
+    /// The host's car is stopped: put ours where it stopped and leave it there, so vanilla can put
+    /// it to sleep like the host's. A car close enough is not touched at all (writing a velocity
+    /// wakes it, and an awake car wakes every car on its track). One further off is slid along the
+    /// track into place, kinematic, rather than driven there: velocity corrections of cars resting
+    /// buffer to buffer (after a pile-up) shoved each other off their places and never settled,
+    /// while placed cars can't be knocked and end at the host's poses, which don't overlap.
+    /// Placement waits a moment, and for touching cars that still follow a moving host car: a
+    /// local loco hitting a held car pushes it before the host's samples for it arrive.
     /// </summary>
     private void Hold()
     {
         bool hasError = TryGetAlongTrackError(out float error);
         float off = hasError ? Mathf.Abs(error) : 0f;
 
-        if (!driving)
+        if (driving)
         {
-            if (off <= HoldDeadband || Time.time < holdRetryAt)
-            {
-                holdOffSince = float.NegativeInfinity;
-                return;
-            }
-            if (float.IsNegativeInfinity(holdOffSince))
-                holdOffSince = Time.time;
-            if (Time.time - holdOffSince < HoldCorrectionDelay)
-                return;
-
-            if (trainCar.isEligibleForSleep)
-                trainCar.ForceOptimizationState(false);
-            easedSpeed = 0f;
-            easedCorrection = 0f;
-            holdDriveSince = Time.time;
-            driving = true;
-        }
-
-        if (!hasError || off <= HoldSettled || Time.time - holdDriveSince > HoldMaxDriveSeconds)
-        {
-            // Where the host's car is (or it can't be moved, e.g. held by its brakes on a slope):
-            // stop it and hand it back to vanilla.
-            if (hasError && off > HoldSettled)
-                holdRetryAt = Time.time + HoldRetrySeconds;
+            // Was following the host's car, which has now stopped: stop ours with it.
             ApplySpeed(0f);
             driving = false;
-            holdOffSince = float.NegativeInfinity;
+        }
+
+        if (Placing)
+        {
+            RefreshContacts();
+            if (!hasError || off <= HoldSettled || touchingFollowing)
+            {
+                EndPlacing();
+                return;
+            }
+            float speed = off > PlaceFastDistance ? PlaceFastSpeed : PlaceSpeed;
+            PlaceAlong(Mathf.Sign(error) * Mathf.Min(off, speed * Time.fixedDeltaTime));
             return;
         }
 
-        // Too slow and vanilla's slope pin zeroes a braked bogie's velocity every step.
-        float correction = Mathf.Sign(error) * Mathf.Clamp(off * CorrectionGain, HoldMinSpeed, HoldMaxSpeed);
-        easedSpeed = Mathf.MoveTowards(easedSpeed, 0f, MaxSpeedAcceleration * Time.fixedDeltaTime);
-        easedCorrection = Mathf.MoveTowards(easedCorrection, correction, MaxCorrectionAcceleration * Time.fixedDeltaTime);
-        ApplySpeed(easedSpeed + easedCorrection);
+        if (off <= HoldDeadband)
+        {
+            holdOffSince = float.NegativeInfinity;
+            return;
+        }
+        if (float.IsNegativeInfinity(holdOffSince))
+            holdOffSince = Time.time;
+        if (Time.time - holdOffSince < HoldCorrectionDelay)
+            return;
+        RefreshContacts();
+        if (touchingFollowing)
+            return;
+        BeginPlacing();
+    }
+
+    private void BeginPlacing()
+    {
+        if (Placing)
+            return;
+        if (trainCar.isEligibleForSleep)
+            trainCar.ForceOptimizationState(false);
+        SetKinematic(true);
+        Placing = true;
+    }
+
+    private void EndPlacing()
+    {
+        if (!Placing)
+            return;
+        Placing = false;
+        holdOffSince = float.NegativeInfinity;
+        if (trainCar == null || trainCar.rb == null)
+            return;
+        SetKinematic(false);
+        ApplySpeed(0f);
+    }
+
+    private void SetKinematic(bool kinematic)
+    {
+        trainCar.rb.isKinematic = kinematic;
+        if (trainCar.Bogies == null)
+            return;
+        foreach (Bogie bogie in trainCar.Bogies)
+            if (bogie != null && !bogie.HasDerailed && bogie.rb != null)
+                bogie.rb.isKinematic = kinematic;
+    }
+
+    /// <summary>Moves the (kinematic) car <paramref name="metres"/> along its forward axis on the track.</summary>
+    private void PlaceAlong(float metres)
+    {
+        Vector3 shift = Vector3.zero;
+        int moved = 0;
+        for (int i = 0; i < bogies.Length; i++)
+        {
+            if (bogies[i] != null && bogies[i].TryPlaceAlong(trainCar, metres, out Vector3 bogieShift))
+            {
+                shift += bogieShift;
+                moved++;
+            }
+        }
+        if (moved == 0)
+        {
+            EndPlacing();
+            return;
+        }
+        trainCar.rb.MovePosition(trainCar.rb.position + shift / moved);
+    }
+
+    /// <summary>Whether a car touching ours (couplers within <see cref="ContactDistance"/>,
+    /// coupled or not) is following a moving host car, or held.</summary>
+    private void RefreshContacts()
+    {
+        if (Time.time < nextContactCheck)
+            return;
+        nextContactCheck = Time.time + ContactCheckSeconds;
+        touchingFollowing = touchingHeld = false;
+        if (CarSpawner.Instance == null || trainCar.frontCoupler == null || trainCar.rearCoupler == null)
+            return;
+        Vector3 front = trainCar.frontCoupler.transform.position, rear = trainCar.rearCoupler.transform.position;
+        float range = ContactDistance * ContactDistance;
+        foreach (TrainCar other in CarSpawner.Instance.AllCars)
+        {
+            if (other == null || other == trainCar || other.frontCoupler == null || other.rearCoupler == null)
+                continue;
+            Vector3 a = other.frontCoupler.transform.position, b = other.rearCoupler.transform.position;
+            if ((front - a).sqrMagnitude > range && (front - b).sqrMagnitude > range &&
+                (rear - a).sqrMagnitude > range && (rear - b).sqrMagnitude > range)
+                continue;
+            if (!other.TryGetComponent(out TrainSpeedQueue queue))
+                continue;
+            touchingFollowing |= queue.Following;
+            touchingHeld |= queue.Held;
+        }
     }
 
     private bool TryGetAlongTrackError(out float error)

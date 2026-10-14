@@ -79,9 +79,13 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
 
             RigidbodySnapshot.IncludedData flags =
                 (RigidbodySnapshot.IncludedData)snapshot.IncludedDataFlags;
-            if (flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity))
+            // A kinematic (resting) car has no velocity to set, and writing a near-zero one to a
+            // dynamic car only keeps it awake.
+            bool setVelocity = !rigidbody.isKinematic &&
+                (!flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) || snapshot.Velocity.magnitude >= 0.05f);
+            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity))
                 rigidbody.velocity = snapshot.Velocity;
-            if (flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity))
+            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity))
                 rigidbody.angularVelocity = snapshot.AngularVelocity;
 
             if (flags.HasFlag(RigidbodySnapshot.IncludedData.Position) &&

@@ -6,6 +6,8 @@ float every = ctx.Args.TryGetValue("every", out var e) ? float.Parse(e) : 1f;
 var cars = ctx.Args["cars"].Split(',').Select(Find).Where(c => c != null).ToList();
 var Q = typeof(Multiplayer.Components.Networking.Train.TrainSpeedQueue);
 var F = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+bool all = ctx.Args.TryGetValue("all", out var al) && al == "1";
+var tryError = Q.GetMethod("TryGetAlongTrackError", F);
 object Field(object o, string name) => Q.GetField(name, F)?.GetValue(o);
 var rows = new List<string>();
 for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < seconds;)
@@ -14,13 +16,14 @@ for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < seco
     foreach (var car in cars)
     {
         float v = car.derailed ? car.rb.velocity.magnitude : car.GetForwardSpeed();
-        if (Mathf.Abs(v) < 0.05f) continue;
+        if (!all && Mathf.Abs(v) < 0.05f) continue;
         string q = "";
         var queue = car.GetComponent(Q);
         if (queue != null && !Multiplayer.Components.Networking.NetworkLifecycle.Instance.IsHost())
         {
             float last = (float)Field(queue, "lastSampleTime");
-            q = $" tgt={(float)Field(queue, "targetSpeed"):F2} drv={Field(queue, "driving")} corr={(float)Field(queue, "easedCorrection"):F2} age={(Time.time - last):F1}";
+            q = $" tgt={(float)Field(queue, "targetSpeed"):F2} drv={Field(queue, "driving")} corr={(float)Field(queue, "easedCorrection"):F2} age={(Time.time - last):F1} place={Q.GetProperty("Placing")?.GetValue(queue)} kin={car.rb.isKinematic}";
+            var argsE = new object[] { 0f }; bool hasE = (bool)tryError.Invoke(queue, argsE); q += hasE ? $" err={(float)argsE[0]:F2}" : " err=none";
         }
         line.Add($"{car.ID} v={v:F2}{(car.derailed ? " D" : "")} sleep={car.rb.IsSleeping()}{q}");
     }

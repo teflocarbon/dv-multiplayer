@@ -154,6 +154,26 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         return true;
     }
 
+    /// <summary>
+    /// Moves a kinematic bogie <paramref name="metres"/> along the car's forward axis on its track
+    /// (vanilla doesn't project a kinematic bogie onto the track, so move the traveller too).
+    /// <paramref name="shift"/> is how far it moved in the world, for the car body to follow.
+    /// </summary>
+    public bool TryPlaceAlong(TrainCar car, float metres, out Vector3 shift)
+    {
+        shift = Vector3.zero;
+        if (Bogie == null || Bogie.HasDerailed || Bogie.traveller == null || Bogie.rb == null)
+            return false;
+        float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
+        Vector3d before = Bogie.traveller.worldPosition;
+        // MoveToSpan, not Travel: Travel(offset, 0) leaves the traveller where it is.
+        Bogie.traveller.MoveToSpan(Bogie.traveller.Span + metres * Bogie.TrackDirectionSign * bogieToCar);
+        Vector3d after = Bogie.traveller.worldPosition;
+        shift = new Vector3((float)(after.x - before.x), (float)(after.y - before.y), (float)(after.z - before.z));
+        Bogie.rb.MovePosition(Bogie.rb.position + shift);
+        return true;
+    }
+
     private static bool AreAdjacent(RailTrack a, RailTrack b) =>
         a != null && b != null &&
         (a.GetInBranch()?.track == b || a.GetOutBranch()?.track == b ||
