@@ -4,6 +4,7 @@ using HarmonyLib;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Jobs;
 using UnityEngine;
 
@@ -46,13 +47,51 @@ public static class JobValidator_Patch
         {
             NetworkLifecycle.Instance.Server.Log($"Processing JobOverview {jobOverview?.job?.ID}");
             networkedJob.JobValidator = __instance;
+            if (networkedJob.PendingBookletIssuedToPlayerId == 0)
+                networkedJob.PendingBookletIssuedToPlayerId =
+                    NetworkLifecycle.Instance.Server.SelfId;
             return true;
         }
 
         if (!networkedJob.ValidatorRequestSent)
-            SendValidationRequest(__instance, networkedJob, ValidationType.JobOverview);
+            SendValidationRequest(__instance, networkedJob, ValidationType.JobOverview,
+                jobOverview.GetComponent<NetworkedItem>());
 
         return false;
+    }
+
+    [HarmonyPatch(nameof(JobValidator.SummonAllActiveJobBooklets))]
+    [HarmonyPrefix]
+    private static bool SummonAllActiveJobBooklets(JobValidator __instance)
+    {
+        if (NetworkLifecycle.Instance == null || !NetworkLifecycle.Instance.IsClientRunning)
+            return true;
+        if (!NetworkedStationController.GetFromJobValidator(__instance,
+                out NetworkedStationController station))
+        {
+            __instance.bookletPrinter.PlayErrorSound();
+            return false;
+        }
+        if (NetworkLifecycle.Instance.IsHost())
+        {
+            if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(
+                    NetworkLifecycle.Instance.Server.SelfId, out ServerPlayer host))
+                JobBookletSummonCoordinator.TryStart(__instance, host);
+        }
+        else
+        {
+            NetworkLifecycle.Instance.Client.SendJobBookletSummonRequest(station.NetId);
+        }
+        return false;
+    }
+
+    [HarmonyPatch(nameof(JobValidator.ProcessJobOverview))]
+    [HarmonyPostfix]
+    private static void ProcessJobOverviewComplete(JobOverview jobOverview)
+    {
+        if (NetworkLifecycle.Instance.IsHost() && jobOverview?.job != null &&
+            NetworkedJob.TryGetFromJob(jobOverview.job, out NetworkedJob networkedJob))
+            networkedJob.PendingBookletIssuedToPlayerId = 0;
     }
 
 
@@ -82,12 +121,14 @@ public static class JobValidator_Patch
         }
 
         if (!networkedJob.ValidatorRequestSent)
-            SendValidationRequest(__instance, networkedJob, ValidationType.JobBooklet);
+            SendValidationRequest(__instance, networkedJob, ValidationType.JobBooklet,
+                jobBooklet.GetComponent<NetworkedItem>());
 
         return false;
     }
 
-    private static void SendValidationRequest(JobValidator validator,NetworkedJob netJob, ValidationType type)
+    private static void SendValidationRequest(JobValidator validator, NetworkedJob netJob,
+        ValidationType type, NetworkedItem validationItem)
     {
         //find the current station we're at
         if (NetworkedStationController.GetFromJobValidator(validator, out NetworkedStationController networkedStation))
@@ -99,7 +140,8 @@ public static class JobValidator_Patch
             netJob.JobValidator = validator;
             netJob.ValidationType = type;
 
-            NetworkLifecycle.Instance.Client.SendJobValidateRequest(netJob, networkedStation);
+            NetworkLifecycle.Instance.Client.SendJobValidateRequest(netJob, networkedStation,
+                validationItem);
             CoroutineManager.Instance.StartCoroutine(AwaitResponse(validator, netJob));
         }
         else

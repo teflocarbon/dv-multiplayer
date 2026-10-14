@@ -17,6 +17,7 @@ The system is deliberately additive. It observes the existing transport, packet 
 | Combined host/client dashboard | Implemented |
 | Generic packet receive/send summaries | Implemented |
 | Item handler, validation, application, and lifecycle tracing | Implemented |
+| Inventory, storage, container, and distance-respawn tracing | Implemented with exact game events and additive diagnostics |
 | Player tracking and car-attachment tracing | Implemented |
 | Train physics, control, port, and authority tracing | Implemented for the targeted paths |
 | Origin-shift and scene tracing | Implemented |
@@ -227,6 +228,40 @@ Items include:
 
 Implemented item rejection reasons include `client-create-or-destroy-not-allowed`, `held-by-other-player`, `owned-by-other-player`, `unknown-sender`, and `unknown-network-entity`.
 
+Non-host ID-zero items are classified before any interaction gate is changed. Player-owned items and objects present in `Inventory`, `ItemContainerRegistry`, `StorageInventory`, `StorageWorld`, lost-and-found, or storage item containers remain interactable and can use first-interaction adoption. This includes a player item dropped into the world: `StorageWorld` membership distinguishes it from scene-authored clutter. An active non-essential object absent from every player/storage registry is treated as native scene clutter, interaction-gated, and cached for a matching host `Create`. If storage services are not available yet, classification fails open and the bounded reconciliation queue checks again later rather than briefly cancelling a legitimate grab. Events include `item.unbound-classified`, `item.unbound-scene-item-cached`, and `item.late-scene-item-reconciled`.
+
+ID-zero client items now use a minimal first-interaction adoption handshake rather than inventory restoration or save-file registration. There is no inventory preload sweep, save-entry matching, inventory eligibility validation, restore barrier, registration-specific interaction gate, or one-shot registration snapshot path. When the ordinary grab, release, throw, remove, equip, unequip, or inventory-drop path observes an interacted ID-zero item, the client sends its prefab, live state, transform, tracked state, and a short correlation token to the host. The host resolves the prefab, creates the canonical item, allocates a nonzero ID, applies the supplied state, and returns the mapping. The client binds the same Unity object and immediately runs the same general-purpose state observation path used by every subsequent transition. Generic client `Create` remains forbidden, and normal gameplay snapshots with ID zero remain blocked. Adoption events are `item.adoption-requested`, `item.adoption-accepted`, `item.adoption-rejected`, and `item.adoption-complete`.
+
+Local item transitions are tracked against both the previously observed Unity state and the last state placed on the network. State precedence is `Thrown`, `InHand`, `InInventory`, `Attached`, `Removed`, then `Dropped`; a physics-held item therefore remains `InHand` even when its transform is still under `WorldMover.OriginShiftParent`. Grab/release/throw callbacks and postfix observation of `Inventory.EquipItem`, `Inventory.UnequipItem`, and `Inventory.DropItemFromHandsOrInventory` enqueue work on `NetworkedItemManager`, so an item that becomes inactive in inventory is still processed. `item.local-state-observed`, `item.local-state-unchanged`, `item.local-state-changed`, and `item.snapshot-suppressed` include the current state, previous observed state, previous sent state, previous sent placement player, network ID, inventory/container slot, equipped slot, active state, trigger, and suppression reason. Dirty callbacks request re-evaluation but do not themselves force an `ItemState` packet: repeated equip/grab callbacks with the same last-sent state and placement player are collapsed locally, while a same-state P1-to-P2 handoff, one-shot `Thrown`, and dirty tracked values still serialize. Adoption completion uses the same `GetSnapshot()` path and does not bypass or disable later transitions.
+
+`Thrown` is treated as a one-shot network transition rather than a stable Unity state. After a local throw snapshot is emitted, or a received throw is applied, the observation baseline becomes `Dropped` without sending a second packet; this prevents the following frame from emitting a synthetic dropped update that zeroes the remote rigidbody's momentum. Every item envelope also carries the authenticated originating player ID. The originating client consumes its echoed accepted throw as an authority/revision acknowledgement without running the Unity throw transition again, preserving the already-running local velocity and angular velocity; the host and other clients still apply the physical throw normally. `item.local-throw-acknowledged` records the preserved velocities. Listen-host local transitions are likewise metadata-only after `GetSnapshot()`: the base-game Inventory/GrabHandler has already applied the Unity transition, so the canonical authority pass must not run owner-claim inventory repair or a second drop. The `item.ownership-transition.before/after` payload identifies this with `unityStateAlreadyApplied=true`. Broad inventory-status notifications queue only items whose computed state actually changed, rather than re-observing every carried item. The combined dashboard likewise creates replication-flow operations only from send, receive, validation, apply, relay, delivery, and missing-representation stages; local unchanged and suppressed observations remain searchable events but never become permanently pending operations.
+
+Host-local item changes never travel through the client-to-server validation handler. They remain dirty until the authoritative server tick creates or updates the item and distributes it through normal interest replication, preventing host `Create` snapshots from being rejected as client creates. On receiving clients, actual remote-hand membership is recognized as `InHand`, and observations for an item owned by another player emit `item.snapshot-suppressed` with `remote-player-authoritative` instead of echoing a false local `Dropped` update back to the host. A server without a local remote-hand representation preserves its last accepted held/inventory state until the owning player sends a transition.
+
+Item ownership is now observed from the host's `AuthoritativeItemRegistry`. Its record deliberately separates persistent owner, current physical placement/possessor, and retained inventory claim. Every item snapshot and schema-aware packet projection includes `authorityRevision`, `persistentOwnerPlayerId`, inventory claim player/slot/flags, and transition reason. `item.canonical-record-created`, `item.transition-requested`, `item.transition-accepted`, `item.transition-rejected`, `item.ownership-transition.before`, `item.ownership-transition.after`, and `item.holder-invariant-violation` expose the decision and its Unity projection. Stale revisions and non-possessor transitions receive stable rejection reasons instead of silently changing parallel ownership fields.
+
+Essential-item Get is a dedicated host-authoritative recall operation rather than the base UI's local `AddItemToInventory` call. Normal recall is transactional: the host computes an uncommitted candidate, the owner's runtime prepares the Unity inventory insertion, and the host commits only after successful confirmation at the same canonical revision. Failure, revision drift, disconnect, or the five-second timeout retains the prior canonical placement and sends a correction projection. `item.recall-requested`, `item.recall-prepared`, `item.recall-prepare-requested`, `item.recall-prepare-succeeded`, `item.recall-prepare-failed`, `item.recall-transaction-committed`, `item.recall-transaction-cancelled`, `item.recall-transaction-timeout`, `item.recall-accepted`, `item.recall-confirmed`, `item.recall-rejected`, `item.recall-applied`, and `item.local-possession-revoked` show the complete transfer. Each peer purges stale local inventory/container membership before applying a different player's possession. Foreign-owned inventory icons are red with a red outline and cannot invoke local Get. No duplicate object is created by recall.
+
+An item whose canonical placement is Lost and Found is excluded from ordinary item interest and dirty-state processing even though its inert host Unity object remains registered. A stale client cannot resurrect it through pickup, inventory, hand, drop, or tracked-state packets: `item.lost-and-found-live-transition-rejected` records the attempt and the host returns a Lost and Found `Destroy` projection to quarantine that client's stale representation. The host reasserts one tombstone per ready client after collection (`item.lost-and-found-tombstone-reasserted`), and each client retains that tombstone locally: every representation with the NetId is made non-interactable and inactive again if base-game interaction callbacks reactivate it. Foreign inventory representations with that NetId are purged together so a thief cannot retain a red dropped silhouette or lose the slot; only the persistent owner's genuine retrievable claim may remain. Only an explicit retrieval `Create` clears the tombstone.
+
+Derail Valley keeps a reserved/dropped slot for an essential item both while it is equipped and after it leaves the hand through the throw path, even if multiplayer says that another player persistently owns it. Inventory transition finalisation preserves this slot while the foreign item is actively equipped or grabbed, then removes the foreign local reservation once possession ends and emits `item.foreign-dropped-silhouette-purged`. Dragging the same item out already follows the base game's purge path; both drop interactions therefore converge on no silhouette for the non-owner while the owner's canonical stolen/retrieval claim remains intact.
+
+Every `NetworkedItem` now has an exactly-once tracked-value finalization lifecycle owned by `NetworkedItemManager`. Specialized patches can explicitly finalize after registering their values; otherwise the manager's real-time grace deadline finalizes even zero-value items and drains deferred snapshots. Because the deadline is manager-owned, inactive inventory and cached objects still finalize. `item.tracked-values-finalized` records the reason, tracked-value count, and drained snapshot count, while `item.tracked-value-registered-late` identifies registration that missed the grace period.
+
+Inventory, storage, and container diagnostics subscribe to Derail Valley's existing transition events rather than scanning all items. `inventory.transition-observed` retains both slot snapshots and both raw `InventoryActionType` flag values, while `inventory.item-transition` adds the affected item's live inventory/equipped slot, container identity, storage memberships, active state, layer, parent, and transform. `storage.item-added`, `storage.item-removed`, `container.registered`, `container.unregistered`, `container.contents-changed`, `container.item-dropped`, and `container.nesting-changed` expose the corresponding base-game boundaries. Dropped/reserved inventory claims are reported separately from physical storage placement.
+
+The overlay's `6 INVENTORY` page lists the local inventory by slot, including dropped essential-item silhouettes. Each row distinguishes stored, silhouette, stolen, and foreign states and opens the normal item inspector with live inventory slot/equip slot, active versus including-dropped membership, reserved/dropped/locked flags, essential/player-owned classification, canonical claim slot, claim-slot agreement, persistent owner, authority revision, and replication timeline. ID-zero inventory objects remain visible using their Unity instance identity.
+
+The `7 LOST+FOUND` page separates the four Lost and Found representations that otherwise look deceptively similar in ordinary item state: host registry records already collected, host policy candidates, save records awaiting owner/object rebinding, and the local client's authoritative list received from the host. Rows show source, status, compact Lost and Found handle, current runtime NetId, revision, owner, and collection or policy reason. Selecting a host record also exposes its persistent item UUID; that UUID is save/host-only and is never included in normal Lost and Found packets. The remaining details include claim slot/flags, authority placement, collection time, eligibility/grace timing, owner and nearest-player distances, grabbed/snapped/machine protection, canonical Unity-object presence, storage membership, active state, transform, and the underlying item's retained timeline. Search also matches these state values. The page gathers detailed Unity/storage state only while visible; the normal host policy scan caches cheap detached decision primitives to avoid introducing a periodic debug hitch. Summary/full copy modes and the standard event-copy controls work on the page.
+
+Essential inventory claims are treated as immovable owner reservations. A normal owner drop, throw, or equip preserves the original reserved/dropped slot even while the physical item is in world storage or another player's hand. A foreign pickup adds the canonical `Stolen` claim flag without moving the owner's claim. Recall clears both `Dropped` and `Stolen`, then revives the existing reserved entry in place rather than inserting a second inventory object. On the borrower's process, authoritative possession revocation purges both the physical inventory entry and any dropped silhouette so no unusable ghost remains. `inventory.essential-claim-repaired`, `inventory.essential-claim-restored`, `inventory.essential-claim-invariant-violation`, and `item.essential-claim-slot-move-rejected` expose recovery or disagreement.
+
+`item.respawn-or-destroy-scheduled` traces `RespawnOnDrop` before its delayed coroutine can independently reset, destroy, deactivate, or move an item to lost and found. The warning includes identity, ownership, essential status, delay, respawn mode, transform, velocity, hierarchy state, and whether the object is on a valid respawn parent. Subsequent storage events make the resulting move correlatable without changing the base-game lifecycle decision.
+
+Generic interest synchronization determines job-document exclusions from `NetworkedItem.TrackedItemType`, not from the wrapper component type. Job-created overview, booklet, and report objects claim the authoritative item ID directly; any earlier generic representation is deactivated and moved to the cache before lookup ownership changes. Relevant events are `item.generic-create-suppressed`, `item.generic-create-bound-existing`, and `item.authoritative-binding-collision`.
+
+Applying `Dropped` or `Thrown` now emits `item.detach.before`, `item.detach.after`, `item.hand-membership.before`, `item.hand-membership.after`, and any `item.parent-changed` transitions. After detachment it normalizes inventory-created canonical objects into world presentation: clears player ownership, activates the hierarchy, assigns the `World_Item` layer, enables renderers, restores physics, parents directly to `WorldMover.OriginShiftParent`, then applies the authoritative transform and throw. It deliberately does not route the object through the host player's drop position. The detailed before/after payload records the stored and computed states, grabbed state, actual transform parent and path, active state, layer, renderer counts, remote-hand membership, inventory/container/storage membership, rigidbody state, `GrabHandlerItem` state, and `ItemReparentingBase.CurrentParent`. `item.post-apply.frame+1` and `item.post-apply.frame+5` detect systems that reattach or otherwise overwrite the result after the handler returns. `item.world-state-invariant-violation` warns if the object becomes inactive, kinematic, inventory-layered or contained, loses all enabled renderers, or leaves the origin-shift parent at apply, frame +1, or frame +5.
+
 Players include:
 
 - join and disconnect;
@@ -338,6 +373,8 @@ Mouse-wheel sensitivity is increased for the entity list, state inspector, and t
 | `3` | Filter to train cars |
 | `4` | Open the packet inspector |
 | `5` | Open multiplayer health and automation diagnostics |
+| `6` | Open the local inventory diagnostics page |
+| `7` | Open Lost and Found registry, policy, save-rebind, and client-list diagnostics |
 | Up/Down, Page Up/Page Down, `[`/`]` | Move through the filtered entity list |
 | `Ctrl+F` | Focus the entity/packet search box |
 | `Ctrl+C` | Copy the selected entity DTO as formatted JSON |
@@ -636,9 +673,23 @@ The host emits `item.delivery-expected` immediately before each existing real re
 
 `Auto captures` on the replication page is off by default. When enabled, the first newly detected replication discontinuity starts the same shared capture on every discovered process, records five seconds, then stops it. It is limited to ten captures per dashboard run with a fifteen-second coordinator cooldown.
 
-On the same-machine test setup, an expected reliable item delivery becomes `sent-not-received` after 750 ms. A received update remains pending for two seconds before becoming `received-not-applied`, allowing initial-sync registration/dependency queues time to resolve. A late receive or apply clears the recipient discontinuity and allows the operation to recover to complete.
+On the same-machine test setup, an expected reliable item delivery becomes `sent-not-received` after 750 ms. A received update remains pending for two seconds before becoming `received-not-applied`, allowing initial-sync registration/dependency queues time to resolve. A late receive or apply clears the recipient discontinuity and allows the operation to recover to complete. The originating client intentionally acknowledges its echoed authoritative `Thrown` revision without applying the throw a second time; `item.local-throw-acknowledged` therefore completes that recipient as an acknowledgement while keeping `applied=false`.
 
 The dashboard itself has its own local random-port Web UI and never connects as a multiplayer peer.
+
+### Local grabber recovery
+
+Rapid inventory changes and forced item detachment can leave Derail Valley's non-VR `Grabber`
+state machine in `Holding` or `Dragging` after its held/dragged handler has already detached. In
+that state world pickup hover disappears and hotbar force-hold requests are ignored. The
+multiplayer watchdog waits eight consecutive frames before repairing only these impossible state
+combinations. `interaction.grabber-stale-state-recovered` includes the old state, held handler,
+activity and interaction flags, and the selected recovery action. Healthy holding, dragging and
+short-lived transition frames are not changed.
+
+Remote `InHand` and `InInventory` projections are evaluated against their authoritative
+multiplayer placement. They are not passed through Derail Valley's local-only inventory lookup;
+doing so previously reported every other player's inactive inventory representation as `Dropped`.
 
 ## Captures and markers
 
@@ -757,5 +808,32 @@ DebugRemoteClient/bin/Debug/net48/Multiplayer.DebugClient.exe --self-test
 ```
 
 The self-test currently covers event serialization/schema, redaction, bounded retention, stable payload fingerprints, discovery liveness, random loopback startup, API responses, and capture pre-roll/live writes.
+
+Pure multiplayer authority invariants are covered separately by the NUnit suite:
+
+```powershell
+dotnet test Multiplayer.Core.Tests\Multiplayer.Core.Tests.csproj
+```
+
+Actual item packet wire fixtures and schema-aware debug projections run in a second NUnit suite:
+
+```powershell
+dotnet build Multiplayer\Multiplayer.csproj -c Debug
+dotnet test Multiplayer.Protocol.Tests\Multiplayer.Protocol.Tests.csproj -c Debug
+```
+
+`Multiplayer.Core` has no Unity or Derail Valley dependencies, and the production host registry delegates its ownership, placement, revision, claim, and recall decisions to that tested state machine. See `TESTING.md` for the test boundary and extraction roadmap.
+
+The same core now owns item send-projection comparison (`state + holder + attached car/end`), bounded pending-snapshot ordering, and inventory-claim planning through `IInventoryView`. Deferred queues reject duplicate/stale revisions, cap at 256 entries, and allow an authoritative `FullSync` to supersede older queued deltas. `item.pending-snapshot-rejected` reports duplicate, stale, or capacity rejection; `item.snapshot-deferred` includes capacity, enqueue status, and the number of snapshots superseded by a full snapshot.
+
+Recipient completion, adoption coordination, storage placement, and remote hand/inventory projection are also pure core decisions. The dashboard uses `RecipientCompletionEvaluator` for expected/received/applied completion and the 750 ms / 2 s discontinuity boundaries. Client adoption permits one pending token per Unity item and ignores unknown or duplicate completed results; the host scopes tokens by authenticated player and replays the original completed token-to-NetId outcome. `item.adoption-request-suppressed` and `item.adoption-result-ignored` expose coordinator rejections. Storage world projection removes conflicting inventory, lost-and-found, and item-container memberships according to one plan; `storage.multiple-membership-repaired` reports overlap repair and `storage.transition-rejected` reports an unavailable/invalid projection.
+
+NetId allocation, relevance hysteresis, known-item delivery selection, and tracked-value
+full-sync/delta composition are now pure tested decisions too. The runtime allocator reserves zero,
+rejects collisions and duplicate releases, reuses released IDs once, and reports exhaustion instead
+of wrapping. Item relevance uses the existing inclusive 100 metre boundary and strict three-second
+removal delay; delivery distinguishes Create, current Dirty, missed-tick FullSync, and no-op. Tracked
+state composition prevents clients from leaking server-authoritative dirty values and plans unknown
+or authority-rejected incoming keys before the Unity setters run.
 
 Host/client gameplay behavior, world-origin shifts, and VR label readability still require in-game acceptance testing with separate processes.

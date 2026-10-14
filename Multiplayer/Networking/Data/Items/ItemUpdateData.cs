@@ -28,6 +28,13 @@ public class ItemUpdateData
         Right = 2
     }
 
+    /// <summary>
+    /// Whether this update carries authoritative placement/holder state. FullSync contains
+    /// ItemState and therefore returns true; ObjectState alone deliberately returns false.
+    /// </summary>
+    public static bool IncludesItemState(ItemUpdateType updateType) =>
+        updateType.HasFlag(ItemUpdateType.ItemState) || updateType.HasFlag(ItemUpdateType.Create);
+
     public ItemUpdateType UpdateType { get; set; }
     public ushort ItemNetId { get; set; }
     public string PrefabName { get; set; }
@@ -40,11 +47,28 @@ public class ItemUpdateData
     public bool AttachedFront  { get; set; }
     public Dictionary<string, object> States { get; set; }
     public Hand PlayerHand { get; set; }
+    public uint AuthorityRevision { get; set; }
+    public byte PersistentOwnerPlayerId { get; set; }
+    public byte InventoryClaimPlayerId { get; set; }
+    public int InventoryClaimSlot { get; set; } = -1;
+    public ItemInventoryClaimFlags InventoryClaimFlags { get; set; }
+    public ItemTransitionReason TransitionReason { get; set; }
+    public byte OriginatingPlayerId { get; set; }
+
+    // Detached local observability correlation. This is deliberately not serialized.
+    internal string DebugCorrelationFingerprint { get; set; }
 
     public static void Serialize(NetDataWriter writer, ItemUpdateData data)
     {
         writer.Put((byte)data.UpdateType);
         writer.Put(data.ItemNetId);
+        writer.Put(data.AuthorityRevision);
+        writer.Put(data.PersistentOwnerPlayerId);
+        writer.Put(data.InventoryClaimPlayerId);
+        writer.Put(data.InventoryClaimSlot);
+        writer.Put((byte)data.InventoryClaimFlags);
+        writer.Put((byte)data.TransitionReason);
+        writer.Put(data.OriginatingPlayerId);
 
         if (data.UpdateType == ItemUpdateType.Destroy)
             return;
@@ -97,6 +121,13 @@ public class ItemUpdateData
 
         data.UpdateType = (ItemUpdateType)reader.GetByte();
         data.ItemNetId = reader.GetUShort();
+        data.AuthorityRevision = reader.GetUInt();
+        data.PersistentOwnerPlayerId = reader.GetByte();
+        data.InventoryClaimPlayerId = reader.GetByte();
+        data.InventoryClaimSlot = reader.GetInt();
+        data.InventoryClaimFlags = (ItemInventoryClaimFlags)reader.GetByte();
+        data.TransitionReason = (ItemTransitionReason)reader.GetByte();
+        data.OriginatingPlayerId = reader.GetByte();
 
         if (data.UpdateType == ItemUpdateType.Destroy)
             return data;
@@ -113,9 +144,7 @@ public class ItemUpdateData
 
                 if (data.ItemState == ItemState.Thrown)
                 {
-                    Multiplayer.LogDebug(() => $"ItemUpdateData.Deserialize() Item Thrown before: {data.ThrowDirection}");
                     data.ThrowDirection = Vector3Serializer.Deserialize(reader);
-                    Multiplayer.LogDebug(() => $"ItemUpdateData.Deserialize() Item Thrown after: {data.ThrowDirection}");
                 }
             }
             else if (data.ItemState == ItemState.InInventory || data.ItemState == ItemState.InHand)

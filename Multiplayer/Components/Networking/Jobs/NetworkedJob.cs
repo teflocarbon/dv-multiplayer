@@ -2,9 +2,11 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.Logic.Job;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Core.Jobs;
 using Multiplayer.Networking.Data.Jobs;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Components.Networking.Jobs;
@@ -53,6 +55,9 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         return false;
     }
 
+    public static IReadOnlyCollection<NetworkedJob> GetAllJobs() =>
+        jobToNetworkedJob.Values.Distinct().ToArray();
+
     #endregion
 
     private static readonly Dictionary<Job, List<Task>> pendingJobTasks = [];
@@ -62,7 +67,6 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     {
         JobOverview,
         JobBooklet,
-        JobReport,
         JobState
     }
 
@@ -89,42 +93,52 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         }
     }
 
-    private NetworkedItem _jobBooklet;
+    private readonly Dictionary<ushort, NetworkedItem> jobBooklets = [];
+    private readonly JobBookletIssuanceIndex issuedBooklets = new();
 
-    public NetworkedItem JobBooklet
+    public IReadOnlyCollection<NetworkedItem> JobBooklets => jobBooklets.Values;
+    public NetworkedItem LastChangedJobBooklet { get; private set; }
+    public byte LastChangedJobBookletIssuedToPlayerId { get; private set; }
+    public byte PendingBookletIssuedToPlayerId { get; set; }
+
+    public bool RegisterJobBooklet(NetworkedItem item, byte issuedToPlayerId)
     {
-        get => _jobBooklet;
-        set
-        {
-            if (value != null && value.GetTrackedItem<JobBooklet>() == null)
-                return;
-
-            _jobBooklet = value;
-            if (value != null)
-            {
-                Cause = DirtyCause.JobBooklet;
-                OnJobDirty?.Invoke(this);
-            }
-        }
-    }
-    private NetworkedItem _jobReport;
-    public NetworkedItem JobReport
-    {
-        get => _jobReport;
-        set
-        {
-            if (value != null && value.GetTrackedItem<JobReport>() == null)
-                return;
-
-            _jobReport = value;
-            if (value != null)
-            {
-                Cause = DirtyCause.JobReport;
-                OnJobDirty?.Invoke(this);
-            }
-        }
+        if (item == null || item.NetId == 0 || item.GetTrackedItem<JobBooklet>() == null)
+            return false;
+        jobBooklets[item.NetId] = item;
+        if (issuedToPlayerId != 0)
+            issuedBooklets.Assign(issuedToPlayerId, item.NetId);
+        LastChangedJobBooklet = item;
+        LastChangedJobBookletIssuedToPlayerId = issuedToPlayerId;
+        Cause = DirtyCause.JobBooklet;
+        OnJobDirty?.Invoke(this);
+        return true;
     }
 
+    public bool TryGetJobBooklet(ushort itemNetId, out NetworkedItem item) =>
+        jobBooklets.TryGetValue(itemNetId, out item) && item != null;
+
+    public bool TryGetIssuedJobBooklet(byte playerId, out NetworkedItem item)
+    {
+        item = null;
+        return issuedBooklets.TryGetItem(playerId, out ushort itemNetId) &&
+            TryGetJobBooklet(itemNetId, out item);
+    }
+
+    public bool TryGetIssuedPlayer(ushort itemNetId, out byte playerId)
+    {
+        return issuedBooklets.TryGetPlayer(itemNetId, out playerId);
+    }
+
+    public void UnregisterJobBooklet(NetworkedItem item)
+    {
+        if (item == null)
+            return;
+        jobBooklets.Remove(item.NetId);
+        issuedBooklets.RemoveItem(item.NetId);
+        if (ReferenceEquals(LastChangedJobBooklet, item))
+            LastChangedJobBooklet = null;
+    }
     private readonly List<NetworkedItem> JobReports = [];
 
     public Guid OwnedBy { get; set; } = Guid.Empty;
@@ -263,18 +277,24 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
+        if (NetworkLifecycle.Instance?.IsHost() == true)
+            DestroyJobBooklets();
     }
 
     private void OnJobCompleted(Job job)
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
+        if (NetworkLifecycle.Instance?.IsHost() == true)
+            DestroyJobBooklets();
     }
 
     private void OnJobExpired(Job job)
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
+        if (NetworkLifecycle.Instance?.IsHost() == true)
+            DestroyJobBooklets();
     }
 
     public void AddReport(NetworkedItem item)
@@ -293,8 +313,6 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
            )
         {
             JobReports.Add(item);
-            Cause = DirtyCause.JobReport;
-            OnJobDirty?.Invoke(this);
         }
     }
 
@@ -312,18 +330,22 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         }
     }
 
-    public void DestroyJobBooklet()
+    public void DestroyJobBooklets()
     {
-        JobBooklet jbItem = JobBooklet?.GetTrackedItem<JobBooklet>();
-
-        if (jbItem != null)
+        foreach (NetworkedItem item in jobBooklets.Values.ToArray())
         {
+            JobBooklet jbItem = item?.GetTrackedItem<JobBooklet>();
+            if (jbItem == null)
+                continue;
             var itemBase = jbItem.GetComponent<ItemBase>();
             itemBase?.ForceEndInteraction();
             itemBase?.InContainer?.RemoveItem(itemBase.gameObject, false, true);
-            Inventory.Instance.DropItemFromHandsOrInventory(itemBase.gameObject);
+            Inventory.Instance?.DropItemFromHandsOrInventory(itemBase.gameObject);
             jbItem.DestroyJobBooklet();
         }
+        jobBooklets.Clear();
+        issuedBooklets.Clear();
+        LastChangedJobBooklet = null;
     }
 
     public void RemoveReport(NetworkedItem item)

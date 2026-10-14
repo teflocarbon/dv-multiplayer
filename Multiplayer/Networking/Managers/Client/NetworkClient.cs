@@ -1,5 +1,6 @@
 using DV;
 using DV.Common;
+using DV.Booklets;
 using DV.Customization;
 using DV.Customization.Paint;
 using DV.Damage;
@@ -27,6 +28,7 @@ using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.SaveGame;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Networking.Data.Jobs;
 using Multiplayer.Networking.Data.Player;
 using Multiplayer.Networking.Data.Train;
 using Multiplayer.Networking.Data.World;
@@ -59,6 +61,7 @@ namespace Multiplayer.Networking.Managers.Client;
 
 public class NetworkClient : NetworkManager
 {
+    public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
     protected override string LogPrefix => "[Client]";
 
     private Action<DisconnectReason, string> onDisconnect;
@@ -93,6 +96,7 @@ public class NetworkClient : NetworkManager
 
     // Allow mods to add to the wait Queue
     private readonly List<string> readyBlocks = [];
+    private readonly Dictionary<ushort, JobReportArtifactData> pendingJobReportArtifacts = new();
 
     public NetworkClient(Settings settings, bool singlePlayer) : base(settings)
     {
@@ -244,11 +248,17 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundJobsUpdatePacket>(OnClientboundJobsUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundJobsCreatePacket>(OnClientboundJobsCreatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundJobValidateResponsePacket>(OnClientboundJobValidateResponsePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundJobReportArtifactPacket>(OnClientboundJobReportArtifactPacket);
         netPacketProcessor.SubscribeReusable<ClientboundTaskUpdatePacket>(OnClientboundTaskUpdatePacket);
 
         // World Sync
         netPacketProcessor.SubscribeReusable<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemAdoptionPacket>(OnClientboundItemAdoptionPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemRecallPreparePacket>(OnClientboundItemRecallPreparePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
         netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
         netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
@@ -1232,6 +1242,7 @@ public class NetworkClient : NetworkManager
         Log($"Received {packet.Jobs.Length} jobs for station {networkedStationController.StationController.logicStation.ID}");
 
         networkedStationController.AddJobs(packet.Jobs);
+        DrainPendingJobReportArtifacts();
     }
 
     private void OnClientboundJobsUpdatePacket(ClientboundJobsUpdatePacket packet)
@@ -1248,6 +1259,75 @@ public class NetworkClient : NetworkManager
         Log($"Received {packet.JobUpdates.Length} job updates for station {networkedStationController.StationController.logicStation.ID}");
 
         networkedStationController.UpdateJobs(packet.JobUpdates);
+        DrainPendingJobReportArtifacts();
+    }
+
+    private void OnClientboundJobReportArtifactPacket(ClientboundJobReportArtifactPacket packet)
+    {
+        try
+        {
+            JobReportArtifactData artifact = JobReportArtifactData.Deserialize(packet.Payload);
+            pendingJobReportArtifacts[artifact.ItemNetId] = artifact;
+            DebugRuntime.Publish("job", "job.report-artifact-received", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: artifact.ItemNetId.ToString(), data: new Dictionary<string, object>
+                {
+                    ["artifactToken"] = artifact.ArtifactToken,
+                    ["jobNetId"] = artifact.JobNetId,
+                    ["hasDebt"] = artifact.Debt != null
+                });
+            TryMaterializeJobReport(artifact);
+        }
+        catch (Exception exception)
+        {
+            LogError($"Failed to decode JobReport artifact: {exception}");
+            DebugRuntime.Publish("job", "job.report-artifact-rejected", DebugRuntimeSide.Client,
+                DebugSeverity.Error, data: new Dictionary<string, object> { ["reason"] = exception.Message });
+        }
+    }
+
+    private void DrainPendingJobReportArtifacts()
+    {
+        foreach (JobReportArtifactData artifact in pendingJobReportArtifacts.Values.ToArray())
+            TryMaterializeJobReport(artifact);
+    }
+
+    private bool TryMaterializeJobReport(JobReportArtifactData artifact)
+    {
+        if (artifact == null || NetworkLifecycle.Instance.IsHost())
+            return false;
+        if (NetworkedItem.TryGet(artifact.ItemNetId, out NetworkedItem existing))
+        {
+            if (existing.GetTrackedItem<JobReport>() != null)
+            {
+                pendingJobReportArtifacts.Remove(artifact.ItemNetId);
+                return true;
+            }
+            LogError($"JobReport artifact {artifact.ArtifactToken} conflicts with item {artifact.ItemNetId}.");
+            return false;
+        }
+        if (!NetworkedJob.Get(artifact.JobNetId, out NetworkedJob networkedJob) || networkedJob?.Job == null)
+            return false;
+
+        Job_data jobData = artifact.Job.ToGameData();
+        Debt_data debtData = artifact.Debt?.ToGameData();
+        Vector3 localPosition = artifact.Position.Position + WorldMover.currentMove;
+        JobReport report = BookletCreator_JobReport.Create(jobData, debtData, localPosition,
+            artifact.Position.Rotation, WorldMover.OriginShiftParent);
+        if (report == null)
+            throw new InvalidOperationException($"BookletCreator returned null for report {artifact.ArtifactToken}.");
+
+        NetworkedItem netItem = report.GetOrAddComponent<NetworkedItem>();
+        netItem.Initialize(report, artifact.ItemNetId, false);
+        networkedJob.AddReport(netItem);
+        pendingJobReportArtifacts.Remove(artifact.ItemNetId);
+        DebugRuntime.Publish("job", "job.report-artifact-materialized", DebugRuntimeSide.Client,
+            entityType: "Item", entityId: artifact.ItemNetId.ToString(), data: new Dictionary<string, object>
+            {
+                ["artifactToken"] = artifact.ArtifactToken,
+                ["jobNetId"] = artifact.JobNetId,
+                ["gameObjectPath"] = report.gameObject.GetPath()
+            });
+        return true;
     }
 
     private void OnClientboundTaskUpdatePacket(ClientboundTaskUpdatePacket packet)
@@ -1395,6 +1475,91 @@ public class NetworkClient : NetworkManager
         }
 
         networkedItem.ReceiveSnapshot(packet.ItemData);
+    }
+
+    private void OnClientboundItemAdoptionPacket(ClientboundItemAdoptionPacket packet)
+    {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Item", null);
+        NetworkedItemManager.Instance.ApplyItemAdoptionResult(packet.Result);
+    }
+
+    private void OnClientboundItemRecallResultPacket(ClientboundItemRecallResultPacket packet)
+    {
+        Log($"[LostAndFound Recall] Recall result received: netId={packet.ItemNetId}, " +
+            $"operation={packet.OperationId}, " +
+            $"accepted={packet.Accepted}, revision={packet.AuthorityRevision}, " +
+            $"reason={packet.RejectionReason ?? string.Empty}");
+        DebugRuntime.Publish("item", packet.Accepted ? "item.recall-confirmed" : "item.recall-rejected",
+            DebugRuntimeSide.Client, packet.Accepted ? DebugSeverity.Info : DebugSeverity.Warning,
+            "Item", packet.ItemNetId.ToString(), new()
+            {
+                ["authorityRevision"] = packet.AuthorityRevision,
+                ["rejectionReason"] = packet.RejectionReason ?? string.Empty
+            });
+        if (NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item))
+            item?.CompleteLocalRecallPreparation(packet.OperationId, packet.Accepted);
+    }
+
+    private void OnClientboundItemRecallPreparePacket(ClientboundItemRecallPreparePacket packet)
+    {
+        string failureReason = string.Empty;
+        bool succeeded = NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) &&
+            item != null && item.TryPrepareLocalRecall(packet.OperationId, packet.RequestedSlot,
+                out failureReason);
+        if (item == null)
+            failureReason = "missing-local-item-representation";
+        SendPacketToServer(new ServerboundItemRecallPreparedPacket
+        {
+            OperationId = packet.OperationId,
+            ItemNetId = packet.ItemNetId,
+            Succeeded = succeeded,
+            FailureReason = failureReason ?? string.Empty
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnClientboundLostItemsSnapshotPacket(ClientboundLostItemsSnapshotPacket packet)
+    {
+        int count = new[]
+        {
+            packet.Handles?.Length ?? 0,
+            packet.NetIds?.Length ?? 0,
+            packet.Revisions?.Length ?? 0,
+            packet.PrefabNames?.Length ?? 0,
+            packet.DisplayNames?.Length ?? 0,
+            packet.Reasons?.Length ?? 0,
+            packet.LostUtcTicks?.Length ?? 0
+        }.Min();
+        LostItemData[] items = new LostItemData[count];
+        for (int i = 0; i < count; i++)
+            items[i] = new LostItemData
+            {
+                Handle = packet.Handles[i],
+                NetId = packet.NetIds[i],
+                Revision = packet.Revisions[i],
+                PrefabName = packet.PrefabNames[i],
+                DisplayName = packet.DisplayNames[i],
+                Reason = packet.Reasons[i],
+                LostUtcTicks = packet.LostUtcTicks[i]
+            };
+        NetworkedLostAndFoundManager.ApplyClientSnapshot(packet.Generation, items);
+    }
+
+    private void OnClientboundLostItemRetrieveResultPacket(ClientboundLostItemRetrieveResultPacket packet)
+    {
+        Log($"[LostAndFound Recall] Lost item retrieval result received: request={packet.RequestId}, " +
+            $"handle={packet.LostHandle}, accepted={packet.Accepted}, revision={packet.AuthorityRevision}, " +
+            $"reason={packet.RejectionReason ?? string.Empty}");
+        DebugRuntime.Publish("item", packet.Accepted ? "item.lost-and-found-recall-confirmed" :
+            "item.lost-and-found-recall-rejected", DebugRuntimeSide.Client,
+            packet.Accepted ? DebugSeverity.Info : DebugSeverity.Warning,
+            "LostItem", packet.LostHandle.ToString(), new()
+            {
+                ["requestId"] = packet.RequestId,
+                ["lostHandle"] = packet.LostHandle,
+                ["authorityRevision"] = packet.AuthorityRevision,
+                ["rejectionReason"] = packet.RejectionReason ?? string.Empty
+            });
+        LostItemRetrieveCompleted?.Invoke(packet);
     }
 
     private void OnCommonPaintThemePacket(CommonPaintThemePacket packet)
@@ -1879,12 +2044,14 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableUnordered);
     }
 
-    public void SendJobValidateRequest(NetworkedJob job, NetworkedStationController station)
+    public void SendJobValidateRequest(NetworkedJob job, NetworkedStationController station,
+        NetworkedItem validationItem)
     {
         SendPacketToServer(new ServerboundJobValidateRequestPacket
         {
             JobNetId = job.NetId,
             StationNetId = station.NetId,
+            ItemNetId = validationItem?.NetId ?? 0,
             validationType = job.ValidationType
         }, DeliveryMethod.ReliableUnordered);
     }
@@ -1956,6 +2123,14 @@ public class NetworkClient : NetworkManager
 
     public void SendItemUpdatePacket(ItemUpdateData updateData)
     {
+        if (updateData == null || updateData.ItemNetId == 0)
+        {
+            LogWarning($"Blocked local item snapshot with no host-issued network ID. UpdateType: {updateData?.UpdateType}, prefab: {updateData?.PrefabName}");
+            DebugRuntime.Publish("item", "item.zero-id-send-blocked", DebugRuntimeSide.Client, DebugSeverity.Error,
+                "Item", "0", DebugTrace.ItemSnapshotData(updateData));
+            return;
+        }
+
         DebugRuntime.Publish("item", "item.packet-send-requested", DebugRuntimeSide.Client, entityType: "Item",
             entityId: updateData?.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(updateData));
         LogDebug(()=>
@@ -1970,6 +2145,66 @@ public class NetworkClient : NetworkManager
 
         SendPacketToServer(new CommonItemUpdatePacket { ItemData = updateData },
                 DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendJobBookletSummonRequest(uint stationNetId)
+    {
+        SendPacketToServer(new ServerboundJobBookletSummonRequestPacket
+        {
+            StationNetId = stationNetId
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendItemAdoption(ItemAdoptionRequestData request)
+    {
+        SendPacketToServer(new ServerboundItemAdoptionPacket
+        {
+            Request = request
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestLostItems(uint requestId)
+    {
+        SendPacketToServer(new ServerboundLostItemsRequestPacket { RequestId = requestId },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
+        uint expectedRevision, int requestedSlot = -1)
+    {
+        Inventory inventory = Inventory.Instance;
+        int capacity = inventory?.Capacity ?? 0;
+        int existingItemSlot = -1;
+        if (NetworkedItem.TryGet(currentNetId, out NetworkedItem existingItem) && existingItem != null)
+            existingItemSlot = inventory?.IndexOf(existingItem.gameObject) ?? -1;
+        List<int> occupied = new();
+        for (int slot = 0; slot < capacity; slot++)
+            if (inventory.PeekItemAtSlot(slot, true) != null)
+                occupied.Add(slot);
+        Log($"[LostAndFound Recall] Preparing retrieval packet: request={requestId}, " +
+            $"handle={lostHandle}, currentNetId={currentNetId}, " +
+            $"revision={expectedRevision}, requestedSlot={requestedSlot}, existingSlot={existingItemSlot}, " +
+            $"capacity={capacity}, occupied=[{string.Join(",", occupied)}]");
+        SendPacketToServer(new ServerboundLostItemRetrievePacket
+        {
+            RequestId = requestId,
+            LostHandle = lostHandle,
+            ExpectedRevision = expectedRevision,
+            RequestedSlot = requestedSlot,
+            ExistingItemSlot = existingItemSlot,
+            InventoryCapacity = capacity,
+            OccupiedSlots = occupied.ToArray()
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot)
+    {
+        SendPacketToServer(new ServerboundItemRecallPacket
+        {
+            ItemNetId = itemNetId,
+            ExpectedRevision = expectedRevision,
+            RequestedSlot = requestedSlot
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendPaintThemeChange(NetworkedTrainCar netTraincar, TrainCarPaint.Target targetArea, uint themeId)
