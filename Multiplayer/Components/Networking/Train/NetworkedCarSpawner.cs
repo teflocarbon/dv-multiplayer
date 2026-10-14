@@ -9,6 +9,7 @@ using Multiplayer.Networking.Data.Train;
 using Multiplayer.Patches.CommsRadio;
 using Multiplayer.Utils;
 using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -32,34 +33,118 @@ public static class NetworkedCarSpawner
 
     public static void SpawnCars(TrainsetSpawnPart[] parts, bool autoCouple, bool playerSpawned = false)
     {
+        if (!TrySpawnCars(parts, autoCouple, playerSpawned, out string failure))
+            Multiplayer.LogError($"Failed to spawn trainset: {failure}");
+    }
+
+    public static bool TrySpawnCars(TrainsetSpawnPart[] parts, bool autoCouple,
+        bool playerSpawned, out string failure)
+    {
+        failure = ValidateSpawnParts(parts);
+        if (!string.IsNullOrEmpty(failure))
+            return false;
+
         NetworkedTrainCar[] cars = new NetworkedTrainCar[parts.Length];
-
-        // Spawn the cars
-        for (int i = 0; i < parts.Length; i++)
+        int restorationDataCount = _restorationData.Count;
+        try
         {
-            cars[i] = SpawnCar(parts[i], true);
+            // Spawn the cars
+            for (int i = 0; i < parts.Length; i++)
+            {
+                cars[i] = SpawnCar(parts[i], true);
+                if (cars[i]?.TrainCar == null)
+                    throw new InvalidOperationException($"car {parts[i].CarId} returned no spawned object");
 
-            if (parts[i].PlayerSpawnedCar && CommsRadioCarSpawnerPatch.SpawnVehicleSound != null)
-                CommsRadioController.PlayAudioFromCar(CommsRadioCarSpawnerPatch.SpawnVehicleSound, cars[i].TrainCar, false);
+                if (parts[i].PlayerSpawnedCar && CommsRadioCarSpawnerPatch.SpawnVehicleSound != null)
+                    CommsRadioController.PlayAudioFromCar(CommsRadioCarSpawnerPatch.SpawnVehicleSound, cars[i].TrainCar, false);
+            }
+
+            // Set brake params
+            for (int i = 0; i < cars.Length; i++)
+                SetBrakeParams(parts[i].BrakeData, cars[i].TrainCar);
+
+            // Set Customization
+            for (int i = 0; i < cars.Length; i++)
+                SetCustomizations(parts[i].CustomizationHoles, cars[i].TrainCar);
+
+            // Couple them if marked as coupled
+            // - we need to do this back to front otherwise the TrainSet indicies will be wrong!
+            for (int i = cars.Length - 1; i >= 0; i--)
+                Couple(parts[i], cars[i].TrainCar, autoCouple);
+
+            // Update speed queue data
+            for (int i = 0; i < cars.Length; i++)
+                cars[i].Client_trainSpeedQueue.ReceiveSnapshot(parts[i].Speed, NetworkLifecycle.Instance.Tick);
+
+            return true;
         }
+        catch (Exception exception)
+        {
+            failure = exception.GetType().Name + ": " + exception.Message;
+            if (_restorationData.Count > restorationDataCount)
+                _restorationData.RemoveRange(restorationDataCount,
+                    _restorationData.Count - restorationDataCount);
+            for (int i = cars.Length - 1; i >= 0; i--)
+            {
+                TrainCar trainCar = cars[i]?.TrainCar;
+                if (trainCar == null)
+                    continue;
+                try
+                {
+                    CarSpawner.Instance.DeleteCar(trainCar);
+                }
+                catch (Exception rollbackException)
+                {
+                    Multiplayer.LogError($"Failed to roll back train car {trainCar.ID}: {rollbackException}");
+                }
+            }
+            return false;
+        }
+    }
 
-        // Set brake params
-        for (int i = 0; i < cars.Length; i++)
-            SetBrakeParams(parts[i].BrakeData, cars[i].TrainCar);
+    private static string ValidateSpawnParts(TrainsetSpawnPart[] parts)
+    {
+        if (parts == null || parts.Length == 0)
+            return "empty trainset";
 
-        // Set Customization
-        for (int i = 0; i < cars.Length; i++)
-            SetCustomizations(parts[i].CustomizationHoles, cars[i].TrainCar);
+        HashSet<ushort> netIds = new();
+        HashSet<string> carIds = new(StringComparer.Ordinal);
+        for (int index = 0; index < parts.Length; index++)
+        {
+            TrainsetSpawnPart part = parts[index];
+            if (part == null)
+                return $"car {index} is null";
+            if (part.NetId == 0 || !netIds.Add(part.NetId))
+                return $"car {index} has invalid or duplicate netId {part.NetId}";
+            if (string.IsNullOrWhiteSpace(part.CarId) || !carIds.Add(part.CarId))
+                return $"car {index} has an invalid or duplicate carId";
+            if (string.IsNullOrWhiteSpace(part.LiveryId) ||
+                !TrainComponentLookup.Instance.LiveryFromId(part.LiveryId, out TrainCarLivery _))
+                return $"car {part.CarId} references unknown livery '{part.LiveryId}'";
+            if (NetworkedTrainCar.TryGetQuiet(part.NetId, out NetworkedTrainCar _))
+                return $"netId {part.NetId} already exists";
+            if (NetworkedTrainCar.GetTrainCarFromTrainId(part.CarId, out TrainCar _))
+                return $"carId {part.CarId} already exists";
 
-        // Couple them if marked as coupled
-        // - we need to do this back to front otherwise the TrainSet indicies will be wrong!
-        for (int i = cars.Length - 1; i >= 0; i--)
-            Couple(in parts[i], cars[i].TrainCar, autoCouple);
+            string bogieFailure = ValidateBogie(part.CarId, 1, part.Bogie1);
+            if (!string.IsNullOrEmpty(bogieFailure))
+                return bogieFailure;
+            bogieFailure = ValidateBogie(part.CarId, 2, part.Bogie2);
+            if (!string.IsNullOrEmpty(bogieFailure))
+                return bogieFailure;
+        }
+        return string.Empty;
+    }
 
-        // Update speed queue data
-        for (int i = 0; i < cars.Length; i++)
-            cars[i].Client_trainSpeedQueue.ReceiveSnapshot(parts[i].Speed, NetworkLifecycle.Instance.Tick);
-
+    private static string ValidateBogie(string carId, int index, BogieData bogie)
+    {
+        if (bogie.HasDerailed)
+            return string.Empty;
+        if (!bogie.IncludesTrackData || bogie.TrackNetId == 0)
+            return $"car {carId} bogie {index} has no authoritative track";
+        return NetworkedRailTrack.TryGet(bogie.TrackNetId, out NetworkedRailTrack _)
+            ? string.Empty
+            : $"car {carId} bogie {index} references unknown track {bogie.TrackNetId}";
     }
 
     public static bool TryApplyRelocation(TrainsetSpawnPart[] parts, uint hostTick,
@@ -225,7 +310,7 @@ public static class NetworkedCarSpawner
         return networkedTrainCar;
     }
 
-    private static void Couple(in TrainsetSpawnPart spawnPart, TrainCar trainCar, bool autoCouple)
+    private static void Couple(TrainsetSpawnPart spawnPart, TrainCar trainCar, bool autoCouple)
     {
         TrainsetSpawnPart sp = spawnPart;
         //Multiplayer.LogDebug(() =>$"Couple([{sp.CarId}, {sp.NetId}], trainCar, {autoCouple})");
@@ -235,8 +320,14 @@ public static class NetworkedCarSpawner
             trainCar.frontCoupler.preventAutoCouple = spawnPart.FrontCoupling.PreventAutoCouple;
             trainCar.rearCoupler.preventAutoCouple = spawnPart.RearCoupling.PreventAutoCouple;
 
-            trainCar.frontCoupler.AttemptAutoCouple();
-            trainCar.rearCoupler.AttemptAutoCouple();
+            // The host auto-couples its own copy and broadcasts the result in its next topology
+            // snapshot. Auto-coupling here as well made a local guess (half a second later, outside
+            // any packet scope) whose hose and cock side effects were sent to the host as commands.
+            if (NetworkLifecycle.Instance.IsHost())
+            {
+                trainCar.frontCoupler.AttemptAutoCouple();
+                trainCar.rearCoupler.AttemptAutoCouple();
+            }
 
             return;
         }

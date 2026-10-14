@@ -4,7 +4,7 @@
     <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <MultiplayerAssemblyPath Condition="'$(MultiplayerAssemblyPath)' == ''">..\Multiplayer\bin\Debug\net48\Multiplayer.dll</MultiplayerAssemblyPath>
+    <MultiplayerAssemblyPath Condition="'$(MultiplayerAssemblyPath)' == ''">..\Multiplayer\bin\$(Configuration)\net48\Multiplayer.dll</MultiplayerAssemblyPath>
     <DerailValleyManagedDir Condition="'$(DerailValleyManagedDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Derail Valley\DerailValley_Data\Managed</DerailValleyManagedDir>
   </PropertyGroup>
   <ItemGroup>
@@ -14,6 +14,7 @@
     <PackageReference Include="LiteNetLib" Version="1.3.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <ProjectReference Include="..\Multiplayer.DebugProtocol\Multiplayer.DebugProtocol.csproj" />
+    <ProjectReference Include="..\Multiplayer.Core\Multiplayer.Core.csproj" />
     <Reference Include="Multiplayer"><HintPath>$(MultiplayerAssemblyPath)</HintPath><Private>true</Private></Reference>
     <Reference Include="Assembly-CSharp"><HintPath>$(DerailValleyManagedDir)\Assembly-CSharp.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="DV.ThingTypes"><HintPath>$(DerailValleyManagedDir)\DV.ThingTypes.dll</HintPath><Private>true</Private></Reference>

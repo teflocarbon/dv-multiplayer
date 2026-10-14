@@ -12,17 +12,22 @@ using UnityEngine;
 namespace Multiplayer.Patches.World.Items;
 
 /// <summary>
-/// Observes when Derail Valley schedules its distance-based respawn/destruction coroutine.
-/// The eventual storage move is recorded by DebugInventoryObserver. No behavior is changed.
+/// Observes when Derail Valley schedules its distance-based respawn/destruction coroutine, and
+/// suppresses it for items Multiplayer manages (the host's Lost and Found scanner owns those).
+/// Unmanaged scene objects keep vanilla behaviour.
 /// </summary>
 [HarmonyPatch(typeof(RespawnOnDrop), nameof(RespawnOnDrop.RespawnOrDestroy))]
 internal static class RespawnOnDropDebugPatch
 {
     [HarmonyPrefix]
-    private static bool BeforeRespawnOrDestroy(RespawnOnDrop __instance, float delay)
+    private static bool BeforeRespawnOrDestroy(RespawnOnDrop __instance, float delay, ref System.Collections.IEnumerator __result)
     {
         if (__instance == null)
             return true;
+        // RespawnOrDestroy is a coroutine factory. Skipping it must still hand back a valid
+        // enumerator: vanilla passes the result straight to CoroutineManager.Run, and a null
+        // throws inside RespawnOnDrop.Checker, killing that item's distance/kinematic checker.
+        __result = System.Linq.Enumerable.Empty<object>().GetEnumerator();
         GameObject itemObject = __instance.gameObject;
         ItemBase item = itemObject.GetComponent<ItemBase>();
         NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem networked);

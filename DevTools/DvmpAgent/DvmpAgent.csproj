@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+        In-game half of the DVMP dev harness. A separate Unity Mod Manager mod that is only
+        deployed by Debug builds and never shipped with the Multiplayer release package.
+        It deliberately has no compile-time dependency on Multiplayer.dll so a broken mod build
+        cannot take the dev tooling down with it; Multiplayer state is read via reflection.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>MultiplayerDevTools</AssemblyName>
+        <RootNamespace>Dvmp.Agent</RootNamespace>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="UnityModManager" Version="0.31.1" />
+    </ItemGroup>
+    <ItemGroup>
+        <Reference Include="Assembly-CSharp" Private="false" />
+        <Reference Include="0Harmony" Private="false">
+            <HintPath>$(DvInstallDir)\DerailValley_Data\Managed\UnityModManager\0Harmony.dll</HintPath>
+        </Reference>
+        <Reference Include="DV.Utils" Private="false" />
+        <Reference Include="DV.Interaction" Private="false" />
+        <Reference Include="DV.UI" Private="false" />
+        <Reference Include="UnityEngine.InputLegacyModule" Private="false" />
+        <Reference Include="Newtonsoft.Json" Private="false" />
+        <Reference Include="WorldStreamer" Private="false" />
+        <Reference Include="UnityEngine" Private="false" />
+        <Reference Include="UnityEngine.CoreModule" Private="false" />
+        <Reference Include="UnityEngine.AudioModule" Private="false" />
+        <Reference Include="UnityEngine.ImageConversionModule" Private="false" />
+        <Reference Include="UnityEngine.ScreenCaptureModule" Private="false" />
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="info.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+    <!-- Debug builds deploy straight into the game. Release builds never deploy the agent. -->
+    <!-- DvInstallDir comes from Directory.Build.targets, which is imported after this file's
+         properties, so the destination is computed inside the target. -->
+    <Target Name="DeployDvmpAgent" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' AND '$(DvInstallDir)' != '' AND Exists('$(DvInstallDir)\DerailValley.exe')">
+        <PropertyGroup>
+            <DvmpAgentModDir>$(DvInstallDir)\Mods\MultiplayerDevTools</DvmpAgentModDir>
+        </PropertyGroup>
+        <MakeDir Directories="$(DvmpAgentModDir)" />
+        <Copy SourceFiles="$(TargetPath);$(OutDir)info.json" DestinationFolder="$(DvmpAgentModDir)" />
+    </Target>
+</Project>

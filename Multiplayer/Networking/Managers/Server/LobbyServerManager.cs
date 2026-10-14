@@ -116,14 +116,16 @@ public class LobbyServerManager : MonoBehaviour
                 $"Private IPv4: {server.ServerData.LocalIPv4}"
             );
 
-        if (server.ServerData.Visibility >= ServerVisibility.Private)
+        // The PHP lobby server lists every registered server publicly; it has no notion of
+        // friends-only or private. Only public games may register there (Steam handles friends).
+        if (server.ServerData.Visibility == ServerVisibility.Public)
         {
             Multiplayer.Log($"Registering server at: {Multiplayer.Settings.LobbyServerAddress}/{ENDPOINT_ADD_SERVER}");
             StartCoroutine(RegisterWithLobbyServer($"{Multiplayer.Settings.LobbyServerAddress}/{ENDPOINT_ADD_SERVER}"));
 
             //allow the server some time to register (should take less than a second)
             float timeout = 5f;
-            while (server_id == null || server_id == string.Empty  || (timeout -= Time.deltaTime) <= 0)
+            while (string.IsNullOrEmpty(server_id) && (timeout -= Time.unscaledDeltaTime) > 0)
                 yield return null;
 
 
@@ -144,7 +146,8 @@ public class LobbyServerManager : MonoBehaviour
         Multiplayer.Log($"LobbyServerManager OnDestroy()");
         sendUpdates = false;
         StopAllCoroutines();
-        StartCoroutine(RemoveFromLobbyServer($"{Multiplayer.Settings.LobbyServerAddress}/{ENDPOINT_REMOVE_SERVER}"));
+        if (!string.IsNullOrEmpty(private_key))
+            StartCoroutine(RemoveFromLobbyServer($"{Multiplayer.Settings.LobbyServerAddress}/{ENDPOINT_REMOVE_SERVER}"));
 
 
         lobby?.SetJoinable(false);

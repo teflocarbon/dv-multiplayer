@@ -24,6 +24,11 @@ public static class TimeAdvancePatch
         if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
             return true;
 
+        // Applying a relayed advance (on the host too: its local client receives the relay of a
+        // client's request) - advance, but don't send it on again or the requester skips twice.
+        if (NetworkLifecycle.Instance.IsProcessingPacket)
+            return true;
+
         if (NetworkLifecycle.Instance.IsHost())
         {
             // Host with other players connected - only advance if FastTravelAdvancesTime is enabled
@@ -33,10 +38,6 @@ public static class TimeAdvancePatch
             NetworkLifecycle.Instance.Client.SendTimeAdvance(amountOfTimeToSkipInSeconds);
             return true;
         }
-
-        // Client: receiving a relayed packet - allow time to advance, but don't echo back to server
-        if (NetworkLifecycle.Instance.IsProcessingPacket)
-            return true;
 
         // Client: local fast travel - only allow if FastTravelAdvancesTime is enabled
         if (!FastTravelAdvancesTime)

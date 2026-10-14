@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+        Outside-the-game half of the DVMP dev harness: discovers running game agents, compiles
+        C# probes against the game's assemblies, and exposes everything as an MCP server
+        (`dvmp mcp`) plus a CLI for scripts and long runs.
+    -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AssemblyName>dvmp</AssemblyName>
+        <RootNamespace>Dvmp</RootNamespace>
+    </PropertyGroup>
+    <!-- Probes are compiled at runtime against the game, not as part of this project. -->
+    <ItemGroup>
+        <Compile Remove="Probes/**" />
+        <EmbeddedResource Include="Probes/*.cs" LogicalName="probe.%(Filename)" />
+        <EmbeddedResource Include="Probes/lib/*.cs" LogicalName="lib.%(Filename)" />
+    </ItemGroup>
+    <ItemGroup>
+      <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+      <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+      <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+      <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+    </ItemGroup>
+</Project>

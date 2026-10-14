@@ -15,7 +15,7 @@ namespace Multiplayer.Components.Networking.Player;
 /// <summary>
 /// Represents a networked player in the multiplayer environment, handling movement, item holding, and visual state
 /// </summary>
-public class NetworkedPlayer : MonoBehaviour
+public partial class NetworkedPlayer : MonoBehaviour
 {
     #region Static Setup
     private static Vector3 itemAnchorOffset = new(0.2f, 1.5f, 0.4f);
@@ -116,9 +116,8 @@ public class NetworkedPlayer : MonoBehaviour
     private Quaternion currentRightHandWorldRot = Quaternion.identity;
     private bool handTrackingInitialized;
 
-    // Inventory and item holding. Item packets currently represent a single held item,
-    // so this retains the feature branch's right-hand behaviour on top of beta's
-    // newer player/VR tracking model.
+    // Inventory and item holding. Desktop uses the legacy body-relative right-hand slot;
+    // VR uses independent left/right projections implemented in NetworkedPlayer.VrItems.cs.
     private GameObject inventoryRoot;
     public GameObject RightHandItemGO { get; private set; }
     private readonly List<Collider> disabledRHItemColliders = [];
@@ -135,7 +134,9 @@ public class NetworkedPlayer : MonoBehaviour
         nameTag = GetComponentInChildren<NameTag>();
 
         nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
-        PlayerManager.CameraChanged += () => nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
+        // A named handler so OnDestroy can remove it: the static event otherwise kept every
+        // departed player's avatar alive and threw on their destroyed name tag at each camera change.
+        PlayerManager.CameraChanged += OnCameraChanged;
 
         if (name != null)
             nameTag.SetUsername(name);
@@ -171,6 +172,13 @@ public class NetworkedPlayer : MonoBehaviour
     protected void OnDestroy()
     {
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
+        PlayerManager.CameraChanged -= OnCameraChanged;
+    }
+
+    private void OnCameraChanged()
+    {
+        if (nameTag != null && PlayerManager.ActiveCamera != null)
+            nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
     }
 
     private void OnSettingsUpdated(Settings settings)
@@ -329,6 +337,11 @@ public class NetworkedPlayer : MonoBehaviour
 
     private void ApplyHeldItemPosition()
     {
+        if (IsVR)
+        {
+            ApplyVrHeldItemPositions();
+            return;
+        }
         if (RightHandItemGO == null)
             return;
 
@@ -395,21 +408,22 @@ public class NetworkedPlayer : MonoBehaviour
             EntityDebugRegistry.RegisterPlayer(this);
             return EntityDebugRegistry.Get("Player", PlayerId.ToString())?.LatestState;
         }, highFrequency: true);
+        SetPosture(posture);
+
+        // Positions are car-local when on a car and absolute otherwise. If this packet's frame doesn't
+        // match ours (e.g. their car isn't spawned here yet), skip it: applying it first meant a
+        // car-local position was read as a world one and the avatar jumped toward the origin.
+        if (IsOnCar != movePacketIsOnCar)
+            return;
+
         if (trackingData.Position.HasValue)
             targetPos = trackingData.Position.Value;
 
         if (trackingData.MoveDirection.HasValue)
-        {
             targetMoveDir = trackingData.MoveDirection.Value;
-        }
 
         if (trackingData.SitHeight.HasValue)
             currentSitHeight = Mathf.Clamp01(trackingData.SitHeight.Value);
-
-        SetPosture(posture);
-
-        if (IsOnCar != movePacketIsOnCar)
-            return;
 
         if (trackingData.RotationY.HasValue)
             targetRotation = Quaternion.Euler(0, trackingData.RotationY.Value, 0);
@@ -463,13 +477,16 @@ public class NetworkedPlayer : MonoBehaviour
     public void UpdateCar(ushort netId)
     {
         string previousCar = OccupiedCar?.ID ?? string.Empty;
-        IsOnCar = NetworkedTrainCar.TryGet(netId, out TrainCar trainCar);
+        bool onCar = NetworkedTrainCar.TryGet(netId, out TrainCar trainCar);
+        // Called for every tracking packet; only reparent when the car actually changes. Leaving a car
+        // parented the avatar to nothing, outside the origin-shift parent it was created under, so it
+        // slid every time the world shifted.
+        if (onCar == IsOnCar && trainCar == OccupiedCar && selfTransform.parent != null)
+            return;
+        IsOnCar = onCar;
         OccupiedCar = trainCar;
 
-        if (IsOnCar)
-            selfTransform.SetParent(OccupiedCar.transform, true);
-        else
-            selfTransform.SetParent(null, true);
+        selfTransform.SetParent(IsOnCar ? OccupiedCar.transform : WorldMover.OriginShiftParent, true);
 
         DebugRuntime.Publish("player", "player.car-attachment", DebugRuntimeSide.Client, entityType: "Player", entityId: PlayerId.ToString(),
             data: new() { ["previousCar"] = previousCar, ["carNetId"] = netId, ["currentCar"] = OccupiedCar?.ID ?? string.Empty, ["isOnCar"] = IsOnCar });
@@ -491,31 +508,9 @@ public class NetworkedPlayer : MonoBehaviour
     /// <param name="targetPos">Optional local position offset</param>
     /// <param name="targetRot">Optional local rotation offset</param>
     /// <param name="rightHand">Indicates if the item is held in the right hand. Always true for non-VR.</param>
-    // TODO: Expand item packets and handling for left-hand and dual-hand VR items.
     public void HoldItem(GameObject itemGo, Vector3? targetPos = null, Quaternion? targetRot = null, bool rightHand = true)
     {
-        Multiplayer.LogDebug(() => $"NetworkedPlayer.HoldItem({itemGo.GetPath()}) Player: {username}, Before position: {itemGo.transform.localPosition}, rotation:  {itemGo.transform.localRotation}, Target pos: {targetPos}, Target rot: {targetRot}");
-
-        itemGo.transform.SetParent(selfTransform, true);
-        var itemGrabHandler = itemGo.GetComponentInChildren<GrabHandlerItem>();
-        if (itemGrabHandler != null)
-        {
-            itemGrabHandler.TogglePhysics(false);
-            itemGrabHandler.interactionAllowed = false;
-        }
-
-        disabledRHItemColliders.Clear();
-        foreach (Collider col in itemGo.GetComponentsInChildren<Collider>(true))
-        {
-            if (col != null && col.enabled)
-                col.enabled = false;
-
-            disabledRHItemColliders.Add(col);
-        }
-
-        RightHandItemGO = itemGo;
-        itemHoldPos = targetPos;
-        itemHoldRot = targetRot;
+        HoldDesktopItem(itemGo, targetPos, targetRot);
     }
 
     public void DropItem()
@@ -525,29 +520,6 @@ public class NetworkedPlayer : MonoBehaviour
 
     public bool DropItem(GameObject expectedItem)
     {
-        GameObject heldItem = RightHandItemGO;
-        if (heldItem == null || expectedItem != null && heldItem != expectedItem)
-            return false;
-
-        foreach (Collider col in disabledRHItemColliders)
-        {
-            if (col != null)
-                col.enabled = true;
-        }
-        disabledRHItemColliders.Clear();
-
-        var itemGrabHandler = heldItem.GetComponentInChildren<GrabHandlerItem>();
-        if (itemGrabHandler != null)
-        {
-            itemGrabHandler.TogglePhysics(true);
-            itemGrabHandler.interactionAllowed = true;
-        }
-
-        heldItem.transform.SetParent(WorldMover.OriginShiftParent, true);
-
-        RightHandItemGO = null;
-        itemHoldPos = null;
-        itemHoldRot = null;
-        return true;
+        return DropProjectedItem(expectedItem);
     }
 }

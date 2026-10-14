@@ -735,6 +735,38 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         netItem.Initialize(jobOverview, itemNetId, false);
         networkedJob.JobOverview = netItem;
         StationController.spawnedJobOverviews.Add(jobOverview);
+        StartCoroutine(ObserveJobOverviewRender(networkedJob, netItem));
+    }
+
+    private IEnumerator ObserveJobOverviewRender(NetworkedJob networkedJob, NetworkedItem item)
+    {
+        string jobId = networkedJob?.Job?.ID ?? string.Empty;
+        ushort itemNetId = item?.NetId ?? (ushort)0;
+        PageBook pageBook = item?.GetComponentInChildren<PageBook>(true);
+        if (pageBook == null)
+        {
+            DebugRuntime.Publish("job", "job.overview-render-pagebook-missing",
+                DebugRuntimeSide.Client, DebugSeverity.Error, "Job", networkedJob?.NetId.ToString(),
+                new() { ["jobId"] = jobId, ["itemNetId"] = itemNetId });
+            yield break;
+        }
+
+        float deadline = Time.realtimeSinceStartup + 15f;
+        while (item != null && !pageBook.PagesGenerated && Time.realtimeSinceStartup < deadline)
+            yield return new WaitForEndOfFrame();
+
+        bool ready = item != null && pageBook.PagesGenerated && pageBook.PageNum > 0;
+        DebugRuntime.Publish("job", ready ? "job.overview-render-ready" : "job.overview-render-timeout",
+            DebugRuntimeSide.Client, ready ? DebugSeverity.Info : DebugSeverity.Error,
+            "Job", networkedJob?.NetId.ToString(), new()
+            {
+                ["jobId"] = jobId,
+                ["itemNetId"] = itemNetId,
+                ["representationAlive"] = item != null,
+                ["pagesGenerated"] = item != null && pageBook.PagesGenerated,
+                ["pageCount"] = item != null ? pageBook.PageNum : 0,
+                ["runtimePageCount"] = item != null ? pageBook.pages?.Count ?? 0 : 0
+            });
     }
 
     private static void GenerateJobBookletCopy(NetworkedJob networkedJob, ushort itemNetId,

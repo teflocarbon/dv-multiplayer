@@ -32,6 +32,8 @@ public class Settings : UnityModManager.ModSettings, IDrawable
 
     [Space(10)]
     [Header("Gameplay")]
+    [Draw("Observer Mode", Tooltip = "When joining another host, act as a read-only observer. Movement, teleporting, chat, and world synchronization remain active, but this client cannot mutate trains, items, jobs, services, or switches.")]
+    public bool ObserverMode;
     [Draw("Allow clients to set their own crew names", Tooltip = "Whether to allow clients to set their own crew names.")]
     public bool AllowClientCrewNames = false;
     [Draw("Fast Travel Advances Time", Tooltip = "When players use fast travel, time will advance.")]
@@ -116,10 +118,6 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool EnableDebugFileLogging = true;
     [Draw("Enable Debug Firehose", Tooltip = "Serve the local debug UI on a random loopback port.", VisibleOn = "EnableDebugSystem|true")]
     public bool EnableDebugFirehose = true;
-#if DEBUG
-    [Draw("Enable Runtime Test Harness", Tooltip = "Allow authenticated debug clients to run game-native integration tests.", VisibleOn = "EnableDebugSystem|true")]
-    public bool EnableRuntimeTestHarness = true;
-#endif
     // Kept for settings-file compatibility. Raw capture is intentionally armed only from
     // the in-game packet inspector for the current session because persisting it can make
     // startup unusable on packet-heavy worlds.

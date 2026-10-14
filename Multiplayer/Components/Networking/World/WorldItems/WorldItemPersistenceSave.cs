@@ -95,15 +95,34 @@ internal static partial class WorldItemPersistenceManager
         }
     }
 
+    /// <summary>
+    /// Job overviews and booklets belong to DV's job system, which saves jobs and recreates their
+    /// paperwork on load. Persisting them as world items as well restored a dead copy of every
+    /// board overview on each load, piling stacked duplicates onto the job boards.
+    /// </summary>
+    internal static bool IsJobSystemDocument(string prefabName) =>
+        prefabName is "JobOverview" or "JobBooklet";
+
     private static bool ShouldPersist(AuthoritativeItemRegistry.Record record)
     {
         if (record == null || record.Placement is ItemPlacementKind.Container or
             ItemPlacementKind.LostAndFound or ItemPlacementKind.Installed or ItemPlacementKind.Destroyed)
             return false;
+        if (IsJobSystemDocument(record.PrefabName))
+            return false;
 
         if (record.PersistentItemId != Guid.Empty)
+        {
+            // Like vanilla's world storage, only keep dynamic items a player owns. Unowned ones
+            // are respawned by their source each load (e.g. the paint station's spray can, which
+            // vanilla only skips when the player already owns one), so persisting them added a
+            // copy every load.
+            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) ||
+                item?.Item?.InventorySpecs?.BelongsToPlayer != true)
+                return false;
             return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                 ItemPlacementKind.StaticParent;
+        }
 
         if (!WorldItemStableIdentity.IsValid(record.AuthoredItemKey))
             return false;

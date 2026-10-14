@@ -49,13 +49,17 @@ public static class RemoteItemProjectionPlanner
 
         if (!targetRemotePlayerExists)
             return new RemoteItemProjectionPlan(RemoteItemProjectionAction.MissingRemotePlayer,
-                false, false, true);
+                true, false, true);
 
         return new RemoteItemProjectionPlan(
             state == WireItemState.InHand
                 ? RemoteItemProjectionAction.RemoteHand
                 : RemoteItemProjectionAction.RemoteInventory,
-            clearExistingRemoteHands: false,
+            // Player placement snapshots are canonical, not incremental. Clear every
+            // existing projection of this item before assigning its one destination;
+            // cached holder bookkeeping can be stale after interest retirement,
+            // recreation, a hand switch, or an interrupted inventory transition.
+            clearExistingRemoteHands: true,
             activate: state == WireItemState.InHand,
             deactivate: state == WireItemState.InInventory);
     }

@@ -25,6 +25,10 @@ public static class PacketSerializationRegistry
         packetProcessor.RegisterNestedType(StationsChainNetworkData.Serialize, StationsChainNetworkData.Deserialize);
         packetProcessor.RegisterNestedType(TrainsetMovementPart.Serialize, TrainsetMovementPart.Deserialize);
         packetProcessor.RegisterNestedType(TrainsetSpawnPart.Serialize, TrainsetSpawnPart.Deserialize);
+        packetProcessor.RegisterNestedType(TrainEndpointStateData.Serialize, TrainEndpointStateData.Deserialize);
+        packetProcessor.RegisterNestedType(BrakeLineStateData.Serialize, BrakeLineStateData.Deserialize);
+        packetProcessor.RegisterNestedType(TrainControlRevisionData.Serialize, TrainControlRevisionData.Deserialize);
+        packetProcessor.RegisterNestedType(TrainControlStateData.Serialize, TrainControlStateData.Deserialize);
         packetProcessor.RegisterNestedType(TrainCarHealthData.Serialize, TrainCarHealthData.Deserialize);
         packetProcessor.RegisterNestedType(PitStopPlugMappingData.Serialize, PitStopPlugMappingData.Deserialize);
         packetProcessor.RegisterNestedType(LocoResourceModuleData.Serialize, LocoResourceModuleData.Deserialize);

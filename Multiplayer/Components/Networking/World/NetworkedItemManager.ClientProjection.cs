@@ -1,3 +1,4 @@
+using Multiplayer.Components.Networking.Train;
 using System.Collections.Generic;
 using System.Linq;
 using DV.Utils;
@@ -125,7 +126,11 @@ public partial class NetworkedItemManager
                     ["trackedItemType"] = netItem.TrackedItemType?.FullName ?? string.Empty,
                     ["prefabName"] = snapshot.PrefabName ?? string.Empty
                 });
+                netItem.SetClientNetworkBinding(true);
+                netItem.gameObject.SetActive(true);
                 netItem.ReceiveSnapshot(snapshot);
+                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+                    snapshot.AuthorityRevision, true);
                 return;
             }
 
@@ -167,6 +172,9 @@ public partial class NetworkedItemManager
                 snapshot.TransitionReason == ItemTransitionReason.LostAndFoundCollection;
             bool coldContainerProjection =
                 snapshot.TransitionReason == ItemTransitionReason.ContainerDeposit;
+            bool dormantJobDocument =
+                snapshot.TransitionReason == ItemTransitionReason.InterestRetirement &&
+                netItem != null && DoNotCreateItem(netItem);
             if (lostAndFoundProjection)
             {
                 ClientLostAndFoundTombstones.Add(snapshot.ItemNetId);
@@ -185,11 +193,15 @@ public partial class NetworkedItemManager
                     InventoryIntegration.RevokeMembership(netItem.gameObject, netItem.NetId);
                     InventoryIntegration.PurgeContainerMembership(netItem.gameObject);
                 }
-                RetireClientProjection(netItem, snapshot.TransitionReason.ToString());
+                if (dormantJobDocument)
+                    SuspendJobDocumentProjection(netItem, snapshot);
+                else
+                    RetireClientProjection(netItem, snapshot.TransitionReason.ToString());
             }
             destroyData["destroyApplied"] = true;
             destroyData["applyResult"] = netItem == null ? "already-absent" :
                 lostAndFoundProjection ? "lost-and-found-projection" :
+                dormantJobDocument ? "job-document-projection-dormant" :
                 netItem.IsSceneAuthored ? "authored-projection-dormant" : "dynamic-projection-destroyed";
             destroyData["activeInHierarchy"] = netItem != null && netItem.gameObject.activeInHierarchy;
             destroyData["boundNetIdAfter"] = netItem?.NetId ?? 0;
@@ -213,21 +225,29 @@ public partial class NetworkedItemManager
 
     private void ProcessPendingWorldProjections()
     {
+        // The budget limits projections per tick, not readiness checks: counting checks let a
+        // handful of never-ready entries at the front of the table block every later one forever.
         int budget = 8;
         foreach (KeyValuePair<ushort, PendingWorldProjection> pair in PendingWorldProjections.ToArray())
         {
-            if (budget-- <= 0)
+            if (budget <= 0)
                 break;
             PendingWorldProjection pending = pair.Value;
             if (pending?.Create == null || !IsWorldRegionReady(pending.Create))
                 continue;
 
+            budget--;
             PendingWorldProjections.Remove(pair.Key);
             bool projected = WorldItemStableIdentity.IsValid(pending.Create.AuthoredItemKey)
                 ? TryBindAuthoredClientProjection(pending.Create, false)
                 : CreateItem(pending.Create, false);
             if (!projected)
+            {
+                // Tell the host, or it believes we have the item and only ever sends updates.
+                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(pair.Key,
+                    pending.Create.AuthorityRevision, false);
                 continue;
+            }
 
             uint appliedRevision = pending.Create.AuthorityRevision;
             foreach (ItemUpdateData update in pending.Updates)
@@ -251,6 +271,13 @@ public partial class NetworkedItemManager
 
     private static bool IsWorldRegionReady(ItemUpdateData snapshot)
     {
+        // Items riding a car are placed relative to it; their world position in the Create is
+        // where the car was when it was sent and may be long gone. What they need is the car.
+        if (snapshot.ItemState == ItemState.Attached)
+            return NetworkedTrainCar.TryGet(snapshot.CarNetId, out TrainCar attachedCar) && attachedCar != null;
+        if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior)
+            return NetworkedTrainCar.TryGet(snapshot.WorldParentNetId, out TrainCar parentCar) && parentCar != null;
+
         try
         {
             return WorldStreamingInit.Instance != null &&
@@ -276,7 +303,25 @@ public partial class NetworkedItemManager
             ["prefabName"] = snapshot.PrefabName ?? string.Empty,
             ["authorityRevision"] = snapshot.AuthorityRevision
         });
+        item.SetClientNetworkBinding(true);
+        item.gameObject.SetActive(true);
         item.ReceiveSnapshot(snapshot);
+        NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+            snapshot.AuthorityRevision, true);
+    }
+
+    private static void SuspendJobDocumentProjection(NetworkedItem item, ItemUpdateData snapshot)
+    {
+        item.SetClientNetworkBinding(false);
+        item.gameObject.SetActive(false);
+        DebugRuntime.Publish("item", "item.job-document-projection-dormant",
+            DebugRuntimeSide.Client, entityType: "Item", entityId: item.NetId.ToString(),
+            data: new()
+            {
+                ["trackedItemType"] = item.TrackedItemType?.FullName ?? string.Empty,
+                ["authorityRevision"] = snapshot.AuthorityRevision,
+                ["reason"] = snapshot.TransitionReason.ToString()
+            });
     }
 
     private static bool IsJobDocumentPrefab(string prefabName) =>

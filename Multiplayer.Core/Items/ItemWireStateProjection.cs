@@ -17,18 +17,20 @@ public enum WireItemState : byte
 public readonly struct ItemWireStateProjection
 {
     public ItemWireStateProjection(WireItemState state, byte placementPlayerId = 0,
-        ushort attachedCarNetId = 0, bool attachedFront = false)
+        ushort attachedCarNetId = 0, bool attachedFront = false, byte placementHand = 0)
     {
         State = state;
         PlacementPlayerId = placementPlayerId;
         AttachedCarNetId = attachedCarNetId;
         AttachedFront = attachedFront;
+        PlacementHand = placementHand;
     }
 
     public WireItemState State { get; }
     public byte PlacementPlayerId { get; }
     public ushort AttachedCarNetId { get; }
     public bool AttachedFront { get; }
+    public byte PlacementHand { get; }
 }
 
 public static class ItemWireStateComparer
@@ -51,7 +53,10 @@ public static class ItemWireStateComparer
 
         return current.State switch
         {
-            WireItemState.InHand or WireItemState.InInventory =>
+            WireItemState.InHand =>
+                previous.PlacementPlayerId != current.PlacementPlayerId ||
+                previous.PlacementHand != current.PlacementHand,
+            WireItemState.InInventory =>
                 previous.PlacementPlayerId != current.PlacementPlayerId,
             WireItemState.Attached =>
                 previous.AttachedCarNetId != current.AttachedCarNetId ||

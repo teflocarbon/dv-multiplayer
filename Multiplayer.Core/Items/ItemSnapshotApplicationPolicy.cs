@@ -11,4 +11,11 @@ public static class ItemSnapshotApplicationPolicy
         byte originatingPlayerId, WireItemState state) =>
         !isHost && localPlayerId != 0 && originatingPlayerId == localPlayerId &&
         state == WireItemState.Thrown;
+
+    public static bool IsLocalVrReleaseAcknowledgement(bool isHost, byte localPlayerId,
+        byte originatingPlayerId, WireItemState previousState, WireItemState receivedState,
+        byte previousHand) =>
+        !isHost && localPlayerId != 0 && originatingPlayerId == localPlayerId &&
+        previousState == WireItemState.InHand && receivedState == WireItemState.Dropped &&
+        previousHand != 0;
 }
