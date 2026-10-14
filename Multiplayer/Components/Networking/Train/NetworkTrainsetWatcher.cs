@@ -37,6 +37,30 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 
     #region Server
 
+    // How fast the host's simulation is running against the clock (game time per real second).
+    // A host that drops to a couple of frames a second clamps its frame time, so its world runs
+    // at a fraction of real time. Clients predict along the track in real time with the speed we
+    // send, so sending the raw speed made them run far ahead of the host (hundreds of metres over
+    // a long stall) and snap back when it recovered. Send the speed the train is really making.
+    private float lastRateRealTime = -1f;
+    private float lastRateGameTime;
+    private float simulationRate = 1f;
+
+    private void UpdateSimulationRate()
+    {
+        float real = Time.realtimeSinceStartup, game = Time.time;
+        if (lastRateRealTime >= 0f && real - lastRateRealTime > 0.0001f)
+        {
+            float rate = Mathf.Clamp01((game - lastRateGameTime) / (real - lastRateRealTime));
+            // Smooth over a few ticks: a single long frame shouldn't halve every train's speed.
+            simulationRate = Mathf.Lerp(simulationRate, rate, 0.5f);
+            if (simulationRate > 0.97f)
+                simulationRate = 1f;
+        }
+        lastRateRealTime = real;
+        lastRateGameTime = game;
+    }
+
     private void Server_OnTick(uint tick)
     {
         // IsHost() was only checked in Awake previously. If a player hosted a game,
@@ -45,6 +69,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         if (!NetworkLifecycle.Instance.IsHost() || NetworkLifecycle.Instance.Server == null)
             return;
 
+        UpdateSimulationRate();
         cachedSendPacket.Tick = tick;
         foreach (Trainset set in Trainset.allSets)
         {
@@ -193,7 +218,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 
                 trainsetParts[i] = new TrainsetMovementPart(
                     networkedTrainCar.NetId,
-                    trainCar.GetForwardSpeed(),
+                    trainCar.GetForwardSpeed() * simulationRate,
                     trainCar.stress.slowBuildUpStress,
                     BogieData.FromBogie(trainCar.Bogies[0]),
                     BogieData.FromBogie(trainCar.Bogies[1]),
