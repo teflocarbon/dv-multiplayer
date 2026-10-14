@@ -12,6 +12,7 @@ using DV.ServicePenalty.UI;
 using DV.ThingTypes;
 using DV.UI;
 using DV.UserManagement;
+using DV.Utils;
 using DV.WeatherSystem;
 using LiteNetLib;
 using LiteNetLib.Utils;
@@ -62,6 +63,8 @@ namespace Multiplayer.Networking.Managers.Client;
 public class NetworkClient : NetworkManager
 {
     public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
+    public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
+    public event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
     protected override string LogPrefix => "[Client]";
 
     private Action<DisconnectReason, string> onDisconnect;
@@ -147,6 +150,8 @@ public class NetworkClient : NetworkManager
     public override void Stop()
     {
         Log("Stopping client");
+        trainsetRelocationRevisions.Clear();
+        pendingTrainsetRelocationRevisions.Clear();
         if (!isAlsoHost && originalSession != null)
         {
             LogDebug(() => $"NetworkClient.Stop() destroying session... Original session is Null: {originalSession == null}");
@@ -210,6 +215,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundDestroyTrainCarPacket>(OnClientboundDestroyTrainCarPacket);
         netPacketProcessor.SubscribeReusable<ClientboundRerailTrainPacket>(OnClientboundRerailTrainPacket);
         netPacketProcessor.SubscribeReusable<ClientboundMoveTrainPacket>(OnClientboundMoveTrainPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundTrainsetRelocationPacket>(OnClientboundTrainsetRelocationPacket);
 
         netPacketProcessor.SubscribeReusable<ClientboundTrainsetPhysicsPacket>(OnClientboundTrainPhysicsPacket);
         netPacketProcessor.SubscribeReusable<CommonTrainPortsPacket>(OnCommonSimFlowPacket);
@@ -259,6 +265,12 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
         netPacketProcessor.SubscribeReusable<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
         netPacketProcessor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundWorldItemCataloguePacket>(OnClientboundWorldItemCataloguePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialLeasePacket>(OnClientboundItemSpatialLeasePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialSamplePacket>(OnClientboundItemSpatialSamplePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialCommitPacket>(OnClientboundItemSpatialCommitPacket);
         netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
         netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
@@ -321,8 +333,9 @@ public class NetworkClient : NetworkManager
 
         Log($"Starting Item Manager...");
         NetworkedItemManager.Instance.CheckInstance();
-        Log($"Caching World Items...");
-        NetworkedItemManager.Instance.CacheWorldItems();
+        Log($"Quarantining unbound client items...");
+        NetworkedItemManager.Instance.QuarantineUnboundClientItems();
+        SendWorldItemCatalogue();
         Log($"Initialising Cash Registers...");
         NetworkedCashRegisterWithModules.InitialiseCashRegisters();
         Log($"Initialising Pit Stops...");
@@ -1467,6 +1480,19 @@ public class NetworkClient : NetworkManager
             return debug;
         });
 
+        // Create and Destroy are representation-lifecycle operations. The bulk packet path
+        // already routes them through NetworkedItemManager, but the single-item path used to
+        // bypass it and call ReceiveSnapshot directly. That left Destroyed objects registered,
+        // inventoried, and visible even though the packet had arrived successfully.
+        if (packet.ItemData.UpdateType.HasAnyFlag(
+                ItemUpdateData.ItemUpdateType.Create |
+                ItemUpdateData.ItemUpdateType.Destroy))
+        {
+            NetworkedItemManager.Instance.ReceiveSnapshots(
+                new List<ItemUpdateData> { packet.ItemData });
+            return;
+        }
+
         if (!NetworkedItem.TryGet(packet.ItemData.ItemNetId, out NetworkedItem networkedItem))
         {
             DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Client);
@@ -1560,6 +1586,17 @@ public class NetworkClient : NetworkManager
                 ["rejectionReason"] = packet.RejectionReason ?? string.Empty
             });
         LostItemRetrieveCompleted?.Invoke(packet);
+    }
+
+    private void OnClientboundContainerViewPacket(ClientboundContainerViewPacket packet)
+    {
+        ContainerViewReceived?.Invoke(packet);
+    }
+
+    private void OnClientboundContainerMutationResultPacket(
+        ClientboundContainerMutationResultPacket packet)
+    {
+        ContainerMutationCompleted?.Invoke(packet);
     }
 
     private void OnCommonPaintThemePacket(CommonPaintThemePacket packet)
@@ -2147,6 +2184,93 @@ public class NetworkClient : NetworkManager
                 DeliveryMethod.ReliableOrdered);
     }
 
+    private readonly Dictionary<ushort, uint> trainsetRelocationRevisions = new();
+    private readonly Dictionary<ushort, uint> pendingTrainsetRelocationRevisions = new();
+
+    private void OnClientboundTrainsetRelocationPacket(ClientboundTrainsetRelocationPacket packet)
+    {
+        if (packet == null || packet.RootNetId == 0 || packet.Cars == null) return;
+        if (trainsetRelocationRevisions.TryGetValue(packet.RootNetId, out uint applied) &&
+            packet.Revision <= applied)
+        {
+            LogDebug(() => $"Ignoring stale trainset relocation {packet.OperationId} " +
+                $"revision {packet.Revision}, applied {applied}");
+            SendTrainsetRelocationAck(packet, 1, "stale-ignored", applied);
+            return;
+        }
+        if (pendingTrainsetRelocationRevisions.TryGetValue(packet.RootNetId, out uint pending) &&
+            packet.Revision <= pending)
+        {
+            SendTrainsetRelocationAck(packet, 1, "pending-newer-or-equal", pending);
+            return;
+        }
+        pendingTrainsetRelocationRevisions[packet.RootNetId] = packet.Revision;
+        SingletonBehaviour<CoroutineManager>.Instance.Run(ApplyTrainsetRelocation(packet));
+    }
+
+    private IEnumerator ApplyTrainsetRelocation(ClientboundTrainsetRelocationPacket packet)
+    {
+        float deadline = Time.realtimeSinceStartup + 10f;
+        string failure;
+        while (!NetworkedCarSpawner.TryApplyRelocation(packet.Cars, packet.HostTick, out failure))
+        {
+            if (!pendingTrainsetRelocationRevisions.TryGetValue(packet.RootNetId,
+                    out uint pending) || pending != packet.Revision)
+            {
+                SendTrainsetRelocationAck(packet, 1, "superseded-before-apply", pending);
+                yield break;
+            }
+            bool dependency = failure.StartsWith("missing-car:", StringComparison.Ordinal) ||
+                failure.StartsWith("missing-track:", StringComparison.Ordinal);
+            if (!dependency || Time.realtimeSinceStartup >= deadline)
+            {
+                LogError($"Trainset relocation {packet.OperationId} could not be applied: {failure}");
+                SendTrainsetRelocationAck(packet, 2,
+                    dependency ? "deferred-dependency-timeout:" + failure : failure, 0);
+                if (pendingTrainsetRelocationRevisions.TryGetValue(packet.RootNetId,
+                        out uint current) && current == packet.Revision)
+                    pendingTrainsetRelocationRevisions.Remove(packet.RootNetId);
+                yield break;
+            }
+            yield return null;
+        }
+        trainsetRelocationRevisions[packet.RootNetId] = packet.Revision;
+        pendingTrainsetRelocationRevisions.Remove(packet.RootNetId);
+        uint appliedHash = TrainsetRelocationHash.Compute(packet.Cars);
+        DebugRuntime.Publish("train-relocation", "train-relocation.client-applied",
+            DebugRuntimeSide.Client, entityId: "train:" + packet.RootNetId,
+            correlationId: packet.OperationId, data: new()
+            {
+                ["revision"] = packet.Revision, ["carCount"] = packet.Cars.Length,
+                ["hostTick"] = packet.HostTick
+            });
+        if (packet.CommittedHash != 0 && packet.CommittedHash != appliedHash)
+            SendTrainsetRelocationAck(packet, 3, "hash-mismatch", appliedHash);
+        else
+            SendTrainsetRelocationAck(packet, 0, "applied", appliedHash);
+    }
+
+    private void SendTrainsetRelocationAck(ClientboundTrainsetRelocationPacket packet,
+        byte status, string reason, uint hash)
+    {
+        SendPacketToServer(new ServerboundTrainsetRelocationAckPacket
+        {
+            OperationId = packet.OperationId, Revision = packet.Revision,
+            RootNetId = packet.RootNetId, Status = status,
+            ReasonCode = reason ?? string.Empty, AppliedHash = hash
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    internal void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)
+    {
+        SendPacketToServer(new ServerboundWorldItemProjectionAckPacket
+        {
+            ItemNetId = netId,
+            AuthorityRevision = revision,
+            Projected = projected
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
     public void SendJobBookletSummonRequest(uint stationNetId)
     {
         SendPacketToServer(new ServerboundJobBookletSummonRequestPacket
@@ -2157,6 +2281,7 @@ public class NetworkClient : NetworkManager
 
     public void SendItemAdoption(ItemAdoptionRequestData request)
     {
+        // TEMPORARY compatibility only. This is not a general client creation API.
         SendPacketToServer(new ServerboundItemAdoptionPacket
         {
             Request = request
@@ -2167,6 +2292,25 @@ public class NetworkClient : NetworkManager
     {
         SendPacketToServer(new ServerboundLostItemsRequestPacket { RequestId = requestId },
             DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestContainerView(uint requestId, ushort shellNetId,
+        uint containerHandle = 0, int offset = 0, byte count = 64)
+    {
+        SendPacketToServer(new ServerboundContainerBrowsePacket
+        {
+            RequestId = requestId,
+            ShellNetId = shellNetId,
+            ContainerHandle = containerHandle,
+            Offset = offset,
+            Count = count
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void RequestContainerMutation(ServerboundContainerMutationPacket packet)
+    {
+        if (packet == null) return;
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
     }
 
     public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
@@ -2196,6 +2340,81 @@ public class NetworkClient : NetworkManager
             OccupiedSlots = occupied.ToArray()
         }, DeliveryMethod.ReliableOrdered);
     }
+
+    private void SendWorldItemCatalogue()
+    {
+        var summary = NetworkedItemManager.Instance.GetAuthoredCatalogueSummary();
+        SendPacketToServer(new ServerboundWorldItemCataloguePacket
+        {
+            ItemCount = summary.Count,
+            CollisionCount = summary.Collisions,
+            Digest = summary.Digest
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnClientboundWorldItemCataloguePacket(ClientboundWorldItemCataloguePacket packet)
+    {
+        NetworkedItemManager.Instance.SetAuthoredCatalogueNegotiationResult(packet?.Accepted == true);
+        DebugRuntime.Publish("item-world", "world-item.catalogue-result", DebugRuntimeSide.Client,
+            packet?.Accepted == true ? DebugSeverity.Info : DebugSeverity.Error, data: new()
+            {
+                ["accepted"] = packet?.Accepted == true,
+                ["hostCount"] = packet?.HostItemCount ?? 0,
+                ["hostCollisionCount"] = packet?.HostCollisionCount ?? 0,
+                ["hostDigest"] = packet?.HostDigest ?? string.Empty,
+                ["reason"] = packet?.Reason ?? "missing-response"
+            });
+    }
+
+    private void OnClientboundItemSpatialLeasePacket(ClientboundItemSpatialLeasePacket packet) =>
+        NetworkedItemManager.Instance?.ReceiveItemSpatialLease(packet);
+
+    private void OnClientboundItemSpatialSamplePacket(ClientboundItemSpatialSamplePacket packet)
+    {
+        if (packet?.State != null)
+            NetworkedItemManager.Instance?.ReceiveItemSpatialSample(packet.State);
+    }
+
+    private void OnClientboundItemSpatialCommitPacket(ClientboundItemSpatialCommitPacket packet) =>
+        NetworkedItemManager.Instance?.ReceiveItemSpatialCommit(packet);
+
+    internal void SendItemSpatialSample(ItemSpatialStateData state)
+    {
+        if (state == null) return;
+        SendPacketToServer(new ServerboundItemSpatialSamplePacket { State = state },
+            DeliveryMethod.Unreliable);
+    }
+
+    internal void SendItemSpatialSettlement(ItemSpatialStateData state)
+    {
+        if (state == null) return;
+        SendPacketToServer(new ServerboundItemSpatialSettlementPacket { State = state },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    internal void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)
+    {
+        if (packet == null) return;
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+    }
+
+#if DEBUG
+    internal void RequestLostItemRetrievalForRuntimeTest(uint requestId, uint lostHandle,
+        uint expectedRevision, int requestedSlot, int existingItemSlot,
+        int inventoryCapacity, int[] occupiedSlots)
+    {
+        SendPacketToServer(new ServerboundLostItemRetrievePacket
+        {
+            RequestId = requestId,
+            LostHandle = lostHandle,
+            ExpectedRevision = expectedRevision,
+            RequestedSlot = requestedSlot,
+            ExistingItemSlot = existingItemSlot,
+            InventoryCapacity = inventoryCapacity,
+            OccupiedSlots = occupiedSlots ?? Array.Empty<int>()
+        }, DeliveryMethod.ReliableOrdered);
+    }
+#endif
 
     public void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot)
     {

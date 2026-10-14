@@ -63,7 +63,14 @@ internal static class Program
     {
         if (args.Length > 0 && string.Equals(args[0], "--self-test", StringComparison.OrdinalIgnoreCase))
         {
-            try { DebugProtocolSelfTests.Run(); DebugPacketProjectorSelfTests.Run(); ReplicationCoordinator.RunSelfTest(); Console.WriteLine("Debug protocol, packet projection, and replication coordinator self-tests passed."); return 0; }
+            try
+            {
+                DebugProtocolSelfTests.Run(); DebugPacketProjectorSelfTests.Run(); ReplicationCoordinator.RunSelfTest();
+#if DEBUG
+                RuntimeTestCoordinator.RunSelfTest();
+#endif
+                Console.WriteLine("Debug protocol, packet projection, replication coordinator, and available debug coordinator self-tests passed."); return 0;
+            }
             catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
         }
         if (args.Length > 0 && string.Equals(args[0], "--dashboard", StringComparison.OrdinalIgnoreCase))
@@ -103,7 +110,9 @@ internal static class Program
                     SessionId = sessionId, ProcessId = pid,
                     ProcessStartedUtc = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
                     StartedUtc = now, HeartbeatUtc = now, Role = "standalone", PlayerName = profile.Username,
-                    ApiToken = Guid.NewGuid().ToString("N"), GameBuild = profile.BuildVersion,
+                    ApiToken = Guid.NewGuid().ToString("N"),
+                    BuildNumber = global::Multiplayer.Multiplayer.BuildNumber,
+                    GameBuild = profile.BuildVersion,
                     LogPath = Path.Combine(debugRoot, $"dvmp-debug-{sessionId}.jsonl")
                 };
                 traceFile = new AsyncJsonlSink(traceStore, debugSession.LogPath);

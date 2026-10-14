@@ -1,0 +1,306 @@
+{
+  "schemaVersion": 1,
+  "labId": "de2-cabin-box-stack",
+  "displayName": "DE2 cabin dense item wake lab",
+  "description": "Train-local capture of the host DE2 cabin used to reproduce dense-pile wake cascades. All replayed objects must be ownerless, non-player debug fixtures.",
+  "capturedFrom": {
+    "carId": "L-040",
+    "carGuid": "57f924a0-aa21-4675-8675-f09dfb88c436",
+    "liveryId": "LocoDE2",
+    "capturedAtBuild": "2026.07.19.1335"
+  },
+  "safety": {
+    "persistentOwnerPlayerId": 0,
+    "belongsToPlayer": false,
+    "preserveSourceOwnership": false,
+    "notes": "Map-like and essential source prefabs are replayed as neutral debug clones and must never create inventory or retrieval claims."
+  },
+  "launch": {
+    "id": "knock-down-box-stack",
+    "projectilePrefabName": "PaperBox",
+    "localPosition": {
+      "x": 0.341593981,
+      "y": 3.05332828,
+      "z": -0.322466969
+    },
+    "localDirection": {
+      "x": 0.6343297,
+      "y": -0.58754003,
+      "z": -0.502416849
+    },
+    "speed": 8,
+    "intendedTargetItemIndex": 12
+  },
+  "items": [
+    {
+      "index": 0,
+      "prefabName": "PaperBox",
+      "localPosition": {
+        "x": 0.8239417,
+        "y": 1.54508185,
+        "z": -0.8714006
+      },
+      "localRotation": {
+        "x": -0.000451653585,
+        "y": -0.8936615,
+        "z": -0.0004244284,
+        "w": -0.4487411
+      }
+    },
+    {
+      "index": 1,
+      "prefabName": "PaperBox",
+      "localPosition": {
+        "x": 0.9156618,
+        "y": 1.95169318,
+        "z": -0.661875367
+      },
+      "localRotation": {
+        "x": -0.2193519,
+        "y": 0.673735559,
+        "z": -0.668745041,
+        "w": -0.225267187
+      }
+    },
+    {
+      "index": 2,
+      "prefabName": "EOTLantern",
+      "localPosition": {
+        "x": -0.7785242,
+        "y": 1.8176831,
+        "z": -0.314486474
+      },
+      "localRotation": {
+        "x": 0.5092376,
+        "y": -0.733674,
+        "z": -0.4294764,
+        "w": -0.1339755
+      }
+    },
+    {
+      "index": 3,
+      "prefabName": "BottlePlastic",
+      "localPosition": {
+        "x": -0.812799,
+        "y": 1.58735955,
+        "z": -0.875037
+      },
+      "localRotation": {
+        "x": -0.00122178392,
+        "y": -0.668567359,
+        "z": -0.0019331784,
+        "w": -0.7436481
+      }
+    },
+    {
+      "index": 4,
+      "prefabName": "PaperBox",
+      "localPosition": {
+        "x": -0.9494554,
+        "y": 1.54495752,
+        "z": -0.369397342
+      },
+      "localRotation": {
+        "x": -0.0000867592244,
+        "y": -0.530673444,
+        "z": -0.000142593257,
+        "w": 0.8475763
+      }
+    },
+    {
+      "index": 5,
+      "prefabName": "Mug",
+      "localPosition": {
+        "x": -0.965062737,
+        "y": 1.62466872,
+        "z": -0.4313085
+      },
+      "localRotation": {
+        "x": 0.6857909,
+        "y": -0.391507655,
+        "z": -0.173930526,
+        "w": 0.588354468
+      }
+    },
+    {
+      "index": 6,
+      "prefabName": "Trashbin",
+      "localPosition": {
+        "x": -0.8996059,
+        "y": 1.54775643,
+        "z": -0.937791169
+      },
+      "localRotation": {
+        "x": -0.000009031025,
+        "y": -0.973914742,
+        "z": -0.0000248766864,
+        "w": 0.226914063
+      }
+    },
+    {
+      "index": 7,
+      "prefabName": "Map",
+      "localPosition": {
+        "x": -0.2554387,
+        "y": 2.46874285,
+        "z": 0.08584541
+      },
+      "localRotation": {
+        "x": 0.03920066,
+        "y": -0.159621134,
+        "z": 0.00592828263,
+        "w": -0.9863819
+      }
+    },
+    {
+      "index": 8,
+      "prefabName": "BottlePlastic",
+      "localPosition": {
+        "x": -0.945198536,
+        "y": 1.61809611,
+        "z": -1.01161468
+      },
+      "localRotation": {
+        "x": -0.190550268,
+        "y": -0.618689239,
+        "z": -0.446540415,
+        "w": 0.617669642
+      }
+    },
+    {
+      "index": 9,
+      "prefabName": "PaperBox",
+      "localPosition": {
+        "x": 1.00038838,
+        "y": 2.28366,
+        "z": -0.8507339
+      },
+      "localRotation": {
+        "x": -0.6286917,
+        "y": 0.326943874,
+        "z": -0.318219036,
+        "w": -0.6297549
+      }
+    },
+    {
+      "index": 10,
+      "prefabName": "BottlePlastic",
+      "localPosition": {
+        "x": -0.9903044,
+        "y": 1.61862767,
+        "z": -0.9644028
+      },
+      "localRotation": {
+        "x": 0.16259867,
+        "y": -0.5077334,
+        "z": -0.451078475,
+        "w": 0.715749
+      }
+    },
+    {
+      "index": 11,
+      "prefabName": "Mug",
+      "localPosition": {
+        "x": -0.978427649,
+        "y": 1.70205712,
+        "z": -1.01291585
+      },
+      "localRotation": {
+        "x": -0.522393942,
+        "y": -0.816155,
+        "z": 0.2376233,
+        "w": 0.06731077
+      }
+    },
+    {
+      "index": 12,
+      "prefabName": "PaperBox",
+      "localPosition": {
+        "x": 0.861789,
+        "y": 2.61746621,
+        "z": -0.883907557
+      },
+      "localRotation": {
+        "x": -0.6743983,
+        "y": -0.217644736,
+        "z": 0.224568471,
+        "w": -0.6688697
+      }
+    },
+    {
+      "index": 13,
+      "prefabName": "Mug",
+      "localPosition": {
+        "x": -0.490238577,
+        "y": 2.50334835,
+        "z": 0.174354911
+      },
+      "localRotation": {
+        "x": -0.4867969,
+        "y": -0.6350488,
+        "z": -0.473289371,
+        "w": -0.368427515
+      }
+    },
+    {
+      "index": 14,
+      "prefabName": "MapSchematic",
+      "localPosition": {
+        "x": 1.00606525,
+        "y": 2.39388037,
+        "z": 0.295405269
+      },
+      "localRotation": {
+        "x": -0.00000334500669,
+        "y": -0.65842557,
+        "z": -4.74200277e-7,
+        "w": 0.75264585
+      }
+    },
+    {
+      "index": 15,
+      "prefabName": "ElectricStove",
+      "localPosition": {
+        "x": -0.4079284,
+        "y": 2.76045656,
+        "z": -1.22127891
+      },
+      "localRotation": {
+        "x": 0.00293332757,
+        "y": -0.9996807,
+        "z": -0.004359682,
+        "w": -0.0247165039
+      }
+    },
+    {
+      "index": 16,
+      "prefabName": "LaptopOpen",
+      "localPosition": {
+        "x": 0.267461121,
+        "y": 2.72421217,
+        "z": 0.4357822
+      },
+      "localRotation": {
+        "x": 0.255562067,
+        "y": 0.009576571,
+        "z": 0.008644327,
+        "w": -0.9667066
+      }
+    },
+    {
+      "index": 17,
+      "prefabName": "CoffeePot",
+      "localPosition": {
+        "x": -0.398628622,
+        "y": 2.87057137,
+        "z": -1.30138183
+      },
+      "localRotation": {
+        "x": 0.265636832,
+        "y": -0.847177148,
+        "z": -0.1805998,
+        "w": -0.423215955
+      }
+    }
+  ]
+}

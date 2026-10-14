@@ -95,10 +95,10 @@ internal static class Program
     }
     private static ManifestPacket CreatePacket(Type type)
     {
-        bool highFrequency = type.Name.Contains("Ping") || type.Name.Contains("Tick") || type.Name.Contains("Position") || type.Name.Contains("Physics") || type.Name.Contains("TrainPorts") || type.Name.Contains("BrakeState") || type.Name.Contains("CarHealth");
+        bool highFrequency = type.Name.Contains("Ping") || type.Name.Contains("Tick") || type.Name.Contains("Position") || type.Name.Contains("Physics") || type.Name.Contains("SpatialSample") || type.Name.Contains("TrainPorts") || type.Name.Contains("BrakeState") || type.Name.Contains("CarHealth");
         // These are continuous replication streams, not discrete gameplay transitions. Keep
         // their counters visible, but do not let them consume the debug trace by default.
-        bool suppressByDefault = highFrequency && (type.Name.Contains("Ping") || type.Name.Contains("Tick") || type.Name.Contains("Position") || type.Name.Contains("Physics") || type.Name.Contains("TrainPorts") || type.Name.Contains("BrakeState") || type.Name.Contains("CarHealth"));
+        bool suppressByDefault = highFrequency && (type.Name.Contains("Ping") || type.Name.Contains("Tick") || type.Name.Contains("Position") || type.Name.Contains("Physics") || type.Name.Contains("SpatialSample") || type.Name.Contains("TrainPorts") || type.Name.Contains("BrakeState") || type.Name.Contains("CarHealth"));
         return new ManifestPacket
         {
             Hash = GetHash(type).ToString("X16"),

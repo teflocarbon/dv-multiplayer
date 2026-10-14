@@ -1,6 +1,9 @@
 using DV;
 using Multiplayer.Components.Networking;
 using Multiplayer.Debugging.Protocol;
+#if DEBUG
+using Multiplayer.Debugging.RuntimeTests;
+#endif
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -26,12 +29,15 @@ public static class DebugRuntime
     private static GameObject runtimeObject;
     private static DebugRuntimeSettingsDto runtimeSettings;
     private static int highFrequencyCounter;
+    private static readonly bool preventCursorCapture = Environment.GetCommandLineArgs().Any(argument =>
+        string.Equals(argument, "--dvmp-no-cursor-capture", StringComparison.OrdinalIgnoreCase));
 
     public static bool Enabled { get; private set; }
     public static DebugEventStore Store => store;
     public static DebugSessionInfo Session => SnapshotSession();
     public static DebugCaptureManager Captures => captures;
     public static DebugRuntimeSettingsDto RuntimeSettings => runtimeSettings;
+    internal static bool PreventCursorCapture => preventCursorCapture;
 
     public static void ApplySettings(Settings settings)
     {
@@ -60,6 +66,7 @@ public static class DebugRuntime
                 StartedUtc = started,
                 HeartbeatUtc = started,
                 ApiToken = Guid.NewGuid().ToString("N"),
+                BuildNumber = Multiplayer.BuildNumber,
                 GameBuild = Multiplayer.LocalBuildInfo,
                 ModCommit = GetCommit(),
                 LogPath = Path.Combine(root, $"dvmp-debug-{sessionId}.jsonl")
@@ -78,11 +85,18 @@ public static class DebugRuntime
             DebugDiagnostics.Start(store);
             EntityDebugRegistry.Start(store, settings.DebugMaxEntityTimelineEvents);
             if (settings.EnableDebugFileLogging) fileSink = new AsyncJsonlSink(store, session.LogPath);
-            if (settings.EnableDebugFirehose) StartHttpServer();
             discovery = new DebugDiscoveryFile(root, SnapshotSession);
             runtimeObject = new GameObject("[Multiplayer Debug Runtime]");
             runtimeObject.AddComponent<DebugRuntimeBehaviour>();
+#if DEBUG
+            if (settings.EnableRuntimeTestHarness)
+            {
+                runtimeObject.AddComponent<RuntimeTestAgent>();
+                runtimeObject.AddComponent<RuntimeTestControlOverlay>();
+            }
+#endif
             Object.DontDestroyOnLoad(runtimeObject);
+            if (settings.EnableDebugFirehose) StartHttpServer();
             Settings.OnSettingsUpdated += ApplySettings;
             Enabled = true;
             Publish("session", "session.started", DebugRuntimeSide.Shared, DebugSeverity.Info, data: DebugValueSnapshotter.SnapshotObject(session));
@@ -98,6 +112,15 @@ public static class DebugRuntime
         store?.Resize(settings.DebugMaxInMemoryEvents);
         EntityDebugRegistry.Resize(settings.DebugMaxEntityTimelineEvents);
         DebugWorldLabelManager.SetEnabled(settings.EnableDebugWorldLabels);
+#if DEBUG
+        RuntimeTestAgent agent = runtimeObject == null ? null : runtimeObject.GetComponent<RuntimeTestAgent>();
+        RuntimeTestControlOverlay control = runtimeObject == null ? null : runtimeObject.GetComponent<RuntimeTestControlOverlay>();
+        if (settings.EnableRuntimeTestHarness && agent == null) agent = runtimeObject.AddComponent<RuntimeTestAgent>();
+        else if (!settings.EnableRuntimeTestHarness && agent != null) Object.Destroy(agent);
+        if (settings.EnableRuntimeTestHarness && control == null) runtimeObject.AddComponent<RuntimeTestControlOverlay>();
+        else if (!settings.EnableRuntimeTestHarness && control != null) Object.Destroy(control);
+        ConfigureRuntimeTests(settings.EnableRuntimeTestHarness ? agent : null);
+#endif
         if (settings.EnableDebugFileLogging && fileSink == null) fileSink = new AsyncJsonlSink(store, session.LogPath);
         else if (!settings.EnableDebugFileLogging && fileSink != null) { fileSink.Dispose(); fileSink = null; }
         if (settings.EnableDebugFirehose && httpServer == null) StartHttpServer();
@@ -115,6 +138,9 @@ public static class DebugRuntime
         {
             httpServer = new DebugHttpServer(store, SnapshotSession, EntityDebugRegistry.Snapshot, EntityDebugRegistry.Get,
                 () => runtimeSettings, ApplyRuntimeSettings, Mark, (name, id) => StartCapture(name, id), StopCapture);
+#if DEBUG
+            ConfigureRuntimeTests(runtimeObject == null ? null : runtimeObject.GetComponent<RuntimeTestAgent>());
+#endif
             httpServer.Start();
             session.FirehosePort = httpServer.Port;
             session.FirehoseUrl = httpServer.Url;
@@ -122,6 +148,16 @@ public static class DebugRuntime
         }
         catch (Exception exception) { httpServer?.Dispose(); httpServer = null; Multiplayer.LogWarning($"Debug firehose unavailable: {exception.Message}"); }
     }
+
+#if DEBUG
+    private static void ConfigureRuntimeTests(RuntimeTestAgent agent)
+    {
+        httpServer?.ConfigureRuntimeTests(agent == null ? null : agent.GetCapabilities,
+            agent == null ? null : agent.GetRuns, agent == null ? null : agent.Enqueue,
+            agent == null ? null : agent.GetRun,
+            agent == null ? null : agent.Cancel);
+    }
+#endif
 
     public static void Stop()
     {
@@ -184,6 +220,13 @@ public static class DebugRuntime
             HighFrequency = highFrequency,
             Data = data ?? new Dictionary<string, object>(StringComparer.Ordinal)
         };
+#if DEBUG
+        RuntimeTestScopeSnapshot testScope = RuntimeTestScope.Snapshot;
+        item.TestRunId = testScope.RunId;
+        item.TestCaseId = testScope.CaseId;
+        item.TestPhaseId = testScope.PhaseId;
+        item.TestStepId = testScope.StepId;
+#endif
         store.Publish(item);
         EntityDebugRegistry.Observe(item);
         return item;
@@ -237,7 +280,8 @@ public static class DebugRuntime
             ProcessStartedUtc = session.ProcessStartedUtc, StartedUtc = session.StartedUtc, HeartbeatUtc = DateTime.UtcNow,
             Role = session.Role, PlayerName = session.PlayerName, PlayerId = session.PlayerId,
             FirehosePort = session.FirehosePort, FirehoseUrl = session.FirehoseUrl, ApiToken = session.ApiToken,
-            LogPath = session.LogPath, GameBuild = session.GameBuild, ModCommit = session.ModCommit
+            LogPath = session.LogPath, BuildNumber = session.BuildNumber,
+            GameBuild = session.GameBuild, ModCommit = session.ModCommit
         };
     }
 
@@ -304,10 +348,31 @@ internal sealed class DebugRuntimeBehaviour : MonoBehaviour
 
     private void Awake()
     {
+        ReleaseManagedCursor();
         gameObject.AddComponent<DebugOverlayController>();
         gameObject.AddComponent<DebugInventoryObserver>();
         SceneManager.sceneLoaded += OnSceneLoaded;
         SceneManager.sceneUnloaded += OnSceneUnloaded;
+    }
+
+    private void LateUpdate()
+    {
+        ReleaseManagedCursor();
+    }
+
+    private void OnApplicationFocus(bool focused)
+    {
+        if (focused) ReleaseManagedCursor();
+    }
+
+    private static void ReleaseManagedCursor()
+    {
+        if (!DebugRuntime.PreventCursorCapture) return;
+#if DEBUG
+        if (!RuntimeTestControlState.AutomationOwnsMouse) return;
+#endif
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     private void OnAboutToMoveWorld(Vector3 previous, Vector3 next)

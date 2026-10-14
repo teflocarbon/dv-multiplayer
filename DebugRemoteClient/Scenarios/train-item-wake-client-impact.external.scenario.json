@@ -1,0 +1,37 @@
+{
+  "testId": "external.train-item-wake-client-impact",
+  "displayName": "Client-simulated projectile wakes a settled train item",
+  "category": "Train Item Wake System",
+  "fidelity": "DebugArrangement+ClientSimulationLease+CollisionWitness+HostAuthority",
+  "timeoutMilliseconds": 120000,
+  "requiredCapabilities": [ "host-train-fixtures", "train-item-wake-lab", "inventory-runtime-arrangement" ],
+  "steps": [
+    { "id": "host-identity", "command": "runtime.self-check", "target": "host", "capture": { "hostPlayerId": "runtime.playerId" } },
+    { "id": "create-train", "command": "train.fixture-create", "target": "host", "parameters": { "fixtureId": "wake-impact-${run.id}", "locationId": "steel-mill-north-test-track", "liveries": "LocoDE2", "roles": "Locomotive", "preventDerailment": "true", "preventDamage": "true", "sustainEngine": "true" }, "capture": { "carNetId": "fixture.cars[0].netId", "trainNetIds": "fixture.netIds" } },
+    { "id": "observe-client", "command": "train.fixture-observe", "target": "client", "parameters": { "fixtureId": "wake-impact-${run.id}", "netIds": "${var.trainNetIds}" } },
+    { "id": "board-host", "command": "train.fixture-place-player", "target": "host", "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" } },
+    { "id": "board-client", "command": "train.fixture-place-player", "target": "client", "parameters": { "carNetId": "${var.carNetId}", "anchor": "cab" } },
+    { "id": "create-source", "command": "inventory.fixture-create", "target": "host", "parameters": { "prefabName": "lighter", "ownerPlayerId": "${var.hostPlayerId}", "holderPlayerId": "${var.hostPlayerId}", "placement": "inventory", "belongsToPlayer": "true" }, "capture": { "sourceNetId": "netId", "sourceToken": "fixtureToken" } },
+    { "id": "hold-source", "command": "inventory.local-place", "target": "host", "parameters": { "netId": "${var.sourceNetId}", "placement": "hand" } },
+    { "id": "drop-source", "command": "item.drop", "target": "host", "parameters": { "netId": "${var.sourceNetId}" } },
+    { "id": "settle-source", "command": "train.item-observe-motion", "target": "host", "parameters": { "itemNetId": "${var.sourceNetId}", "carNetId": "${var.carNetId}", "requireSettled": "true", "waitSeconds": "20", "sampleSeconds": "0.25" }, "assertions": [ { "path": "spatialSettled", "equals": true } ] },
+    { "id": "create-target", "command": "inventory.fixture-create", "target": "host", "parameters": { "prefabName": "lighter", "ownerPlayerId": "${var.hostPlayerId}", "holderPlayerId": "${var.hostPlayerId}", "placement": "inventory", "belongsToPlayer": "true" }, "capture": { "targetNetId": "netId", "targetToken": "fixtureToken" } },
+    { "id": "hold-target", "command": "inventory.local-place", "target": "host", "parameters": { "netId": "${var.targetNetId}", "placement": "hand" } },
+    { "id": "drop-target", "command": "item.drop", "target": "host", "parameters": { "netId": "${var.targetNetId}" } },
+    { "id": "settle-target", "command": "train.item-observe-motion", "target": "host", "parameters": { "itemNetId": "${var.targetNetId}", "carNetId": "${var.carNetId}", "requireSettled": "true", "waitSeconds": "20", "sampleSeconds": "0.25" }, "assertions": [ { "path": "spatialSettled", "equals": true } ] },
+    { "id": "arrange-impact-line", "command": "train.item-lab-arrange", "target": "host", "parameters": { "carNetId": "${var.carNetId}", "itemNetIds": "${var.sourceNetId},${var.targetNetId}", "layout": "line", "horizontalSpacing": "0.6" }, "assertions": [ { "path": "arrangedCount", "equals": 2 } ] },
+    { "id": "capture-target-revision", "command": "train.item-lab-status", "target": "host", "parameters": { "itemNetId": "${var.targetNetId}" }, "capture": { "targetRevision": "items[0].authorityRevision" }, "assertions": [ { "path": "settledCount", "equals": 1 } ] },
+    { "id": "evacuate-host", "command": "train.fixture-evacuate-player", "target": "host", "parameters": { "carNetId": "${var.carNetId}" } },
+    { "id": "launch-source", "command": "train.item-lab-throw-at", "target": "host", "parameters": { "sourceItemNetId": "${var.sourceNetId}", "targetItemNetId": "${var.targetNetId}", "speed": "6", "lift": "0" }, "assertions": [ { "path": "accepted", "equals": true } ] },
+    { "id": "wait-client-target-cycle", "command": "train.item-lab-wait-cycle", "target": "client", "parameters": { "itemNetId": "${var.targetNetId}", "previousAuthorityRevision": "${var.targetRevision}", "waitSeconds": "25" }, "assertions": [ { "path": "wakeCycleCompleted", "equals": true }, { "path": "authorityRevisionAdvanced", "equals": true }, { "path": "activeObserved", "equals": true } ] },
+    { "id": "verify-host-authority", "command": "train.item-lab-wait-cycle", "target": "host", "parameters": { "itemNetId": "${var.targetNetId}", "previousAuthorityRevision": "${var.targetRevision}", "waitSeconds": "5" }, "assertions": [ { "path": "wakeCycleCompleted", "equals": true }, { "path": "spatialSettled", "equals": true } ] }
+  ],
+  "cleanup": [
+    { "id": "evacuate-client", "command": "train.fixture-evacuate-player", "target": "client", "requiredVariables": [ "carNetId" ], "parameters": { "carNetId": "${var.carNetId}" } },
+    { "id": "destroy-source", "command": "inventory.fixture-destroy", "target": "host", "requiredVariables": [ "sourceNetId", "sourceToken" ], "parameters": { "netId": "${var.sourceNetId}", "fixtureToken": "${var.sourceToken}" } },
+    { "id": "destroy-target", "command": "inventory.fixture-destroy", "target": "host", "requiredVariables": [ "targetNetId", "targetToken" ], "parameters": { "netId": "${var.targetNetId}", "fixtureToken": "${var.targetToken}" } },
+    { "id": "purge-client-source", "command": "inventory.fixture-clean-local", "target": "client", "requiredVariables": [ "sourceNetId", "sourceToken" ], "parameters": { "itemNetId": "${var.sourceNetId}", "itemFixtureToken": "${var.sourceToken}" } },
+    { "id": "purge-client-target", "command": "inventory.fixture-clean-local", "target": "client", "requiredVariables": [ "targetNetId", "targetToken" ], "parameters": { "itemNetId": "${var.targetNetId}", "itemFixtureToken": "${var.targetToken}" } },
+    { "id": "delete-train", "command": "train.fixture-cleanup", "target": "host", "parameters": { "fixtureId": "wake-impact-${run.id}", "ignoreMissing": "true" } }
+  ]
+}

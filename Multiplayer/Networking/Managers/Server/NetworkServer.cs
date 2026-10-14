@@ -9,6 +9,7 @@ using DV.Scenarios.Common;
 using DV.ServicePenalty;
 using DV.ThingTypes;
 using DV.WeatherSystem;
+using DV.Utils;
 using Humanizer;
 using LiteNetLib;
 using LiteNetLib.Utils;
@@ -19,6 +20,9 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Components.Networking.World.Containers;
+using Multiplayer.Components.Networking.World.WorldItems;
+using Multiplayer.Core.Containers;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
@@ -245,6 +249,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundTrainControlAuthorityPacket, ITransportPeer>(OnServerboundTrainControlAuthorityPacket);
         netPacketProcessor.SubscribeReusable<CommonCouplerInteractionPacket, ITransportPeer>(OnCommonCouplerInteractionPacket);
         netPacketProcessor.SubscribeReusable<CommonTrainUncouplePacket, ITransportPeer>(OnCommonTrainUncouplePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundTrainsetRelocationAckPacket, ITransportPeer>(OnServerboundTrainsetRelocationAckPacket);
         netPacketProcessor.SubscribeReusable<CommonHoseConnectedPacket, ITransportPeer>(OnCommonHoseConnectedPacket);
         netPacketProcessor.SubscribeReusable<CommonHoseDisconnectedPacket, ITransportPeer>(OnCommonHoseDisconnectedPacket);
         netPacketProcessor.SubscribeReusable<CommonMuConnectedPacket, ITransportPeer>(OnCommonMuConnectedPacket);
@@ -274,6 +279,95 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundContainerBrowsePacket, ITransportPeer>(OnServerboundContainerBrowsePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundContainerMutationPacket, ITransportPeer>(OnServerboundContainerMutationPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundWorldItemCataloguePacket, ITransportPeer>(OnServerboundWorldItemCataloguePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundWorldItemProjectionAckPacket, ITransportPeer>(OnServerboundWorldItemProjectionAckPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemSpatialSamplePacket, ITransportPeer>(OnServerboundItemSpatialSamplePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemSpatialSettlementPacket, ITransportPeer>(OnServerboundItemSpatialSettlementPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemTrainWakeWitnessPacket, ITransportPeer>(OnServerboundItemTrainWakeWitnessPacket);
+    }
+
+    private void OnServerboundItemSpatialSamplePacket(ServerboundItemSpatialSamplePacket packet,
+        ITransportPeer peer)
+    {
+        if (packet?.State == null || !TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        NetworkedItemManager.Instance?.ReceiveItemSpatialSample(packet.State, player);
+    }
+
+    private void OnServerboundItemSpatialSettlementPacket(ServerboundItemSpatialSettlementPacket packet,
+        ITransportPeer peer)
+    {
+        if (packet?.State == null || !TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        NetworkedItemManager.Instance?.ReceiveItemSpatialSettlement(packet.State, player);
+    }
+
+    private void OnServerboundItemTrainWakeWitnessPacket(
+        ServerboundItemTrainWakeWitnessPacket packet, ITransportPeer peer)
+    {
+        if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        NetworkedItemManager.Instance?.ReceiveItemTrainWakeWitness(packet, player);
+    }
+
+    private void OnServerboundWorldItemCataloguePacket(ServerboundWorldItemCataloguePacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        var host = NetworkedItemManager.Instance.GetAuthoredCatalogueSummary();
+        bool accepted = packet != null && packet.CollisionCount == 0 && host.Collisions == 0 &&
+                        packet.ItemCount == host.Count && string.Equals(packet.Digest, host.Digest, StringComparison.Ordinal);
+        player.WorldItemCatalogueAccepted = accepted;
+        string reason = accepted ? string.Empty :
+            $"catalogue-mismatch:host={host.Count}/{host.Digest}/c{host.Collisions},client={packet?.ItemCount ?? 0}/{packet?.Digest ?? string.Empty}/c{packet?.CollisionCount ?? 0}";
+        DebugRuntime.Publish("item-world", "world-item.catalogue-negotiated", DebugRuntimeSide.Server,
+            accepted ? DebugSeverity.Info : DebugSeverity.Error, "Player", player.PlayerId.ToString(), new()
+            {
+                ["accepted"] = accepted, ["reason"] = reason,
+                ["hostCount"] = host.Count, ["clientCount"] = packet?.ItemCount ?? 0
+            });
+        SendPacket(peer, new ClientboundWorldItemCataloguePacket
+        {
+            Accepted = accepted,
+            HostItemCount = host.Count,
+            HostCollisionCount = host.Collisions,
+            HostDigest = host.Digest,
+            Reason = reason
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundWorldItemProjectionAckPacket(ServerboundWorldItemProjectionAckPacket packet, ITransportPeer peer)
+    {
+        if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        bool known = NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) && item != null;
+        bool revisionMatches = known && AuthoritativeItemRegistry.TryGet(packet.ItemNetId, out var record) &&
+                               record.Revision == packet.AuthorityRevision;
+        if (packet.Projected && (!known || !revisionMatches || !player.KnownItems.ContainsKey(item)))
+        {
+            DebugRuntime.Publish("item-world", "world-item.projection-ack-rejected", DebugRuntimeSide.Server,
+                DebugSeverity.Warning, "Item", packet.ItemNetId.ToString(), new()
+                {
+                    ["playerId"] = player.PlayerId,
+                    ["knownItem"] = known,
+                    ["revisionMatches"] = revisionMatches,
+                    ["recipientExpectedItem"] = known && player.KnownItems.ContainsKey(item)
+                });
+            return;
+        }
+        if (packet.Projected) player.AcknowledgedWorldItems.Add(packet.ItemNetId);
+        else player.AcknowledgedWorldItems.Remove(packet.ItemNetId);
+        DebugRuntime.Publish("item-world", packet.Projected ? "world-item.projection-enter-ack" : "world-item.projection-retire-ack",
+            DebugRuntimeSide.Server, entityType: "Item", entityId: packet.ItemNetId.ToString(), data: new()
+            {
+                ["playerId"] = player.PlayerId,
+                ["authorityRevision"] = packet.AuthorityRevision,
+                ["authoredItemKey"] = known && AuthoritativeItemRegistry.TryGet(packet.ItemNetId,
+                    out AuthoritativeItemRegistry.Record acknowledgedRecord)
+                    ? acknowledgedRecord.AuthoredItemKey ?? string.Empty
+                    : string.Empty
+            });
     }
 
     //allow mods to register their own packets
@@ -386,6 +480,9 @@ public class NetworkServer : NetworkManager
             foreach (PendingItemRecall pending in pendingItemRecalls.Values
                          .Where(value => value.Player == player).ToArray())
                 CancelPendingItemRecall(pending, "requesting-player-disconnected", false);
+
+        if (player != null)
+            NetworkedItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId);
 
         if (WorldStreamingInit.isLoaded)
             SaveGameManager.Instance.UpdateInternalData();
@@ -1081,6 +1178,83 @@ public class NetworkServer : NetworkManager
         }
     }
 
+    public void SendTrainsetRelocation(ClientboundTrainsetRelocationPacket packet)
+    {
+        SendPacketToAll(packet, DeliveryMethod.ReliableOrdered,
+            PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+    }
+
+    private void OnServerboundTrainsetRelocationAckPacket(
+        ServerboundTrainsetRelocationAckPacket packet, ITransportPeer peer)
+    {
+        peerToPlayer.TryGetValue(peer, out ServerPlayer player);
+        DebugRuntime.Publish("train-relocation", "train-relocation.ack-received",
+            DebugRuntimeSide.Server,
+            packet.Status == 0 || packet.Status == 1 ? DebugSeverity.Info : DebugSeverity.Error,
+            entityId: "train:" + packet.RootNetId, correlationId: packet.OperationId,
+            data: new()
+            {
+                ["revision"] = packet.Revision, ["status"] = packet.Status,
+                ["reasonCode"] = packet.ReasonCode ?? string.Empty,
+                ["appliedHash"] = packet.AppliedHash,
+                ["playerId"] = player?.PlayerId ?? 0,
+                ["playerName"] = player?.Username ?? string.Empty
+            });
+    }
+
+    public void SendItemSpatialLease(NetworkedItem item, ClientboundItemSpatialLeasePacket packet)
+    {
+        if (item == null || packet?.State == null)
+            return;
+        foreach (ServerPlayer player in ServerPlayers)
+        {
+            if (player?.Peer == null || player.LoadingState < PlayerLoadingState.ReadyForItems)
+                continue;
+            bool simulator = player.PlayerId == packet.State.SimulatorPlayerId;
+            if (!simulator && !player.KnownItems.ContainsKey(item))
+                continue;
+            SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
+        }
+    }
+
+    public void SendItemSpatialLease(ServerPlayer player, ClientboundItemSpatialLeasePacket packet)
+    {
+        if (player?.Peer == null || packet?.State == null ||
+            player.LoadingState < PlayerLoadingState.ReadyForItems)
+            return;
+        SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendItemSpatialSample(NetworkedItem item, ClientboundItemSpatialSamplePacket packet,
+        byte simulatorPlayerId)
+    {
+        if (item == null || packet?.State == null)
+            return;
+        foreach (ServerPlayer player in ServerPlayers)
+        {
+            if (player?.Peer == null || player.PlayerId == simulatorPlayerId ||
+                player.LoadingState < PlayerLoadingState.ReadyForItems || !player.KnownItems.ContainsKey(item))
+                continue;
+            // Ordering is per item via simulationEpoch/sampleSequence. LiteNetLib's Sequenced
+            // channel is connection-wide and would let a busy item suppress another item's
+            // samples, so use ordinary unreliable delivery here.
+            SendPacket(player.Peer, packet, DeliveryMethod.Unreliable);
+        }
+    }
+
+    public void SendItemSpatialCommit(NetworkedItem item, ClientboundItemSpatialCommitPacket packet)
+    {
+        if (item == null || packet?.State == null)
+            return;
+        foreach (ServerPlayer player in ServerPlayers)
+        {
+            if (player?.Peer == null || player.LoadingState < PlayerLoadingState.ReadyForItems ||
+                player.PlayerId != packet.State.SimulatorPlayerId && !player.KnownItems.ContainsKey(item))
+                continue;
+            SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
+        }
+    }
+
     public void SendLostItemsSnapshot(ServerPlayer player, uint requestId = 0)
     {
         if (player?.Peer == null) return;
@@ -1363,6 +1537,8 @@ public class NetworkServer : NetworkManager
 
         serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
         peerToPlayer.Add(peer, serverPlayer);
+        AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
+        WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
 
         ClientboundLoginResponsePacket acceptPacket = new()
         {
@@ -2367,6 +2543,20 @@ public class NetworkServer : NetworkManager
         }
 
         LogDebug(() => $"OnCommonItemUpdatePacket({packet?.ItemData.ItemNetId}, [{peer.Id}, {player.Username}])");
+        if (packet?.ItemData == null)
+        {
+            DebugTrace.Validation("item", "Item", string.Empty, false, "missing-item-data", DebugRuntimeSide.Server);
+            return;
+        }
+        // Runtime creation is an explicit host spawn operation or the narrowly fenced TEMPORARY
+        // compatibility-adoption bridge. A normal state packet may never cause a client-authored
+        // logical entity to appear on the host.
+        if (packet.ItemData.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create))
+        {
+            DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false,
+                "client-create-not-permitted", DebugRuntimeSide.Server);
+            return;
+        }
         // Set player id for all items, do not trust the client to send the correct player id
 
         packet.ItemData.PlayerId = player.PlayerId;
@@ -2396,6 +2586,8 @@ public class NetworkServer : NetworkManager
 
     private void OnServerboundItemAdoptionPacket(ServerboundItemAdoptionPacket packet, ITransportPeer peer)
     {
+        // TEMPORARY: remove this handler after shops, receipts, and every other remaining DV item
+        // producer have explicit request/validation/host-create operations.
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Item", null);
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
             return;
@@ -2650,10 +2842,126 @@ public class NetworkServer : NetworkManager
             AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
             RejectionReason = rejectionReason ?? string.Empty
         }, DeliveryMethod.ReliableOrdered);
-        SendLostItemsSnapshot(player, packet.RequestId);
+        // Successful retrievals publish the changed owner snapshot at the shared commit point.
+        // Rejections can still invalidate a stale registry entry, so retain the explicit refresh.
+        if (!accepted)
+            SendLostItemsSnapshot(player, packet.RequestId);
         Log($"[LostAndFound Recall] Retrieval result sent: player=P{player.PlayerId}, " +
             $"request={packet.RequestId}, handle={packet.LostHandle}, accepted={accepted}, " +
             $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
+    }
+
+    private void OnServerboundContainerBrowsePacket(ServerboundContainerBrowsePacket packet,
+        ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        ColdContainerView view;
+        ContainerOperationResult result = packet.ShellNetId != 0
+            ? NetworkedColdContainerManager.Browse(player, packet.ShellNetId, packet.Offset,
+                packet.Count, out view)
+            : NetworkedColdContainerManager.Browse(player, packet.ContainerHandle, packet.Offset,
+                packet.Count, out view);
+        SendPacket(peer, ProjectContainerView(packet.RequestId, result, view),
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundContainerMutationPacket(ServerboundContainerMutationPacket packet,
+        ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        Guid operationId = packet.OperationId?.Length == 16
+            ? new Guid(packet.OperationId) : Guid.Empty;
+        ContainerOperationResult result;
+        ushort materializedNetId = 0;
+        if (operationId == Guid.Empty)
+        {
+            result = new ContainerOperationResult
+            {
+                Kind = (ContainerOperationKind)packet.Kind,
+                Status = ContainerOperationStatus.InvalidRecord,
+                Reason = "operation-id-invalid"
+            };
+        }
+        else
+        {
+            switch ((ContainerOperationKind)packet.Kind)
+            {
+                case ContainerOperationKind.Deposit:
+                    result = NetworkedColdContainerManager.Deposit(player, operationId,
+                        packet.ShellNetId, packet.DestinationContainerHandle,
+                        packet.ExpectedDestinationRevision,
+                        packet.DestinationSlot, packet.ItemNetId);
+                    break;
+                case ContainerOperationKind.Withdraw:
+                    CoroutineManager.Instance.StartCoroutine(
+                        NetworkedColdContainerManager.Withdraw(player, operationId,
+                        packet.SourceContainerHandle, packet.ExpectedSourceRevision,
+                        packet.SourceSlot, packet.DestinationSlot,
+                        (withdrawalResult, withdrawnNetId) =>
+                            SendContainerMutationResult(peer, packet, operationId,
+                                withdrawalResult, withdrawnNetId)));
+                    return;
+                case ContainerOperationKind.Move:
+                    result = NetworkedColdContainerManager.Move(player, operationId,
+                        packet.SourceContainerHandle, packet.ExpectedSourceRevision,
+                        packet.SourceSlot, packet.DestinationContainerHandle,
+                        packet.ExpectedDestinationRevision, packet.DestinationSlot);
+                    break;
+                default:
+                    result = new ContainerOperationResult
+                    {
+                        OperationId = operationId,
+                        Kind = (ContainerOperationKind)packet.Kind,
+                        Status = ContainerOperationStatus.InvalidRecord,
+                        Reason = "container-mutation-kind-invalid"
+                    };
+                    break;
+            }
+        }
+        SendContainerMutationResult(peer, packet, operationId, result, materializedNetId);
+    }
+
+    private void SendContainerMutationResult(ITransportPeer peer,
+        ServerboundContainerMutationPacket packet, Guid operationId,
+        ContainerOperationResult result, ushort materializedNetId)
+    {
+        SendPacket(peer, new ClientboundContainerMutationResultPacket
+        {
+            RequestId = packet.RequestId,
+            OperationId = operationId.ToByteArray(),
+            Kind = (byte)result.Kind,
+            Accepted = result.Accepted,
+            Status = (byte)result.Status,
+            RejectionReason = result.Reason ?? string.Empty,
+            SourceRevision = result.SourceRevision,
+            DestinationRevision = result.DestinationRevision,
+            MaterializedItemNetId = materializedNetId
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private static ClientboundContainerViewPacket ProjectContainerView(uint requestId,
+        ContainerOperationResult result, ColdContainerView view)
+    {
+        ColdContainerSlotView[] slots = view?.Slots?.ToArray() ?? Array.Empty<ColdContainerSlotView>();
+        return new ClientboundContainerViewPacket
+        {
+            RequestId = requestId,
+            Accepted = result.Accepted,
+            RejectionReason = result.Reason ?? string.Empty,
+            ContainerHandle = view?.ContainerHandle ?? 0,
+            Revision = view?.Revision ?? 0,
+            Capacity = view?.Capacity ?? 0,
+            Offset = view?.Offset ?? 0,
+            HasMore = view?.HasMore ?? false,
+            Slots = slots.Select(slot => slot.Slot).ToArray(),
+            ItemHandles = slots.Select(slot => slot.ItemHandle).ToArray(),
+            PrefabNames = slots.Select(slot => slot.PrefabName ?? string.Empty).ToArray(),
+            DisplayNames = slots.Select(slot => slot.DisplayName ?? string.Empty).ToArray(),
+            ForeignOwned = slots.Select(slot => slot.ForeignOwned).ToArray(),
+            ChildContainerHandles = slots.Select(slot => slot.ChildContainerHandle).ToArray(),
+            ChildItemCounts = slots.Select(slot => slot.ChildItemCount).ToArray(),
+            StateVersions = slots.Select(slot => slot.StateVersion).ToArray()
+        };
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet, ITransportPeer peer)

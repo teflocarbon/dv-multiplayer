@@ -26,15 +26,10 @@ public sealed class NetIdAllocator<T> where T : struct
 
     public bool TryAllocate(out T id)
     {
-        while (released.Count > 0)
-        {
-            T candidate = released.Dequeue();
-            releasedSet.Remove(candidate);
-            if (IsZero(candidate) || !live.Add(candidate)) continue;
-            id = candidate;
-            return true;
-        }
-
+        // Prefer an ID that has never been issued in this allocator lifetime. Reusing a
+        // recently released network ID while reliable packets for its previous object may
+        // still be in flight can bind those packets to an unrelated replacement object.
+        // Released IDs remain available as an exhaustion fallback for bounded ID spaces.
         T next = increment(cursor);
         while (!IsZero(next))
         {
@@ -45,6 +40,15 @@ public sealed class NetIdAllocator<T> where T : struct
                 return true;
             }
             next = increment(cursor);
+        }
+
+        while (released.Count > 0)
+        {
+            T candidate = released.Dequeue();
+            releasedSet.Remove(candidate);
+            if (IsZero(candidate) || !live.Add(candidate)) continue;
+            id = candidate;
+            return true;
         }
 
         id = default;

@@ -1,11 +1,13 @@
 using Multiplayer.Debugging.Protocol;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +16,10 @@ namespace Multiplayer.DebugClient;
 
 internal static class DashboardMode
 {
+    private static int DashboardPort => int.TryParse(
+        Environment.GetEnvironmentVariable("DVMP_DASHBOARD_PORT"), out int port) &&
+        port is > 0 and <= 65535 ? port : 7782;
+
     public static int Run(string requestedRoot)
     {
         string root = ResolveRoot(requestedRoot);
@@ -28,10 +34,22 @@ internal static class DashboardMode
             StartedUtc = DateTime.UtcNow,
             HeartbeatUtc = DateTime.UtcNow,
             Role = "dashboard",
+            BuildNumber = global::Multiplayer.Multiplayer.BuildNumber,
             ApiToken = Guid.NewGuid().ToString("N")
         };
         DebugRuntimeSettingsDto dashboardSettings = new();
+        RuntimeEnvironmentConfigurationStore environmentConfiguration = new();
+        using ManualResetEventSlim shutdown = new(false);
         using DashboardMerger merger = new(root, store);
+#if DEBUG
+        RuntimeTestRunJournal runtimeTestJournal = new();
+        RuntimeTestCoordinator runtimeTests = new(merger.Sessions,
+            startCapture: merger.StartCapture, stopCapture: merger.StopCapture,
+            journal: runtimeTestJournal,
+            runUpdated: run => PublishRuntimeTestUpdate(store, dashboard, run),
+            captureFiles: merger.CaptureFiles);
+        using RuntimeEnvironmentSupervisor runtimeEnvironment = new(merger.Sessions);
+#endif
         using DebugHttpServer server = new(store, () => dashboard,
             settings: () => dashboardSettings,
             updateSettings: value => { dashboardSettings = value ?? new DebugRuntimeSettingsDto(); merger.UpdateSettings(dashboardSettings); },
@@ -40,19 +58,119 @@ internal static class DashboardMode
             stopCapture: merger.StopCapture,
             sessions: merger.Sessions,
             replicationOperations: merger.ReplicationOperations,
-            replicationOperation: merger.ReplicationOperation);
-        server.Start();
+            replicationOperation: merger.ReplicationOperation,
+            historicalEvents: merger.HistoricalEvents,
+            requestedPort: DashboardPort);
+#if DEBUG
+        server.ConfigureRuntimeTests(runtimeTests.GetCapabilities, runtimeTests.GetRuns,
+            runtimeTests.Enqueue, runtimeTests.GetRun, runtimeTests.Cancel);
+        server.ConfigureRuntimeEnvironment(runtimeEnvironment.GetStatus,
+            request => { environmentConfiguration.Save(request); return runtimeEnvironment.Start(request); },
+            runtimeEnvironment.Stop, environmentConfiguration.Get, environmentConfiguration.Save);
+        server.ConfigureDashboardControl(() =>
+        {
+            shutdown.Set();
+            // Active firehose readers can outlive the main loop while their sockets unwind.
+            // Never leave a dead dashboard holding the stable automation port indefinitely.
+            _ = Task.Run(() =>
+            {
+                Thread.Sleep(1500);
+                Environment.Exit(0);
+            });
+        });
+#endif
+        StartWithTakeover(server);
         dashboard.FirehosePort = server.Port;
         dashboard.FirehoseUrl = server.Url;
         merger.Start();
         Console.WriteLine($"Combined dashboard: {server.Url}");
-        Console.WriteLine("All live sessions are merged automatically. Type /quit to stop.");
-        while (true)
+        Console.WriteLine("All live sessions are merged automatically. Type /quit to stop or start another dashboard to hand off.");
+        _ = Task.Run(() =>
         {
-            string command = Console.ReadLine();
-            if (command == null || string.Equals(command, "/quit", StringComparison.OrdinalIgnoreCase)) break;
-        }
+            while (!shutdown.IsSet)
+            {
+                string command = Console.ReadLine();
+                // A dashboard launched hidden by the handoff helper has no interactive stdin.
+                // EOF means "run headless", not "quit"; the HTTP shutdown endpoint remains
+                // the authoritative lifecycle control in that mode.
+                if (command == null)
+                {
+                    while (!shutdown.Wait(1000)) { }
+                    break;
+                }
+                if (string.Equals(command, "/quit", StringComparison.OrdinalIgnoreCase))
+                {
+                    shutdown.Set();
+                    break;
+                }
+            }
+        });
+        shutdown.Wait();
         return 0;
+    }
+
+#if DEBUG
+    private static void PublishRuntimeTestUpdate(DebugEventStore store,
+        DebugSessionInfo dashboard, RuntimeTestRunDto run)
+    {
+        bool failed = run.Status is RuntimeTestCommandStatus.Failed or
+            RuntimeTestCommandStatus.FailedDirty;
+        store.Publish(new DebugEvent
+        {
+            TimestampUtc = DateTime.UtcNow,
+            SessionId = dashboard.SessionId,
+            ProcessId = dashboard.ProcessId,
+            Role = "dashboard",
+            RuntimeSide = DebugRuntimeSide.Dashboard,
+            Category = "runtime-test",
+            EventName = "runtime-test.run-updated",
+            Severity = failed ? DebugSeverity.Error : DebugSeverity.Info,
+            EntityType = "RuntimeTestRun",
+            EntityId = run.RequestId,
+            CorrelationId = run.RunId,
+            TestRunId = run.RunId,
+            TestCaseId = run.CaseId,
+            TestPhaseId = run.PhaseId,
+            TestStepId = run.StepId,
+            Data = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["requestId"] = run.RequestId,
+                ["runId"] = run.RunId,
+                ["caseId"] = run.CaseId,
+                ["command"] = run.Command,
+                ["status"] = run.Status.ToString(),
+                ["phaseId"] = run.PhaseId,
+                ["stepId"] = run.StepId,
+                ["error"] = run.Error,
+                ["processCount"] = run.Processes?.Count ?? 0
+            }
+        });
+    }
+#endif
+
+    private static void StartWithTakeover(DebugHttpServer server)
+    {
+        RequestExistingDashboardShutdown();
+        SocketException last = null;
+        for (int attempt = 0; attempt < 30; attempt++)
+        {
+            try { server.Start(); return; }
+            catch (SocketException exception) { last = exception; Thread.Sleep(100); }
+        }
+        throw new InvalidOperationException($"Dashboard port {DashboardPort} is still occupied after handoff.", last);
+    }
+
+    private static void RequestExistingDashboardShutdown()
+    {
+        try
+        {
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create($"http://127.0.0.1:{DashboardPort}/api/dashboard/shutdown");
+            request.Method = "POST";
+            request.ContentLength = 0;
+            request.Timeout = 750;
+            using WebResponse response = request.GetResponse();
+        }
+        catch (WebException) { }
     }
 
     private static string ResolveRoot(string requested)
@@ -62,6 +180,52 @@ internal static class DashboardMode
         if (Directory.Exists(standard)) return standard;
         return Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "Multiplayer.Debug"));
     }
+}
+
+internal sealed class RuntimeEnvironmentConfigurationStore
+{
+    private readonly object gate = new();
+    private readonly string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "DVMultiplayer", "debug-environment.json");
+    private RuntimeEnvironmentStartRequestDto value;
+    private bool exists;
+
+    public RuntimeEnvironmentConfigurationStore()
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                value = JsonConvert.DeserializeObject<RuntimeEnvironmentStartRequestDto>(File.ReadAllText(path));
+                exists = value != null;
+            }
+        }
+        catch { value = null; exists = false; }
+        value ??= new RuntimeEnvironmentStartRequestDto();
+    }
+
+    public RuntimeEnvironmentConfigurationDto Get()
+    {
+        lock (gate) return new RuntimeEnvironmentConfigurationDto { Exists = exists, Configuration = Clone(value) };
+    }
+
+    public void Save(RuntimeEnvironmentStartRequestDto configuration)
+    {
+        if (configuration == null) return;
+        lock (gate)
+        {
+            value = Clone(configuration);
+            string directory = Path.GetDirectoryName(path);
+            Directory.CreateDirectory(directory);
+            string temporary = path + ".tmp";
+            File.WriteAllText(temporary, JsonConvert.SerializeObject(value, Formatting.Indented));
+            if (File.Exists(path)) File.Replace(temporary, path, null); else File.Move(temporary, path);
+            exists = true;
+        }
+    }
+
+    private static RuntimeEnvironmentStartRequestDto Clone(RuntimeEnvironmentStartRequestDto source) =>
+        JsonConvert.DeserializeObject<RuntimeEnvironmentStartRequestDto>(JsonConvert.SerializeObject(source)) ?? new RuntimeEnvironmentStartRequestDto();
 }
 
 internal sealed class DashboardMerger : IDisposable
@@ -97,6 +261,53 @@ internal sealed class DashboardMerger : IDisposable
     }
     public string StopCapture() { Broadcast("api/capture/stop", new { }); return "stopped"; }
 
+    public IEnumerable<string> CaptureFiles(string captureId)
+    {
+        if (string.IsNullOrWhiteSpace(captureId)) return Array.Empty<string>();
+        string directory = Path.Combine(root, "captures");
+        if (!Directory.Exists(directory)) return Array.Empty<string>();
+        List<string> matches = new();
+        foreach (string path in Directory.GetFiles(directory, "*.jsonl"))
+        {
+            try
+            {
+                using StreamReader reader = new(path, Encoding.UTF8);
+                JObject metadata = JObject.Parse(reader.ReadLine() ?? string.Empty);
+                if (string.Equals((string)metadata["captureId"], captureId,
+                        StringComparison.Ordinal))
+                    matches.Add(path);
+            }
+            catch { }
+        }
+        return matches.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public IEnumerable<DebugEvent> HistoricalEvents(DebugEventQueryDto query)
+    {
+        if (string.IsNullOrWhiteSpace(query?.TestRunId)) return Array.Empty<DebugEvent>();
+        List<DebugEvent> events = new();
+        foreach (string path in CaptureFiles(query.TestRunId))
+        {
+            try
+            {
+                using StreamReader reader = new(path, Encoding.UTF8);
+                reader.ReadLine(); // Capture metadata.
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    try
+                    {
+                        DebugEvent item = JsonConvert.DeserializeObject<DebugEvent>(line, DebugJson.Settings);
+                        if (item != null) events.Add(item);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+        return events;
+    }
+
     private void Broadcast(string relativePath, object body)
     {
         byte[] content = Encoding.UTF8.GetBytes(DebugJson.Serialize(body));
@@ -129,17 +340,41 @@ internal sealed class DashboardMerger : IDisposable
         {
             try
             {
+                HashSet<string> discoveryFileSessionIds = new(StringComparer.Ordinal);
                 if (Directory.Exists(directory))
                     foreach (string file in Directory.GetFiles(directory, "*.json"))
                     {
+                        string fileSessionId = Path.GetFileNameWithoutExtension(file);
+                        if (!string.IsNullOrWhiteSpace(fileSessionId))
+                            discoveryFileSessionIds.Add(fileSessionId);
                         DebugSessionInfo info;
                         try { info = JsonConvert.DeserializeObject<DebugSessionInfo>(File.ReadAllText(file), DebugJson.Settings); }
                         catch { continue; }
-                        if (!DebugDiscoveryFile.IsLive(info, DateTime.UtcNow, TimeSpan.FromSeconds(10))) { sessions.TryRemove(info?.SessionId ?? string.Empty, out _); continue; }
+                        // Runtime discovery is backed by a live-process check as well as the
+                        // heartbeat. A dense diagnostic burst can delay the timer thread without
+                        // making the runtime unreachable, so do not flap a scenario target after
+                        // one short scheduling stall.
+                        if (!DebugDiscoveryFile.IsLive(info, DateTime.UtcNow, TimeSpan.FromSeconds(30)))
+                        {
+                            string staleSessionId = info?.SessionId ?? string.Empty;
+                            sessions.TryRemove(staleSessionId, out _);
+                            readers.TryRemove(staleSessionId, out _);
+                            continue;
+                        }
                         sessions[info.SessionId] = info;
-                        replication.UpdateSessions(sessions.Values);
                         Task readerTask = readers.GetOrAdd(info.SessionId, _ => Task.Run(() => ReadSession(info)));
                     }
+                // A normal process shutdown disposes its discovery file.  Sweep cached
+                // entries that no longer have a discovery file. A transient read failure
+                // during the writer's atomic replacement must retain the cached session;
+                // explicit heartbeat/process failures were already removed above.
+                foreach (string staleSessionId in sessions.Keys.Where(id =>
+                    !discoveryFileSessionIds.Contains(id)).ToArray())
+                {
+                    sessions.TryRemove(staleSessionId, out _);
+                    readers.TryRemove(staleSessionId, out _);
+                }
+                replication.UpdateSessions(sessions.Values);
             }
             catch { }
             await Task.Delay(2000, cancellation.Token).ConfigureAwait(false);
