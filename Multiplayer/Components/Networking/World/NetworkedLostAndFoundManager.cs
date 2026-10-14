@@ -677,6 +677,20 @@ public static class NetworkedLostAndFoundManager
             $"handle={lostHandle}, netId={itemNetId}, reason={reason ?? string.Empty}");
     }
 
+    public static void OnOwnerConnected(ServerPlayer player)
+    {
+        if (player == null || player.Guid == Guid.Empty)
+            return;
+        if (registry.RebindOwner(player.Guid.ToString("D"), player.PlayerId) > 0)
+            generation++;
+    }
+
+    public static void OnOwnerDisconnected(ServerPlayer player)
+    {
+        if (player != null && registry.UnbindOwner(player.PlayerId) > 0)
+            generation++;
+    }
+
     private static string OwnerIdentity(byte id) =>
         NetworkLifecycle.Instance.Server.TryGetServerPlayer(id, out ServerPlayer player)
             ? player.Guid.ToString("D") : string.Empty;

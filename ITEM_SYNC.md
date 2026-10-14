@@ -7,6 +7,11 @@
 > Game: Derail Valley
 >
 > Code reviewed: 2026-07-14
+>
+> Findings re-checked: 2026-10-14. Fixed: A, F (only a first-join starter kit remains), H, I, J, K,
+> O, R. Partly fixed: C, D (no pickup reach or value ranges), E (no foreign-item disconnect
+> policy), L, M, N, P, S, U. Still open: B (relays ignore interest), G (fixed 0.25 s item-sync
+> wait at join), T (bulk compression).
 
 ## 1. Purpose and scope
 

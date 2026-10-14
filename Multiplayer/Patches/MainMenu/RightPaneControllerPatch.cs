@@ -100,7 +100,11 @@ public static class RightPaneController_Patch
     private static void OnEnablePost(RightPaneController __instance)
     {
         //SteamMatchmaking.OnLobbyDataChanged += SteamworksUtils.OnLobbyDataChanged;
+        // The pane is enabled every time the main menu shows it; remove first so the handlers are
+        // only registered once (they used to pile up, and one invite started several joins).
+        SteamMatchmaking.OnLobbyInvite -= SteamworksUtils.OnLobbyInviteRequest;
         SteamMatchmaking.OnLobbyInvite += SteamworksUtils.OnLobbyInviteRequest;
+        SteamFriends.OnGameLobbyJoinRequested -= SteamworksUtils.OnLobbyJoinRequest;
         SteamFriends.OnGameLobbyJoinRequested += SteamworksUtils.OnLobbyJoinRequest;
 
         if (Environment.GetCommandLineArgs().Contains("+connect_lobby"))

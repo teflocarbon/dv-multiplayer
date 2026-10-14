@@ -9,6 +9,7 @@ using DV.LocoRestoration;
 using DV.Logic.Job;
 using DV.MultipleUnit;
 using DV.ServicePenalty.UI;
+using DV.Shops;
 using DV.ThingTypes;
 using DV.UI;
 using DV.UserManagement;
@@ -97,6 +98,7 @@ public class NetworkClient : NetworkManager
         typeof(CommonTrainFusesPacket),
         typeof(ServerboundTrainDeleteRequestPacket),
         typeof(ServerboundTrainRerailRequestPacket),
+        typeof(ServerboundSandboxCargoPacket),
         typeof(ServerboundTrainSpawnRequestPacket),
         typeof(ServerboundWorkTrainRequestPacket),
         typeof(ServerboundLicensePurchaseRequestPacket),
@@ -109,6 +111,9 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundItemRecallPacket),
         typeof(ServerboundItemRecallPreparedPacket),
         typeof(ServerboundMoneyItemDepositPacket),
+        typeof(ServerboundShopPaymentPacket),
+        typeof(ServerboundHazmatIgnitePacket),
+        typeof(ServerboundShopPurchasePacket),
         typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
@@ -255,6 +260,9 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundGameParamsPacket>(OnClientboundGameParamsPacket);
         netPacketProcessor.SubscribeReusable<ClientboundSaveGameDataPacket>(OnClientboundSaveGameDataPacket);
         netPacketProcessor.SubscribeReusable<ClientboundRailwayStatePacket>(OnClientboundRailwayStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundSleepStatePacket>(OnClientboundSleepStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundHazmatTilesPacket>(OnClientboundHazmatTilesPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
         netPacketProcessor.SubscribeReusable<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
 
 
@@ -302,6 +310,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundTrainControlAuthorityUpdatePacket>(OnClientboundTrainControlAuthorityUpdatePacket);
 
         netPacketProcessor.SubscribeReusable<ClientboundCargoStatePacket>(OnClientboundCargoStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundExplosionPacket>(OnClientboundExplosionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundCargoHealthUpdatePacket>(OnClientboundCargoHealthUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundCarHealthUpdatePacket>(OnClientboundCarHealthUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundWarehouseControllerUpdatePacket>(OnClientboundWarehouseControllerUpdatePacket);
@@ -910,6 +919,20 @@ public class NetworkClient : NetworkManager
         TimeAdvance.AdvanceTime(packet.amountOfTimeToSkipInSeconds);
     }
 
+    private void OnClientboundShopStockPacket(ClientboundShopStockPacket packet)
+    {
+        GlobalShopController shops = GlobalShopController.Instance;
+        if (shops == null || packet.ItemPrefabNames == null || packet.PurchasedItems == null)
+            return;
+        for (int i = 0; i < packet.ItemPrefabNames.Length && i < packet.PurchasedItems.Length; i++)
+        {
+            ShopItemData data = shops.GetShopItemData(packet.ItemPrefabNames[i]);
+            if (data != null)
+                data.purchasedItems = packet.PurchasedItems[i];
+        }
+        shops.Fire_GlobalShopDataChanged();
+    }
+
     private void OnClientboundRailwayStatePacket(ClientboundRailwayStatePacket packet)
     {
         Log("Received railway state");
@@ -1281,6 +1304,14 @@ public class NetworkClient : NetworkManager
         //LogDebug(() => $"Received Brake Pressures netId {packet.NetId}: {packet.MainReservoirPressure}, {packet.IndependentPipePressure}, {packet.BrakePipePressure}, {packet.BrakeCylinderPressure}");
     }
 
+    private void OnClientboundExplosionPacket(ClientboundExplosionPacket packet)
+    {
+        if (!NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) || car == null)
+            return;
+        Log($"The host's {car.ID} exploded ({(global::Multiplayer.Patches.Train.ExplosionSync.Kind)packet.Kind})");
+        global::Multiplayer.Patches.Train.ExplosionSync.ClientPlay(car, (global::Multiplayer.Patches.Train.ExplosionSync.Kind)packet.Kind, packet.Index);
+    }
+
     private void OnClientboundCargoStatePacket(ClientboundCargoStatePacket packet)
     {
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
@@ -1614,7 +1645,12 @@ public class NetworkClient : NetworkManager
         if (!NetworkedJob.Get(packet.JobNetId, out NetworkedJob networkedJob))
             return;
 
-        Object.Destroy(networkedJob.gameObject);
+        // A refused overview or booklet used to destroy the whole job here, although the host
+        // still had it: the job vanished for this player. Only drop it when the host has no such job.
+        networkedJob.ValidatorResponseReceived = true;
+        networkedJob.ValidationAccepted = !packet.Invalid;
+        if (packet.JobMissing)
+            Object.Destroy(networkedJob.gameObject);
     }
 
     private void OnCommonPitStopInteractionPacket(CommonPitStopInteractionPacket packet)
@@ -2047,12 +2083,32 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendTimeAdvance(float amountOfTimeToSkipInSeconds)
+    public void SendTimeAdvance(float amountOfTimeToSkipInSeconds, bool isSleep = false)
     {
         SendPacketToServer(new ServerboundTimeAdvancePacket
         {
-            amountOfTimeToSkipInSeconds = amountOfTimeToSkipInSeconds
+            amountOfTimeToSkipInSeconds = amountOfTimeToSkipInSeconds,
+            IsSleep = isSleep
         }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnClientboundHazmatTilesPacket(ClientboundHazmatTilesPacket packet)
+    {
+        HazmatSync.Client_Apply(packet.Data);
+    }
+
+    public void SendHazmatIgnite(int gridCoords, float strength)
+    {
+        SendPacketToServer(new ServerboundHazmatIgnitePacket { GridCoords = gridCoords, Strength = strength }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnClientboundSleepStatePacket(ClientboundSleepStatePacket packet)
+    {
+        BedSleepingController sleep = BedSleepingController.Instance;
+        if (sleep == null)
+            return;
+        sleep.lastWakeTime = DateTime.FromOADate(packet.LastWakeTimeOADate);
+        sleep.lastSleepDurationSeconds = packet.LastSleepDurationSeconds;
     }
 
     public void SendJunctionSwitched(ushort netId, byte selectedBranch, Junction.SwitchMode mode)
@@ -2465,6 +2521,12 @@ public class NetworkClient : NetworkManager
         return ((ulong)PlayerId << 56) | (sequence & 0x00FFFFFFFFFFFFFFUL);
     }
 
+    public void SendSandboxCargo(ushort carNetId, uint cargoTypeNetId)
+    {
+        SendPacketToServer(new ServerboundSandboxCargoPacket { CarNetId = carNetId, CargoTypeNetId = cargoTypeNetId },
+            DeliveryMethod.ReliableOrdered);
+    }
+
     public void SendTrainSyncRequest(ushort netId)
     {
         SendPacketToServer(new ServerboundTrainSyncRequestPacket
@@ -2860,6 +2922,22 @@ public class NetworkClient : NetworkManager
     public void SendMoneyItemDeposit(ushort itemNetId)
     {
         SendPacketToServer(new ServerboundMoneyItemDepositPacket { ItemNetId = itemNetId },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendShopPurchase(int shopIndex, string itemPrefabName, int amount)
+    {
+        SendPacketToServer(new ServerboundShopPurchasePacket
+        {
+            ShopIndex = shopIndex,
+            ItemPrefabName = itemPrefabName,
+            Amount = amount
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendShopPayment(double amount)
+    {
+        SendPacketToServer(new ServerboundShopPaymentPacket { Amount = amount },
             DeliveryMethod.ReliableOrdered);
     }
 

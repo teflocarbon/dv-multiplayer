@@ -2,6 +2,22 @@
 
 > Status: first owner-only implementation complete; requires two-process in-game acceptance testing. This deliberately replaces Derail Valley's always-instantiated contained-item model for multiplayer-owned containers.
 
+## Implementation status (audited 2026-10-14)
+
+- **In-game coverage:** the dvmp `containers` scenario checks one deposit, reopen and withdraw
+  (with a stateful item) and that the host can't browse a client's container. Nesting, cycles,
+  moves, save/reload, rejoin and limits are only unit-tested.
+- **Save format:** base64 binary codec **v3** under the `Multiplayer` JSON root, key
+  `ColdContainers` (`ColdContainerSnapshotCodec`), not the v2 custom chunk described below. Export
+  normalises every transaction to Cold, so cleanup obligations are not saved.
+- **Not built:** container deltas/subscriptions (clients re-browse), a retry worker for failed
+  retirement, record removal when a container is destroyed (records live forever), request rate
+  limits and a cap on concurrent withdrawals.
+- **Known issue:** moving an item between a parent and a child container from the UI sends the
+  active container's revision as the source revision, so it is likely rejected as stale.
+- Fixed since: shells bind on demand (33e7159); withdrawn items are registered as host world items
+  (c18fff5).
+
 ## Implemented surface (2026-07-15)
 
 The first implementation now includes:

@@ -120,7 +120,9 @@ public static class AuthoritativeItemRegistry
             PlacementHand = initialPlacement == ItemPlacementKind.PlayerHand
                 ? PlayerHandRules.Normalize(seed?.PlayerHand ?? PlayerHand.None)
                 : PlayerHand.None,
-            PlacementPlayerIdentity = seed?.PlayerId != 0 && actor?.PlayerId == seed.PlayerId
+            // Without a seed (an item the host just created or restored) this used to read
+            // seed.PlayerId and throw, so the caller's registration never finished.
+            PlacementPlayerIdentity = seed != null && seed.PlayerId != 0 && actor != null && actor.PlayerId == seed.PlayerId
                 ? actor.Guid : Guid.Empty,
             PersistentOwnerPlayerId = persistentOwner,
             PersistentOwnerIdentity = persistentOwner == 0 ? Guid.Empty : actor?.Guid ?? Guid.Empty,

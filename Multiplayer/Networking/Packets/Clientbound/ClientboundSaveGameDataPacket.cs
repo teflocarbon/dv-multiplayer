@@ -62,8 +62,11 @@ public class ClientboundSaveGameDataPacket
             return $"ClientboundSaveGameDataPacket.CreatePacket() UnlockedGen: {{{unlockedGen}}}, PacketGen: {{{packetGen}}},  UnlockedJob: {{{unlockedJob}}}, PacketJob: {{{packetJob}}}";
         });
 
+        // A starter kit for a player joining this world for the first time. It used to be handed out
+        // on every join, a free set of tools each time someone reconnected.
         List<PlayerItemSaveData> playerItems = [];
-        string[] items = ["shovel", "lighter", "Oiler", "Lantern", "Flashlight", "Hanger", "DuctTape"];
+        bool firstJoin = playerData == null && NetworkLifecycle.Instance.Server.StarterKitsGiven.Add(player.Guid);
+        string[] items = firstJoin ? ["shovel", "lighter", "Oiler", "Lantern", "Flashlight", "Hanger", "DuctTape"] : [];
         string[] states = ["", "", "", "", "{\"Restock\": true,\"Battery_power\": 100}", "", ""];
 
         for (int i = 0; i < items.Length; i++)
@@ -75,14 +78,14 @@ public class ClientboundSaveGameDataPacket
             else
                 state = [];
 
-            var testItem = new PlayerItemSaveData()
+            var starterItem = new PlayerItemSaveData()
             {
                 ItemPrefabName = items[i],
                 BelongsToPlayer = true,
                 InventorySlotIndex = 14 + i,
                 State = state
             };
-            playerItems.Add(testItem);
+            playerItems.Add(starterItem);
         }
 
         return new ClientboundSaveGameDataPacket

@@ -4,6 +4,25 @@
 > host-authoritative path has replaced distance-only world-item discovery; there is deliberately no
 > prefab-name compatibility fallback for scene-authored projections.
 
+## Implementation status (audited 2026-10-14)
+
+- **Runtime scenarios:** about 8 of the 29 listed below are covered by dvmp scenarios
+  (`train-items`, `lost-and-found`, `recall`, `rejoin`, `save-reload`, `inventory-persist`,
+  `containers`, `shop`). Not covered: catalogue mismatch, cell enter/leave/re-enter, stale-revision
+  correction, two clients, office replenishment, missing-train recovery.
+- **Superseded:** cell baseline/delta packets with cell revisions. Items use per-item Create and
+  Destroy in the bulk packet.
+- **Differs:** interest is refreshed on cell change or every quarter second (8d1d2b6), not only on
+  cell change; a projection is marked known when sent, not when acknowledged.
+- **Not implemented:** missing train car on load going to recovery (`LostItemReason.SaveRecovery`
+  is unused); `InstalledGadget` placement; chunked or compressed baselines (compression is
+  commented out).
+- **Gaps:** client item updates are relayed to every player at `ReadyForItems` regardless of
+  interest; no pickup reach check.
+- **Prefab-name matching:** one path exists despite the note above. Rejoin restoration hands a
+  returning player their original item when their game asks to adopt a fresh copy of the same
+  prefab (`TryRestoreReturningOwnerItem`). It applies to player items, not scene-authored ones.
+
 ## Goal
 
 Make the host the only authority for world-item identity, lifecycle, placement, ownership, state,

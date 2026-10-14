@@ -503,7 +503,9 @@ public partial class NetworkedItemManager
     /// <summary>
     /// Host: a disconnecting player can't keep holding anything. Commit each item in their hand
     /// as dropped where it is, so the authority record matches the object lying in the world
-    /// and anyone can pick it up. (Inventory items stay keyed to the player for when they return.)
+    /// and anyone can pick it up. Their own inventory items stay keyed to them for when they
+    /// return; items in it that belong to someone else are dropped too, rather than leaving with
+    /// them, and go to their owner's Lost and Found if nobody picks them up.
     /// </summary>
     internal void DropHeldItemsOfDepartingPlayer(ServerPlayer player)
     {
@@ -512,7 +514,13 @@ public partial class NetworkedItemManager
 
         foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.Records.ToArray())
         {
-            if (record.Placement != ItemPlacementKind.PlayerHand || record.PlacementPlayerId != player.PlayerId)
+            if (record.PlacementPlayerId != player.PlayerId)
+                continue;
+            bool inHand = record.Placement == ItemPlacementKind.PlayerHand;
+            bool borrowed = record.Placement == ItemPlacementKind.PlayerInventory &&
+                            record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId != player.PlayerId &&
+                            record.PersistentOwnerIdentity != player.Guid;
+            if (!inHand && !borrowed)
                 continue;
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
                 continue;

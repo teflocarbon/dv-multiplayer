@@ -6,6 +6,19 @@
 > large-pile soak testing, and destructive live derailment coverage remain validation work rather
 > than missing architecture.
 
+## Implementation status (audited 2026-10-14)
+
+- The wake manager, settlement records, support propagation, impact witnesses and car-motion /
+  derailment wakes are implemented (`NetworkedTrainItemWakeManager`, `TrainItemWakePlanner`).
+- **The Train Item Lab, its debug commands and the `external.train-item-wake-*` scenarios no longer
+  exist.** The in-game runtime test system was removed in f510e8e in favour of the dvmp harness, so
+  the "Train Item Lab" sections and the Phase 2–4 test claims below describe deleted code.
+  `DevTools/Scenarios/PORTING.md` lists the wake scenario as not yet ported; `train-items` only
+  checks that items stay in the cab.
+- Gaps: wakes truncate silently at 32 items (no `wake-truncated` event); disconnect recovery
+  transfers per item, not per island; bounds come from host colliders rather than a prefab
+  catalogue; no per-car dashboard view.
+
 ## Purpose
 
 Define how loose items resting inside a moving train become temporarily active again after a
