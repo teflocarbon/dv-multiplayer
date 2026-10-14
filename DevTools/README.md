@@ -9,7 +9,8 @@ run C# inside either game, take screenshots, and read logs. Debug-only; never sh
 |---|---|
 | `DvmpAgent/` | In-game Unity Mod Manager mod (`Mods/MultiplayerDevTools`). Loopback HTTP server, token-authenticated, main-thread dispatcher, screenshot/log capture. No dependency on `Multiplayer.dll`. Deployed by Debug builds only. |
 | `Dvmp/` | `dvmp.exe`: discovers running agents, compiles C# probes against the game's own Mono libraries with publicized game/mod assemblies, and exposes everything as an MCP server (`dvmp mcp`) and a CLI. |
-| `Dvmp/Probes/*.cs` | Orchestration probes (`host`, `join`) compiled and sent into the game at runtime. Edit them without rebuilding the agent. |
+| `Dvmp/Probes/*.cs` | Probes behind the tools (`host`, `join`, `snapshot`, `soak`, `trace-install`, `trace-show`) compiled and sent into the game at runtime. Edit them without rebuilding the agent. |
+| `Scenarios/` | Regression scenarios (`<name>/run.sh` plus its probes) and `gate.sh`, which runs them all. |
 
 ## Build
 
@@ -37,13 +38,20 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 
 ## Regression scenarios
 
-Run after changing item, session or persistence code. Each exits non-zero on failure.
+Each scenario is `DevTools/Scenarios/<name>/run.sh`, needs a running pair, and exits non-zero on
+failure; its header lists its variables. `gate.sh` runs the whole set against the running pair
+and prints PASS/FAIL per run. Run it after any change touching items, joins, ticks or trains.
 
-| Scenario | What it guards |
-|---|---|
-| `bash DevTools/Scenarios/rejoin/run.sh` | Client quits holding an item: host keeps every item and drops the held one; client rejoins and gets exactly one of each item back in its inventory (no duplicates, nothing dropped). `FRESH=1` restarts both games first; `CRASH=1` kills the client and rejoins before the host notices. |
-| `SESSION="DVMP Test Career 2" bash DevTools/Scenarios/save-reload/run.sh` | Repeated host save + reload: item and job-overview counts don't grow, nothing is active in the sky, nothing drifts into Lost and Found, the host's inventory stays recorded as inventory. |
-| `WHO=client MODE=drop WHEN=moving bash DevTools/Scenarios/train-items/run.sh` | A player carries a mug into a DE2 cab and drops or throws it, the host pushes the train: on both peers the mug stays in the cab, attached to the loco at the same spot. `WHO=client|host`, `MODE=drop|throw`, `WHEN=stopped|moving`. |
+```bash
+bash DevTools/Scenarios/gate.sh                       # everything
+ONLY="rejoin recall" bash DevTools/Scenarios/gate.sh  # by scenario or run name
+WHO=host MODE=throw WHEN=moving bash DevTools/Scenarios/train-items/run.sh
+```
+
+Per-run output goes to `$LOG_DIR` (default a temp directory, printed at the end). Scenarios use
+the CLI at `$DVMP` (default `DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`). The list of scenarios and
+what each checks is in [`docs/testing.md`](../docs/testing.md#regression-gate); what the old
+runtime tests covered that still needs porting is in `Scenarios/PORTING.md`.
 
 Test saves are separate sessions ("DVMP Test Career", "DVMP Test Career 2"); create more with
 `dvmp up --new career --name "..."`.

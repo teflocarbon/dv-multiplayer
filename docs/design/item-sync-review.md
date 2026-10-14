@@ -9,9 +9,15 @@
 > Code reviewed: 2026-07-14
 >
 > Findings re-checked: 2026-10-14. Fixed: A, F (only a first-join starter kit remains), H, I, J, K,
-> O, R. Partly fixed: C, D (no pickup reach or value ranges), E (no foreign-item disconnect
-> policy), L, M, N, P, S, U. Still open: B (relays ignore interest), G (fixed 0.25 s item-sync
-> wait at join), T (bulk compression).
+> O, Q, R. Partly fixed: C, D (no pickup reach or value ranges), E (borrowed items are dropped on
+> disconnect, except when their owner is offline), L, M, N, P, S, U. Still open: B (relays ignore
+> interest), G (fixed 0.25 s item-sync wait at join), T (bulk compression). Each finding has a
+> status line.
+>
+> Sections 2-9 describe the code as reviewed in July (100 metre radius, permanent `KnownItems`,
+> test-data inventory); they are kept for the findings' context. The current design is in
+> [`item-world-sync.md`](item-world-sync.md), [`item-spatial-physics.md`](item-spatial-physics.md)
+> and [`item-lifecycle.md`](item-lifecycle.md).
 
 ## 1. Purpose and scope
 
@@ -353,6 +359,8 @@ The following findings are grouped by likely impact. Severity describes the pote
 
 #### A. Network ID lookup entries are not removed when an ID changes or an object is normally destroyed
 
+Status (2026-10-14): Fixed. `IdMonoBehaviour` removes the old entry on an ID change and on destroy, and rejects duplicate IDs (`Multiplayer/Components/IdMonoBehaviour.cs`).
+
 `IdMonoBehaviour.NetId` releases the old ID and registers the new one, but it does not remove the old key from the static ID-to-object dictionary. Normal `OnDestroy()` also does not remove the individual entry; the dictionary is cleared only during a particular unload path.
 
 Consequences include stale lookup entries after ordinary identity changes or destruction, delayed
@@ -362,6 +370,8 @@ but lookup removal must still remain correct for authored dormancy and normal de
 
 #### B. Initial creation is proximity-filtered, but relayed client updates are not
 
+Status (2026-10-14): Open. `Server_ReceiveItemUpdate` still relays through `SendItemUpdatePacket` to every player at `ReadyForItems`.
+
 The tick path sends creates only to nearby players. In contrast, `Server_ReceiveItemUpdate()` relays a client update to all other clients at `ReadyForItems`, regardless of `KnownItems` or range.
 
 A distant client which has never received the item create will receive an update for an unknown network ID and discard it with a warning. If it later enters range, the create provides current state, but this produces avoidable errors and makes event delivery dependent on whether the item happened to be known.
@@ -370,11 +380,15 @@ The live relay should use the same interest/known-item policy as creation, or fo
 
 #### C. Server-authoritative tracked values can still be relayed from a client
 
+Status (2026-10-14): Partly fixed. Clients no longer put server-authoritative keys in deltas (`TrackedStateComposer`) and the host ignores them, but the host still relays the client's snapshot without removing them.
+
 On the host, `ApplyTrackedValues()` refuses a client change to a tracked value marked server-authoritative. However, the server then relays the original, unfiltered client snapshot to other clients. Remote clients do not perform that authority rejection and will apply the value.
 
 Thus a client can potentially make other clients display a forged flashlight battery, beam colour, or intensity while the host retains the canonical value. The host must remove/rewrite rejected keys before relay, or construct the outgoing update from accepted host state.
 
 #### D. Validation is minimal and rejection has no correction path
+
+Status (2026-10-14): Partly fixed. `ValidateUpdate` (`NetworkedItem.Server.cs`) now needs possession or a projection acknowledgement, checks the authority revision, finite transforms, a 64 m drop/throw bound and train/static parents; every rejection sends the sender a canonical correction. There is still no pickup reach check and no tracked-value range check.
 
 The active validation checks only:
 
@@ -397,6 +411,8 @@ When validation does fail, the server silently rejects the operation from the se
 
 #### E. Ownership is not cleaned up on disconnect
 
+Status (2026-10-14): Partly fixed. `ServerPlayer.Dispose` unbinds the player's owner and possessor IDs; `DropHeldItemsOfDepartingPlayer` drops their hand item and any inventory item another player owns (2d52799). An item whose owner is offline is not recognised as borrowed and stays with the departing player.
+
 `NetworkedItemManager.PlayerDisconnected()` throws `NotImplementedException`, and the server disconnect subscription is commented out. An item whose `BelongsTo` points at a disconnected player can remain locked against other players.
 
 The unused `OwnedItems` collection further increases the risk of two ownership sources diverging. One canonical ownership model and explicit disconnect transfer/drop rules are needed.
@@ -404,6 +420,8 @@ The unused `OwnedItems` collection further increases the risk of two ownership s
 ### 10.2 Initial-sync and lifecycle gaps
 
 #### F. Personal inventory sync is test data, not authoritative inventory data
+
+Status (2026-10-14): Fixed. The packet carries a starter kit only on a player's first join (2962fa7); other players' inventories are saved with the host's game (325c2fb, dba0837) and restored on rejoin (040b3bf, 35914cc).
 
 `ClientboundSaveGameDataPacket.CreatePacket()` currently creates a hard-coded item list. It does not enumerate the connecting player's stored server inventory, preserve runtime network IDs, or establish host ownership for the resulting client objects.
 
@@ -413,11 +431,15 @@ unrelated unbound inventory/world objects are no longer retained or pooled.
 
 #### G. There is no item-sync completion barrier
 
+Status (2026-10-14): Open. The client still waits a fixed 0.25 s between loading states (`NetworkClient`).
+
 `ReadyForItems` enables the tick path, but the client advances after a fixed 0.25 second delay. There is no count, end marker, or acknowledgement confirming that relevant creates have been received and applied.
 
 This can race with job creation and any subsystem that expects referenced items to exist. It also makes loading behaviour dependent on tick rate, frame rate, network latency, and batch size.
 
 #### H. Intended job-document exclusion is ineffective
+
+Status (2026-10-14): Fixed. `DoNotCreateItem(NetworkedItem)` checks `TrackedItemType`.
 
 As described earlier, `DoNotCreateItem(nearbyItem.GetType())` checks `NetworkedItem` rather than the wrapped tracked item type. Job documents may consequently be created by both item proximity sync and job sync.
 
@@ -425,11 +447,15 @@ Additionally, job item wrappers are initialized as useful items but do not regis
 
 #### I. Leaving interest range must retire the correct projection kind
 
+Status (2026-10-14): Fixed. Leaving interest sends a Destroy with `InterestRetirement`; dynamic copies are destroyed and authored ones made dormant.
+
 Removing an item from `NearbyItems` stops host tick updates but leaves the item in `KnownItems` and alive on the client. This may be an intentional bandwidth-only culling policy, but it should be named as such.
 
 If object-count culling is desired, the protocol needs a distinction between temporary interest removal and authoritative destruction. Reusing `Destroy` for both without care would lose identity/history semantics.
 
 #### J. Destroy delivery is one-tick and global
+
+Status (2026-10-14): Fixed. Destroys go only to players who knew the item (`DestroyRecipients`).
 
 Every destroy is appended to every eligible player's next bulk packet, including players who never knew the item. Unknown destroyed IDs must remain null-safe; a known dynamic projection is destroyed and a known authored projection becomes dormant.
 
@@ -439,11 +465,15 @@ Players below `ReadyForItems` are skipped, after which `DestroyedItems` is clear
 
 #### K. There is no continuous transform or rigidbody synchronisation
 
+Status (2026-10-14): Fixed. The spatial lease and settlement layer ([`item-spatial-physics.md`](item-spatial-physics.md)) and host convergence (b601cc6).
+
 Only lifecycle events carry transforms. Thrown objects simulate independently on each peer after the common release pose and direction. Differences in physics timing, collisions, floating-origin timing, or frame rate can leave different resting positions.
 
 No later correction occurs unless another state event or catch-up condition causes a full snapshot. The unused standalone `ItemPosition` flag suggests this area is planned but incomplete.
 
 #### L. State detection has ambiguous fallbacks
+
+Status (2026-10-14): Partly fixed. Train-interior and static parents are recognised; any other parent still falls back to `Dropped`.
 
 Any item which is not recognized as grabbed, inventory-held, snapped, just removed, or parented under the expected world origin falls back to `Dropped`. Items parented to other containers or modded attachment systems can therefore be represented incorrectly.
 
@@ -451,13 +481,19 @@ The parent check also precedes several other checks. Correctness depends on Dera
 
 #### M. Attachment failures are not retried
 
+Status (2026-10-14): Partly fixed. A deferred Create waits for its car (49d915d); a later attach failure is still only logged.
+
 If the referenced train car or snap point does not yet exist, or `SnapItem` fails, the client logs a warning and stops. There is no dependency queue, retry, or corrective full state. The item may remain active at an old/default position.
 
 #### N. Player-resolution failures are not retried
 
+Status (2026-10-14): Partly fixed. Not retried in general.
+
 If an `InHand` or `InInventory` snapshot references a player which the receiving client has not created, the item is disabled. There is no queued retry when that player later appears.
 
 #### O. VR/hand selection is incomplete
+
+Status (2026-10-14): Fixed. `PlayerHand` is serialized and applied (`NetworkedItem.VrHand.cs`).
 
 `ItemUpdateData.PlayerHand` exists but is neither serialized nor used. Cleanup explicitly checks only `RightHandItemGO`, with a TODO for VR. Left/right-hand ownership and two-hand edge cases are therefore unsupported.
 
@@ -465,11 +501,15 @@ If an `InHand` or `InInventory` snapshot references a player which the receiving
 
 #### P. Tracked-value schema is implicit
 
+Status (2026-10-14): Partly fixed. Keys are validated when composed, but the schema is still string-keyed and unversioned.
+
 Keys and types are string-based and must match on every peer. Unknown keys are only logged. Unsupported types throw, and serialising a null value would fail while attempting to inspect its type.
 
 There is no per-item schema/version marker, duplicate-key prevention, range validation, or compatibility negotiation beyond the broader protocol manifest.
 
 #### Q. Authored re-entry must reset network lifetime without resetting scene identity
+
+Status (2026-10-14): Fixed. `ResetClientNetworkLifetime` clears an authored copy's network state before it is rebound.
 
 Dynamic projection reuse has been removed. Exact authored objects still survive interest retirement
 because other scene components may reference them. Their network identity, authority metadata,
@@ -477,6 +517,8 @@ pending snapshots, and presentation must be reset before stable-key rebinding wi
 authored classification or unrelated scene wiring.
 
 #### R. Useful-item registration can stall snapshot application
+
+Status (2026-10-14): Fixed. Tracked values are finalised automatically after 0.75 s (`FinaliseTrackedValuesAutomatically`).
 
 Useful items queue all snapshots until `FinaliseTrackedValues()` is called. If a patch exits early (for example, the shovel cannot find its coal component or the gadget switch cannot find its LOD), finalisation may never occur and the queue can grow indefinitely.
 
@@ -486,17 +528,23 @@ There should be a fail-safe finalisation/error state and a bounded pending queue
 
 #### S. Interest calculation is an all-players by all-items scan
 
+Status (2026-10-14): Partly fixed. Interest uses the 128 metre cell index and is rebuilt on a cell or index change, otherwise four times a second (fe11afa).
+
 Every network tick computes distance from every ready player to every registered item. This is `O(players * items)` and allocates lists/dictionaries in several parts of the path. It may be acceptable initially but will scale poorly with large worlds, many dropped items, or higher tick rates.
 
 Spatial partitioning, staggered scans, or Derail Valley tile/streaming data could reduce this cost.
 
 #### T. Bulk packet compression code is disabled
 
+Status (2026-10-14): Open. Compression is still commented out.
+
 The former custom raw/compressed implementation in `CommonItemsBulkUpdatePacket` is entirely commented out. The active packet framework serializes the object graph, but the explicit “compress after 50 items” behaviour is not active.
 
 Large initial nearby batches should be profiled for packet size, fragmentation, serialization cost, and transport limits.
 
 #### U. Error handling often logs and drops without recovery
+
+Status (2026-10-14): Partly fixed. A failed projection is reported and re-sent after 5 s (49d915d) and convergence heals drift; there is no general resync request.
 
 Missing prefabs, items, players, cars, tracked keys, or snap points generally produce a warning/error and discard the operation. There is no request-resync packet or retry budget. A single ordering problem can therefore become a permanent client divergence.
 
@@ -572,8 +620,9 @@ Useful stress cases include hundreds of nearby items, repeated enter/leave cycle
 
 | Area | Primary files |
 |---|---|
-| Item identity, state, snapshots, validation | `Multiplayer/Components/Networking/World/NetworkedItem.cs` |
-| Interest management, bulk sync, caching | `Multiplayer/Components/Networking/World/NetworkedItemManager.cs` |
+| Item identity, state, snapshots, validation | `Multiplayer/Components/Networking/World/NetworkedItem*.cs` (partials: `.Server`, `.Snapshots`, `.StateApplication`, `.VrHand`, ...) |
+| Interest management, bulk sync, convergence, fall rescue | `Multiplayer/Components/Networking/World/NetworkedItemManager*.cs` (partials: `.ServerInterest`, `.ClientProjection`, `.Convergence`, `.FallRescue`, ...) |
+| Canonical authority | `AuthoritativeItemRegistry.cs`, `Multiplayer.Core/Items/ItemAuthorityStateMachine.cs` |
 | Base network-ID implementation | `Multiplayer/Components/IdMonoBehaviour.cs` |
 | Per-player known/nearby/owned state | `Multiplayer/Networking/Data/ServerPlayer.cs` |
 | Item snapshot flags and serialization | `Multiplayer/Networking/Data/Items/ItemUpdateData.cs` |
@@ -582,7 +631,7 @@ Useful stress cases include hundreds of nearby items, repeated enter/leave cycle
 | Client receive/send and load order | `Multiplayer/Networking/Managers/Client/NetworkClient.cs` |
 | Server receive/relay and loading state | `Multiplayer/Networking/Managers/Server/NetworkServer.cs` |
 | Automatic item registration | `Multiplayer/Patches/World/Items/ItemBasePatch.cs` |
-| Useful-item tracked fields | `FlashlightPatch.cs`, `LanternPatch.cs`, `LighterPatch.cs`, `ShovelPatch.cs`, `GadgetSwitchPatch.cs` |
+| Useful-item tracked fields | `FlashlightPatch.cs`, `LanternPatch.cs`, `LighterPatch.cs`, `ShovelPatch.cs`, `GadgetSwitchPatch.cs`, `MoneyPatch.cs` (banknote amount, since July), `PageBookPatch.cs` |
 | Throw/removal hooks | `GrabHandlerItem.cs`, `GadgetRemoverPatch.cs` |
 | Client starting inventory data | `ClientboundSaveGameDataPacket.cs`, `StartGameData_ServerSave.cs`, `PlayerItemSaveData.cs` |
 | Job document overlap | `BookletCreatorPatch.cs`, `NetworkedStationController.cs`, `NetworkedJob.cs` |

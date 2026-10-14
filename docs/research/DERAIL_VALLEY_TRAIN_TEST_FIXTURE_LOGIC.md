@@ -6,11 +6,9 @@ locomotives and consists for item, physics, snapping, EOT, gadget, wiring, and t
 tests without changing saves or returning through the main menu.
 
 This is a research document. Confirmed runtime and source facts are kept separate from proposed
-fixture policy. Generic runtime-test orchestration remains in
-[`MULTIPLAYER_RUNTIME_TEST_HARNESS_DESIGN.md`](../MULTIPLAYER_RUNTIME_TEST_HARNESS_DESIGN.md).
-The implementation model, transaction boundaries, commands, cleanup contract, and rollout phases
-are defined in
-[`MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md`](../MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md).
+fixture policy. The in-game runtime test harness and train fixtures it was written for have been
+removed; train tests now run on dvmp (see [`../testing.md`](../testing.md) and
+[`../../DevTools/README.md`](../../DevTools/README.md)).
 Loose and snapped train items are covered by
 [`DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md`](DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md), and installed train
 gadgets by

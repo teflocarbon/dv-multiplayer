@@ -1,23 +1,65 @@
 # Multiplayer Train Item Wake System Design
 
-> Status: first production implementation completed on 2026-07-19. Train-only settlement records,
-> bounded support propagation, validated impact witnesses, car-motion/derailment wakes, distant
-> simulator selection, pending recovery, and the Train Item Lab are implemented. Threshold tuning,
-> large-pile soak testing, and destructive live derailment coverage remain validation work rather
-> than missing architecture.
+> Status: the host-side wake system is implemented: settled-item records, bounded support
+> propagation, validated impact witnesses, car-motion/derailment wakes, simulator selection and
+> pending retry. The Train Item Lab that originally exercised it was removed with the in-game
+> runtime test system; no dvmp scenario covers wakes yet. Threshold tuning, large-pile soak testing
+> and live derailment coverage remain open.
 
 ## Implementation status (audited 2026-10-14)
 
-- The wake manager, settlement records, support propagation, impact witnesses and car-motion /
-  derailment wakes are implemented (`NetworkedTrainItemWakeManager`, `TrainItemWakePlanner`).
-- **The Train Item Lab, its debug commands and the `external.train-item-wake-*` scenarios no longer
-  exist.** The in-game runtime test system was removed in f510e8e in favour of the dvmp harness, so
-  the "Train Item Lab" sections and the Phase 2–4 test claims below describe deleted code.
-  `DevTools/Scenarios/PORTING.md` lists the wake scenario as not yet ported; `train-items` only
-  checks that items stay in the cab.
-- Gaps: wakes truncate silently at 32 items (no `wake-truncated` event); disconnect recovery
-  transfers per item, not per island; bounds come from host colliders rather than a prefab
-  catalogue; no per-car dashboard view.
+Checked against the code on `beta`. Where this differs from the design text below, this section
+describes what the code does.
+
+Implemented:
+
+- **Coordinator:** `NetworkedTrainItemWakeManager`
+  (`Multiplayer/Components/Networking/World/WorldItems/NetworkedTrainItemWakeManager.cs`), host
+  only, owned by `NetworkedItemManager`. Support propagation is the pure
+  `TrainItemWakePlanner` (`Multiplayer.Core/Items/TrainItemWakePlanner.cs`), unit-tested in
+  `Multiplayer.Core.Tests/Items/TrainItemWakePlannerTests.cs`.
+- **Settled records:** registered when a spatial settlement commits in a train
+  (`OnSpatialSettled`) or when the host registers a train-interior item with no open lease
+  (`ObserveCanonicalItem`). Registration zeroes the host body's velocity and makes it kinematic.
+- **Support removal:** when a settled item leaves `TrainInterior` placement or is removed, the host
+  wakes the items resting on it, computed from its own settled records (same car, upward support
+  only, 0.12 m vertical tolerance). There is no client overlap/sweep witness.
+- **Item impact:** `NetworkedItem.OnCollisionEnter` (`NetworkedItem.TrainWake.cs`) reports a
+  collision between an actively leased train item and a settled one on the same car, from the
+  source's current simulator only, as `ServerboundItemTrainWakeWitnessPacket` (reliable). The host
+  validates it and wakes the target plus the items it supports.
+- **Car motion:** the host samples `TrainCar.rb` every 0.1 s for cars that have settled items and
+  wakes the whole car on derailment, violent rotation, a jolt, or heavy acceleration/braking, with a
+  1 s cooldown. Position jumps and long gaps reset the baseline instead of counting as motion.
+- **Wake grant:** reuses the spatial lease protocol. `NetworkedItemSpatialManager.TryBeginTrainWake`
+  opens a new epoch with reason `train-wake:<reason>` and an initial train-local velocity; one
+  simulator is chosen for the first item and preferred for the rest of the set.
+- **Pending wakes:** if no simulator is eligible or the host has no `NetworkedItem` for the item,
+  the wake is retried every 0.5 s and dropped after 10 s (`train-item.wake-expired`); the item
+  stays glued at its committed pose.
+
+Not done or different from the design:
+
+- **The Train Item Lab, its `train.item-lab-*` debug commands and the `external.train-item-wake-*`
+  scenarios no longer exist.** The in-game runtime test system was removed in f510e8e in favour
+  of the dvmp harness ([`../testing.md`](../testing.md),
+  [`../../DevTools/README.md`](../../DevTools/README.md)). `DevTools/Scenarios/PORTING.md` lists
+  the cab item wake scenario as not yet ported; the `train-items` scenario only checks that a
+  dropped or thrown item stays in a moving cab.
+- **Truncation:** car-motion wakes take up to 32 items from an unordered set, silently. There is
+  no `wake-truncated` event.
+- **Bounds** come from the host's colliders at settlement time, falling back to a 0.35 m cube when
+  the host has no usable colliders. There is no prefab-bounds catalogue.
+- **Recovery:** simulator disconnect or a 3 s sample timeout transfers each item's lease
+  separately (`TryTransferLease`), or commits the last accepted pose if nobody can take it. There
+  is no island transfer and no pending recovery wake.
+- **Abuse handling:** invalid witnesses produce a `train-item.wake-witness-rejected` event only.
+  Nothing is sent back to the client, and there are no per-peer counters or witness disabling.
+- **Not built:** continuous collision detection for active items, directional (regional) wakes,
+  client-predicted ungluing, a per-car dashboard view (`Snapshot()` has no caller).
+- **Dead code** left from the lab: `NetworkedItemManager.ForceTrainItemWake`,
+  `TrainItemWakeSnapshot`, `DebugArrangeSettledTrainItem` and the `DebugRequest` wake reason have
+  no callers.
 
 ## Purpose
 
@@ -32,9 +74,10 @@ This design extends, rather than replaces:
 - [`item-lifecycle.md`](item-lifecycle.md), which owns
   logical placement and transition precedence;
 - [`item-world-sync.md`](item-world-sync.md), which owns
-  identity, interest, and canonical projections; and
-- [`MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md`](MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md), which
-  owns disposable host-created trains and safe runtime-test control.
+  identity, interest, and canonical projections.
+
+Two-game testing uses the dvmp harness described in [`../testing.md`](../testing.md); its train
+helpers (spawn near the players, board, push, delete) live in `DevTools/Dvmp/Probes/lib`.
 
 The governing distinction is:
 
@@ -55,7 +98,7 @@ physically parented through Derail Valley's item-reparenting lifecycle. It cover
 - bounded propagation through stacks or piles;
 - distant-client simulation while the host remains authoritative;
 - lease transfer and recovery; and
-- deterministic debug arrangements and runtime scenarios.
+- runtime test scenarios.
 
 It deliberately does not cover:
 
@@ -107,8 +150,8 @@ train-local settlement.
     stale pre-disturbance pose.
 13. Simulator disconnect, timeout, interest loss, and train unload have explicit recovery paths.
 14. Production logic performs no recurring all-items scan.
-15. Debug fixtures and tests cannot mutate non-fixture trains or leak items, leases, NetIds, route
-    ownership, or safety policy.
+15. Test scenarios remove the trains and items they create and leak no leases, NetIds, or pending
+    wakes.
 
 ## Terminology
 
@@ -131,11 +174,15 @@ SupportRemoved
 ItemImpact
 HeavyAcceleration
 HeavyBraking
-Derailment
 TrainJolt
-Administrative
-Recovery
+ViolentRotation
+Derailment
+DebugRequest
 ```
+
+These are the values of `TrainItemWakeReason`. The design's `Administrative` and `Recovery`
+sources were not built; `DebugRequest` is only reachable through the uncalled
+`ForceTrainItemWake`.
 
 ### Wake seed
 
@@ -191,37 +238,29 @@ Multiplayer/Components/Networking/World/WorldItems/NetworkedTrainItemWakeManager
 This manager owns train-specific wake policy and must not be folded into
 `NetworkedItemSpatialManager`. It maintains:
 
-- settled item membership by train NetId;
-- canonical train-local pose and prefab collision bounds for each glued item;
-- pending wake operations and deduplication keys;
+- settled item membership by item and by train car NetId;
+- train-local pose and local collision bounds for each glued item;
+- witness deduplication keys and the last witness ID per player;
 - per-car motion history and wake cooldowns;
-- per-source rate limits and cascade budgets;
 - pending wakes waiting for a simulator; and
-- observability snapshots.
+- debug state for the item inspector (`AppendDebugState`).
 
-It receives lifecycle notifications rather than polling:
-
-```text
-OnTrainItemSettled
-OnTrainItemLeftSettlement
-OnLogicalPlacementChanged
-OnSupportItemInteractionStarted
-OnItemImpactWitness
-OnAcceptedTrainMotion
-OnDerailmentChanged
-OnSimulatorDisconnected
-OnInterestChanged
-```
-
-It returns narrow decisions to the existing spatial manager:
+It is driven by notifications from `NetworkedItemManager` plus one host `Update` (pending retry
+and motion sampling):
 
 ```text
-ApproveWakeSet
-BeginWakeLease
-TransferWakeLease
-CancelPendingWake
-ReconcileToCommittedPose
+ObserveCanonicalItem       host registered a train-interior item with no open lease
+OnSpatialSettled           spatial settlement committed
+OnAuthoritativeTransition  placement changed (leaving TrainInterior wakes supported items)
+OnItemRemoved              item destroyed (wakes supported items)
+ObserveCollision           local collision between a leased and a settled train item
+ReceiveImpactWitness       client witness packet
 ```
+
+The design's separate derailment, simulator-disconnect and interest notifications were not
+built: derailment is read during motion sampling, and disconnect/timeout recovery is the spatial
+manager's ordinary lease transfer. The only call into the spatial manager is
+`TryBeginTrainWake`, which selects the simulator and opens the lease.
 
 ### `NetworkedItemSpatialManager`
 
@@ -239,27 +278,26 @@ per-car wake budgets.
 
 ### Canonical wake records
 
-Host wake records must survive missing Unity representations. A proposed minimal record is:
+Host wake records must survive missing Unity representations. The implemented record
+(`SettledRecord`) is:
 
 ```csharp
-internal sealed class TrainItemWakeRecord
+private sealed class SettledRecord
 {
     public ushort ItemNetId;
-    public uint ItemAuthorityRevision;
+    public uint AuthorityRevision;
     public ushort TrainCarNetId;
     public Vector3 ParentLocalPosition;
     public Quaternion ParentLocalRotation;
-    public string PrefabName;
-    public Bounds LocalCollisionBounds;
-    public bool Settled;
-    public uint LastCommittedSpatialEpoch;
-    public uint LastWakeRevision;
+    public Bounds ParentLocalBounds;
+    public uint SpatialEpoch;
+    public float SettledAt;
 }
 ```
 
-`Bounds` must come from a stable prefab-bounds catalogue or a previously validated materialized
-representation. A remote witness may refine contact points but may not redefine an item's canonical
-size without validation.
+The design called for bounds from a stable prefab-bounds catalogue. The code captures them from
+the host's colliders when the item settles, transformed into the car's interior space, and falls
+back to a 0.35 m cube when there are none. A remote witness never supplies bounds.
 
 ### Network messages
 
@@ -275,10 +313,10 @@ The wake witness is reliable because it opens authority work. High-frequency mot
 use the existing spatial sample protocol. Wake grants are represented by a fresh spatial epoch,
 with a `train-wake:*` reason and an initial train-local velocity. This preserves the existing epoch,
 simulator, sample-validation, settlement, and late-interest rules rather than adding a parallel
-authority protocol. The witness includes source/target revisions and epochs, car identity, network
-tick, relative velocity, impulse, and absolute contact position. Coordinator events and debug
-snapshots retain the reason, selected simulator, approved item set, cascade truncation, and
-rejection evidence without duplicating those fields into a second grant format.
+authority protocol. The witness includes a per-sender witness ID, source revision and epoch,
+target revision, car identity, network tick, relative velocity, impulse, and absolute contact
+position. Coordinator events record the reason, selected simulator, wake count and rejection
+reason without duplicating those fields into a second grant format; truncation is not recorded.
 
 ## Host authority with a distant client
 
@@ -292,6 +330,12 @@ The host must be able to adjudicate a wake when:
 
 The host therefore operates on canonical records and accepted network state. Physical application
 is optional presentation work.
+
+In the code this holds only in part. Witness validation uses canonical records (and the host's
+car transform, which always exists), but `TryBeginTrainWake` needs a host `NetworkedItem` for the
+item, the host can be the simulator only while that item is active in its scene, and settlement
+bounds come from host colliders. A wake the host cannot start for lack of a representation goes
+to the pending list.
 
 ### Host responsibilities
 
@@ -311,7 +355,8 @@ The host:
 
 The nearby client:
 
-1. observes contact/support evidence that the host cannot observe;
+1. observes contact evidence that the host cannot observe (support is judged by the host from
+   its settled records);
 2. sends bounded evidence using canonical NetIds and local poses;
 3. waits for or predicts around the host grant according to presentation policy;
 4. makes only approved items dynamic;
@@ -329,11 +374,12 @@ If a wake is valid but nobody can simulate it:
 - expire or reconcile the pending operation under an explicit recovery timeout.
 
 The fallback must be observable. Silent cancellation would make intermittent distance bugs almost
-impossible to diagnose.
+impossible to diagnose. The code retries every 0.5 s, expires after 10 s, and publishes
+`train-item.wake-pending` and `train-item.wake-expired`.
 
 ## Simulator selection
 
-Choose in this order, subject to readiness and representation capability:
+The design proposed this order:
 
 1. the peer currently simulating the train;
 2. a player occupying the affected car/trainset;
@@ -342,8 +388,15 @@ Choose in this order, subject to readiness and representation capability:
 5. the host if it has a valid active representation; or
 6. no simulator, producing a pending wake.
 
+There is no "peer simulating the train" (the host simulates every train). The implemented
+`TrySelectTrainWakeSimulator` considers players that are `ReadyForItems` and either on the car or
+within 192 m of the item; a client must know and have acknowledged the item, and the host must
+have it active. Among those it prefers the requested player (the impact witness, or the player
+who took the supporting item), then a player on the car, then the nearest.
+
 Selection is performed once per wake operation where possible. A stack should normally share one
-simulator instead of distributing mutually colliding items across peers.
+simulator instead of distributing mutually colliding items across peers. The code passes the
+first item's simulator as the preferred player for the rest of the set.
 
 The selected peer receives no logical ownership. Its authority is restricted to the named item
 epochs and motion envelope.
@@ -355,23 +408,22 @@ epochs and motion envelope.
 When a glued item is about to be picked up, moved, stored, destroyed, or reparented, nearby glued
 items may lose support.
 
-The locally observing peer performs one layer-filtered overlap or short upward sweep around the
-source item's canonical bounds. It reports candidate NetIds, contact points or separation, and
-local bounds. The host validates candidates against its canonical records.
+The design had the locally observing peer perform an overlap or short upward sweep and report
+candidates. The implementation needs no client evidence: when a settled item's placement leaves
+`TrainInterior` (pickup, inventory, container, Lost and Found) or the item is destroyed, the host
+runs `TrainItemWakePlanner.FromRemovedSupport` over its own settled records.
 
-Initial implementation policy:
+Implemented policy:
 
-- only candidates on the same train car are considered;
-- candidates must overlap horizontally within a configured tolerance;
-- their lower bound must be close to the source's upper bound or intersect its expanded bounds;
-- the query is capped before transmission;
-- the host expands the wake set through a bounded support search; and
+- only settled items on the same train car are considered;
+- candidates must overlap the support horizontally by at least 0.01 m on both axes;
+- their lower bound must be within 0.12 m of the support's upper bound;
+- support propagates upward only, so side-by-side clutter stays glued;
+- the search stops at 32 items or depth 8; and
 - unrelated floor items remain glued.
 
-The interaction itself should not be blocked on a round trip in the first implementation. A top
-item may appear unsupported but glued for one network delay until the grant arrives. Client-side
-predicted ungluing can be added later if captures show that delay is objectionable; rejected
-prediction must reconcile to the committed pose.
+The interaction is not blocked on a round trip. A top item may appear unsupported but glued for
+one network delay until the grant arrives. Client-side predicted ungluing has not been built.
 
 ### Item impact
 
@@ -379,22 +431,28 @@ Only active dynamic items need impact observation. When an actively leased item 
 glued train item, its simulator reports:
 
 - impacting and target item NetIds;
-- active lease epoch and sequence;
+- the source's authority revision and lease epoch, and the target's authority revision;
 - train car NetId;
-- contact point and normal in train-local space;
+- the first contact point, in absolute (origin-shift-free) world space;
 - relative velocity;
-- impulse when Unity supplies a meaningful value; and
-- source tick/time.
+- impulse; and
+- source network tick.
 
-The host validates that the sender owns the impacting epoch, both items are plausibly co-located,
-the target is currently glued, the train matches, and the impact exceeds configured thresholds.
+The design also listed the lease sequence and a train-local contact normal; neither is sent. The
+peer only reports when relative speed is at least 1.25 m/s or impulse at least 0.5.
 
-The target then becomes a wake seed. Other supported items may join through the bounded support
-search. Minor resting contacts, repeated callbacks from the same collision, and train vibration are
-deduplicated.
+The host rejects the witness unless: the witness ID is newer than the sender's last accepted one;
+the vectors are finite and plausible (relative speed up to 50 m/s, impulse up to 100); the impact
+crosses the same thresholds; the sender is the source's current simulator at the stated revision
+and epoch; both items are on the named car (the target as a settled record at the stated
+revision); and the contact point is within 4 m of the target's settled position.
+
+The target then becomes a wake seed. Items it supports join through the bounded support search.
+Repeated callbacks for the same sender, source and target within 250 ms are dropped. The woken
+items start with 35% of the impact's relative velocity, in train-local space, capped at 4 m/s.
 
 Fast active items should use continuous collision detection or an equivalent swept test while
-their lease is in flight, subject to item type and performance testing.
+their lease is in flight, subject to item type and performance testing. This is not built.
 
 ### Heavy acceleration and braking
 
@@ -411,13 +469,20 @@ Measurements should be evaluated in a stable train-local or trainset frame and f
 short window. Teleport, relocation, loading correction, and network interpolation resets must be
 identified explicitly and excluded.
 
-Acceleration and braking use separate configurable thresholds because braking is likely to produce
-different loose-item behavior. Crossing a threshold can wake:
+The implementation samples the host car's rigidbody (the host simulates every train) every 0.1 s,
+only for cars that hold settled items, in world space without further filtering. A sample gap over
+0.75 s, or a position jump beyond what the two speeds allow, resets the baseline
+(`train-item.motion-baseline-reset`) instead of counting as motion.
+
+Acceleration and braking use separate thresholds because braking is likely to produce different
+loose-item behavior: 3.5 m/s² for acceleration and 3 m/s² of deceleration along the direction of
+travel above 1 m/s. Crossing a threshold can wake:
 
 - the whole affected car interior in the first implementation; or
-- a directionally selected region in a later optimization.
+- a directionally selected region in a later optimization (not built).
 
-Whole-car wake is simpler and safer but must remain bounded by the per-operation item budget.
+Whole-car wake is simpler and safer but must remain bounded by the per-operation item budget. The
+woken items get a small train-local kick opposite the acceleration (5% of it, capped at 1.5 m/s).
 
 ### Derailment and violent rotation
 
@@ -428,13 +493,17 @@ affected cars when:
 - angular acceleration crosses the derailment threshold; or
 - an authoritative train relocation policy explicitly requests physical disturbance.
 
-Fixture relocation and ordinary network correction do not implicitly count as derailment.
+The code wakes the car when any bogie's `HasDerailed` turns on (`Derailment`) or angular
+acceleration reaches 1.25 rad/s² (`ViolentRotation`). There is no relocation-requested wake.
+Relocation and network correction do not count as derailment.
 
 ### Train jolt and external impact
 
 A material train collision may be detected through accepted velocity/acceleration discontinuity,
 an existing authoritative damage/collision event, or both. The event should be correlated with the
-motion history so a packet correction is not interpreted as a physical impact.
+motion history so a packet correction is not interpreted as a physical impact. The code uses the
+motion samples only: a jolt (change in acceleration) of at least 14 m/s³ while acceleration is at
+least 1.5 m/s² is a `TrainJolt`.
 
 Normal coupling has no special wake rule. If coupling produces a genuinely large accepted jolt, it
 passes through the same threshold as any other impact. Threshold tuning must avoid making routine
@@ -453,21 +522,28 @@ The host constructs one wake set per operation:
 7. atomically reserve new item epochs; and
 8. publish one grant/batch.
 
-Initial conservative budgets should be configuration constants and telemetry-visible. Suggested
-starting points for live tuning are:
+The code does steps 1–5 in `TrainItemWakePlanner` (without a time budget) and step 6 by reusing
+the first item's simulator. Epochs are then reserved and granted one item at a time: each woken
+item gets its own `ClientboundItemSpatialLeasePacket`, not one batch.
+
+Initial conservative budgets should be configuration constants and telemetry-visible. The code
+uses these constants in `NetworkedTrainItemWakeManager`:
 
 ```text
 maximum wake items per operation: 32
 maximum support depth:             8
-maximum candidate witness items:   64
 same-source deduplication window:   250 ms
 whole-car wake cooldown:            1 s
+pending wake lifetime:              10 s
 ```
 
-These are not protocol constants. Captures from the Train Item Lab should determine final values.
+The design's 64-item witness candidate cap does not apply: witnesses carry one target. These are
+not protocol constants. Captures from dvmp scenarios should determine final values.
 
 If a pile exceeds a budget, the host wakes the bounded near/contact subset and emits a truncation
-event. It must not silently wake an arbitrary unordered subset.
+event. It must not silently wake an arbitrary unordered subset. Support and impact wakes are
+bounded in planner order (lowest first, then NetId), but no truncation event is emitted, and
+whole-car motion wakes take the first 32 items of an unordered set.
 
 ## Settlement and re-gluing
 
@@ -506,9 +582,14 @@ is absent. A newly interested peer receives:
 - the latest accepted pose and active lease metadata when moving; or
 - the pending-wake baseline if no simulator has yet been selected.
 
+The first two are implemented: the spatial manager sends open leases to a peer when items enter
+its interest (reason `interest-entry`). Pending wakes are host-only state; a new observer sees
+the glued committed pose.
+
 Host code must not call `GetComponent`, inspect a host collider, or resolve `TrainCar.interior` as a
 precondition for canonical validation. Those operations belong only to peers materializing a
-presentation.
+presentation. Validation follows this, but settlement bounds and wake grants still use the host
+representation (see "Host authority with a distant client").
 
 ## Failure and recovery
 
@@ -517,6 +598,12 @@ presentation.
 The host freezes acceptance for the old epoch, chooses a replacement simulator for the entire wake
 island where possible, increments epochs, and transfers the latest accepted baselines. If no
 replacement exists, it retains the latest safe canonical poses and records a pending recovery wake.
+
+Implemented instead: the spatial manager's generic recovery. On disconnect, or when a simulator
+sends no accepted sample for 3 s, each item's lease is transferred separately to the nearest
+eligible peer within 192 m (`TryTransferLease`, reason `lease-transfer:*`). If there is none, the
+host commits the last accepted pose as settled. Wake islands are not kept together and no pending
+recovery wake is recorded.
 
 ### Item leaves the train
 
@@ -540,6 +627,10 @@ by authority revision and epoch.
 Reject the operation, preserve the committed poses, increment abuse/diagnostic counters, and send a
 bounded rejection reason. Repeated invalid reports can disable that peer as a physical witness
 without disconnecting it from ordinary observation.
+
+The code rejects the witness, keeps the committed poses and publishes
+`train-item.wake-witness-rejected` with the reason on the host. It sends nothing back, keeps no
+counters, and never disables a witness.
 
 ## Performance design
 
@@ -573,6 +664,10 @@ trainCarNetId -> accepted motion history and cooldowns
 Use pooled collections for transient candidate queues and wake sets. Clear them after each
 operation; do not retain Unity collider references in canonical records.
 
+The code keeps the first, second and fourth indexes; pending wakes are keyed by item and witness
+deduplication by `sender:source:target`. Wake sets are built with LINQ and arrays rather than
+pooled collections. No collider references are retained.
+
 ### Network budgets
 
 - Batch wake grants per train and operation.
@@ -581,6 +676,10 @@ operation; do not retain Unity collider references in canonical records.
 - Rate-limit witnesses by sender, train, source item, and time window.
 - Suppress duplicate collision callbacks from the same impacting epoch and target.
 - Publish counts and truncated summaries instead of enormous diagnostic payloads.
+
+Not met in the code: grants are one lease packet per item, and witness limiting is the 250 ms
+`sender:source:target` deduplication plus increasing witness IDs, with no per-train or per-sender
+rate limit.
 
 ## Security and validation
 
@@ -600,7 +699,11 @@ unbounded simulation authority. The host validates:
 - absence of a higher-precedence logical transition.
 
 The host computes final wake membership. A client-provided candidate list is never accepted as an
-opaque authoritative set.
+opaque authoritative set. (Clients never send one: a witness names one target.)
+
+The impact witness checks are listed under "Item impact". Not checked: sender loading state, lease
+sample sequence, time deltas, and rate budgets. Proximity is a 4 m radius around
+the target's settled position rather than a bounds test.
 
 ## Observability
 
@@ -635,7 +738,27 @@ Each event should carry, where applicable:
 - host representation availability; and
 - elapsed time from witness to grant and grant to final settlement.
 
-Dashboard state should show per car:
+The implemented events are published on the host under the `train-item-wake` debug category (see
+[`../observability.md`](../observability.md)):
+
+```text
+train-item.settlement-registered
+train-item.support-removed
+train-item.wake-witness-accepted
+train-item.wake-witness-rejected
+train-item.wake-granted
+train-item.wake-pending
+train-item.wake-expired
+train-item.car-motion-wake
+train-item.motion-baseline-reset
+```
+
+The spatial manager adds `item.spatial-train-wake-granted` and `item.spatial-lease-transferred`.
+They carry the car and item NetIds, reason, simulator, wake count, motion vectors and rejection
+reason where relevant; there are no operation IDs, cascade depth, truncation status or timings.
+
+Dashboard state should show per car (not built; the combined dashboard was removed in f510e8e and
+the in-game inspector shows only per-item wake state):
 
 - glued item count;
 - active wake item count;
@@ -646,87 +769,27 @@ Dashboard state should show per car:
 - most recent reason; and
 - rate-limit/truncation counters.
 
-## Train Item Lab
+## Train Item Lab (removed)
 
-The debug UI needs a reusable Train Item Lab built on the existing debug train fixture. The lab is
-both a manual physics playground and the arrangement engine for automated scenarios.
+The first implementation was exercised by a Train Item Lab: in-game debug commands
+(`train.item-lab-*`) built on the old debug train fixture that arranged stacks and piles in a
+fixture train, indexed items, threw a projectile from the host camera through a real wake lease,
+and ran the `external.train-item-wake-*` dashboard scenarios. All of it was removed with the
+in-game runtime test system in f510e8e. Only the uncalled host hooks listed under "Implementation
+status" remain.
 
-### Fixture presets
-
-```text
-SingleItem
-TwoItemStack
-ThreeItemTower
-FloorGrid
-ClutteredCab
-ProjectileLane
-LargeSoakLoad
-```
-
-Every spawned item is registered before mutation with fixture/run ownership, prefab, item NetId,
-train NetId, local pose, intended support group, and cleanup token.
-
-### Manual controls
-
-The debug menu should support:
-
-- create/delete the lab train;
-- choose car/livery, item prefab, count, and preset;
-- spawn one item at a train-local pose;
-- settle/glue all fixture items;
-- remove or pick up a selected support item;
-- launch a fixture item at a target or stack;
-- choose launch direction and speed;
-- apply gentle acceleration;
-- apply heavy acceleration or braking;
-- apply a controlled train jolt;
-- request fixture derailment under explicit safety policy;
-- wake a selected item or the whole fixture interior;
-- display support candidates and the approved wake set;
-- display per-item parent, glued/active state, epoch, simulator, and local pose; and
-- run/prove cleanup.
-
-Projectile launch should create or acquire the item through the normal authoritative item lifecycle,
-open a real spatial epoch, and then apply the declared initial motion on its selected simulator. It
-must not teleport an unregistered Rigidbody and call that a network test.
-
-### Debug commands
-
-Implemented commands:
-
-```text
-train.item-lab-status
-train.item-lab-arrange
-train.item-lab-wake
-train.item-lab-throw-at
-train.item-lab-wait-cycle
-train.item-lab-index-status
-train.item-lab-index-add-look
-train.item-lab-index-add-nearby
-train.item-lab-index-remove
-train.item-lab-index-clear
-train.item-lab-throw-from-view
-```
-
-These IDs match the dashboard runtime catalogue. A human can place items normally, add the item
-under the reticle one at a time or index
-all nearby settled items on one car, inspect the resulting NetIds/revisions, and clear stale or
-unwanted entries. `train.item-lab-throw-from-view` moves a selected indexed projectile to the host
-camera launch point as debug arrangement, then opens a real production spatial wake lease with
-velocity along the live view direction. The motion, collision witnesses, host adjudication, and
-settlement are therefore production paths.
-
-The automated scenarios currently proving the implementation are:
-
-- `external.train-item-wake-support-removal`;
-- `external.train-item-wake-client-impact`; and
-- `external.train-item-wake-manual-lab`.
-
-All command code is `DEBUG`-only. Fixture scenarios retain explicit run identity and ledger-first
-cleanup; a manually constructed lab index is session-local and automatically prunes missing item
-representations.
+Its replacement is a dvmp scenario (`DevTools/Scenarios/<name>/run.sh`, see
+[`../testing.md`](../testing.md) and [`../../DevTools/README.md`](../../DevTools/README.md)),
+listed as not yet ported in `DevTools/Scenarios/PORTING.md`. The rules that still apply to it:
+spawn the train and items through the normal authoritative paths (the probe library's `Trains`
+helpers spawn, board, push and delete cars), make a projectile move through a real spatial lease
+rather than by teleporting an unregistered rigidbody, and remove everything the scenario created.
 
 ## Automated scenario suite
+
+This is the target suite for the dvmp port. None of it is automated today: the old dashboard
+scenarios were removed, `train-items` covers only dropping and throwing an item into a cab, and
+the planner's support propagation and budgets are covered by `TrainItemWakePlannerTests`.
 
 Assertions should target authority and lifecycle invariants, not exact chaotic landing coordinates.
 
@@ -752,7 +815,7 @@ Assertions should target authority and lifecycle invariants, not exact chaotic l
 
 ### Distant-host scenarios
 
-1. Host is teleported beyond train/item interest while a client occupies its own fixture train.
+1. Host is teleported beyond train/item interest while a client occupies its own train.
 2. Host has no loaded interior representation for the affected train.
 3. Client removes support; host approves identities and wake set from canonical records.
 4. Client launches an item; host validates the impact epoch and grants target wakes.
@@ -768,8 +831,8 @@ Assertions should target authority and lifecycle invariants, not exact chaotic l
 2. Prove idle glued items produce no per-item recurring physics query or network traffic.
 3. Wake a maximum-sized pile and prove item/depth budgets.
 4. Repeated jolts respect cooldown and deduplication.
-5. Repeated settle/wake cycles leak no leases, records, pooled collections, or fixture objects.
-6. Cleanup proves zero fixture items, trains, pending wakes, and active epochs.
+5. Repeated settle/wake cycles leak no leases, records, or test objects.
+6. Cleanup proves zero test items, trains, pending wakes, and active epochs.
 
 ### Common assertions
 
@@ -804,46 +867,52 @@ cleanupClean
 
 - introduce `NetworkedTrainItemWakeManager`;
 - register/unregister glued items from settlement and logical transitions;
-- decouple wake validation from host Unity representations;
-- implement one host-approved administrative wake; and
+- decouple wake validation from host Unity representations (partial: grants and bounds still use
+  the host representation);
+- implement one host-approved administrative wake (`ForceWake`, now uncalled); and
 - prove direct wake and re-glue on host and distant client.
 
-### Phase 2: Train Item Lab — completed
+### Phase 2: Train Item Lab — completed, then removed
 
 - implement deterministic item arrangements and ledger-first cleanup;
 - add manual stock, launch, remove-support, wake, status, and cleanup controls;
 - reuse the lab from dashboard external scenarios; and
 - establish performance baselines.
 
-### Phase 3: support removal — completed
+Removed in f510e8e with the in-game runtime test system. A dvmp replacement is still to be
+written.
 
-- implement bounded witness overlap/sweep;
+### Phase 3: support removal — implemented; runtime test removed
+
+- implement bounded witness overlap/sweep (replaced by a host-side search over settled records);
 - validate candidates from canonical bounds;
 - construct deterministic wake islands;
-- add two-box, tower, unrelated-item, and distant-host tests.
+- add two-box, tower, unrelated-item, and distant-host tests (planner unit tests remain; the
+  runtime scenarios were removed).
 
-### Phase 4: item impacts — completed
+### Phase 4: item impacts — implemented; runtime test removed
 
 - observe collisions only on active leased items;
 - add impact witness validation and deduplication;
-- add projectile and below-threshold tests; and
-- tune continuous collision policy.
+- add projectile and below-threshold tests (removed with the lab); and
+- tune continuous collision policy (not done).
 
 ### Phase 5: train motion and derailment — implemented; live tuning pending
 
-- derive filtered acceleration/braking/angular acceleration/jolt from accepted train state;
+- derive filtered acceleration/braking/angular acceleration/jolt from accepted train state
+  (unfiltered 10 Hz host samples);
 - exclude relocation and correction discontinuities;
 - implement whole-car wakes with cooldown;
-- add derailment and coupling discrimination; and
-- run distant-host and soak coverage.
+- add derailment and coupling discrimination (coupling has no special case); and
+- run distant-host and soak coverage (not done).
 
-### Phase 6: recovery and hardening — implemented; soak coverage pending
+### Phase 6: recovery and hardening — partly implemented
 
-- transfer whole wake islands on simulator loss;
-- support pending wakes without eligible simulators;
-- tune budgets and thresholds from captures;
-- add abuse/rate-limit handling; and
-- complete persistence and late-interest audits.
+- transfer whole wake islands on simulator loss (not done: per-item lease transfer);
+- support pending wakes without eligible simulators (done: 0.5 s retry, 10 s expiry);
+- tune budgets and thresholds from captures (not done);
+- add abuse/rate-limit handling (deduplication and witness ordering only); and
+- complete persistence and late-interest audits (not done).
 
 ## Acceptance criteria
 
@@ -859,7 +928,7 @@ The system is complete when:
 7. Items re-settle, retain the correct train parent, and become kinematic again.
 8. Late observers and persistence consume the latest committed canonical poses.
 9. Idle cost scales with active cars, not all items, and active work obeys explicit budgets.
-10. The Train Item Lab can arrange, disturb, inspect, and clean representative piles without manual
+10. dvmp scenarios can arrange, disturb, inspect, and clean representative piles without manual
     save preparation.
 11. Automated host/client/distant-host scenarios pass with clean teardown.
 12. No invalid witness, stale epoch, disconnect, or interest transition can create duplicate
@@ -877,5 +946,5 @@ The system is complete when:
 - Whether very large piles should remain partially glued after budget truncation or enter a
   conservative whole-car recovery mode.
 
-These values must be tuned through captures and the Train Item Lab. They must not be guessed into
+These values must be tuned through captures and dvmp scenarios. They must not be guessed into
 the wire protocol or silently changed by individual clients.

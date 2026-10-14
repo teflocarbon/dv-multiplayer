@@ -1,7 +1,10 @@
 # Multiplayer testing
 
-The multiplayer implementation now has a Unity-free core test boundary in addition to the
-in-game tests run with dvmp.
+There are three layers: pure unit tests (`Multiplayer.Core.Tests`), protocol fixture tests against
+the built mod (`Multiplayer.Protocol.Tests`), and two real game instances driven by dvmp
+(`DevTools/`). The old in-game runtime test system (`Debugging/RuntimeTests`, the
+`RuntimeConsole` and the headless `DebugRemoteClient`) was removed in favour of dvmp; what it
+covered that still needs a dvmp scenario is listed in `DevTools/Scenarios/PORTING.md`.
 
 ## Test layers
 
@@ -11,106 +14,117 @@ in-game tests run with dvmp.
 LiteNetLib, or a running game process. Production code delegates canonical authority decisions
 to this library, so tests exercise the same transition rules used by the host.
 
-Run the suite with:
-
-```powershell
-dotnet test Multiplayer.Core.Tests\Multiplayer.Core.Tests.csproj
+```bash
+dotnet test Multiplayer.Core.Tests
 ```
 
-The initial item-authority suite verifies:
+The suite (NUnit, `net8.0`) mirrors the folders of `Multiplayer.Core`:
 
-- one canonical item per nonzero NetId;
-- exactly one placement and placement player at a time;
-- accepted operations increase the revision exactly once;
-- rejected operations leave the canonical state unchanged;
-- revisions cannot wrap around;
-- pickup by another player never transfers persistent ownership;
-- a current possessor blocks another player's mutation;
-- owner recall retains the original essential-item claim slot;
-- owner recall clears `Dropped` and `Stolen` without changing NetId;
-- non-owner and stale-revision operations are rejected.
+| Folder | Covers |
+| --- | --- |
+| `Items/` | Item authority state machine (one canonical item per NetId, one placement and possessor, revisions, owner recall, essential-item claims, stale/non-owner rejection, a 2,000-operation invariant run); wire-state projection and send suppression; inventory claim planning through a mocked `IInventoryView`; storage membership normalisation; remote hand/inventory projection; tracked-value composition and authority filtering; the temporary ID-zero adoption coordinator; Lost and Found; page-book sync; spatial stream validation; train-cab item wake; grabber recovery. |
+| `Collections/` | Pending-snapshot queue ordering, duplicate/stale rejection, bounded overflow, full snapshots superseding deltas, deferred drain planning. |
+| `Containers/` | Cold-container graph rules (owner-only access, revisions, idempotent deposits, transactional withdrawal, moves, slots, cycle/depth/quota limits) and the bounded binary save codec. |
+| `Identity/` | NetId allocation: reserved zero, collisions, release/reuse, exhaustion without wrapping, a 10,000-operation stress run. |
+| `Replication/` | Interest entry at 100 m with a three-second removal delay, dirty-vs-full-sync selection, replica state comparison, recipient completion and its timeout boundaries. |
+| `Jobs/` | Job booklet issuance index. |
+| `Trains/` | Train baseline receipt and the train topology (coupling) state machine. |
 
-The suite also covers:
-
-- every pair of `Dropped`, `Thrown`, `InInventory`, `InHand`, `Attached`, and `Removed`
-  send-state projections;
-- same-state holder changes and attached car/end changes;
-- suppression of fields that are not meaningful for the current state;
-- FIFO pending-snapshot application;
-- duplicate and stale revision rejection while deferred;
-- explicit bounded-queue overflow without silent delta eviction;
-- full snapshots superseding older deferred deltas;
-- legacy revision-zero queue ordering;
-- essential-claim preservation, reconstruction, restoration, moved-slot rejection, and occupied-slot rejection through a mocked `IInventoryView`;
-- repeated pickup/drop cycles and a deterministic 2,000-operation mixed-transition invariant run.
-- recipient completion with zero, one, and multiple clients, exact timeout boundaries, recovery,
-  stable multi-client discontinuity selection, and validation rejection;
-- temporary compatibility-adoption token/item uniqueness, policy rejection, unknown and duplicate
-  result handling, invalid accepted mappings, and host token idempotency scoped per authenticated
-  player; remove these tests with the compatibility bridge after all producers become host-created;
-- all 16 combinations of inventory/world/lost-and-found/container storage membership normalized
-  to one target without silent overlap;
-- local hand, local inventory, remote hand, remote inventory, missing-player, and invalid remote
-  projection outcomes.
-- collision-safe item, train, station, and player NetId allocation, explicit reservations,
-  release/reuse, byte exhaustion without wrapping to zero, duplicate-release rejection, and a
-  10,000-operation live-ID stress run;
-- exact 100 metre interest entry and three-second hysteresis boundaries, known/dirty tick catch-up,
-  dirty-vs-full-sync selection, special-item create suppression, and known-item destroy targeting;
-- zero-value full syncs, host/client dirty tracked-value composition, server-authoritative filtering,
-  duplicate/blank key rejection, unknown-key merge plans, and exhaustive dirty/authority combinations.
-- owner-only cold-container authorization, stale revisions, idempotent deposits, transactional
-  withdrawal commit/abort, within/between-container moves, occupied and invalid slots, preserved
-  mixed ownership, cycle/depth/node/quota limits, detached-state limits, save normalization,
-  malformed graph rejection, and versioned bounded binary save round-trips.
+Every multiplayer bug fix that changes pure transition behaviour should first gain a failing unit
+test here.
 
 ### Protocol fixture tests
 
-`Multiplayer.Protocol.Tests` targets .NET Framework 4.8 and exercises the actual production
-`ItemUpdateData` serializer/deserializer and debug packet projector against the installed Derail
-Valley/Unity value types:
+`Multiplayer.Protocol.Tests` targets .NET Framework 4.8 and runs the real packet serializers in
+the built `Multiplayer.dll` against the installed game's Unity value types. It references
+`Multiplayer/bin/<configuration>/net48/Multiplayer.dll`, so build the mod first and test with the
+same configuration:
 
-```powershell
-dotnet build Multiplayer\Multiplayer.csproj -c Debug
-dotnet test Multiplayer.Protocol.Tests\Multiplayer.Protocol.Tests.csproj -c Debug
+```bash
+dotnet build Multiplayer/Multiplayer.csproj -c Release
 ```
 
-The fixtures cover `Dropped`, `Thrown`, `InHand`, `InInventory`, `Attached`, `Create`, `Destroy`,
-`ObjectState`, and `FullSync`; every supported tracked-value primitive; complete payload consumption;
-wire-envelope authority fields; unsupported value rejection; and the absence of recursive Unity
-properties from decoded JSON. It also round-trips all cold-container browse/mutation request and
-result packet shapes, including compact handles and 16-byte operation IDs. The production assembly must be built first because this suite tests
-the real mod binary rather than a copied packet schema.
+```bash
+dotnet test Multiplayer.Protocol.Tests -c Release
+```
+
+`-c Debug` for both works too. Note that both configurations deploy the mod into the game, and
+Release also writes a zip to `releases/` (see [development.md](development.md)). The game's
+`Managed` folder defaults to the Steam install path; override it with
+`-p:DerailValleyManagedDir=...` if yours is elsewhere.
+
+The fixtures cover item updates (`Dropped`, `Thrown`, `InHand`, `InInventory`, `Attached`,
+`Create`, `Destroy`, `ObjectState`, `FullSync`, every tracked-value primitive, complete payload
+consumption, envelope authority fields), item recall, spatial and continuous-motion packets,
+world-item authority, Lost and Found, cold-container requests and results, job booklets and report
+artifacts, and train baseline and topology packets. `ItemPacketFixtureTests` also runs the debug
+packet projector self-tests (`Multiplayer/Debugging/DebugPacketProjectorSelfTests.cs`).
+
+### Protocol manifest and fingerprint
+
+Every build of `Multiplayer` runs `Tools/ProtocolManifestGenerator` over the built assembly, writes
+`Multiplayer/protocol-manifest.json` (packet hashes, directions and protocol enums) and rebuilds
+with it embedded. The manifest's SHA-256 fingerprint covers the packet list, enums and the
+informational version, which includes the git commit. The host sends its fingerprint in
+`ClientboundLoginResponsePacket`; the client disconnects with "Multiplayer protocol mismatch" if it
+differs from its own. Host and client must therefore run builds of the same commit. The debug
+packet inspector also uses the manifest to name packets.
 
 ### In-game tests with dvmp
 
 Anything that depends on the real game (physics, inventory, trains, joining, saving) is tested in
 two real game instances driven by **dvmp** (see `DevTools/README.md`): `dvmp_up` brings up a
 joined host and client, `dvmp_eval` runs C# in either game, `dvmp_desync` compares the two
-peers' state, and `dvmp_soak` drives random item interactions.
+peers' state, `dvmp_soak` drives random item interactions and `dvmp_trace` shows which code moved
+or destroyed an item. After changing `Multiplayer`, build Debug and run `dvmp_up` with
+`fresh: true` so both games load the new DLL.
 
 Repeatable scenarios live in `DevTools/Scenarios/<name>/run.sh` (exit code 0 = pass; each
-script's header lists its variables). `DevTools/Scenarios/gate.sh` runs the regression gate
-against a running pair (`ONLY="a b"` for a subset) and summarises:
+script's header lists its variables). They need a running pair (`dvmp up`).
 
-- Items: `train-items` (items in a moving cab; dropping and throwing), `lost-and-found`,
-  `recall` (`TAKEN=1`: recall from another player's hands), `containers` (deposit, reopen,
-  withdraw a stateful item; another player can't browse it), `rejoin` (`CRASH=1`), `save-reload`,
-  `inventory-persist` (a client's inventory and hand across a host save).
-- Trains: `manual-uncouple` (`MODE=recouple`, `LAG=`), `uncouple-moving` (`RIDE=1`, `LAST=`),
-  `couple-impact` (coupling as the buffers bounce; `WHO=`, `CHAIN=1`, `HITCH=`), `fps-drop`
-  (client at low frame rate).
-- Jobs: `jobs` (take a job at the validator, deliver, hand the booklet in, bank the payment;
-  `ACCEPT=`/`HANDIN=` choose which player does each).
-- Also in the gate: `shop` (client purchase and cancel through the host), `borrowed-disconnect`
-  (a player leaving with someone else's item), `host-stall` (host at about 2 fps while a braked
-  train runs at speed), `client-derail` (a derail on one client only), `player-soak` (both
-  players moving about for minutes; their views of each other must not freeze).
-- Outside the gate: `station-load` (frame times arriving at a station).
+### Regression gate
 
-Run the gate after any change to item sync, inventory, persistence, trains or joining. Old
-runtime-test coverage that still needs rebuilding as dvmp scenarios is listed in
-`DevTools/Scenarios/PORTING.md`.
+`DevTools/Scenarios/gate.sh` runs every scenario below against a running pair, resetting both
+players to the same spot before each run, and prints PASS/FAIL per run. It exits non-zero if
+anything failed. Run it after any change touching items, joins, ticks or trains.
+
+```bash
+bash DevTools/Scenarios/gate.sh
+```
+
+```bash
+ONLY="rejoin recall" bash DevTools/Scenarios/gate.sh
+```
+
+`ONLY` takes scenario or run names. Each run's output goes to `$LOG_DIR/<run>.log` (default a new
+temp directory, printed at the end). `DVMP` points at the CLI (default
+`DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`).
+
+| Scenario | Gate runs | Checks |
+| --- | --- | --- |
+| `train-items` | default; `WHO=host MODE=throw WHEN=moving` | A mug dropped or thrown in a loco cab stays in the cab, attached to the loco at the same spot, on both peers while the host pushes the train. |
+| `lost-and-found` | default | A client's personal item left behind is collected into Lost and Found by the host and retrieved into the client's inventory. |
+| `recall` | default; `TAKEN=1` | A dropped essential item is recalled into its reserved slot; `TAKEN=1` recalls it out of the host's hands. |
+| `containers` | default; `CONTAINER=ItemContainerBriefcase PREFAB=Flashlight` | Client deposits into its container, reopens it (contents from the host) and withdraws a stateful item; the host can't browse it. |
+| `manual-uncouple` | `N=3`; `MODE=recouple N=3 LAG=150` | Client uncouples by hand (cocks, hoses, screw, chain); both peers agree and the wagon stays when the host drives off. `recouple` couples again by hand and the wagon must follow. |
+| `uncouple-moving` | default; `LAST=LocoDE2 LAG=150 SPEED=10` | Host uncouples the last car on the move and shoves back into it; the client sees it roll free and agrees on where it ends up and whether it is coupled. |
+| `couple-impact` | `WAGON_BRAKE=0 LAG=150 SPEEDS=3,5`; `CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4` | Coupling while the buffers bounce after a hard hit; both peers agree whether the cars are coupled and the wagon follows (or stays) when the host pulls away. |
+| `fps-drop` | default | The client's frame rate is cut to 6 FPS while riding a moving train; its train stays close to the host's and recovers. |
+| `host-stall` | `SPEED=10 LAG=150` | The host stalls at about 2 FPS with a braked train at speed; no coupling, hose or cock is lost, the brake pipe holds and both agree where it stops. |
+| `client-derail` | default | A car derailed on the client only is put back on the host's track, still coupled, without touching the host's train. |
+| `explosion` | default | A client can't set off loco or tank-car explosions; a host explosion leaves both peers with the same burnt car, derailments and positions. |
+| `hazmat` | default | Spilled and burning hazmat tiles match on both peers; a client's own spill does nothing. |
+| `rejoin` | default; `CRASH=1` | A client quits (or is killed) holding an item; the host keeps its items and drops the held one, and the client gets exactly one of each back on rejoin. |
+| `save-reload` | `CYCLES=2` | Repeated host save and reload: items don't multiply, fall from the sky or drift into Lost and Found. |
+| `inventory-persist` | default | A client's inventory item survives a host save and restart of both games, bound to the host, once. |
+| `borrowed-disconnect` | default | A client leaving with the host's item puts it down in the world, still the host's. |
+| `shop` | default | A client purchase is paid once from the shared wallet, exists with one NetId on both peers and drops the stock; a cancelled basket refunds without a local banknote. |
+| `jobs` | `ACCEPT=host HANDIN=client` | A job taken, delivered, handed in and paid across both players; both agree at every step and the wallet goes up once. |
+| `sandbox-cargo` | default | Loading and unloading cargo with the comms radio's sandbox loader shows the same cargo on both peers. |
+| `player-soak` | `DURATION=120` | Both players move about, travel and ride a train; their views of each other never stay off by more than 3 m for more than 5 s. |
+
+Outside the gate: `station-load` (frame times on both peers while players arrive at a far
+station; fails on a frame over `MAX_MS`, default 1000).
 
 ### Unity adapter and in-game acceptance tests
 
@@ -122,13 +136,12 @@ base-game behaviour matters.
 The pure state machine determines **what is allowed**. Unity adapters determine **how the accepted
 state is represented**. Do not duplicate authority rules in an adapter.
 
+Unity-only failures should gain an adapter test or a dvmp scenario, plus an observability event
+that shows the failure (see [observability.md](observability.md)).
+
 ## Next high-value extractions
 
 1. Unity adapter tests for storage and remote-hand action execution.
 2. Inventory event projection behind a richer mock `IInventoryView`.
 3. Scene streaming/cache reconciliation adapters.
 4. Rigidbody/throw application adapters with a mock physics surface.
-
-Every multiplayer bug fix that changes pure transition behaviour should first gain a failing unit
-test. Unity-only failures should gain an adapter test or a named in-game acceptance scenario and
-an observability assertion.

@@ -1,36 +1,106 @@
 # Multiplayer Train Synchronization Design
 
-> Status: canonical topology and control authority implementation complete in the working tree;
-> build and two-process runtime verification remain. Motion epochs and quantitative correction
-> telemetry remain the next independent stage.
+> Status: canonical topology (stages 0–3) and control commits (stage 4, without the simulation
+> snapshot) are implemented on `beta` and covered by dvmp scenarios. Motion is host-authoritative
+> and steered rather than snapped, but motion epochs and correction telemetry (stage 5) and the
+> removal of the remaining legacy paths (stage 6) are not done.
 
 ## Implementation status (audited 2026-10-14)
 
-Checked against the code on `fix/multiplayer-stability`. Where this differs from the design text
-below, this section describes what the code does.
+Checked against the code on `beta`. Where this differs from the design text below, this section
+describes what the code does. Paths are under `Multiplayer/` unless stated.
 
-- **Runtime verification:** done for topology. The dvmp gate (`DevTools/Scenarios/gate.sh`) runs
-  `manual-uncouple` (hand uncouple/recouple with lag), `uncouple-moving`, `couple-impact` (coupling
-  while the buffers bounce, by menu or chain) and `fps-drop`. `host-stall` covers a host frame-rate
-  collapse.
-- **Stages 0–3:** implemented. The relay-only MU, hose and cock handlers are gone (their `Common*`
-  packet classes remain as unreferenced code).
-- **Stage 4:** control commit/ack is implemented for handbrake, fuses, release and ports. The
-  thresholded simulation snapshot with `simulationRevision` was **not** built: brake state uses the
-  brake-state packet (0.02 bar threshold, 2 s heartbeat, topology-revision gating), and host
-  simulation port values ride on control commits.
-- **Stage 5:** not started. There is no `motionEpoch`; only a >5 m snap clears a client's queues,
-  rerail doesn't reset them, and `SendTrainsetRelocation` has no caller. No correction or bandwidth
-  telemetry. Motion smoothing that did land: separate speed/correction easing with an impact step
-  (`TrainSpeedQueue`), the network tick advancing by elapsed time at any frame rate
-  (`NetworkLifecycle`), and full syncs ignoring a just-spawned car's pooled rigidbody.
-- **Stage 6:** partly done. Protocol mismatch is rejected at connect. Still present: the chain
-  drag/screw path through `CommonCouplerInteractionPacket` mutates the host with a 2 s timed
-  suppression, and the client still subscribes the legacy `Common*` control receivers.
-- **Client coupler joints** no longer break on clients (`CouplerBreakPatch`); a break that still
-  happens locally is undone from the host's topology instead of reported.
-- **Not yet built:** periodic topology digest audit, wrap-safe revision comparisons, control lease
-  expiry other than disconnect/release, the perf counters in "Performance budget".
+**Topology (stages 1–3): implemented.**
+
+- The pure model and state machine are `Multiplayer.Core/Trains/TrainTopologyModel.cs`
+  (endpoints, capabilities, reciprocal/cycle validation, commands, result codes), tested in
+  `Multiplayer.Core.Tests/Trains/TrainTopologyStateMachineTests.cs`.
+- The host's canonical record is `TrainTopologyAuthority`, native mutation and read-back are
+  `TrainTopologyNativeAdapter`, and the client side is `TrainTopologyReconciler` (all in
+  `Components/Networking/Train/`).
+- Clients send `ServerboundTrainTopologyCommandPacket` for every coupler, hose, cock, MU and chain
+  placement change: by hand, from the coupling menu and loco cabs
+  (`Patches/Train/UICouplingHelperPatch.cs`), the remote controller
+  (`Patches/World/Items/RemoteControllerModulePatch.cs`) and the in-cab decoupler
+  (`Patches/Train/DecouplerDeviceLogicPatch.cs`). Remote and decoupler commands set
+  `ViaRemote`, which skips the player-distance check but not the 4 m coupler-gap check.
+- The host's own changes, and native changes nobody commanded (spawn auto-couple, joint breaks,
+  derail side effects), are observed and committed on the next tick (`CommitObservedTrainTopology`).
+  Clients no longer auto-couple spawned cars themselves (477a94c); they wait for the host's
+  snapshot.
+- Every snapshot carries the **whole** graph, every brake line and every car's control revision,
+  not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
+- The relay-only MU, hose and cock handlers are gone; their `Common*` packet classes
+  (`CommonHose*`, `CommonMu*`, `CommonCockFiddlePacket`, `CommonTrainCouplePacket`,
+  `CommonTrainUncouplePacket`) remain as unreferenced code.
+
+**Join baseline: implemented.** The host sends `ClientboundTrainBaselineBeginPacket`, one numbered
+spawn packet per trainset, a topology snapshot tagged with the baseline ID, then
+`ClientboundTrainBaselineCompletePacket` (`Networking/Managers/Server/NetworkServer.cs`). The
+client admits them through `Multiplayer.Core/Trains/TrainBaselineReceipt.cs` and only advances to
+`ReadyForItems` once the receipt is complete and the topology applied; otherwise it disconnects
+with an error after 45 s. Reliable train broadcasts during that window are held per player and
+delivered afterwards (`HoldForTrainBaseline`; 5a46e9a), not dropped. There is no completion
+digest; the manifest is counts only.
+
+**Clients never break a coupling themselves.** Client coupler joints are unbreakable
+(`Patches/Train/CouplerBreakPatch.cs`); a local break that still happens is undone from the last
+host topology instead of reported, so a hitch can no longer disconnect the hose and vent the brake
+pipe (345783c). Couplings break on the host.
+
+**Controls (stage 4): implemented, without the simulation snapshot.** Handbrake, brake-cylinder
+release, fuses and ports are requests carrying an operation ID and expected control revision; the
+host applies them and answers with `ClientboundTrainControlCommitPacket`. The thresholded
+`ClientboundTrainSimulationSnapshotPacket` with `simulationRevision` was not built: brake state uses
+`ClientboundBrakeStateUpdatePacket` (0.02 bar threshold, 2 s heartbeat, topology-revision gating
+and a brake-line member digest).
+
+**Motion: host-authoritative and steered; stage 5 not started.**
+
+- Clients steer on-rail cars towards the host's bogie positions every physics step instead of
+  snapping to a latency-old pose (`TrainSpeedQueue`, `NetworkedBogie`; 5e07a51). Speed and
+  correction are eased separately, but a step in the host's speed above 1.5 m/s (an impact) is
+  followed at once (72db159).
+- The host scales the speed it sends by its simulation rate, so clients don't run ahead and snap
+  back after a host stall (`NetworkTrainsetWatcher.UpdateSimulationRate`; 7deb3b9).
+- The network tick advances by elapsed real time, so it keeps step below 24 fps
+  (`Components/Networking/NetworkLifecycle.cs`; 274c250).
+- Full syncs use the transform instead of the rigidbody while a just-spawned car's body is still
+  at its pooled position (c2d0d5f).
+- A car derailed on a client only is rerailed onto the host's track and pose, its motion queues
+  are cleared, and the host topology is reapplied (`NetworkedTrainCar.Client_RerailToHost`;
+  0903b06).
+- A car derailed for 30 s can be rerailed even if it never stops moving
+  (`Patches/Train/TrainCarRerailPatch.cs`).
+- Explosions are the host's: clients play the host's explosions but never apply explosion forces
+  to trains (`Patches/Train/ExplosionPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
+- Deleting a car steps any player on it off first, so players are no longer destroyed with it
+  (`Patches/Train/CarDeletePlayerSafetyPatch.cs`).
+- Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`)
+  and the client-only rerail are the only things that clear a client's motion queues; a host
+  rerail or move packet does not. `NetworkServer.SendTrainsetRelocation` has no caller, so the
+  relocation/ack path is unused. There is no correction or bandwidth telemetry.
+
+**Stage 6: partly done.** Protocol mismatch is rejected at connect. Still present: the client
+subscribes the legacy `Common*` control receivers although the host no longer sends those packets,
+and `CommonCouplerInteractionPacket` remains for interaction flags not mapped to a topology
+command; its host handler mutates native state under a 2 s timed observation suppression.
+
+**Not built:** periodic topology digest audit, wrap-safe revision comparisons, control lease expiry
+other than disconnect/release, the per-subsystem counters in "Performance budget", the per-train
+dashboard.
+
+**Runtime coverage** (dvmp gate, `DevTools/Scenarios/gate.sh`; see
+[`../testing.md`](../testing.md)): `manual-uncouple` (hand uncouple/recouple, with lag),
+`uncouple-moving`, `couple-impact` (coupling while the buffers bounce, by menu or chain),
+`fps-drop`, `host-stall`, `client-derail`, `explosion`.
+
+**Known open issues:**
+
+- Clients occasionally see a snap of about 5.8 m at about 10 m/s. It is intermittent and not yet
+  explained; the 5 m full-sync threshold is the only path that moves an on-rail car that far at
+  once.
+- A coupling "bounce" has been reported but not reproduced; `couple-impact` passes.
 
 ## Goal
 
@@ -42,8 +112,11 @@ joined late, or predicted the action incorrectly.
 
 The base-game investigation and confirmed failure signatures are maintained in
 [`../research/DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md`](../research/DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md).
-Fixture behavior is maintained in
-[`../research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md`](../research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md).
+Native spawn and simulation facts gathered for the old in-game train fixture are in
+[`../research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md`](../research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md);
+the fixture itself was removed with the in-game runtime test system (f510e8e), and train tests now
+use the dvmp harness ([`../testing.md`](../testing.md),
+[`../../DevTools/README.md`](../../DevTools/README.md)).
 
 ## Core invariant
 
@@ -55,6 +128,9 @@ This is the same boundary that made world-item synchronization recoverable: iden
 outlive individual Unity events and projections.
 
 ## Why the current event model is insufficient
+
+This section describes the event model the design replaced. Topology no longer works this way;
+the remaining `Common*` traffic is listed under "Implementation status".
 
 Several existing live packets describe an action that has already happened locally:
 
@@ -85,8 +161,8 @@ and the two brake lines then solved different pneumatic networks.
 | Area | Current useful foundation | Remaining authority debt |
 |---|---|---|
 | Spawn | Atomic begin/parts/complete baseline plus revisioned endpoint/control snapshot | Runtime stress coverage for concurrent spawn/delete remains |
-| Motion | Host tick, bogie anchors, m/s velocity, derail snapshots | Needs measured correction budgets and explicit relocation/derail epochs everywhere |
-| Couplers | Revisioned host command, invariant validation, native postcondition and canonical repair | Remove legacy transient compatibility paths after runtime soak |
+| Motion | Host tick, bogie anchors steered to, simulation-rate-scaled m/s speed, derail snapshots, client-only derail rerail | Needs measured correction budgets and explicit relocation/derail epochs everywhere; intermittent 5.8 m client snap |
+| Couplers | Revisioned host command, invariant validation, native postcondition and canonical repair; dvmp coverage | Remove the residual `CommonCouplerInteractionPacket` path and its timed suppression |
 | Hoses/cocks | Reciprocal endpoint records and brake-line reconciliation | Add packet-loss runtime scenario |
 | MU cables | Canonical endpoint transaction with affected control snapshots | Expand compatible-locomotive runtime matrix |
 | Handbrake | Revisioned host commit and rejection correction | Runtime test default-spawn/interior reload |
@@ -98,7 +174,10 @@ and the two brake lines then solved different pneumatic networks.
 
 The `Common...Packet` name is itself a warning for mutations: direction should communicate intent.
 Client requests and host snapshots have different trust and retry semantics and should be different
-packet types.
+packet types. Control requests still travel in the old `CommonTrainPortsPacket`,
+`CommonTrainFusesPacket`, `CommonHandbrakePositionPacket` and `CommonBrakeCylinderReleasePacket`
+classes (now carrying an operation ID and expected revision); only the host's answer has its own
+type.
 
 ## Authority layers
 
@@ -115,6 +194,9 @@ layer even when it consumes state from another.
 
 Player presence does not transfer simulation authority. A client alone in a remote locomotive can
 hold narrowly scoped control authority; the resulting mutation still executes in the host process.
+
+In the code, motion is sent unreliably (reliably when a bogie changed track) and has no epochs,
+and simulation is the brake-state packet only; see "Motion" and "Brake and locomotive simulation".
 
 ## Stable identities
 
@@ -150,6 +232,11 @@ Use different counters for different consistency domains:
 Counters are unsigned and compared with wrap-safe arithmetic. A revision is not a timestamp and a
 host tick is not permission to overwrite a newer topology transaction.
 
+Implemented: `BaselineId` (per join), `TopologyRevision` (host-global), `ControlRevision` (per
+car) and the network tick. `simulationRevision` and `motionEpoch` do not exist. Comparisons are
+plain `<`/`<=`, not wrap-safe; the host's topology revision stops at `uint.MaxValue` and the state
+machine then rejects commands with `RevisionExhausted`.
+
 ## Canonical topology model
 
 Mechanical, pneumatic, and electrical attachments are related but not interchangeable. Each
@@ -168,7 +255,9 @@ TrainEndpointState
 ```
 
 `capabilities` records whether the livery/end actually has a chain coupler, hose/cock, automatic
-coupler, or MU connector. Missing components are valid data, not lookup failures.
+coupler, or MU connector. Missing components are valid data, not lookup failures. The implemented
+`TrainEndpointCapabilities` flags are `Mechanical`, `Hose`, `Cock` and `MultipleUnit`; chain state
+is one of `Parked`, `Dangling`, `BeingDragged`, `AttachedLoose`, `AttachedTight`, `Disabled`.
 
 ### Topology invariants
 
@@ -215,6 +304,12 @@ ClientboundTrainTopologySnapshotPacket
 a simple couple this is both ends. If repairing an inconsistent graph detaches old partners, those
 old partners are included too.
 
+The implemented packet is simpler and larger. It carries `BaselineId` (non-zero only for the join
+baseline), `TopologyRevision`, `OperationId`, `Result` (a `TrainTopologyResultCode`, which doubles
+as the reason), every endpoint of every car, every brake line's anchor, member digest and pipe
+pressure, every car's control revision, and full control states for cars whose MU link changed.
+Topology changes rarely, so the whole graph is sent rather than a closure.
+
 The packet carries final state, not instructions such as "call `CoupleTo`". The client reconciler
 computes the minimal native operations required to reach that state under outbound-observation
 suppression.
@@ -257,6 +352,24 @@ closure. Rejection is therefore also a correction. Silence is never an acknowled
 `operationId` is unique per client session. The server keeps a bounded result cache so retrying a
 request returns the same committed result instead of executing it twice.
 
+As implemented (`NetworkServer.OnServerboundTrainTopologyCommandPacket`,
+`TrainTopologyAuthority.Execute`):
+
+- Operation IDs carry the player ID in the top byte and must increase per player; a repeat
+  returns the cached result (last 512 operations), an older ID is rejected as `StaleRevision`.
+- The client's `ExpectedRevision` is not compared. Commands are reliable and ordered per player,
+  and unrelated native changes can advance the global revision while a command is in flight, so
+  the host validates each new command against its current graph instead.
+- Range: a client must be within one car length of the primary car (skipped for `ViaRemote`), and
+  for a two-endpoint command the two couplers must be within 4 m. There is no other authority
+  check (`runtimeAuthorized` is always true).
+- On a native failure or invalid read-back the host reconciles back to the pre-command graph and
+  answers `NativeMutationFailed`. MU commands also commit a control revision for the affected
+  locomotives and include their control state.
+- The client sends nothing for the listen host: the host's own changes are observed and committed
+  on the next tick. Identical commands raised twice in one frame by native chain callbacks are
+  coalesced before sending.
+
 ### Interaction versus truth
 
 Dragging a chain, hand pose, audio, and a screw animation are ephemeral presentation. They may use
@@ -267,6 +380,13 @@ Long Unity coroutines must not define the authority transaction. The host can an
 committed state, but the canonical postcondition is recorded synchronously or at an explicit
 bounded completion point. A fixed two-second echo-suppression timer is an interim containment
 mechanism, not the final design.
+
+Chain dragging is now local-only: the client sends nothing while a chain is dragged and commits
+the final placement (`SetChainState`, or `Uncouple` with the final chain state if it was coupled)
+when it is dropped. Topology snapshots that arrive mid-drag wait until the chain is let go. Screw
+tighten/loosen is a `SetChainState` command. The two-second timer
+(`NetworkedTrainCar.SuppressAuthoritativeTopologyObservations`) survives only in the host handler
+for the residual `CommonCouplerInteractionPacket`.
 
 ## Reconciliation
 
@@ -310,6 +430,26 @@ If application cannot complete before a bounded readiness deadline, the client r
 projection failure with the endpoint identities and revision. It then requests a fresh topology
 snapshot; it does not invent a default disconnected state.
 
+What `TrainTopologyReconciler` does: it rejects a snapshot from another baseline, ignores one with
+an older revision (an equal revision is reapplied, which is a no-op), validates the shape and
+invariants, and keeps the snapshot pending if a named car is not initialised, a native step fails
+or the local player is dragging a chain. Pending snapshots are retried every 50 ms for 15 s, then
+the client logs a warning and sends `ServerboundTrainTopologySyncRequestPacket` (during the join
+baseline it fails the join instead). Native application runs in
+`TrainTopologyNativeAdapter.TryReconcile` in the order above, inside a scoped
+`BeginAuthoritativeTopologyApplication` token, then verifies every endpoint, the joints and
+trainset adjacency, and the brake-line pressures. No interaction gate is taken and no
+acknowledgement is sent; the failure is a log warning, not a visible report.
+
+After local physics changes couplers without a host packet (a client-only derail, a local
+coupler break), the client reapplies the last snapshot's endpoints and brake lines
+(`RestoreCanonicalTrainTopology`) without its bundled control states, which may be older than
+later control commits.
+
+The host's adapter handles the `CoupleTo` hazard above by checking for a joint and for adjacent
+membership in one trainset after mutation, and reconciling back to the pre-command graph on
+failure.
+
 ## Baseline, interest, and repair
 
 Rolling stock is normally globally relevant because moving cars and trainsets can affect any
@@ -335,6 +475,14 @@ Repair mechanisms:
 
 Do not continuously broadcast the full graph. Topology changes rarely; event-triggered canonical
 snapshots plus digests provide recovery without packet spam.
+
+Implemented: the join baseline described under "Implementation status" (readiness requires every
+declared trainset applied and the baseline topology snapshot reconciled, including its brake
+lines; the completion manifest is counts, not a digest); a snapshot after every command; a
+snapshot on the tick after the host observes a native change; a full snapshot on a client's
+`ServerboundTrainTopologySyncRequestPacket` or `ServerboundTrainSyncRequestPacket`. Each of these
+is the whole graph, not a targeted closure. Not implemented: the periodic host audit and
+client-reported digests.
 
 ## Controls
 
@@ -376,6 +524,25 @@ on release is always reliable and acknowledged.
 Control leases prevent two users fighting a lever; they do not make the client a simulation
 authority. Leases expire on disconnect, timeout, car deletion, relocation, and loss of eligibility.
 
+As implemented (`NetworkServer.ValidateControlEnvelope` and the `OnCommon*` control handlers):
+
+- Requests are the `Common*` control packets with an operation ID and expected control revision;
+  every peer, the listen host included, sends its changes this way. Ports are sent once per tick
+  from a dirty set, which is the only coalescing.
+- The player must be within one car length of the car (skipped for a remote handbrake). Ports
+  also need the port's lease (`ServerboundTrainControlAuthorityPacket`); handbrake, fuses and
+  release do not.
+- A request whose expected revision is stale is still accepted if its operation ID is newer than
+  that player's last one for the car, so a stream of lever moves is not rejected by its own
+  commits.
+- The host applies the value, reads it back, and answers with `ClientboundTrainControlCommitPacket`
+  (`Accepted`, `StaleRevision`, `AuthorityDenied`, `OutOfRange`, `InvalidValue`,
+  `UnknownControl`) carrying the accepted values. Accepted commits go to everyone, rejections to
+  the requester.
+- Leases are released by the client or on disconnect; there is no timeout or eligibility expiry.
+- MU connect/disconnect commits control revisions for both locomotives in the same topology
+  snapshot, with their control state.
+
 ## Brake and locomotive simulation
 
 The host alone ticks locomotive and pneumatic simulation. Clients display snapshots and never feed
@@ -404,6 +571,15 @@ graph it has not applied. Thresholds are field-specific; a heartbeat repairs los
 updates and proves liveness. Exact rates and quantization must be selected from captures, then
 recorded as protocol constants and performance tests rather than scattered magic numbers.
 
+Not built as designed. The host sends `ClientboundBrakeStateUpdatePacket` per car (reliable
+ordered) when main reservoir, pipe or cylinder pressure moves by 0.02 or more, when reservoir or
+overheat state is dirty, or every 2 s as a heartbeat (`NetworkedTrainCar.Server_SendBrakeStates`).
+It carries the host's topology revision, the car's brake-line anchor and member digest, the three
+pressures and the heat state. A client drops it and asks for a topology resync if the revision is
+newer than its own; if the line membership doesn't match it applies the per-car fields, skips the
+pipe pressure and asks for a resync. There is no `simulationRevision`,
+dirty mask or quantization, and no other locomotive simulation state is snapshotted this way.
+
 Brake-pipe pressure is line state. Native `Brakeset.Merge` produces a volume-weighted shared
 pressure, while `Split` copies the previous shared pressure into both new lines. A topology revision
 therefore defines one or more brake-line components, each with one canonical pipe pressure:
@@ -421,6 +597,9 @@ ClientboundBrakeLineSnapshotPacket
 persistent brakeset ID. Main/aux/control reservoirs, cylinder state, heat, and smoothed readouts
 remain per-car simulation fields. A merge/split topology commit includes immediate brake-line
 snapshots so clients do not derive pressure from stale local pre-operation values.
+
+There is no separate brake-line packet: `BrakeLineStateData` (anchor car, anchor end, member
+digest, pipe pressure) rides in every topology snapshot and, per car, in the brake-state packet.
 
 Native hose events run before brake-set merge/split and are not exception-contained. The host
 adapter catches exceptions, then checks reciprocal hose pointers, brake-set membership/order, and
@@ -444,6 +623,48 @@ Packets from an older epoch are ignored even if their host tick arrives later.
 Full transform corrections are recovery. Metrics must prove they are rare; repeated correction is
 not accepted as smooth synchronization.
 
+### What the code does
+
+Host (`NetworkTrainsetWatcher`): every network tick (24 Hz, advanced by elapsed real time so it
+keeps step below 24 fps) each moving trainset is sent as one `ClientboundTrainsetPhysicsPacket`,
+unreliable unless a bogie changed track. On-rail cars carry speed, slow stress and both bogies'
+track and span; derailed cars carry a rigidbody snapshot. Every 2 s a car also carries its full
+position and rotation, even when stationary. The speed is `GetForwardSpeed()` multiplied by the
+host's simulation rate (game time per real second, smoothed, 1 above 0.97), so a host that drops
+to a few frames a second doesn't send speeds its world isn't making. A full sync of a car whose
+rigidbody is still more than 5 m from its transform (a just-spawned car whose body is at its
+pooled position) sends the transform instead.
+
+Client on-rail cars (`TrainSpeedQueue`, `NetworkedBogie`): every physics step the car runs at the
+host's speed plus a correction proportional to how far the host's bogies are ahead along the
+track, projected to now (gain 2/s, capped at 3 m/s plus 25% of the speed, 2 cm deadband). The
+host speed eases at up to 8 m/s² and the correction at up to 4 m/s², except that a speed step
+over 1.5 m/s (an impact) is taken at once. A bogie on a different track from the host's is set
+onto the host's track unless it is just crossing to the adjacent one. Samples older than 0.5 s
+hand the car back to local physics.
+
+Full-sync positions are a safety net. The host pose is projected forward by the sample's age
+(capped at 0.5 s); if the car is more than 5 m from it (`POSITION_UPDATE_THRESHOLD` in
+`NetworkedTrainCar`), the body is moved there, its rotation is left alone, and the motion queues
+and train stress are reset.
+
+Derailment: a rigidbody snapshot for an on-rail client car calls `TrainCar.Derail()` once, then
+interpolates the snapshots; afterwards the client reapplies the host's topology, because native
+derailment changes couplers. A car derailed on a client but on the rails on the host is rerailed
+onto the host's track at the host's pose (asking for a full sync if the sample lacks one), its
+queues are cleared, and the topology is reapplied once the rerail finishes
+(`Client_RerailToHost`). `TrainCarRerailPatch` lets any derailed car be rerailed after 30 s even if
+it never drops below vanilla's 1 m/s limit. Explosions never push client trains; the host's
+result arrives through this sync (see [`../world-sync.md`](../world-sync.md)).
+
+There is no `motionEpoch`. Host rerail (`ClientboundRerailTrainPacket`) and move packets don't
+clear client queues; stale samples are discarded only by tick order. The relocation packet with
+its acknowledgement exists on the client, but the host never sends it.
+
+Open issues: an intermittent ~5.8 m snap at ~10 m/s on clients (the 5 m threshold above is the
+only path that moves an on-rail car that far at once), and a reported but unreproduced coupling
+"bounce".
+
 ## Loading-state delivery
 
 Every broadcast helper must enforce its declared minimum loading state. A helper that accepts
@@ -452,6 +673,11 @@ baseline readiness and create an unrecoverable ordering race.
 
 Canonical snapshots received before object readiness are retained in a bounded pending map keyed
 by epoch/revision. They are not dropped and are not applied to a guessed prefab.
+
+Implemented: `SendPacketToAll` skips players below the minimum loading state, and reliable train
+broadcasts for a player whose train baseline is in flight are held (up to 20,000) and delivered
+once they acknowledge it (`HoldForTrainBaseline`, `FlushHeldTrainTraffic`). On the client the
+reconciler keeps only the latest unapplied snapshot, not a map.
 
 ## Performance budget
 
@@ -468,6 +694,10 @@ The architecture avoids replacing event spam with snapshot spam:
 Instrumentation must report packets/sec and bytes/sec by train subsystem, dirty-set size, pending
 reconciliation count, correction distance, rejected commands, and digest mismatches. Performance
 regressions are test failures, not dashboard impressions.
+
+None of these per-subsystem counters exist yet. The general packet and traffic monitor in
+[`../observability.md`](../observability.md) is the only measurement. Topology has no digest
+heartbeat, and every topology snapshot is the full graph.
 
 ## Failure handling and observability
 
@@ -489,7 +719,18 @@ Structured events include operation ID, player, endpoint/car IDs, expected and a
 pre-state, requested transition, post-state, validation result, and reconciliation duration.
 High-frequency motion/simulation logging is sampled or aggregated; it must never flood the log.
 
-The dashboard should expose for each live train:
+Implemented codes: topology commands use `TrainTopologyResultCode` (`Accepted`, `UnknownEndpoint`,
+`UnsupportedEndpoint`, `StaleRevision`, `RevisionExhausted`, `InvalidRelationship`,
+`EndpointOccupied`, `WouldCreateCycle`, `NotConnected`, `InvariantViolation`,
+`NativeMutationFailed`, `AuthorityDenied`, `OutOfRange`, `BaselineChanged`; the last is never
+produced), controls use the `TrainControlCommitResult` codes listed under "Controls". Events in
+the `train` debug category include `train.topology-command-result` (player, operation, kind,
+endpoints, result, revisions), `train.topology-snapshot-committed`,
+`train.topology-snapshot-applied`, `train.control-commit-applied`, and sampled
+`train.physics-received`. There is no pre/post state or reconciliation duration.
+
+The dashboard should expose for each live train (not built; the combined dashboard was removed in
+f510e8e):
 
 - cars and derived trainset membership;
 - both endpoint records per car;
@@ -513,6 +754,11 @@ The dashboard should expose for each live train:
 7. Revision and tick comparisons work across unsigned wrap.
 8. Missing capabilities are handled without null dereferences.
 
+`Multiplayer.Core.Tests/Trains/TrainTopologyStateMachineTests.cs`,
+`TrainBaselineReceiptTests.cs` and `Multiplayer.Protocol.Tests/TrainTopologyPacketTests.cs` /
+`TrainBaselinePacketTests.cs` cover 1–5 and 8 in part. There is no wrap test (7; comparisons are
+not wrap-safe) and no wrong-partner repair test (6).
+
 ### Two-process runtime scenarios
 
 1. Client couples two cars; both peers agree immediately on endpoints and trainset membership.
@@ -531,6 +777,12 @@ The dashboard should expose for each live train:
 Tests assert instantaneous graph/state agreement and visible quality, not only eventual scenario
 completion. Motion scenarios record maximum/RMS correction, correction frequency, speed error, and
 bytes/sec.
+
+dvmp scenarios in `DevTools/Scenarios/` (all in the gate) cover part of this: `couple-impact` and
+`manual-uncouple MODE=recouple` (1, with lag), `uncouple-moving` (2), `manual-uncouple` (3: hand
+uncouple through cocks, hoses and chain), `fps-drop` and `host-stall` (10: low client and host
+frame rates), `client-derail` (12: client-only derail). The others have no scenario. Scenarios
+check agreement and position error; they don't record bytes/sec.
 
 ## Native research status
 
@@ -568,27 +820,37 @@ This reduces immediate damage but remains semantic event replay.
 - include snapshot in baseline/resync;
 - keep old interaction packets only for transient presentation during migration.
 
+Runtime-verified by the dvmp coupling scenarios. Menu, cab, remote-controller and decoupler
+coupling were moved onto the command path afterwards (eae970d, 5af4fc4, 74c449a).
+
 ### Stage 3: MU topology (implemented)
 
 - move MU cables into the same endpoint transaction model;
 - remove relay-only MU handlers after compatibility transition.
 
-### Stage 4: controls and brakes (implemented; runtime verification pending)
+### Stage 4: controls and brakes (partly implemented)
 
-- convert handbrake, release, fuses, and ports to host commit/ack;
-- add revisioned, thresholded brake simulation snapshots and heartbeat;
-- verify topology-revision gating for pressure state.
+- convert handbrake, release, fuses, and ports to host commit/ack (done);
+- add revisioned, thresholded brake simulation snapshots and heartbeat (thresholds and heartbeat
+  done in the brake-state packet; no simulation revision);
+- verify topology-revision gating for pressure state (done).
 
-### Stage 5: motion quality
+### Stage 5: motion quality (not started as designed)
 
-- add motion epochs and correction telemetry;
-- enforce quantitative smoothness and bandwidth budgets across frame rates and VR.
+- add motion epochs and correction telemetry (not done);
+- enforce quantitative smoothness and bandwidth budgets across frame rates and VR (not done).
 
-### Stage 6: delete legacy authority paths
+Motion smoothing that landed outside this plan is listed under "Implementation status" and
+"Motion": bogie steering, impact following, simulation-rate-scaled speed, the real-time network
+tick, the pooled-rigidbody guard and the client-only derail rerail. `fps-drop` and `host-stall`
+assert a maximum position error.
 
-- remove common mutation packets and timed suppression;
+### Stage 6: delete legacy authority paths (partly done)
+
+- remove common mutation packets and timed suppression (not done: `CommonCouplerInteractionPacket`
+  and the `Common*` control classes remain, and the client still subscribes their receivers);
 - retain only canonical command/snapshot paths and explicitly transient animation messages;
-- make protocol-version mismatch fail during connection rather than partially interoperate.
+- make protocol-version mismatch fail during connection rather than partially interoperate (done).
 
 ## Definition of done
 
