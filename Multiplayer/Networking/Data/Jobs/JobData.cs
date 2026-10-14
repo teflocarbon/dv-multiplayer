@@ -26,6 +26,7 @@ public class JobData
     public float TimeLimit { get; set; }
     public ushort ItemNetID { get; set; }
     public ItemPositionData ItemPosition { get; set; }
+    public JobBookletCopyData[] JobBooklets { get; set; } = [];
 
     public static JobData FromJob(NetworkedJob networkedJob)
     {
@@ -44,23 +45,6 @@ public class JobData
                 itemPos = ItemPositionData.FromItem(networkedJob.JobOverview);
             }
         }
-        else if (job.State == JobState.InProgress)
-        {
-            if (networkedJob.JobBooklet != null)
-            {
-                itemNetId = networkedJob.JobBooklet.NetId;
-                itemPos = ItemPositionData.FromItem(networkedJob.JobBooklet);
-            }
-        }
-        else if (job.State == JobState.Completed)
-        {
-            if (networkedJob.JobReport != null)
-            {
-                itemNetId = networkedJob.JobReport.NetId;
-                itemPos = ItemPositionData.FromItem(networkedJob.JobReport);
-            }
-        }
-
         return new JobData
         {
             NetID = networkedJob.NetId,
@@ -76,6 +60,13 @@ public class JobData
             TimeLimit = job.TimeLimit,
             ItemNetID = itemNetId,
             ItemPosition = itemPos,
+            JobBooklets = networkedJob.JobBooklets.Select(item => new JobBookletCopyData
+            {
+                ItemNetId = item.NetId,
+                IssuedToPlayerId = networkedJob.TryGetIssuedPlayer(item.NetId, out byte playerId)
+                    ? playerId : (byte)0,
+                Position = ItemPositionData.FromItem(item)
+            }).ToArray()
         };
     }
 
@@ -146,6 +137,10 @@ public class JobData
         writer.Put(data.TimeLimit);
         writer.Put(data.ItemNetID);
         ItemPositionData.Serialize(writer, data.ItemPosition);
+        JobBookletCopyData[] booklets = data.JobBooklets ?? [];
+        writer.Put((ushort)booklets.Length);
+        foreach (JobBookletCopyData booklet in booklets)
+            JobBookletCopyData.Serialize(writer, booklet);
     }
 
     public static JobData Deserialize(NetDataReader reader)
@@ -199,6 +194,10 @@ public class JobData
             float timeLimit = reader.GetFloat();
             ushort itemNetId = reader.GetUShort();
             ItemPositionData itemPositionData = ItemPositionData.Deserialize(reader);
+            ushort bookletCount = reader.GetUShort();
+            JobBookletCopyData[] booklets = new JobBookletCopyData[bookletCount];
+            for (int i = 0; i < bookletCount; i++)
+                booklets[i] = JobBookletCopyData.Deserialize(reader);
 
             return new JobData
             {
@@ -214,7 +213,8 @@ public class JobData
                 State = state,
                 TimeLimit = timeLimit,
                 ItemNetID = itemNetId,
-                ItemPosition = itemPositionData
+                ItemPosition = itemPositionData,
+                JobBooklets = booklets
             };
         }
         catch (Exception ex)
@@ -237,6 +237,27 @@ public class JobData
         return result;
     }
 
+}
+
+public struct JobBookletCopyData
+{
+    public ushort ItemNetId;
+    public byte IssuedToPlayerId;
+    public ItemPositionData Position;
+
+    public static void Serialize(NetDataWriter writer, JobBookletCopyData data)
+    {
+        writer.Put(data.ItemNetId);
+        writer.Put(data.IssuedToPlayerId);
+        ItemPositionData.Serialize(writer, data.Position);
+    }
+
+    public static JobBookletCopyData Deserialize(NetDataReader reader) => new()
+    {
+        ItemNetId = reader.GetUShort(),
+        IssuedToPlayerId = reader.GetByte(),
+        Position = ItemPositionData.Deserialize(reader)
+    };
 }
 
 public struct StationsChainNetworkData

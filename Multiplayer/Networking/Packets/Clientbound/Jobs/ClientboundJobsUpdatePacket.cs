@@ -32,12 +32,9 @@ public class ClientboundJobsUpdatePacket
                     itemPositionData = ItemPositionData.FromItem(job.JobOverview);
                     break;
                 case NetworkedJob.DirtyCause.JobBooklet:
-                    validationItemNetId = job.JobBooklet.NetId;
-                    itemPositionData = ItemPositionData.FromItem(job.JobBooklet);
-                    break;
-                case NetworkedJob.DirtyCause.JobReport:
-                    validationItemNetId = job.JobReport.NetId;
-                    itemPositionData = ItemPositionData.FromItem(job.JobReport);
+                    validationItemNetId = job.LastChangedJobBooklet?.NetId ?? 0;
+                    if (job.LastChangedJobBooklet != null)
+                        itemPositionData = ItemPositionData.FromItem(job.LastChangedJobBooklet);
                     break;
             }
 
@@ -49,7 +46,9 @@ public class ClientboundJobsUpdatePacket
                 FinishTime = job.Job.finishTime,
                 ValidationStationId = validationStationNetId,
                 ItemNetID = validationItemNetId,
-                ItemPositionData = itemPositionData
+                ItemPositionData = itemPositionData,
+                IssuedToPlayerId = job.Cause == NetworkedJob.DirtyCause.JobBooklet
+                    ? job.LastChangedJobBookletIssuedToPlayerId : (byte)0
             };
 
             jobData.Add(data);

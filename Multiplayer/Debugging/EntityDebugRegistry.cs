@@ -4,7 +4,9 @@ using Multiplayer.Components.Networking.Player;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Networking.Data.Items;
 using DV;
+using DV.InventorySystem;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -116,6 +118,16 @@ public static class EntityDebugRegistry
     public static DebugEntityDto Get(string type, string id)
     {
         lock (gate) return records.TryGetValue(Key(type, id), out Record record) ? ToDto(record) : null;
+    }
+
+    /// <summary>Returns the live selected component for an explicit, main-thread-only inspection.</summary>
+    public static bool TryGetLiveComponent(string type, string id, out Component component)
+    {
+        lock (gate)
+        {
+            component = records.TryGetValue(Key(type, id), out Record record) ? record.Reference?.Target as Component : null;
+            return component != null;
+        }
     }
 
     public static DebugEntityDto GetLabel(string type, string id)
@@ -285,10 +297,44 @@ public static class EntityDebugRegistry
         state["parent"] = item.transform.parent?.name ?? string.Empty;
         state["holderPlayerId"] = item.playerBelongsToId;
         state["hostHolder"] = item.BelongsTo?.PlayerId ?? 0;
+        state["authorityRevision"] = item.AuthorityRevision;
+        state["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId;
+        state["inventoryClaimPlayerId"] = item.InventoryClaimPlayerId;
+        state["inventoryClaimSlot"] = item.InventoryClaimSlot;
+        state["inventoryClaimFlags"] = item.InventoryClaimFlags.ToString();
+        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record authorityRecord))
+            state["canonicalAuthority"] = AuthoritativeItemRegistry.Snapshot(authorityRecord);
+        state["transitionReason"] = item.LastTransitionReason.ToString();
+        state["foreignOwned"] = item.IsForeignOwned;
+        state["unboundState"] = item.UnboundState.ToString();
         state["velocity"] = DebugValueSnapshotter.Snapshot(item.Item?.ItemRigidbody?.velocity);
         state["angularVelocity"] = DebugValueSnapshotter.Snapshot(item.Item?.ItemRigidbody?.angularVelocity);
+        PageBook pageBook = item.GetComponentInChildren<PageBook>(true);
+        if (pageBook != null)
+        {
+            state["pageBookCurrentPage"] = pageBook.currentPage;
+            state["pageBookPageCount"] = pageBook.PageNum;
+            state["pageBookPagesGenerated"] = pageBook.PagesGenerated;
+            state["pageBookRuntimePageCount"] = pageBook.pages?.Count ?? 0;
+            NetworkedPageBookState pageState = item.GetComponent<NetworkedPageBookState>();
+            state["pageBookLogicalPage"] = pageState?.LogicalPage ?? pageBook.currentPage;
+            state["pageBookPendingPage"] = pageState?.PendingPage;
+        }
         try
         {
+            Inventory inventory = Inventory.Instance;
+            int inventorySlot = inventory?.IndexOf(item.gameObject) ?? -1;
+            state["inventorySlot"] = inventorySlot;
+            state["equippedSlot"] = inventory?.GetEquipSlotForItem(item.gameObject) ?? -1;
+            state["inventoryContainsActive"] = inventory?.Contains(item.gameObject, false) ?? false;
+            state["inventoryContainsIncludingDropped"] = inventory?.Contains(item.gameObject, true) ?? false;
+            state["inventorySlotReserved"] = inventorySlot >= 0 && inventory.GetSlotReservedState(inventorySlot);
+            state["inventorySlotDropped"] = inventorySlot >= 0 && inventory.GetSlotDroppedState(inventorySlot);
+            state["inventorySlotLocked"] = inventorySlot >= 0 && inventory.GetSlotLockState(inventorySlot);
+            state["isEssential"] = item.Item?.IsEssential() ?? false;
+            state["belongsToPlayerSpec"] = item.Item?.InventorySpecs?.BelongsToPlayer ?? false;
+            state["claimSlotMatchesLocalSlot"] = inventorySlot >= 0 && inventorySlot == item.InventoryClaimSlot;
+            state["claimStolen"] = item.InventoryClaimFlags.HasFlag(ItemInventoryClaimFlags.Stolen);
             state["inInventoryStorage"] = StorageController.Instance?.StorageInventory?.ContainsItem(item.Item) ?? false;
             state["inWorldStorage"] = StorageController.Instance?.StorageWorld?.ContainsItem(item.Item) ?? false;
             state["inLostAndFound"] = StorageController.Instance?.StorageLostAndFound?.ContainsItem(item.Item) ?? false;

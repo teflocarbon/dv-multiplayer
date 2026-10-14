@@ -82,10 +82,29 @@ public sealed class ReplicationRecipientDto
     public bool Received { get; set; }
     public bool Handled { get; set; }
     public bool Applied { get; set; }
+    public bool AcknowledgedWithoutApply { get; set; }
     public string Decision { get; set; } = string.Empty;
     public string Discontinuity { get; set; } = string.Empty;
     public Dictionary<string, object> Interest { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, object> ResultingState { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class ItemReplicaDifferenceDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Field { get; set; } = string.Empty;
+    public string Expected { get; set; } = string.Empty;
+    public string Actual { get; set; } = string.Empty;
+    public string Detail { get; set; } = string.Empty;
+}
+
+public sealed class ItemReplicaComparisonDto
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public byte? PlayerId { get; set; }
+    public string EventName { get; set; } = string.Empty;
+    public List<ItemReplicaDifferenceDto> Differences { get; set; } = new();
 }
 
 public sealed class ReplicationOperationDto
@@ -108,6 +127,7 @@ public sealed class ReplicationOperationDto
     public bool CaptureTriggered { get; set; }
     public List<ReplicationStageDto> Stages { get; set; } = new();
     public List<ReplicationRecipientDto> Recipients { get; set; } = new();
+    public List<ItemReplicaComparisonDto> StateComparisons { get; set; } = new();
 }
 
 public sealed class ReplicationOperationSummaryDto
@@ -125,6 +145,8 @@ public sealed class ReplicationOperationSummaryDto
     public int StageCount { get; set; }
     public int RecipientCount { get; set; }
     public int AppliedRecipientCount { get; set; }
+    public int AcknowledgedRecipientCount { get; set; }
+    public int StateDiscontinuityCount { get; set; }
 }
 
 public sealed class DebugRuntimeSettingsDto

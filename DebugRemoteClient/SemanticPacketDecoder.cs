@@ -69,7 +69,14 @@ internal static class SemanticPacketDecoder
         DebugItemUpdate item = new()
         {
             UpdateType = reader.GetByte(),
-            ItemNetId = reader.GetUShort()
+            ItemNetId = reader.GetUShort(),
+            AuthorityRevision = reader.GetUInt(),
+            PersistentOwnerPlayerId = reader.GetByte(),
+            InventoryClaimPlayerId = reader.GetByte(),
+            InventoryClaimSlot = reader.GetInt(),
+            InventoryClaimFlags = reader.GetByte(),
+            TransitionReason = reader.GetByte(),
+            OriginatingPlayerId = reader.GetByte()
         };
         ItemUpdateData.ItemUpdateType flags = (ItemUpdateData.ItemUpdateType)item.UpdateType;
         item.UpdateTypeFlags = ProtocolEnumNames.Format(typeof(ItemUpdateData.ItemUpdateType), item.UpdateType, flags: true);
@@ -132,6 +139,10 @@ internal static class SemanticPacketDecoder
             ItemUpdateData thrown = new()
             {
                 UpdateType = ItemUpdateData.ItemUpdateType.FullSync, ItemNetId = 390, ItemState = ItemState.Thrown,
+                AuthorityRevision = 42, PersistentOwnerPlayerId = 2,
+                InventoryClaimPlayerId = 2, InventoryClaimSlot = 4,
+                InventoryClaimFlags = ItemInventoryClaimFlags.Reserved,
+                TransitionReason = ItemTransitionReason.ClientState, OriginatingPlayerId = 2,
                 ItemPosition = new Vector3(1, 2, 3), ItemRotation = new Quaternion(0, .5f, 0, 1), ThrowDirection = new Vector3(4, 5, 6), States = new()
             };
             NetDataWriter writer = new();
@@ -156,7 +167,9 @@ internal static class SemanticPacketDecoder
             DebugCommonItemsBulkUpdatePacket bulk when bulk.Items.Count == 1 => bulk.Items[0],
             _ => null
         };
-        if (item?.ItemState != (byte)ItemState.Thrown || item.Position?.X != 1 || item.ThrowDirection?.Z != 6 || item.States?.Count != 0)
+        if (item?.ItemState != (byte)ItemState.Thrown || item.AuthorityRevision != 42 ||
+            item.OriginatingPlayerId != 2 || item.Position?.X != 1 ||
+            item.ThrowDirection?.Z != 6 || item.States?.Count != 0)
             throw new InvalidOperationException($"{packetType} raw semantic round-trip failed.");
     }
 
@@ -196,6 +209,13 @@ internal sealed class DebugItemUpdate
     public byte UpdateType { get; set; }
     public string UpdateTypeFlags { get; set; }
     public ushort ItemNetId { get; set; }
+    public uint AuthorityRevision { get; set; }
+    public byte PersistentOwnerPlayerId { get; set; }
+    public byte InventoryClaimPlayerId { get; set; }
+    public int InventoryClaimSlot { get; set; }
+    public byte InventoryClaimFlags { get; set; }
+    public byte TransitionReason { get; set; }
+    public byte OriginatingPlayerId { get; set; }
     public byte? ItemState { get; set; }
     public string ItemStateName { get; set; }
     public string PrefabName { get; set; }

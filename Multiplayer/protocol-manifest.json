@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.15.0+807b62bf1c0226cb25f3431a97863d952c41c9f6",
-  "Fingerprint": "79c864032b604c3a99324b4bb73274e31578aacc069385ed8be25c6e8777690d",
+  "BuildVersion": "0.1.15.0+69c94b687f44de8559c255c781e745388ac8b8a0",
+  "Fingerprint": "0a9c7ac30ee3147f33720eb8a597965ff5cc3f6635294aebabed185ea1b249e2",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -67,6 +67,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "0C445CA4665DA25C",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundItemRecallPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "0EC21CD825121F2F",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundTimeAdvancePacket",
       "Direction": "Serverbound",
@@ -121,6 +130,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "1EAE940C9EB6A391",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundItemRecallResultPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "1F6264FA82D066AF",
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonHandbrakePositionPacket",
       "Direction": "Bidirectional",
@@ -166,6 +184,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "2C2F28A4B7D8C8D7",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Jobs.ServerboundJobBookletSummonRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "3117C2AE9D15203C",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundRailwayStatePacket",
       "Direction": "Clientbound",
@@ -193,6 +220,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "389E4E1522B3A661",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundItemAdoptionPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "3A00B7E0FF0BE8BC",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundGameParamsPacket",
       "Direction": "Clientbound",
@@ -206,6 +242,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundWindowsBrokenPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "3DE0E04500B75F76",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -269,6 +314,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonTrainCouplePacket",
       "Direction": "Bidirectional",
       "Category": "Common.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "533F8C0BFE18B2A3",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundItemRecallPreparePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -395,6 +449,24 @@
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundPlayerPreferenceUpdatePacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "83658BF633B684D1",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundLostItemsRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "88689E8E93DDC528",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemsSnapshotPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -533,6 +605,24 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "B95654CB3670533B",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundLostItemRetrievePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "B9ED1809FF01BAF5",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Jobs.ClientboundJobReportArtifactPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "BC63A18DBA9C727E",
@@ -706,6 +796,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "E7D95DD3A831592D",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundItemRecallPreparedPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "E9951DEA20A0B085",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundTrainsetPhysicsPacket",
       "Direction": "Clientbound",
@@ -713,6 +812,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "EA6FF18506044E09",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundItemAdoptionPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "EBD61C0DA9ADF73C",
@@ -894,6 +1002,25 @@
       "Private": 0,
       "Friends": 1,
       "Public": 2
+    },
+    "Multiplayer.Networking.Data.Items.ItemInventoryClaimFlags": {
+      "None": 0,
+      "Reserved": 1,
+      "Locked": 2,
+      "Dropped": 4,
+      "Stolen": 8
+    },
+    "Multiplayer.Networking.Data.Items.ItemTransitionReason": {
+      "Unknown": 0,
+      "InitialRegistration": 1,
+      "HostLocalState": 2,
+      "ClientState": 3,
+      "ClientAdoption": 4,
+      "OwnerRecall": 5,
+      "JobBookletSummon": 6,
+      "FullSync": 7,
+      "LostAndFoundCollection": 8,
+      "LostAndFoundRetrieval": 9
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+Hand": {
       "nonVR": 0,

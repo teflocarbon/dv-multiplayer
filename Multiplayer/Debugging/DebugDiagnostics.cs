@@ -366,8 +366,17 @@ public static class DebugDiagnostics
             issues.Add(new IdentityIssue { Code = "duplicate-network-id", EntityId = group.Key.ToString(), Severity = DebugSeverity.Error, Detail = string.Join(", ", group.Select(item => $"{item.name}#{item.gameObject.GetInstanceID()}")) });
         foreach (NetworkedItem item in items)
         {
-            if (item.NetId == 0 && item.gameObject.activeInHierarchy)
-                issues.Add(new IdentityIssue { Code = "active-zero-id", EntityId = "0", Severity = DebugSeverity.Warning, Detail = $"{item.name}#{item.gameObject.GetInstanceID()}" });
+            if (!NetworkLifecycle.Instance.IsHost() && item.NetId == 0 && item.gameObject.activeInHierarchy)
+            {
+                bool awaitingFirstInteraction = item.UnboundState == ClientItemUnboundState.None;
+                issues.Add(new IdentityIssue
+                {
+                    Code = awaitingFirstInteraction ? "zero-id-awaiting-first-interaction" : "active-zero-id",
+                    EntityId = "0",
+                    Severity = awaitingFirstInteraction ? DebugSeverity.Warning : DebugSeverity.Error,
+                    Detail = $"{item.name}#{item.gameObject.GetInstanceID()} {item.UnboundState}"
+                });
+            }
             else if (item.NetId != 0 && (!NetworkedItem.TryGet(item.NetId, out NetworkedItem indexed) || indexed != item))
                 issues.Add(new IdentityIssue { Code = "lookup-mismatch", EntityId = item.NetId.ToString(), Severity = DebugSeverity.Error, Detail = $"live={item.name}#{item.gameObject.GetInstanceID()} indexed={indexed?.name ?? "null"}" });
         }

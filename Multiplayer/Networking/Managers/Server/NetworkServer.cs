@@ -102,6 +102,10 @@ public class NetworkServer : NetworkManager
     public ChatManager ChatManager => _chatManager;
 
     private uint lastTick;
+    private uint nextItemRecallOperationId;
+    private readonly Dictionary<uint, PendingItemRecall> pendingItemRecalls = new();
+    private readonly Dictionary<ushort, uint> pendingItemRecallByItem = new();
+    private const uint ItemRecallTimeoutTicks = NetworkLifecycle.TICK_RATE * 5;
     private readonly LiteNetLibTransport debugLoopbackTransport;
     private readonly Settings settings;
 
@@ -259,11 +263,17 @@ public class NetworkServer : NetworkManager
 
         // Jobs
         netPacketProcessor.SubscribeReusable<ServerboundJobValidateRequestPacket, ITransportPeer>(OnServerboundJobValidateRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundJobBookletSummonRequestPacket, ITransportPeer>(OnServerboundJobBookletSummonRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWarehouseMachineControllerRequestPacket, ITransportPeer>(OnServerboundWarehouseMachineControllerRequestPacket);
 
         // Items
         //netPacketProcessor.SubscribeNetSerializable<CommonItemsBulkUpdatePacket, ITransportPeer>(OnCommonItemChangePacket);
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket, ITransportPeer>(OnCommonItemUpdatePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemAdoptionPacket, ITransportPeer>(OnServerboundItemAdoptionPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
     }
 
     //allow mods to register their own packets
@@ -331,6 +341,10 @@ public class NetworkServer : NetworkManager
             SendWeatherState();
             lastTick = NetworkLifecycle.Instance.Tick;
         }
+
+        foreach (PendingItemRecall pending in pendingItemRecalls.Values.ToArray())
+            if (unchecked((int)(tick - pending.DeadlineTick)) >= 0)
+                CancelPendingItemRecall(pending, "recall-prepare-timeout", true);
     }
 
     public bool TryGetServerPlayer(ITransportPeer peer, out ServerPlayer player)
@@ -367,6 +381,11 @@ public class NetworkServer : NetworkManager
             LogWarning($"Peer {peer.GetType()}, peerId: {peer.Id} disconnected but no player found");
         else
             Log($"Player {player?.Username} disconnected: {disconnectReason}");
+
+        if (player != null)
+            foreach (PendingItemRecall pending in pendingItemRecalls.Values
+                         .Where(value => value.Player == player).ToArray())
+                CancelPendingItemRecall(pending, "requesting-player-disconnected", false);
 
         if (WorldStreamingInit.isLoaded)
             SaveGameManager.Instance.UpdateInternalData();
@@ -1060,6 +1079,43 @@ public class NetworkServer : NetworkManager
             TraceItemDeliveryExpected(packet, sendToPlayer.Peer, DeliveryMethod.ReliableOrdered);
             SendPacket(sendToPlayer.Peer, packet, DeliveryMethod.ReliableOrdered);
         }
+    }
+
+    public void SendLostItemsSnapshot(ServerPlayer player, uint requestId = 0)
+    {
+        if (player?.Peer == null) return;
+        LostItemData[] items = NetworkedLostAndFoundManager.SnapshotFor(player);
+        SendPacket(player.Peer, new ClientboundLostItemsSnapshotPacket
+        {
+            RequestId = requestId,
+            Generation = NetworkedLostAndFoundManager.Generation,
+            Handles = items.Select(item => item.Handle).ToArray(),
+            NetIds = items.Select(item => item.NetId).ToArray(),
+            Revisions = items.Select(item => item.Revision).ToArray(),
+            PrefabNames = items.Select(item => item.PrefabName ?? string.Empty).ToArray(),
+            DisplayNames = items.Select(item => item.DisplayName ?? string.Empty).ToArray(),
+            Reasons = items.Select(item => item.Reason).ToArray(),
+            LostUtcTicks = items.Select(item => item.LostUtcTicks).ToArray()
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendJobReportArtifact(JobReportArtifactData artifact, ServerPlayer player)
+    {
+        if (artifact == null || player?.Peer == null)
+            return;
+
+        DebugRuntime.Publish("job", "job.report-artifact-sent", DebugRuntimeSide.Server,
+            entityType: "Item", entityId: artifact.ItemNetId.ToString(), data: new Dictionary<string, object>
+            {
+                ["artifactToken"] = artifact.ArtifactToken,
+                ["jobNetId"] = artifact.JobNetId,
+                ["recipientPlayerId"] = player.PlayerId,
+                ["hasDebt"] = artifact.Debt != null
+            });
+        SendPacket(player.Peer, new ClientboundJobReportArtifactPacket
+        {
+            Payload = artifact.Serialize()
+        }, DeliveryMethod.ReliableOrdered);
     }
 
     private void TraceItemDeliveryExpected<T>(T packet, ITransportPeer peer, DeliveryMethod deliveryMethod)
@@ -2141,15 +2197,40 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        LogDebug(() => $"OnServerboundJobValidateRequestPacket() Validating {packet.JobNetId}, Validation Type: {packet.validationType} overview: {networkedJob.JobOverview != null}, booklet: {networkedJob.JobBooklet != null}");
+        LogDebug(() => $"OnServerboundJobValidateRequestPacket() Validating {packet.JobNetId}, Validation Type: {packet.validationType}, item: {packet.ItemNetId}");
         switch (packet.validationType)
         {
             case ValidationType.JobOverview:
-                networkedStationController.JobValidator.ProcessJobOverview(networkedJob.JobOverview.GetTrackedItem<JobOverview>());
+                if (networkedJob.JobOverview == null ||
+                    networkedJob.JobOverview.NetId != packet.ItemNetId)
+                {
+                    LogWarning($"Job overview {packet.ItemNetId} is not canonical for job {packet.JobNetId}");
+                    SendPacket(peer, new ClientboundJobValidateResponsePacket
+                        { JobNetId = packet.JobNetId, Invalid = true }, DeliveryMethod.ReliableOrdered);
+                    return;
+                }
+                networkedJob.PendingBookletIssuedToPlayerId = player.PlayerId;
+                try
+                {
+                    networkedStationController.JobValidator.ProcessJobOverview(
+                        networkedJob.JobOverview.GetTrackedItem<JobOverview>());
+                }
+                finally
+                {
+                    networkedJob.PendingBookletIssuedToPlayerId = 0;
+                }
                 break;
 
             case ValidationType.JobBooklet:
-                networkedStationController.JobValidator.ValidateJob(networkedJob.JobBooklet.GetTrackedItem<JobBooklet>());
+                if (!networkedJob.TryGetJobBooklet(packet.ItemNetId, out NetworkedItem booklet))
+                {
+                    LogWarning($"Job booklet {packet.ItemNetId} is not registered for job {packet.JobNetId}");
+                    SendPacket(peer, new ClientboundJobValidateResponsePacket
+                        { JobNetId = packet.JobNetId, Invalid = true }, DeliveryMethod.ReliableOrdered);
+                    return;
+                }
+                networkedStationController.JobValidator.ValidateJob(
+                    booklet.GetTrackedItem<JobBooklet>());
                 break;
         }
 
@@ -2297,6 +2378,282 @@ public class NetworkServer : NetworkManager
         {
             DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Server);
         }
+    }
+
+    private void OnServerboundJobBookletSummonRequestPacket(
+        ServerboundJobBookletSummonRequestPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        if (!NetworkedStationController.Get(packet.StationNetId,
+                out NetworkedStationController station) || station.JobValidator == null)
+        {
+            LogWarning($"Job booklet summon station not found: {packet.StationNetId}");
+            return;
+        }
+        JobBookletSummonCoordinator.TryStart(station.JobValidator, player);
+    }
+
+    private void OnServerboundItemAdoptionPacket(ServerboundItemAdoptionPacket packet, ITransportPeer peer)
+    {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Item", null);
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+
+        ItemAdoptionRequestData request = packet.Request;
+        bool accepted = NetworkedItemManager.Instance.TryAdoptClientItem(player, request,
+            out ushort assignedNetId, out string rejectionReason);
+        AuthoritativeItemRegistry.TryGet(assignedNetId, out AuthoritativeItemRegistry.Record authorityRecord);
+        DebugRuntime.Publish("item", accepted ? "item.adoption-accepted" : "item.adoption-rejected",
+            DebugRuntimeSide.Server, accepted ? DebugSeverity.Info : DebugSeverity.Warning,
+            "Item", assignedNetId.ToString(), new()
+            {
+                ["adoptionToken"] = request.AdoptionToken ?? string.Empty,
+                ["prefab"] = request.PrefabName ?? string.Empty,
+                ["playerId"] = player.PlayerId,
+                ["assignedNetId"] = assignedNetId,
+                ["rejectionReason"] = rejectionReason ?? string.Empty,
+                ["snapshot"] = DebugTrace.ItemSnapshotData(request.Snapshot)
+            });
+
+        SendPacket(peer, new ClientboundItemAdoptionPacket
+        {
+            Result = new ItemAdoptionResultData
+            {
+                AdoptionToken = request.AdoptionToken,
+                Accepted = accepted,
+                AssignedNetId = assignedNetId,
+                RejectionReason = rejectionReason ?? string.Empty,
+                AuthorityRevision = authorityRecord?.Revision ?? 0,
+                PersistentOwnerPlayerId = authorityRecord?.PersistentOwnerPlayerId ?? 0,
+                InventoryClaimPlayerId = authorityRecord?.InventoryClaimPlayerId ?? 0,
+                InventoryClaimSlot = authorityRecord?.InventoryClaimSlot ?? -1,
+                InventoryClaimFlags = authorityRecord?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None
+            }
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+        {
+            LogWarning($"[LostAndFound Recall] Recall packet has no authenticated player: " +
+                $"peer={peer?.Id}, netId={packet.ItemNetId}");
+            return;
+        }
+
+        Log($"[LostAndFound Recall] Recall packet received: player=P{player.PlayerId}, " +
+            $"netId={packet.ItemNetId}, revision={packet.ExpectedRevision}, slot={packet.RequestedSlot}");
+
+        bool accepted = false;
+        bool storedInLostAndFound = false;
+        string rejectionReason = string.Empty;
+        ItemUpdateData snapshot = null;
+        if (!NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) || item == null)
+            rejectionReason = "unknown-network-entity";
+        else if (storedInLostAndFound = NetworkedLostAndFoundManager.Contains(item.NetId))
+            accepted = NetworkedLostAndFoundManager.TryRetrieveForRecall(player, item,
+                packet.ExpectedRevision, packet.RequestedSlot, out snapshot, out rejectionReason);
+        else if (pendingItemRecallByItem.ContainsKey(item.NetId))
+            rejectionReason = "recall-already-pending";
+        else if (AuthoritativeItemRegistry.TryPrepareRecall(item, player, packet.RequestedSlot,
+                     packet.ExpectedRevision, out snapshot, out rejectionReason))
+        {
+            uint operationId = NextItemRecallOperationId();
+            PendingItemRecall pending = new(operationId, item.NetId, packet.ExpectedRevision,
+                packet.RequestedSlot, unchecked(NetworkLifecycle.Instance.Tick + ItemRecallTimeoutTicks),
+                player, peer);
+            pendingItemRecalls.Add(operationId, pending);
+            pendingItemRecallByItem.Add(item.NetId, operationId);
+            SendPacket(peer, new ClientboundItemRecallPreparePacket
+            {
+                OperationId = operationId,
+                ItemNetId = item.NetId,
+                BaseRevision = packet.ExpectedRevision,
+                PreparedRevision = snapshot.AuthorityRevision,
+                RequestedSlot = packet.RequestedSlot
+            }, DeliveryMethod.ReliableOrdered);
+            DebugRuntime.Publish("item", "item.recall-prepare-requested", DebugRuntimeSide.Server,
+                entityType: "Item", entityId: item.NetId.ToString(), data: new()
+                {
+                    ["operationId"] = operationId,
+                    ["requestingPlayerId"] = player.PlayerId,
+                    ["baseRevision"] = packet.ExpectedRevision,
+                    ["preparedRevision"] = snapshot.AuthorityRevision,
+                    ["requestedSlot"] = packet.RequestedSlot
+                });
+            return;
+        }
+
+        if (accepted)
+        {
+            if (!storedInLostAndFound)
+                item.ApplyServerCanonicalSnapshot(snapshot);
+            SendItemUpdatePacket(snapshot);
+        }
+        else
+        {
+            DebugRuntime.Publish("item", "item.recall-rejected", DebugRuntimeSide.Server,
+                DebugSeverity.Warning, "Item", packet.ItemNetId.ToString(), new()
+                {
+                    ["requestingPlayerId"] = player.PlayerId,
+                    ["expectedRevision"] = packet.ExpectedRevision,
+                    ["requestedSlot"] = packet.RequestedSlot,
+                    ["rejectionReason"] = rejectionReason ?? string.Empty
+                });
+        }
+
+        SendPacket(peer, new ClientboundItemRecallResultPacket
+        {
+            OperationId = 0,
+            ItemNetId = packet.ItemNetId,
+            Accepted = accepted,
+            AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
+            RejectionReason = rejectionReason ?? string.Empty
+        }, DeliveryMethod.ReliableOrdered);
+        Log($"[LostAndFound Recall] Recall result sent: player=P{player.PlayerId}, " +
+            $"netId={packet.ItemNetId}, stored={storedInLostAndFound}, accepted={accepted}, " +
+            $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
+    }
+
+    private void OnServerboundItemRecallPreparedPacket(ServerboundItemRecallPreparedPacket packet,
+        ITransportPeer peer)
+    {
+        if (!pendingItemRecalls.TryGetValue(packet.OperationId, out PendingItemRecall pending) ||
+            pending.Peer != peer || pending.ItemNetId != packet.ItemNetId)
+            return;
+        if (!packet.Succeeded)
+        {
+            CancelPendingItemRecall(pending, string.IsNullOrWhiteSpace(packet.FailureReason)
+                ? "client-recall-prepare-failed" : packet.FailureReason, true);
+            return;
+        }
+        string rejectionReason = string.Empty;
+        if (!NetworkedItem.TryGet(pending.ItemNetId, out NetworkedItem item) || item == null ||
+            !AuthoritativeItemRegistry.TryCommitPreparedRecall(item, pending.Player,
+                pending.RequestedSlot, pending.BaseRevision, out ItemUpdateData snapshot,
+                out rejectionReason))
+        {
+            CancelPendingItemRecall(pending, rejectionReason ?? "recall-commit-failed", true);
+            return;
+        }
+
+        RemovePendingItemRecall(pending);
+        item.ApplyServerCanonicalSnapshot(snapshot);
+        SendItemUpdatePacket(snapshot);
+        SendPacket(peer, new ClientboundItemRecallResultPacket
+        {
+            OperationId = pending.OperationId,
+            ItemNetId = item.NetId,
+            Accepted = true,
+            AuthorityRevision = snapshot.AuthorityRevision,
+            RejectionReason = string.Empty
+        }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void CancelPendingItemRecall(PendingItemRecall pending, string reason, bool notifyClient)
+    {
+        RemovePendingItemRecall(pending);
+        uint revision = 0;
+        if (NetworkedItem.TryGet(pending.ItemNetId, out NetworkedItem item) && item != null &&
+            AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
+        {
+            revision = correction.AuthorityRevision;
+            if (notifyClient)
+                SendItemUpdatePacket(correction, pending.Player);
+        }
+        DebugRuntime.Publish("item", reason == "recall-prepare-timeout"
+                ? "item.recall-transaction-timeout" : "item.recall-transaction-cancelled",
+            DebugRuntimeSide.Server, DebugSeverity.Warning, "Item", pending.ItemNetId.ToString(), new()
+            {
+                ["operationId"] = pending.OperationId,
+                ["requestingPlayerId"] = pending.Player?.PlayerId ?? 0,
+                ["baseRevision"] = pending.BaseRevision,
+                ["rejectionReason"] = reason ?? string.Empty
+            });
+        if (notifyClient && pending.Peer != null)
+            SendPacket(pending.Peer, new ClientboundItemRecallResultPacket
+            {
+                OperationId = pending.OperationId,
+                ItemNetId = pending.ItemNetId,
+                Accepted = false,
+                AuthorityRevision = revision,
+                RejectionReason = reason ?? string.Empty
+            }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void RemovePendingItemRecall(PendingItemRecall pending)
+    {
+        pendingItemRecalls.Remove(pending.OperationId);
+        pendingItemRecallByItem.Remove(pending.ItemNetId);
+    }
+
+    private uint NextItemRecallOperationId()
+    {
+        do nextItemRecallOperationId++;
+        while (nextItemRecallOperationId == 0 || pendingItemRecalls.ContainsKey(nextItemRecallOperationId));
+        return nextItemRecallOperationId;
+    }
+
+    private sealed class PendingItemRecall
+    {
+        public PendingItemRecall(uint operationId, ushort itemNetId, uint baseRevision,
+            int requestedSlot, uint deadlineTick, ServerPlayer player, ITransportPeer peer)
+        {
+            OperationId = operationId;
+            ItemNetId = itemNetId;
+            BaseRevision = baseRevision;
+            RequestedSlot = requestedSlot;
+            DeadlineTick = deadlineTick;
+            Player = player;
+            Peer = peer;
+        }
+
+        public uint OperationId { get; }
+        public ushort ItemNetId { get; }
+        public uint BaseRevision { get; }
+        public int RequestedSlot { get; }
+        public uint DeadlineTick { get; }
+        public ServerPlayer Player { get; }
+        public ITransportPeer Peer { get; }
+    }
+
+    private void OnServerboundLostItemsRequestPacket(ServerboundLostItemsRequestPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        SendLostItemsSnapshot(player, packet.RequestId);
+    }
+
+    private void OnServerboundLostItemRetrievePacket(ServerboundLostItemRetrievePacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+        {
+            LogWarning($"[LostAndFound Recall] Retrieval packet has no authenticated player: " +
+                $"peer={peer?.Id}, request={packet.RequestId}, handle={packet.LostHandle}");
+            return;
+        }
+        Log($"[LostAndFound Recall] Retrieval packet received: player=P{player.PlayerId}, " +
+            $"request={packet.RequestId}, handle={packet.LostHandle}, revision={packet.ExpectedRevision}, " +
+            $"requestedSlot={packet.RequestedSlot}, existingSlot={packet.ExistingItemSlot}, " +
+            $"capacity={packet.InventoryCapacity}, occupied=[{string.Join(",", packet.OccupiedSlots ?? System.Array.Empty<int>())}]");
+        bool accepted = NetworkedLostAndFoundManager.TryRetrieve(player, packet.LostHandle,
+            packet.ExpectedRevision, packet.RequestedSlot, packet.ExistingItemSlot, packet.InventoryCapacity,
+            packet.OccupiedSlots, out ItemUpdateData snapshot, out string rejectionReason);
+        if (accepted)
+            SendItemUpdatePacket(snapshot);
+        SendPacket(peer, new ClientboundLostItemRetrieveResultPacket
+        {
+            RequestId = packet.RequestId,
+            LostHandle = packet.LostHandle,
+            Accepted = accepted,
+            AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
+            RejectionReason = rejectionReason ?? string.Empty
+        }, DeliveryMethod.ReliableOrdered);
+        SendLostItemsSnapshot(player, packet.RequestId);
+        Log($"[LostAndFound Recall] Retrieval result sent: player=P{player.PlayerId}, " +
+            $"request={packet.RequestId}, handle={packet.LostHandle}, accepted={accepted}, " +
+            $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet, ITransportPeer peer)

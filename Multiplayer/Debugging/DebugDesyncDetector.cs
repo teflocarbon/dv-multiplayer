@@ -14,6 +14,7 @@ public static class DebugDesyncDetector
         public Vector3 Position;
         public Quaternion Rotation;
         public byte PlayerId;
+        public uint AuthorityRevision;
         public int MismatchSamples;
         public bool Reported;
     }
@@ -22,8 +23,16 @@ public static class DebugDesyncDetector
 
     public static void Remember(ItemUpdateData snapshot)
     {
-        if (!DebugRuntime.Enabled || snapshot == null) return;
-        expectedItems[snapshot.ItemNetId] = new ExpectedItem { State = snapshot.ItemState, Position = snapshot.ItemPosition, Rotation = snapshot.ItemRotation, PlayerId = snapshot.PlayerId };
+        if (!DebugRuntime.Enabled || snapshot == null ||
+            !ItemUpdateData.IncludesItemState(snapshot.UpdateType)) return;
+        expectedItems[snapshot.ItemNetId] = new ExpectedItem
+        {
+            State = snapshot.ItemState,
+            Position = snapshot.ItemPosition,
+            Rotation = snapshot.ItemRotation,
+            PlayerId = snapshot.PlayerId,
+            AuthorityRevision = snapshot.AuthorityRevision
+        };
     }
 
     public static void Forget(ushort id) => expectedItems.Remove(id);
@@ -44,11 +53,20 @@ public static class DebugDesyncDetector
             Dictionary<string, object> data = new()
             {
                 ["expectedState"] = expected.State.ToString(),
+                ["actualState"] = item.DebugCurrentState.ToString(),
                 ["expectedHolder"] = expected.PlayerId,
-                ["actualHolder"] = item.playerBelongsToId
+                ["actualHolder"] = item.playerBelongsToId,
+                ["expectedAuthorityRevision"] = expected.AuthorityRevision,
+                ["actualAuthorityRevision"] = item.AuthorityRevision
             };
             string reason = string.Empty;
-            if (expected.State is ItemState.InHand or ItemState.InInventory && item.playerBelongsToId != expected.PlayerId)
+            ItemState actualState = item.DebugCurrentState;
+            bool thrownSettledAsDropped = expected.State == ItemState.Thrown && actualState == ItemState.Dropped;
+            if (expected.State != actualState && !thrownSettledAsDropped)
+            {
+                mismatch = true; reason = "state-mismatch";
+            }
+            else if (expected.State is ItemState.InHand or ItemState.InInventory && item.playerBelongsToId != expected.PlayerId)
             {
                 mismatch = true; reason = "holder-mismatch";
             }
