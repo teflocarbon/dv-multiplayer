@@ -308,6 +308,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundTrainControlAuthorityUpdatePacket>(OnClientboundTrainControlAuthorityUpdatePacket);
 
         netPacketProcessor.SubscribeReusable<ClientboundCargoStatePacket>(OnClientboundCargoStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundExplosionPacket>(OnClientboundExplosionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundCargoHealthUpdatePacket>(OnClientboundCargoHealthUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundCarHealthUpdatePacket>(OnClientboundCarHealthUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundWarehouseControllerUpdatePacket>(OnClientboundWarehouseControllerUpdatePacket);
@@ -1299,6 +1300,14 @@ public class NetworkClient : NetworkManager
         }
 
         //LogDebug(() => $"Received Brake Pressures netId {packet.NetId}: {packet.MainReservoirPressure}, {packet.IndependentPipePressure}, {packet.BrakePipePressure}, {packet.BrakeCylinderPressure}");
+    }
+
+    private void OnClientboundExplosionPacket(ClientboundExplosionPacket packet)
+    {
+        if (!NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) || car == null)
+            return;
+        Log($"The host's {car.ID} exploded ({(global::Multiplayer.Patches.Train.ExplosionSync.Kind)packet.Kind})");
+        global::Multiplayer.Patches.Train.ExplosionSync.ClientPlay(car, (global::Multiplayer.Patches.Train.ExplosionSync.Kind)packet.Kind, packet.Index);
     }
 
     private void OnClientboundCargoStatePacket(ClientboundCargoStatePacket packet)

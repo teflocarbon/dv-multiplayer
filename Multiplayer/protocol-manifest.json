@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+2f282179d85f7099af3d0cf84216877039952055",
-  "Fingerprint": "d343d34a08b2dc6466cffc960be05bff82c8bdf87a98dd055b16d8e8be4c6ab2",
+  "BuildVersion": "0.1.16.14+7841d5a07256c3cd81ed155730d74788153e92bd",
+  "Fingerprint": "38de858a6f1378db6231ee513dbbeb76cab31f8365197f315d2f6d8bd52f9171",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -470,6 +470,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "66BA1C163001A269",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundExplosionPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "6821B87A43C11C5E",
