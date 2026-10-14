@@ -27,11 +27,11 @@ simulate or even materialize the train interior.
 
 This design extends, rather than replaces:
 
-- [`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md),
+- [`item-spatial-physics.md`](item-spatial-physics.md),
   which owns simulation leases, transient samples, and reliable settlement;
-- [`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md), which owns
+- [`item-lifecycle.md`](item-lifecycle.md), which owns
   logical placement and transition precedence;
-- [`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md), which owns
+- [`item-world-sync.md`](item-world-sync.md), which owns
   identity, interest, and canonical projections; and
 - [`MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md`](MULTIPLAYER_DEBUG_TRAIN_FIXTURE_DESIGN.md), which
   owns disposable host-created trains and safe runtime-test control.

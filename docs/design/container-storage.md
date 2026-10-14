@@ -48,7 +48,7 @@ eagerly instantiate its descendants.
 
 The relationship between materialized shells, detached contents, persistent ownership, Lost and
 Found, and presentation retirement is canonicalized in
-[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md).
+[`item-lifecycle.md`](item-lifecycle.md).
 
 ## Goal
 

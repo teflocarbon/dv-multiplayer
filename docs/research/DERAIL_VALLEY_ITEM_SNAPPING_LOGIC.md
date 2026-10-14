@@ -5,7 +5,7 @@ This document records established behavior in Derail Valley's modern `SnappableI
 `SnapItem` / `SnapItemZone` mechanism.
 
 Generic world authority is designed in
-[`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](../MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md). Installed
+[`../design/item-world-sync.md`](../design/item-world-sync.md). Installed
 customization gadgets are documented separately in
 [`DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
 

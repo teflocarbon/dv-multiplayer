@@ -37,17 +37,17 @@ The central invariant is:
 
 ## Supporting documents
 
-- [`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md) defines authored
+- [`item-world-sync.md`](item-world-sync.md) defines authored
   identity, dynamic records, interest streaming, projection binding, persistence, and stock
   replenishment.
-- [`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md)
+- [`item-spatial-physics.md`](item-spatial-physics.md)
   defines simulation leases, motion samples, settlement, and train-relative motion.
-- [`MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md`](MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md) defines the
+- [`container-storage.md`](container-storage.md) defines the
   cold container graph and transactional materialization/dehydration.
-- [`MULTIPLAYER_ITEM_OWNERSHIP_OPEN_QUESTIONS.md`](MULTIPLAYER_ITEM_OWNERSHIP_OPEN_QUESTIONS.md)
+- [`item-ownership-open-questions.md`](item-ownership-open-questions.md)
   records subjective ownership-transfer policies that have not been decided.
-- [`research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md`](research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md)
-  and [`research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md`](research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md)
+- [`../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md`](../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md)
+  and [`../research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md`](../research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md)
   record the relevant base-game behavior.
 
 ## Orthogonal state axes

@@ -6,7 +6,7 @@ items: installation replaces an active item representation with a linked customi
 while retaining the underlying item as the persistent record.
 
 The multiplayer authority boundary is described in
-[`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](../MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md). Generic loose
+[`../design/item-world-sync.md`](../design/item-world-sync.md). Generic loose
 world-item behavior is recorded in
 [`DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md`](DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md).
 Items snapped to couplers or gadget-hosted points are documented in

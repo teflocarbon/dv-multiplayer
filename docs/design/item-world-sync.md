@@ -39,14 +39,14 @@ Derail Valley already supplies the spatial and presentation foundations:
 - the floating origin is removed before grid calculation.
 
 Base-game findings are maintained separately in
-[`research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md`](research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md).
+[`../research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md`](../research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md).
 The canonical cross-feature item state model, including the distinction between possession,
 ownership, recovery, and disposable stock, is maintained in
-[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md).
+[`item-lifecycle.md`](item-lifecycle.md).
 Installed gadget, train-customization, and wiring findings are maintained in
-[`research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
+[`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
 Snapped accessory and train-coupler attachment findings are maintained in
-[`research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md`](research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md).
+[`../research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md`](../research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md).
 
 ## Implemented architecture
 
@@ -74,7 +74,7 @@ High-frequency rigidbody authority remains intentionally outside this implementa
 physics presentation continues to operate behind the new logical authority boundary until that
 separate project is undertaken. The separate spatial-motion, settlement, and delegated-simulation
 design is maintained in
-[`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md).
+[`item-spatial-physics.md`](item-spatial-physics.md).
 
 ## Non-goals
 
@@ -83,7 +83,7 @@ design is maintained in
 - Do not continuously simulate all distant Unity objects on the host.
 - Do not redesign high-frequency rigidbody, collision, or thrown-item physics replication here.
   Network physics is specified separately in
-  [`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md).
+  [`item-spatial-physics.md`](item-spatial-physics.md).
 - Do not allow prefab-name matching to remain a second compatibility path.
 - Do not send persistent UUIDs in routine movement/state packets.
 - Do not preserve two competing item save authorities.
@@ -345,7 +345,7 @@ same as an installed gadget.
 ### Installed-gadget placement
 
 The full vanilla lifecycle and identity/wiring model are documented in
-[`research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
+[`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
 
 Vanilla moves an installed gadget item into `StorageInstalledGadgets` and deactivates the item
 GameObject. Its `ItemSaveData` retains the customization anchor (`placedOn`), local placement, and
@@ -884,7 +884,7 @@ save/sync subsystem, while cold containers and Lost and Found retain their detac
 - Validate host restart, client reconnect, cold containers, Lost and Found, jobs, and ownership.
 
 Network physics is implemented as the separate spatial lease/settlement layer described in
-`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`; it does not alter catalogue identity or cell
+`item-spatial-physics.md`; it does not alter catalogue identity or cell
 authority.
 
 ## Required runtime scenario suite

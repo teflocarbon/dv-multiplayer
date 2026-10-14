@@ -22,8 +22,8 @@ Do not model the overridden vanilla Lost and Found as another authoritative inte
 ## Related documents
 
 - `DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md` contains the established base-game inventory, storage, `RespawnOnDrop`, and shed-presentation behavior.
-- `ITEM_SYNC.md` sections 3.4-3.5 describe the current canonical item-authority and retrieval-claim model.
-- `OBSERVABILITY.md` describes the implemented inventory/storage tracing and profiler facilities.
+- `../design/item-sync-review.md` sections 3.4-3.5 describe the current canonical item-authority and retrieval-claim model.
+- `../observability.md` describes the implemented inventory/storage tracing and profiler facilities.
 - `DERAIL_VALLEY_JOB_VALIDATOR_REPORT_LOGIC.md` documents machine-owned job artifacts that must not be collected while being processed.
 - `DERAIL_VALLEY_PAGEBOOK_LOGIC.md` documents booklet semantic state; page state does not determine Lost and Found eligibility.
 - `DERAIL_VALLEY_CAREER_MANAGER_UI_LOGIC.md` owns the reusable Career Manager extension API and Lost Items screen integration contract.

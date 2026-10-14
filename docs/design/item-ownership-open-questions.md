@@ -3,7 +3,7 @@
 This document records item-ownership behaviour that is technically valid but depends on subjective game-design decisions. It is not a commitment to the current policy.
 
 Implemented lifecycle and ownership-establishment rules are canonicalized in
-[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md). This document should
+[`item-lifecycle.md`](item-lifecycle.md). This document should
 only hold unresolved or explicitly deferred game-design choices.
 
 ## Separate concepts

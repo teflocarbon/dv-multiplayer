@@ -330,7 +330,7 @@ All moves remain host transactions. A client command identifies source/destinati
 
 The shell must not pretend an unhydrated container is empty. Base UI add/swap paths must be gated until the authoritative direct-slot snapshot is present. Prefer a data-driven container UI provider over temporary or fake item GameObjects; gameplay hydration occurs only when an item leaves cold storage.
 
-The intended scalable target is host-side cold storage: contained items become detached authoritative records backed by the host save and do not retain dormant Unity objects or ordinary NetIds. Browsing hydrates bounded UI data only; withdrawing an item materializes its canonical Unity object and assigns a runtime NetId. This deliberately replaces part of the base-game lifecycle and is specified in [`MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md`](MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md).
+The intended scalable target is host-side cold storage: contained items become detached authoritative records backed by the host save and do not retain dormant Unity objects or ordinary NetIds. Browsing hydrates bounded UI data only; withdrawing an item materializes its canonical Unity object and assigns a runtime NetId. This deliberately replaces part of the base-game lifecycle and is specified in [`../design/container-storage.md`](../design/container-storage.md).
 
 Lost and Found naturally stores a virtualized container as one root shell/registry entry plus its existing host graph. Retrieving the root does not hydrate all descendants; opening the retrieved container subscribes to its direct contents normally.
 

@@ -41,9 +41,9 @@ from a canonical snapshot even if it missed an interaction, loaded an interior l
 joined late, or predicted the action incorrectly.
 
 The base-game investigation and confirmed failure signatures are maintained in
-[`research/DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md`](research/DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md).
+[`../research/DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md`](../research/DERAIL_VALLEY_TRAIN_SYNCHRONIZATION_LOGIC.md).
 Fixture behavior is maintained in
-[`research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md`](research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md).
+[`../research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md`](../research/DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md).
 
 ## Core invariant
 

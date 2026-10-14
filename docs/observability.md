@@ -828,7 +828,7 @@ dotnet build Multiplayer\Multiplayer.csproj -c Debug
 dotnet test Multiplayer.Protocol.Tests\Multiplayer.Protocol.Tests.csproj -c Debug
 ```
 
-`Multiplayer.Core` has no Unity or Derail Valley dependencies, and the production host registry delegates its ownership, placement, revision, claim, and recall decisions to that tested state machine. See `TESTING.md` for the test boundary and extraction roadmap.
+`Multiplayer.Core` has no Unity or Derail Valley dependencies, and the production host registry delegates its ownership, placement, revision, claim, and recall decisions to that tested state machine. See `testing.md` for the test boundary and extraction roadmap.
 
 The same core now owns item send-projection comparison (`state + holder + attached car/end`), bounded pending-snapshot ordering, and inventory-claim planning through `IInventoryView`. Deferred queues reject duplicate/stale revisions, cap at 256 entries, and allow an authoritative `FullSync` to supersede older queued deltas. `item.pending-snapshot-rejected` reports duplicate, stale, or capacity rejection; `item.snapshot-deferred` includes capacity, enqueue status, and the number of snapshots superseded by a full snapshot.
 

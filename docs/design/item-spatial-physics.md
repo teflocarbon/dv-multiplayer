@@ -8,14 +8,14 @@
 
 Define how a host-authoritative item can move through the world after it leaves an inventory or
 hand. This is deliberately separate from
-[`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md): that design owns
+[`item-world-sync.md`](item-world-sync.md): that design owns
 identity, lifecycle, placement, interest, and persistence, while this design owns transient spatial
 motion and the reliable commit of the resulting resting pose.
 The cross-feature states and precedence rules consumed by both designs are canonicalized in
-[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md).
+[`item-lifecycle.md`](item-lifecycle.md).
 Train-specific reactivation of settled items after support removal, item impacts, hard train
 motion, and derailment is specified separately in
-[`MULTIPLAYER_TRAIN_ITEM_WAKE_SYSTEM_DESIGN.md`](MULTIPLAYER_TRAIN_ITEM_WAKE_SYSTEM_DESIGN.md).
+[`train-item-wake.md`](train-item-wake.md).
 
 The immediate bug motivating this work is:
 
