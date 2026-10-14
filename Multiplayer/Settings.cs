@@ -13,7 +13,7 @@ namespace Multiplayer;
 [DrawFields(DrawFieldMask.OnlyDrawAttr)]
 public class Settings : UnityModManager.ModSettings, IDrawable
 {
-    public const int CURRENT_VERSION = 3;
+    public const int CURRENT_VERSION = 4;
     public const byte MAX_USERNAME_LENGTH = 24;
 
     public static Action<Settings> OnSettingsUpdated;
@@ -98,6 +98,40 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public int DebugLoopbackPort = 7778;
     [Draw("Enable Log File", Tooltip = "Whether to create a separate file for logs. This is useful for debugging, but should otherwise be kept off.", VisibleOn = "ShowAdvancedSettings|true")]
     public bool EnableLogFile;
+    [Space(10)]
+    [Header("Multiplayer Debug System")]
+    [Draw("Enable Debug System", Tooltip = "Enable structured in-process multiplayer diagnostics.", VisibleOn = "ShowAdvancedSettings|true")]
+#if DEBUG
+    public bool EnableDebugSystem = true;
+#else
+    public bool EnableDebugSystem = false;
+#endif
+    [Draw("Enable Debug File Logging", VisibleOn = "EnableDebugSystem|true")]
+    public bool EnableDebugFileLogging = true;
+    [Draw("Enable Debug Firehose", Tooltip = "Serve the local debug UI on a random loopback port.", VisibleOn = "EnableDebugSystem|true")]
+    public bool EnableDebugFirehose = true;
+    [Draw("Raw Packet Capture", Tooltip = "Capture raw packet payloads. Login payloads are always redacted.", VisibleOn = "EnableDebugSystem|true")]
+    public bool EnableRawPacketCapture;
+    [Draw("Enable World Labels", VisibleOn = "EnableDebugSystem|true")]
+    public bool EnableDebugWorldLabels;
+    [Draw("World Label Radius", Min = 5, Max = 500, VisibleOn = "EnableDebugWorldLabels|true")]
+    public float DebugWorldLabelRadius = 30f;
+    [Draw("World Label Scale", Min = 0.5, Max = 3, VisibleOn = "EnableDebugWorldLabels|true")]
+    public float DebugWorldLabelScale = 1f;
+    [Draw("World Label Update Rate", Min = 1, Max = 10, VisibleOn = "EnableDebugWorldLabels|true")]
+    public float DebugWorldLabelUpdateHz = 4f;
+    [Draw("Maximum World Labels", Min = 1, Max = 128, VisibleOn = "EnableDebugWorldLabels|true")]
+    public int DebugWorldLabelMaxCount = 64;
+    [Draw("Debug Overlay UI Scale", Min = 0.75, Max = 1.5, VisibleOn = "EnableDebugSystem|true")]
+    public float DebugOverlayUiScale = 1f;
+    [Draw("Show Labels Through Walls", VisibleOn = "EnableDebugWorldLabels|true")]
+    public bool DebugLabelsThroughWalls;
+    [Draw("High Frequency Sampling", Min = 1, Max = 120, VisibleOn = "EnableDebugSystem|true")]
+    public int DebugHighFrequencySampling = 10;
+    [Draw("Max Entity Timeline Events", Min = 50, Max = 2000, VisibleOn = "EnableDebugSystem|true")]
+    public int DebugMaxEntityTimelineEvents = 250;
+    [Draw("Max In-Memory Events", Min = 100, Max = 100000, VisibleOn = "EnableDebugSystem|true")]
+    public int DebugMaxInMemoryEvents = 10000;
     [Draw("Enable NAT Punch", VisibleOn = "ShowAdvancedSettings|true")]
     public bool EnableNatPunch = true;
     [Draw("Reuse NetPacketReaders", VisibleOn = "ShowAdvancedSettings|true")]
@@ -144,6 +178,14 @@ public class Settings : UnityModManager.ModSettings, IDrawable
 
         Port = Mathf.Clamp(Port, 1024, 49151);
         DebugLoopbackPort = Mathf.Clamp(DebugLoopbackPort, 1024, 49151);
+        DebugWorldLabelRadius = Mathf.Clamp(DebugWorldLabelRadius, 5f, 500f);
+        DebugWorldLabelScale = Mathf.Clamp(DebugWorldLabelScale, 0.5f, 3f);
+        DebugWorldLabelUpdateHz = Mathf.Clamp(DebugWorldLabelUpdateHz, 1f, 10f);
+        DebugWorldLabelMaxCount = Mathf.Clamp(DebugWorldLabelMaxCount, 1, 128);
+        DebugOverlayUiScale = Mathf.Clamp(DebugOverlayUiScale, 0.75f, 1.5f);
+        DebugHighFrequencySampling = Mathf.Clamp(DebugHighFrequencySampling, 1, 120);
+        DebugMaxEntityTimelineEvents = Mathf.Clamp(DebugMaxEntityTimelineEvents, 50, 2000);
+        DebugMaxInMemoryEvents = Mathf.Clamp(DebugMaxInMemoryEvents, 100, 100000);
         MaxPlayers = Mathf.Clamp(MaxPlayers, 1, byte.MaxValue);
         Password = Password?.Trim();
 

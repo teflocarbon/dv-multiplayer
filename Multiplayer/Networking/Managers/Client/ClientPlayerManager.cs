@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Object = UnityEngine.Object;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 
 namespace Multiplayer.Networking.Managers.Client;
 
@@ -57,6 +59,8 @@ public class ClientPlayerManager
         networkedPlayer.ChangeModel(model.Prefab);
 
         playerMap.Add(playerId, networkedPlayer);
+        EntityDebugRegistry.RegisterPlayer(networkedPlayer);
+        DebugRuntime.Publish("player", "player.joined", DebugRuntimeSide.Client, entityType: "Player", entityId: playerId.ToString(), data: DebugValueSnapshotter.SnapshotObject(new { username, crewName, characterId, isVr }));
         OnPlayerConnected?.Invoke(networkedPlayer);
     }
 
@@ -66,6 +70,8 @@ public class ClientPlayerManager
             return;
 
         OnPlayerDisconnected?.Invoke(networkedPlayer);
+        DebugRuntime.Publish("player", "player.disconnected", DebugRuntimeSide.Client, entityType: "Player", entityId: playerid.ToString(), data: EntityDebugRegistry.Get("Player", playerid.ToString())?.LatestState);
+        EntityDebugRegistry.Unregister("Player", playerid.ToString());
         Object.Destroy(networkedPlayer.gameObject);
         playerMap.Remove(playerid);
     }
@@ -83,6 +89,7 @@ public class ClientPlayerManager
             return;
         player.UpdateCar(carId);
         player.UpdatePosition(trackingData, posture, isOnCar);
+        EntityDebugRegistry.RegisterPlayer(player);
     }
 
     public void UpdatePreferences(byte playerId, Dictionary<PlayerPreference, string> preferences)

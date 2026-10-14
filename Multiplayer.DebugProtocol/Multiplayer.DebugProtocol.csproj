@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Multiplayer.Debugging.Protocol</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Newtonsoft.Json" />
+    <EmbeddedResource Include="..\DebugRemoteClient\WebUI\index.html" Link="WebUI\index.html" LogicalName="Multiplayer.Debugging.Protocol.WebUI.index.html" />
+    <EmbeddedResource Include="..\DebugRemoteClient\WebUI\app.css" Link="WebUI\app.css" LogicalName="Multiplayer.Debugging.Protocol.WebUI.app.css" />
+    <EmbeddedResource Include="..\DebugRemoteClient\WebUI\app.js" Link="WebUI\app.js" LogicalName="Multiplayer.Debugging.Protocol.WebUI.app.js" />
+  </ItemGroup>
+</Project>

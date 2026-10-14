@@ -15,6 +15,7 @@ using System.Net;
 using System;
 using UnityEngine.SceneManagement;
 using UnityEngine;
+using Multiplayer.Debugging;
 
 namespace Multiplayer.Components.Networking;
 
@@ -141,6 +142,7 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
             return false;
 
         Server = server;
+        DebugRuntime.SetRole("host", Multiplayer.Settings.GetUserName());
 
         // Register server API
         var serverAPI = new ServerAPIProvider(server);
@@ -163,6 +165,8 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
         client.Start(address, port, password, isSinglePlayer, onDisconnect);
 
         Client = client;
+        if (Server == null)
+            DebugRuntime.SetRole("client", client.Username);
 
         // Register client API
         var clientAPI = new ClientAPIProvider(client);

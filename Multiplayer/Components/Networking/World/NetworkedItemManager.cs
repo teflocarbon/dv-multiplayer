@@ -10,6 +10,8 @@ using Multiplayer.Utils;
 using DV;
 using DV.Interaction;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Debugging;
+using Multiplayer.Debugging.Protocol;
 
 namespace Multiplayer.Components.Networking.World;
 
@@ -190,8 +192,10 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
                 if (sqrDistance <= MAX_DISTANCE_TO_ITEM_SQR)
                 {
+                    bool enteredRelevance = !player.NearbyItems.ContainsKey(item);
                     //NetworkLifecycle.Instance.Server.LogDebug(() => $"UpdatePlayerItemLists() Adding for player: {player?.Username}, Nearby Item: {item?.NetId}, {item?.name}");
                     player.NearbyItems[item] = currentTime;
+                    if (enteredRelevance) TraceItem("item.relevance-enter", item, new() { ["playerId"] = player.PlayerId, ["distance"] = Mathf.Sqrt(sqrDistance) });
                 }
             }
 
@@ -204,6 +208,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
                 {
                     //NetworkLifecycle.Instance.Server.LogDebug(() => $"UpdatePlayerItemLists() Removing for player: {player?.Username}, Nearby Item: {kvp.Key?.NetId}, {kvp.Key?.name}");
                     player.NearbyItems.Remove(kvp.Key);
+                    TraceItem("item.relevance-leave", kvp.Key, new() { ["playerId"] = player.PlayerId });
                 }
             }
         }
@@ -387,6 +392,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     private void ProcessReceivedAsClient(ItemUpdateData snapshot)
     {
         NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem netItem);
+        TraceSnapshot("item.snapshot-dispatch", snapshot);
 
         NetworkLifecycle.Instance.Client.LogDebug(() => $"NetworkedItemManager.ProcessReceivedAsClient() Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create)
@@ -408,6 +414,8 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         else
         {
             NetworkLifecycle.Instance.Client.LogError($"NetworkedItemManager.ProcessReceivedAsClient() NetworkedItem not found on client! Update Type: {snapshot.UpdateType}, ItemNetId: {snapshot.ItemNetId}, prefabName: {snapshot.PrefabName}");
+            DebugRuntime.Publish("item", "item.missing-local-representation", DebugRuntimeSide.Client, DebugSeverity.Error,
+                "Item", snapshot.ItemNetId.ToString(), DebugValueSnapshotter.SnapshotObject(snapshot));
         }
     }
     #endregion
@@ -422,6 +430,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
         }
 
         NetworkedItem newItem = GetFromCache(snapshot.PrefabName);
+        bool reusedFromCache = newItem != null;
 
         if (newItem == null)
         {
@@ -438,10 +447,12 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
 
             //Make sure we have a NetworkedItem
             newItem = gameObject.GetOrAddComponent<NetworkedItem>();
+            TraceItem("item.instantiated", newItem, new() { ["prefabName"] = snapshot.PrefabName });
         }
 
         newItem.gameObject.SetActive(true);
         newItem.NetId = snapshot.ItemNetId;
+        TraceItem(reusedFromCache ? "item.cache-reused" : "item.created", newItem, DebugValueSnapshotter.SnapshotObject(snapshot));
 
         newItem.ReceiveSnapshot(snapshot);
     }
@@ -502,6 +513,7 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
     private void SendToCache(NetworkedItem netItem)
     {
         string prefabName = netItem?.Item?.InventorySpecs?.itemPrefabName;
+        TraceItem("item.cache-enter", netItem, new() { ["prefabName"] = prefabName ?? string.Empty });
 
         //NetworkLifecycle.Instance.Client.LogDebug(() => $"Caching Spawned Item: {prefabName ?? ""}");
 
@@ -539,6 +551,20 @@ public class NetworkedItemManager : SingletonBehaviour<NetworkedItemManager>
             CachedItems[prefabName] = new List<NetworkedItem>();
         }
         CachedItems[prefabName].Add(netItem);
+    }
+
+    private static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
+    {
+        if (!DebugRuntime.EnabledFor("item") || snapshot == null) return;
+        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugValueSnapshotter.SnapshotObject(snapshot));
+    }
+
+    private static void TraceItem(string eventName, NetworkedItem item, Dictionary<string, object> data)
+    {
+        if (!DebugRuntime.EnabledFor("item") || item == null) return;
+        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            entityType: "Item", entityId: item.NetId.ToString(), data: data);
     }
 
     #endregion
