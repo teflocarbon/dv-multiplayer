@@ -156,8 +156,6 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
     public List<ushort> JobCars = [];
 
-    private bool tasksInitialized = false;
-
     protected override void Awake()
     {
         base.Awake();
@@ -205,8 +203,6 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
                 CreateNetworkedTask(task);
         }
 
-        tasksInitialized = true;
-
         //Multiplayer.LogDebug(() => $"NetworkedJob.Initialize(): Initialized NetworkedJob for jobId {job.ID} with {Job.tasks.Count} tasks");
     }
 
@@ -220,7 +216,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
     public static void EnqueueTask(Task task, Job job)
     {
-        if (TryGetFromJob(job, out var netJob) || netJob != null && netJob.tasksInitialized)
+        if (TryGetFromJob(job, out var netJob))
         {
             Multiplayer.LogDebug(() => $"NetworkedJob.EnqueueTask(): Creating task immediately for jobId {task.Job.ID}");
             netJob.CreateNetworkedTask(task);

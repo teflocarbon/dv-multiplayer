@@ -80,8 +80,8 @@ validate through `ServerPlayer`, never through the client's own idea of who it i
   `ReliableOrdered`, `ReliableUnordered` and `ReliableSequenced` become `Reliable`;
   `Unreliable` and `Sequenced` become `Unreliable`. So **`Sequenced` gives no ordering on
   Steam**; anything sent that way must tolerate reordering (train and player samples carry ticks).
-- `LiteNetLibTransport.cs` is only used as an optional extra server transport on 127.0.0.1
-  (`Settings.EnableDebugLoopbackClient`, port `DebugLoopbackPort`).
+- `LiteNetLibTransport.cs` is an alternative transport that nothing uses at the moment (the
+  `new LiteNetLibTransport()` line in `NetworkManager` is commented out).
 
 ### Packets
 

@@ -9,11 +9,10 @@
 <body>
   <header>
     <div><p class="eyebrow">DERAIL VALLEY MULTIPLAYER</p><h1>Runtime observability</h1></div>
-    <div class="header-runtime"><div id="connection" class="connection">Connecting…</div><div id="dashboard-build" class="dashboard-build">Build loading…</div></div>
+    <div class="header-runtime"><div id="connection" class="connection">Connecting…</div><div id="build" class="build-label">Build loading…</div></div>
   </header>
   <main>
     <section id="sessions" class="sessions"></section>
-    <nav class="view-tabs"><button id="events-tab" class="active">Event stream</button><button id="replication-tab">Item replication</button></nav>
     <section id="event-toolbar" class="toolbar" aria-label="Event filters">
       <input id="search" type="search" placeholder="Search events, entities and data…" autocomplete="off">
       <select id="session-filter"><option value="">All sessions</option></select>
@@ -31,18 +30,6 @@
     </section>
     <section id="event-stats" class="stats"><span id="count">0 events</span><span id="filtered"></span></section>
     <section id="events" class="events" aria-live="polite"></section>
-    <section id="replication-view" hidden>
-      <div class="replication-toolbar">
-        <input id="replication-search" type="search" placeholder="Search item ID, update type or discontinuity…" autocomplete="off">
-        <select id="replication-status"><option value="">All statuses</option><option>Pending</option><option>Complete</option><option>Rejected</option><option>Discontinuity</option><option>Ambiguous</option></select>
-        <label class="check"><input id="replication-problems" type="checkbox"> Problems only</label>
-        <button id="replication-captures" class="quiet">Auto captures: off</button>
-      </div>
-      <div class="replication-layout">
-        <section><div class="stats"><span id="replication-count">0 operations</span></div><div id="replication-list" class="replication-list"></div></section>
-        <section id="replication-detail" class="replication-detail"><p class="empty">Select a replication operation.</p></section>
-      </div>
-    </section>
   </main>
   <template id="event-template">
     <article class="event"><button class="event-head"><time></time><span class="session"></span><span class="direction"></span><span class="type"></span><span class="summary"></span><span class="status"></span></button></article>

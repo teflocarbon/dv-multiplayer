@@ -30,9 +30,8 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
   snapshot.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
-- The relay-only MU, hose and cock handlers are gone; their `Common*` packet classes
-  (`CommonHose*`, `CommonMu*`, `CommonCockFiddlePacket`, `CommonTrainCouplePacket`,
-  `CommonTrainUncouplePacket`) remain as unreferenced code.
+- The relay-only MU, hose, cock and couple/uncouple handlers and their `Common*` packets are
+  gone (removed in #59).
 
 **Join baseline: implemented.** The host sends `ClientboundTrainBaselineBeginPacket`, one numbered
 spawn packet per trainset, a topology snapshot tagged with the baseline ID, then

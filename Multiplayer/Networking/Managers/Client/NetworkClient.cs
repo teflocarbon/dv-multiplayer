@@ -294,10 +294,6 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundTrainsetRelocationPacket>(OnClientboundTrainsetRelocationPacket);
 
         netPacketProcessor.SubscribeReusable<ClientboundTrainsetPhysicsPacket>(OnClientboundTrainPhysicsPacket);
-        netPacketProcessor.SubscribeReusable<CommonTrainPortsPacket>(OnCommonSimFlowPacket);
-        netPacketProcessor.SubscribeReusable<CommonTrainFusesPacket>(OnCommonTrainFusesPacket);
-        netPacketProcessor.SubscribeReusable<CommonBrakeCylinderReleasePacket>(OnCommonBrakeCylinderReleasePacket);
-        netPacketProcessor.SubscribeReusable<CommonHandbrakePositionPacket>(OnCommonHandbrakePositionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundBrakeStateUpdatePacket>(OnClientboundBrakeStateUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundTrainControlCommitPacket>(OnClientboundTrainControlCommitPacket);
 
@@ -1216,58 +1212,6 @@ public class NetworkClient : NetworkManager
         }
 
         netTrainCar.Common_ReceiveCouplerInteraction(packet);
-    }
-
-    //private void OnCommonTrainCouplePacket(CommonTrainCouplePacket packet)
-    //{
-    //    TrainCar trainCar = null;
-    //    TrainCar otherTrainCar = null;
-
-    //    if (!NetworkedTrainCar.TryGet(packet.NetId, out trainCar) || !NetworkedTrainCar.TryGet(packet.OtherNetId, out otherTrainCar))
-    //    {
-    //        LogDebug(() => $"OnCommonTrainCouplePacket() netId: {packet.NetId}, trainCar found?: {trainCar != null}, otherNetId: {packet.OtherNetId}, otherTrainCar found?: {otherTrainCar != null}");
-    //        return;
-    //    }
-
-    //    LogDebug(() => $"OnCommonTrainCouplePacket() netId: {packet.NetId}, trainCar: {trainCar.ID}, otherNetId: {packet.OtherNetId}, otherTrainCar: {otherTrainCar.ID}");
-
-    //    Coupler coupler = packet.IsFrontCoupler ? trainCar.frontCoupler : trainCar.rearCoupler;
-    //    Coupler otherCoupler = packet.OtherCarIsFrontCoupler ? otherTrainCar.frontCoupler : otherTrainCar.rearCoupler;
-
-    //    if (coupler.CoupleTo(otherCoupler, packet.PlayAudio, false/*B99 packet.ViaChainInteraction*/) == null)
-    //        LogDebug(() => $"OnCommonTrainCouplePacket() netId: {packet.NetId}, trainCar: {trainCar.ID}, otherNetId: {packet.OtherNetId}, otherTrainCar: {otherTrainCar.ID} Failed to couple!");
-    //}
-
-    private void OnCommonBrakeCylinderReleasePacket(CommonBrakeCylinderReleasePacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar))
-            return;
-
-        trainCar.brakeSystem.ReleaseBrakeCylinderPressure();
-    }
-
-    private void OnCommonHandbrakePositionPacket(CommonHandbrakePositionPacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar))
-            return;
-
-        trainCar.brakeSystem.SetHandbrakePosition(packet.Position);
-    }
-
-    private void OnCommonSimFlowPacket(CommonTrainPortsPacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
-            return;
-
-        networkedTrainCar.Common_UpdatePorts(packet);
-    }
-
-    private void OnCommonTrainFusesPacket(CommonTrainFusesPacket packet)
-    {
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
-            return;
-
-        networkedTrainCar.Common_UpdateFuses(packet);
     }
 
     private void OnClientboundTrainControlAuthorityUpdatePacket(ClientboundTrainControlAuthorityUpdatePacket packet)
@@ -2193,30 +2137,6 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-
-    //public void SendTrainCouple(Coupler coupler, Coupler otherCoupler, bool playAudio, bool viaChainInteraction)
-    //{
-    //    ushort couplerNetId = coupler.train.GetNetId();
-    //    ushort otherCouplerNetId = otherCoupler.train.GetNetId();
-
-    //    if (couplerNetId == 0 || otherCouplerNetId == 0)
-    //    {
-    //        LogWarning($"SendTrainCouple failed. Coupler: {coupler.name} {couplerNetId}, OtherCoupler: {otherCoupler.name} {otherCouplerNetId}");
-    //        return;
-    //    }
-
-    //    SendPacketToServer(new CommonTrainCouplePacket
-    //    {
-    //        NetId = couplerNetId, //coupler.train.GetNetId(),
-    //        IsFrontCoupler = coupler.isFrontCoupler,
-    //        Value = (byte)coupler.state,
-    //        OtherNetId = otherCouplerNetId, //otherCoupler.train.GetNetId(),
-    //        OtherState = (byte)otherCoupler.state,
-    //        OtherCarIsFrontCoupler = otherCoupler.isFrontCoupler,
-    //        PlayAudio = playAudio,
-    //        ViaChainInteraction = viaChainInteraction
-    //    }, DeliveryMethod.ReliableUnordered);
-    //}
 
     public void SendHoseConnected(Coupler coupler, Coupler otherCoupler, bool playAudio)
     {

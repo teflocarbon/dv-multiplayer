@@ -56,10 +56,10 @@ Not done or different from the design:
 - **Abuse handling:** invalid witnesses produce a `train-item.wake-witness-rejected` event only.
   Nothing is sent back to the client, and there are no per-peer counters or witness disabling.
 - **Not built:** continuous collision detection for active items, directional (regional) wakes,
-  client-predicted ungluing, a per-car dashboard view (`Snapshot()` has no caller).
-- **Dead code** left from the lab: `NetworkedItemManager.ForceTrainItemWake`,
-  `TrainItemWakeSnapshot`, `DebugArrangeSettledTrainItem` and the `DebugRequest` wake reason have
-  no callers.
+  client-predicted ungluing, a per-car dashboard view.
+- The lab's hooks (`ForceTrainItemWake`, `TrainItemWakeSnapshot`, `DebugArrangeSettledTrainItem`
+  and the `DebugRequest` wake reason) were removed in #59; they are in git history if a dvmp wake
+  scenario wants them back.
 
 ## Purpose
 
@@ -177,12 +177,10 @@ HeavyBraking
 TrainJolt
 ViolentRotation
 Derailment
-DebugRequest
 ```
 
 These are the values of `TrainItemWakeReason`. The design's `Administrative` and `Recovery`
-sources were not built; `DebugRequest` is only reachable through the uncalled
-`ForceTrainItemWake`.
+sources were not built.
 
 ### Wake seed
 
@@ -869,7 +867,8 @@ cleanupClean
 - register/unregister glued items from settlement and logical transitions;
 - decouple wake validation from host Unity representations (partial: grants and bounds still use
   the host representation);
-- implement one host-approved administrative wake (`ForceWake`, now uncalled); and
+- implement one host-approved administrative wake (`ForceWake`, removed in #59 with the other
+  lab hooks); and
 - prove direct wake and re-glue on host and distant client.
 
 ### Phase 2: Train Item Lab — completed, then removed

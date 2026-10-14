@@ -622,9 +622,6 @@ The embedded server does not enable CORS. Mutating endpoints require the per-ses
 | `GET /api/entities` | Entity snapshots and timelines |
 | `GET /api/entities/{type}/{id}` | One entity record |
 | `GET /api/settings` | Runtime trace settings |
-| `GET /api/replication` | Item-replication operations; always empty in a game process (only the removed dashboard filled it) |
-| `GET /api/replication/{operationId}` | One replication operation; 404 in a game process |
-| `GET /api/automation` | Debug builds only: build number, PID and session ID |
 
 ### Token-protected endpoints
 
@@ -637,9 +634,7 @@ The embedded server does not enable CORS. Mutating endpoints require the per-ses
 | `POST /api/events/query` | Debug builds only: filter the in-memory events by session, category, event, entity, correlation, severity and time (up to 5,000) |
 
 The token is also returned by `GET /api/session`, which is how the bundled Web UI gets it, so it
-stops cross-origin browser requests rather than other local processes. Debug builds still route
-`/api/runtime-tests/*`, `/api/runtime-environment/*` and `/api/dashboard/shutdown`; nothing
-registers them since the runtime test system and dashboard were removed, so they return 404.
+stops cross-origin browser requests rather than other local processes.
 
 Each SSE subscriber has a bounded queue of 2,048 events so a slow browser cannot block Unity or unboundedly grow memory.
 
@@ -663,10 +658,6 @@ The Web UI supports filters for:
 - application stage.
 
 It also exposes marker creation, capture start/stop, Raw mode, entity/session inspection, and full event details.
-
-The `Item replication` tab is left over from the dashboard, which built cross-process replication
-operations from every peer's events. A game process does not build them, so the tab is always
-empty.
 
 The host still emits `item.delivery-expected` immediately before each real recipient send. The event records recipient player/peer, loading state, delivery method, known/nearby state, known tick, dirty tick, and the current send decision. This instrumentation is guarded and does not select, add, remove, or reorder recipients.
 
@@ -806,7 +797,7 @@ schema-aware debug packet projections run by `Multiplayer.Protocol.Tests`, are d
 
 The same core now owns item send-projection comparison (`state + holder + attached car/end`), bounded pending-snapshot ordering, and inventory-claim planning through `IInventoryView`. Deferred queues reject duplicate/stale revisions, cap at 256 entries, and allow an authoritative `FullSync` to supersede older queued deltas. `item.pending-snapshot-rejected` reports duplicate, stale, or capacity rejection; `item.snapshot-deferred` includes capacity, enqueue status, and the number of snapshots superseded by a full snapshot.
 
-Recipient completion, temporary compatibility-adoption coordination, storage placement, and remote hand/inventory projection are also pure core decisions. `RecipientCompletionEvaluator` (expected/received/applied completion with 750 ms / 2 s discontinuity boundaries) was used by the removed dashboard and is now only exercised by its tests. While the temporary bridge exists, it permits one pending token per eligible Unity item and ignores unknown or duplicate completed results; the host scopes tokens by authenticated player and replays the original completed token-to-NetId outcome. `item.adoption-request-suppressed` and `item.adoption-result-ignored` expose coordinator rejections. These coordinators and tests are removed with the bridge after all creation producers become host operations. Storage world projection removes conflicting inventory, lost-and-found, and item-container memberships according to one plan; `storage.multiple-membership-repaired` reports overlap repair and `storage.transition-rejected` reports an unavailable/invalid projection.
+Temporary compatibility-adoption coordination, storage placement, and remote hand/inventory projection are also pure core decisions. (`RecipientCompletionEvaluator` and `ItemReplicaStateComparer`, which only the removed dashboard used, were deleted in #59.) While the temporary bridge exists, it permits one pending token per eligible Unity item and ignores unknown or duplicate completed results; the host scopes tokens by authenticated player and replays the original completed token-to-NetId outcome. `item.adoption-request-suppressed` and `item.adoption-result-ignored` expose coordinator rejections. These coordinators and tests are removed with the bridge after all creation producers become host operations. Storage world projection removes conflicting inventory, lost-and-found, and item-container memberships according to one plan; `storage.multiple-membership-repaired` reports overlap repair and `storage.transition-rejected` reports an unavailable/invalid projection.
 
 NetId allocation, relevance hysteresis, known-item delivery selection, and tracked-value
 full-sync/delta composition are now pure tested decisions too. The runtime allocator reserves zero,

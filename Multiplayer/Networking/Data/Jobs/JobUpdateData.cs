@@ -7,7 +7,6 @@ namespace Multiplayer.Networking.Data.Jobs;
 public struct JobUpdateStruct : INetSerializable
 {
     public ushort JobNetID;
-    public bool Invalid;
     public JobState JobState;
     public float StartTime;
     public float FinishTime;
@@ -19,12 +18,6 @@ public struct JobUpdateStruct : INetSerializable
     public readonly void Serialize(NetDataWriter writer)
     {
         writer.Put(JobNetID);
-        writer.Put(Invalid);
-
-        //Invalid jobs will be deleted / deregistered
-        if (Invalid)
-            return;
-
         writer.Put((byte)JobState);
         writer.Put(StartTime);
         writer.Put(FinishTime);
@@ -37,11 +30,6 @@ public struct JobUpdateStruct : INetSerializable
     public void Deserialize(NetDataReader reader)
     {
         JobNetID = reader.GetUShort();
-        Invalid = reader.GetBool();
-
-        if (Invalid)
-            return;
-
         JobState = (JobState)reader.GetByte();
         StartTime = reader.GetFloat();
         FinishTime = reader.GetFloat();

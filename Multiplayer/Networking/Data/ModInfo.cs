@@ -96,7 +96,7 @@ public readonly struct ModInfo
         {
             return Newtonsoft.Json.JsonConvert.DeserializeObject<ModInfo[]>(json);
         }
-        catch (Exception e)
+        catch (Exception)
         {
             // Try legacy format: comma-separated string of mod names
             var modNames = json.Split(',')

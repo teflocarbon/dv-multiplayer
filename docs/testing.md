@@ -26,7 +26,7 @@ The suite (NUnit, `net8.0`) mirrors the folders of `Multiplayer.Core`:
 | `Collections/` | Pending-snapshot queue ordering, duplicate/stale rejection, bounded overflow, full snapshots superseding deltas, deferred drain planning. |
 | `Containers/` | Cold-container graph rules (owner-only access, revisions, idempotent deposits, transactional withdrawal, moves, slots, cycle/depth/quota limits) and the bounded binary save codec. |
 | `Identity/` | NetId allocation: reserved zero, collisions, release/reuse, exhaustion without wrapping, a 10,000-operation stress run. |
-| `Replication/` | Interest entry at 100 m with a three-second removal delay, dirty-vs-full-sync selection, replica state comparison, recipient completion and its timeout boundaries. |
+| `Replication/` | Interest entry at 100 m with a three-second removal delay, dirty-vs-full-sync selection and known-item delivery. |
 | `Jobs/` | Job booklet issuance index. |
 | `Trains/` | Train baseline receipt and the train topology (coupling) state machine. |
 
