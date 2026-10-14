@@ -16,6 +16,7 @@
     <None Update="WebUI\**\*" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="LiteNetLib" Version="1.3.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <ProjectReference Include="..\Multiplayer.DebugProtocol\Multiplayer.DebugProtocol.csproj" />
     <!-- Use the exact build artifact, not an older Multiplayer.dll copied into a previous debug output. -->
     <Reference Include="$(MultiplayerAssemblyPath)"><Private>true</Private></Reference>
     <None Include="$(ProtocolManifestPath)" Link="protocol-manifest.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(ProtocolManifestPath)')" />

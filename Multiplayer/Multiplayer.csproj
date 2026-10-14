@@ -77,6 +77,7 @@
         <Reference Include="Facepunch.Steamworks.Win64" />
         <PackageReference Include="Humanizer.Core" Version="2.14.1" />
         <ProjectReference Include="..\MultiplayerAPI\MultiplayerAPI.csproj" />
+        <ProjectReference Include="..\Multiplayer.DebugProtocol\Multiplayer.DebugProtocol.csproj" />
         <Reference Include="I2.Localization" />
         <Reference Include="MultiplayerEditor">
             <HintPath>../build/MultiplayerEditor.dll</HintPath>
@@ -122,7 +123,7 @@
         <!-- Sign Assemblies if in 'Release' -->
         <Exec Condition="$(ConfigurationName) == 'Release' AND $(Cert-Thumb) != ''" Command="&quot;$(SignToolPath)SignTool.exe&quot; sign /sha1 $(Cert-Thumb) /fd SHA256 /t http://timestamp.sectigo.com &quot;$(TargetPath)&quot; &quot;$(OutDir)/LiteNetLib.dll&quot;" />
         <!-- Copy to build folder -->
-        <Copy SourceFiles="../info.json;../locale.csv;../LICENSE;$(TargetPath);$(OutDir)/Humanizer.dll;$(OutDir)/LiteNetLib.dll" DestinationFolder="../build/" />
+        <Copy SourceFiles="../info.json;../locale.csv;../LICENSE;$(TargetPath);$(OutDir)/Humanizer.dll;$(OutDir)/LiteNetLib.dll;$(OutDir)/Multiplayer.DebugProtocol.dll" DestinationFolder="../build/" />
         <!-- Update Json, copy to game directory and make package if in 'Release' -->
         <!-- Windows: use powershell -->
         <Exec Condition="$(ConfigurationName) == 'Release' AND $([MSBuild]::IsOsPlatform('Windows'))" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
