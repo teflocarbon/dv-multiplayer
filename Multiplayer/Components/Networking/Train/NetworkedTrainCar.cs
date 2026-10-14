@@ -2249,7 +2249,24 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 {
                     if (TrainCar.rb != null)
                     {
+                        // Move the bogies with the body and stop everything: moving the body
+                        // alone left the bogies to drag it back, and kept whatever speed the car
+                        // had built up locally (the snap then "bounced").
+                        Vector3 shift = worldPos - TrainCar.rb.position;
                         TrainCar.rb.MovePosition(worldPos);
+                        TrainCar.rb.velocity = Vector3.zero;
+                        TrainCar.rb.angularVelocity = Vector3.zero;
+                        if (TrainCar.Bogies != null)
+                        {
+                            foreach (Bogie bogie in TrainCar.Bogies)
+                            {
+                                if (bogie == null || bogie.HasDerailed || bogie.rb == null)
+                                    continue;
+                                bogie.rb.MovePosition(bogie.rb.position + shift);
+                                bogie.rb.velocity = Vector3.zero;
+                                bogie.rb.angularVelocity = Vector3.zero;
+                            }
+                        }
 
                         //TrainCar.rb.MoveRotation(movementPart.Rotation); // removed due to motion sickness issues
                     }
@@ -2272,15 +2289,18 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         bool kinematic = movementPart.Speed < NetworkTrainsetWatcher.VELOCITY_THRESHOLD && (movementPart.RigidbodySnapshot != null && movementPart.RigidbodySnapshot.Velocity.magnitude < NetworkTrainsetWatcher.VELOCITY_THRESHOLD);
 
+        // Only write isKinematic when it changes: the write itself disturbs the body (and an
+        // on-rail car's is always false here, with no rigidbody snapshot).
         if (kinematic && kinematicCycles < MIN_KINEMATIC_CYCLES)
             kinematicCycles++;
-        else
+        else if (TrainCar.rb.isKinematic != kinematic)
             TrainCar.rb.isKinematic = kinematic;
 
         if (!kinematic)
         {
             kinematicCycles = 0;
-            TrainCar.rb.isKinematic = kinematic;
+            if (TrainCar.rb.isKinematic)
+                TrainCar.rb.isKinematic = false;
         }
 
         return becameDerailed;

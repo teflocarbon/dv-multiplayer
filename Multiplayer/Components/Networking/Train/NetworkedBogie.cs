@@ -139,13 +139,17 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
     public bool TryGetAlongTrackError(TrainCar car, out float metres)
     {
         metres = 0f;
+        // A stopped host car is where its last sample says, however old that is: projecting
+        // nothing, it can't go stale. A moving sample can.
+        bool holding = Mathf.Abs(sampleSpeed) < TrainSpeedQueue.HoldSpeed;
         if (!hasSample || Bogie == null || Bogie.HasDerailed || Bogie.track != sampleTrack ||
-            Bogie.traveller == null || Time.time - sampleTime > MaxSampleAgeSeconds * 2)
+            Bogie.traveller == null || (!holding && Time.time - sampleTime > MaxSampleAgeSeconds * 2))
             return false;
 
         // Span increases along the bogie's forward when its track direction is +1.
         float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
-        double hostSpan = sampleSpan + sampleDirection * bogieToCar * sampleSpeed * (Time.time - sampleTime);
+        double hostSpan = holding ? sampleSpan
+            : sampleSpan + sampleDirection * bogieToCar * sampleSpeed * (Time.time - sampleTime);
         metres = (float)(hostSpan - Bogie.traveller.Span) * Bogie.TrackDirectionSign * bogieToCar;
         return true;
     }
