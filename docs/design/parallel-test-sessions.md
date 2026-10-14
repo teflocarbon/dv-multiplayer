@@ -1,7 +1,9 @@
 # Parallel dvmp test sessions
 
-> Status: planned. Step 7 (lean harness games) is in progress on `perf/lean-harness-games`;
-> nothing else is built. Findings below were checked against the code on 2026-10-14.
+> Status: steps 1-3 and 6 are built (sessions, ports, launch lock, the parallel gate runner); see
+> [Results](#results). Step 7 (lean harness games) is on `perf/lean-harness-games`. Steps 4
+> (MCP), 5 (separate user data) and 8 (docs) are still to do. Findings below were checked against
+> the code on 2026-10-14.
 
 ## Purpose
 
@@ -118,14 +120,17 @@ temp files. Launches and tracer installs need to be serialised.
 ### Ports
 
 - `DataRoot\sessions\<s>\session.json` stores `{ port, created }`.
-- Named sessions take the lowest free port from 7801, checked with a quick `UdpClient` bind under
-  the launch lock. The default session keeps `Settings.Port`.
+- Named sessions take the lowest free port from 7801 under the launch lock. The default session
+  keeps `Settings.Port`.
+- "Free" means no process has a UDP socket on it in the system's table (`GetExtendedUdpTable`,
+  `Win32.UdpPortOwners`). A test bind doesn't work: the game's socket allows address reuse, so
+  binding its port succeeds while the game is listening on it.
 - **No mod change is needed.** `NetworkLifecycle.StartServer` already uses `serverData.port` for
   multiplayer games, and the host probe (`DevTools/Dvmp/Probes/host.cs`) fills that in. It gains
   a `port` argument and stores the result in `DevContext.State["dvmp.port"]`, which the
   client-only rejoin path in `Session.cs` reads instead of `Settings.Port`.
-- After the host is up, binding its port must fail. If the bind succeeds, the host isn't
-  listening: fail loudly instead of letting the client wander.
+- After the host is up, its process must own the port in that table. If it doesn't, fail loudly
+  instead of letting the client wander to whichever game does.
 
 ### Launch lock
 

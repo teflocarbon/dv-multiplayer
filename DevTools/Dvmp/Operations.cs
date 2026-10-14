@@ -11,9 +11,9 @@ internal static class Operations
     // Per-process log cursors so repeated log calls only return what is new.
     private static readonly ConcurrentDictionary<int, long> logCursors = new();
 
-    public static async Task<JsonObject> StatusAsync(CancellationToken ct = default)
+    public static async Task<JsonObject> StatusAsync(CancellationToken ct = default, bool all = false)
     {
-        List<Agent> agents = await Agents.DiscoverAsync(ct);
+        List<Agent> agents = await Agents.DiscoverAsync(ct, all);
         JsonArray list = new();
         foreach (Agent agent in agents)
         {
@@ -21,12 +21,14 @@ internal static class Operations
             entry.Remove("ok");
             entry["pid"] = agent.Pid;
             entry["port"] = agent.Info.Port;
+            entry["session"] = agent.Session;
             if (agent.StatusError != null) entry["error"] = agent.StatusError;
             list.Add(entry);
         }
         return new JsonObject
         {
             ["agents"] = list,
+            ["session"] = all ? "(all)" : Sessions.Current,
             ["gameDir"] = Paths.GameDir,
             ["hint"] = agents.Count == 0 ? "no game running with the dev agent" : null
         };

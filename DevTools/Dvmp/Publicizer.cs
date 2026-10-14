@@ -28,9 +28,11 @@ internal static class Publicizer
         {
             foreach (TypeDefinition type in assembly.MainModule.GetTypes())
                 Publicize(type);
-            string temp = target + ".tmp";
+            // Unique per writer: two dvmp processes (parallel sessions) can publicize at once.
+            string temp = $"{target}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
             assembly.Write(temp);
-            File.Move(temp, target, overwrite: true);
+            try { File.Move(temp, target, overwrite: true); }
+            catch (IOException) when (File.Exists(target)) { File.Delete(temp); } // another writer won; same content
         }
         return target;
     }

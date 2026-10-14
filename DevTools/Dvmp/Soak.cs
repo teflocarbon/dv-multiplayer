@@ -52,7 +52,7 @@ internal static class Soak
 
         string dir = Path.Combine(Paths.DataRoot, "reports");
         Directory.CreateDirectory(dir);
-        string path = Path.Combine(dir, $"soak-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        string path = Path.Combine(dir, $"soak-{DateTime.Now:yyyyMMdd-HHmmss}{Sessions.Suffix}.json");
         await File.WriteAllTextAsync(path, new JsonObject { ["soak"] = summary.DeepClone(), ["actions"] = log, ["desyncReport"] = desync["reportPath"]?.DeepClone() }
             .ToJsonString(new JsonSerializerOptions { WriteIndented = true }), ct);
 

@@ -82,7 +82,7 @@ internal static class Desync
 
         string dir = Path.Combine(Paths.DataRoot, "reports");
         Directory.CreateDirectory(dir);
-        string path = Path.Combine(dir, $"desync-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+        string path = Path.Combine(dir, $"desync-{DateTime.Now:yyyyMMdd-HHmmss}{Sessions.Suffix}.json");
         JsonObject full = (JsonObject)report.DeepClone();
         full["allPersistent"] = new JsonArray(Ordered(persistent).Select(Describe).ToArray());
         full["allTransient"] = new JsonArray(Ordered(transient).Select(Describe).ToArray());

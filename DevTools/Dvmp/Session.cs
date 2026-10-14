@@ -109,10 +109,11 @@ internal static class Session
                 Mark("host healthy; launching client only");
                 JsonObject server = await RunProbeExpressionAsync(host,
                     "new { port = global::Multiplayer.Multiplayer.Settings.Port, password = global::Multiplayer.Multiplayer.Settings.Password ?? \"\" }");
-                Process lone = Launch("client", o);
-                Agent rejoined = await JoinAsync(lone, server["port"]!.GetValue<int>(), server["password"]!.GetValue<string>(), o);
+                int rejoinPort = Sessions.Port() ?? server["port"]!.GetValue<int>();
+                Process lone = await LaunchAsync("client", o);
+                Agent rejoined = await JoinAsync(lone, rejoinPort, server["password"]!.GetValue<string>(), o);
                 Mark("ready");
-                Win32.SetTitle(rejoined.Pid, "DVMP CLIENT (" + ClientName + ")");
+                Win32.SetTitle(rejoined.Pid, "DVMP CLIENT (" + ClientName + ")" + TitleSuffix);
                 return Result(host, rejoined, reused: false);
             }
 
@@ -124,12 +125,12 @@ internal static class Session
 
             DeployStaleBuild();
             Mark("launching host");
-            Process hostProcess = Launch("host", o);
+            Process hostProcess = await LaunchAsync("host", o);
             Agent hostAgent = await WaitForAgentAsync(hostProcess, TimeSpan.FromSeconds(90));
-            // Unity Mod Manager touches shared cache files while loading; start the client only
-            // once the host's mods are loaded.
+            // Unity Mod Manager touches shared cache files while loading; LaunchAsync starts the
+            // client only once the host's mods are loaded (and staggers other sessions' launches).
             Mark("launching client");
-            Process clientProcess = Launch("client", o);
+            Process clientProcess = await LaunchAsync("client", o);
 
             Mark("host: waiting for main menu");
             await WaitForMenuAsync(hostAgent, TimeSpan.FromSeconds(120));
@@ -139,6 +140,7 @@ internal static class Session
             if (!string.IsNullOrWhiteSpace(o.Save)) hostArgs["save"] = o.Save!;
             if (!string.IsNullOrWhiteSpace(o.NewSession)) hostArgs["new"] = o.NewSession!;
             if (!string.IsNullOrWhiteSpace(o.NewSessionName)) hostArgs["name"] = o.NewSessionName!;
+            if (Sessions.Port() is int sessionPort) hostArgs["port"] = sessionPort.ToString();
             JsonObject hosted = await RunProbeAsync(hostAgent, "host", hostArgs);
             int port = hosted["port"]?.GetValue<int>() ?? 7777;
             string password = hosted["password"]?.GetValue<string>() ?? string.Empty;
@@ -147,12 +149,16 @@ internal static class Session
 
             Mark("host: waiting for world + server");
             hostAgent = await WaitUntilAsync(hostAgent.Pid, a => a.Role == "host" && WorldLoaded(a), TimeSpan.FromSeconds(300), "host world load");
+            // If the host doesn't own its port, its client would join whatever else does (see
+            // Sessions.Port).
+            if (!Sessions.IsDefault && !Win32.UdpPortOwners(port).Contains(hostAgent.Pid))
+                throw new Exception($"the host is not listening on port {port}");
 
             Agent clientAgent = await JoinAsync(clientProcess, port, password, o);
 
             Mark("ready");
-            Win32.SetTitle(hostAgent.Pid, "DVMP HOST");
-            Win32.SetTitle(clientAgent.Pid, "DVMP CLIENT (" + ClientName + ")");
+            Win32.SetTitle(hostAgent.Pid, "DVMP HOST" + TitleSuffix);
+            Win32.SetTitle(clientAgent.Pid, "DVMP CLIENT (" + ClientName + ")" + TitleSuffix);
             JsonObject result = Result(hostAgent, clientAgent, reused: false);
             result["save"] = hosted["save"]?.DeepClone();
             return result;
@@ -217,9 +223,12 @@ internal static class Session
         return result;
     }
 
-    public static async Task<JsonObject> DownAsync(CancellationToken ct)
+    private static string TitleSuffix => Sessions.IsDefault ? string.Empty : $" [{Sessions.Current}]";
+
+    /// <summary>Quits the current session's games, or every session's with <paramref name="all"/>.</summary>
+    public static async Task<JsonObject> DownAsync(CancellationToken ct, bool all = false)
     {
-        List<Agent> agents = await Agents.DiscoverAsync(ct);
+        List<Agent> agents = await Agents.DiscoverAsync(ct, all);
         JsonArray stopped = new();
         await Task.WhenAll(agents.Select(async agent =>
         {
@@ -230,17 +239,27 @@ internal static class Session
             {
                 try { Process.GetProcessById(agent.Pid).Kill(); } catch { }
             }
-            lock (stopped) stopped.Add(new JsonObject { ["pid"] = agent.Pid, ["role"] = agent.Role, ["killed"] = !exited });
+            lock (stopped) stopped.Add(new JsonObject { ["pid"] = agent.Pid, ["role"] = agent.Role, ["session"] = agent.Session, ["killed"] = !exited });
         }));
         return new JsonObject { ["stopped"] = stopped };
     }
 
     // ------------------------------------------------------------------ helpers
 
+    /// <summary>Starts a game and returns once its dev agent is up, holding the launch lock until
+    /// then so mods never load in two games at once.</summary>
+    private static async Task<Process> LaunchAsync(string role, UpOptions o)
+    {
+        using IDisposable launching = Sessions.LaunchLock();
+        Process process = Launch(role, o);
+        await WaitForAgentAsync(process, TimeSpan.FromSeconds(90));
+        return process;
+    }
+
     private static Process Launch(string role, UpOptions o)
     {
         if (!File.Exists(Paths.GameExe)) throw new Exception($"game not found at {Paths.GameExe} (set DVMP_DV_DIR)");
-        string logs = Path.Combine(Paths.DataRoot, "logs");
+        string logs = Sessions.LogsDir;
         Directory.CreateDirectory(logs);
         string args = string.Join(" ",
             "-nonvr",
@@ -249,6 +268,7 @@ internal static class Session
             $"-screen-height {o.Height}",
             $"-logFile \"{Path.Combine(logs, role + ".log")}\"",
             $"-dvmp-role {role}",
+            Sessions.IsDefault ? string.Empty : $"-dvmp-session {Sessions.Current}",
             $"-dvmp-fps {o.FpsCap}",
             o.Sound ? "-dvmp-sound" : string.Empty);
         Process process = Process.Start(new ProcessStartInfo(Paths.GameExe, args)

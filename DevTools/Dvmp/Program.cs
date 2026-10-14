@@ -11,10 +11,10 @@ internal static class Program
         dvmp - DVMP dev harness
 
           dvmp mcp                                   run as an MCP server over stdio
-          dvmp status
+          dvmp status [--all]                        this session's games, or every session's
           dvmp up [--fresh] [--save NAME|UID] [--visible] [--fps N] [--sound] [--trace] [--new career|sandbox [--name N]]
                                              start/reuse a joined host + client (minimised, muted)
-          dvmp down                                  quit all agent-enabled games
+          dvmp down [--all]                          quit this session's games (--all: every session's)
           dvmp trace [-t target] [--ids 1,2] [--last N]   install/refresh tracer, show item history
           dvmp desync [-n samples] [-i seconds] [--top N]   cross-peer desync report
           dvmp soak [-t client|host|all] [-n actions] [--seed S] [-r radius] [--pause s] [--samples n] [--filter NamePrefix]
@@ -23,6 +23,8 @@ internal static class Program
           dvmp logs [-t target] [-l minLevel] [-c contains] [-n max]
 
         target: host | client | all (default) | pid
+        --session NAME (or DVMP_SESSION): act on that host + client pair; several can run at once.
+        Without it, the default session (as before sessions existed).
         """;
 
     public static async Task<int> Main(string[] args)
@@ -33,20 +35,29 @@ internal static class Program
             return args.Length == 0 ? 1 : 0;
         }
 
+        int sessionAt = Array.IndexOf(args, "--session");
+        if (sessionAt >= 0)
+        {
+            if (sessionAt + 1 >= args.Length || !Sessions.Valid(args[sessionAt + 1]))
+                return Fail("--session needs a name (letters, digits, - and _, up to 16)");
+            Sessions.SetForProcess(args[sessionAt + 1]);
+            args = args.Where((_, i) => i != sessionAt && i != sessionAt + 1).ToArray();
+        }
+
         if (args[0] == "mcp") return await RunMcpAsync();
 
         try
         {
             return args[0] switch
             {
-                "status" => Print(await Operations.StatusAsync()),
+                "status" => Print(await Operations.StatusAsync(all: args.Contains("--all"))),
                 "up" => PrintResult(await Session.UpAsync(
                     new UpOptions(args.Contains("--fresh"), Opt(args, "--save"), 960, 540, Arrange: true,
                         Background: !args.Contains("--visible"), FpsCap: int.Parse(Opt(args, "--fps") ?? "30"),
                         Sound: args.Contains("--sound"), Trace: args.Contains("--trace"),
                         NewSession: Opt(args, "--new"), NewSessionName: Opt(args, "--name")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
-                "down" => Print(await Session.DownAsync(CancellationToken.None)),
+                "down" => Print(await Session.DownAsync(CancellationToken.None, all: args.Contains("--all"))),
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),
                     double.Parse(Opt(args, "-r") ?? "40", System.Globalization.CultureInfo.InvariantCulture),
                     double.Parse(Opt(args, "--pause") ?? "1", System.Globalization.CultureInfo.InvariantCulture),

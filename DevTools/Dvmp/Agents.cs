@@ -16,7 +16,9 @@ internal sealed class Agent(AgentInfo info)
 
     public int Pid => Info.Pid;
     public string Role => Status?["role"]?.GetValue<string>() ?? "unknown";
-    public string Label => $"{Role}#{Pid}";
+    /// <summary>The session the game was launched into (see <see cref="Sessions"/>).</summary>
+    public string Session => Sessions.Of(Info.Args);
+    public string Label => Session == Sessions.Default ? $"{Role}#{Pid}" : $"{Role}#{Pid}@{Session}";
 }
 
 internal sealed class AgentException(string message) : Exception(message);
@@ -27,7 +29,8 @@ internal static class Agents
     private static readonly JsonSerializerOptions fileJson = new() { PropertyNameCaseInsensitive = true };
     private static readonly HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
 
-    public static async Task<List<Agent>> DiscoverAsync(CancellationToken ct = default)
+    /// <summary>The current session's games, or every session's with <paramref name="all"/>.</summary>
+    public static async Task<List<Agent>> DiscoverAsync(CancellationToken ct = default, bool all = false)
     {
         List<Agent> agents = new();
         if (!Directory.Exists(Paths.AgentsDir)) return agents;
@@ -44,7 +47,9 @@ internal static class Agents
                 TryDelete(file); // the game crashed or was killed without cleaning up
                 continue;
             }
-            agents.Add(new Agent(info));
+            Agent agent = new(info);
+            if (all || agent.Session == Sessions.Current)
+                agents.Add(agent);
         }
 
         await Task.WhenAll(agents.Select(async agent =>
@@ -61,7 +66,9 @@ internal static class Agents
         target = string.IsNullOrWhiteSpace(target) ? "all" : target.Trim().ToLowerInvariant();
         List<Agent> all = await DiscoverAsync(ct);
         if (all.Count == 0)
-            throw new AgentException("no game is running with the dev agent (start one with dvmp_up, or launch a Debug build)");
+            throw new AgentException(Sessions.IsDefault
+                ? "no game is running with the dev agent (start one with dvmp_up, or launch a Debug build)"
+                : $"no game is running in session '{Sessions.Current}' (start one with dvmp up --session {Sessions.Current})");
 
         List<Agent> selected = target switch
         {

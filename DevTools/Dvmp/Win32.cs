@@ -46,4 +46,37 @@ internal static class Win32
 
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    /// <summary>
+    /// The processes with an IPv4 UDP socket bound to <paramref name="port"/>. Read from the
+    /// system's table rather than by trying to bind the port: the game's socket allows address
+    /// reuse, so a test bind succeeds even while a game is listening.
+    /// </summary>
+    public static HashSet<int> UdpPortOwners(int port)
+    {
+        HashSet<int> owners = new();
+        int size = 0;
+        GetExtendedUdpTable(IntPtr.Zero, ref size, false, AfInet, UdpTableOwnerPid, 0);
+        IntPtr table = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (GetExtendedUdpTable(table, ref size, false, AfInet, UdpTableOwnerPid, 0) != 0) return owners;
+            int rows = Marshal.ReadInt32(table);
+            for (int i = 0; i < rows; i++)
+            {
+                // MIB_UDPROW_OWNER_PID: local address, local port (network byte order), owning pid.
+                IntPtr row = table + 4 + i * 12;
+                int rowPort = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)Marshal.ReadInt32(row, 4));
+                if (rowPort == port) owners.Add(Marshal.ReadInt32(row, 8));
+            }
+        }
+        finally { Marshal.FreeHGlobal(table); }
+        return owners;
+    }
+
+    private const int AfInet = 2;
+    private const int UdpTableOwnerPid = 1;
+
+    [DllImport("iphlpapi.dll")]
+    private static extern uint GetExtendedUdpTable(IntPtr table, ref int size, bool order, int family, int tableClass, uint reserved);
 }

@@ -1,6 +1,7 @@
 // Starts hosting from the main menu, through DV's own launcher so the normal
 // ContinueGameRequested pipeline (which Multiplayer hooks to start its server) runs.
-// Args: save = save name or UID (optional; defaults to the save the launcher shows).
+// Args: save = save name or UID (optional; defaults to the save the launcher shows),
+//       port = server port (optional; defaults to the mod's setting).
 using System.Reflection;
 using DV.Common;
 using DV.UI;
@@ -65,7 +66,9 @@ public static class Probe
         harmony.Patch(AccessTools.Method(typeof(LobbyServerManager), "Start"),
             prefix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(SkipLobby), BindingFlags.NonPublic | BindingFlags.Static)));
 
-        int port = MP.Settings.Port;
+        // A named dvmp session passes its own port, so parallel hosts never share one. The mod's
+        // settings (shared by every game) are left alone.
+        int port = ctx.Args.TryGetValue("port", out string p) ? int.Parse(p) : MP.Settings.Port;
         string password = MP.Settings.Password ?? string.Empty;
         lifecycle.serverData = new LobbyServerData
         {
