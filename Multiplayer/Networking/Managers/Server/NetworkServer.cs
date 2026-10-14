@@ -275,6 +275,7 @@ public class NetworkServer : NetworkManager
 
         netPacketProcessor.SubscribeReusable<ServerboundTrainDeleteRequestPacket, ITransportPeer>(OnServerboundTrainDeleteRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundTrainRerailRequestPacket, ITransportPeer>(OnServerboundTrainRerailRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundSandboxCargoPacket, ITransportPeer>(OnServerboundSandboxCargoPacket);
         netPacketProcessor.SubscribeReusable<ServerboundTrainSpawnRequestPacket, ITransportPeer>(OnServerboundTrainSpawnRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWorkTrainRequestPacket, ITransportPeer>(OnServerboundWorkTrainRequestPacket);
 
@@ -2414,6 +2415,42 @@ public class NetworkServer : NetworkManager
                 PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
         else
             SendPacket(requester, commit, DeliveryMethod.ReliableOrdered);
+    }
+
+    // The comms radio reaches about 100 m; allow for the car moving while the request travels.
+    private const float MaxSandboxCargoDistance = 200f;
+
+    private void OnServerboundSandboxCargoPacket(ServerboundSandboxCargoPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        // The loader is a sandbox tool: only when the host's settings make it available.
+        GameParams gameParams = Globals.G.GameParams;
+        bool freeRoam = DV.UserManagement.UserManager.Instance.CurrentUser.CurrentSession.GameMode.Equals("FreeRoam");
+        if (!(gameParams.CommsRadioSandboxCheatMode && freeRoam || gameParams.CommsRadioCheatMode))
+        {
+            LogWarning($"{player.Username} used the sandbox cargo loader, but it isn't enabled");
+            return;
+        }
+        if (!NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) || car == null || car.logicCar == null)
+            return;
+        if ((player.WorldPosition - car.transform.position).sqrMagnitude > MaxSandboxCargoDistance * MaxSandboxCargoDistance)
+        {
+            LogWarning($"{player.Username} used the sandbox cargo loader on {car.ID} from too far away");
+            return;
+        }
+
+        if (car.LoadedCargo != CargoType.None)
+            car.logicCar.UnloadCargo(car.LoadedCargoAmount, car.LoadedCargo);
+        if (packet.CargoTypeNetId == 0)
+            return;
+        if (!CargoTypeLookup.Instance.TryGet(packet.CargoTypeNetId, out CargoType_v2 cargo) || cargo == null ||
+            !cargo.IsLoadableOnCarType(car.carLivery.parentType))
+        {
+            LogWarning($"{player.Username} tried to load cargo {packet.CargoTypeNetId} that {car.ID} can't carry");
+            return;
+        }
+        car.logicCar.LoadCargo(car.cargoCapacity, cargo.v1);
     }
 
     private void OnServerboundTrainSyncRequestPacket(ServerboundTrainSyncRequestPacket packet,
