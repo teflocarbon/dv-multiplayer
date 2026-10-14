@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+eae970da68bf29c8e1602c1b9dcef4c14d9b9a0b",
-  "Fingerprint": "850baba31bda15dac415c652a4cdfa4cee25032b52a5e13ad54c3a027ac36a19",
+  "BuildVersion": "0.1.16.14+6b20aff949232b42740ca10f767bb7d0b9ff5464",
+  "Fingerprint": "bd808db1472faf4eda46123e309c1985cf7b6fbd64ee252200ceddaa4641cb2a",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -150,6 +150,15 @@
     {
       "Hash": "20B9D194A291C9FA",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundCustomizationsPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "21A5A3EB2FD47260",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundSleepStatePacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.World",
       "SemanticDecoder": null,
@@ -463,6 +472,24 @@
       "SuppressByDefault": true
     },
     {
+      "Hash": "66BA1C163001A269",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundExplosionPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "6821B87A43C11C5E",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundShopStockPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "69DC9947C6B2C0DC",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundDisconnectPacket",
       "Direction": "Clientbound",
@@ -670,6 +697,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "99419B353869E019",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundShopPurchasePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "997DE920B6424CAB",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundMoveTrainPacket",
       "Direction": "Clientbound",
@@ -737,6 +773,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundLoginResponsePacket",
       "Direction": "Clientbound",
       "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "AD5EE8EFD081ED9B",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundHazmatIgnitePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -836,6 +881,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundServerLoadingPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "C7494B5C40534BE3",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundSandboxCargoPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Train",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1030,6 +1084,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "F29DD8592C491F14",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundHazmatTilesPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "F399D3BBC00B8652",
       "TypeName": "Multiplayer.Networking.Packets.Common.CommonItemUpdatePacket",
       "Direction": "Bidirectional",
@@ -1043,6 +1106,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonHoseDisconnectedPacket",
       "Direction": "Bidirectional",
       "Category": "Common.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "F6005F058FA030CC",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundShopPaymentPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

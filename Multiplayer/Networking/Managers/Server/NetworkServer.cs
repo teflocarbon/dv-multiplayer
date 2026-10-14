@@ -7,6 +7,8 @@ using DV.LocoRestoration;
 using DV.Logic.Job;
 using DV.Scenarios.Common;
 using DV.ServicePenalty;
+using DV.Shops;
+using DV.CabControls;
 using DV.ThingTypes;
 using DV.WeatherSystem;
 using DV.Utils;
@@ -68,6 +70,7 @@ public class NetworkServer : NetworkManager
     protected override string LogPrefix => "[Server]";
 
     private readonly Queue<ITransportPeer> joinQueue = new();   //Queue for players attempting to join while server is loading
+    private readonly Queue<ITransportPeer> gameDataQueue = new(); // players waiting for game data while the server loads
 
     private readonly Dictionary<byte, ServerPlayer> serverPlayers = [];             //player Id to ServerPlayer mapping
     private readonly Dictionary<byte, ITransportPeer> peers = [];                   //player Id to peer mapping
@@ -124,6 +127,7 @@ public class NetworkServer : NetworkManager
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
     {
         Log($"Server created for {(singlePlayer ? "single player" : "multiplayer")} game");
+        HazmatSync.Reset();
 
         IsSinglePlayer = singlePlayer;
         ServerData = serverData;
@@ -272,6 +276,7 @@ public class NetworkServer : NetworkManager
 
         netPacketProcessor.SubscribeReusable<ServerboundTrainDeleteRequestPacket, ITransportPeer>(OnServerboundTrainDeleteRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundTrainRerailRequestPacket, ITransportPeer>(OnServerboundTrainRerailRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundSandboxCargoPacket, ITransportPeer>(OnServerboundSandboxCargoPacket);
         netPacketProcessor.SubscribeReusable<ServerboundTrainSpawnRequestPacket, ITransportPeer>(OnServerboundTrainSpawnRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWorkTrainRequestPacket, ITransportPeer>(OnServerboundWorkTrainRequestPacket);
 
@@ -288,6 +293,9 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundShopPaymentPacket, ITransportPeer>(OnServerboundShopPaymentPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundHazmatIgnitePacket, ITransportPeer>(OnServerboundHazmatIgnitePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundShopPurchasePacket, ITransportPeer>(OnServerboundShopPurchasePacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
@@ -410,6 +418,15 @@ public class NetworkServer : NetworkManager
         );
     }
 
+    private void SendGameData(ServerPlayer player, ITransportPeer peer)
+    {
+        var gameParamsPacket = ClientboundGameParamsPacket.FromGameParams(Globals.G.GameParams);
+        gameParamsPacket.FastTravelAdvancesTime = fastTravelAdvancesTime;
+
+        SendPacket(peer, gameParamsPacket, DeliveryMethod.ReliableOrdered);
+        SendPacket(peer, ClientboundSaveGameDataPacket.CreatePacket(player), DeliveryMethod.ReliableOrdered);
+    }
+
     private void OnLoaded()
     {
         if (!IsSinglePlayer)
@@ -423,6 +440,13 @@ public class NetworkServer : NetworkManager
         //We should initialise object here for dedicated servers, rather than relying on the existance of a client
         NetworkedPitStopStation.InitialisePitStops();
         NetworkedCashRegisterWithModules.InitialiseCashRegisters();
+
+        while (gameDataQueue.Count > 0)
+        {
+            ITransportPeer peer = gameDataQueue.Dequeue();
+            if (peer.ConnectionState.Equals(TransportConnectionState.Connected) && TryGetServerPlayer(peer, out ServerPlayer waiting))
+                SendGameData(waiting, peer);
+        }
 
         while (joinQueue.Count > 0)
         {
@@ -448,6 +472,8 @@ public class NetworkServer : NetworkManager
     {
         if (!IsLoaded)
             return;
+
+        HazmatSync.Server_Tick(tick);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)
         {
@@ -888,6 +914,12 @@ public class NetworkServer : NetworkManager
         }, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
 
         //LogDebug(()=> $"Sending Brake Pressures netId {netId}: {mainReservoirPressure}, {independentPipePressure}, {brakePipePressure}, {brakeCylinderPressure}");
+    }
+
+    public void SendExplosion(ushort carNetId, global::Multiplayer.Patches.Train.ExplosionSync.Kind kind, byte index)
+    {
+        SendPacketToAll(new ClientboundExplosionPacket { CarNetId = carNetId, Kind = (byte)kind, Index = index },
+            DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
     }
 
     public void SendCargoState(NetworkedTrainCar netTraincar, bool isLoading, byte cargoModelIndex)
@@ -1653,6 +1685,7 @@ public class NetworkServer : NetworkManager
         serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
         peerToPlayer.Add(peer, serverPlayer);
         AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
+        NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
         WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
 
         ClientboundLoginResponsePacket acceptPacket = new()
@@ -1703,11 +1736,15 @@ public class NetworkServer : NetworkManager
 
                 PlayerConnected?.Invoke(player);
 
-                var gameParamsPacket = ClientboundGameParamsPacket.FromGameParams(Globals.G.GameParams);
-                gameParamsPacket.FastTravelAdvancesTime = fastTravelAdvancesTime;
-
-                SendPacket(peer, gameParamsPacket, DeliveryMethod.ReliableOrdered);
-                SendPacket(peer, ClientboundSaveGameDataPacket.CreatePacket(player), DeliveryMethod.ReliableOrdered);
+                // Until the host's save has loaded, its difficulty is still the defaults (map markers, fast
+                // travel and the rest all allowed). A player joining then kept them for the session.
+                if (!IsLoaded)
+                {
+                    Log($"Player {player.Username} wants game data but the server is still loading, holding it");
+                    gameDataQueue.Enqueue(peer);
+                    break;
+                }
+                SendGameData(player, peer);
 
                 break;
 
@@ -1742,6 +1779,8 @@ public class NetworkServer : NetworkManager
 
                 // Send weather state
                 SendWeatherState(peer);
+                SendSleepState(peer);
+                SendShopStock(peer);
 
                 // Send junctions and turntables
                 SendPacket(peer, new ClientboundRailwayStatePacket
@@ -1873,7 +1912,7 @@ public class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForTiles:
-                // Send Hazmat data
+                HazmatSync.Server_SendAll(peer);
                 break;
 
             case PlayerLoadingState.Complete:
@@ -1988,6 +2027,11 @@ public class NetworkServer : NetworkManager
 
     private void OnServerboundTimeAdvancePacket(ServerboundTimeAdvancePacket packet, ITransportPeer peer)
     {
+        if (packet.IsSleep)
+        {
+            OnSleepRequest(packet, peer);
+            return;
+        }
 
         if (!fastTravelAdvancesTime)
         {
@@ -2006,6 +2050,78 @@ public class NetworkServer : NetworkManager
             PlayerLoadingState.ReadyForWorldState,
             peer
         );
+    }
+
+    // One sleep cooldown for everyone, kept by the host. Each game used to check only its own last
+    // wake-up (and a client's started empty on every join), so players could sleep one after another
+    // and skip as much time as they liked, making everyone's jobs late.
+    private void OnSleepRequest(ServerboundTimeAdvancePacket packet, ITransportPeer peer)
+    {
+        TryGetServerPlayer(peer, out ServerPlayer player);
+        BedSleepingController sleep = BedSleepingController.Instance;
+        if (sleep == null || packet.amountOfTimeToSkipInSeconds <= 0 || packet.amountOfTimeToSkipInSeconds > 24 * 3600)
+            return;
+
+        // The host's own sleep has already happened here (vanilla checked the cooldown and set the
+        // wake time): pass the time skip on and share the wake time.
+        if (player != null && NetworkLifecycle.Instance.IsHost(player))
+        {
+            SendPacketToAll(new ClientboundTimeAdvancePacket { amountOfTimeToSkipInSeconds = packet.amountOfTimeToSkipInSeconds },
+                DeliveryMethod.ReliableUnordered, PlayerLoadingState.ReadyForWorldState, peer);
+            SendSleepState();
+            return;
+        }
+
+        DateTime now = sleep.GetCurrentIngameTime();
+        bool disabled = Globals.G.GameParams.SleepCooldownInHours < 0;
+        double sinceWake = (now - sleep.lastWakeTime).TotalSeconds;
+        double cooldown = sleep.GetMinimumTimeSinceLastWakeSeconds();
+        if (disabled || sinceWake < cooldown)
+        {
+            LogWarning($"{player?.Username} tried to sleep, but {(disabled ? "sleeping is disabled" : $"the shared cooldown has {cooldown - sinceWake:N0}s left")}");
+            // Their game skipped the time locally; the weather sync puts their clock back.
+            SendSleepState(peer);
+            SendWeatherState(peer);
+            return;
+        }
+
+        SendPacketToAll(new ClientboundTimeAdvancePacket { amountOfTimeToSkipInSeconds = packet.amountOfTimeToSkipInSeconds },
+            DeliveryMethod.ReliableUnordered, PlayerLoadingState.ReadyForWorldState, peer);
+        sleep.lastWakeTime = now.AddSeconds(packet.amountOfTimeToSkipInSeconds);
+        sleep.lastSleepDurationSeconds = (int)packet.amountOfTimeToSkipInSeconds;
+        Log($"{player?.Username} slept {packet.amountOfTimeToSkipInSeconds / 3600f:N1}h; the next sleep for anyone is after {sleep.lastWakeTime.AddSeconds(sleep.GetMinimumTimeSinceLastWakeSeconds())}");
+        SendSleepState();
+    }
+
+    public void SendHazmatTiles(byte[] data, ITransportPeer peer)
+    {
+        ClientboundHazmatTilesPacket packet = new() { Data = data };
+        if (peer != null)
+            SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+        else
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTiles, excludeSelf: true);
+    }
+
+    private void OnServerboundHazmatIgnitePacket(ServerboundHazmatIgnitePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HazmatSync.Server_Ignite(new HazmatSync.ServerPlayerIgnite(packet.GridCoords, packet.Strength, player.AbsoluteWorldPosition));
+    }
+
+    public void SendSleepState(ITransportPeer peer = null)
+    {
+        BedSleepingController sleep = BedSleepingController.Instance;
+        if (sleep == null)
+            return;
+        ClientboundSleepStatePacket packet = new()
+        {
+            LastWakeTimeOADate = sleep.lastWakeTime.ToOADate(),
+            LastSleepDurationSeconds = sleep.lastSleepDurationSeconds
+        };
+        if (peer != null)
+            SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+        else
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, excludeSelf: true);
     }
 
     private void OnCommonChangeJunctionPacket(CommonChangeJunctionPacket packet, ITransportPeer peer)
@@ -2324,6 +2440,42 @@ public class NetworkServer : NetworkManager
                 PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
         else
             SendPacket(requester, commit, DeliveryMethod.ReliableOrdered);
+    }
+
+    // The comms radio reaches about 100 m; allow for the car moving while the request travels.
+    private const float MaxSandboxCargoDistance = 200f;
+
+    private void OnServerboundSandboxCargoPacket(ServerboundSandboxCargoPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        // The loader is a sandbox tool: only when the host's settings make it available.
+        GameParams gameParams = Globals.G.GameParams;
+        bool freeRoam = DV.UserManagement.UserManager.Instance.CurrentUser.CurrentSession.GameMode.Equals("FreeRoam");
+        if (!(gameParams.CommsRadioSandboxCheatMode && freeRoam || gameParams.CommsRadioCheatMode))
+        {
+            LogWarning($"{player.Username} used the sandbox cargo loader, but it isn't enabled");
+            return;
+        }
+        if (!NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) || car == null || car.logicCar == null)
+            return;
+        if ((player.WorldPosition - car.transform.position).sqrMagnitude > MaxSandboxCargoDistance * MaxSandboxCargoDistance)
+        {
+            LogWarning($"{player.Username} used the sandbox cargo loader on {car.ID} from too far away");
+            return;
+        }
+
+        if (car.LoadedCargo != CargoType.None)
+            car.logicCar.UnloadCargo(car.LoadedCargoAmount, car.LoadedCargo);
+        if (packet.CargoTypeNetId == 0)
+            return;
+        if (!CargoTypeLookup.Instance.TryGet(packet.CargoTypeNetId, out CargoType_v2 cargo) || cargo == null ||
+            !cargo.IsLoadableOnCarType(car.carLivery.parentType))
+        {
+            LogWarning($"{player.Username} tried to load cargo {packet.CargoTypeNetId} that {car.ID} can't carry");
+            return;
+        }
+        car.logicCar.LoadCargo(car.cargoCapacity, cargo.v1);
     }
 
     private void OnServerboundTrainSyncRequestPacket(ServerboundTrainSyncRequestPacket packet,
@@ -2726,7 +2878,7 @@ public class NetworkServer : NetworkManager
         {
             LogWarning($"OnServerboundJobValidateRequestPacket() NetworkedJob not found: {packet.JobNetId}");
 
-            SendPacket(peer, new ClientboundJobValidateResponsePacket { JobNetId = packet.JobNetId, Invalid = true }, DeliveryMethod.ReliableOrdered);
+            SendPacket(peer, new ClientboundJobValidateResponsePacket { JobNetId = packet.JobNetId, Invalid = true, JobMissing = true }, DeliveryMethod.ReliableOrdered);
             return;
         }
 
@@ -3036,6 +3188,146 @@ public class NetworkServer : NetworkManager
         if (amount > double.Epsilon)
             Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
         UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
+    }
+
+    // Players given the first-join starter kit this session (ones with saved data never get it).
+    internal readonly HashSet<Guid> StarterKitsGiven = new();
+
+    // Well above any basket; refunds are further capped by what the player has paid in.
+    private const double MaxShopPayment = 1_000_000;
+
+    private void OnServerboundShopPaymentPacket(ServerboundShopPaymentPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        if (double.IsNaN(packet.Amount) || Math.Abs(packet.Amount) <= double.Epsilon ||
+            Math.Abs(packet.Amount) > MaxShopPayment)
+        {
+            LogWarning($"Shop payment from P{player.PlayerId} rejected: amount {packet.Amount}");
+            return;
+        }
+
+        if (packet.Amount > 0)
+        {
+            // The client has already taken it from its copy of the wallet; if the shared wallet is
+            // shorter than it thought (a teammate spent meanwhile), take what there is.
+            double paid = Math.Min(packet.Amount, Inventory.Instance.PlayerMoney);
+            Log($"P{player.PlayerId} paid ${paid:N2} into a shop register");
+            if (paid <= double.Epsilon)
+                return;
+            player.ShopCashInRegisters += paid;
+            Inventory.Instance.RemoveMoney(paid); // MoneyChanged broadcasts the new balance
+            return;
+        }
+
+        // Change or a cancelled basket: never more than this player has put into shop registers.
+        double refund = Math.Min(-packet.Amount, player.ShopCashInRegisters);
+        Log($"P{player.PlayerId} got ${refund:N2} back from a shop register (asked for ${-packet.Amount:N2})");
+        if (refund <= double.Epsilon)
+            return;
+        player.ShopCashInRegisters -= refund;
+        Inventory.Instance.AddMoney(refund);
+    }
+
+    // Players buy within a few metres of the till; the margin covers walking off while it sends.
+    private const float MaxShopPurchaseDistance = 50f;
+    private const double ShopPriceTolerance = 0.5;
+
+    private void OnServerboundShopPurchasePacket(ServerboundShopPurchasePacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        GlobalShopController shops = GlobalShopController.Instance;
+        Shop shop = shops != null && packet.ShopIndex >= 0 && packet.ShopIndex < shops.globalShopList.Count
+            ? shops.globalShopList[packet.ShopIndex]
+            : null;
+        ShopItemData data = shop != null ? shops.GetShopItemData(packet.ItemPrefabName ?? string.Empty) : null;
+        if (data == null || packet.Amount <= 0)
+        {
+            LogWarning($"Shop purchase from P{player.PlayerId} rejected: shop {packet.ShopIndex}, item '{packet.ItemPrefabName}' x{packet.Amount}");
+            SendShopStock(peer);
+            return;
+        }
+
+        double cost = (double)data.basePrice * packet.Amount;
+        string rejection = null;
+        if (player.ShopCashInRegisters + ShopPriceTolerance < cost)
+            rejection = $"paid ${player.ShopCashInRegisters:N2} of ${cost:N2}";
+        else if (data.ItemsInStock < packet.Amount)
+            rejection = $"only {data.ItemsInStock} in stock";
+        else if ((player.AbsoluteWorldPosition - (shop.itemSpawnTransform.position - WorldMover.currentMove)).sqrMagnitude >
+                 MaxShopPurchaseDistance * MaxShopPurchaseDistance)
+            rejection = "too far from the shop";
+
+        if (rejection != null)
+        {
+            LogWarning($"Shop purchase of {packet.ItemPrefabName} x{packet.Amount} from P{player.PlayerId} rejected: {rejection}");
+            // The client has already taken its basket's price out of the register; give back what it paid.
+            double refund = Math.Min(cost, player.ShopCashInRegisters);
+            if (refund > double.Epsilon)
+            {
+                player.ShopCashInRegisters -= refund;
+                Inventory.Instance.AddMoney(refund);
+            }
+            SendShopStock(peer);
+            return;
+        }
+
+        player.ShopCashInRegisters = Math.Max(0, player.ShopCashInRegisters - cost);
+        Log($"P{player.PlayerId} bought {packet.ItemPrefabName} x{packet.Amount} for ${cost:N2}");
+        data.purchasedItems += packet.Amount;
+        UnlockablesManager.Instance.UnlockItem(data.item.ItemPrefabName);
+        CoroutineManager.Instance.StartCoroutine(SpawnShopPurchase(data.item.ItemPrefabName, shop, packet.Amount, player));
+        shops.Fire_GlobalShopDataChanged();
+        SendShopStock();
+    }
+
+    // As GlobalShopController.InstantiatePurchasedItems, but always at the shop: that one leaves
+    // items in the Lost and Found when the host is not near the shop. The buyer owns what they
+    // bought; unowned, it went to whoever picked it up first.
+    private static System.Collections.IEnumerator SpawnShopPurchase(string itemPrefabName, Shop shop, int amount, ServerPlayer buyer)
+    {
+        for (int i = 0; i < amount; i++)
+        {
+            if (shop == null)
+                yield break;
+            GameObject obj = UnityEngine.Object.Instantiate(Resources.Load(itemPrefabName) as GameObject,
+                shop.itemSpawnTransform.position, Quaternion.identity);
+            obj.GetComponent<InventoryItemSpec>().BelongsToPlayer = true;
+            if (obj.TryGetComponent(out ShopRestocker restocker))
+                restocker.restockOnItemDestroyed = true;
+            ItemBase item = obj.GetComponent<ItemBase>();
+            StorageController.Instance.AddItemToWorldStorage(item);
+            item.ItemRigidbody.velocity = Vector3.zero;
+            item.ItemRigidbody.angularVelocity = Vector3.zero;
+            if (obj.TryGetComponent(out APurchaseTrigger trigger))
+                trigger.OnPurchased(obj);
+            NetworkedItem networked = obj.GetOrAddComponent<NetworkedItem>();
+            if (buyer != null && buyer.Guid != Guid.Empty && networked != null && networked.NetId != 0 &&
+                AuthoritativeItemRegistry.Ensure(networked) is { PersistentOwnerPlayerId: 0 } record)
+            {
+                record.PersistentOwnerPlayerId = buyer.PlayerId;
+                record.PersistentOwnerIdentity = buyer.Guid;
+                buyer.AddOwnedItem(networked.NetId);
+            }
+            yield return WaitFor.Seconds(0.5f);
+        }
+    }
+
+    public void SendShopStock(ITransportPeer peer = null)
+    {
+        GlobalShopController shops = GlobalShopController.Instance;
+        if (shops == null)
+            return;
+        ClientboundShopStockPacket packet = new()
+        {
+            ItemPrefabNames = shops.shopItemsData.Select(d => d.item.ItemPrefabName).ToArray(),
+            PurchasedItems = shops.shopItemsData.Select(d => d.purchasedItems).ToArray()
+        };
+        if (peer != null)
+            SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+        else
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, excludeSelf: true);
     }
 
     private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)

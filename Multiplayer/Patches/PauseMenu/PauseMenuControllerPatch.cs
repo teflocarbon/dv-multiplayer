@@ -53,12 +53,9 @@ public static class PauseMenuController_Patch
 
         __instance.popupManager.ShowPopup(popupPrefab, locKeys).Closed += (PopupResult result) =>
             {
-                //Negative = 'No', so we're aborting the disconnect
-                if (result.closedBy == PopupClosedByAction.Negative)
-                    return;
-
-                //Negative = 'No', so we're aborting the disconnect
-                if (result.closedBy == PopupClosedByAction.Negative)
+                // Only 'Yes' disconnects: 'No' is Negative, and closing the popup with Esc is
+                // Abortion, which used to disconnect too.
+                if (result.closedBy != PopupClosedByAction.Positive)
                     return;
 
                 FieldInfo eventField = __instance.GetType().GetField("ExitLevelRequested", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);

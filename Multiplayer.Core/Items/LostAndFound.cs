@@ -233,6 +233,45 @@ public sealed class LostItemRegistry
         return LostItemRegistryResult.Removed;
     }
 
+    /// <summary>
+    /// Owners are matched by session player id, which a rejoining player may not get back: point
+    /// the owner's records at their new id. Returns how many changed.
+    /// </summary>
+    public int RebindOwner(string ownerIdentity, byte ownerPlayerId)
+    {
+        if (string.IsNullOrEmpty(ownerIdentity) || ownerPlayerId == 0)
+            return 0;
+        int changed = 0;
+        foreach (LostItemRecord record in records.Values)
+        {
+            if (!string.Equals(record.OwnerIdentity, ownerIdentity, StringComparison.OrdinalIgnoreCase) ||
+                record.OwnerPlayerId == ownerPlayerId)
+                continue;
+            record.OwnerPlayerId = ownerPlayerId;
+            changed++;
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// The owner left: release their session id so a player who is given it next does not see or
+    /// retrieve these items. Records with an identity wait for <see cref="RebindOwner"/>.
+    /// </summary>
+    public int UnbindOwner(byte ownerPlayerId)
+    {
+        if (ownerPlayerId == 0)
+            return 0;
+        int changed = 0;
+        foreach (LostItemRecord record in records.Values)
+        {
+            if (record.OwnerPlayerId != ownerPlayerId || string.IsNullOrEmpty(record.OwnerIdentity))
+                continue;
+            record.OwnerPlayerId = 0;
+            changed++;
+        }
+        return changed;
+    }
+
     public LostItemRegistryResult Restore(LostItemRecord record)
     {
         if (record == null || record.PersistentItemId == Guid.Empty || record.NetId == 0 ||

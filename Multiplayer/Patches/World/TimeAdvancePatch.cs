@@ -11,6 +11,10 @@ public static class TimeAdvancePatch
 {
     public static bool FastTravelAdvancesTime { get; set; } = true;
 
+    // Sleeping in a bed, as opposed to fast travel: TimeAdvance is called from the sleep coroutine.
+    // Sleep has its own rule (the shared sleep cooldown the host checks), not the fast travel setting.
+    private static bool IsSleep => BedSleepingController.Instance != null && BedSleepingController.Instance.IsSleeping;
+
     [HarmonyPatch(typeof(TimeAdvance), nameof(TimeAdvance.AdvanceTime))]
     private static bool Prefix(float amountOfTimeToSkipInSeconds)
     {
@@ -29,13 +33,22 @@ public static class TimeAdvancePatch
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return true;
 
+        bool sleep = IsSleep;
+
         if (NetworkLifecycle.Instance.IsHost())
         {
-            // Host with other players connected - only advance if FastTravelAdvancesTime is enabled
-            if (!FastTravelAdvancesTime)
+            // Host with other players connected - fast travel only advances if FastTravelAdvancesTime is enabled
+            if (!FastTravelAdvancesTime && !sleep)
                 return false;
 
-            NetworkLifecycle.Instance.Client.SendTimeAdvance(amountOfTimeToSkipInSeconds);
+            NetworkLifecycle.Instance.Client.SendTimeAdvance(amountOfTimeToSkipInSeconds, sleep);
+            return true;
+        }
+
+        // Client sleeping: the bed menu already showed the shared cooldown; the host checks it again.
+        if (sleep)
+        {
+            NetworkLifecycle.Instance.Client.SendTimeAdvance(amountOfTimeToSkipInSeconds, true);
             return true;
         }
 

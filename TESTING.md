@@ -89,14 +89,27 @@ two real game instances driven by **dvmp** (see `DevTools/README.md`): `dvmp_up`
 joined host and client, `dvmp_eval` runs C# in either game, `dvmp_desync` compares the two
 peers' state, and `dvmp_soak` drives random item interactions.
 
-Repeatable scenarios live in `DevTools/Scenarios/<name>/run.sh` (exit code 0 = pass):
+Repeatable scenarios live in `DevTools/Scenarios/<name>/run.sh` (exit code 0 = pass; each
+script's header lists its variables). `DevTools/Scenarios/gate.sh` runs the regression gate
+against a running pair (`ONLY="a b"` for a subset) and summarises:
 
-- `rejoin` - disconnect/rejoin keeps every item exactly once (`CRASH=1`: kill the client and
-  rejoin before the host notices);
-- `save-reload` - items don't multiply, fall or drift into Lost and Found across reloads.
+- Items: `train-items` (items in a moving cab; dropping and throwing), `lost-and-found`,
+  `recall` (`TAKEN=1`: recall from another player's hands), `containers` (deposit, reopen,
+  withdraw a stateful item; another player can't browse it), `rejoin` (`CRASH=1`), `save-reload`,
+  `inventory-persist` (a client's inventory and hand across a host save).
+- Trains: `manual-uncouple` (`MODE=recouple`, `LAG=`), `uncouple-moving` (`RIDE=1`, `LAST=`),
+  `couple-impact` (coupling as the buffers bounce; `WHO=`, `CHAIN=1`, `HITCH=`), `fps-drop`
+  (client at low frame rate).
+- Jobs: `jobs` (take a job at the validator, deliver, hand the booklet in, bank the payment;
+  `ACCEPT=`/`HANDIN=` choose which player does each).
+- Also in the gate: `shop` (client purchase and cancel through the host), `borrowed-disconnect`
+  (a player leaving with someone else's item), `host-stall` (host at about 2 fps while a braked
+  train runs at speed), `client-derail` (a derail on one client only), `player-soak` (both
+  players moving about for minutes; their views of each other must not freeze).
+- Outside the gate: `station-load` (frame times arriving at a station).
 
-Run both after any change to item sync, inventory, persistence or joining. Old runtime-test
-coverage that still needs rebuilding as dvmp scenarios is listed in
+Run the gate after any change to item sync, inventory, persistence, trains or joining. Old
+runtime-test coverage that still needs rebuilding as dvmp scenarios is listed in
 `DevTools/Scenarios/PORTING.md`.
 
 ### Unity adapter and in-game acceptance tests

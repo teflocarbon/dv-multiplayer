@@ -4,6 +4,25 @@
 > identity, placement, possession, ownership, projections, persistence, recovery, and cleanup fit
 > together. Feature-specific documents remain authoritative for their detailed protocols.
 
+## Implementation status (audited 2026-10-14)
+
+- **Ownership policy changed** (5a3a077): an *unowned* personal (`BelongsToPlayer`) item becomes
+  owned by the first player who puts it in their hand or inventory
+  (`ItemAuthorityStateMachine`). Pickup still never transfers an existing owner; a non-owner
+  pickup marks the claim `Stolen`. Where the text below says pickup never establishes ownership,
+  this is the current rule.
+- **Shop purchases** are spawned by the host at the shop and owned by the buyer.
+- **Starter kit** is given on a player's first join only.
+- **Lost and Found** records follow the owner's identity: unbound on disconnect, rebound on login
+  (730f384); collected items stay inert after a save is loaded (134fa2f).
+- **Host saves** keep other players' inventories and the item in their hand (d615b37, ee020c6).
+- **Not implemented:** the decided disconnect policy (a borrowed item should go to its owner's
+  Lost and Found; it currently stays with the departing player), revoking a spatial lease
+  explicitly on collection, and per-recipient projection state in the debug snapshot.
+- **Still temporary:** client item adoption (`TemporaryClientAdoptionCompatibility`) is used by the
+  starter kit, DV's client-generated essentials and rejoin restoration, which matches a returning
+  player's fresh copy to their original by prefab name.
+
 ## Purpose
 
 An item is no longer equivalent to a Unity `GameObject`. Multiplayer maintains one canonical host

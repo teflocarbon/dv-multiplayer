@@ -834,15 +834,13 @@ public class ServerBrowserPane : MonoBehaviour
 
         popup.labelTMPro.text = Locale.SERVER_BROWSER__PASSWORD;
 
-        //direct IP connection
+        // Direct IP connection: prefill the stored password and allow a blank one. The game's own
+        // input controller does both; replacing it with a custom one lost the VR keyboard.
         if (direct)
         {
-            //Prefill with stored password
-            popup.GetComponentInChildren<TMP_InputField>().text = Multiplayer.Settings.LastRemotePassword;
-
-            //Set us up to allow a blank password
-            DestroyImmediate(popup.GetComponentInChildren<PopupTextInputFieldController>());
-            popup.GetOrAddComponent<PopupTextInputFieldControllerNoValidation>();
+            var fieldInputController = popup.GetComponentInChildren<PopupTextInputFieldController>();
+            fieldInputController.allowEmpty = true;
+            fieldInputController.field.text = Multiplayer.Settings.LastRemotePassword;
         }
 
         popup.Closed += result =>

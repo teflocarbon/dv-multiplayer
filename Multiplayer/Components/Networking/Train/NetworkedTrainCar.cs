@@ -890,6 +890,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         BogieTracksDirty = true;
         sendCouplers = true;
         sendCables = true;
+        TicksSinceSync = uint.MaxValue / 2; // full pose on the next tick (a client rerailing to it needs one); not MaxValue, the tick's ++ would wrap it to 0
 
         if (!hasSimFlow)
             return;
@@ -2132,6 +2133,46 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         Client_Initialized = true;
     }
 
+    private float nextDerailResyncRequestAt;
+
+    // Put a car the host has on the rails back on the host's track where the host has it. That
+    // needs a full sync (pose and track); ask for one until it comes. Rerailing uncouples the car
+    // locally (we're applying a host packet, so that isn't reported), so restore the coupling from
+    // the host's topology once the rerail has finished.
+    private void Client_RerailToHost(in TrainsetMovementPart movementPart)
+    {
+        if (TrainCar.IsTeleporting)
+            return;
+        BogieData bogie = movementPart.Bogie1.IncludesTrackData ? movementPart.Bogie1 : movementPart.Bogie2;
+        if (!movementPart.typeFlag.HasFlag(TrainsetMovementPart.MovementType.Position) || !bogie.IncludesTrackData ||
+            !global::Multiplayer.Components.Networking.World.NetworkedRailTrack.TryGet(bogie.TrackNetId, out global::Multiplayer.Components.Networking.World.NetworkedRailTrack track) || track.RailTrack == null)
+        {
+            if (Time.realtimeSinceStartup >= nextDerailResyncRequestAt)
+            {
+                nextDerailResyncRequestAt = Time.realtimeSinceStartup + 2f;
+                NetworkLifecycle.Instance.Client?.SendTrainSyncRequest(NetId);
+            }
+            return;
+        }
+
+        Multiplayer.LogWarning($"{CurrentID} derailed here but not on the host; rerailing it to the host's track");
+        TrainCar.Rerail(track.RailTrack, movementPart.Position + WorldMover.currentMove,
+            movementPart.Rotation * Vector3.forward);
+        Client_trainSpeedQueue.Clear();
+        Client_trainRigidbodyQueue.Clear();
+        client_bogie1Queue.Clear();
+        client_bogie2Queue.Clear();
+        CoroutineManager.Instance.StartCoroutine(RestoreTopologyAfterRerail());
+    }
+
+    private System.Collections.IEnumerator RestoreTopologyAfterRerail()
+    {
+        for (float t0 = Time.realtimeSinceStartup; TrainCar != null && TrainCar.IsTeleporting && Time.realtimeSinceStartup - t0 < 5f;)
+            yield return null;
+        yield return new WaitForFixedUpdate();
+        NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
+    }
+
     public bool Client_ReceiveTrainPhysicsUpdate(in TrainsetMovementPart movementPart, uint tick)
     {
         using IDisposable debugScope = DebugTrace.BeginApply("train", "train.physics-apply", DebugRuntimeSide.Client, "TrainCar", NetId.ToString(), () =>
@@ -2174,6 +2215,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
         else
         {
+            // Derailed here but on the rails on the host: a client-only derail (a physics hitch).
+            // Bogie samples are ignored while derailed, so it used to stay derailed for good.
+            if (TrainCar.derailed)
+            {
+                Client_RerailToHost(movementPart);
+                return false;
+            }
+
             // Only force awake if there's movement
             if (Mathf.Abs(movementPart.Speed) > NetworkTrainsetWatcher.VELOCITY_THRESHOLD && TrainCar.isEligibleForSleep)
                 TrainCar.ForceOptimizationState(false);
