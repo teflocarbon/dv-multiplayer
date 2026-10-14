@@ -42,6 +42,11 @@ for entry in "${runs[@]}"; do
   # Start every run from the same place: scenarios move the players and leave them there.
   $DVMP eval -t host -m coroutine --timeout 60 'yield return LocalPlayer.TeleportToGround(7194f, 6873f);' >/dev/null 2>&1
   $DVMP eval -t client -m coroutine --timeout 60 'if (Hands.Held != null) yield return Hands.Drop(); yield return LocalPlayer.TeleportToGround(7190f, 6880f);' >/dev/null 2>&1
+  # Scenarios hand the client mugs and don't always take them back: after a few gates its
+  # inventory was full (22 mugs) and every "put it in the inventory" step failed. Drop them on the
+  # client (a synced drop) and destroy every mug on the host.
+  $DVMP eval -t client -m coroutine --timeout 60 'var inv = DV.InventorySystem.Inventory.Instance; foreach (var go in inv.GetItemsArray(false).Where(g => g != null && g.name.StartsWith("Mug")).ToList()) { inv.DropItemFromHandsOrInventory(go); yield return new WaitForSecondsRealtime(0.1f); } yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
+  $DVMP eval -t host -m coroutine --timeout 30 'foreach (var m in UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.World.NetworkedItem>().Where(i => i != null && i.name.StartsWith("Mug")).ToList()) UnityEngine.Object.Destroy(m.gameObject); yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
   start=$(date +%s)
   if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; fi
   printf '%-32s %s  %3ss  %s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)"

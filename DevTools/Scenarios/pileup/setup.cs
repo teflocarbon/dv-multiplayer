@@ -33,6 +33,14 @@ var rows = new List<object>(); var all = new List<string>(); var rams = new List
 foreach (var t in tracks)
 {
     CarSpawner.Instance.DeleteTrainCarsFromTrack(t);
+    // Clean room: the yard's job generator keeps putting cars on and next to these tracks, and
+    // clearing a track misses cars standing partly on the ladder. Rows spawned overlapping them blew
+    // apart (job cars logged "derailed at 13385 km/h"), so derailments came from that, not the
+    // crash. Delete anything within 3 m of the centreline (parallel tracks are 4.5 m away).
+    var path = t.GetKinkedPointSet().points.Where((p, k) => k % 5 == 0).Select(p => (Vector3)p.position + WorldMover.currentMove).ToList();
+    foreach (var other in UnityEngine.Object.FindObjectsOfType<TrainCar>().ToList())
+        if (other != null && path.Any(p => Vector3.Distance(p, other.transform.position) < 3f))
+            CarSpawner.Instance.DeleteCar(other);
     for (int i = 0; i < 10; i++) yield return null;
     double len = t.curve.length;
     double first = (len - n * pitch) / 2 + pitch / 2;           // middle of the first wagon
@@ -56,4 +64,9 @@ foreach (var t in tracks)
     rows.Add(new { track = t.name, wagons = string.Join(",", wagons.Select(x => x.ID)), locos = string.Join(",", locos.Select(x => x.loco.ID)) });
 }
 for (int i = 0; i < 60; i++) yield return new WaitForFixedUpdate();
+
+// Nothing may already be moving or off the rails before the run starts.
+var mine = all.Select(id => Trains.Find(id)).ToList();
+var bad = mine.Where(c => c == null || c.derailed || c.rb.velocity.magnitude > 0.2f).Select(c => c == null ? "missing" : $"{c.ID} {(c.derailed ? "derailed" : $"{c.rb.velocity.magnitude:F1} m/s")}").ToList();
+if (bad.Count > 0) throw new Exception("setup is not clean: " + string.Join(", ", bad));
 ctx.Result = new { cars = string.Join(",", all), rams = string.Join(",", rams), rows };
