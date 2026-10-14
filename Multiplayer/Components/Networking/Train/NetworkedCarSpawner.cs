@@ -62,6 +62,82 @@ public static class NetworkedCarSpawner
 
     }
 
+    public static bool TryApplyRelocation(TrainsetSpawnPart[] parts, uint hostTick,
+        out string failure)
+    {
+        failure = string.Empty;
+        if (parts == null || parts.Length == 0)
+        {
+            failure = "empty-relocation";
+            return false;
+        }
+
+        NetworkedTrainCar[] cars = new NetworkedTrainCar[parts.Length];
+        for (int index = 0; index < parts.Length; index++)
+        {
+            TrainsetSpawnPart part = parts[index];
+            if (!NetworkedTrainCar.TryGet(part.NetId, out NetworkedTrainCar car) ||
+                car?.TrainCar == null)
+            {
+                failure = "missing-car:" + part.NetId;
+                return false;
+            }
+            if ((!part.Bogie1.HasDerailed && part.Bogie1.IncludesTrackData &&
+                 !NetworkedRailTrack.TryGet(part.Bogie1.TrackNetId, out NetworkedRailTrack _)) ||
+                (!part.Bogie2.HasDerailed && part.Bogie2.IncludesTrackData &&
+                 !NetworkedRailTrack.TryGet(part.Bogie2.TrackNetId, out NetworkedRailTrack _)))
+            {
+                failure = "missing-track:" + part.NetId;
+                return false;
+            }
+            cars[index] = car;
+        }
+
+        // Break only topology represented by this transaction. It is reconstructed after every
+        // transform and bogie has reached the committed host state.
+        foreach (NetworkedTrainCar car in cars)
+        {
+            if (car.TrainCar.frontCoupler?.coupledTo != null)
+                car.TrainCar.frontCoupler.Uncouple(false);
+            if (car.TrainCar.rearCoupler?.coupledTo != null)
+                car.TrainCar.rearCoupler.Uncouple(false);
+        }
+
+        for (int index = 0; index < parts.Length; index++)
+        {
+            TrainsetSpawnPart part = parts[index];
+            TrainCar trainCar = cars[index].TrainCar;
+            trainCar.transform.SetPositionAndRotation(part.Position + WorldMover.currentMove,
+                part.Rotation);
+            ApplyBogie(trainCar.Bogies[0], part.Bogie1);
+            ApplyBogie(trainCar.Bogies[1], part.Bogie2);
+        }
+        Physics.SyncTransforms();
+
+        for (int index = parts.Length - 1; index >= 0; index--)
+        {
+            HandleCoupling(parts[index].FrontCoupling, cars[index].TrainCar.frontCoupler);
+            HandleCoupling(parts[index].RearCoupling, cars[index].TrainCar.rearCoupler);
+            SetBrakeParams(parts[index].BrakeData, cars[index].TrainCar);
+            cars[index].Client_ResetRelocationBaseline(parts[index].Speed, hostTick);
+            cars[index].TrainCar.interior?.GetComponent<TrainCarInteriorPhysics>()?.SyncPosition();
+        }
+        Physics.SyncTransforms();
+        return true;
+    }
+
+    private static void ApplyBogie(Bogie bogie, BogieData data)
+    {
+        if (data.HasDerailed)
+        {
+            bogie.SetDerailedOnLoadFlag(true);
+            return;
+        }
+        if (data.IncludesTrackData &&
+            NetworkedRailTrack.TryGet(data.TrackNetId, out NetworkedRailTrack track))
+            bogie.SetTrack(track.RailTrack, data.PositionAlongTrack, data.TrackDirection);
+    }
+
     private static NetworkedTrainCar SpawnCar(TrainsetSpawnPart spawnPart, bool preventCoupling = false)
     {
         if (!NetworkedRailTrack.TryGet(spawnPart.Bogie1.TrackNetId, out NetworkedRailTrack bogie1Track) && spawnPart.Bogie1.TrackNetId != 0)

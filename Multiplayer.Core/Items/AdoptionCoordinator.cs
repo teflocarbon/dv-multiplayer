@@ -38,7 +38,10 @@ public readonly struct AdoptionResolution<TItem> where TItem : class
     public ushort AssignedNetId { get; }
 }
 
-/// <summary>Pure client-side correlation between one local object and one adoption token.</summary>
+/// <summary>
+/// TEMPORARY compatibility correlation for unconverted DV item producers. Remove with the
+/// adoption protocol after every producer uses an explicit host-authoritative creation operation.
+/// </summary>
 public sealed class AdoptionCoordinator<TItem> where TItem : class
 {
     private readonly Dictionary<string, TItem> pendingByToken = new(StringComparer.Ordinal);

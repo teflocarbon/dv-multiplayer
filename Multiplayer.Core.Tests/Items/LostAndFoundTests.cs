@@ -52,6 +52,18 @@ public sealed class LostAndFoundTests
     }
 
     [Test]
+    public void NearbyProtectionBoundary_IsExclusiveAndDeterministic()
+    {
+        LostItemCandidate item = Eligible();
+        item.NearestPlayerDistanceSquared = 100 * 100;
+        Assert.That(LostItemCollectionPolicy.Evaluate(item, 200, 100, 10).ShouldCollect,
+            Is.True);
+        item.NearestPlayerDistanceSquared = 99.99f * 99.99f;
+        Assert.That(LostItemCollectionPolicy.Evaluate(item, 200, 100, 10).Reason,
+            Is.EqualTo("another-player-nearby"));
+    }
+
+    [Test]
     public void OwnerDistanceAndGraceBoundaries_AreDeterministic()
     {
         LostItemCandidate item = Eligible();
@@ -90,6 +102,10 @@ public sealed class LostAndFoundTests
         item.OwnerPositionKnown = false;
         Assert.That(LostItemCollectionPolicy.Evaluate(item, 200, 100, 10).ShouldCollect, Is.False);
         item.OwnerPositionKnown = true;
+        item.NearestPlayerPositionKnown = false;
+        Assert.That(LostItemCollectionPolicy.Evaluate(item, 200, 100, 10).Reason,
+            Is.EqualTo("player-positions-unknown"));
+        item.NearestPlayerPositionKnown = true;
         item.IsGrabbed = true;
         Assert.That(LostItemCollectionPolicy.Evaluate(item, 200, 100, 10).ShouldCollect, Is.False);
     }
@@ -179,6 +195,50 @@ public sealed class LostAndFoundTests
             Is.EqualTo(LostItemRegistryResult.DuplicatePersistentItemId));
     }
 
+    [TestCase(0, 1)]
+    [TestCase(42, 0)]
+    public void Registry_RejectsInvalidRuntimeOrOwnerIdentity(int netId, int owner)
+    {
+        LostItemRecord record = Record();
+        record.NetId = (ushort)netId;
+        record.OwnerPlayerId = (byte)owner;
+        Assert.That(new LostItemRegistry().Add(record),
+            Is.EqualTo(LostItemRegistryResult.Invalid));
+    }
+
+    [Test]
+    public void Registry_OwnerSnapshotsArePrivateDetachedCopies()
+    {
+        LostItemRegistry registry = new();
+        registry.Add(Record());
+        LostItemRecord other = Record();
+        other.NetId = 43;
+        other.PersistentItemId = Guid.NewGuid();
+        other.OwnerPlayerId = 2;
+        registry.Add(other);
+
+        IReadOnlyList<LostItemRecord> ownerOne = registry.GetForOwner(1);
+        Assert.That(ownerOne, Has.Count.EqualTo(1));
+        Assert.That(ownerOne[0].NetId, Is.EqualTo(42));
+        ownerOne[0].DisplayName = "tampered";
+        registry.TryGet(42, out LostItemRecord canonical);
+        Assert.That(canonical.DisplayName, Is.EqualTo("Radio"));
+    }
+
+    [Test]
+    public void Registry_RemovalInvalidatesBothCompactAndDurableIndexes()
+    {
+        LostItemRegistry registry = new();
+        LostItemRecord record = Record();
+        registry.Add(record);
+        registry.TryGet(42, out LostItemRecord stored);
+
+        Assert.That(registry.RemoveStale(42, out _),
+            Is.EqualTo(LostItemRegistryResult.Removed));
+        Assert.That(registry.TryGetByHandle(stored.Handle, out _), Is.False);
+        Assert.That(registry.TryGetByPersistentId(stored.PersistentItemId, out _), Is.False);
+    }
+
     [Test]
     public void Registry_RestoreAllocatesRuntimeHandleInsteadOfPersistingOne()
     {
@@ -238,6 +298,15 @@ public sealed class LostAndFoundTests
         record.InventoryClaimSlot = 5;
         LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(record, 1, 7,
             -1, 3, 10, new[] { 0, 1, 3 });
+        Assert.That(plan.Accepted, Is.True);
+        Assert.That(plan.TargetSlot, Is.EqualTo(3));
+    }
+
+    [Test]
+    public void Retrieval_ExistingSilhouetteWinsEvenWhenRequestedSlotIsFree()
+    {
+        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(Record(), 1, 7,
+            8, 3, 10, new[] { 0, 1, 3 });
         Assert.That(plan.Accepted, Is.True);
         Assert.That(plan.TargetSlot, Is.EqualTo(3));
     }

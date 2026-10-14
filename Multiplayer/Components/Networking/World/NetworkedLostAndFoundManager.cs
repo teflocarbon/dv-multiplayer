@@ -8,6 +8,7 @@ using Multiplayer.Integrations.Inventory;
 using Multiplayer.Integrations.Storage;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Components.Networking.World.WorldItems;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -32,6 +33,25 @@ public static class NetworkedLostAndFoundManager
     public static IReadOnlyList<LostItemData> ClientItems => clientItems;
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
+
+#if DEBUG
+    internal static void RemoveRuntimeFixture(ushort itemNetId)
+    {
+        eligibleSince.Remove(itemNetId);
+        lastEvaluations.Remove(itemNetId);
+        if (registry.RemoveStale(itemNetId, out LostItemRecord removed) ==
+            LostItemRegistryResult.Removed)
+        {
+            generation++;
+            if (NetworkLifecycle.Instance?.IsHost() == true &&
+                NetworkLifecycle.Instance.Server.TryGetServerPlayer(
+                    removed.OwnerPlayerId, out ServerPlayer owner))
+                NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
+        }
+        if (clientItems.RemoveAll(item => item.NetId == itemNetId) > 0)
+            ClientListChanged?.Invoke();
+    }
+#endif
 
     public static bool TryCreateCollectionProjection(NetworkedItem item,
         out ItemUpdateData snapshot)
@@ -193,6 +213,9 @@ public static class NetworkedLostAndFoundManager
             return false;
         }
         generation++;
+        if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(player.PlayerId,
+                out ServerPlayer owner))
+            NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
         Publish("item.lost-and-found-retrieved", item, new()
         {
             ["ownerPlayerId"] = player.PlayerId,
@@ -282,6 +305,7 @@ public static class NetworkedLostAndFoundManager
             OwnerIdentity = OwnerIdentity(authority.PersistentOwnerPlayerId),
             PrefabName = authority.PrefabName,
             DisplayName = item.Item?.name ?? authority.PrefabName,
+            AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
             InventoryClaimPlayerId = authority.InventoryClaimPlayerId,
             InventoryClaimSlot = authority.InventoryClaimSlot,
             InventoryClaimFlags = (byte)authority.InventoryClaimFlags,
@@ -319,6 +343,7 @@ public static class NetworkedLostAndFoundManager
         {
             player.NearbyItems.Remove(item);
             player.KnownItems.Remove(item);
+            player.AcknowledgedWorldItems.Remove(item.NetId);
         }
         if (destroy != null)
             NetworkLifecycle.Instance.Server.SendItemUpdatePacket(destroy);
@@ -513,6 +538,9 @@ public static class NetworkedLostAndFoundManager
                 continue;
             if (baseItem == null || !NetworkedItem.TryGetNetworkedItem(baseItem, out NetworkedItem item) || item.NetId == 0)
                 continue;
+            string authoredItemKey = (string)value["authoredItemKey"] ?? string.Empty;
+            if (WorldItemStableIdentity.IsValid(authoredItemKey))
+                item.AdoptAuthoredItemKey(authoredItemKey);
             available.Remove(baseItem);
             uint revision = (uint?)value["revision"] ?? 0;
             byte claimPlayerId = (byte?)value["inventoryClaimPlayerId"] ?? 0;
@@ -529,6 +557,7 @@ public static class NetworkedLostAndFoundManager
                 OwnerIdentity = ownerIdentity,
                 PrefabName = prefab,
                 DisplayName = (string)value["displayName"] ?? baseItem.name,
+                AuthoredItemKey = authoredItemKey,
                 InventoryClaimPlayerId = claimPlayerId,
                 InventoryClaimSlot = claimSlot,
                 InventoryClaimFlags = (byte)claimFlags,
@@ -688,6 +717,7 @@ public static class NetworkedLostAndFoundManager
         entry["ownerIdentity"] = record.OwnerIdentity;
         entry["prefabName"] = record.PrefabName;
         entry["displayName"] = record.DisplayName;
+        entry["authoredItemKey"] = record.AuthoredItemKey ?? string.Empty;
         entry["reason"] = record.Reason.ToString();
         entry["lostUtc"] = FormatUtc(record.LostUtcTicks);
         entry["inventoryClaimPlayerId"] = record.InventoryClaimPlayerId;
@@ -754,6 +784,7 @@ public static class NetworkedLostAndFoundManager
             ["ownerIdentity"] = record.OwnerIdentity,
             ["prefabName"] = record.PrefabName,
             ["displayName"] = record.DisplayName,
+            ["authoredItemKey"] = record.AuthoredItemKey ?? string.Empty,
             ["inventoryClaimPlayerId"] = record.InventoryClaimPlayerId,
             ["inventoryClaimSlot"] = record.InventoryClaimSlot,
             ["inventoryClaimFlags"] = record.InventoryClaimFlags,

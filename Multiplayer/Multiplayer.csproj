@@ -4,7 +4,16 @@
         <LangVersion>latest</LangVersion>
         <RootNamespace>Multiplayer</RootNamespace>
         <InformationalVersion>0.1.15.0</InformationalVersion>
+        <DvmpBuildNumberFile>$(MSBuildProjectDirectory)\..\build\dvmp-build-number.txt</DvmpBuildNumberFile>
+        <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == '' AND '$(ManifestEmbedPass)' == 'true' AND Exists('$(DvmpBuildNumberFile)')">$([System.IO.File]::ReadAllText('$(DvmpBuildNumberFile)').Trim())</DvmpBuildNumber>
+        <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == ''">$([System.DateTime]::Now.ToString('yyyy.MM.dd.HHmm'))</DvmpBuildNumber>
     </PropertyGroup>
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+            <_Parameter1>DVMPBuildNumber</_Parameter1>
+            <_Parameter2>$(DvmpBuildNumber)</_Parameter2>
+        </AssemblyAttribute>
+    </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Krafs.Publicizer" Version="2.3.0">
             <PrivateAssets>all</PrivateAssets>
@@ -119,6 +128,10 @@
         <ItemGroup>
             <VersionNumber Include="$(InformationalVersion.Split('+')[0] )" />
         </ItemGroup>
+    </Target>
+    <Target Name="WriteDvmpBuildNumber" BeforeTargets="GenerateAssemblyInfo">
+        <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(DvmpBuildNumberFile)'))" />
+        <WriteLinesToFile File="$(DvmpBuildNumberFile)" Lines="$(DvmpBuildNumber)" Overwrite="true" />
     </Target>
     <Target Name="PostBuild" AfterTargets="PostBuildEvent" DependsOnTargets="PostBuildMacros">
         <!-- Sign Assemblies if in 'Release' -->

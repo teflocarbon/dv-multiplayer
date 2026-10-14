@@ -409,7 +409,8 @@ For inventory events:
 
 1. inspect both primary and secondary slot states;
 2. resolve the exact `NetworkedItem` from the supplied `GameObject`;
-3. if its NetId is zero and this is a legitimate local inventory/equip transition, request host adoption immediately;
+3. if its NetId is zero, accept it only through the explicitly temporary compatibility-adoption
+   policy for unconverted player-item producers; otherwise quarantine and destroy it;
 4. otherwise send a location delta containing the action flags and resulting slot state;
 5. sample the settled physical/storage state after the operation when needed;
 6. deduplicate compound events by Unity frame plus item instance ID and resulting revision/state.
@@ -537,3 +538,13 @@ The supplied code now covers the ordinary inventory, Get/recall, storage, contai
 
 1. The concrete inventory presentation methods (`AssignInventoryLayer`, `AssignWorldItemLayer`, `ForceEndInteraction`, and `GetPlayerTransform`) if host-side world/in-hand presentation still diverges.
 2. The provider implementing `IsEssentialItemsGetterAllowed`, if multiplayer needs to reproduce the exact circumstances under which the Get button is disabled.
+
+## Multiplayer cold-container implementation note
+
+Multiplayer-owned container contents no longer need to mirror Derail Valley's recursively live
+`Storage_ItemContainers` objects. The physical container remains an ordinary item shell, while its
+direct children are stored by the host as bounded detached records. The integration deliberately
+continues to ask the running game's `AItemContainer.ValidItem`/prefab components for compatibility,
+so the folder/registrator/briefcase/toolbox/crate policy follows game updates without a duplicated
+hard-coded table. Both desktop and VR use the shared `ItemContainerProvider`, which is now the
+single presentation seam for bounded cold views.

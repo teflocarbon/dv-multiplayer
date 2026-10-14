@@ -12,7 +12,10 @@ public enum AuthorityPlacement : byte
     Attached,
     LostAndFound,
     Installed,
-    Destroyed
+    Destroyed,
+    TrainInterior,
+    StaticParent,
+    SnappedAttachment
 }
 
 [Flags]
@@ -59,9 +62,10 @@ public sealed class ItemTransitionCommand
     public AuthorityPlacement RequestedPlacement { get; set; }
     public bool ClearRetrievalClaim { get; set; }
     /// <summary>
-    /// The host has authenticated this operation as the item's initial client adoption.
-    /// Unlike a retrieval claim, adoption establishes identity even for an ordinary,
-    /// non-reserved inventory item.
+    /// TEMPORARY COMPATIBILITY ONLY: the host has authenticated an unconverted DV producer's
+    /// player-marked item. Unlike a retrieval claim, this establishes identity even for an
+    /// ordinary non-reserved item. Remove this transition after all producers use explicit
+    /// host-authoritative creation operations.
     /// </summary>
     public bool EstablishPersistentOwner { get; set; }
     public bool MayEstablishPersistentOwner { get; set; } = true;

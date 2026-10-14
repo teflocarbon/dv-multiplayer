@@ -298,12 +298,15 @@ public static class EntityDebugRegistry
         state["holderPlayerId"] = item.playerBelongsToId;
         state["hostHolder"] = item.BelongsTo?.PlayerId ?? 0;
         state["authorityRevision"] = item.AuthorityRevision;
+        state["authoredItemKey"] = item.AuthoredItemKey ?? string.Empty;
+        state["sceneAuthored"] = item.IsSceneAuthored;
         state["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId;
         state["inventoryClaimPlayerId"] = item.InventoryClaimPlayerId;
         state["inventoryClaimSlot"] = item.InventoryClaimSlot;
         state["inventoryClaimFlags"] = item.InventoryClaimFlags.ToString();
         if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record authorityRecord))
             state["canonicalAuthority"] = AuthoritativeItemRegistry.Snapshot(authorityRecord);
+        NetworkedItemManager.Instance?.AppendSpatialDebugState(item.NetId, state);
         state["transitionReason"] = item.LastTransitionReason.ToString();
         state["foreignOwned"] = item.IsForeignOwned;
         state["unboundState"] = item.UnboundState.ToString();

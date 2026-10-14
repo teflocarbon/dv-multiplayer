@@ -13,7 +13,7 @@ public enum ReplicationOperationStatus { Pending, Complete, Rejected, Discontinu
 
 public sealed class DebugSessionInfo
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string SessionId { get; set; } = string.Empty;
     public int ProcessId { get; set; }
@@ -27,6 +27,7 @@ public sealed class DebugSessionInfo
     public string FirehoseUrl { get; set; } = string.Empty;
     public string ApiToken { get; set; } = string.Empty;
     public string LogPath { get; set; } = string.Empty;
+    public string BuildNumber { get; set; } = string.Empty;
     public string GameBuild { get; set; } = string.Empty;
     public string ModCommit { get; set; } = "unknown";
 }
@@ -52,9 +53,222 @@ public sealed class DebugEvent
     public string EntityId { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
     public string CausationId { get; set; } = string.Empty;
+#if DEBUG
+    public string TestRunId { get; set; } = string.Empty;
+    public string TestCaseId { get; set; } = string.Empty;
+    public string TestPhaseId { get; set; } = string.Empty;
+    public string TestStepId { get; set; } = string.Empty;
+#endif
     public bool HighFrequency { get; set; }
     public Dictionary<string, object> Data { get; set; } = new(StringComparer.Ordinal);
 }
+
+#if DEBUG
+public enum RuntimeTestCommandStatus { Queued, Running, Passed, Failed, FailedDirty, Cancelled, Unsupported }
+public enum RuntimeTestMutationKind { ReadOnly, IsolatedMutation, Destructive }
+public enum RuntimeScenarioOrchestrationKind { None, InventoryFixturePair, InventoryItemFixture }
+public enum RuntimeScenarioFixturePolicy { None, InventoryContainerAndItem, InventoryItem }
+public enum RuntimeScenarioCleanupPolicy { ScenarioOwned, RetireInventoryFixturesAndPurgeRepresentations }
+public enum RuntimeScenarioFixtureOwnership { TargetPlayer, HostPlayer }
+
+public sealed class RuntimeTestCapabilitiesDto
+{
+    public const int CurrentSchemaVersion = 1;
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+    public bool Available { get; set; }
+    public bool MainThreadAgentReady { get; set; }
+    public string BuildConfiguration { get; set; } = "Debug";
+    public string Role { get; set; } = "idle";
+    public byte? PlayerId { get; set; }
+    public string Scene { get; set; } = string.Empty;
+    public string[] Capabilities { get; set; } = Array.Empty<string>();
+    public string[] Commands { get; set; } = Array.Empty<string>();
+    public RuntimeTestDescriptorDto[] Tests { get; set; } = Array.Empty<RuntimeTestDescriptorDto>();
+    public Dictionary<string, object> Anchors { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class RuntimeTestDescriptorDto
+{
+    public string TestId { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string Fidelity { get; set; } = string.Empty;
+    public RuntimeTestMutationKind MutationKind { get; set; }
+    public string[] RequiredCapabilities { get; set; } = Array.Empty<string>();
+    public int TimeoutMilliseconds { get; set; } = 15000;
+    public bool IsScenario { get; set; }
+    public RuntimeScenarioOrchestrationKind ScenarioOrchestration { get; set; }
+    public RuntimeScenarioFixturePolicy FixturePolicy { get; set; }
+    public RuntimeScenarioCleanupPolicy CleanupPolicy { get; set; }
+    public RuntimeScenarioFixtureOwnership FixtureContainerOwnership { get; set; }
+    public RuntimeScenarioFixtureOwnership FixtureItemOwnership { get; set; }
+    public bool FixtureItemIsPersonal { get; set; } = true;
+    public string DefaultContainerPrefabName { get; set; } = string.Empty;
+    public string DefaultItemPrefabName { get; set; } = string.Empty;
+    /// <summary>JSON Schema describing the command's string-valued parameters.</summary>
+    public Dictionary<string, object> ParameterSchema { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class RuntimeTestCommandDto
+{
+    public int SchemaVersion { get; set; } = RuntimeTestCapabilitiesDto.CurrentSchemaVersion;
+    public string RequestId { get; set; } = string.Empty;
+    public string RunId { get; set; } = string.Empty;
+    public string CaseId { get; set; } = string.Empty;
+    public string PhaseId { get; set; } = string.Empty;
+    public string StepId { get; set; } = string.Empty;
+    public string Command { get; set; } = string.Empty;
+    public string TargetSessionId { get; set; } = string.Empty;
+    public string TargetRole { get; set; } = string.Empty;
+    public byte? TargetPlayerId { get; set; }
+    public RuntimeTestMutationKind MutationKind { get; set; }
+    public int TimeoutMilliseconds { get; set; } = 15000;
+    public Dictionary<string, string> Parameters { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class RuntimeTestCommandAcceptedDto
+{
+    public string RequestId { get; set; } = string.Empty;
+    public string RunId { get; set; } = string.Empty;
+    public bool Accepted { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public string StatusUrl { get; set; } = string.Empty;
+}
+
+public sealed class RuntimeTestRunDto
+{
+    public string RequestId { get; set; } = string.Empty;
+    public string RunId { get; set; } = string.Empty;
+    public string CaseId { get; set; } = string.Empty;
+    public string PhaseId { get; set; } = string.Empty;
+    public string StepId { get; set; } = string.Empty;
+    public string Command { get; set; } = string.Empty;
+    public RuntimeTestCommandStatus Status { get; set; }
+    public DateTime QueuedUtc { get; set; }
+    public DateTime? StartedUtc { get; set; }
+    public DateTime? CompletedUtc { get; set; }
+    public string Role { get; set; } = string.Empty;
+    public byte? PlayerId { get; set; }
+    public string Error { get; set; } = string.Empty;
+    public Dictionary<string, object> Result { get; set; } = new(StringComparer.Ordinal);
+    public List<RuntimeTestProcessRunDto> Processes { get; set; } = new();
+}
+
+public sealed class RuntimeTestRunSummaryDto
+{
+    public string RequestId { get; set; } = string.Empty;
+    public string RunId { get; set; } = string.Empty;
+    public string CaseId { get; set; } = string.Empty;
+    public string Command { get; set; } = string.Empty;
+    public RuntimeTestCommandStatus Status { get; set; }
+    public DateTime QueuedUtc { get; set; }
+    public DateTime? StartedUtc { get; set; }
+    public DateTime? CompletedUtc { get; set; }
+    public string PhaseId { get; set; } = string.Empty;
+    public string StepId { get; set; } = string.Empty;
+    public string Error { get; set; } = string.Empty;
+    public int ProcessCount { get; set; }
+    public bool? CleanupClean { get; set; }
+    public string[] CaptureFiles { get; set; } = Array.Empty<string>();
+}
+
+public sealed class RuntimeTestProcessRunDto
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public byte? PlayerId { get; set; }
+    public string RequestId { get; set; } = string.Empty;
+    public string PhaseId { get; set; } = string.Empty;
+    public string StepId { get; set; } = string.Empty;
+    public string Command { get; set; } = string.Empty;
+    public RuntimeTestCommandStatus Status { get; set; }
+    public string Error { get; set; } = string.Empty;
+    public Dictionary<string, object> Result { get; set; } = new(StringComparer.Ordinal);
+}
+
+public enum RuntimeEnvironmentStage
+{
+    Idle, DiscoveringBaselineSaves, BaselineRequired, LaunchingHost,
+    WaitingForHostAgent, LoadingHostSave, WaitingForHostServer, LaunchingClient,
+    WaitingForClientAgent, ConnectingClient, WaitingForClientWorld, Ready, Stopping,
+    Stopped, Failed
+}
+
+public sealed class RuntimeEnvironmentStartRequestDto
+{
+    public string ExecutablePath { get; set; } = string.Empty;
+    public string WorkingDirectory { get; set; } = string.Empty;
+    public string CommonArguments { get; set; } = string.Empty;
+    public string HostArguments { get; set; } = string.Empty;
+    public string ClientArguments { get; set; } = string.Empty;
+    public string Address { get; set; } = "127.0.0.1";
+    public int Port { get; set; } = 7777;
+    public string Password { get; set; } = string.Empty;
+    public string ServerName { get; set; } = "DVMP automated test";
+    public string HostSaveGameMode { get; set; } = string.Empty;
+    public int? HostSaveUid { get; set; }
+    public string HostSaveName { get; set; } = string.Empty;
+    public string HostSaveBasePath { get; set; } = string.Empty;
+    public int MaxPlayers { get; set; } = 2;
+    public bool MinimizeManagedWindows { get; set; }
+    public bool DisableManagedWindowInput { get; set; } = true;
+    public int AgentTimeoutSeconds { get; set; } = 120;
+    public int WorldTimeoutSeconds { get; set; } = 300;
+}
+
+public sealed class RuntimeEnvironmentConfigurationDto
+{
+    public bool Exists { get; set; }
+    public RuntimeEnvironmentStartRequestDto Configuration { get; set; } = new();
+}
+
+public sealed class DashboardAutomationInfoDto
+{
+    public int ApiVersion { get; set; } = 1;
+    public string Name { get; set; } = "DVMP Runtime Harness";
+    public string BuildNumber { get; set; } = string.Empty;
+    public int ProcessId { get; set; }
+    public string SessionId { get; set; } = string.Empty;
+    public bool RuntimeTestsAvailable { get; set; }
+    public bool RuntimeEnvironmentAvailable { get; set; }
+    public string[] Endpoints { get; set; } = Array.Empty<string>();
+}
+
+public sealed class DebugEventQueryDto
+{
+    public DateTime? SinceUtc { get; set; }
+    public string SessionId { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string EventName { get; set; } = string.Empty;
+    public string EntityType { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string TestRunId { get; set; } = string.Empty;
+    public string TestCaseId { get; set; } = string.Empty;
+    public string TestPhaseId { get; set; } = string.Empty;
+    public string TestStepId { get; set; } = string.Empty;
+    public DebugSeverity? MinimumSeverity { get; set; }
+    public int Limit { get; set; } = 200;
+}
+
+public sealed class RuntimeEnvironmentStatusDto
+{
+    public RuntimeEnvironmentStage Stage { get; set; }
+    public bool Active { get; set; }
+    public bool Ready { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Error { get; set; } = string.Empty;
+    public DateTime UpdatedUtc { get; set; }
+    public int? HostProcessId { get; set; }
+    public int? ClientProcessId { get; set; }
+    public string HostSessionId { get; set; } = string.Empty;
+    public string ClientSessionId { get; set; } = string.Empty;
+    public Dictionary<string, object> AvailableSaves { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, object> HostSaveSelection { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, object> HostReadiness { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, object> ClientReadiness { get; set; } = new(StringComparer.Ordinal);
+}
+#endif
 
 public sealed class ReplicationStageDto
 {
