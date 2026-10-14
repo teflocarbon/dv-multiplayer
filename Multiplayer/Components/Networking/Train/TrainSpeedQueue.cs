@@ -32,12 +32,16 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float HoldExitSpeed = 0.05f;
     private const float HoldDeadband = 0.05f;        // metres a held car may be off before it's placed
     private const float HoldSettled = 0.02f;         // metres: placement stops here
-    private const float HoldCorrectionDelay = 0.5f;  // seconds off before placing (see Hold)
+    private const float HoldCorrectionDelay = 0.5f;  // seconds off before correcting (see Hold)
     private const float PlaceSpeed = 0.5f;           // m/s a held car slides into place ...
     private const float PlaceFastSpeed = 1f;         // ... or this, while more than PlaceFastDistance off
     private const float PlaceFastDistance = 1f;
     private const float ContactDistance = 1.2f;      // metres between couplers that count as touching
     private const float ContactCheckSeconds = 0.25f;
+    // Coupled cars are held by velocity (see HoldCoupled).
+    private const float HoldMinSpeed = 0.2f;         // m/s: slower than this, vanilla pins a braked bogie
+    private const float HoldMaxDriveSeconds = 10f;   // a held car that can't be moved is left alone ...
+    private const float HoldRetrySeconds = 10f;      // ... for this long before trying again
 
     private TrainCar trainCar;
     private NetworkedBogie[] bogies;
@@ -47,6 +51,8 @@ public class TrainSpeedQueue : TickedQueue<float>
     private float easedCorrection;
     private bool driving;
     private float holdOffSince = float.NegativeInfinity;
+    private float holdDriveSince;
+    private float holdRetryAt = float.NegativeInfinity;
     private float nextContactCheck;
     private bool touchingFollowing;
     private bool touchingHeld;
@@ -64,6 +70,14 @@ public class TrainSpeedQueue : TickedQueue<float>
     /// anything touching it follows a moving host car, or its own host car moves.
     /// </summary>
     public bool Parked { get; private set; }
+
+    /// <summary>
+    /// Whether the host has this car coupled to others (it sent it as part of a larger set). The
+    /// client applies a coupling a moment after the host commits it; right after an impact that
+    /// coupled the cars, ours could still be alone, and placing it alone as the coupler joint
+    /// formed held the consist metres off.
+    /// </summary>
+    public bool HostCoupled { get; set; }
 
     /// <summary>Kinematic because of us (placing or parked): nothing else should change it.</summary>
     public bool Kinematic => Placing || Parked;
@@ -95,6 +109,7 @@ public class TrainSpeedQueue : TickedQueue<float>
         Release();
         lastSampleTime = float.NegativeInfinity;
         holdOffSince = float.NegativeInfinity;
+        holdRetryAt = float.NegativeInfinity;
         Following = false;
         Held = false;
     }
@@ -166,6 +181,9 @@ public class TrainSpeedQueue : TickedQueue<float>
             easedCorrection = 0f;
         }
         driving = true;
+        // When the host's car stops, HoldCoupled carries on from here with a fresh budget.
+        holdDriveSince = Time.time;
+        holdRetryAt = float.NegativeInfinity;
         // A jump in the host's speed that easing isn't meant for is an impact (a shunt, a
         // collision) reversing the host's car at once. Easing all of it kept the car going for a
         // second, metres too far, then hauled it back hard (upstream #141). Take it at once but for
@@ -192,6 +210,16 @@ public class TrainSpeedQueue : TickedQueue<float>
     {
         bool hasError = TryGetAlongTrackError(out float error);
         float off = hasError ? Mathf.Abs(error) : 0f;
+
+        // Placement slides one car on its own: a car coupled to others would fight the coupler
+        // joint (and parking one end kinematic held the consist off its place after a coupling
+        // impact). Coupled cars are held by velocity, which the joints carry along.
+        if (HostCoupled || (trainCar.trainset != null && trainCar.trainset.cars.Count > 1))
+        {
+            Release();
+            HoldCoupled(hasError, error, off);
+            return;
+        }
 
         if (driving)
         {
@@ -251,6 +279,50 @@ public class TrainSpeedQueue : TickedQueue<float>
         if (touchingFollowing)
             return;
         BeginPlacing();
+    }
+
+    /// <summary>
+    /// Hold for a car coupled to others: drive it (and through the joints its consist) back to
+    /// within 2 cm at 0.2-0.5 m/s, then stop it. Left alone within 5 cm so it can sleep.
+    /// </summary>
+    private void HoldCoupled(bool hasError, float error, float off)
+    {
+        if (!driving)
+        {
+            if (off <= HoldDeadband || Time.time < holdRetryAt)
+            {
+                holdOffSince = float.NegativeInfinity;
+                return;
+            }
+            if (float.IsNegativeInfinity(holdOffSince))
+                holdOffSince = Time.time;
+            if (Time.time - holdOffSince < HoldCorrectionDelay)
+                return;
+
+            if (trainCar.isEligibleForSleep)
+                trainCar.ForceOptimizationState(false);
+            easedSpeed = 0f;
+            easedCorrection = 0f;
+            holdDriveSince = Time.time;
+            driving = true;
+        }
+
+        if (!hasError || off <= HoldSettled || Time.time - holdDriveSince > HoldMaxDriveSeconds)
+        {
+            // Where the host's car is (or it can't be moved, e.g. held by its brakes on a slope):
+            // stop it and hand it back to vanilla.
+            if (hasError && off > HoldSettled)
+                holdRetryAt = Time.time + HoldRetrySeconds;
+            ApplySpeed(0f);
+            driving = false;
+            holdOffSince = float.NegativeInfinity;
+            return;
+        }
+
+        float correction = Mathf.Sign(error) * Mathf.Clamp(off * CorrectionGain, HoldMinSpeed, SlowCorrectionSpeed);
+        easedSpeed = Mathf.MoveTowards(easedSpeed, 0f, MaxSpeedAcceleration * Time.fixedDeltaTime);
+        easedCorrection = Mathf.MoveTowards(easedCorrection, correction, MaxCorrectionAcceleration * Time.fixedDeltaTime);
+        ApplySpeed(easedSpeed + easedCorrection);
     }
 
     private void BeginPlacing()

@@ -272,7 +272,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                 {
                     //Multiplayer.LogDebug(()=>$"Applying TrainPhysicsUpdate to {packet.TrainsetParts[i].NetId}");
                     derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
-                        in packet.TrainsetParts[i], packet.Tick);
+                        in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length);
                 }
                 else
                 {
@@ -294,7 +294,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         {
             if(set.cars[i].TryNetworked(out NetworkedTrainCar networkedTrainCar))
                 derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
-                    in packet.TrainsetParts[i], packet.Tick);
+                    in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length);
             else
                 Multiplayer.LogWarning($"Unable to apply TrainPhysicsUpdate to TrainSet with FirstNetId: {packet.FirstNetId}, NetworkedTrainCar not found!");
         }

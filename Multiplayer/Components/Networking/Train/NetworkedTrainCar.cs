@@ -2200,7 +2200,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
     }
 
-    public bool Client_ReceiveTrainPhysicsUpdate(in TrainsetMovementPart movementPart, uint tick)
+    /// <param name="hostSetSize">How many cars the host sent this car with: its trainset there.</param>
+    public bool Client_ReceiveTrainPhysicsUpdate(in TrainsetMovementPart movementPart, uint tick, int hostSetSize = 1)
     {
         using IDisposable debugScope = DebugTrace.BeginApply("train", "train.physics-apply", DebugRuntimeSide.Client, "TrainCar", NetId.ToString(), () =>
         {
@@ -2312,6 +2313,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 }
             }
 
+            if (Client_trainSpeedQueue is TrainSpeedQueue speedQueue)
+                speedQueue.HostCoupled = hostSetSize > 1;
             Client_trainSpeedQueue.ReceiveSnapshot(movementPart.Speed, tick);
             TrainCar.stress.slowBuildUpStress = movementPart.SlowBuildUpStress;
             client_bogie1Queue.ReceiveSnapshot(movementPart.Bogie1, movementPart.Speed, tick);
