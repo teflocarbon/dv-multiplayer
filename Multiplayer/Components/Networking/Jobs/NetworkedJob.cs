@@ -3,6 +3,7 @@ using DV.InventorySystem;
 using DV.Logic.Job;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Core.Jobs;
+using Multiplayer.Integrations.Inventory;
 using Multiplayer.Networking.Data.Jobs;
 using System;
 using System.Collections.Generic;
@@ -322,12 +323,36 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
         if (joItem != null)
         {
-            var itemBase = joItem.GetComponent<ItemBase>();
-            itemBase?.ForceEndInteraction();
-            itemBase?.InContainer?.RemoveItem(itemBase.gameObject, false, true);
-            Inventory.Instance.DropItemFromHandsOrInventory(itemBase.gameObject);
+            RemoveFromInventory(joItem.GetComponent<ItemBase>(), JobOverview.NetId);
             joItem.DestroyJobOverview();
+            return;
         }
+
+        // This side may not know which overview belongs to the job (e.g. it was handed over before
+        // the job's item link arrived); any overview of this job still in the inventory is stale.
+        if (Job == null || Inventory.Instance == null)
+            return;
+        foreach (GameObject held in Inventory.Instance.GetItemsArray(true) ?? [])
+        {
+            JobOverview stale = held != null ? held.GetComponent<JobOverview>() : null;
+            if (stale == null || stale.job != Job)
+                continue;
+            RemoveFromInventory(stale.GetComponent<ItemBase>(), stale.GetComponent<NetworkedItem>()?.NetId ?? 0);
+            stale.DestroyJobOverview();
+        }
+    }
+
+    // When another player takes the job, this player's copy of its paperwork is destroyed. Vanilla's
+    // drop leaves a locked or reserved slot pointing at the item, so the slot kept a dead overview
+    // that couldn't be taken out until the job's booklet was printed. Clear every trace of it.
+    private static void RemoveFromInventory(ItemBase itemBase, ushort netId)
+    {
+        if (itemBase == null)
+            return;
+        itemBase.ForceEndInteraction();
+        itemBase.InContainer?.RemoveItem(itemBase.gameObject, false, true);
+        InventoryIntegration.RevokeMembership(itemBase.gameObject, netId);
+        InventoryIntegration.PurgeContainerMembership(itemBase.gameObject);
     }
 
     public void DestroyJobBooklets()
@@ -337,10 +362,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
             JobBooklet jbItem = item?.GetTrackedItem<JobBooklet>();
             if (jbItem == null)
                 continue;
-            var itemBase = jbItem.GetComponent<ItemBase>();
-            itemBase?.ForceEndInteraction();
-            itemBase?.InContainer?.RemoveItem(itemBase.gameObject, false, true);
-            Inventory.Instance?.DropItemFromHandsOrInventory(itemBase.gameObject);
+            RemoveFromInventory(jbItem.GetComponent<ItemBase>(), item.NetId);
             jbItem.DestroyJobBooklet();
         }
         jobBooklets.Clear();
