@@ -98,6 +98,7 @@ public class NetworkClient : NetworkManager
         typeof(CommonTrainFusesPacket),
         typeof(ServerboundTrainDeleteRequestPacket),
         typeof(ServerboundTrainRerailRequestPacket),
+        typeof(ServerboundSandboxCargoPacket),
         typeof(ServerboundTrainSpawnRequestPacket),
         typeof(ServerboundWorkTrainRequestPacket),
         typeof(ServerboundLicensePurchaseRequestPacket),
@@ -2497,6 +2498,12 @@ public class NetworkClient : NetworkManager
         if (sequence == 0)
             sequence = ++nextTrainControlOperationId;
         return ((ulong)PlayerId << 56) | (sequence & 0x00FFFFFFFFFFFFFFUL);
+    }
+
+    public void SendSandboxCargo(ushort carNetId, uint cargoTypeNetId)
+    {
+        SendPacketToServer(new ServerboundSandboxCargoPacket { CarNetId = carNetId, CargoTypeNetId = cargoTypeNetId },
+            DeliveryMethod.ReliableOrdered);
     }
 
     public void SendTrainSyncRequest(ushort netId)
