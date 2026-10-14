@@ -24,6 +24,7 @@ runs=( # name | scenario | variables
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
   "explosion|explosion|"
+  "hazmat|hazmat|"
   "rejoin|rejoin|"
   "rejoin-crash|rejoin|CRASH=1"
   "save-reload|save-reload|CYCLES=2"

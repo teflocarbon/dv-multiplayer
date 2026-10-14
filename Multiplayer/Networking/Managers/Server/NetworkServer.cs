@@ -127,6 +127,7 @@ public class NetworkServer : NetworkManager
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
     {
         Log($"Server created for {(singlePlayer ? "single player" : "multiplayer")} game");
+        HazmatSync.Reset();
 
         IsSinglePlayer = singlePlayer;
         ServerData = serverData;
@@ -293,6 +294,7 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
         netPacketProcessor.SubscribeReusable<ServerboundShopPaymentPacket, ITransportPeer>(OnServerboundShopPaymentPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundHazmatIgnitePacket, ITransportPeer>(OnServerboundHazmatIgnitePacket);
         netPacketProcessor.SubscribeReusable<ServerboundShopPurchasePacket, ITransportPeer>(OnServerboundShopPurchasePacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
@@ -470,6 +472,8 @@ public class NetworkServer : NetworkManager
     {
         if (!IsLoaded)
             return;
+
+        HazmatSync.Server_Tick(tick);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)
         {
@@ -1908,7 +1912,7 @@ public class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForTiles:
-                // Send Hazmat data
+                HazmatSync.Server_SendAll(peer);
                 break;
 
             case PlayerLoadingState.Complete:
@@ -2087,6 +2091,21 @@ public class NetworkServer : NetworkManager
         sleep.lastSleepDurationSeconds = (int)packet.amountOfTimeToSkipInSeconds;
         Log($"{player?.Username} slept {packet.amountOfTimeToSkipInSeconds / 3600f:N1}h; the next sleep for anyone is after {sleep.lastWakeTime.AddSeconds(sleep.GetMinimumTimeSinceLastWakeSeconds())}");
         SendSleepState();
+    }
+
+    public void SendHazmatTiles(byte[] data, ITransportPeer peer)
+    {
+        ClientboundHazmatTilesPacket packet = new() { Data = data };
+        if (peer != null)
+            SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+        else
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTiles, excludeSelf: true);
+    }
+
+    private void OnServerboundHazmatIgnitePacket(ServerboundHazmatIgnitePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HazmatSync.Server_Ignite(new HazmatSync.ServerPlayerIgnite(packet.GridCoords, packet.Strength, player.AbsoluteWorldPosition));
     }
 
     public void SendSleepState(ITransportPeer peer = null)

@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+7841d5a07256c3cd81ed155730d74788153e92bd",
-  "Fingerprint": "38de858a6f1378db6231ee513dbbeb76cab31f8365197f315d2f6d8bd52f9171",
+  "BuildVersion": "0.1.16.14+6b20aff949232b42740ca10f767bb7d0b9ff5464",
+  "Fingerprint": "bd808db1472faf4eda46123e309c1985cf7b6fbd64ee252200ceddaa4641cb2a",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -778,6 +778,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "AD5EE8EFD081ED9B",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundHazmatIgnitePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "B04AFC07478AF048",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundTrainBaselineBeginPacket",
       "Direction": "Clientbound",
@@ -1070,6 +1079,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonHoseConnectedPacket",
       "Direction": "Bidirectional",
       "Category": "Common.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "F29DD8592C491F14",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundHazmatTilesPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

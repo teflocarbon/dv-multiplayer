@@ -112,6 +112,7 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundItemRecallPreparedPacket),
         typeof(ServerboundMoneyItemDepositPacket),
         typeof(ServerboundShopPaymentPacket),
+        typeof(ServerboundHazmatIgnitePacket),
         typeof(ServerboundShopPurchasePacket),
         typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
@@ -260,6 +261,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundSaveGameDataPacket>(OnClientboundSaveGameDataPacket);
         netPacketProcessor.SubscribeReusable<ClientboundRailwayStatePacket>(OnClientboundRailwayStatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundSleepStatePacket>(OnClientboundSleepStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundHazmatTilesPacket>(OnClientboundHazmatTilesPacket);
         netPacketProcessor.SubscribeReusable<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
         netPacketProcessor.SubscribeReusable<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
 
@@ -2088,6 +2090,16 @@ public class NetworkClient : NetworkManager
             amountOfTimeToSkipInSeconds = amountOfTimeToSkipInSeconds,
             IsSleep = isSleep
         }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnClientboundHazmatTilesPacket(ClientboundHazmatTilesPacket packet)
+    {
+        HazmatSync.Client_Apply(packet.Data);
+    }
+
+    public void SendHazmatIgnite(int gridCoords, float strength)
+    {
+        SendPacketToServer(new ServerboundHazmatIgnitePacket { GridCoords = gridCoords, Strength = strength }, DeliveryMethod.ReliableOrdered);
     }
 
     private void OnClientboundSleepStatePacket(ClientboundSleepStatePacket packet)
