@@ -11,5 +11,6 @@ return new
     chain = ca.state + "/" + cb.state,
     fsm = (ca.ChainScript?.CurrentState.ToString() ?? "-") + "/" + (cb.ChainScript?.CurrentState.ToString() ?? "-"),
     gap = Math.Round(Vector3.Distance(ca.transform.position, cb.transform.position), 2),
-    wagonAbs = Dev.Abs(b.transform.position)
+    wagonAbs = Dev.Abs(b.transform.position),
+    speed = Math.Round(Mathf.Abs(b.GetForwardSpeed()), 2)
 };
