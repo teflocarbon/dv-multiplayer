@@ -1657,6 +1657,7 @@ public class NetworkServer : NetworkManager
         serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
         peerToPlayer.Add(peer, serverPlayer);
         AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
+        NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
         WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
 
         ClientboundLoginResponsePacket acceptPacket = new()
@@ -3042,6 +3043,9 @@ public class NetworkServer : NetworkManager
             Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
         UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
     }
+
+    // Players given the first-join starter kit this session (ones with saved data never get it).
+    internal readonly HashSet<Guid> StarterKitsGiven = new();
 
     // Well above any basket; refunds are further capped by what the player has paid in.
     private const double MaxShopPayment = 1_000_000;
