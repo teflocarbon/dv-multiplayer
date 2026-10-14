@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using DV.Utils;
 using UnityEngine;
@@ -11,6 +12,10 @@ namespace Multiplayer.Components.Networking.Train;
 public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 {
     private ClientboundTrainsetPhysicsPacket cachedSendPacket;
+
+    // Sets that were moving on the previous tick, to catch the tick a set stops.
+    private HashSet<Trainset> movingSets = new();
+    private HashSet<Trainset> movingSetsNext = new();
 
     const float DESIRED_FULL_SYNC_INTERVAL = 2f; // in seconds
     const int MAX_UNSYNC_TICKS = (int)(NetworkLifecycle.TICK_RATE * DESIRED_FULL_SYNC_INTERVAL);
@@ -81,6 +86,9 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             else
                 Multiplayer.LogWarning($"Server_OnTick(): Trainset or cars are null. Set Id: {set?.id}, Cars: {set?.cars?.Count}");
         }
+
+        (movingSets, movingSetsNext) = (movingSetsNext, movingSets);
+        movingSetsNext.Clear();
     }
 
     private void Server_TickSet(Trainset set, uint tick)
@@ -168,14 +176,17 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             anyCarTeleporting |= trainCar.IsTeleporting;
             if (anyCarTeleporting)
                 Multiplayer.LogDebug(() => $"Server_TickSet() {trainCar?.ID} in set {set.id} is teleporting");
-
-            // We can finish checking early if we have either a car moving/teleporting or a car not sync'd within the max-tick threshold
-            if (anyCarMoving || anyCarTeleporting || maxTicksReached)
-            {
-                //Multiplayer.LogDebug(() => $"Server_TickSet() TrainCar {trainCar.ID} ({netTC?.NetId}) from set: {cachedSendPacket.FirstNetId} is moving or due for sync! stationary: {trainCar.isStationary}, RB velocity: {trainCar.rb.velocity} {trainCar.rb.velocity.magnitude}, tracks dirty: {netTC?.BogieTracksDirty} sync: {netTC?.TicksSinceSync >= MAX_UNSYNC_TICKS}");
-                break;
-            }
+            // Every car is checked (no early exit): a dirty track on a later car must still make
+            // the packet reliable, and a set stopping must not be mistaken for one due a resync.
         }
+
+        // The tick a set stops, send where it stopped, reliably. Clients hold a stopped car at
+        // the host's last sample; with only the unreliable periodic resync after this, a lost
+        // packet or a client frame stall right at the stop left their car metres off.
+        bool justStopped = !anyCarMoving && movingSets.Contains(set);
+        if (anyCarMoving)
+            movingSetsNext.Add(set);
+        maxTicksReached |= justStopped;
 
         // If any car is dirty or exceeded its max ticks we will re-sync the entire train
         if (!anyCarMoving && !maxTicksReached || anyCarTeleporting)
@@ -232,7 +243,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         }
 
         cachedSendPacket.TrainsetParts = trainsetParts;
-        NetworkLifecycle.Instance.Server.SendTrainsetPhysicsUpdate(cachedSendPacket, anyTracksDirty);
+        NetworkLifecycle.Instance.Server.SendTrainsetPhysicsUpdate(cachedSendPacket, anyTracksDirty || justStopped);
     }
     #endregion
 

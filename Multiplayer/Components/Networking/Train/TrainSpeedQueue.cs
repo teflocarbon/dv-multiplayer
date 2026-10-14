@@ -7,7 +7,8 @@ namespace Multiplayer.Components.Networking.Train;
 /// proportional correction towards where the host's bogies are along the track (projected to
 /// now). This replaces snapping the body to a latency-old position, which yanked moving trains
 /// backwards every couple of seconds, and keeps locally simulated forces (brakes, rolling
-/// resistance) from accumulating drift.
+/// resistance) from accumulating drift. A car the host reports as stopped is held where the
+/// host's stopped (see <see cref="Hold"/>).
 /// </summary>
 public class TrainSpeedQueue : TickedQueue<float>
 {
@@ -20,6 +21,15 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float MaxCorrectionAcceleration = 4f; // m/s², easing the position correction
     private const float ImpactSpeedStep = 1.5f;         // m/s jump in the host's speed: only impacts make one
 
+    /// <summary>Host speeds below this (m/s) mean the host's car is stopped: hold it there.</summary>
+    public const float HoldSpeed = 0.05f;
+    private const float HoldDeadband = 0.05f;        // metres a held car may be off before it's corrected
+    private const float HoldSettled = 0.02f;         // metres: a held car's correction stops here
+    private const float HoldMinSpeed = 0.2f;         // m/s: slower than this, vanilla pins a braked bogie
+    private const float HoldCorrectionDelay = 0.5f;  // seconds off before correcting (see Hold)
+    private const float HoldMaxDriveSeconds = 5f;    // a held car that can't be moved is left alone ...
+    private const float HoldRetrySeconds = 10f;      // ... for this long before trying again
+
     private TrainCar trainCar;
     private NetworkedBogie[] bogies;
     private float targetSpeed;
@@ -27,6 +37,9 @@ public class TrainSpeedQueue : TickedQueue<float>
     private float easedSpeed;
     private float easedCorrection;
     private bool driving;
+    private float holdOffSince = float.NegativeInfinity;
+    private float holdDriveSince;
+    private float holdRetryAt = float.NegativeInfinity;
 
     protected override void OnEnable()
     {
@@ -44,6 +57,8 @@ public class TrainSpeedQueue : TickedQueue<float>
     {
         base.Clear();
         lastSampleTime = float.NegativeInfinity;
+        holdOffSince = float.NegativeInfinity;
+        holdRetryAt = float.NegativeInfinity;
     }
 
     protected override void Process(float snapshot, uint snapshotTick)
@@ -54,11 +69,26 @@ public class TrainSpeedQueue : TickedQueue<float>
 
     private void FixedUpdate()
     {
-        // The host only sends while a set is moving (plus a periodic resync); once samples stop,
-        // leave the car to local physics as before.
         if (trainCar == null || trainCar.derailed || trainCar.rb == null || trainCar.rb.isKinematic ||
-            Time.time - lastSampleTime > StaleSampleSeconds || NetworkLifecycle.Instance.IsHost())
+            float.IsNegativeInfinity(lastSampleTime) || NetworkLifecycle.Instance.IsHost())
         {
+            driving = false;
+            return;
+        }
+
+        if (Mathf.Abs(targetSpeed) < HoldSpeed)
+        {
+            Hold();
+            return;
+        }
+
+        // The host sends every tick while a set moves. Samples stopping without the host saying
+        // the car stopped means they were lost: leave the car to local physics at the host's last
+        // speed, not still carrying a correction it no longer needs (it would roll on with it).
+        if (Time.time - lastSampleTime > StaleSampleSeconds)
+        {
+            if (driving)
+                ApplySpeed(easedSpeed);
             driving = false;
             return;
         }
@@ -72,13 +102,18 @@ public class TrainSpeedQueue : TickedQueue<float>
 
         // Samples arrive at the network tick rate, slower than physics, and carry some noise:
         // ease the host's speed and the correction so the car accelerates smoothly instead of in
-        // steps. Taking over a moving car starts from its own speed so it doesn't jerk.
+        // steps. A car taken over from local physics starts at the host's speed: whatever it was
+        // doing locally (e.g. launched by a local loco before the host's samples arrived) never
+        // happened on the host, so carrying it into the correction only overshot further.
         if (!driving)
         {
             easedSpeed = targetSpeed;
-            easedCorrection = Vector3.Dot(trainCar.rb.velocity, trainCar.transform.forward) - targetSpeed;
+            easedCorrection = 0f;
         }
         driving = true;
+        // When the host's car stops, Hold carries on from here with a fresh budget.
+        holdDriveSince = Time.time;
+        holdRetryAt = float.NegativeInfinity;
         // A jump in the host's speed that easing isn't meant for is an impact (a shunt, a
         // collision) reversing the host's car at once. Easing all of it kept the car going for a
         // second, metres too far, then hauled it back hard (upstream #141). Take it at once but for
@@ -87,6 +122,57 @@ public class TrainSpeedQueue : TickedQueue<float>
         if (Mathf.Abs(jump) > ImpactSpeedStep)
             easedSpeed += jump - Mathf.Sign(jump) * ImpactSpeedStep;
         easedSpeed = Mathf.MoveTowards(easedSpeed, targetSpeed, MaxSpeedAcceleration * Time.fixedDeltaTime);
+        easedCorrection = Mathf.MoveTowards(easedCorrection, correction, MaxCorrectionAcceleration * Time.fixedDeltaTime);
+        ApplySpeed(easedSpeed + easedCorrection);
+    }
+
+    /// <summary>
+    /// The host's car is stopped. Bring ours to where it stopped and leave it there, so vanilla
+    /// can put it to sleep like the host's. Writing a rigidbody's velocity wakes it, and an awake,
+    /// unbraked car creeps and wakes every car on its track, so a car close enough is not touched
+    /// at all. Corrections wait a moment: a local loco hitting a held car is pushing it before the
+    /// host's samples for that car arrive, and correcting then would fight the push.
+    /// </summary>
+    private void Hold()
+    {
+        bool hasError = TryGetAlongTrackError(out float error);
+        float off = hasError ? Mathf.Abs(error) : 0f;
+
+        if (!driving)
+        {
+            if (off <= HoldDeadband || Time.time < holdRetryAt)
+            {
+                holdOffSince = float.NegativeInfinity;
+                return;
+            }
+            if (float.IsNegativeInfinity(holdOffSince))
+                holdOffSince = Time.time;
+            if (Time.time - holdOffSince < HoldCorrectionDelay)
+                return;
+
+            if (trainCar.isEligibleForSleep)
+                trainCar.ForceOptimizationState(false);
+            easedSpeed = 0f;
+            easedCorrection = 0f;
+            holdDriveSince = Time.time;
+            driving = true;
+        }
+
+        if (!hasError || off <= HoldSettled || Time.time - holdDriveSince > HoldMaxDriveSeconds)
+        {
+            // Where the host's car is (or it can't be moved, e.g. held by its brakes on a slope):
+            // stop it and hand it back to vanilla.
+            if (hasError && off > HoldSettled)
+                holdRetryAt = Time.time + HoldRetrySeconds;
+            ApplySpeed(0f);
+            driving = false;
+            holdOffSince = float.NegativeInfinity;
+            return;
+        }
+
+        // Too slow and vanilla's slope pin zeroes a braked bogie's velocity every step.
+        float correction = Mathf.Sign(error) * Mathf.Clamp(off * CorrectionGain, HoldMinSpeed, MaxCorrectionSpeed);
+        easedSpeed = Mathf.MoveTowards(easedSpeed, 0f, MaxSpeedAcceleration * Time.fixedDeltaTime);
         easedCorrection = Mathf.MoveTowards(easedCorrection, correction, MaxCorrectionAcceleration * Time.fixedDeltaTime);
         ApplySpeed(easedSpeed + easedCorrection);
     }

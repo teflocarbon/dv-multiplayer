@@ -66,6 +66,10 @@ and a brake-line member digest).
   (`Components/Networking/NetworkLifecycle.cs`; 274c250).
 - Full syncs use the transform instead of the rigidbody while a just-spawned car's body is still
   at its pooled position (c2d0d5f).
+- Stopped cars settle where the host's stopped (#61). The host sends a set reliably on the tick it
+  stops; clients hold a car the host reports as stopped at the host's position without touching
+  its rigidbody unless it is more than 5 cm off, so idle cars sleep like the host's instead of
+  being woken and nudged by every resync.
 - A car derailed on a client only is rerailed onto the host's track and pose, its motion queues
   are cleared, and the host topology is reapplied (`NetworkedTrainCar.Client_RerailToHost`;
   0903b06).
@@ -80,10 +84,10 @@ and a brake-line member digest).
   rerail or move packet does not. `NetworkServer.SendTrainsetRelocation` has no caller, so the
   relocation/ack path is unused. There is no correction or bandwidth telemetry.
 
-**Stage 6: partly done.** Protocol mismatch is rejected at connect. Still present: the client
-subscribes the legacy `Common*` control receivers although the host no longer sends those packets,
-and `CommonCouplerInteractionPacket` remains for interaction flags not mapped to a topology
-command; its host handler mutates native state under a 2 s timed observation suppression.
+**Stage 6: partly done.** Protocol mismatch is rejected at connect, and the legacy `Common*`
+control receivers were removed in #59. Still present: `CommonCouplerInteractionPacket` remains for
+interaction flags not mapped to a topology command; its host handler mutates native state under a
+2 s timed observation suppression.
 
 **Not built:** periodic topology digest audit, wrap-safe revision comparisons, control lease expiry
 other than disconnect/release, the per-subsystem counters in "Performance budget", the per-train
@@ -96,10 +100,12 @@ dashboard.
 
 **Known open issues:**
 
-- Clients occasionally see a snap of about 5.8 m at about 10 m/s. It is intermittent and not yet
-  explained; the 5 m full-sync threshold is the only path that moves an on-rail car that far at
-  once.
-- A coupling "bounce" has been reported but not reproduced; `couple-impact` passes.
+- Clients occasionally see a snap of about 5.8 m at about 10 m/s (#44). It is intermittent; the
+  5 m full-sync threshold is the only path that moves an on-rail car that far at once. The likely
+  cause is the sample age being capped at 0.5 s when projecting the host's pose.
+- The coupling "bounce" from real play is at least partly #61: a car pushed by a client's loco
+  before the host's samples arrive was launched locally, and the correction then inherited that
+  speed. Takeovers now start from the host's speed.
 
 ## Goal
 
@@ -632,20 +638,35 @@ position and rotation, even when stationary. The speed is `GetForwardSpeed()` mu
 host's simulation rate (game time per real second, smoothed, 1 above 0.97), so a host that drops
 to a few frames a second doesn't send speeds its world isn't making. A full sync of a car whose
 rigidbody is still more than 5 m from its transform (a just-spawned car whose body is at its
-pooled position) sends the transform instead.
+pooled position) sends the transform instead. A set counts as moving while any car is not
+vanilla's `isStationary` (moved under 1 cm in the last second). On the tick a set stops, it is sent
+once more as a full sync, reliably, so clients learn exactly where it stopped; after that only the
+2 s full sync goes out.
 
 Client on-rail cars (`TrainSpeedQueue`, `NetworkedBogie`): every physics step the car runs at the
 host's speed plus a correction proportional to how far the host's bogies are ahead along the
 track, projected to now (gain 2/s, capped at 3 m/s plus 25% of the speed, 2 cm deadband). The
 host speed eases at up to 8 m/s² and the correction at up to 4 m/s², except that a speed step
 over 1.5 m/s (an impact) is taken at once. A bogie on a different track from the host's is set
-onto the host's track unless it is just crossing to the adjacent one. Samples older than 0.5 s
-hand the car back to local physics.
+onto the host's track unless it is just crossing to the adjacent one. A car taken over from local
+physics starts at the host's speed with no correction (its local motion never happened on the
+host). If moving samples stop arriving for 0.5 s the car is handed back to local physics at the
+host's last speed, without the correction term.
+
+A sample under 0.05 m/s means the host's car is stopped, and the client holds its car there
+(`TrainSpeedQueue.Hold`). The sample is not projected and never goes stale. Within 5 cm the
+rigidbody is not touched, because writing a velocity wakes the car and an awake, unbraked car
+creeps and wakes every car on its track (vanilla's `TrainsOptimizer`); before this every 2 s
+resync woke idle client cars. Further off for more than 0.5 s (so a local loco pushing the car
+isn't fought before the host's samples arrive), the car is woken and driven back to within 2 cm at
+0.2-3 m/s, then stopped with zero velocity and left to sleep. A car that can't be moved in 5 s is
+left for 10 s before trying again.
 
 Full-sync positions are a safety net. The host pose is projected forward by the sample's age
 (capped at 0.5 s); if the car is more than 5 m from it (`POSITION_UPDATE_THRESHOLD` in
-`NetworkedTrainCar`), the body is moved there, its rotation is left alone, and the motion queues
-and train stress are reset.
+`NetworkedTrainCar`), the body and its bogies are moved there and stopped, its rotation is left
+alone, and the motion queues and train stress are reset. `isKinematic` is only written when it
+changes.
 
 Derailment: a rigidbody snapshot for an on-rail client car calls `TrainCar.Derail()` once, then
 interpolates the snapshots; afterwards the client reapplies the host's topology, because native
@@ -660,9 +681,10 @@ There is no `motionEpoch`. Host rerail (`ClientboundRerailTrainPacket`) and move
 clear client queues; stale samples are discarded only by tick order. The relocation packet with
 its acknowledgement exists on the client, but the host never sends it.
 
-Open issues: an intermittent ~5.8 m snap at ~10 m/s on clients (the 5 m threshold above is the
-only path that moves an on-rail car that far at once), and a reported but unreproduced coupling
-"bounce".
+Open issues: an intermittent ~5.8 m snap at ~10 m/s on clients (#44). Vanilla jitter can keep
+idle yard cars above the 1 cm/s stationary line on the host, so they are sent every tick; clients
+now hold them quietly, but the bandwidth remains. A host-side "settled" rule with hysteresis for
+sync (not physics) would fix that.
 
 ## Loading-state delivery
 
