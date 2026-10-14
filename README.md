@@ -125,6 +125,10 @@ Contributions are what make the open source community such an amazing place to l
 Any contributions you make are **greatly appreciated**!  
 If you're new to contributing to open-source projects, you can follow [this][contributing-quickstart-url] guide.
 
+Start with [docs/README.md](docs/README.md), which indexes the design and testing docs, and
+[docs/development.md](docs/development.md) for building, testing in game and the branch and pull
+request workflow.
+
 
 
 

@@ -20,6 +20,17 @@ dotnet test Multiplayer.Core.Tests
 dotnet test Multiplayer.Protocol.Tests -c Release   # references the built Multiplayer.dll of the same configuration
 ```
 
+## Docs
+
+`docs/README.md` indexes the docs. Start with `docs/architecture.md`; the per-system designs are in
+`docs/design/`, and notes on vanilla game behaviour are in `docs/research/`. Update the relevant
+doc when you change how a system syncs.
+
+## Workflow
+
+`beta` is protected: work on a branch off `beta` and merge through a pull request (merge commits
+only, signed commits). See `docs/development.md`.
+
 ## Decompiled game source
 
 The game assemblies are not obfuscated; decompile with ILSpy (`ilspycmd -p`) when you need vanilla behaviour.
