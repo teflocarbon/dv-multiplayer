@@ -1,7 +1,10 @@
+using DV.Interaction;
 using DV.Player;
 using Multiplayer.Components.Networking.Train;
 using Multiplayer.Editor.Components.Player;
 using Multiplayer.Networking.Data.Player;
+using Multiplayer.Utils;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Multiplayer.Components.Networking.Player;
@@ -110,12 +113,22 @@ public class NetworkedPlayer : MonoBehaviour
     private Quaternion currentRightHandWorldRot = Quaternion.identity;
     private bool handTrackingInitialized;
 
-    private GameObject itemHeld;
+    // Inventory and item holding. Item packets currently represent a single held item,
+    // so this retains the feature branch's right-hand behaviour on top of beta's
+    // newer player/VR tracking model.
+    private GameObject inventoryRoot;
+    public GameObject RightHandItemGO { get; private set; }
+    private readonly List<Collider> disabledRHItemColliders = [];
+    public GameObject LeftHandItemGO { get; private set; }
+    private readonly List<Collider> disabledLHItemColliders = [];
     private Vector3? itemHoldPos;
     private Quaternion? itemHoldRot;
 
     protected void Awake()
     {
+        inventoryRoot = new GameObject("Inventory");
+        inventoryRoot.transform.SetParent(transform);
+
         nameTag = GetComponentInChildren<NameTag>();
 
         nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
@@ -307,6 +320,20 @@ public class NetworkedPlayer : MonoBehaviour
 
         if (IsVR)
             ApplyHandTracking();
+
+        ApplyHeldItemPosition();
+    }
+
+    private void ApplyHeldItemPosition()
+    {
+        if (RightHandItemGO == null)
+            return;
+
+        Quaternion itemRot = selfTransform.rotation * Quaternion.Euler(currentHeadPitch, 0f, 0f);
+        Vector3 finalOffset = itemHoldPos.HasValue ? itemAnchorOffset + itemHoldPos.Value : itemAnchorOffset;
+
+        RightHandItemGO.transform.position = selfTransform.position + selfTransform.rotation * finalOffset;
+        RightHandItemGO.transform.rotation = itemRot * (itemHoldRot ?? Quaternion.identity);
     }
 
     private void ApplySpineAndHeadRotation()
@@ -320,7 +347,7 @@ public class NetworkedPlayer : MonoBehaviour
             // Side lean is always spinning around the root's global FORWARD axis
             Quaternion leanOffset = Quaternion.AngleAxis(currentLeanAngle, selfTransform.forward);
 
-            // Directly assign the uniform world rotation 
+            // Directly assign the uniform world rotation
             spineTransform.rotation = leanOffset * currentModelSpineBase;
         }
 
@@ -437,23 +464,67 @@ public class NetworkedPlayer : MonoBehaviour
     }
 
     /// <summary>
-    /// Sets the player's currently held item with optional position and rotation offsets
+    /// Attach item to player object when in inventory.
+    /// </summary>
+    public void AddItemToInventory(GameObject itemGo)
+    {
+        itemGo.transform.SetParent(inventoryRoot.transform, true);
+        itemGo.SetActive(false);
+    }
+
+    /// <summary>
+    /// Sets the player's currently held item with optional position and rotation offsets.
     /// </summary>
     /// <param name="itemGo">The item GameObject to hold</param>
     /// <param name="targetPos">Optional local position offset</param>
     /// <param name="targetRot">Optional local rotation offset</param>
-    public void HoldItem(GameObject itemGo, Vector3? targetPos = null, Quaternion? targetRot = null)
+    /// <param name="rightHand">Indicates if the item is held in the right hand. Always true for non-VR.</param>
+    // TODO: Expand item packets and handling for left-hand and dual-hand VR items.
+    public void HoldItem(GameObject itemGo, Vector3? targetPos = null, Quaternion? targetRot = null, bool rightHand = true)
     {
         Multiplayer.LogDebug(() => $"NetworkedPlayer.HoldItem({itemGo.GetPath()}) Player: {username}, Before position: {itemGo.transform.localPosition}, rotation:  {itemGo.transform.localRotation}, Target pos: {targetPos}, Target rot: {targetRot}");
 
-        itemHeld = itemGo;
+        itemGo.transform.SetParent(selfTransform, true);
+        var itemGrabHandler = itemGo.GetComponentInChildren<GrabHandlerItem>();
+        if (itemGrabHandler != null)
+        {
+            itemGrabHandler.TogglePhysics(false);
+            itemGrabHandler.interactionAllowed = false;
+        }
+
+        disabledRHItemColliders.Clear();
+        foreach (Collider col in itemGo.GetComponentsInChildren<Collider>(true))
+        {
+            if (col != null && col.enabled)
+                col.enabled = false;
+
+            disabledRHItemColliders.Add(col);
+        }
+
+        RightHandItemGO = itemGo;
         itemHoldPos = targetPos;
         itemHoldRot = targetRot;
     }
 
     public void DropItem()
     {
-        itemHeld = null;
+        foreach (Collider col in disabledRHItemColliders)
+        {
+            if (col != null)
+                col.enabled = true;
+        }
+        disabledRHItemColliders.Clear();
+
+        var itemGrabHandler = RightHandItemGO?.GetComponentInChildren<GrabHandlerItem>();
+        if (itemGrabHandler != null)
+        {
+            itemGrabHandler.TogglePhysics(true);
+            itemGrabHandler.interactionAllowed = true;
+        }
+
+        RightHandItemGO?.transform.SetParent(WorldMover.OriginShiftParent, true);
+
+        RightHandItemGO = null;
         itemHoldPos = null;
         itemHoldRot = null;
     }

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DV Multiplayer Trace</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header>
+    <div><p class="eyebrow">DERAIL VALLEY MULTIPLAYER</p><h1>Protocol trace</h1></div>
+    <div id="connection" class="connection">Connecting…</div>
+  </header>
+  <main>
+    <section class="toolbar" aria-label="Trace filters">
+      <input id="search" type="search" placeholder="Search packet type, summary, payload…" autocomplete="off">
+      <select id="packet-filter"><option value="">All packet types</option></select>
+      <select id="direction-filter"><option value="">Both directions</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select>
+      <select id="status-filter"><option value="">All statuses</option><option value="SemanticDecoded">Semantic decoded</option><option value="ProductionDecoded">Production decoded</option><option value="Opaque">Opaque</option><option value="Sent">Sent</option><option value="DecodeFailure">Decode failure</option></select>
+        <button id="trace-mode" class="quiet" disabled>Trace selected type</button>
+        <details id="suppression-menu" class="suppression-menu">
+          <summary id="suppression-summary">Silence packet types</summary>
+          <div class="suppression-popover">
+            <input id="suppression-search" type="search" placeholder="Filter packet typesâ€¦" autocomplete="off">
+            <div id="suppression-list" class="suppression-list"></div>
+          </div>
+        </details>
+        <button id="pause">Pause</button><button id="follow" class="quiet" hidden>Jump to live</button><button id="clear" class="quiet">Clear</button>
+    </section>
+    <section id="inspector" class="inspector" hidden>
+      <div class="inspector-head"><div><p class="eyebrow">PINNED PACKET</p><h2 id="inspector-title"></h2><p id="inspector-meta" class="meta"></p></div><button id="close-inspector" class="quiet">Close</button></div>
+      <h3>Decoded detail</h3><pre id="inspector-detail"></pre>
+      <h3>Raw payload</h3><pre id="inspector-raw"></pre>
+    </section>
+    <section class="stats"><span id="count">0 events</span><span id="filtered"></span></section>
+    <section id="events" class="events" aria-live="polite"></section>
+  </main>
+  <template id="event-template">
+    <article class="event">
+      <button class="event-head" aria-expanded="false">
+        <time></time><span class="direction"></span><span class="type"></span><span class="summary"></span><span class="status"></span>
+      </button>
+    </article>
+  </template>
+  <script src="app.js"></script>
+</body>
+</html>

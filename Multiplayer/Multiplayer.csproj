@@ -28,7 +28,12 @@
     
     <PropertyGroup>
         <NoWarn>$(NoWarn);CS0436</NoWarn>
+        <ProtocolManifestPath>$(IntermediateOutputPath)protocol-manifest.json</ProtocolManifestPath>
     </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Tools\ProtocolManifestGenerator\ProtocolManifestGenerator.csproj" ReferenceOutputAssembly="false" />
+        <EmbeddedResource Include="$(ProtocolManifestPath)" LogicalName="Multiplayer.ProtocolManifest.json" Condition="'$(ManifestEmbedPass)' == 'true' AND Exists('$(ProtocolManifestPath)')" />
+    </ItemGroup>
     
     <!-- Derail Valley References -->
     <ItemGroup>
@@ -125,5 +130,10 @@
         <!-- Linux/macOS: use pwsh -->
         <Exec Condition="$(ConfigurationName) == 'Release' AND !$([MSBuild]::IsOsPlatform('Windows'))" Command="pwsh -ExecutionPolicy Bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)/Mods/Multiplayer')&quot;" ContinueOnError="true" />
         <Exec Condition="$(ConfigurationName) == 'Debug' AND !$([MSBuild]::IsOsPlatform('Windows'))" Command="pwsh -ExecutionPolicy Bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)/Mods/Multiplayer')&quot;" ContinueOnError="true" />
+    </Target>
+    <Target Name="GenerateProtocolManifest" AfterTargets="Build" Condition="'$(ManifestEmbedPass)' != 'true'">
+        <Exec Command="&quot;$(MSBuildProjectDirectory)\..\Tools\ProtocolManifestGenerator\bin\$(Configuration)\net48\ProtocolManifestGenerator.exe&quot; &quot;$(TargetPath)&quot; &quot;$(DvInstallDir)\DerailValley_Data\Managed&quot; &quot;$(ProtocolManifestPath)&quot;" />
+        <Copy SourceFiles="$(ProtocolManifestPath)" DestinationFolder="$(OutDir)" />
+        <Exec Command="dotnet build &quot;$(MSBuildProjectFullPath)&quot; --no-restore -p:ManifestEmbedPass=true -p:Configuration=$(Configuration)" />
     </Target>
 </Project>

@@ -1,5 +1,6 @@
 using DV;
 using DV.Common;
+using DV.Customization;
 using DV.Customization.Paint;
 using DV.Damage;
 using DV.InventorySystem;
@@ -178,6 +179,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundGameParamsPacket>(OnClientboundGameParamsPacket);
         netPacketProcessor.SubscribeReusable<ClientboundSaveGameDataPacket>(OnClientboundSaveGameDataPacket);
         netPacketProcessor.SubscribeReusable<ClientboundRailwayStatePacket>(OnClientboundRailwayStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
 
 
         // General Sync
@@ -243,7 +245,8 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundTaskUpdatePacket>(OnClientboundTaskUpdatePacket);
 
         // World Sync
-        netPacketProcessor.SubscribeNetSerializable<CommonItemChangePacket>(OnCommonItemChangePacket);
+        netPacketProcessor.SubscribeReusable<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
+        netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
         netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
         netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
         netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
@@ -724,6 +727,16 @@ public class NetworkClient : NetworkManager
         }
 
         railwayStateLoaded = true;
+    }
+
+    private void OnClientboundCustomizationsPacket(ClientboundCustomizationsPacket packet)
+    {
+        Log("Received customizations");
+
+        WorldCustomization.I.ClearHoles();
+
+        foreach (var hole in packet.Holes)
+            WorldCustomization.I.AddHole(hole.Position, hole.Rotation);
     }
 
     private void OnCommonChangeJunctionPacket(CommonChangeJunctionPacket packet)
@@ -1295,42 +1308,80 @@ public class NetworkClient : NetworkManager
         netPitStop.ProcessBulkUpdate(packet);
     }
 
-
-    private void OnCommonItemChangePacket(CommonItemChangePacket packet)
+    private void OnCommonItemsBulkUpdatePacket(CommonItemsBulkUpdatePacket packet)
     {
-        //LogDebug(() => $"OnCommonItemChangePacket({packet?.Items?.Count})");
+        LogDebug(() => $"OnCommonItemsBulkUpdatePacket({packet?.Items?.Count})");
 
+        LogDebug(() =>
+        {
+            string debug = "";
 
-        //LogDebug(() =>
-        //{
-        //    string debug = "";
+            foreach (var item in packet?.Items)
+            {
+                debug += "UpdateType: " + item?.UpdateType + "\r\n";
+                debug += "itemNetId: " + item?.ItemNetId + "\r\n";
+                debug += "PrefabName: " + item?.PrefabName + "\r\n";
+                debug += "Equipped: " + item?.ItemState + "\r\n";
+                debug += "Position: " + item?.ItemPosition + "\r\n";
+                debug += "Rotation: " + item?.ItemRotation + "\r\n";
+                debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
+                debug += "Player: " + item?.PlayerId + "\r\n";
+                debug += "CarNetId: " + item?.CarNetId + "\r\n";
+                debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
 
-        //    foreach (var item in packet?.Items)
-        //    {
-        //        debug += "UpdateType: " + item?.UpdateType + "\r\n";
-        //        debug += "itemNetId: " + item?.ItemNetId + "\r\n";
-        //        debug += "PrefabName: " + item?.PrefabName + "\r\n";
-        //        debug += "Equipped: " + item?.ItemState + "\r\n";
-        //        debug += "Position: " + item?.ItemPosition + "\r\n";
-        //        debug += "Rotation: " + item?.ItemRotation + "\r\n";
-        //        debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
-        //        debug += "Player: " + item?.Player + "\r\n";
-        //        debug += "CarNetId: " + item?.CarNetId + "\r\n";
-        //        debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
+                debug += $"States: {item?.States?.Count}\r\n";
 
-        //        debug += $"States: {item?.States?.Count}\r\n";
+                if (item.States != null)
+                    foreach (var state in item?.States)
+                        debug += "\t" + state.Key + ": " + state.Value + "\r\n";
+                else
+                    debug += "\r\n";
+            }
 
-        //        if (item.States != null)
-        //            foreach (var state in item?.States)
-        //                debug += "\t" + state.Key + ": " + state.Value + "\r\n";
-        //        else
-        //            debug += "\r\n";
-        //    }
+            return debug;
+        });
 
-        //    return debug;
-        //});
+        NetworkedItemManager.Instance.ReceiveSnapshots(packet.Items);
+    }
 
-        //NetworkedItemManager.Instance.ReceiveSnapshots(packet.Items, null);
+    private void OnCommonItemUpdatePacket(CommonItemUpdatePacket packet)
+    {
+        LogDebug(() => $"OnCommonItemUpdatePacket()");
+
+        LogDebug(() =>
+        {
+            string debug = "";
+
+            var item = packet.ItemData;
+            debug += "UpdateType: " + item?.UpdateType + "\r\n";
+            debug += "itemNetId: " + item?.ItemNetId + "\r\n";
+            debug += "PrefabName: " + item?.PrefabName + "\r\n";
+            debug += "Equipped: " + item?.ItemState + "\r\n";
+            debug += "Position: " + item?.ItemPosition + "\r\n";
+            debug += "Rotation: " + item?.ItemRotation + "\r\n";
+            debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
+            debug += "Player: " + item?.PlayerId + "\r\n";
+            debug += "CarNetId: " + item?.CarNetId + "\r\n";
+            debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
+
+            debug += $"States: {item?.States?.Count}\r\n";
+
+            if (item.States != null)
+                foreach (var state in item?.States)
+                    debug += "\t" + state.Key + ": " + state.Value + "\r\n";
+            else
+                debug += "\r\n";
+
+            return debug;
+        });
+
+        if (!NetworkedItem.TryGet(packet.ItemData.ItemNetId, out NetworkedItem networkedItem))
+        {
+            LogWarning($"OnCommonItemUpdatePacket() Failed to find networked item for netId {packet.ItemData.ItemNetId}");
+            return;
+        }
+
+        networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
     private void OnCommonPaintThemePacket(CommonPaintThemePacket packet)
@@ -1882,13 +1933,27 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendItemsChangePacket(List<ItemUpdateData> items)
-    {
-        Log($"Sending CommonItemChangePacket with {items.Count()} items");
-        //SendPacketToServer(new CommonItemChangePacket { Items = items },
-        //    DeliveryMethod.ReliableUnordered);
+    //public void SendItemsBulkUpdatePacket(List<ItemUpdateData> items)
+    //{
+    //    Log($"Sending CommonItemsBulkUpdatePacket with {items.Count()} items");
 
-        SendNetSerializablePacketToServer(new CommonItemChangePacket { Items = items },
+    //    SendNetSerializablePacketToServer(new CommonItemsBulkUpdatePacket { Items = items },
+    //            DeliveryMethod.ReliableOrdered);
+    //}
+
+    public void SendItemUpdatePacket(ItemUpdateData updateData)
+    {
+        LogDebug(()=>
+        {
+            string debug = $"SendItemUpdatePacket() UpdateType: {updateData?.UpdateType}, itemNetId: {updateData?.ItemNetId}, PrefabName: {updateData?.PrefabName}, Equipped: {updateData?.ItemState}, Position: {updateData?.ItemPosition}, Rotation: {updateData?.ItemRotation}, ThrowDirection: {updateData?.ThrowDirection}, Player: {updateData?.PlayerId}, CarNetId: {updateData?.CarNetId}, AttachedFront: {updateData?.AttachedFront}";
+            debug += $"\r\nStates: {updateData?.States?.Count}";
+            if (updateData.States != null)
+                foreach (var state in updateData?.States)
+                    debug += $"\r\n\t{state.Key}: {state.Value}";
+            return debug;
+        });
+
+        SendPacketToServer(new CommonItemUpdatePacket { ItemData = updateData },
                 DeliveryMethod.ReliableOrdered);
     }
 

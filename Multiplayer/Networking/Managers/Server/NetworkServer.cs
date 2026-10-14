@@ -37,6 +37,7 @@ using Multiplayer.Networking.Packets.Serverbound;
 using Multiplayer.Networking.Packets.Serverbound.Jobs;
 using Multiplayer.Networking.Packets.Serverbound.Train;
 using Multiplayer.Networking.Packets.Unconnected;
+using Multiplayer.Networking.Serialization;
 using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Patches.MainMenu;
 using Multiplayer.Patches.World;
@@ -99,6 +100,8 @@ public class NetworkServer : NetworkManager
     public ChatManager ChatManager => _chatManager;
 
     private uint lastTick;
+    private readonly LiteNetLibTransport debugLoopbackTransport;
+    private readonly Settings settings;
 
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
     {
@@ -107,13 +110,23 @@ public class NetworkServer : NetworkManager
         IsSinglePlayer = singlePlayer;
         ServerData = serverData;
         Difficulty = difficulty;
+        this.settings = settings;
 
         fastTravelAdvancesTime = settings.FastTravelAdvancesTime;
         TimeAdvancePatch.FastTravelAdvancesTime = fastTravelAdvancesTime;
+
+        if (settings.EnableDebugLoopbackClient)
+        {
+            debugLoopbackTransport = new LiteNetLibTransport();
+            AddTransport(debugLoopbackTransport, settings);
+            Log($"Debug loopback requirements: build {MainMenuControllerPatch.MenuProvider.BuildVersionString}; mods {string.Join(", ", ModCompatibilityManager.Instance.GetLocalMods().Select(mod => mod.Id))}");
+        }
     }
 
     public override void OnSettingsUpdated(Settings settings)
     {
+        base.OnSettingsUpdated(settings);
+
         if (settings.FastTravelAdvancesTime != fastTravelAdvancesTime)
         {
             fastTravelAdvancesTime = settings.FastTravelAdvancesTime;
@@ -132,14 +145,30 @@ public class NetworkServer : NetworkManager
         WorldStreamingInit.LoadingFinished += OnLoaded;
 
         //Try to get our static IPv6 Address we will need this for IPv6 NAT punching to be reliable
+        bool started;
         if (IPAddress.TryParse(LobbyServerManager.GetStaticIPv6Address(), out IPAddress ipv6Address))
         {
             //start the connection, IPv4 messages can come from anywhere, IPv6 messages need to specifically come from the static IPv6
-            return base.Start(IPAddress.Any, ipv6Address, port);
+            started = base.Start(IPAddress.Any, ipv6Address, port);
+        }
+        else
+        {
+            //we're not running IPv6, start as normal
+            started = base.Start(port);
         }
 
-        //we're not running IPv6, start as normal
-        return base.Start(port);
+        if (!started || debugLoopbackTransport == null)
+            return started;
+
+        if (!debugLoopbackTransport.Start(IPAddress.Loopback, IPAddress.IPv6Loopback, settings.DebugLoopbackPort))
+        {
+            LogError($"Failed to start debug loopback transport on 127.0.0.1:{settings.DebugLoopbackPort}");
+            base.Stop();
+            return false;
+        }
+
+        Log($"Debug loopback transport listening on 127.0.0.1:{settings.DebugLoopbackPort}");
+        return true;
     }
 
     public override void Stop()
@@ -231,7 +260,8 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundWarehouseMachineControllerRequestPacket, ITransportPeer>(OnServerboundWarehouseMachineControllerRequestPacket);
 
         // Items
-        netPacketProcessor.SubscribeNetSerializable<CommonItemChangePacket, ITransportPeer>(OnCommonItemChangePacket);
+        //netPacketProcessor.SubscribeNetSerializable<CommonItemsBulkUpdatePacket, ITransportPeer>(OnCommonItemChangePacket);
+        netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket, ITransportPeer>(OnCommonItemUpdatePacket);
     }
 
     //allow mods to register their own packets
@@ -962,15 +992,56 @@ public class NetworkServer : NetworkManager
         );
     }
 
-    public void SendItemsChangePacket(List<ItemUpdateData> items, ServerPlayer player)
+    public void SendItemsBulkUpdatePacket(List<ItemUpdateData> items, ServerPlayer player)
     {
-        Log($"Sending SendItemsChangePacket with {items.Count()} items to {player.Username}");
+        Log($"Sending SendItemsBulkUpdatePacket with {items?.Count()} items to {player?.Username ?? "all players"}");
 
-        if (player.Peer != null && player.Peer != SelfPeer)
+        var packet = new CommonItemsBulkUpdatePacket { Items = items };
+
+        LogDebug(() =>
         {
-            SendNetSerializablePacket(player.Peer, new CommonItemChangePacket { Items = items },
-                DeliveryMethod.ReliableOrdered);
-        }
+            string debug = "Items:\r\n";
+
+            foreach (var item in packet?.Items)
+            {
+                debug += "UpdateType: " + item?.UpdateType + "\r\n";
+                debug += "itemNetId: " + item?.ItemNetId + "\r\n";
+                debug += "PrefabName: " + item?.PrefabName + "\r\n";
+                debug += "Equipped: " + item?.ItemState + "\r\n";
+                debug += "Position: " + item?.ItemPosition + "\r\n";
+                debug += "Rotation: " + item?.ItemRotation + "\r\n";
+                debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
+                debug += "Player: " + item?.PlayerId + "\r\n";
+                debug += "CarNetId: " + item?.CarNetId + "\r\n";
+                debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
+
+                debug += $"States: {item?.States?.Count}\r\n";
+
+                if (item.States != null)
+                    foreach (var state in item?.States)
+                        debug += "\t" + state.Key + ": " + state.Value + "\r\n";
+                else
+                    debug += "\r\n";
+            }
+
+            return debug;
+        });
+
+        if (player == null)
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludeSelf: true);
+        else
+            SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendItemUpdatePacket(ItemUpdateData item, ServerPlayer sendToPlayer = null, ServerPlayer excludePlayer = null)
+    {
+        Log($"Sending CommonItemUpdatePacket to {sendToPlayer?.Username ?? "all players"}");
+
+        var packet = new CommonItemUpdatePacket { ItemData = item };
+        if (sendToPlayer == null)
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludePlayer?.Peer, excludeSelf: true);
+        else
+            SendPacket(sendToPlayer.Peer, packet, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendPitStopBulkDataPacket(ushort netId, int carCount, int carIndex, int faucetNotch, LocoResourceModuleData[] stationData, PitStopPlugData[] plugData, ServerPlayer player)
@@ -1188,6 +1259,7 @@ public class NetworkServer : NetworkManager
             Accepted = true,
             PlayerId = serverPlayer.PlayerId,
             OverrideUsername = serverPlayer.OriginalUsername == serverPlayer.Username ? string.Empty : overrideUsername,
+            ProtocolFingerprint = ProtocolManifestProvider.Current.Fingerprint,
         };
 
         SendPacket(peer, acceptPacket, DeliveryMethod.ReliableUnordered);
@@ -1196,6 +1268,8 @@ public class NetworkServer : NetworkManager
     private void OnServerboundLoadStateUpdatePacket(ServerboundLoadStateUpdatePacket packet, ITransportPeer peer)
     {
         LogDebug(() => $"OnServerboundLoadStateUpdatePacket from peerId: {peer.Id}, loadState: {packet.LoadState}");
+        if (peer is LiteNetLibPeer)
+            Log($"Debug loopback peer {peer.Id} requested load state {packet.LoadState}");
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
         {
             LogError($"Load state update received for {peer.GetType()}, peerId: {peer.Id}, but ServerPlayer not found");
@@ -1279,6 +1353,12 @@ public class NetworkServer : NetworkManager
                     }, DeliveryMethod.ReliableOrdered);
                 }
 
+                // Send customisations (holes drilled in world space)
+                SendPacket(peer, new ClientboundCustomizationsPacket
+                {
+                    Holes = CustomizationHoleData.FromHoles(WorldCustomization.I.Holes)
+                }, DeliveryMethod.ReliableOrdered);
+
                 break;
 
             case PlayerLoadingState.ReadyForTrainSets:
@@ -1305,8 +1385,9 @@ public class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForItems:
-                // Send Inventory and world items
-
+                // World items will be spawned when the player is within the culling range
+                // Installed gadgets may be spawnable in the culling range but needs more thought as there are a lot of extra parameters
+                var installedGadgets = StorageController.Instance.StorageInstalledGadgets.GetStorageItemList();
                 break;
 
             case PlayerLoadingState.ReadyForJobs:
@@ -2094,43 +2175,62 @@ public class NetworkServer : NetworkManager
         }
     }
 
-    private void OnCommonItemChangePacket(CommonItemChangePacket packet, ITransportPeer peer)
+    //private void OnCommonItemChangePacket(CommonItemsBulkUpdatePacket packet, ITransportPeer peer)
+    //{
+    //    if (!TryGetServerPlayer(peer, out var player))
+    //        return;
+
+    //    LogDebug(() => $"OnCommonItemChangePacket({packet?.Items?.Count}, {peer.Id} (\"{player.Username}\"))");
+
+    //    LogDebug(() =>
+    //    {
+    //        string debug = "";
+
+    //        foreach (var item in packet?.Items)
+    //        {
+    //            debug += "UpdateType: " + item?.UpdateType + "\r\n";
+    //            debug += "itemNetId: " + item?.ItemNetId + "\r\n";
+    //            debug += "PrefabName: " + item?.PrefabName + "\r\n";
+    //            debug += "Equipped: " + item?.ItemState + "\r\n";
+    //            debug += "Position: " + item?.ItemPosition + "\r\n";
+    //            debug += "Rotation: " + item?.ItemRotation + "\r\n";
+    //            debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
+    //            debug += "Player: " + player.PlayerId + "\r\n";
+    //            debug += "CarNetId: " + item?.CarNetId + "\r\n";
+    //            debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
+
+    //            debug += "States:";
+
+    //            if (item.States != null)
+    //                foreach (var state in item?.States)
+    //                    debug += "\r\n\t" + state.Key + ": " + state.Value;
+    //        }
+
+    //        return debug;
+    //    }
+
+    //    );
+
+    //    // Set player id for all items, do not trust the client to send the correct player id
+    //    foreach (var item in packet.Items)
+    //        item.Player = player.PlayerId;
+
+    //    NetworkedItemManager.Instance.ReceiveSnapshots(packet.Items);
+    //}
+
+    private void OnCommonItemUpdatePacket(CommonItemUpdatePacket packet, ITransportPeer peer)
     {
-        //if(!TryGetServerPlayer(peer, out var player))
-        //    return;
+        if (!TryGetServerPlayer(peer, out var player))
+            return;
 
-        //LogDebug(()=>$"OnCommonItemChangePacket({packet?.Items?.Count}, {peer.Id} (\"{player.Username}\"))");
+        LogDebug(() => $"OnCommonItemUpdatePacket({packet?.ItemData.ItemNetId}, [{peer.Id}, {player.Username}])");
+        // Set player id for all items, do not trust the client to send the correct player id
 
-        //LogDebug(() =>
-        //{
-        //    string debug = "";
-
-        //    foreach (var item in packet?.Items)
-        //    {
-        //        debug += "UpdateType: " + item?.UpdateType + "\r\n";
-        //        debug += "itemNetId: " + item?.ItemNetId + "\r\n";
-        //        debug += "PrefabName: " + item?.PrefabName + "\r\n";
-        //        debug += "Equipped: " + item?.ItemState + "\r\n";
-        //        debug += "Position: " + item?.ItemPosition + "\r\n";
-        //        debug += "Rotation: " + item?.ItemRotation + "\r\n";
-        //        debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
-        //        debug += "Player: " + item?.Player + "\r\n";
-        //        debug += "CarNetId: " + item?.CarNetId + "\r\n";
-        //        debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
-
-        //        debug += "States:";
-
-        //        if (item.States != null)
-        //            foreach (var state in item?.States)
-        //                debug += "\r\n\t" + state.Key + ": " + state.Value;
-        //    }
-
-        //    return debug;
-        //}
-
-        //);
-
-        //NetworkedItemManager.Instance.ReceiveSnapshots(packet.Items, player);
+        packet.ItemData.PlayerId = player.PlayerId;
+        if (NetworkedItem.TryGet(packet.ItemData.ItemNetId, out var networkedItem))
+        {
+            networkedItem.Server_ReceiveItemUpdate(packet.ItemData, player);
+        }
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet, ITransportPeer peer)

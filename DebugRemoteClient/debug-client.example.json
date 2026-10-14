@@ -1,0 +1,13 @@
+{
+  "Host": "127.0.0.1",
+  "Port": 7778,
+  "Username": "DebugClient",
+  "Guid": "00000000-0000-0000-0000-000000000002",
+  "Password": "",
+  "BuildVersion": "copy the exact host build string",
+  "HostUsername": "host player name",
+  "EnableWebUi": true,
+  "WebUiPort": 7780,
+  "FollowOffset": { "Right": 5.0, "Up": 0.0, "Forward": 0.0 },
+  "Mods": []
+}

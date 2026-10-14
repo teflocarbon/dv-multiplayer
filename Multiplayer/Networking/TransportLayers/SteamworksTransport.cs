@@ -14,6 +14,9 @@ namespace Multiplayer.Networking.TransportLayers;
 
 public class SteamWorksTransport : ITransport
 {
+    private readonly Action<string> debugLog;
+    private readonly Action<string> infoLog;
+
     public NetStatistics Statistics => new();
     public bool IsRunning { get; private set; }
 
@@ -34,25 +37,31 @@ public class SteamWorksTransport : ITransport
     private int nextPeerId = 1;
 
     #region ITransport
-    public SteamWorksTransport()
+    public SteamWorksTransport(Action<string> debugLog = null, Action<string> infoLog = null)
     {
-        //static fields for SteamNetworking
+        // The console protocol tools use this transport without loading the Unity mod. Keep the
+        // production logger as the default, but allow those tools to supply a safe logger.
+        this.debugLog = debugLog ?? (message => Multiplayer.LogDebug(() => message));
+        this.infoLog = infoLog ?? Multiplayer.Log;
     }
+
+    private void LogDebug(string message) => debugLog(message);
+    private void Log(string message) => infoLog(message);
 
     public bool Start()
     {
-        Multiplayer.LogDebug(() => $"SteamWorksTransport.Start()");
+        LogDebug($"SteamWorksTransport.Start()");
         return true;//return Start(0);
     }
 
     public bool Start(int port)
     {
-        Multiplayer.LogDebug(() => $"SteamWorksTransport.Start({port})");
+        LogDebug($"SteamWorksTransport.Start({port})");
 
         var server = SteamNetworkingSockets.CreateNormalSocket<SteamServerManager>(NetAddress.AnyIp((ushort)port));
         if (server != null)
         {
-            Multiplayer.LogDebug(() => $"SteamWorksTransport.Start({port}) Normal not null");
+            LogDebug($"SteamWorksTransport.Start({port}) Normal not null");
             server.transport = this;
             servers.Add(server);
             IsRunning = true;
@@ -62,12 +71,12 @@ public class SteamWorksTransport : ITransport
         
         if (server != null)
         {
-            Multiplayer.LogDebug(() => $"SteamWorksTransport.Start({port}) Relay not null");
+            LogDebug($"SteamWorksTransport.Start({port}) Relay not null");
             server.transport = this;
             servers.Add(server);
             IsRunning = true;
 
-            Multiplayer.Log($"SteamId: {Steamworks.Data.NetIdentity.LocalHost}");
+            Log($"SteamId: {Steamworks.Data.NetIdentity.LocalHost}");
         }
         
 
@@ -76,13 +85,13 @@ public class SteamWorksTransport : ITransport
 
     public bool Start(IPAddress ipv4, IPAddress ipv6, int port)
     {
-        Multiplayer.LogDebug(() => $"SteamWorksTransport.Start({ipv4}, {ipv6}, {port})");
+        LogDebug($"SteamWorksTransport.Start({ipv4}, {ipv6}, {port})");
         return Start(port);
     }
 
     public void Stop(bool sendDisconnectPackets)
     {
-        Multiplayer.LogDebug(() => $"SteamWorksTransport.Stop()");
+        LogDebug($"SteamWorksTransport.Stop()");
 
         client?.Close(true);
 
@@ -139,7 +148,7 @@ public class SteamWorksTransport : ITransport
 
     public ITransportPeer ConnectNative(string address, int port, NetDataWriter data)
     {
-        Multiplayer.LogDebug(() => $"SteamWorksTransport.ConnectNative({address}, {port}, {data.Length})");
+        LogDebug($"SteamWorksTransport.ConnectNative({address}, {port}, {data.Length})");
 
         var add = NetAddress.From(address, (ushort)port);
 
@@ -157,12 +166,12 @@ public class SteamWorksTransport : ITransport
 
     public ITransportPeer ConnectRelay(string steamID, NetDataWriter data)
     {
-        Multiplayer.LogDebug(() => $"SteamWorksTransport.ConnectRelay({steamID})");
+        LogDebug($"SteamWorksTransport.ConnectRelay({steamID})");
 
         SteamId id = new();
         if (!ulong.TryParse(steamID, out id.Value))
         {
-            Multiplayer.LogDebug(() => $"SteamWorksTransport.ConnectRelay({steamID}) failed to parse");
+            LogDebug($"SteamWorksTransport.ConnectRelay({steamID}) failed to parse");
             return null;
         }
 
@@ -280,7 +289,7 @@ public class SteamWorksTransport : ITransport
 
         public override void OnConnected(ConnectionInfo info)
         {
-            Multiplayer.LogDebug(() => $"SteamClientManager.OnConnected({info})");
+            transport?.LogDebug($"SteamClientManager.OnConnected({info})");
             base.OnConnected(info);
             transport.IsRunning = true;
             peer.Send(loginPacket, DeliveryMethod.ReliableUnordered);
@@ -295,7 +304,7 @@ public class SteamWorksTransport : ITransport
 
         public override void OnDisconnected(ConnectionInfo info)
         {
-            Multiplayer.LogDebug(() => $"SteamClientManager.OnDisconnected({info.EndReason})");
+            transport?.LogDebug($"SteamClientManager.OnDisconnected({info.EndReason})");
             base.OnDisconnected(info);
             transport?.OnPeerDisconnected?.Invoke(peer, NetConnectionEndToDisconnectReason(info.EndReason));
         }
