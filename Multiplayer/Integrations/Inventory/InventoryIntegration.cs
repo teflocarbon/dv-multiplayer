@@ -133,9 +133,13 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         int currentSlot = inventory.IndexOf(item);
         if (currentSlot >= 0 && inventory.Contains(item, false))
             return currentSlot;
-        return preferredSlot >= 0
-            ? inventory.AddItemToInventory(item, preferredSlot, false)
-            : inventory.AddItemToInventory(item, false);
+        if (preferredSlot >= 0)
+        {
+            int added = inventory.AddItemToInventory(item, preferredSlot, false);
+            if (added >= 0)
+                return added;
+        }
+        return inventory.AddItemToInventory(item, false);
     }
 
     public InventoryClaimExecution EnsureDroppedClaim(GameObject item, int expectedSlot)

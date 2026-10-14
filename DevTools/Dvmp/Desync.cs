@@ -160,7 +160,9 @@ internal static class Desync
         Dictionary<int, JsonObject> c = ById(client["items"]);
         HashSet<int> known = KnownByHost(host, client);
 
-        foreach (int id in known.Where(id => !c.ContainsKey(id)))
+        // Lost and Found and destroyed items are 'known' through the tombstone that removed them.
+        foreach (int id in known.Where(id => !c.ContainsKey(id) &&
+                     !(h.TryGetValue(id, out JsonObject? hi) && S(hi, "rp") is "LostAndFound" or "Destroyed")))
             yield return new Finding("item.missing-on-client", id.ToString(), Name(h, id),
                 "host believes the client holds it", "absent");
         foreach (var (id, item) in c)

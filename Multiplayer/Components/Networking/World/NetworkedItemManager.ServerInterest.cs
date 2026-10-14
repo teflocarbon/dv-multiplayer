@@ -30,8 +30,20 @@ public partial class NetworkedItemManager
 {
     // Host recipient interest, known-item lifetimes, and outbound replication.
 
+    // Rebuilding a player's relevant set walks every item in 25 cells; near a yard that cost ~4 ms
+    // a tick on the host. Rebuild at once when the item index changes (it clears HostPlayerCells)
+    // or the player changes cell, otherwise a few times a second for movement-driven relevance
+    // (holders, train interiors).
+    private const uint InterestRefreshTicks = NetworkLifecycle.TICK_RATE / 4;
+    private readonly Dictionary<byte, uint> lastInterestRefreshTick = new();
+
     private void UpdatePlayerItemLists()
     {
+        uint tick = NetworkLifecycle.Instance.Tick;
+        // Lost and Found items are few; find them once, not by scanning every item per player.
+        NetworkedItem[] lostItems = NetworkedLostAndFoundManager.Count == 0 ? Array.Empty<NetworkedItem>() :
+            NetworkedItem.GetAll().Where(item => item != null && NetworkedLostAndFoundManager.Contains(item.NetId))
+                .Distinct().ToArray();
         foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
         {
             if (player.LoadingState < PlayerLoadingState.ReadyForItems)
@@ -41,71 +53,16 @@ public partial class NetworkedItemManager
             HashSet<WorldItemCellCoord> desiredCells = WorldItemCellCoord.Neighbourhood(centre);
             bool cellsChanged = !HostPlayerCells.TryGetValue(player.PlayerId, out HashSet<WorldItemCellCoord> previousCells) ||
                                 !previousCells.SetEquals(desiredCells);
-            HashSet<NetworkedItem> RelevantItems(HashSet<WorldItemCellCoord> cells)
+            bool refreshDue = cellsChanged ||
+                              !lastInterestRefreshTick.TryGetValue(player.PlayerId, out uint lastRefresh) ||
+                              unchecked(tick - lastRefresh) >= InterestRefreshTicks;
+            if (refreshDue)
             {
-                HashSet<NetworkedItem> items = new(HostNonSpatialItems.Where(item =>
-                    IsNonSpatialRelevantTo(item, player, cells) &&
-                    (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
-                foreach (WorldItemCellCoord cell in cells)
-                {
-                    if (HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> indexed))
-                        items.UnionWith(indexed.Where(item => item != null &&
-                            (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
-                }
-                return items;
-            }
-            HashSet<NetworkedItem> desiredItems = RelevantItems(desiredCells);
-            // Hysteresis: items enter at the 3x3 neighbourhood but only leave once outside 5x5.
-            // Without it, walking along a cell boundary destroyed and re-created everything on
-            // the other side each time the player stepped across it.
-            if (player.NearbyItems.Count > 0)
-            {
-                HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, 2));
-                desiredItems.UnionWith(player.NearbyItems.Keys.Where(item => item != null && retainable.Contains(item)));
-            }
-            bool membershipChanged = cellsChanged || player.NearbyItems.Count != desiredItems.Count ||
-                                     player.NearbyItems.Keys.Any(item => !desiredItems.Contains(item));
-            if (membershipChanged)
-            {
-
-                foreach (NetworkedItem leaving in player.NearbyItems.Keys
-                             .Where(item => item == null || !desiredItems.Contains(item)).ToArray())
-                {
-                    player.NearbyItems.Remove(leaving);
-                    if (leaving != null && player.Peer != NetworkLifecycle.Instance.Server.SelfPeer &&
-                        player.KnownItems.Remove(leaving))
-                    {
-                        // Authority ends when host interest ends. The later client acknowledgement
-                        // is observability, not a lease that can extend mutation permission.
-                        player.AcknowledgedWorldItems.Remove(leaving.NetId);
-                        ItemUpdateData retirement = leaving.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
-                        if (retirement != null)
-                        {
-                            retirement.TransitionReason = ItemTransitionReason.InterestRetirement;
-                            NetworkLifecycle.Instance.Server.SendItemUpdatePacket(retirement, player);
-                        }
-                    }
-                    if (leaving != null)
-                        TraceItem("item.cell-interest-leave", leaving,
-                            new() { ["playerId"] = player.PlayerId, ["centreCell"] = centre.ToString() });
-                }
-
-                foreach (NetworkedItem entering in desiredItems)
-                {
-                    if (!NetworkedLostAndFoundManager.Contains(entering.NetId))
-                        player.NearbyItems[entering] = Time.time;
-                }
-                HostPlayerCells[player.PlayerId] = desiredCells;
-                DebugRuntime.Publish("item-world", "world-item.player-cells-updated", DebugRuntimeSide.Server,
-                    entityType: "Player", entityId: player.PlayerId.ToString(), data: new()
-                {
-                    ["centreCell"] = centre.ToString(), ["cellCount"] = desiredCells.Count,
-                    ["relevantItemCount"] = desiredItems.Count
-                });
+                lastInterestRefreshTick[player.PlayerId] = tick;
+                RefreshPlayerInterest(player, centre, desiredCells, cellsChanged);
             }
 
-            foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null &&
-                         NetworkedLostAndFoundManager.Contains(item.NetId)).Distinct())
+            foreach (NetworkedItem item in lostItems)
             {
                 player.NearbyItems.Remove(item);
                 if (player.Peer != NetworkLifecycle.Instance.Server.SelfPeer &&
@@ -116,6 +73,73 @@ public partial class NetworkedItemManager
                     player.KnownItems[item] = NetworkLifecycle.Instance.Tick;
                 }
             }
+        }
+    }
+
+    private void RefreshPlayerInterest(ServerPlayer player, WorldItemCellCoord centre,
+        HashSet<WorldItemCellCoord> desiredCells, bool cellsChanged)
+    {
+        HashSet<NetworkedItem> RelevantItems(HashSet<WorldItemCellCoord> cells)
+        {
+            HashSet<NetworkedItem> items = new(HostNonSpatialItems.Where(item =>
+                IsNonSpatialRelevantTo(item, player, cells) &&
+                (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+            foreach (WorldItemCellCoord cell in cells)
+            {
+                if (HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> indexed))
+                    items.UnionWith(indexed.Where(item => item != null &&
+                        (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+            }
+            return items;
+        }
+        HashSet<NetworkedItem> desiredItems = RelevantItems(desiredCells);
+        // Hysteresis: items enter at the 3x3 neighbourhood but only leave once outside 5x5.
+        // Without it, walking along a cell boundary destroyed and re-created everything on
+        // the other side each time the player stepped across it.
+        if (player.NearbyItems.Count > 0)
+        {
+            HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, 2));
+            desiredItems.UnionWith(player.NearbyItems.Keys.Where(item => item != null && retainable.Contains(item)));
+        }
+        bool membershipChanged = cellsChanged || player.NearbyItems.Count != desiredItems.Count ||
+                                 player.NearbyItems.Keys.Any(item => !desiredItems.Contains(item));
+        if (membershipChanged)
+        {
+
+            foreach (NetworkedItem leaving in player.NearbyItems.Keys
+                         .Where(item => item == null || !desiredItems.Contains(item)).ToArray())
+            {
+                player.NearbyItems.Remove(leaving);
+                if (leaving != null && player.Peer != NetworkLifecycle.Instance.Server.SelfPeer &&
+                    player.KnownItems.Remove(leaving))
+                {
+                    // Authority ends when host interest ends. The later client acknowledgement
+                    // is observability, not a lease that can extend mutation permission.
+                    player.AcknowledgedWorldItems.Remove(leaving.NetId);
+                    ItemUpdateData retirement = leaving.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
+                    if (retirement != null)
+                    {
+                        retirement.TransitionReason = ItemTransitionReason.InterestRetirement;
+                        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(retirement, player);
+                    }
+                }
+                if (leaving != null)
+                    TraceItem("item.cell-interest-leave", leaving,
+                        new() { ["playerId"] = player.PlayerId, ["centreCell"] = centre.ToString() });
+            }
+
+            foreach (NetworkedItem entering in desiredItems)
+            {
+                if (!NetworkedLostAndFoundManager.Contains(entering.NetId))
+                    player.NearbyItems[entering] = Time.time;
+            }
+            HostPlayerCells[player.PlayerId] = desiredCells;
+            DebugRuntime.Publish("item-world", "world-item.player-cells-updated", DebugRuntimeSide.Server,
+                entityType: "Player", entityId: player.PlayerId.ToString(), data: new()
+            {
+                ["centreCell"] = centre.ToString(), ["cellCount"] = desiredCells.Count,
+                ["relevantItemCount"] = desiredItems.Count
+            });
         }
     }
 

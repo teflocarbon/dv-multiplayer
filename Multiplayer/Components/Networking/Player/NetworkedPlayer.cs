@@ -477,7 +477,11 @@ public partial class NetworkedPlayer : MonoBehaviour
     public void UpdateCar(ushort netId)
     {
         string previousCar = OccupiedCar?.ID ?? string.Empty;
-        bool onCar = NetworkedTrainCar.TryGet(netId, out TrainCar trainCar);
+        // Never attach to a car that is being deleted: its tracking packets can still name it later
+        // in the frame it is deleted, and the avatar was then destroyed along with the car.
+        bool onCar = NetworkedTrainCar.TryGet(netId, out NetworkedTrainCar networkedCar) && networkedCar != null &&
+                     !networkedCar.IsDestroying && networkedCar.TrainCar != null;
+        TrainCar trainCar = onCar ? networkedCar.TrainCar : null;
         // Called for every tracking packet; only reparent when the car actually changes. Leaving a car
         // parented the avatar to nothing, outside the origin-shift parent it was created under, so it
         // slid every time the world shifted.

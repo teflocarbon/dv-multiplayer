@@ -6,7 +6,7 @@
 # Exit code 0 = pass.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
-D=DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe
+D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/save-reload
 U="using Multiplayer.Components.Networking.World; using Multiplayer.Networking.Data.Items;"
 SESSION=${SESSION:-"DVMP Test Career 2"}
@@ -20,7 +20,7 @@ for cycle in $(seq 1 "$CYCLES"); do
   $D eval -t host -m coroutine 'yield return new WaitForSeconds(8);' >/dev/null
   c=$(count); echo "load $cycle: $c"
   [ -z "$first" ] && first=$c
-  node -e 'const a=JSON.parse(process.argv[1]),b=JSON.parse(process.argv[2]);const bad=[];if(b.items>a.items)bad.push(`items ${a.items} -> ${b.items}`);if(b.jobOverviews>a.jobOverviews)bad.push(`job overviews ${a.jobOverviews} -> ${b.jobOverviews}`);for(const k of ["activeInSky","lostAndFound","hostInventoryMisrecorded"])if(b[k]>0)bad.push(`${k}=${b[k]}`);if(bad.length){console.log("   FAIL:",bad.join(", "));process.exit(1)}' "$first" "$c" || fail=1
+  node -e 'const a=JSON.parse(process.argv[1]),b=JSON.parse(process.argv[2]);const bad=[];if(b.items>a.items)bad.push(`items ${a.items} -> ${b.items}`);if(b.jobOverviews>a.jobOverviews)bad.push(`job overviews ${a.jobOverviews} -> ${b.jobOverviews}`);if(b.lostAndFound>a.lostAndFound)bad.push(`lost and found ${a.lostAndFound} -> ${b.lostAndFound}`);for(const k of ["activeInSky","hostInventoryMisrecorded"])if(b[k]>0)bad.push(`${k}=${b[k]}`);if(bad.length){console.log("   FAIL:",bad.join(", "));process.exit(1)}' "$first" "$c" || fail=1
   $D eval -t host -m coroutine 'SaveGameManager.Instance.Save(DV.Common.SaveType.Manual); yield return new WaitForSeconds(3);' >/dev/null
 done
 [ $fail -eq 0 ] && echo PASS || { echo FAIL; exit 1; }
