@@ -24,16 +24,16 @@ public class NetworkedCareerManagerDebtController : SingletonBehaviour<Networked
         controller.DebtListsUpdated -= Server_OnDebtListsUpdated;
     }
 
+    private bool? lastSentHasDebt;
+
+    // Sent when "has debt" changes. It used to go out only at exactly 0 or 1 debts, so going from
+    // none to two (a derail with two locos) left clients thinking there was no debt.
     private void Server_OnDebtListsUpdated()
     {
-        switch (controller.NumberOfNonZeroPricedDebts)
-        {
-            case 0:
-                NetworkLifecycle.Instance.Server.SendDebtStatus(false);
-                break;
-            case 1:
-                NetworkLifecycle.Instance.Server.SendDebtStatus(true);
-                break;
-        }
+        bool hasDebt = controller.NumberOfNonZeroPricedDebts > 0;
+        if (lastSentHasDebt == hasDebt)
+            return;
+        lastSentHasDebt = hasDebt;
+        NetworkLifecycle.Instance.Server.SendDebtStatus(hasDebt);
     }
 }
