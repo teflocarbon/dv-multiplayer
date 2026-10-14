@@ -41,6 +41,9 @@ namespace Dvmp.Lib
         public static void TakeControl()
         {
             if (VRManager.IsVREnabled()) throw new InvalidOperationException("Hands only drives desktop mode");
+            // An open inventory screen (left by opening a container) blocks grabbing.
+            foreach (var ui in UnityEngine.Object.FindObjectsOfType<DV.UI.Inventory.InventoryUIController>())
+                if (ui.IsOpen) ui.Toggle(false);
             InputManager.SetKeyboardAndMouseEnabled(Requester, false);
             CursorManager.Instance?.RequestCursor(Requester, true, 10000);
             ScreenspaceMouse.Instance?.RequestOverride(Requester, false, 10000);
@@ -65,7 +68,11 @@ namespace Dvmp.Lib
             GrabberRaycasterDV raycaster = grabber.GetComponent<GrabberRaycasterDV>();
             GrabberInteractionHandlerDV interaction = grabber.GetComponent<GrabberInteractionHandlerDV>();
             if (grabber.CurrentItemHeld != null) throw new InvalidOperationException("already holding an item");
-            if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
+            // A client can drop and re-create its projection of an item; give it a moment.
+            NetworkedItem item = null;
+            for (float t0 = Time.realtimeSinceStartup; (!NetworkedItem.TryGet(netId, out item) || item == null) && Time.realtimeSinceStartup - t0 < 5f;)
+                yield return null;
+            if (item == null)
                 throw new InvalidOperationException("item not found: " + netId);
             GrabHandlerItem requested = item.GetComponent<GrabHandlerItem>()
                                         ?? throw new InvalidOperationException("item has no desktop grab handler: " + netId);
@@ -86,6 +93,13 @@ namespace Dvmp.Lib
                 DevContext.State["dvmp.hands.path"] = "force-hold";
             }
             yield return null;
+            // A raycast start can be refused (e.g. UI state left by an open container); force-hold then.
+            if (grabber.CurrentItemHeld != requested && allowForceHold && grabber.CurrentItemHeld == null)
+            {
+                interaction.RequestForceHold(requested);
+                DevContext.State["dvmp.hands.path"] = "force-hold";
+                yield return null;
+            }
             if (grabber.CurrentItemHeld != requested)
                 throw new InvalidOperationException("pickup did not take item " + netId);
         }
@@ -136,8 +150,38 @@ namespace Dvmp.Lib
         /// <summary>Teleports the local player to an absolute position (origin shift handled).</summary>
         public static IEnumerator TeleportAbs(Vector3 absolute, float settleSeconds = 1f)
         {
-            PlayerManager.TeleportPlayer(Dev.World(absolute), PlayerManager.PlayerTransform.rotation, null, false);
+            // A falling player's controller can undo a teleport on the next frame; check and retry.
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                PlayerManager.TeleportPlayer(Dev.World(absolute), PlayerManager.PlayerTransform.rotation, null, false);
+                for (int i = 0; i < 3; i++) yield return null;
+                if (Vector3.Distance(Dev.Abs(PlayerManager.PlayerTransform.position), absolute) < 5f)
+                    break;
+            }
             yield return new WaitForSeconds(settleSeconds);
+        }
+
+        /// <summary>Teleports the local player onto the ground at an absolute x/z. Keeping the old
+        /// height when moving far can put the player inside a hill, and they fall through it.</summary>
+        public static IEnumerator TeleportToGround(float absX, float absZ, float settleSeconds = 1f)
+        {
+            int ground = LayerMask.GetMask("Terrain");
+            float? GroundY() =>
+                Physics.Raycast(Dev.World(new Vector3(absX, 3000f, absZ)), Vector3.down, out RaycastHit hit, 5000f,
+                    ground, QueryTriggerInteraction.Ignore) ? Dev.Abs(hit.point).y : (float?)null;
+            float? y = GroundY();
+            if (y == null)
+            {
+                // The terrain there isn't streamed in yet (a guessed height put players under
+                // it once it loaded): wait above the spot until it is.
+                yield return TeleportAbs(new Vector3(absX, 1500f, absZ), 0f);
+                float t0 = Time.realtimeSinceStartup;
+                while ((y = GroundY()) == null && Time.realtimeSinceStartup - t0 < 30f)
+                    yield return null;
+                if (y == null)
+                    throw new InvalidOperationException($"terrain at ({absX:F0}, {absZ:F0}) never loaded");
+            }
+            yield return TeleportAbs(new Vector3(absX, y.Value + 0.3f, absZ), settleSeconds);
         }
 
         /// <summary>Teleports next to a networked item so it is within reach, facing it.</summary>

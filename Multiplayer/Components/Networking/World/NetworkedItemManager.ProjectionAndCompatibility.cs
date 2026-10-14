@@ -469,14 +469,16 @@ public partial class NetworkedItemManager
     /// Client: retire an unbound local copy (fresh starting item, NetId 0) of the item the host is
     /// placing into our inventory, preferring the copy in the original's reserved slot.
     /// </summary>
-    internal void DiscardUnboundLocalDuplicate(NetworkedItem original)
+    /// <returns>The inventory slot the duplicate held, -1 if there was none.</returns>
+    internal int DiscardUnboundLocalDuplicate(NetworkedItem original)
     {
         string prefab = original?.Item?.InventorySpecs?.ItemPrefabName;
         Inventory inventory = Inventory.Instance;
         if (string.IsNullOrEmpty(prefab) || inventory == null)
-            return;
+            return -1;
 
         NetworkedItem duplicate = null;
+        int duplicateSlot = -1;
         int claimSlot = original.InventoryClaimSlot;
         for (int slot = 0; slot < inventory.Capacity; slot++)
         {
@@ -486,14 +488,16 @@ public partial class NetworkedItemManager
                 candidateItem.Item?.InventorySpecs?.ItemPrefabName != prefab)
                 continue;
             duplicate = candidateItem;
+            duplicateSlot = slot;
             if (slot == claimSlot)
                 break;
         }
         if (duplicate == null)
-            return;
+            return -1;
 
         Multiplayer.Log($"Replacing unbound local {prefab} with restored original {original.NetId}");
         RetireClientProjection(duplicate, "superseded-by-restored-original");
+        return duplicateSlot;
     }
 
     /// <summary>

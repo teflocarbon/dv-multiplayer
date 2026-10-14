@@ -21,6 +21,7 @@ namespace Multiplayer.Components.Networking.World;
 public static class NetworkedLostAndFoundManager
 {
     private const uint ScanIntervalTicks = 24;
+    private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly LostItemRegistry registry = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
     private static readonly List<LostItemData> clientItems = new();
@@ -33,25 +34,7 @@ public static class NetworkedLostAndFoundManager
     public static IReadOnlyList<LostItemData> ClientItems => clientItems;
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
-
-#if DEBUG
-    internal static void RemoveRuntimeFixture(ushort itemNetId)
-    {
-        eligibleSince.Remove(itemNetId);
-        lastEvaluations.Remove(itemNetId);
-        if (registry.RemoveStale(itemNetId, out LostItemRecord removed) ==
-            LostItemRegistryResult.Removed)
-        {
-            generation++;
-            if (NetworkLifecycle.Instance?.IsHost() == true &&
-                NetworkLifecycle.Instance.Server.TryGetServerPlayer(
-                    removed.OwnerPlayerId, out ServerPlayer owner))
-                NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
-        }
-        if (clientItems.RemoveAll(item => item.NetId == itemNetId) > 0)
-            ClientListChanged?.Invoke();
-    }
-#endif
+    public static int Count => registry.Count;
 
     public static bool TryCreateCollectionProjection(NetworkedItem item,
         out ItemUpdateData snapshot)
@@ -74,8 +57,9 @@ public static class NetworkedLostAndFoundManager
 
     public static void HostTick(uint tick)
     {
-        if (!NetworkLifecycle.Instance.IsHost() || tick % ScanIntervalTicks != 0)
+        if (!NetworkLifecycle.Instance.IsHost() || unchecked(tick - lastScanTick) < ScanIntervalTicks)
             return;
+        lastScanTick = tick;
         TryImportSave();
         TryBindPendingSaveEntries();
         ReconcileCanonicalPlacements();
@@ -652,9 +636,17 @@ public static class NetworkedLostAndFoundManager
         foreach (LostItemRecord lost in registry.GetAll())
         {
             if (!AuthoritativeItemRegistry.TryGet(lost.NetId,
-                    out AuthoritativeItemRegistry.Record authority) ||
-                authority.Placement == ItemPlacementKind.LostAndFound)
+                    out AuthoritativeItemRegistry.Record authority))
                 continue;
+            if (authority.Placement == ItemPlacementKind.LostAndFound)
+            {
+                // Entries restored from a save bound to items the load left active where they were
+                // dropped: in Lost and Found and lying in the world at once. Keep them inert.
+                if (NetworkedItem.TryGet(lost.NetId, out NetworkedItem stored) && stored != null &&
+                    stored.gameObject.activeSelf)
+                    ProjectToInertStorage(stored);
+                continue;
+            }
             NetworkedItem.TryGet(lost.NetId, out NetworkedItem item);
             RemoveStaleEntry(lost.NetId, item, "canonical-placement-changed");
         }

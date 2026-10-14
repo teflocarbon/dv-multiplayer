@@ -28,6 +28,7 @@ public static class NetworkedColdContainerManager
 {
     private const string SaveKey = "ColdContainers";
     private const uint ScanIntervalTicks = 24;
+    private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly HostRuntimeCompatibility compatibility = new();
     private static ColdContainerGraph graph = new(compatibility: compatibility);
     private static readonly Dictionary<ushort, Guid> shellByNetId = new();
@@ -37,7 +38,8 @@ public static class NetworkedColdContainerManager
 
     public static void HostTick(uint tick)
     {
-        if (NetworkLifecycle.Instance?.IsHost() != true || tick % ScanIntervalTicks != 0) return;
+        if (NetworkLifecycle.Instance?.IsHost() != true || unchecked(tick - lastScanTick) < ScanIntervalTicks) return;
+        lastScanTick = tick;
         TryImportSave();
         BindPhysicalShells();
     }
@@ -61,13 +63,13 @@ public static class NetworkedColdContainerManager
     }
 
     public static bool TryResolveShell(ushort shellNetId, out Guid containerId) =>
-        shellByNetId.TryGetValue(shellNetId, out containerId);
+        TryGetOrBindShell(shellNetId, out containerId);
 
     public static ContainerOperationResult Browse(ServerPlayer actor, ushort shellNetId,
         int offset, int count, out ColdContainerView view)
     {
         view = null;
-        if (actor == null || !shellByNetId.TryGetValue(shellNetId, out Guid id))
+        if (actor == null || !TryGetOrBindShell(shellNetId, out Guid id))
             return Failure(ContainerOperationKind.Browse, ContainerOperationStatus.NotFound,
                 "container-shell-not-bound");
         // The two local debug instances can intentionally share the same save GUID. A live
@@ -100,7 +102,7 @@ public static class NetworkedColdContainerManager
         bool destinationResolved = destinationHandle != 0
             ? graph.TryGetContainer(destinationHandle, out destination) &&
               (destinationId = destination.PersistentContainerId) != Guid.Empty
-            : shellByNetId.TryGetValue(shellNetId, out destinationId);
+            : TryGetOrBindShell(shellNetId, out destinationId);
         if (destinationResolved && destination == null)
             destinationResolved = graph.TryGetContainer(destinationId, out destination);
         if (actor == null || !destinationResolved ||
@@ -156,7 +158,7 @@ public static class NetworkedColdContainerManager
         // The opened root shell is the game's compatibility oracle. Nested shells may be
         // detached, but graph validation still enforces their capacity/cycle/depth rules.
         bool destinationIsOpenedShell = shellNetId != 0 &&
-            shellByNetId.TryGetValue(shellNetId, out Guid shellContainerId) &&
+            TryGetOrBindShell(shellNetId, out Guid shellContainerId) &&
             shellContainerId == destinationId;
         if (destinationIsOpenedShell &&
             (runtimeContainer == null || !runtimeContainer.ValidItem(item.gameObject)))
@@ -359,6 +361,10 @@ public static class NetworkedColdContainerManager
                     persistentOwnerPlayerId, snapshot) == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
+            // The item was indexed by its spawn position when it woke, before it had a record;
+            // re-index it as held. Left in that cell, it was never sent to the holder again
+            // (after a rejoin, the withdrawn item was missing from their inventory).
+            NetworkedItemManager.Instance?.RegisterHostWorldItem(item);
             if (actor.PlayerId == InventoryIntegration.LocalPlayerId &&
                 !InventoryIntegration.ContainsActive(instance))
                 throw new InvalidOperationException("withdraw-local-inventory-projection-failed");
@@ -451,14 +457,30 @@ public static class NetworkedColdContainerManager
                  .Distinct().ToArray())
         {
             seen.Add(shell.NetId);
-            ColdContainerIdentity identity = shell.gameObject.GetOrAddComponent<ColdContainerIdentity>();
-            string owner = ResolveShellOwner(shell);
-            if (string.IsNullOrEmpty(owner)) continue;
-            EnsureShellRecord(shell, identity.PersistentId, owner);
-            shellByNetId[shell.NetId] = identity.PersistentId;
+            TryBindShell(shell, out _);
         }
         foreach (ushort stale in shellByNetId.Keys.Where(id => !seen.Contains(id)).ToArray())
             shellByNetId.Remove(stale);
+    }
+
+    private static bool TryBindShell(NetworkedItem shell, out Guid id)
+    {
+        id = Guid.Empty;
+        ColdContainerIdentity identity = shell.gameObject.GetOrAddComponent<ColdContainerIdentity>();
+        string owner = ResolveShellOwner(shell);
+        if (string.IsNullOrEmpty(owner)) return false;
+        EnsureShellRecord(shell, identity.PersistentId, owner);
+        shellByNetId[shell.NetId] = id = identity.PersistentId;
+        return true;
+    }
+
+    // Shells are bound by a once-a-second scan; one picked up and opened straight away (a new
+    // purchase) wasn't bound yet and the request failed. Bind it on demand.
+    private static bool TryGetOrBindShell(ushort shellNetId, out Guid id)
+    {
+        if (shellByNetId.TryGetValue(shellNetId, out id)) return true;
+        return NetworkedItem.TryGet(shellNetId, out NetworkedItem shell) && shell != null &&
+               shell.GetComponent<AItemContainer>() != null && TryBindShell(shell, out id);
     }
 
     private static void EnsureShellRecord(NetworkedItem shell, Guid id, string owner)

@@ -139,6 +139,7 @@ public class NetworkClient : NetworkManager
     private bool trainTopologyRetryRunning;
     private ulong nextTrainTopologyOperationId;
     private float nextTrainTopologySyncRequestAt;
+    private const double MaxWeatherClockLeadSeconds = 300; // game time
     private float nextDeferredBrakeTopologyWarningAt;
     private uint lastDeferredBrakeTopologyRevision;
     private ulong nextTrainControlOperationId;
@@ -862,6 +863,18 @@ public class NetworkClient : NetworkManager
         if (LoadingState < PlayerLoadingState.Complete)
             Log("Received weather state");
 
+        // The host's clock arrives one trip late, so applying it as-is stepped the client's clock
+        // back a little every update. Time-driven consumers read a backward step as a whole day
+        // passing (a lit flashlight's battery emptied at once). Keep a clock that is only slightly
+        // ahead; real changes (the host setting the time) are far larger.
+        if (LoadingState >= PlayerLoadingState.Complete && WeatherDriver.Instance.manager != null)
+        {
+            double local = WeatherDriver.Instance.manager.RealDateTime.ToOADate();
+            double behind = (local - packet.OADate) * TimeSpan.FromDays(1).TotalSeconds;
+            if (behind > 0 && behind < MaxWeatherClockLeadSeconds)
+                packet.OADate = local;
+        }
+
         WeatherDriver.Instance.LoadSaveData(JObject.FromObject(packet), Globals.G.GameParams.WeatherEditorAlwaysAllowed);
     }
 
@@ -1142,12 +1155,8 @@ public class NetworkClient : NetworkManager
 
         Log($"Received DestroyTrainCarPacket for [{netTrainCar.CurrentID} {packet.NetId}]");
 
-        //Protect myself from getting deleted in race conditions
-        if (PlayerManager.Car == netTrainCar.TrainCar)
-        {
-            LogWarning($"Server attempted to delete car I'm on: {PlayerManager.Car?.ID}, netId: {packet?.NetId}");
-            PlayerManager.SetCar(null);
-        }
+        // Players on the car (us included) are stepped off it by CarDeletePlayerSafetyPatch;
+        // clearing PlayerManager.Car alone left our player parented to the deleted car.
 
         //Protect other players from getting deleted in race conditions - this should be a temporary fix, if another playe's game object is deleted we should just recreate it
         if (netTrainCar == null || netTrainCar.gameObject == null || netTrainCar.TrainCar == null)
@@ -2338,12 +2347,12 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    internal void ReconcileTrainTopologyAfterDerailment()
+    internal void RestoreCanonicalTrainTopology()
     {
         if (trainTopology.ReapplyCurrent(out string failure))
             return;
 
-        LogWarning("Failed to restore canonical topology after derailment physics: " + failure);
+        LogWarning("Failed to restore canonical topology after local physics: " + failure);
         RequestTrainTopologySync();
         if (trainTopology.HasPending)
             StartTrainTopologyRetry();
@@ -2831,24 +2840,6 @@ public class NetworkClient : NetworkManager
         if (packet == null) return;
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
     }
-
-#if DEBUG
-    internal void RequestLostItemRetrievalForRuntimeTest(uint requestId, uint lostHandle,
-        uint expectedRevision, int requestedSlot, int existingItemSlot,
-        int inventoryCapacity, int[] occupiedSlots)
-    {
-        SendPacketToServer(new ServerboundLostItemRetrievePacket
-        {
-            RequestId = requestId,
-            LostHandle = lostHandle,
-            ExpectedRevision = expectedRevision,
-            RequestedSlot = requestedSlot,
-            ExistingItemSlot = existingItemSlot,
-            InventoryCapacity = inventoryCapacity,
-            OccupiedSlots = occupiedSlots ?? Array.Empty<int>()
-        }, DeliveryMethod.ReliableOrdered);
-    }
-#endif
 
     public void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot)
     {
