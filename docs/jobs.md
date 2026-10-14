@@ -1,0 +1,320 @@
+# Jobs
+
+How jobs are synchronised. The host runs Derail Valley's job system: it generates jobs, takes
+them, validates booklets, pays out and expires them. Clients hold a mirror of every active job,
+built from host packets, and never run job logic themselves. When a client puts paperwork in a
+validator it sends a request; the host runs the vanilla validator and the result comes back as job
+state and item updates.
+
+The vanilla behaviour this builds on is researched in:
+
+- [Job validator and reports](research/DERAIL_VALLEY_JOB_VALIDATOR_REPORT_LOGIC.md): overview,
+  booklet and report flow, debt, the report render pipeline.
+- [PageBook](research/DERAIL_VALLEY_PAGEBOOK_LOGIC.md): how booklet pages are built and how the
+  current page is synced.
+- [Career Manager UI](research/DERAIL_VALLEY_CAREER_MANAGER_UI_LOGIC.md): the terminal extension
+  layer (no job screens yet; see [Career Manager](#career-manager)).
+
+Job paperwork is a networked item, so the item rules in
+[design/item-lifecycle.md](design/item-lifecycle.md) and [world-sync.md](world-sync.md) apply to
+it. See [architecture.md](architecture.md) for the host/client model in general.
+
+## Lifecycle
+
+1. **Generate.** The host's `StationProceduralJobsController` generates jobs; clients are blocked
+   from generating. `Station.AddJobToStation` on the host creates a `NetworkedJob`, and the next
+   tick sends `ClientboundJobsCreatePacket` for the station.
+2. **Mirror.** Each client rebuilds the `Job` from `JobData`, adds it to the station and prints
+   the overview on the job board under the host's item NetId.
+3. **Take.** A player puts the overview in a validator. On a client this becomes
+   `ServerboundJobValidateRequestPacket`; the host runs `JobValidator.ProcessJobOverview`, which
+   takes the job and prints a booklet issued to that player.
+4. **Broadcast.** The state change and the new booklet go out in `ClientboundJobsUpdatePacket`.
+   Every client marks the job taken, prints the booklet at the same validator, and destroys the
+   overview, including one sitting in its inventory.
+5. **Work.** Task state changes go out as `ClientboundTaskUpdatePacket`; warehouse load/unload
+   is requested by clients and run by the host.
+6. **Hand in.** A booklet in a validator becomes another validate request. The host runs
+   `JobValidator.ValidateJob`: it prints a report (and on completion, the payment) at its
+   validator. The report reaches clients as a render recipe plus a normal item Create.
+7. **End.** Completed, abandoned and expired jobs go out as state updates. The host destroys
+   every booklet copy; clients apply the state.
+
+### Packets
+
+| Packet | Direction | Purpose |
+| --- | --- | --- |
+| `ClientboundJobsCreatePacket` | host → clients | New jobs at one station (`JobData`). Also sent per job to a joining client. |
+| `ClientboundJobsUpdatePacket` | host → clients | Per-station batch of `JobUpdateStruct`: state, start/finish time, validator station, one item NetId and position, issued player. |
+| `ClientboundTaskUpdatePacket` | host → clients | One task's new state and start/finish times. |
+| `ServerboundJobValidateRequestPacket` | client → host | An overview or booklet put in a validator: job, station, item NetId, `ValidationType`. |
+| `ClientboundJobValidateResponsePacket` | host → requester | Rejections only: `Invalid`, and `JobMissing` when the host has no such job. |
+| `ServerboundJobBookletSummonRequestPacket` | client → host | The validator's reprint button. |
+| `ClientboundJobReportArtifactPacket` | host → one client | Compressed render recipe for one `JobReport`, sent just before its item Create. |
+| `ServerboundWarehouseMachineControllerRequestPacket` | client → host | Warehouse Load / Unload button. |
+| `ClientboundWarehouseControllerUpdatePacket` | host → clients | Warehouse screen text, job, car and cargo. |
+
+Job packets go only to players at `PlayerLoadingState.ReadyForJobs` or later, and never to the
+host's own client.
+
+## Generation and station state
+
+`StationController_Patch.Awake` adds a `NetworkedStationController` to every station. Its NetId is
+an FNV-1a hash of the station ID, so it's the same on every peer without negotiation. Each
+station also finds its `JobValidator` (queued from `JobValidator.Start`) by matching the
+validator's parent name against the station's `<name>_office_anchor`.
+
+On the host:
+
+- `StationProceduralJobsController.TryToGenerateJobs` and
+  `StationController.ExpireAllAvailableJobsInStation` run only on the host (both patches return
+  `IsHost()` when a session is up, and run normally in single player).
+- `StationJobGenerationRange` distance getters return the distance to the nearest player of any
+  peer (`AnyPlayerSqrMag`), so a station generates and keeps jobs when anyone is near it.
+- `Station.AddJobToStation` registers the job (`RegisterOrQueueHostJob`). If the station's
+  networked controller isn't ready yet, the job is queued and drained when it is;
+  `ReconcileExistingHostJobs` also picks up anything already in the station's
+  available/taken/abandoned/completed lists (jobs restored from the save).
+- `Task.SetJobBelonging` gives each task a `NetworkedTask` (queued until the job's
+  `NetworkedJob` exists).
+- `BookletCreator.CreateJobOverview` gives the overview a host-assigned item NetId and links it to
+  the job (`BindExistingJobOverview` does the same for an overview printed before registration).
+- Each tick `Server_OnTick` sends new jobs as one `ClientboundJobsCreatePacket` and dirty jobs as
+  one `ClientboundJobsUpdatePacket` per station.
+
+`JobData` carries the job ID and type, all tasks (`TaskNetworkData`, including nested tasks, cars,
+tracks and cargo), chain origin/destination, required licences, start/finish time, wage, state,
+time limit, the overview's NetId and position, and every live booklet copy (NetId, issued player,
+position).
+
+On a client, `NetworkedStationController.AddJobs`:
+
+- waits up to 120 frames for every car the job references to exist and be initialised, then
+  gives up with a warning;
+- rebuilds the `Job` with the host's NetIds for the job and its tasks;
+- for an `Available` job, adds it to the station and prints the overview at the host position;
+- for an `InProgress` job, adds it as taken (`TakeJob(true)`, the load-game path, so the debt
+  controller doesn't react) and prints every booklet copy;
+- for any other state, stops there: the `NetworkedJob` exists but isn't added to the station;
+- updates the car plates with the job ID.
+
+### On join
+
+At `ReadyForJobs` the host sends one `ClientboundJobsCreatePacket` per `Available` or `InProgress`
+job, station by station. Completed, abandoned and expired jobs are not sent. `JobsManager` time is
+sent earlier in the save-game data (`ClientboundSaveGameDataPacket.JobManagerTime`).
+
+## Taking a job
+
+`JobValidator_Patch.ProcessJobOverview` (prefix) runs on every peer:
+
+- printer on cooldown: error sound, nothing else;
+- no `NetworkedJob` for the overview, or the local job isn't `Available`: error sound and the
+  overview is destroyed locally;
+- host: records the validator and the player the booklet will be issued to (the host itself if
+  nobody else set it), then lets vanilla run;
+- client: sends `ServerboundJobValidateRequestPacket` with the overview's item NetId, unless a
+  request for this job is already in flight, and skips vanilla.
+
+The host's handler rejects the request (`Invalid`) if the item isn't the job's canonical overview.
+Otherwise it sets `PendingBookletIssuedToPlayerId` to the requester and calls
+`ProcessJobOverview` on the station's validator. Vanilla then takes the job (or prints a
+missing-licence report, debt warning and so on), and the `CreateJobBooklet` postfix registers the
+booklet as a copy issued to the requester.
+
+The host sends no response on success. The client's `AwaitResponse` coroutine waits up to 3 s for
+`ValidatorResponseReceived`; it's set when the `InProgress` job update arrives and prints the
+booklet. If the update doesn't come in time, or the host rejected the request, the client plays the
+error sound. Either way the in-flight flags are cleared.
+
+### What every peer sees
+
+The update that takes the job carries the new booklet's NetId, position, issued player and
+validator station. Each client:
+
+- moves the job from available to taken (`TakeJob(true)`);
+- prints the booklet at that validator's printer under the host's NetId, plays the validator
+  sound and printer animation;
+- destroys its overview of the job.
+
+Destroying paperwork goes through `NetworkedJob.RemoveFromInventory`. It ends any interaction,
+removes the item from its container, then calls `InventoryIntegration.RevokeMembership` and
+`InventoryIntegration.PurgeContainerMembership`. Vanilla's drop left a locked or reserved slot
+pointing at the destroyed overview, so a player holding the overview when someone else took the
+job kept a dead slot. If the client doesn't know which overview item belongs to the job (its item
+link hadn't arrived), `DestroyJobOverview` falls back to scanning the local inventory for any
+`JobOverview` of that job. Booklets are destroyed the same way.
+
+### Ownership
+
+There is no job owner. `NetworkedJob.OwnedBy` exists but is never set; the job is shared by the
+crew. Any player can hand in any booklet of the job.
+
+What is per player is the booklet copy. A job can have many physical booklet copies, each with its
+own item NetId, and `JobBookletIssuanceIndex` (in `Multiplayer.Core`, unit tested) records at most
+one copy per player. The player who took the job gets the first copy.
+
+## Booklets and reports as items
+
+Job documents are never created generically from a prefab on clients. `NetworkedItemManager`
+lists `JobOverview`, `JobBooklet`, `JobReport`, `JobExpiredReport` and `JobMissingLicenseReport` as
+do-not-create. The job lifecycle builds the object locally from the synced `Job`, assigns the host
+NetId, and the item Create that the host still sends binds to that object; if it arrives first it
+is parked in `PendingSpecialItemSnapshots` until the object exists. Clients can't adopt job
+documents as temporary items.
+
+Works:
+
+- **Overviews** are printed from the synced job at the host's position, then placed by item sync.
+  `ObserveJobOverviewRender` publishes `job.overview-render-ready` / `-timeout`.
+- **Booklets**: one job, any number of physical copies, one issued copy per player. A late joiner
+  rebuilds every live copy from `JobData.JobBooklets`. Incremental updates add copies by NetId
+  without duplicating ones the client has.
+- **Reprint** (`SummonAllActiveJobBooklets`) is replaced: the host's
+  `JobBookletSummonCoordinator`, for every in-progress job, moves the requester's issued copy to
+  the printer through an authoritative item transition (`ItemTransitionReason.JobBookletSummon`,
+  clearing any retrieval claim) or prints a new copy if they have none. Other players' copies
+  stay where they are. One summon runs at a time, 1.25 s per booklet.
+- **Pages** are synced as the item's `pageBook.currentPage` tracked value (see the PageBook
+  research doc).
+- **Reports** (`JobReport`): the host's `CreateJobReport` postfix captures `Job_data` and the
+  debt at print time into `JobReportArtifactData` (schema version 1, bounded sizes) and keeps it in
+  `JobReportArtifactRegistry` by item NetId. When the report enters a client's interest, the host
+  sends `ClientboundJobReportArtifactPacket` ahead of the item Create on the same reliable ordered
+  channel. The client renders it with `BookletCreator_JobReport.Create` and binds it to the NetId.
+  Interim reports (validated while still in progress) and several reports per job work, because
+  reports no longer depend on a job state change. Protocol tests cover the round trip.
+- **Payment** banknotes are ordinary networked items with a host-authoritative amount
+  (`MoneyPatch`); banking them deposits into the host's shared wallet, which is broadcast.
+- **Save**: overviews and booklets are left out of the mod's world-item persistence
+  (`WorldItemPersistenceSave.IsJobSystemDocument`) because DV's own job save recreates them;
+  persisting both stacked duplicate overviews on the boards. The `save-reload` scenario checks the
+  overview count doesn't grow.
+
+Doesn't work, or unverified:
+
+- **Expired and missing-licence reports** have no render recipe and no client-side producer. They
+  are do-not-create but not in `IsJobDocumentPrefab`, so a client receiving one falls through to
+  generic creation. What clients actually see is unverified.
+- **Reports of jobs the client doesn't know** never appear: `TryMaterializeJobReport` needs the
+  `NetworkedJob`, and a joining client is sent only active jobs. A completed job's report lying
+  in the world stays pending on a late joiner.
+- **Reports across a reload**: `JobReportArtifactRegistry` is in memory only and reports aren't
+  excluded from world-item persistence, so a report restored from the save has no recipe to send.
+  Not tested in game.
+- **Issuance across sessions**: the issuance index is keyed by session player ID and isn't saved;
+  after a reload or rejoin, a reprint may issue a fresh copy rather than summon the old one.
+
+## Validation and hand-in
+
+`ValidateJob_Prefix` mirrors the overview path: cooldown and local-state checks, then the host
+runs vanilla and a client sends `ServerboundJobValidateRequestPacket` with the exact booklet NetId.
+The host rejects (`Invalid`) a booklet that isn't a registered copy of the job; otherwise it calls
+`ValidateJob` on that copy at the station's validator. Vanilla then prints a report, and if the job
+completes, destroys the booklet and prints the payment, all at the host's validator objects, which
+item sync replicates.
+
+`ClientboundJobValidateResponsePacket` is only sent for rejections:
+
+- `JobMissing = true`: the host has no `NetworkedJob` with that NetId. The client's copy is stale
+  and the client destroys its `NetworkedJob`.
+- `Invalid` only: the offered item was refused. The client sets `ValidatorResponseReceived` and
+  `ValidationAccepted = false` and keeps the job. Earlier builds destroyed the job here, which
+  made it vanish for that player while the host still had it.
+
+If the host can't find the requesting player or the station's validator, it logs and sends
+nothing; the client times out after 3 s.
+
+Debt and licences are host state. On clients,
+`CareerManagerDebtController.NumberOfNonZeroPricedDebts` is 0 or 1 from the host's "has debt"
+broadcast; the real check runs in the host's vanilla validator.
+
+## Abandon, expire, complete
+
+- **Complete**: host vanilla on hand-in. Clients move the job to completed, call `CompleteJob` and
+  destroy their booklet copies.
+- **Abandon**: only on the host, from vanilla paths; the mod's own one is deleting a job's car
+  with the comms radio (`InProgress` jobs are abandoned, `Available` ones expired). Clients move
+  the job to abandoned and call `AbandonJob`.
+- **Expire**: host only (`ExpireAllAvailableJobsInStation`). Clients call `ExpireJob` and destroy
+  the overview.
+
+On complete, abandon and expire the host destroys every booklet copy and clears the issuance index
+(`DestroyJobBooklets`); the item destroys replicate. Reports are kept.
+
+### Save, load and rejoin
+
+The host's save is the only job save. DV saves and restores the host's jobs; restored jobs are
+registered by `ReconcileExistingHostJobs` and `OnJobTaken` ignores the load-game take, so a load
+doesn't broadcast spurious state changes. A client keeps nothing between sessions: on every join
+or rejoin it gets the active jobs afresh at `ReadyForJobs`, with all live booklet copies.
+
+## Tasks and warehouses
+
+`Task.SetState` on the host (except to `InProgress`) sends `ClientboundTaskUpdatePacket`, which
+clients apply with `Task.SetState` plus the times. Warehouse Load/Unload buttons on a client send
+`ServerboundWarehouseMachineControllerRequestPacket`; the host runs the sequence and
+`WarehouseMachineController.SetScreen` broadcasts the screen (idle and train-in-range presets are
+left to each peer).
+
+## Career Manager
+
+The Career Manager extension (`Multiplayer/Components/UI/CareerManager/`) adds a `MULTIPLAYER`
+hub with a Lost Items screen; it has no job screens. Job-relevant Career Manager state is the debt
+flag above and licences, which are host-owned and broadcast on purchase.
+
+## Mod integration
+
+- **RemoteDispatch** (client-side compatible): `RemoteDispatchPatch` adds every player's position
+  and crew to its map. Nothing job-specific.
+- **BookletOrganizer** is registered as host-only and **dv-improved-job-overview** as
+  client-only compatible (`ModCompatibilityManager`); neither has a patch.
+
+## Testing
+
+The `jobs` scenario (`DevTools/Scenarios/jobs/run.sh`, needs a running pair from `dvmp up`) runs
+a transport or empty-haul job at a station from start to finish: one peer takes it, the host
+stands in for the drive by moving the cars to the destination track, one peer hands the booklet
+in, and the client banks the payment. Both peers must agree on the job state and booklets after
+each step, the client must see the banknotes, and the shared wallet must go up by the payment
+exactly once.
+
+```bash
+ACCEPT=host HANDIN=client DevTools/Scenarios/jobs/run.sh   # what gate.sh runs
+ACCEPT=client HANDIN=client STATION=FM DevTools/Scenarios/jobs/run.sh   # the defaults
+```
+
+`ACCEPT` and `HANDIN` take `host` or `client`. Unit tests: `JobBookletIssuanceIndexTests`
+(`Multiplayer.Core.Tests`), `JobBookletProtocolTests` and `JobReportArtifactTests`
+(`Multiplayer.Protocol.Tests`). See [testing.md](testing.md).
+
+## Known gaps
+
+Open work from an upstream review, to port:
+
+- **Job update races.** An update for a job the client hasn't built yet (still waiting for its
+  cars, or never built because the wait timed out) is dropped silently; nothing replays it.
+- **`JobsManager` registration for RemoteDispatch.** Clients build jobs through the station and
+  `Job.TakeJob(true)` and never register them with `JobsManager`, which RemoteDispatch reads.
+- **Validation null check.** For example, `HandleJobStateChange` prints the booklet at
+  `validator.bookletPrinter` without checking that the station it found has a validator.
+- **Unload hardening.** The static job caches (`NetworkedJob` lookups, pending tasks, pending host
+  jobs, `JobReportArtifactRegistry`) are skipped on unload and `JobReportArtifactRegistry.Clear`
+  is never called.
+- **Work-train "in use" rework.** Work-train requests treat a car as in use if it belongs to an
+  in-progress job (`JobsManager.GetJobOfCar`).
+
+Also open:
+
+- A client hand-in gets no positive response, and neither the interim report nor the `Completed`
+  update sets `ValidatorResponseReceived`, so the client plays the error sound after the 3 s
+  timeout even when the hand-in worked. Clients also don't play the printer animation for a
+  hand-in.
+- `JobMissing` destroys only the `NetworkedJob` GameObject. The local `Job` stays in the station
+  lists and its paperwork stays; `NetworkedStationController.RemoveJob`, which would clean up, is
+  never called.
+- When the local job state disagrees, the validator prefixes destroy the offered overview or
+  booklet locally on a client, without asking the host.
+- Clients clear car plates on complete/abandon/expire by calling `UpdateCarPlates` with an empty
+  job ID, which returns immediately, so the explicit clear does nothing.
+- The rest of the report gaps listed under [Booklets and reports](#booklets-and-reports-as-items).

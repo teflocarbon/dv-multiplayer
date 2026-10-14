@@ -311,4 +311,6 @@ MultiplayerAssets/ProjectSettings/*
 !MultiplayerAssets/Packages
 /Lobby Servers/Rust Server/target
 *.pem
-/docs
+/docs/index.md
+/docs/mpapi/
+/docs/wiki-output/

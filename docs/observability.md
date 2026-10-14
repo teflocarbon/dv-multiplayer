@@ -39,7 +39,8 @@ The system is deliberately additive. It observes the existing transport, packet 
 | Markers and capture files with pre-roll | Implemented |
 | Item desync detector | Initial implementation |
 | Player and train desync detectors | Not yet implemented |
-| Exhaustive decoded packet catalogue in-process | Intentionally remains in the standalone debug client |
+| Cold-container page and component-hierarchy copy | Implemented |
+| Exhaustive decoded packet catalogue | Not implemented in-process; the standalone debug client that had one was removed in f510e8e |
 
 ## Enabling the system
 
@@ -54,7 +55,6 @@ The advanced settings are:
 | Enable Debug System | On in `DEBUG`; off in release | Starts or stops the entire in-process runtime |
 | Enable Debug File Logging | On when debug is enabled | Writes the authoritative JSONL event log |
 | Enable Debug Firehose | On | Starts the random-port loopback HTTP/SSE server |
-| Raw Packet Capture | Off | Adds raw Base64 payloads where permitted and selects Raw trace mode |
 | Enable World Labels | Off | Shows labels over supported network entities |
 | World Label Radius | 30 m | Limits label candidates; configurable from 5–500 m |
 | World Label Scale | 1.0× | Scales the complete world-space label from 0.5–3.0× |
@@ -68,7 +68,9 @@ The advanced settings are:
 
 File logging, the firehose server, label state, sampling, and memory capacities can be updated without restarting the game. Disabling the complete debug system tears down the runtime.
 
-The older **Enable Debug Loopback Client** and **Debug Loopback Port** settings belong to the standalone multiplayer peer/debug client. They are separate from the in-process observability firehose.
+Raw packet capture is not a persisted setting. It is armed for the current session from the packet inspector's `RAW` button, `debug raw on`, or the Web UI; a legacy `EnableRawPacketCapture` value left in the settings file is cleared when the debug session starts.
+
+The **Enable Debug Loopback Client** and **Debug Loopback Port** advanced settings open an extra localhost-only transport on the host for the standalone debug client. That client was removed in f510e8e, so leave them off. They are separate from the in-process observability firehose.
 
 ## Sessions and files
 
@@ -112,7 +114,7 @@ Discovery records are written atomically and refreshed every two seconds. They a
 
 ## Structured events
 
-All runtime, standalone-client, and dashboard events use the shared `Multiplayer.DebugProtocol` contracts.
+All events use the shared `Multiplayer.DebugProtocol` contracts.
 
 Every event contains:
 
@@ -247,7 +249,7 @@ exists.
 
 Local item transitions are tracked against both the previously observed Unity state and the last state placed on the network. State precedence is `Thrown`, `InHand`, `InInventory`, `Attached`, `Removed`, then `Dropped`; a physics-held item therefore remains `InHand` even when its transform is still under `WorldMover.OriginShiftParent`. Grab/release/throw callbacks and postfix observation of `Inventory.EquipItem`, `Inventory.UnequipItem`, and `Inventory.DropItemFromHandsOrInventory` enqueue work on `NetworkedItemManager`, so an item that becomes inactive in inventory is still processed. `item.local-state-observed`, `item.local-state-unchanged`, `item.local-state-changed`, and `item.snapshot-suppressed` include the current state, previous observed state, previous sent state, previous sent placement player, network ID, inventory/container slot, equipped slot, active state, trigger, and suppression reason. Dirty callbacks request re-evaluation but do not themselves force an `ItemState` packet: repeated equip/grab callbacks with the same last-sent state and placement player are collapsed locally, while a same-state P1-to-P2 handoff, one-shot `Thrown`, and dirty tracked values still serialize. Adoption completion uses the same `GetSnapshot()` path and does not bypass or disable later transitions.
 
-`Thrown` is treated as a one-shot network transition rather than a stable Unity state. After a local throw snapshot is emitted, or a received throw is applied, the observation baseline becomes `Dropped` without sending a second packet; this prevents the following frame from emitting a synthetic dropped update that zeroes the remote rigidbody's momentum. Every item envelope also carries the authenticated originating player ID. The originating client consumes its echoed accepted throw as an authority/revision acknowledgement without running the Unity throw transition again, preserving the already-running local velocity and angular velocity; the host and other clients still apply the physical throw normally. `item.local-throw-acknowledged` records the preserved velocities. Listen-host local transitions are likewise metadata-only after `GetSnapshot()`: the base-game Inventory/GrabHandler has already applied the Unity transition, so the canonical authority pass must not run owner-claim inventory repair or a second drop. The `item.ownership-transition.before/after` payload identifies this with `unityStateAlreadyApplied=true`. Broad inventory-status notifications queue only items whose computed state actually changed, rather than re-observing every carried item. The combined dashboard likewise creates replication-flow operations only from send, receive, validation, apply, relay, delivery, and missing-representation stages; local unchanged and suppressed observations remain searchable events but never become permanently pending operations.
+`Thrown` is treated as a one-shot network transition rather than a stable Unity state. After a local throw snapshot is emitted, or a received throw is applied, the observation baseline becomes `Dropped` without sending a second packet; this prevents the following frame from emitting a synthetic dropped update that zeroes the remote rigidbody's momentum. Every item envelope also carries the authenticated originating player ID. The originating client consumes its echoed accepted throw as an authority/revision acknowledgement without running the Unity throw transition again, preserving the already-running local velocity and angular velocity; the host and other clients still apply the physical throw normally. `item.local-throw-acknowledged` records the preserved velocities. Listen-host local transitions are likewise metadata-only after `GetSnapshot()`: the base-game Inventory/GrabHandler has already applied the Unity transition, so the canonical authority pass must not run owner-claim inventory repair or a second drop. The `item.ownership-transition.before/after` payload identifies this with `unityStateAlreadyApplied=true`. Broad inventory-status notifications queue only items whose computed state actually changed, rather than re-observing every carried item.
 
 Host-local item changes never travel through the client-to-server validation handler. They remain dirty until the authoritative server tick creates or updates the item and distributes it through normal interest replication, preventing host `Create` snapshots from being rejected as client creates. On receiving clients, actual remote-hand membership is recognized as `InHand`, and observations for an item owned by another player emit `item.snapshot-suppressed` with `remote-player-authoritative` instead of echoing a false local `Dropped` update back to the host. A server without a local remote-hand representation preserves its last accepted held/inventory state until the owning player sends a transition.
 
@@ -388,18 +390,20 @@ Mouse-wheel sensitivity is increased for the entity list, state inspector, and t
 | `5` | Open multiplayer health and automation diagnostics |
 | `6` | Open the local inventory diagnostics page |
 | `7` | Open Lost and Found registry, policy, save-rebind, and client-list diagnostics |
+| `8` | Open the cold-container page (host container records) |
 | Up/Down, Page Up/Page Down, `[`/`]` | Move through the filtered entity list |
 | `Ctrl+F` | Focus the entity/packet search box |
 | `Ctrl+C` | Copy the selected entity DTO as formatted JSON |
 | `Ctrl+Shift+C` | Copy the selected entity’s complete retained timeline |
 | `Ctrl+Alt+C` | Copy the selected entity’s latest event |
 | `Ctrl+B` | Copy a diagnostic bundle containing session, trace settings, world/origin state, and the selected entity |
+| `Ctrl+H` | Copy a bounded description of the selected object's Unity hierarchy and components |
 
 Opening the overlay temporarily unlocks and displays the cursor. Closing it restores the previous cursor visibility and lock mode. All primary selection and filtering operations remain usable without a mouse.
 
 Freezing only holds the inspector’s detached snapshot. It does not pause networking, physics, registry updates, events, captures, or world labels. The selected header displays `FROZEN` or `LIVE` to make this explicit.
 
-The selected header also has a `COPY: SUMMARY` / `COPY: FULL` toggle plus `COPY VIEW`, `COPY EVENTS`, `COPY LAST`, `COPY FLOW`, `COPY MATRIX`, and `COPY BUNDLE` buttons. Summary mode is the default and copies the same compact, plain-text representation shown by the overlay rather than serializing the complete DTO. Full mode preserves the structured JSON diagnostic export. The mode applies consistently to entity, packet, timeline, last-event, replication-flow, host-matrix, and bundle copies. Flow and matrix export only the selected item's replication-flow or host-interest data. The same operations are available as `debug copy flow` and `debug copy matrix`; `debug copy mode` toggles summary/full. Copy feedback includes the active mode and character count.
+The selected header also has a `COPY: SUMMARY` / `COPY: FULL` toggle plus `COPY VIEW`, `COPY EVENTS`, `COPY LAST`, `COPY FLOW`, `COPY MATRIX`, `COPY TREE`, and `COPY BUNDLE` buttons. Summary mode is the default and copies the same compact, plain-text representation shown by the overlay rather than serializing the complete DTO. Full mode preserves the structured JSON diagnostic export. The mode applies consistently to entity, packet, timeline, last-event, replication-flow, host-matrix, and bundle copies. Flow and matrix export only the selected item's replication-flow or host-interest data. The same operations are available as `debug copy flow`, `debug copy matrix` and `debug copy tree`; `debug copy mode` toggles summary/full. Copy feedback includes the active mode and character count.
 
 ### In-game packet inspector
 
@@ -442,7 +446,7 @@ item.relay-requested
 item.missing-local-representation
 ```
 
-This is an observational reconstruction from the selected entity's bounded timeline. It does not add an identifier to gameplay packets or change their serialization. A missing stage means that stage was not present in the retained local process timeline; cross-process confirmation still comes from the combined dashboard or aligned captures.
+This is an observational reconstruction from the selected entity's bounded timeline. It does not add an identifier to gameplay packets or change their serialization. A missing stage means that stage was not present in the retained local process timeline; for cross-process confirmation, compare captures taken on each peer, or use dvmp (`dvmp_trace`, `dvmp_desync`).
 
 On a host, the selected item also displays one row per server player from the real `KnownItems` and `NearbyItems` maps. Each row includes loading state, distance, nearby/known membership, the player's known tick, the item's last dirty tick, and the current inferred replication decision:
 
@@ -576,7 +580,7 @@ debug labels netid <id>
 debug select look
 debug select item|player|car <id>
 debug dump
-debug copy entity|timeline|last|flow|matrix|bundle|mode
+debug copy entity|timeline|last|flow|matrix|tree|bundle|mode
 debug settings
 debug verbose
 debug mark <text>
@@ -613,13 +617,14 @@ The embedded server does not enable CORS. Mutating endpoints require the per-ses
 | `GET /app.js` | Embedded UI logic |
 | `GET /events` | SSE stream, beginning with the current bounded in-memory snapshot |
 | `GET /api/session` | Current process session metadata |
-| `GET /api/sessions` | Sessions represented by this server; useful in dashboard mode |
+| `GET /api/sessions` | Sessions represented by this server (in a game process, just its own) |
 | `GET /api/event/{sequence}` | Full event detail retained in this server’s store |
 | `GET /api/entities` | Entity snapshots and timelines |
 | `GET /api/entities/{type}/{id}` | One entity record |
 | `GET /api/settings` | Runtime trace settings |
-| `GET /api/replication` | Bounded item-replication operation summaries in dashboard mode |
-| `GET /api/replication/{operationId}` | Complete correlated operation, recipient expectations, stages, and resulting states |
+| `GET /api/replication` | Item-replication operations; always empty in a game process (only the removed dashboard filled it) |
+| `GET /api/replication/{operationId}` | One replication operation; 404 in a game process |
+| `GET /api/automation` | Debug builds only: build number, PID and session ID |
 
 ### Token-protected endpoints
 
@@ -629,12 +634,22 @@ The embedded server does not enable CORS. Mutating endpoints require the per-ses
 | `POST /api/mark` | Add a timestamped marker event |
 | `POST /api/capture/start` | Start a named capture with optional shared capture ID |
 | `POST /api/capture/stop` | Stop the active capture |
+| `POST /api/events/query` | Debug builds only: filter the in-memory events by session, category, event, entity, correlation, severity and time (up to 5,000) |
+
+The token is also returned by `GET /api/session`, which is how the bundled Web UI gets it, so it
+stops cross-origin browser requests rather than other local processes. Debug builds still route
+`/api/runtime-tests/*`, `/api/runtime-environment/*` and `/api/dashboard/shutdown`; nothing
+registers them since the runtime test system and dashboard were removed, so they return 404.
 
 Each SSE subscriber has a bounded queue of 2,048 events so a slow browser cannot block Unity or unboundedly grow memory.
 
-## Web UI and combined dashboard
+## Web UI
 
-Open the `firehoseUrl` in a process discovery file to inspect one game process directly.
+Open the `firehoseUrl` from a process discovery file (`Multiplayer.Debug/sessions/*.json`) to
+inspect that game process directly. Each process serves its own UI; there is no longer a combined
+host/client dashboard (`Multiplayer.DebugClient --dashboard` was removed in f510e8e). To compare
+peers, open each process's UI, take a capture on each with the same marker, or use dvmp
+(`dvmp_desync`, `dvmp_trace`, `dvmp_logs`).
 
 The Web UI supports filters for:
 
@@ -649,46 +664,11 @@ The Web UI supports filters for:
 
 It also exposes marker creation, capture start/stop, Raw mode, entity/session inspection, and full event details.
 
-To combine all live host and client sessions without joining the multiplayer game as a peer:
+The `Item replication` tab is left over from the dashboard, which built cross-process replication
+operations from every peer's events. A game process does not build them, so the tab is always
+empty.
 
-```powershell
-Multiplayer.DebugClient.exe --dashboard "<path-to-Multiplayer.Debug>"
-```
-
-If no path is supplied, dashboard mode first looks in the standard Derail Valley mod installation and otherwise uses `Multiplayer.Debug` below the current directory.
-
-Dashboard mode:
-
-- scans discovery files every two seconds;
-- rejects stale or mismatched processes;
-- connects to every live session’s SSE stream;
-- holds events for a 250 ms reorder window;
-- orders by UTC timestamp, session ID, and source sequence;
-- preserves a stable `sessionId:sourceSequence` event key even after assigning dashboard-local sequence numbers;
-- broadcasts settings, markers, and capture commands to every live process using each process token;
-- assigns one shared capture ID to coordinated captures.
-
-The `Item replication` page turns item events from all discovered host/client processes into bounded replication operations. It shows:
-
-- item ID and update type;
-- origin process/player and correlation confidence;
-- per-process flow lanes with relative milliseconds and network ticks;
-- the host's per-recipient delivery expectation and interest/known-item decision;
-- sent, received, handled, and applied status for each client;
-- resulting origin, host, and client state fields side by side;
-- explicit `sent-not-received`, `received-not-applied`, and validation-rejection discontinuities;
-- compact and full-operation clipboard exports;
-- filters for item, update type, status, and problems only.
-
-Item snapshots receive a canonical state fingerprint whose object/dictionary property ordering is normalized. Exact fingerprints correlate unchanged snapshots across processes. Item-ID and short-time-window matching is retained as a visible lower-confidence fallback for application stages that do not carry a snapshot.
-
-The host emits `item.delivery-expected` immediately before each existing real recipient send. The event records recipient player/peer, loading state, delivery method, known/nearby state, known tick, dirty tick, and the current send decision. This instrumentation is guarded and does not select, add, remove, or reorder recipients.
-
-`Auto captures` on the replication page is off by default. When enabled, the first newly detected replication discontinuity starts the same shared capture on every discovered process, records five seconds, then stops it. It is limited to ten captures per dashboard run with a fifteen-second coordinator cooldown.
-
-On the same-machine test setup, an expected reliable item delivery becomes `sent-not-received` after 750 ms. A received update remains pending for two seconds before becoming `received-not-applied`, allowing initial-sync registration/dependency queues time to resolve. A late receive or apply clears the recipient discontinuity and allows the operation to recover to complete. The originating client intentionally acknowledges its echoed authoritative `Thrown` revision without applying the throw a second time; `item.local-throw-acknowledged` therefore completes that recipient as an acknowledgement while keeping `applied=false`.
-
-The dashboard itself has its own local random-port Web UI and never connects as a multiplayer peer.
+The host still emits `item.delivery-expected` immediately before each real recipient send. The event records recipient player/peer, loading state, delivery method, known/nearby state, known tick, dirty tick, and the current send decision. This instrumentation is guarded and does not select, add, remove, or reorder recipients.
 
 ### Local grabber recovery
 
@@ -715,7 +695,7 @@ debug mark client throws flashlight inside moving train
 Starting a capture creates a JSONL file containing:
 
 1. capture metadata and the complete session snapshot;
-2. a unique or dashboard-shared capture ID;
+2. a unique capture ID, or the one passed to `POST /api/capture/start`;
 3. up to two seconds of pre-roll from the bounded event store;
 4. every subsequently published event until capture stop.
 
@@ -744,7 +724,9 @@ Not yet implemented in the automatic detector:
 - train track-relative, rigidbody, derailment, and authority comparisons;
 - automatic cross-process comparison inside the game processes.
 
-The replication dashboard now compares correlated post-apply states across processes. More specialized semantic tolerances for rotation, storage, parentage, and moving thrown-item trajectories remain future work; their raw fields are already shown in the state table.
+Cross-process comparison of real Unity state (items, cars, money, junctions) is done outside the
+game by `dvmp_desync`, which snapshots both peers repeatedly and reports divergences that persist
+(see `DevTools/README.md`).
 
 ## Performance and failure isolation
 
@@ -775,15 +757,17 @@ The firehose, JSONL sink, discovery writer, and capture sink handle I/O failures
 
 ## Recommended item-sync test workflow
 
-1. Start a host and one or more clients with the debug system enabled.
-2. Start dashboard mode and open its printed loopback URL.
+1. Start a host and a client with the debug system enabled (`dvmp up` does this with a Debug
+   build).
+2. Open each process's `firehoseUrl` if you want the Web UI.
 3. Enable labels only when spatial context is useful.
 4. Use `F12` or `debug select look` to select the test item.
 5. Use `F11` for detailed item label and timeline information.
-6. Start a coordinated capture.
+6. Start a capture on each process.
 7. Add a marker immediately before the physical action.
 8. Perform the grab, drop, throw, storage, job-item, or moving-train test.
-9. Stop the capture and compare the same item ID across sessions.
+9. Stop the captures and compare the same item ID across sessions. `dvmp_trace` and
+   `dvmp_desync` give the same comparison without the overlay.
 
 For a client throw, look for this sequence:
 
@@ -806,33 +790,23 @@ Use the world-origin cards and `world.origin-shift.*` events when positions diff
 
 ## Build and verification
 
-Build the shared contracts and mod with:
+The debug system lives in `Multiplayer/Debugging` (runtime, overlay, labels, diagnostics) and
+`Multiplayer.DebugProtocol` (contracts, event store, sinks, HTTP server, Web UI). Building the mod
+builds both:
 
-```powershell
-dotnet build Multiplayer.DebugProtocol/Multiplayer.DebugProtocol.csproj -c Debug
+```bash
 dotnet build Multiplayer/Multiplayer.csproj -c Debug
 ```
 
-In-game verification uses dvmp (see `DevTools/README.md`).
+In-game verification uses dvmp (see `DevTools/README.md`). The NUnit suites, including the
+schema-aware debug packet projections run by `Multiplayer.Protocol.Tests`, are described in
+[testing.md](testing.md).
 
-Pure multiplayer authority invariants are covered separately by the NUnit suite:
-
-```powershell
-dotnet test Multiplayer.Core.Tests\Multiplayer.Core.Tests.csproj
-```
-
-Actual item packet wire fixtures and schema-aware debug projections run in a second NUnit suite:
-
-```powershell
-dotnet build Multiplayer\Multiplayer.csproj -c Debug
-dotnet test Multiplayer.Protocol.Tests\Multiplayer.Protocol.Tests.csproj -c Debug
-```
-
-`Multiplayer.Core` has no Unity or Derail Valley dependencies, and the production host registry delegates its ownership, placement, revision, claim, and recall decisions to that tested state machine. See `TESTING.md` for the test boundary and extraction roadmap.
+`Multiplayer.Core` has no Unity or Derail Valley dependencies, and the production host registry delegates its ownership, placement, revision, claim, and recall decisions to that tested state machine. See `testing.md` for the test boundary and extraction roadmap.
 
 The same core now owns item send-projection comparison (`state + holder + attached car/end`), bounded pending-snapshot ordering, and inventory-claim planning through `IInventoryView`. Deferred queues reject duplicate/stale revisions, cap at 256 entries, and allow an authoritative `FullSync` to supersede older queued deltas. `item.pending-snapshot-rejected` reports duplicate, stale, or capacity rejection; `item.snapshot-deferred` includes capacity, enqueue status, and the number of snapshots superseded by a full snapshot.
 
-Recipient completion, temporary compatibility-adoption coordination, storage placement, and remote hand/inventory projection are also pure core decisions. The dashboard uses `RecipientCompletionEvaluator` for expected/received/applied completion and the 750 ms / 2 s discontinuity boundaries. While the temporary bridge exists, it permits one pending token per eligible Unity item and ignores unknown or duplicate completed results; the host scopes tokens by authenticated player and replays the original completed token-to-NetId outcome. `item.adoption-request-suppressed` and `item.adoption-result-ignored` expose coordinator rejections. These coordinators and tests are removed with the bridge after all creation producers become host operations. Storage world projection removes conflicting inventory, lost-and-found, and item-container memberships according to one plan; `storage.multiple-membership-repaired` reports overlap repair and `storage.transition-rejected` reports an unavailable/invalid projection.
+Recipient completion, temporary compatibility-adoption coordination, storage placement, and remote hand/inventory projection are also pure core decisions. `RecipientCompletionEvaluator` (expected/received/applied completion with 750 ms / 2 s discontinuity boundaries) was used by the removed dashboard and is now only exercised by its tests. While the temporary bridge exists, it permits one pending token per eligible Unity item and ignores unknown or duplicate completed results; the host scopes tokens by authenticated player and replays the original completed token-to-NetId outcome. `item.adoption-request-suppressed` and `item.adoption-result-ignored` expose coordinator rejections. These coordinators and tests are removed with the bridge after all creation producers become host operations. Storage world projection removes conflicting inventory, lost-and-found, and item-container memberships according to one plan; `storage.multiple-membership-repaired` reports overlap repair and `storage.transition-rejected` reports an unavailable/invalid projection.
 
 NetId allocation, relevance hysteresis, known-item delivery selection, and tracked-value
 full-sync/delta composition are now pure tested decisions too. The runtime allocator reserves zero,

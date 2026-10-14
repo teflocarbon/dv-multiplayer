@@ -4,18 +4,46 @@
 > persistence-checkpoint milestones described below. Advanced physical interaction authority and
 > runaway/glitched-item recovery remain deliberately deferred.
 
+## Implementation status (audited 2026-10-14)
+
+- **Implemented:** phases 1-3 below, in
+  `Multiplayer/Components/Networking/World/WorldItems/NetworkedItemSpatialManager.cs`, with the
+  epoch/sequence checks in `Multiplayer.Core/Items/ItemSpatialStreamValidator.cs` and the
+  save checkpoint in `WorldItems/WorldItemPersistenceSave.cs`. Loose items on trains (train-local
+  samples, settlement and the kinematic freeze) are implemented, and
+  [`train-item-wake.md`](train-item-wake.md) covers waking them.
+- **Differs, simulator choice:** the player who releases the item (the host included) always gets
+  the lease; the host is not preferred at release. On a 3 s sample timeout or simulator
+  disconnect the lease goes to the host if its copy is active, else to the nearest client within
+  192 m that has acknowledged the item, else the last accepted pose is committed.
+- **Differs, sampling:** 15 Hz above 1 m/s or 1 rad/s, otherwise 8 Hz; no extra sample on
+  collisions or parent changes; one unreliable packet per item per recipient (not batched),
+  sent only to players who know the item.
+- **Not implemented:** explicit lease revocation on Lost-and-Found collection or cold deposit
+  (collection advances the revision, so later samples and settlements are rejected; a deposit
+  needs the item in hand, which already ends the lease).
+- **Added:** an item that falls more than 1 m under the terrain has its lease revoked and is moved
+  back to its last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
+  convergence skips items with a live lease (b601cc6).
+- **Runtime tests:** the old in-game scenario system is gone. The dvmp `train-items` scenario
+  covers drops and throws in a moving cab (scenarios 13-15 below), and `dvmp soak` throws and
+  drops items at random then runs a desync check; see [`../testing.md`](../testing.md). The other
+  scenarios below are not automated.
+- The "Current behavior and exact failure" section records the bug as it was in July, before
+  this layer existed.
+
 ## Purpose
 
 Define how a host-authoritative item can move through the world after it leaves an inventory or
 hand. This is deliberately separate from
-[`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md): that design owns
+[`item-world-sync.md`](item-world-sync.md): that design owns
 identity, lifecycle, placement, interest, and persistence, while this design owns transient spatial
 motion and the reliable commit of the resulting resting pose.
 The cross-feature states and precedence rules consumed by both designs are canonicalized in
-[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md).
+[`item-lifecycle.md`](item-lifecycle.md).
 Train-specific reactivation of settled items after support removal, item impacts, hard train
 motion, and derailment is specified separately in
-[`MULTIPLAYER_TRAIN_ITEM_WAKE_SYSTEM_DESIGN.md`](MULTIPLAYER_TRAIN_ITEM_WAKE_SYSTEM_DESIGN.md).
+[`train-item-wake.md`](train-item-wake.md).
 
 The immediate bug motivating this work is:
 
@@ -28,6 +56,8 @@ The immediate bug motivating this work is:
 This proves that logical identity synchronization is working while spatial authority is incomplete.
 
 ## Current behavior and exact failure
+
+Historical (July 2026): this is the behaviour before the spatial layer was built.
 
 `NetworkedItem.OnThrow` captures:
 
@@ -241,6 +271,9 @@ The host selects in this order:
 3. closest ready client that already acknowledges the projection and subscribes to the cell;
 4. no simulator, using the last committed pose.
 
+The code gives the lease to the releasing player first (step 2), whoever it is, and applies steps
+1, 3 and 4 only when the lease has to move on a timeout or disconnect.
+
 Only one lease may exist. Lease transfer increments `simulationEpoch` and includes an authoritative
 baseline containing pose and velocities.
 
@@ -324,6 +357,11 @@ motion. Packet rates can be tuned from captures after correctness is established
 For multiple moving items, batch samples per recipient and per network tick. Do not create one
 reliable packet stream per Rigidbody.
 
+As implemented: 15 Hz above 1 m/s or 1 rad/s, 8 Hz otherwise, sent at that interval without delta
+thresholds or collision-triggered samples. Settlement is proposed after at least 0.25 s when the
+body sleeps or stays under 0.05 m/s and 0.1 rad/s for 0.5 s. Samples are unreliable, one packet
+per item; they are not batched.
+
 ## Host validation
 
 The host cannot reproduce every remote collision, but it can reject impossible or unauthorized
@@ -382,8 +420,9 @@ The host should:
 - never require remote terrain to be loaded merely to remember a transform; and
 - use the committed record when constructing a projection for a newly interested player.
 
-This is an important change from the current `RefreshHostWorldItem`, which derives cell membership
-from the host Unity transform.
+Accepted samples and commits update the cell index through `RefreshHostSpatialPosition`;
+`RefreshHostWorldItem`, which reads the host Unity transform, is still used for ordinary
+transitions.
 
 ## Floating origin and anchors
 
@@ -495,7 +534,8 @@ first implementation. Preserving motion across restart is optional later.
 ### Lost and Found
 
 Collection revokes the simulation lease before committing `LostAndFound`. All later spatial samples
-from the old epoch are rejected. Distance/grace checks use the latest accepted/committed absolute
+from the old epoch are rejected. (The code does not revoke the lease; collection advances the
+authority revision, so later samples and settlements fail the revision check.) Distance/grace checks use the latest accepted/committed absolute
 pose rather than a stale host transform.
 
 ### Cold containers
@@ -566,10 +606,12 @@ Treat these as later, separately tested expansions:
 - piles and many simultaneous contacts;
 - player pushing without pickup;
 - doors, drawers, and non-item rigidbodies;
-- items riding unsnapped on moving trains;
 - joints, hoses, wires, and compound bodies;
 - collision damage or gameplay effects; and
 - VR-specific handoff/prediction behavior.
+
+Items riding unsnapped on moving trains were on this list; they are now handled by train-interior
+placement (above) and [`train-item-wake.md`](train-item-wake.md).
 
 ## Observability
 
@@ -598,7 +640,9 @@ accepted pose, committed pose, committed cell, and rejection reason.
 
 ## Runtime test suite
 
-Each scenario remains one file and owns all created fixtures.
+In-game scenarios run through the dvmp harness
+([`../../DevTools/README.md`](../../DevTools/README.md)); each owns the fixtures it creates. Only
+13-15 are automated (`DevTools/Scenarios/train-items`).
 
 Initial scenarios:
 
@@ -649,4 +693,6 @@ authority. It promises this:
 Runaway or glitched items are currently observed after 30 seconds with an explicit
 `item.spatial-unresolved-motion` warning. The network stream remains rate-bounded, but the mod does
 not freeze, relocate, destroy, depenetrate, or collect the item. That policy remains in the research
-basket until Derail Valley's behavior and appropriate recovery semantics are understood.
+basket until Derail Valley's behavior and appropriate recovery semantics are understood. The one
+exception is an item that has fallen through the terrain: its lease is revoked and it is put back
+at its last safe pose.

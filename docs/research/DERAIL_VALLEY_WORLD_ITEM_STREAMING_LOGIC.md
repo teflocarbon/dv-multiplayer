@@ -6,7 +6,7 @@ multiplayer item-world synchronization design; it does not itself prescribe the 
 protocol.
 
 The corresponding multiplayer design is
-[`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](../MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md).
+[`../design/item-world-sync.md`](../design/item-world-sync.md).
 Installed gadget and train-customization behavior is maintained separately in
 [`DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
 Snapped-item and train-accessory behavior is maintained in

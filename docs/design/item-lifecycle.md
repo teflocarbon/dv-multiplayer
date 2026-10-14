@@ -6,19 +6,40 @@
 
 ## Implementation status (audited 2026-10-14)
 
-- **Ownership policy changed** (5a3a077): an *unowned* personal (`BelongsToPlayer`) item becomes
-  owned by the first player who puts it in their hand or inventory
-  (`ItemAuthorityStateMachine`). Pickup still never transfers an existing owner; a non-owner
-  pickup marks the claim `Stolen`. Where the text below says pickup never establishes ownership,
-  this is the current rule.
-- **Shop purchases** are spawned by the host at the shop and owned by the buyer.
-- **Starter kit** is given on a player's first join only.
+- **Ownership:** an *unowned* personal (`BelongsToPlayer`) item becomes owned by the first player
+  who puts it in their hand or inventory (9e641a2; `MayEstablishPersistentOwner` in
+  `Multiplayer.Core/Items/ItemAuthorityStateMachine.cs`). Pickup never transfers an existing
+  owner; a non-owner pickup of a claimed essential marks the claim `Stolen`. See "Ownership
+  establishment" below.
+- **Shop purchases:** a client's purchase is spawned by the host at the shop and owned by the
+  buyer (`NetworkServer.SpawnShopPurchase`, f796ca8). The host's own purchases still go through
+  vanilla and are unowned until someone takes them. `AuthoritativeItemRegistry.Ensure` no longer
+  throws for a host-created item registered without a seed snapshot (e827ce8).
+- **Starter kit:** given on a player's first join only (`ClientboundSaveGameDataPacket.CreatePacket`
+  with `NetworkServer.StarterKitsGiven`, 2962fa7).
+- **Disconnect:** the departing player's hand item, and any item in their inventory that another
+  player owns, is dropped where it is (`DropHeldItemsOfDepartingPlayer` in
+  `NetworkedItemManager.ProjectionAndCompatibility.cs`, 2d52799). Items they own stay keyed to
+  their identity. A dropped borrowed item reaches its owner's Lost and Found only through
+  ordinary distance collection, which needs the owner connected. If the owner is offline when the
+  borrower leaves, the item is not recognised as borrowed and stays with the borrower (see
+  [`item-ownership-open-questions.md`](item-ownership-open-questions.md)).
+- **Rejoin:** the returning player's fresh starter/essential copies are rejected and their
+  originals put back in the copies' slots (`TryRestoreReturningOwnerItem`,
+  `DiscardUnboundLocalDuplicate`; 040b3bf, 35914cc). Owner and possessor IDs are rebound from
+  identity (`AuthoritativeItemRegistry.RebindPersistentOwner`), including a recalled item
+  (0f5d0ab).
 - **Lost and Found** records follow the owner's identity: unbound on disconnect, rebound on login
-  (730f384); collected items stay inert after a save is loaded (134fa2f).
-- **Host saves** keep other players' inventories and the item in their hand (d615b37, ee020c6).
-- **Not implemented:** the decided disconnect policy (a borrowed item should go to its owner's
-  Lost and Found; it currently stays with the departing player), revoking a spatial lease
-  explicitly on collection, and per-recipient projection state in the debug snapshot.
+  (`LostItemRegistry.UnbindOwner`/`RebindOwner`, e0e9781); collected items stay inert after a
+  save is loaded (b217af6).
+- **Host saves** keep other players' inventories and the item in their hand (325c2fb, dba0837).
+  Unowned dynamic items are not saved (faa42c0), which includes dropped stock forks.
+- **Recovery:** host convergence re-sends resting world items so drifted client copies heal
+  (`NetworkedItemManager.Convergence.cs`, b601cc6); items that fall through the terrain are put
+  back at their last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0).
+- **Not implemented:** revoking a spatial lease on Lost-and-Found collection (the revision
+  advance makes late samples fail instead), the container retirement retry, and per-recipient
+  projection state in the debug snapshot.
 - **Still temporary:** client item adoption (`TemporaryClientAdoptionCompatibility`) is used by the
   starter kit, DV's client-generated essentials and rejoin restoration, which matches a returning
   player's fresh copy to their original by prefab name.
@@ -37,17 +58,17 @@ The central invariant is:
 
 ## Supporting documents
 
-- [`MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_WORLD_SYNC_DESIGN.md) defines authored
+- [`item-world-sync.md`](item-world-sync.md) defines authored
   identity, dynamic records, interest streaming, projection binding, persistence, and stock
   replenishment.
-- [`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md)
+- [`item-spatial-physics.md`](item-spatial-physics.md)
   defines simulation leases, motion samples, settlement, and train-relative motion.
-- [`MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md`](MULTIPLAYER_CONTAINER_STORAGE_DESIGN.md) defines the
+- [`container-storage.md`](container-storage.md) defines the
   cold container graph and transactional materialization/dehydration.
-- [`MULTIPLAYER_ITEM_OWNERSHIP_OPEN_QUESTIONS.md`](MULTIPLAYER_ITEM_OWNERSHIP_OPEN_QUESTIONS.md)
+- [`item-ownership-open-questions.md`](item-ownership-open-questions.md)
   records subjective ownership-transfer policies that have not been decided.
-- [`research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md`](research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md)
-  and [`research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md`](research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md)
+- [`../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md`](../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md)
+  and [`../research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md`](../research/DERAIL_VALLEY_ITEM_STORAGE_LOGIC.md)
   record the relevant base-game behavior.
 
 ## Orthogonal state axes
@@ -91,16 +112,20 @@ binds it to the same durable record.
 ## Ownership establishment
 
 Persistent ownership changes only through a named, host-authenticated transition. The implemented
-authority state machine establishes an owner in either of these cases:
+authority state machine establishes an owner in these cases:
 
 1. the explicitly temporary `ClientAdoption` compatibility transition accepts a player-marked item
-   from a not-yet-converted Derail Valley producer; or
-2. an item classified by Derail Valley as `BelongsToPlayer` receives an eligible reserved/locked
-   retrieval claim with a concrete inventory slot.
+   from a not-yet-converted Derail Valley producer;
+2. an *unowned* item classified by Derail Valley as `BelongsToPlayer` is put into a player's hand
+   or inventory, or receives an eligible reserved/locked retrieval claim: that player becomes the
+   owner; or
+3. a host operation carries the owner with it: a client's shop purchase (the buyer), cold-container
+   withdrawal (the stored owner), Lost-and-Found retrieval, and save restoration (the saved owner
+   identity).
 
-Ordinary pickup, hand placement, inventory insertion, dropping, throwing, projection creation, or
-interest re-entry does **not** establish or transfer persistent ownership. Existing ownership is
-also retained when another player possesses the item.
+Dropping, throwing, projection creation, or interest re-entry does **not** establish ownership,
+and nothing makes a nonpersonal item owned. Pickup or inventory insertion never transfers an
+existing owner: ownership is retained when another player possesses the item.
 
 ### Explicit office-bin example
 
@@ -113,11 +138,13 @@ has no retrieval claim. If a player puts it in their inventory:
 - taking it from its authored office slot promotes the taken representation to an unowned dynamic
   replenishable-stock fork; and
 - after it is dropped and abandoned outside every player's interest, disposable-fork cleanup may
-  retire it.
+  retire it; and
+- a host save does not keep it, because unowned dynamic items are not persisted.
 
 The adoption compatibility path is not valid for an already catalogued scene-authored bin. It is
-also not part of the target lifecycle: the host must ultimately create shop outputs, receipts, and
-every other runtime item through explicit operations. `TemporaryClientAdoptionCompatibility` and
+also not part of the target lifecycle: the host must ultimately create receipts, starting items,
+and every other runtime item through explicit operations, as it now does for client shop
+purchases. `TemporaryClientAdoptionCompatibility` and
 its packets must be removed when those producers are converted. If a future code path nevertheless
 gives a stock fork a persistent owner or retrieval claim, cleanup fails safe: the item is no longer
 disposable and recovery/persistence takes precedence.
@@ -193,7 +220,8 @@ Depositing an item is a logical commit followed by presentation retirement:
 3. mark the cold record authoritative and increment revisions;
 4. remove interest, retire the NetId, and destroy/deactivate the stale Unity representation;
 5. if presentation cleanup fails, retain a recoverable committed-pending-retirement condition and
-   retry cleanup rather than rolling back the cold graph.
+   retry cleanup rather than rolling back the cold graph (the retry worker is not built yet; the
+   failed representation is deactivated and left).
 
 Withdrawal keeps the cold edge until the new Unity item has initialized, loaded state, finalized
 tracked values, received a NetId, and registered with canonical authority. Failure before commit
@@ -206,11 +234,13 @@ persistent owner; deposit never transfers ownership.
 
 Lost and Found applies only to a canonical personal item with a nonzero persistent owner. Collection
 must validate that the item is not held, inventoried, contained, installed, snapped, protected by a
-nearby player, or already governed by a newer transition.
+nearby player, or already governed by a newer transition. The owner ID is unbound while the owner
+is offline, so an offline owner's items are not collected.
 
 On collection:
 
-- any simulation lease is revoked;
+- any simulation lease is superseded: the revision advances, so late samples and settlements are
+  rejected (the lease is not revoked explicitly);
 - ordinary world/interest projection is retired;
 - durable identity and serialized state move to the owner's recovery registry;
 - stale possessor silhouettes and claims are cleared as part of the authoritative transition; and
@@ -255,8 +285,12 @@ older motion stream. Late samples cannot resurrect or relocate an item after tho
 
 Only one subsystem saves each logical form:
 
-- authored overrides and tombstones plus dynamic world items: multiplayer world-item persistence;
-- player inventory/hand items: multiplayer player persistence and canonical authority records;
+- authored overrides and tombstones plus owned dynamic world items: multiplayer world-item
+  persistence (`WorldItemsV1`);
+- the host's own inventory: vanilla storage;
+- other players' inventory and hand items: `WorldItemsV1` records keyed by the holder's identity,
+  held back until that player connects and then put in their inventory (a hand item comes back in
+  the inventory);
 - cold descendants: versioned cold-container graph;
 - Lost-and-Found entries: owner recovery registry;
 - ordinary scene defaults: Derail Valley scene content, unless overridden or tombstoned.
@@ -299,4 +333,5 @@ simulation lease holder, epoch, and settlement state
 
 Automated scenarios should assert canonical cleanup as well as visible disappearance: no authority
 record, durable record, storage membership, inventory slot, NetId binding, or client projection may
-remain after destructive cleanup.
+remain after destructive cleanup. In-game scenarios run through the dvmp harness
+([`../testing.md`](../testing.md), [`../../DevTools/README.md`](../../DevTools/README.md)).

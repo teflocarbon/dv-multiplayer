@@ -1,22 +1,39 @@
 # Multiplayer Item World Synchronization Design
 
-> Status: implementation complete pending the deferred two-instance runtime scenario pass. The
-> host-authoritative path has replaced distance-only world-item discovery; there is deliberately no
-> prefab-name compatibility fallback for scene-authored projections.
+> Status: implemented, with the differences listed below. The host-authoritative path has replaced
+> distance-only world-item discovery; there is deliberately no prefab-name compatibility fallback
+> for scene-authored projections.
 
 ## Implementation status (audited 2026-10-14)
 
-- **Runtime scenarios:** about 8 of the 29 listed below are covered by dvmp scenarios
-  (`train-items`, `lost-and-found`, `recall`, `rejoin`, `save-reload`, `inventory-persist`,
-  `containers`, `shop`). Not covered: catalogue mismatch, cell enter/leave/re-enter, stale-revision
-  correction, two clients, office replenishment, missing-train recovery.
+- **Runtime scenarios:** about 8 of the 29 listed below are covered by dvmp scenarios in
+  `DevTools/Scenarios/` (`train-items`, `lost-and-found`, `recall`, `rejoin`, `save-reload`,
+  `inventory-persist`, `containers`, `shop`, `borrowed-disconnect`); see
+  [`../testing.md`](../testing.md). Not covered: catalogue mismatch, cell enter/leave/re-enter,
+  stale-revision correction, two clients, office replenishment, missing-train recovery.
 - **Superseded:** cell baseline/delta packets with cell revisions. Items use per-item Create and
   Destroy in the bulk packet.
-- **Differs:** interest is refreshed on cell change or every quarter second (8d1d2b6), not only on
-  cell change; a projection is marked known when sent, not when acknowledged.
+- **Differs:** interest (`NetworkedItemManager.ServerInterest.cs`) enters at the 3 by 3
+  neighbourhood but only leaves outside 5 by 5 (87018fd). A player's set is rebuilt when they change
+  cell or the host item index changes, otherwise four times a second; membership is only rewritten
+  when it changed (fe11afa: ~4 ms to ~0.1 ms a tick near a yard; the station-arrival hitch went from
+  ~605 ms to 150-260 ms). A projection is marked known when sent, not when acknowledged; a negative
+  acknowledgement makes the host forget it and re-send the Create after 5 s (49d915d).
+- **Added since the design:** host convergence re-sends one resting world item per player every
+  0.1 s so drifted client copies heal (`NetworkedItemManager.Convergence.cs`, b601cc6); items more
+  than 1 m under the terrain are moved back to their last safe pose
+  (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Only the host's scan runs: the
+  client-side below-map report is called from the item tick, which is subscribed on the host
+  only, so items under a distant client's terrain are not reported. Banknote amounts sync as a
+  host-authoritative tracked value and a client's spent note is deposited with the host
+  (`MoneyPatch`, 89c68e6, 99a8f5c).
+- **Persistence:** saves keep other players' inventory and hand items (325c2fb, dba0837) and skip
+  unowned dynamic items (faa42c0), job overviews/booklets, and, on load, "world" items above
+  1,500 m left by older builds (9b59a41).
 - **Not implemented:** missing train car on load going to recovery (`LostItemReason.SaveRecovery`
-  is unused); `InstalledGadget` placement; chunked or compressed baselines (compression is
-  commented out).
+  is unused); `InstalledGadget` placement (gadget sync is partial: customization holes travel with
+  car spawns, gadget switches as tracked values, removal through the `Removed` state is WIP);
+  chunked or compressed baselines (compression is commented out).
 - **Gaps:** client item updates are relayed to every player at `ReadyForItems` regardless of
   interest; no pickup reach check.
 - **Prefab-name matching:** one path exists despite the note above. Rejoin restoration hands a
@@ -39,14 +56,14 @@ Derail Valley already supplies the spatial and presentation foundations:
 - the floating origin is removed before grid calculation.
 
 Base-game findings are maintained separately in
-[`research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md`](research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md).
+[`../research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md`](../research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md).
 The canonical cross-feature item state model, including the distinction between possession,
 ownership, recovery, and disposable stock, is maintained in
-[`MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md`](MULTIPLAYER_ITEM_LIFECYCLE_DESIGN.md).
+[`item-lifecycle.md`](item-lifecycle.md).
 Installed gadget, train-customization, and wiring findings are maintained in
-[`research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
+[`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
 Snapped accessory and train-coupler attachment findings are maintained in
-[`research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md`](research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md).
+[`../research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md`](../research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md).
 
 ## Implemented architecture
 
@@ -68,13 +85,14 @@ The current implementation includes:
 - exclusion of multiplayer-owned world/inventory entries from vanilla storage persistence;
 - durable player GUID rebinding across disconnect/reconnect;
 - authored identity handoff through cold-container and Lost and Found detachment/materialization;
-- compact protocol fixtures and detached authority/codec tests.
+- compact protocol fixtures and detached authority/codec tests;
+- host convergence and below-terrain rescue for resting world items.
 
 High-frequency rigidbody authority remains intentionally outside this implementation. The existing
 physics presentation continues to operate behind the new logical authority boundary until that
 separate project is undertaken. The separate spatial-motion, settlement, and delegated-simulation
 design is maintained in
-[`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md).
+[`item-spatial-physics.md`](item-spatial-physics.md).
 
 ## Non-goals
 
@@ -83,7 +101,7 @@ design is maintained in
 - Do not continuously simulate all distant Unity objects on the host.
 - Do not redesign high-frequency rigidbody, collision, or thrown-item physics replication here.
   Network physics is specified separately in
-  [`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`](MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md).
+  [`item-spatial-physics.md`](item-spatial-physics.md).
 - Do not allow prefab-name matching to remain a second compatibility path.
 - Do not send persistent UUIDs in routine movement/state packets.
 - Do not preserve two competing item save authorities.
@@ -155,6 +173,11 @@ The following records remain relevant independently of their world cell:
 - active job artifacts required by a relevant job/station lifecycle.
 
 Spatial interest and placement interest are combined by the host into one recipient projection set.
+In the code (`IsNonSpatialRelevantTo`), a hand or inventory item is relevant to its holder, to its
+owner while the owner has a recall claim, and to players whose cells contain the holder; train
+interior and attached items follow their car's live position (and the car's occupants). Container
+views and the Lost and Found list travel on their own packets, and job documents bind to the job
+system's objects.
 
 ## Catalogue bootstrap
 
@@ -196,7 +219,9 @@ are dormant projections:
 - retained rather than destroyed when interest is retired.
 
 The client sends a catalogue version/count/hash after discovery. A mismatch is a visible loading or
-debug error, not permission to bind the next object with a matching prefab name.
+debug error, not permission to bind the next object with a matching prefab name. In the code a
+mismatched player gets no scene-authored items at all (`WorldItemCatalogueAccepted`); dynamic items
+still flow.
 
 ### Stable scene key
 
@@ -334,6 +359,11 @@ On load:
    policy: owned/retrievable items go to their owner's Lost and Found; unowned items fall back to the
    last known absolute pose or a designated recovery record. Never silently discard them.
 
+As implemented, `WorldItemPersistenceRestore` does not defer: the item is restored straight away at
+its saved absolute pose with its saved parent fields, and the car is looked up by `CarGUID` only
+when the saved parent NetId is zero. Saved records carry the previous session's car NetId, so
+that lookup is normally skipped. Steps 2 and 4 are not implemented.
+
 A train-anchored item inherits relevance from its train/occupants and nearby observers. It does not
 churn through the world-cell index as the train moves; its absolute position is derived from the
 anchor when needed. When it leaves the train, the host commits one placement transition to `World`
@@ -344,8 +374,11 @@ same as an installed gadget.
 
 ### Installed-gadget placement
 
+Not implemented: the code never assigns `Installed` placement, and installed gadgets stay with
+vanilla's `StorageInstalledGadgets`. The rest of this section is the design.
+
 The full vanilla lifecycle and identity/wiring model are documented in
-[`research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
+[`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
 
 Vanilla moves an installed gadget item into `StorageInstalledGadgets` and deactivates the item
 GameObject. Its `ItemSaveData` retains the customization anchor (`placedOn`), local placement, and
@@ -568,7 +601,10 @@ ownership, holder, storage membership, attachment, or lifecycle.
 An unbound scene-authored client object can never send an adoption/create request. The remaining
 `TemporaryClientAdoptionCompatibility` path is explicitly transitional: it accepts only a
 non-authored, non-job item already marked as player property and associated with player/storage
-state. It exists solely for Derail Valley producers such as unconverted shop outputs. Each producer
+state. It exists solely for unconverted Derail Valley producers: the first-join starter kit, DV's
+client-generated essentials, and the rejoin restoration that hands a returning player their
+original instead of the fresh copy. (Client shop purchases are converted: the host spawns them and
+the buyer owns them, `NetworkServer.SpawnShopPurchase`.) Each producer
 must become an explicit request -> host validation -> host creation operation; once the last is
 converted, the adoption packets, coordinators, transition reason, and compatibility policy are
 deleted. It is not a supported extension point or a second authority model.
@@ -755,8 +791,9 @@ collisions or other non-possession interactions; any object that entered a hand 
 followed the persistent-fork and replenishment path above.
 
 The taken fork is durable only while it remains relevant gameplay state. Its host record carries a
-`replenishableStockFork` classification through save/reload. While held it behaves like an ordinary
-dynamic item. After it is dropped into world, static-parent, or train-interior placement and remains
+`replenishableStockFork` classification, and the save format has a field for it, but office props
+are not `BelongsToPlayer`, so the save skips forks with other unowned dynamic items (faa42c0): a fork
+does not survive a host reload. While held it behaves like an ordinary dynamic item. After it is dropped into world, static-parent, or train-interior placement and remains
 outside every player's interest continuously for 30 seconds, the host destroys it and removes its
 persistent record. This prevents abandoned replenished bins and furniture from accumulating forever
 without allowing clients to decide what disappears.
@@ -795,11 +832,13 @@ reports the dependency, rather than creating a generic duplicate.
 - One inactive-inclusive catalogue scan per world load, never a periodic hierarchy scan.
 - Cell membership indexed as dictionaries/sets; do not scan every item for every player each tick.
 - Player world interest recalculated on native cell transitions, teleport, load-state change, or
-  explicit reconciliation.
+  explicit reconciliation. (Implemented as: on cell change or item-index change, otherwise four
+  times a second.)
 - Item cell membership updated only when an authoritative world item crosses a boundary.
 - Baselines are bounded and packet-chunked.
 - Debug detail gathering remains demand-driven; normal authority code records compact facts.
-- No new fixed-period full-world reconciliation loop.
+- No new fixed-period full-world reconciliation loop. (Convergence re-sends one known item per
+  player every 0.1 s; the host's below-terrain rescue walks every item once a second.)
 
 These constraints are important because previous periodic item/debug scans caused visible stutter on
 both host and client.
@@ -827,6 +866,11 @@ world.client-authority-rejected
 world.save-snapshot-created
 world.save-invariant-violation
 ```
+
+The implemented events are published on the `item-world` channel with a `world-item.` prefix
+(for example `world-item.catalogue-negotiated`, `world-item.projection-deferred`,
+`world-item.player-cells-updated`, `world-item.projection-enter-ack`); there are no cell revision
+events because cell baselines were superseded.
 
 The dashboard should expose per-player subscribed cells, baseline revision, pending/deferred
 projections, stable scene key, runtime NetId, authority revision, readiness reason, and last failure.
@@ -884,12 +928,14 @@ save/sync subsystem, while cold containers and Lost and Found retain their detac
 - Validate host restart, client reconnect, cold containers, Lost and Found, jobs, and ownership.
 
 Network physics is implemented as the separate spatial lease/settlement layer described in
-`MULTIPLAYER_ITEM_SPATIAL_PHYSICS_SYNC_DESIGN.md`; it does not alter catalogue identity or cell
+`item-spatial-physics.md`; it does not alter catalogue identity or cell
 authority.
 
 ## Required runtime scenario suite
 
-One scenario per file, discovered through the existing scenario registry:
+In-game scenarios run through the dvmp harness: one directory per scenario under
+`DevTools/Scenarios/` (see [`../../DevTools/README.md`](../../DevTools/README.md)). The status
+section above lists which of these are covered.
 
 1. Host and client authored catalogue counts/hashes match.
 2. Identical prefabs in one office bind to the correct stable scene keys.

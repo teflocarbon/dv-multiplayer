@@ -8,7 +8,7 @@ interiors, and player proximity.
 
 Related research:
 
-- [`../MULTIPLAYER_TRAIN_SYNC_DESIGN.md`](../MULTIPLAYER_TRAIN_SYNC_DESIGN.md) — proposed
+- [`../design/trains.md`](../design/trains.md) — proposed
   host-authoritative protocol, canonical state model, reconciliation rules, and rollout plan;
 - [`DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md`](DERAIL_VALLEY_TRAIN_TEST_FIXTURE_LOGIC.md)
 - [`DERAIL_VALLEY_VR_ITEM_LOGIC.md`](DERAIL_VALLEY_VR_ITEM_LOGIC.md)
