@@ -56,8 +56,6 @@ public class ChatGUI : MonoBehaviour
     private float timeOut; //time-out counter for hiding the messages
     //private float testTimeOut;
 
-    private GameFeatureFlags.Flag denied;
-
     protected void Awake()
     {
         Multiplayer.Log("ChatGUI Awake() called");

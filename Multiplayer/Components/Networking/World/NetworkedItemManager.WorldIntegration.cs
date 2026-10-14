@@ -255,30 +255,6 @@ public partial class NetworkedItemManager
 
     internal void OnTrainItemRemoved(ushort itemNetId) => TrainItemWake?.OnItemRemoved(itemNetId);
 
-    internal bool ForceTrainItemWake(ushort itemNetId, TrainItemWakeReason reason,
-        Vector3 initialLocalVelocity, out string rejection)
-    {
-        if (TrainItemWake != null)
-            return TrainItemWake.ForceWake(itemNetId, reason, initialLocalVelocity, out rejection);
-        rejection = "train-item-wake-manager-unavailable";
-        return false;
-    }
-
-    internal Dictionary<string, object> TrainItemWakeSnapshot(ushort itemNetId = 0,
-        ushort carNetId = 0) => TrainItemWake?.Snapshot(itemNetId, carNetId) ?? new();
-
-#if DEBUG
-    internal bool DebugArrangeSettledTrainItem(ushort itemNetId, ushort carNetId,
-        Vector3 parentLocalPosition, Quaternion parentLocalRotation, out string rejection)
-    {
-        if (Spatial != null)
-            return Spatial.DebugArrangeSettledTrainItem(itemNetId, carNetId,
-                parentLocalPosition, parentLocalRotation, out rejection);
-        rejection = "spatial-manager-unavailable";
-        return false;
-    }
-#endif
-
     internal bool TryGetLatestSpatialState(ushort itemNetId, out ItemSpatialStateData state)
     {
         state = null;

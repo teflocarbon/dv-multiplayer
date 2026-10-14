@@ -21,8 +21,7 @@ internal enum TrainItemWakeReason : byte
     HeavyBraking,
     TrainJolt,
     ViolentRotation,
-    Derailment,
-    DebugRequest
+    Derailment
 }
 
 /// <summary>
@@ -263,45 +262,6 @@ internal sealed class NetworkedTrainItemWakeManager
             ["wakeCount"] = wakeSet.Length,
             ["witnessId"] = packet.WitnessId
         });
-    }
-
-    internal bool ForceWake(ushort itemNetId, TrainItemWakeReason reason,
-        Vector3 initialLocalVelocity, out string rejection)
-    {
-        rejection = string.Empty;
-        if (!settledByItem.TryGetValue(itemNetId, out SettledRecord record))
-        {
-            rejection = "item-not-glued-in-train";
-            return false;
-        }
-        ushort[] wakeSet = BuildWakeSet(record.TrainCarNetId, new[] { itemNetId });
-        Wake(wakeSet, 0, initialLocalVelocity, reason);
-        return wakeSet.Length > 0;
-    }
-
-    internal Dictionary<string, object> Snapshot(ushort itemNetId = 0, ushort carNetId = 0)
-    {
-        IEnumerable<SettledRecord> records = settledByItem.Values;
-        if (itemNetId != 0) records = records.Where(record => record.ItemNetId == itemNetId);
-        if (carNetId != 0) records = records.Where(record => record.TrainCarNetId == carNetId);
-        SettledRecord[] selected = records.OrderBy(record => record.TrainCarNetId)
-            .ThenBy(record => record.ItemNetId).ToArray();
-        return new Dictionary<string, object>
-        {
-            ["settledCount"] = selected.Length,
-            ["activeCarCount"] = settledByCar.Count,
-            ["pendingWakeCount"] = pendingByItem.Count,
-            ["items"] = selected.Select(record => new Dictionary<string, object>
-            {
-                ["itemNetId"] = record.ItemNetId,
-                ["authorityRevision"] = record.AuthorityRevision,
-                ["trainCarNetId"] = record.TrainCarNetId,
-                ["spatialEpoch"] = record.SpatialEpoch,
-                ["localPosition"] = DebugValueSnapshotter.Snapshot(record.ParentLocalPosition),
-                ["localBoundsCenter"] = DebugValueSnapshotter.Snapshot(record.ParentLocalBounds.center),
-                ["localBoundsSize"] = DebugValueSnapshotter.Snapshot(record.ParentLocalBounds.size)
-            }).ToArray()
-        };
     }
 
     internal void AppendDebugState(ushort itemNetId, Dictionary<string, object> state)

@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+6b20aff949232b42740ca10f767bb7d0b9ff5464",
-  "Fingerprint": "bd808db1472faf4eda46123e309c1985cf7b6fbd64ee252200ceddaa4641cb2a",
+  "BuildVersion": "0.1.16.14+d3d080259d4b29a2ef65cb302636166ad7dfaabd",
+  "Fingerprint": "246f6b444125a0f0595f9755059becc07b54fce53d4660e23d2f4c99610e7082",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -364,15 +364,6 @@
       "SuppressByDefault": false
     },
     {
-      "Hash": "4D6BAEEF35784042",
-      "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonTrainCouplePacket",
-      "Direction": "Bidirectional",
-      "Category": "Common.Train",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
       "Hash": "51C715FC4985151E",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundContainerMutationPacket",
       "Direction": "Serverbound",
@@ -440,15 +431,6 @@
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundTrainControlAuthorityPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Train",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
-      "Hash": "5D8BCD6E2CA2A959",
-      "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonMuDisconnectedPacket",
-      "Direction": "Bidirectional",
-      "Category": "Common.Train",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -530,15 +512,6 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Jobs.ServerboundJobValidateRequestPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Jobs",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
-      "Hash": "7058C92D081E9A35",
-      "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonMuConnectedPacket",
-      "Direction": "Bidirectional",
-      "Category": "Common.Train",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -913,15 +886,6 @@
       "SuppressByDefault": false
     },
     {
-      "Hash": "D29B7C1F0D2D7EEA",
-      "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonCockFiddlePacket",
-      "Direction": "Bidirectional",
-      "Category": "Common.Train",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
       "Hash": "D3325259DB00FBD2",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Jobs.ClientboundJobsCreatePacket",
       "Direction": "Clientbound",
@@ -1012,15 +976,6 @@
       "SuppressByDefault": false
     },
     {
-      "Hash": "E219E26C12D6A551",
-      "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonTrainUncouplePacket",
-      "Direction": "Bidirectional",
-      "Category": "Common.Train",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
       "Hash": "E24975144BFB996D",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundMoneyItemDepositPacket",
       "Direction": "Serverbound",
@@ -1075,15 +1030,6 @@
       "SuppressByDefault": false
     },
     {
-      "Hash": "EBD61C0DA9ADF73C",
-      "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonHoseConnectedPacket",
-      "Direction": "Bidirectional",
-      "Category": "Common.Train",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
       "Hash": "F29DD8592C491F14",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundHazmatTilesPacket",
       "Direction": "Clientbound",
@@ -1098,15 +1044,6 @@
       "Direction": "Bidirectional",
       "Category": "Common",
       "SemanticDecoder": "CommonItemUpdateV1",
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
-      "Hash": "F468FEF1DCF59676",
-      "TypeName": "Multiplayer.Networking.Packets.Common.Train.CommonHoseDisconnectedPacket",
-      "Direction": "Bidirectional",
-      "Category": "Common.Train",
-      "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
     },

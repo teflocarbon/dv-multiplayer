@@ -122,8 +122,6 @@ public class NetworkServer : NetworkManager
     private readonly Dictionary<uint, PendingItemRecall> pendingItemRecalls = new();
     private readonly Dictionary<ushort, uint> pendingItemRecallByItem = new();
     private const uint ItemRecallTimeoutTicks = NetworkLifecycle.TICK_RATE * 5;
-    private readonly LiteNetLibTransport debugLoopbackTransport;
-    private readonly Settings settings;
 
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
     {
@@ -133,17 +131,9 @@ public class NetworkServer : NetworkManager
         IsSinglePlayer = singlePlayer;
         ServerData = serverData;
         Difficulty = difficulty;
-        this.settings = settings;
 
         fastTravelAdvancesTime = settings.FastTravelAdvancesTime;
         TimeAdvancePatch.FastTravelAdvancesTime = fastTravelAdvancesTime;
-
-        if (settings.EnableDebugLoopbackClient)
-        {
-            debugLoopbackTransport = new LiteNetLibTransport();
-            AddTransport(debugLoopbackTransport, settings);
-            Log($"Debug loopback requirements: build {MainMenuControllerPatch.MenuProvider.BuildVersionString}; mods {string.Join(", ", ModCompatibilityManager.Instance.GetLocalMods().Select(mod => mod.Id))}");
-        }
     }
 
     public override void OnSettingsUpdated(Settings settings)
@@ -186,17 +176,7 @@ public class NetworkServer : NetworkManager
             WorldStreamingInit.LoadingFinished -= OnLoaded;
             return false;
         }
-        if (debugLoopbackTransport == null)
-            return true;
 
-        if (!debugLoopbackTransport.Start(IPAddress.Loopback, IPAddress.IPv6Loopback, settings.DebugLoopbackPort))
-        {
-            LogError($"Failed to start debug loopback transport on 127.0.0.1:{settings.DebugLoopbackPort}");
-            base.Stop();
-            return false;
-        }
-
-        Log($"Debug loopback transport listening on 127.0.0.1:{settings.DebugLoopbackPort}");
         return true;
     }
 
@@ -453,16 +433,10 @@ public class NetworkServer : NetworkManager
         {
             ITransportPeer peer = joinQueue.Dequeue();
 
-            // Assuming the `peer.ConnectionState` property exists and is being checked
             if (peer.ConnectionState.Equals(TransportConnectionState.Connected))
-            {
-                System.Console.WriteLine("Connection is established.");
                 OnServerboundLoadStateUpdatePacket(new ServerboundLoadStateUpdatePacket { LoadState = PlayerLoadingState.ReadyForWorldState }, peer);
-            }
             else
-            {
-                System.Console.WriteLine("Connection is not established.");
-            }
+                LogDebug(() => $"Dropped queued join from peer {peer.Id}: no longer connected");
         }
 
         lastTick = NetworkLifecycle.Instance.Tick;
@@ -2195,11 +2169,6 @@ public class NetworkServer : NetworkManager
                 $"{player.PlayerId}) rejected unknown train car");
         }
     }
-
-    //private void OnCommonTrainCouplePacket(CommonTrainCouplePacket packet, ITransportPeer peer)
-    //{
-    //    SendPacketToAll(packet, DeliveryMethod.ReliableUnordered, peer);
-    //}
 
     private static bool TryResolveCoupler(ushort netId, bool front, out Coupler coupler)
     {

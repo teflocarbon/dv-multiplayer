@@ -9,7 +9,9 @@ This is what it covered, as a checklist for rebuilding the useful parts as dvmp 
 - [x] host/client x drop/throw x train stopped/moving: `train-items` scenario
       (`WHO=client|host MODE=drop|throw WHEN=stopped|moving`). All variants pass.
 - [ ] cab item "wake" (train item activity): items in an unoccupied cab, re-entry, impact,
-      replay - items must not fall through or drift when players leave/return
+      replay - items must not fall through or drift when players leave/return. The old lab's
+      host hooks (`ForceTrainItemWake`, `DebugArrangeSettledTrainItem`, `TrainItemWakeSnapshot`)
+      were removed in #59; restore them from git history if a probe needs them.
 
 Train helpers live in `Probes/lib/Trains.cs` (spawn near the players, board a cab, push the
 consist, delete). Not yet rebuilt from the old train fixture: driving with real loco controls,
