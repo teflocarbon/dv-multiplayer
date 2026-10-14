@@ -64,6 +64,11 @@ public class CashRegisterWithModulesPatch
             return;
         }
 
+        // Shop registers run separately on each game (purchases go through the host as their own
+        // request); replaying the host's buy reset a client's basket and cash at the same shop.
+        if (netCashRegister.IsShopRegister)
+            return;
+
         // Send buy action to all clients
         NetworkLifecycle.Instance.Server.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
         {
