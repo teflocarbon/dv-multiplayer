@@ -21,12 +21,14 @@ runs=( # name | scenario | variables
   "couple-impact|couple-impact|WAGON_BRAKE=0 LAG=150 SPEEDS=3,5"
   "couple-impact-chain|couple-impact|CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4"
   "fps-drop|fps-drop|"
+  "host-stall|host-stall|SPEED=10 LAG=150"
   "rejoin|rejoin|"
   "rejoin-crash|rejoin|CRASH=1"
   "save-reload|save-reload|CYCLES=2"
   "inventory-persist|inventory-persist|"
   "borrowed-disconnect|borrowed-disconnect|"
   "shop|shop|"
+  "player-soak|player-soak|DURATION=120"
 )
 failed=0
 for entry in "${runs[@]}"; do
