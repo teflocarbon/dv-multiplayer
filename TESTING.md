@@ -100,10 +100,13 @@ against a running pair (`ONLY="a b"` for a subset) and summarises:
 - Trains: `manual-uncouple` (`MODE=recouple`, `LAG=`), `uncouple-moving` (`RIDE=1`, `LAST=`),
   `couple-impact` (coupling as the buffers bounce; `WHO=`, `CHAIN=1`, `HITCH=`), `fps-drop`
   (client at low frame rate).
-- Outside the gate: `shop` (client purchase and cancel through the host), `host-stall` (host at
-  about 2 fps while driving a braked train), `player-soak` (both players moving about for
-  minutes; their views of each other must not freeze), `station-load` (frame times arriving at a
-  station).
+- Jobs: `jobs` (take a job at the validator, deliver, hand the booklet in, bank the payment;
+  `ACCEPT=`/`HANDIN=` choose which player does each).
+- Also in the gate: `shop` (client purchase and cancel through the host), `borrowed-disconnect`
+  (a player leaving with someone else's item), `host-stall` (host at about 2 fps while a braked
+  train runs at speed), `client-derail` (a derail on one client only), `player-soak` (both
+  players moving about for minutes; their views of each other must not freeze).
+- Outside the gate: `station-load` (frame times arriving at a station).
 
 Run the gate after any change to item sync, inventory, persistence, trains or joining. Old
 runtime-test coverage that still needs rebuilding as dvmp scenarios is listed in
