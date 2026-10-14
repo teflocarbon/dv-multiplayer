@@ -2322,7 +2322,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         // are dynamic except while TrainSpeedQueue slides one into place.
         if (movementPart.typeFlag == TrainsetMovementPart.MovementType.RigidBody)
             UpdateDerailedKinematic(movementPart.RigidbodySnapshot);
-        else if (TrainCar.rb.isKinematic && !(Client_trainSpeedQueue is TrainSpeedQueue { Placing: true }))
+        else if (TrainCar.rb.isKinematic && !(Client_trainSpeedQueue is TrainSpeedQueue { Kinematic: true }))
             TrainCar.rb.isKinematic = false;
 
         return becameDerailed;

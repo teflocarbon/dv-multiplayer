@@ -22,7 +22,7 @@ for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < seco
         if (queue != null && !Multiplayer.Components.Networking.NetworkLifecycle.Instance.IsHost())
         {
             float last = (float)Field(queue, "lastSampleTime");
-            q = $" tgt={(float)Field(queue, "targetSpeed"):F2} drv={Field(queue, "driving")} corr={(float)Field(queue, "easedCorrection"):F2} age={(Time.time - last):F1} place={Q.GetProperty("Placing")?.GetValue(queue)} kin={car.rb.isKinematic}";
+            q = $" tgt={(float)Field(queue, "targetSpeed"):F2} drv={Field(queue, "driving")} corr={(float)Field(queue, "easedCorrection"):F2} age={(Time.time - last):F1} place={Q.GetProperty("Placing")?.GetValue(queue)} park={Q.GetProperty("Parked")?.GetValue(queue)} kin={car.rb.isKinematic}";
             var argsE = new object[] { 0f }; bool hasE = (bool)tryError.Invoke(queue, argsE); q += hasE ? $" err={(float)argsE[0]:F2}" : " err=none";
         }
         line.Add($"{car.ID} v={v:F2}{(car.derailed ? " D" : "")} sleep={car.rb.IsSleeping()}{q}");

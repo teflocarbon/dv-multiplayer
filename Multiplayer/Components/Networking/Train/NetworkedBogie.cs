@@ -165,9 +165,19 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         if (Bogie == null || Bogie.HasDerailed || Bogie.traveller == null || Bogie.rb == null)
             return false;
         float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
+        double span = Bogie.traveller.Span + metres * Bogie.TrackDirectionSign * bogieToCar;
+        // Only along this track: crossing onto the next is vanilla's job (UpdatePointSetTraveller).
+        if (span < 0 || span >= Bogie.traveller.pointSet.span)
+            return false;
         Vector3d before = Bogie.traveller.worldPosition;
         // MoveToSpan, not Travel: Travel(offset, 0) leaves the traveller where it is.
-        Bogie.traveller.MoveToSpan(Bogie.traveller.Span + metres * Bogie.TrackDirectionSign * bogieToCar);
+        Bogie.traveller.MoveToSpan(span);
+        // Vanilla advances the traveller by the bogie's movement since point1/point2 (the track
+        // points it last stood between). Left stale, the first dynamic step after placing measured
+        // a large false move, jumped the traveller and threw the bogie there (overshoot, launch).
+        Bogie.point1 = Bogie.traveller.curPoint;
+        int next = Bogie.traveller.curPoint.index + 1;
+        Bogie.point2 = Bogie.traveller.pointSet.points[next < Bogie.traveller.pointSet.points.Length ? next : next - 1];
         Vector3d after = Bogie.traveller.worldPosition;
         shift = new Vector3((float)(after.x - before.x), (float)(after.y - before.y), (float)(after.z - before.z));
         Bogie.rb.MovePosition(Bogie.rb.position + shift);

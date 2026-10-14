@@ -27,6 +27,9 @@ public class TrainSpeedQueue : TickedQueue<float>
     /// stationary threshold: a car creeping faster is followed, or holding it stepped it along in
     /// slides a second apart.</summary>
     public const float HoldSpeed = 0.01f;
+    // m/s a held car's host car must exceed before it is followed again. Crawling cars hovering
+    // around HoldSpeed flipped between following and holding every sample (visibly move-stop).
+    private const float HoldExitSpeed = 0.05f;
     private const float HoldDeadband = 0.05f;        // metres a held car may be off before it's placed
     private const float HoldSettled = 0.02f;         // metres: placement stops here
     private const float HoldCorrectionDelay = 0.5f;  // seconds off before placing (see Hold)
@@ -54,8 +57,19 @@ public class TrainSpeedQueue : TickedQueue<float>
     /// <summary>Sliding into the host's stopped position; the car is kinematic meanwhile.</summary>
     public bool Placing { get; private set; }
 
+    /// <summary>
+    /// Placed and touching other stopped cars, so left kinematic: handing it back to physics let
+    /// the buffer springs it rests against (compressed, as on the host) push it and its neighbour
+    /// off their places, and the two then re-placed each other forever. Released as soon as
+    /// anything touching it follows a moving host car, or its own host car moves.
+    /// </summary>
+    public bool Parked { get; private set; }
+
+    /// <summary>Kinematic because of us (placing or parked): nothing else should change it.</summary>
+    public bool Kinematic => Placing || Parked;
+
     /// <summary>The host's car is stopped and ours is held (or being placed) where it is.</summary>
-    public bool Held => !float.IsNegativeInfinity(lastSampleTime) && Mathf.Abs(targetSpeed) < HoldSpeed;
+    public bool Held { get; private set; }
 
     protected override void OnEnable()
     {
@@ -71,17 +85,18 @@ public class TrainSpeedQueue : TickedQueue<float>
 
     protected override void OnDisable()
     {
-        EndPlacing();
+        Release();
         base.OnDisable();
     }
 
     public override void Clear()
     {
         base.Clear();
-        EndPlacing();
+        Release();
         lastSampleTime = float.NegativeInfinity;
         holdOffSince = float.NegativeInfinity;
         Following = false;
+        Held = false;
     }
 
     protected override void Process(float snapshot, uint snapshotTick)
@@ -92,16 +107,18 @@ public class TrainSpeedQueue : TickedQueue<float>
 
     private void FixedUpdate()
     {
-        if (trainCar == null || trainCar.derailed || trainCar.rb == null || (trainCar.rb.isKinematic && !Placing) ||
+        if (trainCar == null || trainCar.derailed || trainCar.rb == null || (trainCar.rb.isKinematic && !Kinematic) ||
             float.IsNegativeInfinity(lastSampleTime) || NetworkLifecycle.Instance.IsHost())
         {
-            EndPlacing();
+            Release();
             driving = false;
             Following = false;
+            Held = false;
             return;
         }
 
-        if (Mathf.Abs(targetSpeed) < HoldSpeed)
+        Held = Mathf.Abs(targetSpeed) < (Held ? HoldExitSpeed : HoldSpeed);
+        if (Held)
         {
             Following = false;
             Hold();
@@ -109,7 +126,7 @@ public class TrainSpeedQueue : TickedQueue<float>
         }
 
         // The host's car is moving again.
-        EndPlacing();
+        Release();
         Following = true;
 
         // The host sends every tick while a set moves. Samples stopping without the host saying
@@ -183,12 +200,37 @@ public class TrainSpeedQueue : TickedQueue<float>
             driving = false;
         }
 
+        if (Parked)
+        {
+            RefreshContacts();
+            if (touchingFollowing || !touchingHeld)
+                Release();
+            else if (hasError && off > HoldDeadband)
+            {
+                // The host moved it a little (a nudge from a neighbour): place it again.
+                Parked = false;
+                Placing = true;
+            }
+            return;
+        }
+
         if (Placing)
         {
             RefreshContacts();
-            if (!hasError || off <= HoldSettled || touchingFollowing)
+            if (!hasError || touchingFollowing)
             {
-                EndPlacing();
+                Release();
+                return;
+            }
+            if (off <= HoldSettled)
+            {
+                if (touchingHeld)
+                {
+                    Placing = false;
+                    Parked = true;
+                }
+                else
+                    Release();
                 return;
             }
             float speed = off > PlaceFastDistance ? PlaceFastSpeed : PlaceSpeed;
@@ -221,11 +263,13 @@ public class TrainSpeedQueue : TickedQueue<float>
         Placing = true;
     }
 
-    private void EndPlacing()
+    /// <summary>Hands a placed or parked car back to physics, stopped.</summary>
+    private void Release()
     {
-        if (!Placing)
+        if (!Kinematic)
             return;
         Placing = false;
+        Parked = false;
         holdOffSince = float.NegativeInfinity;
         if (trainCar == null || trainCar.rb == null)
             return;
@@ -258,7 +302,7 @@ public class TrainSpeedQueue : TickedQueue<float>
         }
         if (moved == 0)
         {
-            EndPlacing();
+            Release();
             return;
         }
         trainCar.rb.MovePosition(trainCar.rb.position + shift / moved);

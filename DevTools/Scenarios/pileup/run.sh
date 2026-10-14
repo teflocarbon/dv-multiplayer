@@ -79,10 +79,13 @@ done
 
 node -e '
   const v=f=>Object.values(JSON.parse(require("fs").readFileSync(f,"utf8")).results)[0].result;
-  const h=v(process.argv[1]), c=v(process.argv[2]); const bad=[]; let worst=["",0], derailed=0;
+  const h=v(process.argv[1]), c=v(process.argv[2]); const bad=[]; let worst=["",0], derailed=0; const skipped=[];
   for (const id in h) {
     const a=h[id], b=c[id];
     if (!a || !b) { bad.push(id+": "+(!a?"missing on host":"missing on client")); continue; }
+    // A car still moving on the host is not where it will stop; reading host then client gives a
+    // gap that is not a desync. Only cars the host has stopped are compared.
+    if (a.speed > 0.05) { skipped.push(id+" ("+a.speed.toFixed(2)+" m/s)"); continue; }
     if (a.derailed) derailed++;
     if (a.derailed!==b.derailed) bad.push(id+": derailed host "+a.derailed+", client "+b.derailed);
     if (a.coupled!==b.coupled) bad.push(id+": coupled to host ["+a.coupled+"], client ["+b.coupled+"]");
@@ -90,7 +93,7 @@ node -e '
     if (d>worst[1]) worst=[id,d];
     if (d>limit) bad.push(id+": "+d.toFixed(2)+" m apart"+(a.derailed?" (derailed)":""));
   }
-  console.log("   "+Object.keys(h).length+" cars compared, "+derailed+" derailed; largest gap "+worst[1].toFixed(2)+" m ("+worst[0]+")");
+  console.log("   "+(Object.keys(h).length-skipped.length)+" cars compared, "+derailed+" derailed; largest gap "+worst[1].toFixed(2)+" m ("+worst[0]+")"+(skipped.length?"; skipped, still moving on the host: "+skipped.join(", "):""));
   for (const b of bad) console.log("   FAIL "+b);
   console.log(bad.length?"FAIL: "+bad.length+" cars disagree":"PASS");
   process.exit(bad.length?1:0);' "$T/host.json" "$T/client.json"
