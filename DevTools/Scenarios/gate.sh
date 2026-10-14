@@ -25,6 +25,8 @@ runs=( # name | scenario | variables
   "rejoin-crash|rejoin|CRASH=1"
   "save-reload|save-reload|CYCLES=2"
   "inventory-persist|inventory-persist|"
+  "borrowed-disconnect|borrowed-disconnect|"
+  "shop|shop|"
 )
 failed=0
 for entry in "${runs[@]}"; do

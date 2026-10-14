@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+04809c5007d1bc4c5ef6474ba70a6be7a2229244",
-  "Fingerprint": "33d024f3cca8238648e76050cc22026f6c84c64b0f54ea5c2a5c387525d80536",
+  "BuildVersion": "0.1.16.14+efa6b3cb130a183815d40f547afb96e233b80a52",
+  "Fingerprint": "70373875ed03fd4e153070ee29ddcc7ae435ae7df712dc3a42f36fee0dae875c",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -150,6 +150,15 @@
     {
       "Hash": "20B9D194A291C9FA",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundCustomizationsPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "21A5A3EB2FD47260",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.World.ClientboundSleepStatePacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.World",
       "SemanticDecoder": null,

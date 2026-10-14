@@ -25,10 +25,11 @@ echo "   register $(echo "$b" | field distance) m away, \$$cost, bought $(echo "
 [ -n "$ids" ] && [ "$ids" != "0" ] && [[ "$ids" != *,* ]] || fail "client should see one bought item with a NetId, got '$ids'"
 sleep 2
 h=$($D eval -t host -m body -u "$U" -a prefab=$prefab -a netId=$ids -f $P/peer.cs)
-echo "   host: wallet $(echo "$h" | field money), stock $(echo "$h" | field stock), item seen $(echo "$h" | field seen)"
+echo "   host: wallet $(echo "$h" | field money), stock $(echo "$h" | field stock), item seen $(echo "$h" | field seen), owner P$(echo "$h" | field owner) (buyer P$(echo "$h" | field client))"
 near "$(echo "$h" | field money)" "$(node -e "console.log($start-$cost)")" || fail "host wallet should be $start - $cost"
 [ "$(echo "$h" | field stock)" = "$(echo "$b" | field stock1)" ] || fail "stock differs"
 [ "$(echo "$h" | field seen)" = "true" ] || fail "host does not have the bought item"
+[ "$(echo "$h" | field owner)" = "$(echo "$h" | field client)" ] || fail "the item belongs to P$(echo "$h" | field owner), not the buyer P$(echo "$h" | field client)"
 [ "$(echo "$b" | field banknotes)" = "0" ] || fail "change was printed as a local banknote"
 echo "== client pays and cancels"
 c=$($D eval -t client -m coroutine --timeout 60 -u "$U" -a item=$ITEM -a cancel=1 -f $P/buy.cs)

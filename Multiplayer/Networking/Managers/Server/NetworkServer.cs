@@ -70,6 +70,7 @@ public class NetworkServer : NetworkManager
     protected override string LogPrefix => "[Server]";
 
     private readonly Queue<ITransportPeer> joinQueue = new();   //Queue for players attempting to join while server is loading
+    private readonly Queue<ITransportPeer> gameDataQueue = new(); // players waiting for game data while the server loads
 
     private readonly Dictionary<byte, ServerPlayer> serverPlayers = [];             //player Id to ServerPlayer mapping
     private readonly Dictionary<byte, ITransportPeer> peers = [];                   //player Id to peer mapping
@@ -414,6 +415,15 @@ public class NetworkServer : NetworkManager
         );
     }
 
+    private void SendGameData(ServerPlayer player, ITransportPeer peer)
+    {
+        var gameParamsPacket = ClientboundGameParamsPacket.FromGameParams(Globals.G.GameParams);
+        gameParamsPacket.FastTravelAdvancesTime = fastTravelAdvancesTime;
+
+        SendPacket(peer, gameParamsPacket, DeliveryMethod.ReliableOrdered);
+        SendPacket(peer, ClientboundSaveGameDataPacket.CreatePacket(player), DeliveryMethod.ReliableOrdered);
+    }
+
     private void OnLoaded()
     {
         if (!IsSinglePlayer)
@@ -427,6 +437,13 @@ public class NetworkServer : NetworkManager
         //We should initialise object here for dedicated servers, rather than relying on the existance of a client
         NetworkedPitStopStation.InitialisePitStops();
         NetworkedCashRegisterWithModules.InitialiseCashRegisters();
+
+        while (gameDataQueue.Count > 0)
+        {
+            ITransportPeer peer = gameDataQueue.Dequeue();
+            if (peer.ConnectionState.Equals(TransportConnectionState.Connected) && TryGetServerPlayer(peer, out ServerPlayer waiting))
+                SendGameData(waiting, peer);
+        }
 
         while (joinQueue.Count > 0)
         {
@@ -1708,11 +1725,15 @@ public class NetworkServer : NetworkManager
 
                 PlayerConnected?.Invoke(player);
 
-                var gameParamsPacket = ClientboundGameParamsPacket.FromGameParams(Globals.G.GameParams);
-                gameParamsPacket.FastTravelAdvancesTime = fastTravelAdvancesTime;
-
-                SendPacket(peer, gameParamsPacket, DeliveryMethod.ReliableOrdered);
-                SendPacket(peer, ClientboundSaveGameDataPacket.CreatePacket(player), DeliveryMethod.ReliableOrdered);
+                // Until the host's save has loaded, its difficulty is still the defaults (map markers, fast
+                // travel and the rest all allowed). A player joining then kept them for the session.
+                if (!IsLoaded)
+                {
+                    Log($"Player {player.Username} wants game data but the server is still loading, holding it");
+                    gameDataQueue.Enqueue(peer);
+                    break;
+                }
+                SendGameData(player, peer);
 
                 break;
 
@@ -1747,6 +1768,7 @@ public class NetworkServer : NetworkManager
 
                 // Send weather state
                 SendWeatherState(peer);
+                SendSleepState(peer);
                 SendShopStock(peer);
 
                 // Send junctions and turntables
@@ -1994,6 +2016,11 @@ public class NetworkServer : NetworkManager
 
     private void OnServerboundTimeAdvancePacket(ServerboundTimeAdvancePacket packet, ITransportPeer peer)
     {
+        if (packet.IsSleep)
+        {
+            OnSleepRequest(packet, peer);
+            return;
+        }
 
         if (!fastTravelAdvancesTime)
         {
@@ -2012,6 +2039,63 @@ public class NetworkServer : NetworkManager
             PlayerLoadingState.ReadyForWorldState,
             peer
         );
+    }
+
+    // One sleep cooldown for everyone, kept by the host. Each game used to check only its own last
+    // wake-up (and a client's started empty on every join), so players could sleep one after another
+    // and skip as much time as they liked, making everyone's jobs late.
+    private void OnSleepRequest(ServerboundTimeAdvancePacket packet, ITransportPeer peer)
+    {
+        TryGetServerPlayer(peer, out ServerPlayer player);
+        BedSleepingController sleep = BedSleepingController.Instance;
+        if (sleep == null || packet.amountOfTimeToSkipInSeconds <= 0 || packet.amountOfTimeToSkipInSeconds > 24 * 3600)
+            return;
+
+        // The host's own sleep has already happened here (vanilla checked the cooldown and set the
+        // wake time): pass the time skip on and share the wake time.
+        if (player != null && NetworkLifecycle.Instance.IsHost(player))
+        {
+            SendPacketToAll(new ClientboundTimeAdvancePacket { amountOfTimeToSkipInSeconds = packet.amountOfTimeToSkipInSeconds },
+                DeliveryMethod.ReliableUnordered, PlayerLoadingState.ReadyForWorldState, peer);
+            SendSleepState();
+            return;
+        }
+
+        DateTime now = sleep.GetCurrentIngameTime();
+        bool disabled = Globals.G.GameParams.SleepCooldownInHours < 0;
+        double sinceWake = (now - sleep.lastWakeTime).TotalSeconds;
+        double cooldown = sleep.GetMinimumTimeSinceLastWakeSeconds();
+        if (disabled || sinceWake < cooldown)
+        {
+            LogWarning($"{player?.Username} tried to sleep, but {(disabled ? "sleeping is disabled" : $"the shared cooldown has {cooldown - sinceWake:N0}s left")}");
+            // Their game skipped the time locally; the weather sync puts their clock back.
+            SendSleepState(peer);
+            SendWeatherState(peer);
+            return;
+        }
+
+        SendPacketToAll(new ClientboundTimeAdvancePacket { amountOfTimeToSkipInSeconds = packet.amountOfTimeToSkipInSeconds },
+            DeliveryMethod.ReliableUnordered, PlayerLoadingState.ReadyForWorldState, peer);
+        sleep.lastWakeTime = now.AddSeconds(packet.amountOfTimeToSkipInSeconds);
+        sleep.lastSleepDurationSeconds = (int)packet.amountOfTimeToSkipInSeconds;
+        Log($"{player?.Username} slept {packet.amountOfTimeToSkipInSeconds / 3600f:N1}h; the next sleep for anyone is after {sleep.lastWakeTime.AddSeconds(sleep.GetMinimumTimeSinceLastWakeSeconds())}");
+        SendSleepState();
+    }
+
+    public void SendSleepState(ITransportPeer peer = null)
+    {
+        BedSleepingController sleep = BedSleepingController.Instance;
+        if (sleep == null)
+            return;
+        ClientboundSleepStatePacket packet = new()
+        {
+            LastWakeTimeOADate = sleep.lastWakeTime.ToOADate(),
+            LastSleepDurationSeconds = sleep.lastSleepDurationSeconds
+        };
+        if (peer != null)
+            SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+        else
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, excludeSelf: true);
     }
 
     private void OnCommonChangeJunctionPacket(CommonChangeJunctionPacket packet, ITransportPeer peer)
@@ -2732,7 +2816,7 @@ public class NetworkServer : NetworkManager
         {
             LogWarning($"OnServerboundJobValidateRequestPacket() NetworkedJob not found: {packet.JobNetId}");
 
-            SendPacket(peer, new ClientboundJobValidateResponsePacket { JobNetId = packet.JobNetId, Invalid = true }, DeliveryMethod.ReliableOrdered);
+            SendPacket(peer, new ClientboundJobValidateResponsePacket { JobNetId = packet.JobNetId, Invalid = true, JobMissing = true }, DeliveryMethod.ReliableOrdered);
             return;
         }
 
@@ -3131,14 +3215,15 @@ public class NetworkServer : NetworkManager
         Log($"P{player.PlayerId} bought {packet.ItemPrefabName} x{packet.Amount} for ${cost:N2}");
         data.purchasedItems += packet.Amount;
         UnlockablesManager.Instance.UnlockItem(data.item.ItemPrefabName);
-        CoroutineManager.Instance.StartCoroutine(SpawnShopPurchase(data.item.ItemPrefabName, shop, packet.Amount));
+        CoroutineManager.Instance.StartCoroutine(SpawnShopPurchase(data.item.ItemPrefabName, shop, packet.Amount, player));
         shops.Fire_GlobalShopDataChanged();
         SendShopStock();
     }
 
     // As GlobalShopController.InstantiatePurchasedItems, but always at the shop: that one leaves
-    // items in the Lost and Found when the host is not near the shop.
-    private static System.Collections.IEnumerator SpawnShopPurchase(string itemPrefabName, Shop shop, int amount)
+    // items in the Lost and Found when the host is not near the shop. The buyer owns what they
+    // bought; unowned, it went to whoever picked it up first.
+    private static System.Collections.IEnumerator SpawnShopPurchase(string itemPrefabName, Shop shop, int amount, ServerPlayer buyer)
     {
         for (int i = 0; i < amount; i++)
         {
@@ -3155,6 +3240,14 @@ public class NetworkServer : NetworkManager
             item.ItemRigidbody.angularVelocity = Vector3.zero;
             if (obj.TryGetComponent(out APurchaseTrigger trigger))
                 trigger.OnPurchased(obj);
+            NetworkedItem networked = obj.GetOrAddComponent<NetworkedItem>();
+            if (buyer != null && buyer.Guid != Guid.Empty && networked != null && networked.NetId != 0 &&
+                AuthoritativeItemRegistry.Ensure(networked) is { PersistentOwnerPlayerId: 0 } record)
+            {
+                record.PersistentOwnerPlayerId = buyer.PlayerId;
+                record.PersistentOwnerIdentity = buyer.Guid;
+                buyer.AddOwnedItem(networked.NetId);
+            }
             yield return WaitFor.Seconds(0.5f);
         }
     }

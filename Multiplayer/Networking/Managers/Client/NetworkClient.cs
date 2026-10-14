@@ -258,6 +258,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundGameParamsPacket>(OnClientboundGameParamsPacket);
         netPacketProcessor.SubscribeReusable<ClientboundSaveGameDataPacket>(OnClientboundSaveGameDataPacket);
         netPacketProcessor.SubscribeReusable<ClientboundRailwayStatePacket>(OnClientboundRailwayStatePacket);
+        netPacketProcessor.SubscribeReusable<ClientboundSleepStatePacket>(OnClientboundSleepStatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
         netPacketProcessor.SubscribeReusable<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
 
@@ -1632,7 +1633,12 @@ public class NetworkClient : NetworkManager
         if (!NetworkedJob.Get(packet.JobNetId, out NetworkedJob networkedJob))
             return;
 
-        Object.Destroy(networkedJob.gameObject);
+        // A refused overview or booklet used to destroy the whole job here, although the host
+        // still had it: the job vanished for this player. Only drop it when the host has no such job.
+        networkedJob.ValidatorResponseReceived = true;
+        networkedJob.ValidationAccepted = !packet.Invalid;
+        if (packet.JobMissing)
+            Object.Destroy(networkedJob.gameObject);
     }
 
     private void OnCommonPitStopInteractionPacket(CommonPitStopInteractionPacket packet)
@@ -2065,12 +2071,22 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendTimeAdvance(float amountOfTimeToSkipInSeconds)
+    public void SendTimeAdvance(float amountOfTimeToSkipInSeconds, bool isSleep = false)
     {
         SendPacketToServer(new ServerboundTimeAdvancePacket
         {
-            amountOfTimeToSkipInSeconds = amountOfTimeToSkipInSeconds
+            amountOfTimeToSkipInSeconds = amountOfTimeToSkipInSeconds,
+            IsSleep = isSleep
         }, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnClientboundSleepStatePacket(ClientboundSleepStatePacket packet)
+    {
+        BedSleepingController sleep = BedSleepingController.Instance;
+        if (sleep == null)
+            return;
+        sleep.lastWakeTime = DateTime.FromOADate(packet.LastWakeTimeOADate);
+        sleep.lastSleepDurationSeconds = packet.LastSleepDurationSeconds;
     }
 
     public void SendJunctionSwitched(ushort netId, byte selectedBranch, Junction.SwitchMode mode)
