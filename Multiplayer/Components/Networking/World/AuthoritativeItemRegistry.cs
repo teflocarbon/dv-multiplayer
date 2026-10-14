@@ -25,6 +25,7 @@ public static class AuthoritativeItemRegistry
         public uint Revision;
         public ItemPlacementKind Placement;
         public byte PlacementPlayerId;
+        public PlayerHand PlacementHand;
         public Guid PlacementPlayerIdentity;
         public byte PersistentOwnerPlayerId;
         public Guid PersistentOwnerIdentity;
@@ -112,6 +113,9 @@ public static class AuthoritativeItemRegistry
             NetId = item.NetId,
             Placement = initialPlacement,
             PlacementPlayerId = seed?.PlayerId ?? 0,
+            PlacementHand = initialPlacement == ItemPlacementKind.PlayerHand
+                ? PlayerHandRules.Normalize(seed?.PlayerHand ?? PlayerHand.None)
+                : PlayerHand.None,
             PlacementPlayerIdentity = seed?.PlayerId != 0 && actor?.PlayerId == seed.PlayerId
                 ? actor.Guid : Guid.Empty,
             PersistentOwnerPlayerId = persistentOwner,
@@ -158,6 +162,7 @@ public static class AuthoritativeItemRegistry
         Record record = Ensure(item, actor, snapshot);
         bool retrievalEligible = item.Item?.InventorySpecs?.IsEssential == true;
         ItemPlacementKind previousPlacement = record.Placement;
+        PlayerHand previousPlacementHand = record.PlacementHand;
         ItemAuthorityState currentState = ToCore(record);
         if (!retrievalEligible)
         {
@@ -225,6 +230,11 @@ public static class AuthoritativeItemRegistry
         }
 
         ApplyCore(record, result.State);
+        record.PlacementHand = appliesPlacement
+            ? record.Placement == ItemPlacementKind.PlayerHand
+                ? PlayerHandRules.Normalize(snapshot.PlayerHand)
+                : PlayerHand.None
+            : previousPlacementHand;
         record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
             ? actor.Guid : Guid.Empty;
         if (record.PersistentOwnerPlayerId == actor.PlayerId && record.PersistentOwnerIdentity == Guid.Empty)
@@ -299,6 +309,7 @@ public static class AuthoritativeItemRegistry
             _ => ItemPlacementKind.World
         };
         record.PlacementPlayerId = 0;
+        record.PlacementHand = PlayerHand.None;
         record.PlacementPlayerIdentity = Guid.Empty;
         record.Position = state.AbsolutePosition;
         record.Rotation = state.Rotation;
@@ -459,6 +470,7 @@ public static class AuthoritativeItemRegistry
         record.Revision++;
         record.Placement = ItemPlacementKind.LostAndFound;
         record.PlacementPlayerId = 0;
+        record.PlacementHand = PlayerHand.None;
         record.PlacementPlayerIdentity = Guid.Empty;
         record.LastReason = ItemTransitionReason.LostAndFoundCollection;
         Publish("item.lost-and-found-authority-applied", item, record, null);
@@ -506,6 +518,7 @@ public static class AuthoritativeItemRegistry
         record.Revision++;
         record.Placement = ItemPlacementKind.PlayerInventory;
         record.PlacementPlayerId = requester.PlayerId;
+        record.PlacementHand = PlayerHand.None;
         record.PlacementPlayerIdentity = requester.Guid;
         record.InventoryClaimPlayerId = requester.PlayerId;
         record.InventoryClaimSlot = targetSlot;
@@ -534,6 +547,7 @@ public static class AuthoritativeItemRegistry
         record.Revision = revision;
         record.Placement = ItemPlacementKind.LostAndFound;
         record.PlacementPlayerId = 0;
+        record.PlacementHand = PlayerHand.None;
         record.PlacementPlayerIdentity = Guid.Empty;
         record.PersistentOwnerPlayerId = ownerPlayerId;
         record.InventoryClaimPlayerId = inventoryClaimPlayerId;
@@ -616,6 +630,7 @@ public static class AuthoritativeItemRegistry
         record.Revision = previousRevision;
         record.Placement = previousPlacement;
         record.PlacementPlayerId = previousPlacementPlayerId;
+        record.PlacementHand = PlayerHand.None;
         record.LastReason = previousReason;
     }
 
@@ -635,6 +650,8 @@ public static class AuthoritativeItemRegistry
         snapshot.InventoryClaimFlags = record.InventoryClaimFlags;
         snapshot.TransitionReason = reason;
         snapshot.PlayerId = record.PlacementPlayerId;
+        snapshot.PlayerHand = record.Placement == ItemPlacementKind.PlayerHand
+            ? record.PlacementHand : PlayerHand.None;
         snapshot.WorldParentKind = record.WorldParentKind;
         snapshot.WorldParentNetId = record.WorldParentNetId;
         snapshot.WorldParentKey = record.WorldParentKey ?? string.Empty;
@@ -656,6 +673,7 @@ public static class AuthoritativeItemRegistry
         snapshot.InventoryClaimFlags = (ItemInventoryClaimFlags)(byte)state.InventoryClaimFlags;
         snapshot.TransitionReason = reason;
         snapshot.PlayerId = state.PlacementPlayerId;
+        snapshot.PlayerHand = PlayerHand.None;
     }
 
     /// <summary>
@@ -697,6 +715,7 @@ public static class AuthoritativeItemRegistry
             ["revision"] = record.Revision,
             ["placement"] = record.Placement.ToString(),
             ["placementPlayerId"] = record.PlacementPlayerId,
+            ["placementHand"] = record.PlacementHand.ToString(),
             ["placementPlayerIdentity"] = record.PlacementPlayerIdentity == Guid.Empty ? string.Empty : record.PlacementPlayerIdentity.ToString("D"),
             ["persistentOwnerPlayerId"] = record.PersistentOwnerPlayerId,
             ["persistentOwnerIdentity"] = record.PersistentOwnerIdentity == Guid.Empty ? string.Empty : record.PersistentOwnerIdentity.ToString("D"),
@@ -773,6 +792,7 @@ public static class AuthoritativeItemRegistry
         record.Revision = state.Revision;
         record.Placement = (ItemPlacementKind)(byte)state.Placement;
         record.PlacementPlayerId = state.PlacementPlayerId;
+        record.PlacementHand = PlayerHand.None;
         record.PersistentOwnerPlayerId = state.PersistentOwnerPlayerId;
         record.InventoryClaimPlayerId = state.InventoryClaimPlayerId;
         record.InventoryClaimSlot = state.InventoryClaimSlot;

@@ -311,11 +311,17 @@ public partial class NetworkedItemManager
             });
     }
 
+    /// <param name="restoredOriginal">
+    /// Set when the request was a fresh copy of an item the returning player already owns: the
+    /// adoption is rejected and the caller must send this snapshot to the player after the
+    /// rejection, so the original lands in the inventory slot the rejected copy vacates.
+    /// </param>
     public bool TryAdoptClientItem(ServerPlayer player, ItemAdoptionRequestData request,
-        out ushort assignedNetId, out string rejectionReason)
+        out ushort assignedNetId, out string rejectionReason, out ItemUpdateData restoredOriginal)
     {
         assignedNetId = 0;
         rejectionReason = string.Empty;
+        restoredOriginal = null;
         if (!NetworkLifecycle.Instance.IsHost() || player == null)
         {
             rejectionReason = "invalid-runtime-or-player";
@@ -368,6 +374,13 @@ public partial class NetworkedItemManager
                 : "invalid-adoption-token";
             return false;
         }
+        if (TryRestoreReturningOwnerItem(player, request.PrefabName, out restoredOriginal))
+        {
+            assignedNetId = restoredOriginal.ItemNetId;
+            rejectionReason = "returning-owner-original-restored:" + assignedNetId;
+            TemporaryHostAdoptions.Complete(player.PlayerId, token, false, assignedNetId, rejectionReason);
+            return false;
+        }
         if (!ItemPrefabs.TryGetValue(request.PrefabName ?? string.Empty, out InventoryItemSpec spec) || spec == null)
         {
             rejectionReason = "unknown-prefab";
@@ -393,6 +406,133 @@ public partial class NetworkedItemManager
         networkedItem.ServerInitialiseAdoptedItem(player, request.Snapshot);
         TemporaryHostAdoptions.Complete(player.PlayerId, token, true, assignedNetId, string.Empty);
         return true;
+    }
+
+    // Originals already handed back to each player this session, so two fresh copies of the
+    // same prefab never claim the same original.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ServerPlayer, HashSet<ushort>>
+        restoredOriginals = new();
+
+    /// <summary>
+    /// A returning player's game spawns a fresh starting kit and essentials and asks for each to
+    /// be adopted, while the host still holds that player's originals (kept on disconnect, keyed
+    /// to their identity). Adopting the copies duplicated every item, and the original
+    /// essentials ended up on the floor because DV allows one of each. Instead, hand the
+    /// original back: move it into the player's inventory with a new canonical revision.
+    /// </summary>
+    private static bool TryRestoreReturningOwnerItem(ServerPlayer player, string prefabName,
+        out ItemUpdateData restored)
+    {
+        restored = null;
+        if (player == null || player.Guid == Guid.Empty || string.IsNullOrEmpty(prefabName))
+            return false;
+        HashSet<ushort> alreadyRestored = restoredOriginals.GetOrCreateValue(player);
+
+        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.Records.ToArray())
+        {
+            if (record.PersistentOwnerIdentity != player.Guid || alreadyRestored.Contains(record.NetId))
+                continue;
+            // Only items still with their owner; anything since picked up by someone else or
+            // left in the world stays where it is.
+            if (record.Placement is not (ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand) ||
+                record.PlacementPlayerIdentity != player.Guid && record.PlacementPlayerIdentity != Guid.Empty)
+                continue;
+            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem original) || original == null ||
+                original.Item?.InventorySpecs?.ItemPrefabName != prefabName)
+                continue;
+
+            ItemUpdateData snapshot = original.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
+            if (snapshot == null)
+                continue;
+            snapshot.ItemState = ItemState.InInventory;
+            snapshot.PlayerId = player.PlayerId;
+            snapshot.PlayerHand = PlayerHand.None;
+            snapshot.AuthorityRevision = record.Revision;
+            if (!AuthoritativeItemRegistry.TryApplyTransition(original, snapshot, player,
+                    ItemTransitionReason.PersistenceRestore, true, out string rejection))
+            {
+                Multiplayer.LogWarning($"Could not restore item {record.NetId} ({prefabName}) to returning player {player.Username}: {rejection}");
+                continue;
+            }
+
+            alreadyRestored.Add(record.NetId);
+            original.ApplyServerCanonicalSnapshot(snapshot);
+            player.KnownItems[original] = NetworkLifecycle.Instance.Tick;
+            Multiplayer.Log($"Restored {prefabName} ({record.NetId}) to returning player {player.Username} instead of adopting a duplicate");
+            restored = snapshot;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Client: retire an unbound local copy (fresh starting item, NetId 0) of the item the host is
+    /// placing into our inventory, preferring the copy in the original's reserved slot.
+    /// </summary>
+    internal void DiscardUnboundLocalDuplicate(NetworkedItem original)
+    {
+        string prefab = original?.Item?.InventorySpecs?.ItemPrefabName;
+        Inventory inventory = Inventory.Instance;
+        if (string.IsNullOrEmpty(prefab) || inventory == null)
+            return;
+
+        NetworkedItem duplicate = null;
+        int claimSlot = original.InventoryClaimSlot;
+        for (int slot = 0; slot < inventory.Capacity; slot++)
+        {
+            GameObject candidate = inventory.PeekItemAtSlot(slot, false);
+            NetworkedItem candidateItem = candidate != null ? candidate.GetComponent<NetworkedItem>() : null;
+            if (candidateItem == null || candidateItem == original || candidateItem.NetId != 0 ||
+                candidateItem.Item?.InventorySpecs?.ItemPrefabName != prefab)
+                continue;
+            duplicate = candidateItem;
+            if (slot == claimSlot)
+                break;
+        }
+        if (duplicate == null)
+            return;
+
+        Multiplayer.Log($"Replacing unbound local {prefab} with restored original {original.NetId}");
+        RetireClientProjection(duplicate, "superseded-by-restored-original");
+    }
+
+    /// <summary>
+    /// Host: a disconnecting player can't keep holding anything. Commit each item in their hand
+    /// as dropped where it is, so the authority record matches the object lying in the world
+    /// and anyone can pick it up. (Inventory items stay keyed to the player for when they return.)
+    /// </summary>
+    internal void DropHeldItemsOfDepartingPlayer(ServerPlayer player)
+    {
+        if (player == null || !NetworkLifecycle.Instance.IsHost())
+            return;
+
+        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.Records.ToArray())
+        {
+            if (record.Placement != ItemPlacementKind.PlayerHand || record.PlacementPlayerId != player.PlayerId)
+                continue;
+            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
+                continue;
+
+            ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
+            if (snapshot == null)
+                continue;
+            snapshot.ItemState = ItemState.Dropped;
+            snapshot.PlayerId = 0;
+            snapshot.PlayerHand = PlayerHand.None;
+            snapshot.ItemPosition = item.transform.position - WorldMover.currentMove;
+            snapshot.ItemRotation = item.transform.rotation;
+            snapshot.AuthorityRevision = record.Revision;
+            if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, player,
+                    ItemTransitionReason.HostLocalState, true, out string rejection))
+            {
+                Multiplayer.LogWarning($"Could not drop item {record.NetId} held by departing player {player.Username}: {rejection}");
+                continue;
+            }
+            item.ApplyServerCanonicalSnapshot(snapshot);
+            RegisterHostWorldItem(item);
+            NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot, excludePlayer: player);
+            Multiplayer.Log($"Dropped {item.name} ({record.NetId}) held by departing player {player.Username}");
+        }
     }
 
     private static bool IsFinite(Vector3 value) =>

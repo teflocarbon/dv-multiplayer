@@ -25,7 +25,7 @@ public sealed class RemoteItemProjectionPlannerTests
     {
         RemoteItemProjectionPlan plan = RemoteItemProjectionPlanner.Plan(state, 1, 2, true);
         Assert.That(plan.Action, Is.EqualTo(action));
-        Assert.That(plan.ClearExistingRemoteHands, Is.False);
+        Assert.That(plan.ClearExistingRemoteHands, Is.True);
         Assert.That(plan.Activate, Is.EqualTo(activate));
         Assert.That(plan.Deactivate, Is.EqualTo(deactivate));
     }
@@ -36,6 +36,7 @@ public sealed class RemoteItemProjectionPlannerTests
     {
         RemoteItemProjectionPlan plan = RemoteItemProjectionPlanner.Plan(state, 1, 2, false);
         Assert.That(plan.Action, Is.EqualTo(RemoteItemProjectionAction.MissingRemotePlayer));
+        Assert.That(plan.ClearExistingRemoteHands, Is.True);
         Assert.That(plan.Deactivate, Is.True);
     }
 

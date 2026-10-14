@@ -890,6 +890,42 @@ The item replication dashboard should show `item.special-create-deferred` as rec
 
 Test both document-first and item-first delivery. Both must create exactly one purpose-built report and leave no pending special snapshot.
 
+### Pickup, page mutation, and interest retirement
+
+Job documents use a lifecycle-created Unity object rather than the generic prefab projection path. That distinction must not bypass the world-item projection acknowledgement: the client sends the same revision-bound acknowledgement after either immediate binding or deferred binding. Until that acknowledgement arrives, the host must reject pickup because visibility alone is not mutation authority.
+
+A local `PageBook.PageFlipped` event explicitly queues a tracked-value observation. A page-only `ObjectState` update is interaction-writable by a client with a current projection while the document is in world placement; it does not grant position or placement authority. If another player already possesses the document, only that possessor may mutate it.
+
+Interest retirement is representation culling, not destruction of the logical job artifact. Generic items can be recreated from their prefab, but a job overview, booklet, or report cannot. These lifecycle-created documents therefore become inactive, interaction-gated dormant projections while outside interest, retaining their authoritative NetId. A later Create envelope reactivates the same representation, reapplies canonical state, and sends a fresh projection acknowledgement.
+
+Acceptance coverage should verify:
+
+1. a client can pick up an overview and its own report after either immediate or deferred lifecycle binding;
+2. the host records the client hand/inventory placement before the client leaves the station cell;
+3. a held document remains relevant and visible after moving to another station area;
+4. a world document becomes dormant outside interest and reappears on return without duplication;
+5. client page turns replicate while dropped or locally held, and rejected stale turns receive canonical correction.
+
+### Blank overview diagnosis
+
+A visible `JobOverview` GameObject is not proof that its content exists. The client reconstructs the
+overview from synchronized job data and starts a separate asynchronous render-texture producer.
+The item can bind its authoritative NetId before `PageBook.PagesGenerated` becomes true.
+
+Client overview creation now publishes a terminal render observation tied to both job NetId and
+item NetId:
+
+- `job.overview-render-ready` when generation completes with at least one page;
+- `job.overview-render-timeout` when the object remains alive but does not cross the generation
+  barrier within 15 real-time seconds;
+- `job.overview-render-pagebook-missing` when the expected presentation component is absent.
+
+This deliberately diagnoses before retrying. A timeout suggests render-system contention or a
+lost texture callback and may justify serialized creation/retry. A ready event for a visibly blank
+sheet instead points to missing/incorrect semantic job data or blank texture output; recreating the
+same input would merely hide the underlying defect. Capture the affected job ID/type and task
+summary before choosing either repair.
+
 ## Remaining decompilation targets
 
 The semantic source model required for a version-1 JobReport payload is now understood. No additional decompilation is required before implementing the DTO and lifecycle.

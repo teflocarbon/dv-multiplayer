@@ -78,6 +78,10 @@ public sealed class NetworkedPageBookState : MonoBehaviour
             ["pageCount"] = pageBook.PageNum,
             ["pagesGenerated"] = pageBook.PagesGenerated
         });
+        // Page input does not change grab/inventory placement, so the ordinary item callbacks do
+        // not run. Queue the tracked-value observation explicitly instead of waiting for a later
+        // unrelated item interaction to flush this semantic change.
+        NetworkedItemManager.Instance?.QueueLocalStateObservation(networkedItem, "page-flipped");
     }
 
     private void OnPageBookGenerated()

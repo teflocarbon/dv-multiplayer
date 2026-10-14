@@ -68,6 +68,22 @@ public sealed class ItemWireStateProjectionTests
     }
 
     [Test]
+    public void InHand_HandPromotionRequiresSend()
+    {
+        Assert.That(ItemWireStateComparer.RequiresSend(true,
+            new ItemWireStateProjection(WireItemState.InHand, 2, placementHand: 1),
+            new ItemWireStateProjection(WireItemState.InHand, 2, placementHand: 2)), Is.True);
+    }
+
+    [Test]
+    public void Inventory_IgnoresHandMetadata()
+    {
+        Assert.That(ItemWireStateComparer.RequiresSend(true,
+            new ItemWireStateProjection(WireItemState.InInventory, 2, placementHand: 1),
+            new ItemWireStateProjection(WireItemState.InInventory, 2, placementHand: 2)), Is.False);
+    }
+
+    [Test]
     public void Attachment_CarChangeRequiresSend()
     {
         Assert.That(ItemWireStateComparer.RequiresSend(true,

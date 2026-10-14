@@ -258,6 +258,9 @@ internal sealed class NetworkedItemSpatialManager
         });
     }
 
+    // Ends a physics lease from outside (e.g. the item fell through the map), telling its simulator.
+    internal void RevokeLease(ushort itemNetId, string reason) => RevokeHostLease(itemNetId, reason);
+
     private void RevokeHostLease(ushort itemNetId, string reason, bool notify = true)
     {
         if (!leases.TryGetValue(itemNetId, out Lease lease))

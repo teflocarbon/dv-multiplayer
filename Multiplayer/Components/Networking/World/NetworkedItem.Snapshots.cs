@@ -271,6 +271,31 @@ public partial class NetworkedItem
         BeginColdStorageRetirement();
     }
 
+    private const float ConvergencePositionTolerance = 0.25f;
+
+    private bool DisagreesWithConvergence(ItemUpdateData snapshot)
+    {
+        if (Item == null || Item.IsGrabbed())
+            return false; // a local interaction is in flight; the host will hear about it
+        if (snapshot.AuthorityRevision > AuthorityRevision)
+            return true; // a canonical change never reached us
+        if (GetItemState() is not (ItemState.Dropped or ItemState.Thrown))
+            return true; // the host has it lying in the world; we have it somewhere else
+
+        float tolerance2 = ConvergencePositionTolerance * ConvergencePositionTolerance;
+        if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior)
+        {
+            // Compare in the car's frame so differences in train motion aren't mistaken for drift.
+            if (!Train.NetworkedTrainCar.TryGet(snapshot.WorldParentNetId, out TrainCar car) || car == null)
+                return false; // that car isn't here; nothing to compare against
+            if (TrainCar.Resolve(transform) != car)
+                return true;
+            Transform frame = car.interior != null ? car.interior : car.transform;
+            return (frame.InverseTransformPoint(transform.position) - snapshot.ParentLocalPosition).sqrMagnitude > tolerance2;
+        }
+        return (transform.position - WorldMover.currentMove - snapshot.ItemPosition).sqrMagnitude > tolerance2;
+    }
+
     public void ReceiveSnapshot(ItemUpdateData snapshot)
     {
         if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
@@ -288,6 +313,13 @@ public partial class NetworkedItem
                 });
             return;
         }
+        // Host convergence re-send (NetworkedItemManager.Convergence): only act when this copy
+        // actually disagrees, so the periodic pass never nudges consistent items.
+        if (snapshot.TransitionReason == ItemTransitionReason.Convergence &&
+            !NetworkLifecycle.Instance.IsHost() && !DisagreesWithConvergence(snapshot))
+            return;
+
+        bool localVrReleaseAcknowledgement = IsLocalVrReleaseAcknowledgement(snapshot);
         ApplyAuthorityMetadata(snapshot);
 
         Dictionary<string, object> receivedDebugData = DebugTrace.ItemSnapshotData(snapshot);
@@ -303,6 +335,22 @@ public partial class NetworkedItem
                 NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
                 snapshot.OriginatingPlayerId,
                 ToWireState(snapshot.ItemState)))
+        {
+            ApplyLocalThrowAcknowledgement(snapshot);
+            return;
+        }
+
+        if (localVrReleaseAcknowledgement)
+        {
+            ApplyLocalVrReleaseAcknowledgement(snapshot);
+            return;
+        }
+
+        // The host's acceptance of our own desktop drop, a round trip later. Applying it put the
+        // item back at the pose it was released from with zero velocity, yanking a falling item
+        // back up mid-air. Like a throw, take the revision and keep simulating; if the item does
+        // end up somewhere else the host's convergence pass corrects it once it settles.
+        if (IsLocalDropAcknowledgement(snapshot))
         {
             ApplyLocalThrowAcknowledgement(snapshot);
             return;
@@ -470,6 +518,15 @@ public partial class NetworkedItem
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
     }
 
+    private bool IsLocalDropAcknowledgement(ItemUpdateData snapshot) =>
+        !NetworkLifecycle.Instance.IsHost() &&
+        snapshot.TransitionReason == ItemTransitionReason.ClientState &&
+        snapshot.ItemState == ItemState.Dropped &&
+        snapshot.OriginatingPlayerId != 0 &&
+        snapshot.OriginatingPlayerId == NetworkLifecycle.Instance.Client?.PlayerId &&
+        Item != null && !Item.IsGrabbed() &&
+        GetItemState() == ItemState.Dropped;
+
     private void ApplyLocalThrowAcknowledgement(ItemUpdateData snapshot)
     {
         lastState = ObservationBaselineAfterSnapshot(snapshot.ItemState);
@@ -480,6 +537,7 @@ public partial class NetworkedItem
         stateDirty = false;
         wasThrown = false;
         hostStateObservationPending = false;
+        CompleteLocalVrReleaseAcknowledgement();
         MarkValuesClean();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
             EntityDebugRegistry.ItemState(this));
@@ -689,6 +747,7 @@ public partial class NetworkedItem
             AttachedFront = frontCoupler,
             States = states,
             PlayerId = playerBelongsToId,
+            PlayerHand = HandForState(lastState),
             AuthorityRevision = authorityRevisionOverride ?? AuthorityRevision,
             PersistentOwnerPlayerId = PersistentOwnerPlayerId,
             InventoryClaimPlayerId = InventoryClaimPlayerId,
@@ -718,7 +777,7 @@ public partial class NetworkedItem
         return updateData;
     }
 
-    private ItemState GetItemState()
+    internal ItemState GetItemState()
     {
         //Multiplayer.LogDebug(() => $"GetItemState() NetId: {NetId}, {name}, Parent: {Item.transform.parent} WorldMover: {WorldMover.OriginShiftParent}, wasThrown: {wasThrown}, isGrabbed: {Item.IsGrabbed()} Inventory.Contains(): {Inventory.Instance.Contains(this.gameObject, false)} Storage.Contains: {StorageController.Instance.StorageInventory.ContainsItem(Item)}");
 
@@ -732,7 +791,7 @@ public partial class NetworkedItem
         if (Item.IsGrabbed())
             return ItemState.InHand;
 
-        if (playerBelongsTo?.RightHandItemGO == gameObject)
+        if (playerBelongsTo?.HoldsItem(gameObject) == true)
             return ItemState.InHand;
 
         // Derail Valley exposes only this process's local inventory. Preserve another player's

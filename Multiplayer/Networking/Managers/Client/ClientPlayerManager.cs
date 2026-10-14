@@ -72,6 +72,9 @@ public class ClientPlayerManager
         OnPlayerDisconnected?.Invoke(networkedPlayer);
         DebugRuntime.Publish("player", "player.disconnected", DebugRuntimeSide.Client, entityType: "Player", entityId: playerid.ToString(), data: EntityDebugRegistry.Get("Player", playerid.ToString())?.LatestState);
         EntityDebugRegistry.Unregister("Player", playerid.ToString());
+        // Held and inventory items are children of the avatar. Destroying it with them attached
+        // destroyed the leaving player's items for everyone (the host treats it as a real destroy).
+        networkedPlayer.ReleaseAllItems();
         Object.Destroy(networkedPlayer.gameObject);
         playerMap.Remove(playerid);
     }

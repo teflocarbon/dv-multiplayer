@@ -24,11 +24,11 @@ internal readonly struct WorldItemCellCoord : IEquatable<WorldItemCellCoord>
     public override int GetHashCode() => unchecked((X * 397) ^ Z);
     public override string ToString() => $"{X},{Z}";
 
-    public static HashSet<WorldItemCellCoord> Neighbourhood(WorldItemCellCoord centre)
+    public static HashSet<WorldItemCellCoord> Neighbourhood(WorldItemCellCoord centre, int radius = 1)
     {
         HashSet<WorldItemCellCoord> cells = new();
-        for (int x = centre.X - 1; x <= centre.X + 1; x++)
-        for (int z = centre.Z - 1; z <= centre.Z + 1; z++)
+        for (int x = centre.X - radius; x <= centre.X + radius; x++)
+        for (int z = centre.Z - radius; z <= centre.Z + radius; z++)
             cells.Add(new WorldItemCellCoord(x, z));
         return cells;
     }

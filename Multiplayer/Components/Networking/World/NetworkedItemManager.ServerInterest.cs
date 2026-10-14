@@ -41,14 +41,27 @@ public partial class NetworkedItemManager
             HashSet<WorldItemCellCoord> desiredCells = WorldItemCellCoord.Neighbourhood(centre);
             bool cellsChanged = !HostPlayerCells.TryGetValue(player.PlayerId, out HashSet<WorldItemCellCoord> previousCells) ||
                                 !previousCells.SetEquals(desiredCells);
-            HashSet<NetworkedItem> desiredItems = new(HostNonSpatialItems.Where(item =>
-                IsNonSpatialRelevantTo(item, player, desiredCells) &&
-                (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
-            foreach (WorldItemCellCoord cell in desiredCells)
+            HashSet<NetworkedItem> RelevantItems(HashSet<WorldItemCellCoord> cells)
             {
-                if (HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> indexed))
-                    desiredItems.UnionWith(indexed.Where(item => item != null &&
-                        (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                HashSet<NetworkedItem> items = new(HostNonSpatialItems.Where(item =>
+                    IsNonSpatialRelevantTo(item, player, cells) &&
+                    (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                foreach (WorldItemCellCoord cell in cells)
+                {
+                    if (HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> indexed))
+                        items.UnionWith(indexed.Where(item => item != null &&
+                            (!item.IsSceneAuthored || player.WorldItemCatalogueAccepted)));
+                }
+                return items;
+            }
+            HashSet<NetworkedItem> desiredItems = RelevantItems(desiredCells);
+            // Hysteresis: items enter at the 3x3 neighbourhood but only leave once outside 5x5.
+            // Without it, walking along a cell boundary destroyed and re-created everything on
+            // the other side each time the player stepped across it.
+            if (player.NearbyItems.Count > 0)
+            {
+                HashSet<NetworkedItem> retainable = RelevantItems(WorldItemCellCoord.Neighbourhood(centre, 2));
+                desiredItems.UnionWith(player.NearbyItems.Keys.Where(item => item != null && retainable.Contains(item)));
             }
             bool membershipChanged = cellsChanged || player.NearbyItems.Count != desiredItems.Count ||
                                      player.NearbyItems.Keys.Any(item => !desiredItems.Contains(item));
@@ -112,18 +125,22 @@ public partial class NetworkedItemManager
         if (item == null || recipient == null ||
             !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
             return false;
+        bool ownerHasRecallClaim = record.PersistentOwnerPlayerId == recipient.PlayerId &&
+                                   HasOwnerRecallClaim(record);
         if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
         {
-            if (record.PlacementPlayerId == recipient.PlayerId) return true;
             ServerPlayer holder = NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player =>
                 player.PlayerId == record.PlacementPlayerId);
-            return holder != null && recipientCells.Contains(WorldItemCellCoord.FromAbsolute(holder.AbsoluteWorldPosition));
+            bool holderNearby = holder != null && recipientCells.Contains(
+                WorldItemCellCoord.FromAbsolute(holder.AbsoluteWorldPosition));
+            return ItemPossessionInterestPolicy.IsRelevant(ownerHasRecallClaim,
+                record.PlacementPlayerId, recipient.PlayerId, holderNearby);
         }
         // A reserved essential-item silhouette is a non-spatial owner capability even while the
         // physical item is lying in a distant world cell. Retiring it from owner interest removes
         // the base game's Return button before Lost and Found can convert that action into a
         // retrieval. Nearby observers still receive the same item through its spatial cell index.
-        if (record.PersistentOwnerPlayerId == recipient.PlayerId && HasOwnerRecallClaim(record))
+        if (ownerHasRecallClaim)
             return true;
         if (record.Placement == ItemPlacementKind.TrainInterior)
         {
@@ -152,7 +169,16 @@ public partial class NetworkedItemManager
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
         }
         if (record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment)
+        {
+            // Attached items (e.g. end-of-train lanterns) ride their car; the record's position is
+            // where they were attached, so follow the car or they vanish once the train leaves.
+            if (record.AttachedCarNetId != 0 &&
+                NetworkedTrainCar.TryGet(record.AttachedCarNetId, out TrainCar attachedCar) && attachedCar != null)
+                return recipient.CarId == record.AttachedCarNetId ||
+                       recipientCells.Contains(WorldItemCellCoord.FromAbsolute(
+                           attachedCar.transform.position - WorldMover.currentMove));
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
+        }
         return false;
     }
 
@@ -223,6 +249,14 @@ public partial class NetworkedItemManager
                     dirtyUpdate != null,
                     suppressCreate: false,
                     destroyed: false);
+
+                if (delivery.Kind == ItemDeliveryKind.Create &&
+                    player.ProjectionRetryAt.TryGetValue(nearbyItem.NetId, out float retryAt))
+                {
+                    if (Time.time < retryAt)
+                        continue;
+                    player.ProjectionRetryAt.Remove(nearbyItem.NetId);
+                }
 
                 if (delivery.Kind == ItemDeliveryKind.Create)
                 {

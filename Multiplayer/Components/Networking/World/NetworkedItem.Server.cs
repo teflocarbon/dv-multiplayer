@@ -165,6 +165,15 @@ public partial class NetworkedItem
             return false;
         }
 
+        if (!PlayerHandRules.IsDefined(snapshot.PlayerHand) ||
+            ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+            snapshot.ItemState != ItemState.InHand && snapshot.PlayerHand != PlayerHand.None)
+        {
+            DebugTrace.Validation("item", "Item", NetId.ToString(), false,
+                "invalid-player-hand", DebugRuntimeSide.Server);
+            return false;
+        }
+
         bool senderPossesses = AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority) &&
             authority.PlacementPlayerId == senderPlayer.PlayerId &&
             authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
@@ -178,7 +187,10 @@ public partial class NetworkedItem
         // A projection acknowledgement permits the initial world -> hand interaction only.
         // Once placement is not changing, tracked-state and position mutations require current
         // possession; merely seeing a nearby object is not an authority grant.
-        if (!senderPossesses && !ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+        bool pageOnlyInteraction = IsPageOnlyInteraction(snapshot) && authority != null &&
+            authority.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory);
+        if (!senderPossesses && !pageOnlyInteraction &&
+            !ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
             snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ObjectState |
                                             ItemUpdateData.ItemUpdateType.ItemPosition))
         {
@@ -246,6 +258,12 @@ public partial class NetworkedItem
 
         return true;
     }
+
+    private static bool IsPageOnlyInteraction(ItemUpdateData snapshot) =>
+        snapshot != null &&
+        snapshot.UpdateType == ItemUpdateData.ItemUpdateType.ObjectState &&
+        snapshot.States is { Count: 1 } &&
+        snapshot.States.ContainsKey(NetworkedPageBookState.TrackedValueKey);
 
     private static bool IsFinite(Vector3 value) =>
         !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&

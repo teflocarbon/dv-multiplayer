@@ -287,10 +287,13 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
             WorldItemPersistenceManager.HostTick();
             UpdatePlayerItemLists();
             ProcessChanged(tick);
+            RunConvergence();
+            RunFallRescue();
         }
         else
         {
             //ProcessClientChanges(tick);
+            RunFallRescue();
         }
     }
 

@@ -99,6 +99,12 @@ public class ServerPlayer : IDisposable
     public Dictionary<NetworkedItem, float> NearbyItems { get; private set; } = new Dictionary<NetworkedItem, float>(); //NetworkedItem, time since near the item
     public HashSet<ushort> OwnedItems { get; private set; } = new HashSet<ushort>();
     public HashSet<ushort> AcknowledgedWorldItems { get; } = new HashSet<ushort>();
+    // Items this player failed to project: when the host may send their Create again.
+    internal Dictionary<ushort, float> ProjectionRetryAt { get; } = new Dictionary<ushort, float>();
+    // Reliable rolling-stock broadcasts held while this player's train baseline is in flight
+    // (sent, not yet acknowledged), delivered in order once they acknowledge it.
+    internal bool TrainBaselinePending { get; set; }
+    internal List<(byte[] Data, LiteNetLib.DeliveryMethod Delivery)> PendingTrainTraffic { get; } = new();
     public bool WorldItemCatalogueAccepted { get; internal set; }
     public StorageBase Inventory { get; private set; }
 

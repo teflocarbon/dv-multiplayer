@@ -5,7 +5,6 @@ using Multiplayer.Components.Networking.World;
 using Multiplayer.Utils;
 using UnityEngine;
 #if DEBUG
-using Multiplayer.Debugging.RuntimeTests.TrainFixtures;
 #endif
 
 namespace Multiplayer.Patches.World;
@@ -51,10 +50,6 @@ public static class TrainCarPatch
     {
         Multiplayer.LogDebug(() => $"MoveToTrackWithCarUncouple({__instance?.ID}) isHost: {NetworkLifecycle.Instance.IsHost()}, isProcessingPacket: {NetworkLifecycle.Instance.IsProcessingPacket}, isDerailed: {__instance.derailed}, destinationTrack: {destinationTrack?.name}, worldPos: {worldPos}, forward: {forward}");
 
-#if DEBUG
-        if (DebugTrainFixtureManager.ShouldSuppressIndividualMovePacket(__instance))
-            return;
-#endif
         if (!NetworkLifecycle.Instance.IsHost() || NetworkLifecycle.Instance.IsProcessingPacket)
             return;
         if (!__instance.TryNetworked(out NetworkedTrainCar networkedTrainCar))

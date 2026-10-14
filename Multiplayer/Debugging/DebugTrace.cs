@@ -28,6 +28,10 @@ public static class DebugTrace
 
     public static Dictionary<string, object> ItemSnapshotData(object snapshot)
     {
+        // Called unconditionally on every item snapshot sent or received; the projection,
+        // canonical sort and hash are only worth paying for when someone is listening.
+        if (!DebugRuntime.Enabled)
+            return new Dictionary<string, object>(StringComparer.Ordinal);
         DebugPacketProjection projection = DebugPacketProjectorRegistry.Project(snapshot, DebugRuntime.Session?.PlayerId);
         Dictionary<string, object> data = projection.Wire as Dictionary<string, object> ?? new(StringComparer.Ordinal) { ["wire"] = projection.Wire };
         data["stateFingerprint"] = DebugStateFingerprint.Compute(data);

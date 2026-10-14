@@ -9,6 +9,7 @@ internal class LocalPlayerTrackerVR : LocalPlayerTrackerBase
 {
     private const float HAND_POSITION_THRESHOLD = 0.01f; // metres
     private const float HAND_ROTATION_THRESHOLD = 0.5f; // degrees
+    protected override bool RequiresFirstPersonController => false;
 
     GameObject controllerLeftHand;
     GameObject controllerRightHand;
@@ -48,7 +49,9 @@ internal class LocalPlayerTrackerVR : LocalPlayerTrackerBase
 
     protected override float GetHeadPitch()
     {
-        return fps.m_Camera.transform.localEulerAngles.x;
+        return PlayerManager.PlayerCamera != null
+            ? PlayerManager.PlayerCamera.transform.localEulerAngles.x
+            : 0f;
     }
 
     // Inject VR controller data into the tracking data
