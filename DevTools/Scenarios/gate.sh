@@ -18,6 +18,8 @@ runs=( # name | scenario | variables
   "manual-recouple-lag|manual-uncouple|MODE=recouple N=3 LAG=150"
   "uncouple-moving|uncouple-moving|"
   "uncouple-moving-loco-lag|uncouple-moving|LAST=LocoDE2 LAG=150 SPEED=10"
+  "couple-impact|couple-impact|WAGON_BRAKE=0 LAG=150 SPEEDS=3,5"
+  "couple-impact-chain|couple-impact|CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4"
   "fps-drop|fps-drop|"
   "rejoin|rejoin|"
   "rejoin-crash|rejoin|CRASH=1"
