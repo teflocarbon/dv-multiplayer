@@ -12,8 +12,15 @@ field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));cons
 fail() { echo "FAIL: $*"; exit 1; }
 cars=""
 cleanup() { for c in $cars; do $D eval -t host -m body -a id=$c 'Trains.Delete(Trains.Find(ctx.Args["id"])); return 0;' >/dev/null 2>&1 || true; done; }
-trap cleanup EXIT
-compare() { # cars: both peers must agree on exploded, derailed and position (1 m)
+[ -n "${KEEP:-}" ] || trap cleanup EXIT
+settle() { # wait (up to 40 s) until the host's cars have been still for 2 s (a tumbling wreck passes through zero speed)
+  $D eval -t host -m coroutine --timeout 60 -a cars=$1 'var cs = ctx.Args["cars"].Split(new[] { (char)44 }).Select(id => Trains.Find(id)).ToList(); float still = 0f; for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 40f && still < 2f;) { yield return null; still = cs.Any(c => c.rb.velocity.magnitude > 0.05f) ? 0f : still + Time.unscaledDeltaTime; } yield return new WaitForSeconds(1); ctx.Result = 1;' >/dev/null; }
+compare() { # cars: both peers must agree on exploded, derailed and position (1 m); a wreck can
+  # still be settling on the client, so give it three looks 5 s apart
+  settle $1
+  for attempt in 1 2 3; do compare_once "$@" >/tmp/explosion-compare.$$ 2>&1 && { cat /tmp/explosion-compare.$$; return 0; }; [ $attempt -lt 3 ] && sleep 5; done
+  cat /tmp/explosion-compare.$$; return 1; }
+compare_once() {
   h=$($D eval -t host -m body -a cars=$1 -f $P/state.cs); c=$($D eval -t client -m body -a cars=$1 -f $P/state.cs)
   node -e '
     const v=s=>Object.values(JSON.parse(s).results)[0].result;
