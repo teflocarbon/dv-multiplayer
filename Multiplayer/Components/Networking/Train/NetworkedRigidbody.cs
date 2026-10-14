@@ -12,6 +12,13 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
     private const float POSITION_RESPONSE = 14f;
     private const float ROTATION_RESPONSE = 18f;
     private const float SNAP_DISTANCE = 20f;
+    // How much faster than the host's own car a correction may move ours (m/s, degrees/s).
+    // MovePosition on a dynamic body is a teleport: after a pile-up that played out a little
+    // differently here, the host's pose overlaps our other cars, and moving straight there every
+    // step made the physics shove everything apart (derailed cars at 9 m/s, knocking held cars
+    // off their places for good). Slide into place instead.
+    private const float MAX_CORRECTION_SPEED = 1.5f;
+    private const float MAX_CORRECTION_DEGREES = 45f;
     private Rigidbody rigidbody;
     private RigidbodySnapshot target;
     private float targetReceivedAt;
@@ -104,7 +111,10 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
             if (flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity))
                 desired += target.Velocity * age;
             float blend = 1f - Mathf.Exp(-POSITION_RESPONSE * Time.fixedDeltaTime);
-            rigidbody.MovePosition(Vector3.Lerp(rigidbody.position, desired, blend));
+            float hostSpeed = flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) ? target.Velocity.magnitude : 0f;
+            float maxStep = (hostSpeed + MAX_CORRECTION_SPEED) * Time.fixedDeltaTime;
+            rigidbody.MovePosition(Vector3.MoveTowards(rigidbody.position,
+                Vector3.Lerp(rigidbody.position, desired, blend), maxStep));
         }
 
         if (flags.HasFlag(RigidbodySnapshot.IncludedData.Rotation))
@@ -117,7 +127,11 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
                 desired = Quaternion.AngleAxis(angle, target.AngularVelocity.normalized) * desired;
             }
             float blend = 1f - Mathf.Exp(-ROTATION_RESPONSE * Time.fixedDeltaTime);
-            rigidbody.MoveRotation(Quaternion.Slerp(rigidbody.rotation, desired, blend));
+            float hostDegrees = flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity)
+                ? target.AngularVelocity.magnitude * Mathf.Rad2Deg : 0f;
+            float maxDegrees = (hostDegrees + MAX_CORRECTION_DEGREES) * Time.fixedDeltaTime;
+            rigidbody.MoveRotation(Quaternion.RotateTowards(rigidbody.rotation,
+                Quaternion.Slerp(rigidbody.rotation, desired, blend), maxDegrees));
         }
     }
 

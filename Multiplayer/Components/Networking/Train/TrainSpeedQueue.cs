@@ -16,6 +16,7 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float CorrectionDeadband = 0.02f;     // metres
     private const float MaxCorrectionSpeed = 3f;        // m/s, plus a share of the host's speed
     private const float MaxCorrectionSpeedFraction = 0.25f;
+    private const float SlowCorrectionSpeedFraction = 0.5f; // see the limit in FixedUpdate
     private const float StaleSampleSeconds = 0.5f;
     private const float MaxSpeedAcceleration = 8f;      // m/s², easing the host's speed between samples
     private const float MaxCorrectionAcceleration = 4f; // m/s², easing the position correction
@@ -26,8 +27,12 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float HoldDeadband = 0.05f;        // metres a held car may be off before it's corrected
     private const float HoldSettled = 0.02f;         // metres: a held car's correction stops here
     private const float HoldMinSpeed = 0.2f;         // m/s: slower than this, vanilla pins a braked bogie
+    // m/s. Held cars after a pile-up sit buffer to buffer, each a little off: driving them at the
+    // moving-train limit (3 m/s) rammed each into the next, which then drove back, and they never
+    // settled. Slow enough that buffer contacts damp out.
+    private const float HoldMaxSpeed = 0.5f;
     private const float HoldCorrectionDelay = 0.5f;  // seconds off before correcting (see Hold)
-    private const float HoldMaxDriveSeconds = 5f;    // a held car that can't be moved is left alone ...
+    private const float HoldMaxDriveSeconds = 10f;    // a held car that can't be moved is left alone ...
     private const float HoldRetrySeconds = 10f;      // ... for this long before trying again
 
     private TrainCar trainCar;
@@ -96,7 +101,12 @@ public class TrainSpeedQueue : TickedQueue<float>
         float correction = 0f;
         if (TryGetAlongTrackError(out float error) && Mathf.Abs(error) > CorrectionDeadband)
         {
-            float limit = MaxCorrectionSpeed + Mathf.Abs(targetSpeed) * MaxCorrectionSpeedFraction;
+            // A fast train needs a fast correction to catch up after a stall, but a slow one
+            // doesn't: after a pile-up, cars crawling buffer to buffer each a little off were
+            // driven at 3 m/s into each other and never settled. Scale the limit with the speed.
+            float speed = Mathf.Abs(targetSpeed);
+            float limit = Mathf.Min(MaxCorrectionSpeed + speed * MaxCorrectionSpeedFraction,
+                HoldMaxSpeed + speed * SlowCorrectionSpeedFraction);
             correction = Mathf.Clamp(error * CorrectionGain, -limit, limit);
         }
 
@@ -171,7 +181,7 @@ public class TrainSpeedQueue : TickedQueue<float>
         }
 
         // Too slow and vanilla's slope pin zeroes a braked bogie's velocity every step.
-        float correction = Mathf.Sign(error) * Mathf.Clamp(off * CorrectionGain, HoldMinSpeed, MaxCorrectionSpeed);
+        float correction = Mathf.Sign(error) * Mathf.Clamp(off * CorrectionGain, HoldMinSpeed, HoldMaxSpeed);
         easedSpeed = Mathf.MoveTowards(easedSpeed, 0f, MaxSpeedAcceleration * Time.fixedDeltaTime);
         easedCorrection = Mathf.MoveTowards(easedCorrection, correction, MaxCorrectionAcceleration * Time.fixedDeltaTime);
         ApplySpeed(easedSpeed + easedCorrection);
