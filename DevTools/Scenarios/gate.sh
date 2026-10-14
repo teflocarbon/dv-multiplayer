@@ -22,6 +22,7 @@ runs=( # name | scenario | variables
   "couple-impact-chain|couple-impact|CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4"
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
+  "client-derail|client-derail|"
   "rejoin|rejoin|"
   "rejoin-crash|rejoin|CRASH=1"
   "save-reload|save-reload|CYCLES=2"
