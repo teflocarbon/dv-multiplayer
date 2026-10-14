@@ -30,6 +30,12 @@ host-authority model works end to end, then points at the rest.
 | [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | Ownership rules that are decided, and the game-design questions that are still open |
 | [design/item-sync-review.md](design/item-sync-review.md) | The July review of item sync, with the status of each finding |
 
+## Tooling
+
+| Doc | What it covers |
+|---|---|
+| [design/parallel-test-sessions.md](design/parallel-test-sessions.md) | Planned: several dvmp host+client pairs at once, to split the gate and repeat scenarios |
+
 Each design doc starts with a status line and has a dated "Implementation status" section that says
 what is built, what is partial and what is not done. Update it when you change how a system syncs.
 
