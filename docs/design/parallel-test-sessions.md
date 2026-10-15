@@ -224,6 +224,32 @@ streaming. Step 7 adds the following, active only when the game was launched by 
 - **Live values in the harness snapshot** (`textureMemoryMb`, streamer ranges and loaded tile
   counts), so the effect can be measured.
 
+## Results
+
+First runs, two pairs (2026-10-15):
+
+- **Full gate: 31 minutes** with `PAIRS=2`, against about 50 on one pair. That's 22 runs shared
+  between the pairs, then 5 exclusive runs on p1 (about 15 of the 31 minutes).
+- Two runs failed:
+  - `hazmat` failed once: the client read 8 spill tiles against the host's 10. It passed 3/3
+    on repeat.
+  - `explosion` failed 2 times in 4. That was a scenario bug: it compared the host's settled
+    wreck with a client snapshot taken before the wreck had settled, and under parallel load the
+    client's wreck took longer to settle. Comparing fresh, it passed 4/4.
+- `REPEAT` made both calls quick: `ONLY="hazmat explosion" REPEAT=3 PAIRS=2` took 6.5 minutes.
+- A second full gate, on the #64 build, also took 31 minutes; 25/27 passed. `hazmat` failed
+  once again (the client saw the fire a moment late) and passed 3/3 on repeat, so it's flaky
+  under parallel load. `host-stall` failed about 1 run in 3, on both the #64 and #65 builds,
+  even when run alone. The scenario sometimes starts the stall before the train is at speed and
+  compares positions mid-motion. Once, its cleanup left the train behind, and the save-writing
+  runs after it saved that train into the world.
+
+**Deploying a mod build needs every game down.** A running game holds the mod's DLLs, so the
+post-build copy (and `DeployStaleBuild` on `up --fresh`) can't replace them while any session
+is up. Run `dvmp down --all` before deploying a build. Until then, the sessions still running keep
+the old build. That makes an easy before/after: run a scenario on every pair on the old build,
+then redeploy and run it again.
+
 ## Plan
 
 | Step | Work | Estimate |
