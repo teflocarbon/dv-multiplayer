@@ -25,6 +25,7 @@ runs=( # name | scenario | variables
   "couple-impact-chain|couple-impact|CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4"
   "coupler-desync|coupler-desync|LAG=150"
   "derail|pileup|SPEED=25 K=2 N=4 MIN_DERAILED=1 LAG=150"
+  "car-pool-reuse|car-pool-reuse|"
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"

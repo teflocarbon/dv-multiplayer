@@ -55,13 +55,23 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
         TryRegister(id, alreadyReserved: false);
     }
 
-    protected virtual void OnDestroy()
+    /// <summary>
+    /// Frees this object's network ID now, rather than when Unity destroys it at the end of the
+    /// frame, for an object that is finished with but not yet gone. The allocator prefers IDs it
+    /// has never issued, so a freed ID isn't handed straight to another object.
+    /// </summary>
+    protected void ReleaseNetId()
     {
         if (indexToObject.TryGetValue(NetId, out IdMonoBehaviour<T, I> registered) && ReferenceEquals(registered, this))
         {
             indexToObject.Remove(NetId);
             idAllocator.Release(NetId);
         }
+    }
+
+    protected virtual void OnDestroy()
+    {
+        ReleaseNetId();
         if (!UnloadWatcher.isUnloading)
             return;
         idAllocator.Reset();

@@ -30,6 +30,12 @@ public static class TrainCarPatch
     {
         if (CarSpawner.Instance.PoolSetupInProgress)
             return;
+        // A car taken from the pool in the frame it was returned still has its old, retired
+        // component (see NetworkedTrainCar.OnDisable): replace it, or the new car loses its
+        // network identity at the end of the frame.
+        NetworkedTrainCar existing = __instance.GetComponent<NetworkedTrainCar>();
+        if (existing != null && existing.Retired)
+            Object.DestroyImmediate(existing);
         __instance.GetOrAddComponent<NetworkedTrainCar>();
     }
 
