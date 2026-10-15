@@ -66,7 +66,8 @@ and a brake-line member digest).
   (`Components/Networking/NetworkLifecycle.cs`; 274c250).
 - Full syncs use the transform instead of the rigidbody while a just-spawned car's body is still
   at its pooled position (c2d0d5f).
-- Stopped cars settle where the host's stopped (#61). The host sends a set reliably on the tick it
+- Stopped cars settle where the host's stopped (#61), including after pile-ups under lag (#63: single
+  cars are placed kinematically, coupled ones driven; see "What the code does"). The host sends a set reliably on the tick it
   stops; clients hold a car the host reports as stopped at the host's position without touching
   its rigidbody unless it is more than 5 cm off, so idle cars sleep like the host's instead of
   being woken and nudged by every resync.
@@ -653,14 +654,32 @@ physics starts at the host's speed with no correction (its local motion never ha
 host). If moving samples stop arriving for 0.5 s the car is handed back to local physics at the
 host's last speed, without the correction term.
 
-A sample under 0.05 m/s means the host's car is stopped, and the client holds its car there
-(`TrainSpeedQueue.Hold`). The sample is not projected and never goes stale. Within 5 cm the
-rigidbody is not touched, because writing a velocity wakes the car and an awake, unbraked car
-creeps and wakes every car on its track (vanilla's `TrainsOptimizer`); before this every 2 s
-resync woke idle client cars. Further off for more than 0.5 s (so a local loco pushing the car
-isn't fought before the host's samples arrive), the car is woken and driven back to within 2 cm at
-0.2-3 m/s, then stopped with zero velocity and left to sleep. A car that can't be moved in 5 s is
-left for 10 s before trying again.
+A sample under 0.01 m/s (vanilla's stationary threshold) means the host's car is stopped, and the
+client holds its car there (`TrainSpeedQueue.Hold`); it is followed again only above 0.05 m/s, so a
+car crawling around the threshold doesn't flip between modes. A held sample is not projected and
+never goes stale. Within 5 cm the rigidbody is not touched: writing a velocity wakes the car, and an
+awake, unbraked car creeps and wakes every car on its track (vanilla's `TrainsOptimizer`). Further
+off for more than 0.5 s (so a local loco pushing the car isn't fought before the host's samples
+arrive):
+
+- **A single car is placed** (#63): made kinematic and slid along the track to the host's spans at
+  0.5 m/s (1 m/s while more than 1 m off), moving its bogies' travellers with `MoveToSpan` and
+  refreshing their `point1`/`point2` as `Bogie.SetTrack` does (vanilla advances a traveller by the
+  bogie's movement since those points; left stale, the first dynamic step threw the bogie). Velocity
+  corrections of cars resting buffer to buffer after a pile-up shoved each other off their places
+  for minutes; placed cars can't be knocked and end at the host's poses, which don't overlap.
+- **A placed car touching other stopped cars is parked**, left kinematic: handed back to physics, the
+  compressed buffer springs it rests against pushed it and its neighbour apart again. It is released
+  when its host car moves or a touching car follows a moving host car; an untouched car is released
+  and sleeps.
+- **A coupled car is driven** back by velocity at 0.2-0.5 m/s, which the coupler joints carry along,
+  then stopped. "Coupled" is the host's trainset (the set the host sent the car with): right after a
+  coupling impact the client applies the coupling a moment later, and placing the car alone as the
+  joint formed held the consist metres off. A coupled car that can't be moved in 10 s is left for
+  10 s.
+
+A moving car touching a held one follows the host's speed only, with no position correction, so it
+doesn't shove the held car off its place.
 
 Full-sync positions are a safety net. The host pose is projected forward by the sample's age
 (capped at 0.5 s); if the car is more than 5 m from it (`POSITION_UPDATE_THRESHOLD` in

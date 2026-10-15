@@ -154,6 +154,36 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         return true;
     }
 
+    /// <summary>
+    /// Moves a kinematic bogie <paramref name="metres"/> along the car's forward axis on its track
+    /// (vanilla doesn't project a kinematic bogie onto the track, so move the traveller too).
+    /// <paramref name="shift"/> is how far it moved in the world, for the car body to follow.
+    /// </summary>
+    public bool TryPlaceAlong(TrainCar car, float metres, out Vector3 shift)
+    {
+        shift = Vector3.zero;
+        if (Bogie == null || Bogie.HasDerailed || Bogie.traveller == null || Bogie.rb == null)
+            return false;
+        float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
+        double span = Bogie.traveller.Span + metres * Bogie.TrackDirectionSign * bogieToCar;
+        // Only along this track: crossing onto the next is vanilla's job (UpdatePointSetTraveller).
+        if (span < 0 || span >= Bogie.traveller.pointSet.span)
+            return false;
+        Vector3d before = Bogie.traveller.worldPosition;
+        // MoveToSpan, not Travel: Travel(offset, 0) leaves the traveller where it is.
+        Bogie.traveller.MoveToSpan(span);
+        // Vanilla advances the traveller by the bogie's movement since point1/point2 (the track
+        // points it last stood between). Left stale, the first dynamic step after placing measured
+        // a large false move, jumped the traveller and threw the bogie there (overshoot, launch).
+        Bogie.point1 = Bogie.traveller.curPoint;
+        int next = Bogie.traveller.curPoint.index + 1;
+        Bogie.point2 = Bogie.traveller.pointSet.points[next < Bogie.traveller.pointSet.points.Length ? next : next - 1];
+        Vector3d after = Bogie.traveller.worldPosition;
+        shift = new Vector3((float)(after.x - before.x), (float)(after.y - before.y), (float)(after.z - before.z));
+        Bogie.rb.MovePosition(Bogie.rb.position + shift);
+        return true;
+    }
+
     private static bool AreAdjacent(RailTrack a, RailTrack b) =>
         a != null && b != null &&
         (a.GetInBranch()?.track == b || a.GetOutBranch()?.track == b ||

@@ -160,12 +160,11 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                     return;
                 }
 
-                // Check if derailed car is actually moving
-                float velocityMagnitude = trainCar.rb.velocity.magnitude;
-                if (velocityMagnitude > VELOCITY_THRESHOLD)
-                {
+                // A derailed car never quite stops (handbrakes don't act on derailed bogies), so
+                // "moving" is whether it has moved 2 cm in the last second: otherwise its endless
+                // slow slide was streamed forever and clients kept chasing it.
+                if (!netTC.Server_DerailedSettled(trainCar.rb.position, tick))
                     anyCarMoving = true;
-                }
             }
             else if (!trainCar.isStationary)
                 anyCarMoving = true;
@@ -273,7 +272,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                 {
                     //Multiplayer.LogDebug(()=>$"Applying TrainPhysicsUpdate to {packet.TrainsetParts[i].NetId}");
                     derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
-                        in packet.TrainsetParts[i], packet.Tick);
+                        in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length);
                 }
                 else
                 {
@@ -295,7 +294,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         {
             if(set.cars[i].TryNetworked(out NetworkedTrainCar networkedTrainCar))
                 derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
-                    in packet.TrainsetParts[i], packet.Tick);
+                    in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length);
             else
                 Multiplayer.LogWarning($"Unable to apply TrainPhysicsUpdate to TrainSet with FirstNetId: {packet.FirstNetId}, NetworkedTrainCar not found!");
         }
