@@ -36,9 +36,10 @@ Every build of `Multiplayer`:
   rebuilds with it embedded. Its fingerprint includes the version and git commit, and a client
   refuses a host whose fingerprint differs, so both peers must run a build of the same commit;
 - copies the mod, its dependencies, `info.json`, `locale.csv` and `LICENSE` into `build/`;
-- runs `post-build.ps1`, which writes the version from `<InformationalVersion>` in
-  `Multiplayer/Multiplayer.csproj` into `info.json` and copies `build/` into the game's
-  `Mods/Multiplayer` folder (or the one installed folder whose `info.json` has Id `Multiplayer`).
+- runs `post-build.ps1`, which writes the build's version (see [Versions](#versions)) into
+  `info.json` and copies `build/` into the game's `Mods/Multiplayer` folder (or the one installed
+  folder whose `info.json` has Id `Multiplayer`). **A Release build installs itself into your game
+  too**, replacing whatever version you play with.
 
 Release additionally signs the DLLs when `Cert-Thumb` is set and zips `build/` to
 `releases/Multiplayer <version>.zip`. Debug builds turn the debug system on by default (see
@@ -121,9 +122,32 @@ gh pr create --base beta
 Don't use GitHub's stacked-PR flow to land a stack: it rewrites the commits, which drops their
 signatures. Merge each PR into `beta` on its own instead.
 
+## Versions
+
+Versions are calendar dates: **`YYYY.M.D.N`**, where N counts the releases built that day
+(`2026.10.15.1`, then `2026.10.15.2`). Players can tell at a glance whether they're on the same
+build. Compatibility between builds isn't the version's job: the protocol fingerprint (the version
+and git commit) decides that, and a client refuses a host whose fingerprint differs.
+
+- **Nothing to bump by hand.** A Release build stamps today's date and the next build number, one
+  past the zips already in `Releases/` for today, and `post-build.ps1` writes it into
+  `info.json`. Deleting today's zips lets a number be reused.
+- **Other builds** (Debug) report the last release's version, read from `info.json`, and leave it
+  alone.
+- **`info.json` is the only place the version is kept.** The manifest pass of a Release build
+  reuses the first pass's version from `build/release-version.txt`, so the DLL, `info.json`, the
+  fingerprint and the zip name agree.
+- **`dvmp-build-number.txt` is separate:** the build's time (`2026.10.15.2240`), for telling the
+  harness's builds apart.
+- **There's no update check.** `info.json` has no `Repository` URL, so mod managers don't offer
+  other forks' builds as updates. Hand out the zip.
+
+The fork used upstream's `0.1.x` numbering up to 0.1.16.15.
+
 ## Releases
 
-- Bump `<InformationalVersion>` in `Multiplayer/Multiplayer.csproj`; the next build writes it into
-  `info.json`, which ships with the mod. Commit both.
-- Add an entry for the version to `CHANGELOG.md` at the repo root.
-- Build Release and run the gate. The zip is in `releases/`.
+- Build Release. It stamps the version, writes `info.json`, puts the zip in `Releases/` and installs
+  it into your game.
+- Add an entry for that version to `CHANGELOG.md` at the repo root.
+- Run the gate, then commit `info.json` and the changelog together.
+- Send the zip. Every player needs the same build.
