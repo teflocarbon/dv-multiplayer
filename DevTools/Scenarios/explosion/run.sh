@@ -28,7 +28,7 @@ compare_once() {
     h.forEach((a,i)=>{const b=c[i];const d=Math.hypot(a.abs.x-b.abs.x,a.abs.z-b.abs.z);
       out.push(a.id+": exploded "+a.exploded+"/"+b.exploded+", derailed "+a.derailed+"/"+b.derailed+", apart "+d.toFixed(2)+" m");
       if(a.exploded!==b.exploded||a.derailed!==b.derailed||d>1)bad.push(a.id);});
-    console.log("   "+out.join(" | ")+" (host/client)"); if(bad.length){console.log("FAIL: peers disagree on "+bad.join(", "));process.exit(1);}' "$h" "$2"; }
+    console.log("   "+out.join(" | ")+" (host/client)"); if(bad.length){console.log("FAIL: peers disagree on "+bad.join(", "));process.exit(1);}' "$h" "$c"; }
 exploded() { $D eval -t $1 -m body -a cars=$2 -f $P/state.cs | node -e 'console.log(Object.values(JSON.parse(require("fs").readFileSync(0,"utf8")).results)[0].result[0].exploded)'; }
 
 echo "== loco fuel explosion (a wagon beside it)"
@@ -39,7 +39,7 @@ $D eval -t client -m coroutine -a car=$L -f $P/boom.cs >/dev/null; sleep 2
 echo "   client's own attempt: nothing happened"
 $D eval -t host -m coroutine -a car=$L -f $P/boom.cs >/dev/null; sleep 8
 [ "$(exploded client $L)" = "true" ] || fail "the client didn't see the host's explosion"
-compare $L,$W "$($D eval -t client -m body -a cars=$L,$W -f $P/state.cs)"
+compare $L,$W
 
 echo "== gasoline tank explosion"
 T=$($D eval -t host -m coroutine 'var c = Trains.SpawnNearPlayer("TankChrome"); c.brakeSystem.SetHandbrakePosition(1f); for (int i = 0; i < 90; i++) yield return null; c.logicCar.LoadCargo(c.cargoCapacity, DV.Globals.G.Types.cargos.First(x => x.id == "Gasoline").v1); for (int i = 0; i < 180; i++) yield return null; ctx.Result = new { id = c.ID };' | field id)
@@ -49,5 +49,5 @@ $D eval -t client -m coroutine -a car=$T -a kind=cargo -f $P/boom.cs >/dev/null;
 echo "   client's own attempt: nothing happened"
 $D eval -t host -m coroutine -a car=$T -a kind=cargo -f $P/boom.cs >/dev/null; sleep 8
 [ "$(exploded client $T)" = "true" ] || fail "the client didn't see the host's cargo explosion"
-compare $T "$($D eval -t client -m body -a cars=$T -f $P/state.cs)"
+compare $T
 echo PASS
