@@ -248,6 +248,35 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 
     #region Client
 
+    // When the host's packets for a trainset keep disagreeing with ours about how many cars it
+    // has, our couplings have drifted from the host's: two cars coupled here that the host has
+    // apart get pulled apart by their corrections against the joint (#64). Restore the host's
+    // topology. A coupling that's only late (the host's physics arrives before its topology
+    // snapshot) clears up well within the delay.
+    private const float TOPOLOGY_MISMATCH_SECONDS = 1f;
+    private readonly Dictionary<int, (float since, float seen)> client_setMismatches = new();
+    private float client_lastTopologyRestore = -100f;
+
+    private void Client_NoteSetMismatch(int firstNetId, Trainset set, int hostCars)
+    {
+        float now = Time.realtimeSinceStartup;
+        if (!client_setMismatches.TryGetValue(firstNetId, out var mismatch) || now - mismatch.seen > 0.5f)
+            mismatch.since = now;
+        mismatch.seen = now;
+        client_setMismatches[firstNetId] = mismatch;
+
+        var client = NetworkLifecycle.Instance.Client;
+        // A deferred snapshot is already being retried.
+        if (client == null || client.TrainTopologyPending || now - mismatch.since < TOPOLOGY_MISMATCH_SECONDS ||
+            now - client_lastTopologyRestore < TOPOLOGY_MISMATCH_SECONDS)
+            return;
+        client_lastTopologyRestore = now;
+        client_setMismatches.Remove(firstNetId);
+        Multiplayer.LogWarning($"Trainset of {set.firstCar.ID} has {set.cars.Count} cars here but {hostCars} on the host " +
+                               $"for {now - mismatch.since:F1} s; restoring the host's couplings");
+        client.RestoreCanonicalTrainTopology();
+    }
+
     public void Client_HandleTrainsetPhysicsUpdate(ClientboundTrainsetPhysicsPacket packet)
     {
         bool derailmentTransition = false;
@@ -281,6 +310,8 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             }
             if (derailmentTransition)
                 NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
+            else
+                Client_NoteSetMismatch(packet.FirstNetId, set, packet.TrainsetParts.Length);
             return;
         }
 

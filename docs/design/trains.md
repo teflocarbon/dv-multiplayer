@@ -42,10 +42,34 @@ with an error after 45 s. Reliable train broadcasts during that window are held 
 delivered afterwards (`HoldForTrainBaseline`; 5a46e9a), not dropped. There is no completion
 digest; the manifest is counts only.
 
-**Clients never break a coupling themselves.** Client coupler joints are unbreakable
-(`Patches/Train/CouplerBreakPatch.cs`); a local break that still happens is undone from the last
-host topology instead of reported, so a hitch can no longer disconnect the hose and vent the brake
-pipe (345783c). Couplings break on the host.
+**Clients never report a coupling break; they follow the host's topology.**
+
+- Coupler joints break at vanilla's 300 MN / 1e8 N·m on host and client
+  (`Patches/Train/CouplerBreakPatch.cs`). That's about a hundred times a real coupler, so normal
+  play never breaks one. Every break is logged as an error with the joint force, both cars'
+  speeds, the coupler gap, derailment and (on a client) what the host has at that end, plus a
+  `train.coupler-broken` debug event. The gate flags any run that logged one.
+- A break on a client is undone from the last host topology instead of reported, so a hitch can't
+  disconnect the hose and vent the brake pipe (345783c).
+- Client joints used to be unbreakable. When a client had two cars coupled that the host had apart,
+  their corrections pulled them apart against a joint that couldn't give, and the cars went wild
+  (#64).
+- A client coupling the host doesn't have, with hoses, splits a brake line, and the host's brake
+  state updates notice that within a couple of seconds and resync the topology. A chain-only
+  coupling leaves the brake lines alone. So a client that keeps receiving physics packets for a
+  trainset with a different number of cars than its own has drifted from the host's couplings,
+  and after a second it reapplies the host's topology
+  (`NetworkTrainsetWatcher.Client_NoteSetMismatch`).
+- Before this, a chain-only client coupling and a host pulling away at 2 m/s threw the client's
+  cars about at up to 140 m/s and 500°/s. Now the client uncouples after 1.4 s, its cars peak at
+  3.4 m/s, and the wagon ends within 0.02 m of the host's.
+- Once joined, a client doesn't couple two cars whose couplers are more than 2 m apart
+  (`TrainTopologyNativeAdapter.MaxCoupleDistance`). Vanilla would make a joint as long as the gap
+  and reel the cars in, which flings them. The rest of the snapshot is applied, and the snapshot
+  stays pending and is retried (couplings only) until the corrections have brought the cars
+  together. The host never defers, and neither does the join baseline.
+- Scenario: `coupler-desync` couples a loco and wagon by the chain on the client only, then pulls
+  the loco away on the host.
 
 **Controls (stage 4): implemented, without the simulation snapshot.** Handbrake, brake-cylinder
 release, fuses and ports are requests carrying an operation ID and expected control revision; the

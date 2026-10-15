@@ -169,8 +169,13 @@ internal static class TrainTopologyNativeAdapter
         return true;
     }
 
+    /// <param name="deferDistantCouplings">
+    /// Leave couplings between couplers more than <see cref="MaxCoupleDistance"/> apart (and their
+    /// hoses and MU cables) for a retry, failing with couple-deferred-too-far once the rest is
+    /// applied. For a client applying the host's topology after joining; never for the host.
+    /// </param>
     internal static bool TryReconcile(TrainTopologyState desired,
-        BrakeLineStateData[] brakeLines, out string failure)
+        BrakeLineStateData[] brakeLines, out string failure, bool deferDistantCouplings = false)
     {
         failure = string.Empty;
         if (!TrainTopologyStateMachine.Validate(desired, out failure))
@@ -191,6 +196,7 @@ internal static class TrainTopologyNativeAdapter
         }
         var chainsBefore = CaptureChains(desired.Endpoints.Select(endpoint =>
             TryResolve(endpoint.Endpoint, out Coupler coupler) ? coupler : null));
+        var deferred = new Dictionary<TrainEndpointId, float>();
 
         try
         {
@@ -199,16 +205,27 @@ internal static class TrainTopologyNativeAdapter
                 DisconnectIncorrectMu(desired);
                 DisconnectIncorrectMechanical(desired);
                 DisconnectIncorrectHoses(desired);
-                ConnectMechanical(desired);
-                ConnectHoses(desired);
-                ConnectMu(desired);
-                ApplyEndpointValues(desired);
-                ApplyBrakeLines(brakeLines);
+                ConnectMechanical(desired, deferDistantCouplings ? deferred : null);
+                ConnectHoses(desired, deferred);
+                ConnectMu(desired, deferred);
+                ApplyEndpointValues(desired, deferred);
+                // A deferred coupling leaves its brake line split here, so no line would match;
+                // the brake state heartbeat keeps the pressures right until the retry couples.
+                if (deferred.Count == 0)
+                    ApplyBrakeLines(brakeLines);
             }
         }
         catch (Exception exception)
         {
             failure = $"reconcile-{exception.GetType().Name}:{exception.Message}";
+            return false;
+        }
+
+        if (deferred.Count > 0)
+        {
+            RefreshChangedChains(chainsBefore);
+            failure = CoupleDeferredFailure +
+                string.Join(",", deferred.Select(pair => $"{pair.Key} {pair.Value:F1} m"));
             return false;
         }
 
@@ -428,7 +445,17 @@ internal static class TrainTopologyNativeAdapter
         }
     }
 
-    private static void ConnectMechanical(TrainTopologyState desired)
+    /// <summary>
+    /// Couplers further apart than this aren't coupled yet. Vanilla makes the joint as long as the
+    /// gap and then reels the cars in, which flings them; the physics corrections bring the cars
+    /// together first (#64).
+    /// </summary>
+    internal const float MaxCoupleDistance = 2f;
+    internal const string CoupleDeferredFailure = "couple-deferred-too-far:";
+
+    /// <param name="deferred">Given: couplings whose couplers are too far apart are left out and
+    /// added here (both endpoints, with the gap).</param>
+    private static void ConnectMechanical(TrainTopologyState desired, Dictionary<TrainEndpointId, float> deferred)
     {
         var byEndpoint = desired.Endpoints.ToDictionary(value => value.Endpoint);
         foreach (TrainEndpointState state in desired.Endpoints.OrderBy(value => value.Endpoint))
@@ -450,6 +477,13 @@ internal static class TrainTopologyNativeAdapter
             Coupler other = secondOwnsChain ? first : second;
 
             bool correctPair = first.coupledTo == second && second.coupledTo == first;
+            float gap = UnityEngine.Vector3.Distance(first.transform.position, second.transform.position);
+            if (!correctPair && deferred != null && gap > MaxCoupleDistance)
+            {
+                deferred[state.Endpoint] = gap;
+                deferred[state.MechanicalPartner.Value] = gap;
+                continue;
+            }
             bool wrongJointOwner = correctPair && IsAttached(
                 secondOwnsChain ? partnerState.ChainState : state.ChainState) &&
                 owner.rigidCJ == null && other.rigidCJ != null;
@@ -466,11 +500,12 @@ internal static class TrainTopologyNativeAdapter
     private static bool IsAttached(TrainChainState state) =>
         state == TrainChainState.AttachedLoose || state == TrainChainState.AttachedTight;
 
-    private static void ConnectHoses(TrainTopologyState desired)
+    private static void ConnectHoses(TrainTopologyState desired, Dictionary<TrainEndpointId, float> deferred)
     {
         foreach (TrainEndpointState state in desired.Endpoints.OrderBy(value => value.Endpoint))
         {
-            if (!state.HosePartner.HasValue || state.Endpoint.CompareTo(state.HosePartner.Value) >= 0)
+            if (!state.HosePartner.HasValue || state.Endpoint.CompareTo(state.HosePartner.Value) >= 0 ||
+                deferred.ContainsKey(state.Endpoint) || deferred.ContainsKey(state.HosePartner.Value))
                 continue;
             TryResolve(state.Endpoint, out Coupler first);
             TryResolve(state.HosePartner.Value, out Coupler second);
@@ -479,12 +514,13 @@ internal static class TrainTopologyNativeAdapter
         }
     }
 
-    private static void ConnectMu(TrainTopologyState desired)
+    private static void ConnectMu(TrainTopologyState desired, Dictionary<TrainEndpointId, float> deferred)
     {
         foreach (TrainEndpointState state in desired.Endpoints.OrderBy(value => value.Endpoint))
         {
             if (!state.MultipleUnitPartner.HasValue ||
-                state.Endpoint.CompareTo(state.MultipleUnitPartner.Value) >= 0)
+                state.Endpoint.CompareTo(state.MultipleUnitPartner.Value) >= 0 ||
+                deferred.ContainsKey(state.Endpoint) || deferred.ContainsKey(state.MultipleUnitPartner.Value))
                 continue;
             TryResolve(state.Endpoint, out Coupler first);
             TryResolve(state.MultipleUnitPartner.Value, out Coupler second);
@@ -495,7 +531,7 @@ internal static class TrainTopologyNativeAdapter
         }
     }
 
-    private static void ApplyEndpointValues(TrainTopologyState desired)
+    private static void ApplyEndpointValues(TrainTopologyState desired, Dictionary<TrainEndpointId, float> deferred)
     {
         foreach (TrainEndpointState state in desired.Endpoints)
         {
@@ -503,7 +539,8 @@ internal static class TrainTopologyNativeAdapter
             coupler.preventAutoCouple = state.PreventAutoCouple;
             if (coupler.hoseAndCock != null && coupler.IsCockOpen != state.CockOpen)
                 coupler.IsCockOpen = state.CockOpen;
-            ApplyChainState(coupler, state.ChainState);
+            if (!deferred.ContainsKey(state.Endpoint)) // its chain goes on with the coupling
+                ApplyChainState(coupler, state.ChainState);
         }
     }
 
