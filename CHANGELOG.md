@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.16.15 (beta)
+
+Mostly trains. Every player needs this version: a game on a different version won't let you join.
+
+### Trains
+- Stopped trains settle properly for everyone, instead of drifting after a bump or jiggling in yards.
+- After a pile-up, crashed cars come to rest in the same places for everyone, even with lag. Derailed cars end up lying the same way for everyone.
+- Cars that end up coupled on your screen but not the host's are uncoupled within about a second, instead of being thrown around.
+- Couplings, hoses and cocks no longer stop syncing partway through a session. It happened when a car was deleted and another one of the same type spawned at the same moment, for example when job trains came and went.
+
+### Joining and connection
+- A host whose game has a broken empty train set (left behind by cars that crashed inside each other) no longer refuses everyone who tries to join.
+
+### Known issues
+- Gadget sync is partial: holes and switches are synced, but removing gadgets isn't finished.
+- Other players can disappear from view in the F3 camera.
+- A fast train can occasionally snap a few metres on a client.
+
 ## 0.1.16.14 (beta)
 
 A big one. The host now has the final say on items, trains, shops, sleep and most of the world, so everyone in a session sees the same game. Every player needs this version: a game on a different version won't let you join.
