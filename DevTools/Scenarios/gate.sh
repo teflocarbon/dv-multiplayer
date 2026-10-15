@@ -20,6 +20,7 @@ runs=( # name | scenario | variables
   "uncouple-moving-loco-lag|uncouple-moving|LAST=LocoDE2 LAG=150 SPEED=10"
   "couple-impact|couple-impact|WAGON_BRAKE=0 LAG=150 SPEEDS=3,5"
   "couple-impact-chain|couple-impact|CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4"
+  "coupler-desync|coupler-desync|LAG=150"
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
@@ -35,6 +36,9 @@ runs=( # name | scenario | variables
   "sandbox-cargo|sandbox-cargo|"
   "player-soak|player-soak|DURATION=120"
 )
+# Coupler joints break at 300 MN, which normal play never reaches: every break is logged as an
+# error, and a run that logged one is flagged (coupler-desync breaks one on purpose).
+coupler_breaks() { local n=0 t; for t in host client; do n=$(( n + $($DVMP logs -t $t -l error -c "Coupler broke" -n 1000 2>/dev/null | grep -c '"message"') )); done; echo $n; }
 failed=0
 for entry in "${runs[@]}"; do
   IFS='|' read -r name dir vars <<<"$entry"
@@ -47,9 +51,10 @@ for entry in "${runs[@]}"; do
   # client (a synced drop) and destroy every mug on the host.
   $DVMP eval -t client -m coroutine --timeout 60 'var inv = DV.InventorySystem.Inventory.Instance; foreach (var go in inv.GetItemsArray(false).Where(g => g != null && g.name.StartsWith("Mug")).ToList()) { inv.DropItemFromHandsOrInventory(go); yield return new WaitForSecondsRealtime(0.1f); } yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
   $DVMP eval -t host -m coroutine --timeout 30 'foreach (var m in UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.World.NetworkedItem>().Where(i => i != null && i.name.StartsWith("Mug")).ToList()) UnityEngine.Object.Destroy(m.gameObject); yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
-  start=$(date +%s)
+  start=$(date +%s); breaks=$(coupler_breaks)
   if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; fi
-  printf '%-32s %s  %3ss  %s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)"
+  breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"
+  printf '%-32s %s  %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
 done
 echo "logs: $LOG_DIR"
 exit $failed

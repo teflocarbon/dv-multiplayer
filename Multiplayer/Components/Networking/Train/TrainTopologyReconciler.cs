@@ -98,19 +98,35 @@ internal sealed class TrainTopologyReconciler
                 return false;
             }
         }
-        if (!TrainTopologyNativeAdapter.TryReconcile(state, brakeLines, out failure))
+        // Once joined, a coupling between cars still metres apart here waits for the cars to come
+        // together (TrainTopologyNativeAdapter.MaxCoupleDistance). Everything else in the snapshot
+        // is applied and it counts as the current topology, so a replay never rolls back to an
+        // older one; it stays pending until the retry makes the coupling. The retry only couples:
+        // the snapshot's brake pipe pressures and controls went in the first time, and applying
+        // them again would roll back what has changed since.
+        bool retry = packet == lastApplied;
+        bool deferred = false;
+        if (!TrainTopologyNativeAdapter.TryReconcile(state,
+                retry ? Array.Empty<BrakeLineStateData>() : brakeLines, out failure,
+                deferDistantCouplings: BaselineApplied))
         {
             pending = packet;
-            return false;
+            if (!failure.StartsWith(TrainTopologyNativeAdapter.CoupleDeferredFailure))
+                return false;
+            deferred = true;
         }
-        foreach (TrainControlRevisionData control in controlRevisions)
-            if (NetworkedTrainCar.TryGet(control.CarNetId, out NetworkedTrainCar car))
-                car.Client_SetControlRevision(control.Revision);
-        foreach (TrainControlStateData control in controlStates)
-            if (NetworkedTrainCar.TryGet(control.CarNetId, out NetworkedTrainCar car))
-                car.Client_ReceiveControlState(control);
+        if (!retry)
+        {
+            foreach (TrainControlRevisionData control in controlRevisions)
+                if (NetworkedTrainCar.TryGet(control.CarNetId, out NetworkedTrainCar car))
+                    car.Client_SetControlRevision(control.Revision);
+            foreach (TrainControlStateData control in controlStates)
+                if (NetworkedTrainCar.TryGet(control.CarNetId, out NetworkedTrainCar car))
+                    car.Client_ReceiveControlState(control);
+        }
 
-        pending = null;
+        if (!deferred)
+            pending = null;
         lastApplied = packet;
         Revision = packet.TopologyRevision;
         if (packet.BaselineId != 0)
@@ -120,7 +136,7 @@ internal sealed class TrainTopologyReconciler
         }
         else if (BaselineId != 0 && baselineSnapshotReceived)
             BaselineApplied = true;
-        return true;
+        return !deferred;
     }
 
     internal bool ReapplyCurrent(out string failure)
@@ -136,7 +152,20 @@ internal sealed class TrainTopologyReconciler
             (lastApplied.Endpoints ?? Array.Empty<TrainEndpointStateData>())
                 .Select(endpoint => endpoint.ToCore()));
         return TrainTopologyNativeAdapter.TryReconcile(state,
-            lastApplied.BrakeLines ?? Array.Empty<BrakeLineStateData>(), out failure);
+            lastApplied.BrakeLines ?? Array.Empty<BrakeLineStateData>(), out failure,
+            deferDistantCouplings: BaselineApplied);
+    }
+
+    /// <summary>What the host's last applied topology has at one end of a car, for logs.</summary>
+    internal string DescribeEndpoint(ushort carNetId, TrainEnd end)
+    {
+        TrainEndpointStateData endpoint = lastApplied?.Endpoints?.FirstOrDefault(e =>
+            e != null && e.CarNetId == carNetId && e.End == end);
+        if (endpoint == null)
+            return "unknown (no topology for this car yet)";
+        return endpoint.HasMechanicalPartner
+            ? $"coupled to {endpoint.MechanicalPartnerCarNetId} ({endpoint.MechanicalPartnerEnd})"
+            : "uncoupled";
     }
 
     internal bool TryApplyPending(out string failure)

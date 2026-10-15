@@ -96,6 +96,8 @@ bash DevTools/Scenarios/gate.sh
 ONLY="rejoin recall" bash DevTools/Scenarios/gate.sh
 ```
 
+A run that logged a coupler break (an error on either peer) is flagged with `[N coupler break(s) logged]`; normal play never breaks one.
+
 `ONLY` takes scenario or run names. Each run's output goes to `$LOG_DIR/<run>.log` (default a new
 temp directory, printed at the end). `DVMP` points at the CLI (default
 `DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`).
@@ -109,6 +111,7 @@ temp directory, printed at the end). `DVMP` points at the CLI (default
 | `manual-uncouple` | `N=3`; `MODE=recouple N=3 LAG=150` | Client uncouples by hand (cocks, hoses, screw, chain); both peers agree and the wagon stays when the host drives off. `recouple` couples again by hand and the wagon must follow. |
 | `uncouple-moving` | default; `LAST=LocoDE2 LAG=150 SPEED=10` | Host uncouples the last car on the move and shoves back into it; the client sees it roll free and agrees on where it ends up and whether it is coupled. |
 | `couple-impact` | `WAGON_BRAKE=0 LAG=150 SPEEDS=3,5`; `CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4` | Coupling while the buffers bounce after a hard hit; both peers agree whether the cars are coupled and the wagon follows (or stays) when the host pulls away. |
+| `coupler-desync` | `LAG=150` | The client has a loco and wagon coupled by the chain (no hoses) that the host has apart, and the host pulls the loco away. The client's cars never move or spin far beyond the host's, and both peers end up uncoupled with the wagon where the host has it. |
 | `fps-drop` | default | The client's frame rate is cut to 6 FPS while riding a moving train; its train stays close to the host's and recovers. |
 | `host-stall` | `SPEED=10 LAG=150` | The host stalls at about 2 FPS with a braked train at speed; no coupling, hose or cock is lost, the brake pipe holds and both agree where it stops. |
 | `client-derail` | default | A car derailed on the client only is put back on the host's track, still coupled, without touching the host's train. |

@@ -2323,6 +2323,12 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableOrdered);
     }
 
+    /// <summary>A topology snapshot is waiting to be applied (and being retried).</summary>
+    internal bool TrainTopologyPending => trainTopology.HasPending;
+
+    internal string DescribeHostCoupling(ushort carNetId, TrainEnd end) =>
+        trainTopology.DescribeEndpoint(carNetId, end);
+
     internal void RestoreCanonicalTrainTopology()
     {
         if (trainTopology.ReapplyCurrent(out string failure))
