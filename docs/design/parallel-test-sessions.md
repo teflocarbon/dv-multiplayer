@@ -1,7 +1,7 @@
 # Parallel dvmp test sessions
 
-> Status: steps 1-3 and 6 are built (sessions, ports, launch lock, the parallel gate runner); see
-> [Results](#results). Step 7 (lean harness games) is on `perf/lean-harness-games`. Steps 4
+> Status: steps 1-3, 6 and 7 are built (sessions, ports, launch lock, the parallel gate runner,
+> lean harness games); see [Results](#results). Three pairs fit on the reference machine. Steps 4
 > (MCP), 5 (separate user data) and 8 (docs) are still to do. Findings below were checked against
 > the code on 2026-10-14.
 
@@ -223,6 +223,26 @@ streaming. Step 7 adds the following, active only when the game was launched by 
   loads from its own scene (`railwayScenePath`), so smaller ranges only drop scenery.
 - **Live values in the harness snapshot** (`textureMemoryMb`, streamer ranges and loaded tile
   counts), so the effect can be measured.
+
+**Measured (2026-10-15),** per game at the gate's start position, after a minute's settling:
+
+| | Before | Texture limit 2, 512 MB budget |
+|---|---|---|
+| VRAM | 4.7-5.0 GB | 2.9-3.0 GB |
+| Textures loaded (Unity) | 2,160 MB | 588 MB |
+| RAM (working set) | 5.2-5.3 GB | 5.0-5.3 GB |
+| Committed memory | 11.3 GB | 9.2 GB |
+
+- **The budget made the biggest difference.** DV sets it to about 16.9 GB, so streamed textures
+  were never trimmed: games kept 2.2 GB of textures when Unity only wanted 660 MB.
+- **Two pairs used 22.4 GB of the 24 GB card before, and 14.5 GB after.** Three pairs (six
+  games) use 20.6 GB of VRAM and leave about 10 GB of RAM free. That's the most this machine
+  should run: RAM is now the limit.
+- **RAM is mostly the game itself:** about 3.1-3.4 GB of Unity allocations and a 0.9-1.3 GB
+  Mono heap per game.
+- **The streaming ranges are left off** (`-1`, DV's near 1 and far 2 tiles). Changing them at
+  runtime didn't unload any tiles until the player crossed into a new one, and distant scenery is
+  a small share of the memory anyway.
 
 ## Results
 
