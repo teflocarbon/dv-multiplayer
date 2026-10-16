@@ -122,11 +122,10 @@ jobs:
             if (-not (Test-Path "build/$f")) { "::error::build/$f is missing."; exit 1 }
             Copy-Item "build/$f" package/
           }
-          $version = (Get-Content build/info.json -Raw | ConvertFrom-Json).Version
           $build = (Get-Content build/dvmp-build-number.txt -Raw).Trim()
           $sha = "${{ github.event.pull_request.head.sha || github.sha }}".Substring(0, 8)
           $source = if ('${{ github.event_name }}' -eq 'pull_request') { "pr${{ github.event.pull_request.number }}" } else { '${{ github.ref_name }}' }
-          "name=Multiplayer $version debug $source $build $sha" >> $env:GITHUB_OUTPUT
+          "name=Multiplayer debug $build $source $sha" >> $env:GITHUB_OUTPUT
 
       - name: Upload the Debug build
         uses: actions/upload-artifact@v4
