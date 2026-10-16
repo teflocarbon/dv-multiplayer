@@ -33,11 +33,11 @@ public static class ExplosionSync
     private static bool IsHostWithPlayers =>
         NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server != null;
 
-    private static readonly AccessTools.FieldRef<CargoReactionBase, TrainCar> ReactionCar =
+    internal static readonly AccessTools.FieldRef<CargoReactionBase, TrainCar> ReactionCar =
         AccessTools.FieldRefAccess<CargoReactionBase, TrainCar>("trainCar");
 
     // Cargo reactions live on the car's interior, which isn't under the car in the hierarchy.
-    private static CargoReactionBase[] CargoReactions(TrainCar car) =>
+    internal static CargoReactionBase[] CargoReactions(TrainCar car) =>
         car.interior != null ? car.interior.GetComponentsInChildren<CargoReactionBase>(true) : car.GetComponentsInChildren<CargoReactionBase>(true);
 
     internal static void HostExploded(Component component, Kind kind)

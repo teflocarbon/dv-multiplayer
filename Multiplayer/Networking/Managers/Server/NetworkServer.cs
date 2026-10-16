@@ -127,6 +127,7 @@ public class NetworkServer : NetworkManager
     {
         Log($"Server created for {(singlePlayer ? "single player" : "multiplayer")} game");
         HazmatSync.Reset();
+        global::Multiplayer.Patches.Train.CargoFireSync.Clear();
 
         IsSinglePlayer = singlePlayer;
         ServerData = serverData;
@@ -258,6 +259,8 @@ public class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundTrainDeleteRequestPacket, ITransportPeer>(OnServerboundTrainDeleteRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundTrainRerailRequestPacket, ITransportPeer>(OnServerboundTrainRerailRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundSandboxCargoPacket, ITransportPeer>(OnServerboundSandboxCargoPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundSandboxCarDamagePacket, ITransportPeer>(OnServerboundSandboxCarDamagePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundCargoIgnitePacket, ITransportPeer>(OnServerboundCargoIgnitePacket);
         netPacketProcessor.SubscribeReusable<ServerboundTrainSpawnRequestPacket, ITransportPeer>(OnServerboundTrainSpawnRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWorkTrainRequestPacket, ITransportPeer>(OnServerboundWorkTrainRequestPacket);
 
@@ -899,6 +902,15 @@ public class NetworkServer : NetworkManager
     {
         SendPacketToAll(new ClientboundExplosionPacket { CarNetId = carNetId, Kind = (byte)kind, Index = index },
             DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
+    }
+
+    public void SendCargoFire(ushort carNetId, byte index, global::Multiplayer.Patches.Train.CargoFireSync.FireState state, ITransportPeer peer = null)
+    {
+        var packet = new ClientboundCargoFirePacket { CarNetId = carNetId, Index = index, State = (byte)state };
+        if (peer != null)
+            SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+        else
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTiles, excludeSelf: true);
     }
 
     public void SendCargoState(NetworkedTrainCar netTraincar, bool isLoading, byte cargoModelIndex)
@@ -1907,6 +1919,7 @@ public class NetworkServer : NetworkManager
 
             case PlayerLoadingState.ReadyForTiles:
                 HazmatSync.Server_SendAll(peer);
+                global::Multiplayer.Patches.Train.CargoFireSync.Server_SendAll(peer);
                 break;
 
             case PlayerLoadingState.Complete:
@@ -2094,6 +2107,12 @@ public class NetworkServer : NetworkManager
             SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
         else
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTiles, excludeSelf: true);
+    }
+
+    private void OnServerboundCargoIgnitePacket(ServerboundCargoIgnitePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player) && NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car))
+            global::Multiplayer.Patches.Train.CargoFireSync.Server_Ignite(car, packet.Index, packet.Strength, packet.Explode, player.WorldPosition, player.Username);
     }
 
     private void OnServerboundHazmatIgnitePacket(ServerboundHazmatIgnitePacket packet, ITransportPeer peer)
@@ -2434,25 +2453,48 @@ public class NetworkServer : NetworkManager
     // The comms radio reaches about 100 m; allow for the car moving while the request travels.
     private const float MaxSandboxCargoDistance = 200f;
 
-    private void OnServerboundSandboxCargoPacket(ServerboundSandboxCargoPacket packet, ITransportPeer peer)
+    // The radio's sandbox tools (cargo loader, damage) are only there when the host's settings make
+    // them available, as vanilla's CommsRadioController decides; and only for a car in range.
+    private bool TrySandboxRadioCar(ITransportPeer peer, ushort carNetId, string tool, out ServerPlayer player, out TrainCar car)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
-        // The loader is a sandbox tool: only when the host's settings make it available.
+        car = null;
+        if (!TryGetServerPlayer(peer, out player))
+            return false;
         GameParams gameParams = Globals.G.GameParams;
         bool freeRoam = DV.UserManagement.UserManager.Instance.CurrentUser.CurrentSession.GameMode.Equals("FreeRoam");
         if (!(gameParams.CommsRadioSandboxCheatMode && freeRoam || gameParams.CommsRadioCheatMode))
         {
-            LogWarning($"{player.Username} used the sandbox cargo loader, but it isn't enabled");
-            return;
+            LogWarning($"{player.Username} used the {tool}, but it isn't enabled");
+            return false;
         }
-        if (!NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) || car == null || car.logicCar == null)
-            return;
+        if (!NetworkedTrainCar.TryGet(carNetId, out car) || car == null || car.logicCar == null)
+            return false;
         if ((player.WorldPosition - car.transform.position).sqrMagnitude > MaxSandboxCargoDistance * MaxSandboxCargoDistance)
         {
-            LogWarning($"{player.Username} used the sandbox cargo loader on {car.ID} from too far away");
+            LogWarning($"{player.Username} used the {tool} on {car.ID} from too far away");
+            return false;
+        }
+        return true;
+    }
+
+    private void OnServerboundSandboxCarDamagePacket(ServerboundSandboxCarDamagePacket packet, ITransportPeer peer)
+    {
+        if (!TrySandboxRadioCar(peer, packet.CarNetId, "radio's damage mode", out _, out TrainCar car))
+            return;
+        if (packet.Derail)
+        {
+            car.Derail();
             return;
         }
+        // What vanilla's CommsRadioDamage does, on the host's car.
+        float level = Mathf.Clamp(packet.DamageLevel, 1, 10);
+        car.GetComponent<TrainCarCollisions>()?.CarDamaged?.Invoke(car.CarDamage.maxHealth * (level / 10f), Vector3.zero);
+    }
+
+    private void OnServerboundSandboxCargoPacket(ServerboundSandboxCargoPacket packet, ITransportPeer peer)
+    {
+        if (!TrySandboxRadioCar(peer, packet.CarNetId, "sandbox cargo loader", out ServerPlayer player, out TrainCar car))
+            return;
 
         if (car.LoadedCargo != CargoType.None)
             car.logicCar.UnloadCargo(car.LoadedCargoAmount, car.LoadedCargo);

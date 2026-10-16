@@ -25,8 +25,10 @@ own player is also a client and goes through the same request paths unless noted
 | Generic switches | Host | Yes (`ReadyForWorldState`) | Synced, reach-checked |
 | Drilled holes in the world | Host | Yes (`ReadyForWorldState`) | Join only |
 | Explosions | Host | Exploded flag in train baseline | Synced |
+| Car cargo fires | Host | Yes (`ReadyForTiles`) | Synced; client lighters and flares validated |
 | Hazmat ground tiles | Host | Yes (`ReadyForTiles`) | Synced every 12 ticks |
 | Sandbox cargo loader | Host | Via train baseline | Synced, validated |
+| Comms radio damage and derail | Host | Via health and train sync | Synced, validated |
 
 ## Join order
 
@@ -329,6 +331,30 @@ On join a car's exploded state comes with the train baseline (`TrainsetSpawnPart
 Scenario: `DevTools/Scenarios/explosion` (a client can't set off loco or tank-car explosions; a host
 explosion leaves both peers with the same burnt car, derailments and positions).
 
+## Car cargo fires
+
+A car's cargo reaction (`CargoReactionBase`) runs every frame on every game: a leak lit by a lighter
+or flare, a burning ground tile, a random roll for self-ignition, being put out. Each game decided
+on its own, so a car could burn on one screen only, and a client's burning car never exploded: its
+countdown is blocked, and the host's car wasn't burning.
+
+`Patches/Train/CargoFirePatch.cs` (`CargoFireSync`) makes the host decide:
+
+- Host: after each reaction's `Update`, if its state (burning, about to explode) changed since it
+  was last sent, it sends `ClientboundCargoFirePacket` (car NetId, the reaction's index among the
+  car's cargo reactions, state) to players at `ReadyForTiles` or later. A joining player gets every
+  burning car at `ReadyForTiles`.
+- Client: the reaction is held to the host's state before and after its own `Update`, so nothing
+  local lights it or puts it out. Its fire effects follow the state. The countdown it then runs
+  ends at the blocked `ExplodeCargo` until the host's explosion arrives, with the warning sound.
+- A client's `TryIgniteExternally` or `TryExplodeExternally` reached from an item's igniter
+  (`Igniter.IgniteNow`: a lighter or flare) sends `ServerboundCargoIgnitePacket` instead. The host
+  does it on its own car if the player is within 60 m. Other ignitions on a client (an explosion it
+  replays lighting the cars around it) are dropped: the host does those itself.
+
+Scenario: `DevTools/Scenarios/car-fire` (a client's radio damage makes a tank leak, its lighter
+lights it, and it burns and explodes on both peers; a tank the host lights burns for the client).
+
 ## Hazmat ground tiles
 
 Vanilla `HazmatTileManager` keeps an 8 m grid of tiles holding spilled liquids and fire, corrosion,
@@ -370,6 +396,12 @@ clients and sends `ServerboundSandboxCargoPacket` (car NetId, cargo NetId, 0 to 
 (`CommsRadioCheatMode`, or `CommsRadioSandboxCheatMode` in free roam) and the player within 200 m of
 the car. It unloads any current cargo, then loads a full car if the cargo type exists and
 `IsLoadableOnCarType` for the car. The cargo sync shows the result to everyone.
+
+The radio's damage mode (`Patches/CommsRadio/CommsRadioDamagePatch.cs`) was local the same way: a
+client damaged or derailed its copy of the car, and the host, which owns car health and the train
+physics, never knew (#74). On a client it sends `ServerboundSandboxCarDamagePacket` (car NetId,
+damage level 1-10, or derail). The host applies the same checks as the cargo loader, then does what
+vanilla does on its own car; the health and train sync show it to everyone.
 
 The other comms radio modes (car spawner, deleter, rerail, crew vehicle) are train requests; see
 [design/trains.md](design/trains.md).
