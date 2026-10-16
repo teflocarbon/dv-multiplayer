@@ -81,6 +81,12 @@ topology snapshot then waited for that car, so couplings stopped syncing for the
 `OnDisable` frees the net ID at once and marks the component retired, and `TrainCarPatch`
 replaces a retired component when the pool hands the car out. Scenario: `car-pool-reuse`.
 
+A car deleted twice (DV's slow bulk delete, `DeleteTrainCarsFromTrack`, still holding a car that
+`DeleteCar` then deleted) threw inside the bulk delete's coroutine, which stopped with cars
+switched off but never deleted. They stayed in their trainsets, unnetworked, and every join failed
+on them (#84). `CarSpawnerPatch` now skips a car that's already deleted (no logic car), and the join
+baseline skips a trainset whose cars are all deleted. Scenario: `car-delete`.
+
 **Controls (stage 4): implemented, without the simulation snapshot.** Handbrake, brake-cylinder
 release, fuses and ports are requests carrying an operation ID and expected control revision; the
 host applies them and answers with `ClientboundTrainControlCommitPacket`. The thresholded
