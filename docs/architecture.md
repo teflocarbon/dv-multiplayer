@@ -275,6 +275,12 @@ Notes on the steps:
 - **Items** have no snapshot step: from `ReadyForItems` the item manager's tick creates items as
   they enter the player's interest. A rejoining player's inventory comes back the same way: the
   host kept the records, and they're bound to the player at login.
+- **Loading screen.** `DisplayLoadingInfoPatch` unhooks the loading screen from
+  `WorldStreamingInit.LoadingFinished`, so it stays up through the sync. `RemoveLoadingScreen` takes
+  it down, and the client then makes sure it has left loading mode
+  (`LoadingScreenManager.FinishLoading()`), even if the loading screen object is gone. In VR that's
+  what turns the gloves and the teleport pointer back on; the VR loading overlay closes by itself at
+  100%, so a client left in loading mode is in the world without them (#72).
 - `ReadyForCustomizers` exists in the enum but the client never sends it. The client waits a
   fixed 0.25–0.5 s between the later states; there is no completion acknowledgement for items.
 

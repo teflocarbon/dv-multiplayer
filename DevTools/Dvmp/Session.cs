@@ -191,8 +191,14 @@ internal static class Session
             ["guid"] = ClientGuid
         });
         Mark("client: waiting for world");
-        return await WaitUntilAsync(clientAgent.Pid, a => a.Role == "client" && WorldLoaded(a), TimeSpan.FromSeconds(300),
+        await WaitUntilAsync(clientAgent.Pid, a => a.Role == "client" && WorldLoaded(a), TimeSpan.FromSeconds(300),
             "client world load", failFast: ClientDisconnectAsync);
+        // The world loads before the host has synced it: the join is done when the host's "remove
+        // loading screen" has taken the client out of loading mode. A client left in it (in VR: no
+        // teleport, their own controllers showing; #72) fails here instead of counting as joined.
+        Mark("client: waiting for the loading screen");
+        return await WaitUntilAsync(clientAgent.Pid, a => !LoadingScreen(a), TimeSpan.FromSeconds(120),
+            "client leaving loading mode (LoadingScreenManager.IsLoading)", failFast: ClientDisconnectAsync);
     }
 
     // Installed at the main menu so everything that happens while the world loads is recorded.
@@ -261,12 +267,16 @@ internal static class Session
         if (!File.Exists(Paths.GameExe)) throw new Exception($"game not found at {Paths.GameExe} (set DVMP_DV_DIR)");
         string logs = Sessions.LogsDir;
         Directory.CreateDirectory(logs);
+        // Keep the last game's log: a relaunch after a failure (the gate recovering a pair) would
+        // otherwise overwrite the one log that says what went wrong.
+        string log = Path.Combine(logs, role + ".log");
+        try { if (File.Exists(log)) File.Copy(log, Path.Combine(logs, role + ".prev.log"), overwrite: true); } catch (IOException) { }
         string args = string.Join(" ",
             "-nonvr",
             "-screen-fullscreen 0",
             $"-screen-width {o.Width}",
             $"-screen-height {o.Height}",
-            $"-logFile \"{Path.Combine(logs, role + ".log")}\"",
+            $"-logFile \"{log}\"",
             $"-dvmp-role {role}",
             Sessions.IsDefault ? string.Empty : $"-dvmp-session {Sessions.Current}",
             $"-dvmp-fps {o.FpsCap}",
@@ -348,6 +358,8 @@ internal static class Session
     }
 
     private static bool WorldLoaded(Agent agent) => agent.Status?["worldLoaded"]?.GetValue<bool?>() == true;
+
+    private static bool LoadingScreen(Agent agent) => agent.Status?["loadingScreen"]?.GetValue<bool?>() == true;
 
     private static async Task<bool> WaitForExitAsync(int pid, TimeSpan timeout)
     {

@@ -10,9 +10,11 @@ cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/rejoin
 U="using Multiplayer.Components.Networking; using Multiplayer.Components.Networking.World; using Multiplayer.Networking.Data.Items;"
+# dvmp up, saying why on failure (its output is otherwise thrown away).
+up() { local out; out=$($D up "$@" 2>&1) || { echo "FAIL: dvmp up: $(echo "$out" | tail -6 | tr -s ' \r\n' ' ')"; exit 1; }; }
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 
-echo "== up"; $D up ${FRESH:+--fresh} >/dev/null
+echo "== up"; up ${FRESH:+--fresh}
 echo "== client holds an item"
 # A fresh mug at the client's feet, so the test doesn't depend on loose items nearby.
 $D eval -t host -m coroutine -u "$U" -a who=client -f DevTools/Scenarios/train-items/spawn-mug.cs >/dev/null
@@ -38,8 +40,8 @@ else
   echo "   $(echo "$r1" | field failures)"; [ "$(echo "$r1" | field pass)" = "true" ] || { echo "FAIL after disconnect"; exit 1; }
 fi
 
-echo "== client rejoins"; $D up >/dev/null
-$D eval -t client -m coroutine 'yield return new WaitForSeconds(8);' >/dev/null
+echo "== client rejoins"; up
+$D eval -t client -m coroutine 'yield return new WaitForSeconds(8);' >/dev/null || { echo "FAIL: the rejoined client stopped answering"; exit 1; }
 r2=$($D eval -t client -m body -u "$U" -a names=$names -a slots=$slots -f $P/after-rejoin.cs)
 echo "   owned $(echo "$r2" | field owned): $(echo "$r2" | field failures)"; m=$(echo "$r2" | field moved); [ "$m" = "[]" ] || echo "   warning: slots changed $m"
 [ "$(echo "$r2" | field pass)" = "true" ] || { echo "FAIL after rejoin"; exit 1; }
