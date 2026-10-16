@@ -31,6 +31,13 @@ doc when you change how a system syncs.
 `beta` is protected: work on a branch off `beta` and merge through a pull request (merge commits
 only, signed commits). See `docs/development.md`.
 
+## Versions
+
+Calendar versions, `YYYY.M.D.N`: a Release build stamps the version itself and writes it into
+`info.json`, the only place it's kept. Don't hand-edit a version anywhere. A Release build also
+installs itself into the game, replacing the version the user plays: don't build Release just to
+test something. See "Versions" in `docs/development.md`.
+
 ## Decompiled game source
 
 The game assemblies are not obfuscated; decompile with ILSpy (`ilspycmd -p`) when you need vanilla behaviour.

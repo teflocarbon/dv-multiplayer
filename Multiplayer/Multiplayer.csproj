@@ -3,7 +3,18 @@
         <TargetFramework>net48</TargetFramework>
         <LangVersion>latest</LangVersion>
         <RootNamespace>Multiplayer</RootNamespace>
-        <InformationalVersion>0.1.16.15</InformationalVersion>
+        <!-- Versions are calendar dates, YYYY.M.D.N (docs/development.md). A Release build stamps
+             today's date and the next build number for the day, one past the zips already in
+             Releases/, and post-build.ps1 writes it into info.json. Any other build reports the last
+             release's version from info.json. The manifest pass reuses the first pass's version. -->
+        <ReleasesDir>$(MSBuildProjectDirectory)\..\Releases</ReleasesDir>
+        <ReleaseVersionFile>$(MSBuildProjectDirectory)\..\build\release-version.txt</ReleaseVersionFile>
+        <ReleaseDate>$([System.DateTime]::Now.ToString('yyyy.M.d'))</ReleaseDate>
+        <ReleaseBuildNumber Condition="Exists('$(ReleasesDir)')">$([MSBuild]::Add($([System.IO.Directory]::GetFiles('$(ReleasesDir)', 'Multiplayer $(ReleaseDate).*.zip').Length), 1))</ReleaseBuildNumber>
+        <ReleaseBuildNumber Condition="'$(ReleaseBuildNumber)' == ''">1</ReleaseBuildNumber>
+        <InformationalVersion Condition="'$(Configuration)' == 'Release' AND '$(ManifestEmbedPass)' == 'true' AND Exists('$(ReleaseVersionFile)')">$([System.IO.File]::ReadAllText('$(ReleaseVersionFile)').Trim())</InformationalVersion>
+        <InformationalVersion Condition="'$(Configuration)' == 'Release' AND '$(InformationalVersion)' == ''">$(ReleaseDate).$(ReleaseBuildNumber)</InformationalVersion>
+        <InformationalVersion Condition="'$(InformationalVersion)' == ''">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\info.json')), '"Version"\s*:\s*"([^"]+)"').Groups[1].Value)</InformationalVersion>
         <DvmpBuildNumberFile>$(MSBuildProjectDirectory)\..\build\dvmp-build-number.txt</DvmpBuildNumberFile>
         <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == '' AND '$(ManifestEmbedPass)' == 'true' AND Exists('$(DvmpBuildNumberFile)')">$([System.IO.File]::ReadAllText('$(DvmpBuildNumberFile)').Trim())</DvmpBuildNumber>
         <DvmpBuildNumber Condition="'$(DvmpBuildNumber)' == ''">$([System.DateTime]::Now.ToString('yyyy.MM.dd.HHmm'))</DvmpBuildNumber>
@@ -133,6 +144,8 @@
     <Target Name="WriteDvmpBuildNumber" BeforeTargets="GenerateAssemblyInfo">
         <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(DvmpBuildNumberFile)'))" />
         <WriteLinesToFile File="$(DvmpBuildNumberFile)" Lines="$(DvmpBuildNumber)" Overwrite="true" />
+        <!-- For the manifest pass, which would otherwise count this build's own zip. -->
+        <WriteLinesToFile Condition="'$(Configuration)' == 'Release' AND '$(ManifestEmbedPass)' != 'true'" File="$(ReleaseVersionFile)" Lines="$(InformationalVersion)" Overwrite="true" />
     </Target>
     <Target Name="PostBuild" AfterTargets="PostBuildEvent" DependsOnTargets="PostBuildMacros">
         <!-- Sign Assemblies if in 'Release' -->

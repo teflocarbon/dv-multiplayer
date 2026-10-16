@@ -8,6 +8,5 @@
     "LoadAfter":  [
                       "RemoteDispatch"
                   ],
-    "HomePage":  "https://www.nexusmods.com/derailvalley/mods/1070",
-    "Repository":  "https://raw.githubusercontent.com/AMacro/dv-multiplayer/refs/heads/beta/releases.json"
+    "HomePage":  "https://www.nexusmods.com/derailvalley/mods/1070"
 }
