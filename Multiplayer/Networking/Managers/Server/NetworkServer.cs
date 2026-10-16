@@ -1801,6 +1801,13 @@ public class NetworkServer : NetworkManager
                         LogWarning($"Skipping an empty trainset ({set?.id}) in the rolling-stock baseline");
                         continue;
                     }
+                    // Nor does one whose cars are all deleted (switched off and no longer
+                    // networked), which a car deleted twice used to leave behind (#84).
+                    if (!set.cars.Any(car => car != null && car.gameObject.activeInHierarchy && car.TryNetworked(out _)))
+                    {
+                        LogWarning($"Skipping trainset {set.id} in the rolling-stock baseline: its cars ({string.Join(", ", set.cars.Where(car => car != null).Select(car => car.ID))}) are deleted");
+                        continue;
+                    }
                     try
                     {
                         ClientboundSpawnTrainSetPacket spawnPacket =

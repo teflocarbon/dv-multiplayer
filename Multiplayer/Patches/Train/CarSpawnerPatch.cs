@@ -9,19 +9,41 @@ namespace Multiplayer.Patches.Train;
 [HarmonyPatch(typeof(CarSpawner))]
 public static class CarSpawner_Patch
 {
+    // A car deleted twice threw in DV's slow bulk delete: DeleteCar on a car that
+    // DeleteTrainCarsFromTrack (the yard's cleanup, for one) still held. The throw stopped that
+    // delete's coroutine, and every car it had already switched off was never deleted: each stayed
+    // in its trainset with no NetworkedTrainCar, and the host refused every join until it restarted
+    // (#84). A deleted car has no logic car until DV's pool hands it out again; skip it.
+    private static bool AlreadyDeleted(TrainCar trainCar) => trainCar != null && trainCar.logicCar == null;
+
     [HarmonyPatch(nameof(CarSpawner.PrepareTrainCarForDeleting))]
     [HarmonyPrefix]
-    private static void PrepareTrainCarForDeleting(TrainCar trainCar)
+    private static bool PrepareTrainCarForDeleting(TrainCar trainCar)
     {
+        if (AlreadyDeleted(trainCar))
+        {
+            Multiplayer.LogWarning($"{trainCar.name} is already deleted, not deleting it again");
+            return false;
+        }
+
         if (UnloadWatcher.isUnloading)
-            return;
+            return true;
 
         if (trainCar == null || !trainCar.TryNetworked(out NetworkedTrainCar networkedTrainCar))
-            return;
+            return true;
 
         networkedTrainCar.IsDestroying = true;
 
         NetworkLifecycle.Instance.Server?.SendDestroyTrainCar(networkedTrainCar);
+        return true;
+    }
+
+    [HarmonyPatch(nameof(CarSpawner.ActuallyDeletingTrainCar))]
+    [HarmonyPrefix]
+    private static bool ActuallyDeletingTrainCar(TrainCar trainCar)
+    {
+        // Returning a deleted car to the pool again would let the pool hand the same car out twice.
+        return !AlreadyDeleted(trainCar);
     }
 
     [HarmonyPatch(nameof(CarSpawner.SpawnCars))]
