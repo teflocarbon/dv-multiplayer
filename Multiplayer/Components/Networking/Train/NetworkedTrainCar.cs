@@ -8,6 +8,7 @@ using DV.MultipleUnit;
 using DV.Simulation.Brake;
 using DV.Simulation.Cars;
 using DV.Simulation.Controllers;
+using DV.Simulation.Ports;
 using DV.ThingTypes;
 using JetBrains.Annotations;
 using LocoSim.Definitions;
@@ -285,6 +286,12 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private Dictionary<InteriorControlsManager.ControlType, OverridableBaseControl> controlTypeToControl = [];
     private readonly Dictionary<uint, OverridableBaseControl> portToBaseControl = [];
     private readonly Dictionary<IScrollable, Coroutine> scrollingControls = [];
+    private readonly Dictionary<ControlImplBase, Action> usedControlDelegates = [];
+    // A control's first port -> the other ports it feeds.
+    private readonly Dictionary<uint, uint[]> linkedPortNetIds = [];
+    // Controls pressed without a grab (VR buttons and switches) whose lease is handed back shortly.
+    private readonly Dictionary<ControlImplBase, Coroutine> usedControlReleases = [];
+    private const float USED_CONTROL_LEASE_SECONDS = 0.5f;
 
     private bool handbrakeDirty;
 
@@ -671,21 +678,24 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         Multiplayer.LogDebug(() => $"HookControls() Hooking controls for car {CurrentID}, found {interiorControlsManager?.controls?.Count} controls");
 
+        // Controls finish setting up over the first frames. Wait for them all at once, up to the
+        // timeout: waiting for each in turn let every control with no port (handbrake, fuses) use up
+        // the whole timeout, holding up the ones after it by seconds.
+        float timeOut = Time.time;
+        yield return new WaitUntil
+        (
+            () =>
+                interiorControlsManager.controls.Values.All(ControlReady) ||
+                Time.time - timeOut > INTERIOR_CONTROLS_TIMEOUT
+        );
+
         // Find all control overrides
         foreach (var kvp in interiorControlsManager.controls)
         {
             var control = kvp.Value;
             var key = kvp.Key;
 
-            float timeOut = Time.time;
-            yield return new WaitUntil
-            (
-                () =>
-                    (control.controlImplBase != null && !string.IsNullOrEmpty(control.overridableBaseControl?.portId)) ||
-                    Time.time - timeOut > INTERIOR_CONTROLS_TIMEOUT
-            );
-
-            var controlPortId = control.overridableBaseControl?.portId;
+            var controlPortId = ControlPortId(control);
 
             if (string.IsNullOrEmpty(controlPortId))
             {
@@ -702,26 +712,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 continue;
             }
 
-            // Check for ObiRopeGrabHandler used by steam whistles
-            ObiRopeGrabAreaHandler ObiGrabHandler = control.controlImplBase?.transform?.parent?.GetComponentInChildren<ObiRopeGrabAreaHandler>(false);
-            if (ObiGrabHandler != null)
-            {
-                // Handle grab/ungrab events
-                ObiGrabHandler.Grabbed += Client_ControlGrabbed;
-                ObiGrabHandler.Ungrabbed += Client_ControlUngrabbed;
-
-                portNetIdToControl[netId] = ObiGrabHandler;
-                controlToPortNetId[ObiGrabHandler] = netId;
-            }
-            else
-            {
-                // Standard control grab/ungrab events
-                control.controlImplBase.Grabbed += Client_ControlGrabbed;
-                control.controlImplBase.Ungrabbed += Client_ControlUngrabbed;
-
-                portNetIdToControl[netId] = control.controlImplBase;
-                controlToPortNetId[control.controlImplBase] = netId;
-            }
+            HookControl(control.controlImplBase, netId);
 
             // Handle scroll events for scrollable controls
             if (control.scrollable != null)
@@ -730,12 +721,21 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 scrollableControlDelegates[control.controlImplBase] = ScrollChanged;
                 control.controlImplBase.ValueChanged += ScrollChanged;
             }
+        }
 
-            if (portNetIdToBlockState.TryGetValue(netId, out var isBlocked) && isBlocked)
-            {
-                Multiplayer.LogDebug(() => $"WaitForInterior() Control [{controlPortId}, {netId}] is blocked on car {CurrentID}");
-                Client_ReceiveAuthorityUpdate(netId, ControlAuthorityState.Blocked);
-            }
+        // Controls that drive a sim port but aren't in the manager's list, like the DE2's cab fan.
+        foreach (InteractablePortFeeder feeder in interiorControlsManager.GetComponentsInChildren<InteractablePortFeeder>(true))
+        {
+            ControlImplBase implementation = feeder.GetComponent<ControlImplBase>();
+            if (implementation == null || string.IsNullOrEmpty(feeder.portId) || controlToPortNetId.ContainsKey(implementation))
+                continue;
+
+            uint netId = GetPortNetId(feeder.portId);
+            if (portNetIdToControl.ContainsKey(netId))
+                continue;
+
+            Multiplayer.LogDebug(() => $"HookControls() Unlisted control [{feeder.portId}] found on car {CurrentID}");
+            HookControl(implementation, netId);
         }
 
         // The initial car-state refresh can arrive before a streamed cabin and its
@@ -745,9 +745,93 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         NetworkLifecycle.Instance?.Client.SendTrainSyncRequest(NetId);
     }
 
+    // Most controls name their port through the controls overrider. Some only through the feeder
+    // that writes them into the simulation: the DE2's wipers, cab light and dash light.
+    private static string ControlPortId(InteriorControlsManager.ControlReference control)
+    {
+        string portId = control.overridableBaseControl?.portId;
+        if (!string.IsNullOrEmpty(portId))
+            return portId;
+        return control.controlImplBase != null ? control.controlImplBase.GetComponent<InteractablePortFeeder>()?.portId : null;
+    }
+
+    // Set up, or never going to have a port: no overrider and no feeder (a handbrake, a fuse).
+    private static bool ControlReady(InteriorControlsManager.ControlReference control)
+    {
+        if (control.controlImplBase == null)
+            return false;
+        return !string.IsNullOrEmpty(ControlPortId(control)) ||
+            (control.overridableBaseControl == null && control.controlImplBase.GetComponent<InteractablePortFeeder>() == null);
+    }
+
+    private void HookControl(ControlImplBase implementation, uint netId)
+    {
+        // Check for ObiRopeGrabHandler used by steam whistles
+        ObiRopeGrabAreaHandler ObiGrabHandler = implementation.transform?.parent?.GetComponentInChildren<ObiRopeGrabAreaHandler>(false);
+        if (ObiGrabHandler != null)
+        {
+            // Handle grab/ungrab events
+            ObiGrabHandler.Grabbed += Client_ControlGrabbed;
+            ObiGrabHandler.Ungrabbed += Client_ControlUngrabbed;
+
+            portNetIdToControl[netId] = ObiGrabHandler;
+            controlToPortNetId[ObiGrabHandler] = netId;
+        }
+        else
+        {
+            // Standard control grab/ungrab events
+            implementation.Grabbed += Client_ControlGrabbed;
+            implementation.Ungrabbed += Client_ControlUngrabbed;
+
+            // Buttons and switches in VR, and keyboard presses, work through Use() and never
+            // raise Grabbed.
+            void Used() => Client_ControlUsed(implementation);
+            usedControlDelegates[implementation] = Used;
+            implementation.Used += Used;
+
+            portNetIdToControl[netId] = implementation;
+            controlToPortNetId[implementation] = netId;
+
+            uint[] linked = implementation.GetComponents<InteractablePortFeeder>()
+                .Where(f => !string.IsNullOrEmpty(f.portId))
+                .Select(f => GetPortNetId(f.portId))
+                .Where(id => id != netId && !portNetIdToControl.ContainsKey(id))
+                .Distinct().ToArray();
+            if (linked.Length > 0)
+            {
+                linkedPortNetIds[netId] = linked;
+                foreach (uint id in linked)
+                    portNetIdToControl[id] = implementation;
+            }
+        }
+
+        if (portNetIdToBlockState.TryGetValue(netId, out var isBlocked) && isBlocked)
+        {
+            Multiplayer.LogDebug(() => $"HookControl() Control [{implementation.name}, {netId}] is blocked on car {CurrentID}");
+            Client_ReceiveAuthorityUpdate(netId, ControlAuthorityState.Blocked);
+        }
+    }
+
     private void OnTrainCarInteriorUnloaded(GameObject interior)
     {
         Multiplayer.LogDebug(() => $"OnTrainCarInteriorUnloaded() {CurrentID}");
+
+        // A control used just before the cab unloads still holds its lease: give it back.
+        foreach (var kvp in usedControlReleases)
+        {
+            if (kvp.Value != null)
+                StopCoroutine(kvp.Value);
+            if (controlToPortNetId.TryGetValue(kvp.Key, out uint usedPortNetId))
+                Client_ReleasePortAuthority(usedPortNetId);
+        }
+        usedControlReleases.Clear();
+
+        foreach (var kvp in usedControlDelegates)
+        {
+            if (kvp.Key != null)
+                kvp.Key.Used -= kvp.Value;
+        }
+        usedControlDelegates.Clear();
 
         foreach (var control in controlToPortNetId.Keys)
         {
@@ -775,8 +859,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             if (kvp.Key != null && kvp.Value != null)
                 kvp.Key.ValueChanged -= kvp.Value;
         }
+        scrollableControlDelegates.Clear();
 
         portNetIdToControl.Clear();
+        linkedPortNetIds.Clear();
         controlToPortNetId.Clear();
 
         interiorControlsManager = null;
@@ -2553,9 +2639,22 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         else
         {
             Multiplayer.LogDebug(() => $"Client_ControlGrabbed() Control [{control.name}, {portNetId}] is not blocked on car {CurrentID}, requesting authority");
-            locallyOwnedPortAuthorities.Add(portNetId);
-            NetworkLifecycle.Instance.Client?.SendTrainControlAuthorityRequest(NetId, portNetId, true);
+            foreach (uint leased in PortsOf(portNetId))
+            {
+                locallyOwnedPortAuthorities.Add(leased);
+                NetworkLifecycle.Instance.Client?.SendTrainControlAuthorityRequest(NetId, leased, true);
+            }
         }
+    }
+
+    // A control's port and any more it feeds (the C Class's bright switch feeds the front and the
+    // rear headlights): they're leased and released together.
+    private IEnumerable<uint> PortsOf(uint portNetId)
+    {
+        yield return portNetId;
+        if (linkedPortNetIds.TryGetValue(portNetId, out uint[] linked))
+            foreach (uint other in linked)
+                yield return other;
     }
 
     private void Client_ControlScrolled(InteriorControlsManager.ControlReference controlRef)
@@ -2571,6 +2670,31 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 Client_ControlGrabbed(controlRef.controlImplBase);
             }
         }
+    }
+
+    // A press without a grab: a VR button or toggle switch (they never raise Grabbed), or a keyboard
+    // shortcut. Used fires before the control changes its value, so leasing here means the change is
+    // sent; the lease is handed back once it has gone out, as for a released grab.
+    private void Client_ControlUsed(ControlImplBase control)
+    {
+        if (control.IsGrabbed() || !controlToPortNetId.TryGetValue(control, out var portNetId))
+            return;
+
+        if (!locallyOwnedPortAuthorities.Contains(portNetId))
+            Client_ControlGrabbed(control);
+
+        if (usedControlReleases.TryGetValue(control, out var pending) && pending != null)
+            StopCoroutine(pending);
+        usedControlReleases[control] = StartCoroutine(Client_ReleaseUsedControl(control));
+    }
+
+    private IEnumerator Client_ReleaseUsedControl(ControlImplBase control)
+    {
+        // Past the next tick, which sends the change.
+        yield return new WaitForSecondsRealtime(USED_CONTROL_LEASE_SECONDS);
+        usedControlReleases.Remove(control);
+        if (control != null && !control.IsGrabbed())
+            Client_ControlUngrabbed(control);
     }
 
     private IEnumerator Client_CheckScrolling(InteriorControlsManager.ControlReference controlRef)
@@ -2636,8 +2760,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         // Authority requests and port commits share ReliableOrdered delivery. Flush the
         // final value before releasing or the server will correctly reject it afterward.
         Common_SendPorts();
-        locallyOwnedPortAuthorities.Remove(portNetId);
-        NetworkLifecycle.Instance.Client?.SendTrainControlAuthorityRequest(NetId, portNetId, false);
+        foreach (uint released in PortsOf(portNetId))
+        {
+            locallyOwnedPortAuthorities.Remove(released);
+            NetworkLifecycle.Instance.Client?.SendTrainControlAuthorityRequest(NetId, released, false);
+        }
     }
 
     public void Client_ReceiveAuthorityUpdate(uint portNetId, ControlAuthorityState state)

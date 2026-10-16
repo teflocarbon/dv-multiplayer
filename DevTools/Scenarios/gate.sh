@@ -26,6 +26,7 @@ runs=( # name | scenario | variables
   "coupler-desync|coupler-desync|LAG=150"
   "derail|pileup|SPEED=25 K=2 N=4 MIN_DERAILED=1 LAG=150"
   "car-pool-reuse|car-pool-reuse|"
+  "cab-controls|cab-controls|"
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
