@@ -14,11 +14,16 @@ Write-Host "Version: $Ver"
 
 $compress
 
-#Update the JSON
+#Update the JSON. The build gets this build's version; the repo's info.json keeps only releases',
+#so a Debug build's dev version never ends up in it.
 $json = Get-Content ($PSScriptRoot + '/info.json') -raw | ConvertFrom-Json
 $json.Version = $Ver
 $modId = $json.Id
-$json | ConvertTo-Json -depth 32| set-content ($PSScriptRoot + '/info.json')
+New-Item -ItemType Directory -Force ($PSScriptRoot + '/build') | Out-Null
+$json | ConvertTo-Json -depth 32| set-content ($PSScriptRoot + '/build/info.json')
+if (!$NoArchive) {
+	Copy-Item ($PSScriptRoot + '/build/info.json') -Destination ($PSScriptRoot + '/info.json')
+}
 
 # Unity Mod Manager folders are user-named and may include the release version.
 # If the configured conventional path is not itself the installed mod, locate the
@@ -55,7 +60,6 @@ if (!$configuredMatches) {
 }
 
 #Copy files to Build Dir
-Copy-Item ($PSScriptRoot + '/info.json') -Destination ("$PSScriptRoot/build/")
 Copy-Item ($Target) -Destination ("$PSScriptRoot/build/")
 Copy-Item ($PSScriptRoot + '/LICENSE') -Destination ("$PSScriptRoot/build/")
 

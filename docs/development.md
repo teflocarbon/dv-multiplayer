@@ -107,8 +107,8 @@ in [testing.md](testing.md#regression-gate).
   anywhere, including on pull requests from forks.
 - **Build and protocol tests** (Windows): Debug builds of the mod and the dev tools, then
   `Multiplayer.Protocol.Tests`. GitHub doesn't give secrets to pull requests from forks, so those
-  skip this job. It uploads the installable mod as an artifact on the run's page, named by build
-  time, branch or PR, and commit (`Multiplayer debug 2026.10.16.0842 beta 1a2b3c4d`): the same
+  skip this job. It uploads the installable mod as an artifact on the run's page, named by its dev
+  version, branch or PR, and commit (`Multiplayer 2026.10.16-dev.0842 beta 1a2b3c4d`): the same
   files as a release zip, installed the same way. Builds of `beta` are kept 90 days, pull
   requests' 14. Every player needs the same build: the fingerprint includes the commit, so two
   builds with the same version still won't join each other.
@@ -166,13 +166,14 @@ and git commit) decides that, and a client refuses a host whose fingerprint diff
 - **Nothing to bump by hand.** A Release build stamps today's date and the next build number, one
   past the zips already in `Releases/` for today, and `post-build.ps1` writes it into
   `info.json`. Deleting today's zips lets a number be reused.
-- **Other builds** (Debug) report the last release's version, read from `info.json`, and leave it
-  alone.
+- **Debug builds are dev builds,** `YYYY.M.D-dev.HHMM` from the build time (`2026.10.16-dev.2014`),
+  so one can't be mistaken for a release. The version goes into the built copy of `info.json` (in
+  `build/` and the installed mod), never the repo's, which keeps the last release's.
 - **`info.json` is the only place the version is kept.** The manifest pass of a Release build
   reuses the first pass's version from `build/release-version.txt`, so the DLL, `info.json`, the
   fingerprint and the zip name agree.
-- **`dvmp-build-number.txt` is separate:** the build's time (`2026.10.15.2240`), for telling the
-  harness's builds apart.
+- **`dvmp-build-number.txt`** is the build's time (`2026.10.15.2240`), for telling the harness's
+  builds apart. A dev build's version is made from it.
 - **There's no update check.** `info.json` has no `Repository` URL, so mod managers don't offer
   other forks' builds as updates. Hand out the zip.
 
