@@ -4,5 +4,6 @@
     "DisplayName": "Multiplayer Dev Tools (debug only)",
     "Author": "Teflo",
     "EntryMethod": "Dvmp.Agent.AgentMain.Load",
-    "ManagerVersion": "0.27.3"
+    "ManagerVersion": "0.27.3",
+    "MultiplayerCompatibility": "Client"
 }
