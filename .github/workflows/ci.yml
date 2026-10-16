@@ -42,7 +42,11 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-latest
     steps:
+      # The branch's own commit, not GitHub's merge of it into the base: the uploaded build should be
+      # exactly that commit, and its fingerprint names it. (Merges into beta are built on push.)
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: |
