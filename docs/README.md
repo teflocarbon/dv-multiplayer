@@ -30,6 +30,12 @@ host-authority model works end to end, then points at the rest.
 | [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | Ownership rules that are decided, and the game-design questions that are still open |
 | [design/item-sync-review.md](design/item-sync-review.md) | The July review of item sync, with the status of each finding |
 
+## Planned
+
+| Doc | What it covers |
+|---|---|
+| [design/dedicated-host.md](design/dedicated-host.md) | The full game as a host with no local player: headless test, streaming far from the host, host-is-a-player assumptions, operations and a staged plan (stage 0, the dvmp host-only mode, is built) |
+
 ## Tooling
 
 | Doc | What it covers |

@@ -35,6 +35,35 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 | `dvmp_desync` | `dvmp desync [-n 6] [-i 1]` | Snapshot real Unity state on host and client repeatedly and report divergences that persist (items, cars, money, junctions). Full report in `%LOCALAPPDATA%\dvmp\reports`. |
 | `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1] [--filter JobOverview]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
 | `dvmp_trace` | `dvmp trace [--ids 12,34]` | Mutation tracer: which code froze/moved/reparented/hid/destroyed an item, with the calling method. `dvmp up --trace` installs it before the world loads. |
+| – | `dvmp up --host-only --session NAME` | Start (or reuse) only a host; see [Host-only sessions](#host-only-sessions). |
+| – | `dvmp perf [-t ...] [-s 10]` | Frame-time percentiles, tick rate, memory (with the retained Mono heap), awake rigidbodies, cars, items, players, and packets per type per second, over a window. |
+
+## Host-only sessions
+
+A "light host" is a harness host that nobody plays: the first stage of
+[dedicated-host.md](../docs/design/dedicated-host.md#recommended-plan). It's also how to compare a
+VR host with a desktop one (#78).
+
+```bash
+dvmp up --host-only --session light --save "DVMP Test Career 2"   # host only; prints port and password
+dvmp up --session light          # optional: join a dvmp client to it (the client-only path)
+dvmp perf --session light -s 30  # sample both games
+dvmp down --session light
+```
+
+- **Named sessions only.** The dev agent also loads in your own Debug game, which is in the default
+  session, so host-only refuses that session rather than risk quitting or mistaking it.
+- **Its own identity.** The host's player is `DVMP-Host` with a fixed GUID, patched in memory by the
+  `host` probe (`playerName`, `playerGuid`). Your own game shares the install's `Settings.xml`, so
+  it can join with its normal identity, to `127.0.0.1:<port>`, without colliding with the host.
+- **30 fps in the background** (`--bg-fps`, default 20 for pairs), so it stays above the mod's
+  24 Hz network tick.
+- Pass `--save`: the launcher's default save may be your real career.
+- `dvmp perf` hooks the mod's per-packet debug calls with Harmony prefixes on its first run. They
+  count every send and receive whether or not the debug system is on, and stay installed until the
+  game quits. The forced GC behind `monoRetained` costs one frame hitch; skip it with
+  `-a retained=false` through `dvmp eval -f Probes/perf.cs`.
+- Not in the MCP tools yet: they have no `session` argument, so use the CLI.
 
 ## Regression scenarios
 

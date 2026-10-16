@@ -12,8 +12,10 @@ internal static class Program
 
           dvmp mcp                                   run as an MCP server over stdio
           dvmp status [--all]                        this session's games, or every session's
-          dvmp up [--fresh] [--save NAME|UID] [--visible] [--fps N] [--sound] [--trace] [--new career|sandbox [--name N]]
+          dvmp up [--fresh] [--save NAME|UID] [--visible] [--fps N] [--bg-fps N] [--sound] [--trace] [--new career|sandbox [--name N]]
                                              start/reuse a joined host + client (minimised, muted)
+          dvmp up --host-only --session NAME [--save ...]   start/reuse only a host, with its own identity,
+                                             for a dvmp client (a later `up`) or your own game to join
           dvmp down [--all]                          quit this session's games (--all: every session's)
           dvmp trace [-t target] [--ids 1,2] [--last N]   install/refresh tracer, show item history
           dvmp desync [-n samples] [-i seconds] [--top N]   cross-peer desync report
@@ -21,6 +23,7 @@ internal static class Program
           dvmp eval [-t target] [-m mode] [-u usings] [-a key=value ...] (CODE | -f FILE)
           dvmp screenshot [-t target] [-w maxWidth] [-o DIR]
           dvmp logs [-t target] [-l minLevel] [-c contains] [-n max]
+          dvmp perf [-t target] [-s seconds]         frame times, memory, physics, players and packets per type
 
         target: host | client | all (default) | pid
         --session NAME (or DVMP_SESSION): act on that host + client pair; several can run at once.
@@ -55,7 +58,9 @@ internal static class Program
                     new UpOptions(args.Contains("--fresh"), Opt(args, "--save"), 960, 540, Arrange: true,
                         Background: !args.Contains("--visible"), FpsCap: int.Parse(Opt(args, "--fps") ?? "30"),
                         Sound: args.Contains("--sound"), Trace: args.Contains("--trace"),
-                        NewSession: Opt(args, "--new"), NewSessionName: Opt(args, "--name")),
+                        NewSession: Opt(args, "--new"), NewSessionName: Opt(args, "--name"),
+                        BackgroundFpsCap: Opt(args, "--bg-fps") is string bg ? int.Parse(bg) : null,
+                        HostOnly: args.Contains("--host-only")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
                 "down" => Print(await Session.DownAsync(CancellationToken.None, all: args.Contains("--all"))),
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),
@@ -68,6 +73,7 @@ internal static class Program
                     int.Parse(Opt(args, "--top") ?? "40"), CancellationToken.None)),
                 "eval" => await EvalAsync(args),
                 "screenshot" => await ScreenshotAsync(args),
+                "perf" => await PerfAsync(args),
                 "logs" => Print(await Operations.LogsAsync(Opt(args, "-t"), Opt(args, "-l") ?? "warning",
                     Opt(args, "-c"), int.Parse(Opt(args, "-n") ?? "100"), sinceLast: false)),
                 _ => Fail("unknown command: " + args[0] + "\n\n" + Usage)
@@ -98,6 +104,15 @@ internal static class Program
         if (string.IsNullOrWhiteSpace(code)) return Fail("eval needs CODE or -f FILE");
         JsonObject result = await Operations.EvalAsync(code, Opt(args, "-t"), Opt(args, "-m"), Opt(args, "-u"), ProbeArgs(args),
             int.Parse(Opt(args, "--timeout") ?? "30"));
+        Print(result);
+        return result["ok"]?.GetValue<bool>() == false || HasFailure(result) ? 2 : 0;
+    }
+
+    private static async Task<int> PerfAsync(string[] args)
+    {
+        int seconds = int.Parse(Opt(args, "-s") ?? "10");
+        JsonObject result = await Operations.EvalAsync(Session.LoadProbe("perf"), Opt(args, "-t"), "class", null,
+            new Dictionary<string, string> { ["seconds"] = seconds.ToString() }, seconds + 30);
         Print(result);
         return result["ok"]?.GetValue<bool>() == false || HasFailure(result) ? 2 : 0;
     }
