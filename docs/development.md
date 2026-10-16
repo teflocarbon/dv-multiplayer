@@ -100,9 +100,10 @@ serialization, the join sequence), in the background: it runs every scenario, ba
 each pair, which is what catches one feature breaking another, and takes about half an hour. It
 exits non-zero if any scenario failed.
 
-`ONLY` takes scenario or run names; `LOG_DIR` sets where per-run logs go. A relaunched game
-keeps its previous log as `host.prev.log` or `client.prev.log`, next to the current one. The
-scenario list is in [testing.md](testing.md#regression-gate).
+`ONLY` takes scenario or run names; `LOG_DIR` sets where per-run logs go. Each game the harness
+launches has its own log, named by its launch ID, and a failed run lists the ones that were
+involved (see the notes in [DevTools/README.md](../DevTools/README.md)). The scenario list is in
+[testing.md](testing.md#regression-gate).
 
 ## CI
 

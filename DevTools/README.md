@@ -103,8 +103,12 @@ acts; `Hands.ReleaseControl()` hands it back.
 
 ## Notes
 
-- Games are launched with `-nonvr` (desktop), windowed 960x540, logs in
-  `%LOCALAPPDATA%\dvmp\logs\{host,client}.log`.
+- Games are launched with `-nonvr` (desktop), windowed 960x540. Every launch gets an ID
+  (`20261017-021500-p2-host`: time, session, role), passed as `-dvmp-launch`. It names the game's
+  log, `<launch ID>.log` in `%LOCALAPPDATA%\dvmp\logs\` (`sessions\NAME\logs\` for a named
+  session), and the mod's own log and event stream, `Multiplayer.Debug/multiplayer-<launch ID>.log`.
+  Nothing is overwritten; the newest 40 game logs per session are kept. `dvmp status` shows each
+  game's `launchId` and `logFile`, and a failed gate run lists the game logs from its start and end.
 - Built to run in the background while you use the PC (or play VR): harness-launched games
   start minimised at below-normal priority, are muted, use the lowest graphics quality, and
   are capped at 30 fps (20 fps when not the foreground window). This only applies to games

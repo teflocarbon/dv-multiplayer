@@ -287,8 +287,21 @@ public static class Multiplayer
         sessionStartedUtc = DateTime.UtcNow;
         int processId = Process.GetCurrentProcess().Id;
         string suffix = Guid.NewGuid().ToString("N").Substring(0, 4);
-        processSessionId = $"{sessionStartedUtc:yyyyMMdd-HHmmss}-p{processId}-{suffix}";
+        processSessionId = LaunchIdArgument() ?? $"{sessionStartedUtc:yyyyMMdd-HHmmss}-p{processId}-{suffix}";
         logFilePath = Path.Combine(ModEntry.Path, "Multiplayer.Debug", $"multiplayer-{processSessionId}.log");
+    }
+
+    // The dvmp harness names each game it launches (-dvmp-launch 20261017-021500-p2-host), so the
+    // mod's logs carry the same name as the game's own log. Only letters, digits, '-' and '_': it
+    // becomes part of file names.
+    private static string LaunchIdArgument()
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        int i = Array.IndexOf(args, "-dvmp-launch");
+        if (i < 0 || i + 1 >= args.Length)
+            return null;
+        string id = args[i + 1];
+        return id.Length > 0 && id.Length <= 64 && id.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_') ? id : null;
     }
 
     public static void LogDebug(Func<object> resolver)

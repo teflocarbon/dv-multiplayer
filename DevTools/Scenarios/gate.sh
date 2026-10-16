@@ -55,6 +55,11 @@ teleport_home() { # puts both players back where every run starts (scenarios mov
 # Coupler joints break at 300 MN, which normal play never reaches: every break is logged as an
 # error, and a run that logged one is flagged (coupler-desync breaks one on purpose). Counts the
 # current session's games.
+# The current session's game logs, as "role path; ...". Each launch's log is named by its launch ID,
+# and so is the mod's own (Multiplayer.Debug/multiplayer-<launch ID>.log). A failed run records the
+# ones from when it started and from after, so a game that crashed or was relaunched is still named.
+game_logs() { $DVMP status 2>/dev/null | node -e 'try{const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log((o.agents||[]).map(a=>a.role+" "+(a.logFile||"?")).join("; "))}catch(e){}'; }
+note_logs() { echo; echo "game logs at the start: $1"; echo "game logs after: $(game_logs)"; }
 coupler_breaks() { local n=0 t; for t in host client; do n=$(( n + $($DVMP logs -t $t -l error -c "Coupler broke" -n 1000 2>/dev/null | grep -c '"message"') )); done; echo $n; }
 
 # ---- parallel mode: PAIRS=N independent host+client pairs (dvmp sessions p1..pN) share a queue
@@ -75,11 +80,11 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
     done
   done
   run_one() { # label dir vars session
-    local label=$1 dir=$2 vars=$3 session=$4 start r first breaks
+    local label=$1 dir=$2 vars=$3 session=$4 start r first breaks logs
     export DVMP_SESSION=$session
     teleport_home
-    start=$(date +%s); breaks=$(coupler_breaks)
-    if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$label.$session.log" 2>&1; then r=PASS; else r=FAIL; fi
+    start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
+    if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$label.$session.log" 2>&1; then r=PASS; else r=FAIL; note_logs "$logs" >>"$LOG_DIR/$label.$session.log"; fi
     first=$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$label.$session.log" | head -1 | cut -c1-90)
     breaks=$(( $(coupler_breaks) - breaks )); [ $breaks -gt 0 ] && first="$first [$breaks coupler break(s) logged]"
     printf '%s|%s|%s|%s|%s\n' "$label" "$r" "$(( $(date +%s) - start ))" "$session" "$first" >"$Q/result/${label//#/_}.$session"
@@ -130,8 +135,8 @@ for entry in "${runs[@]}"; do
   IFS='|' read -r name dir vars <<<"$entry"
   [ -n "${ONLY:-}" ] && [[ " $ONLY " != *" $dir "* && " $ONLY " != *" $name "* ]] && continue
   teleport_home
-  start=$(date +%s); breaks=$(coupler_breaks)
-  if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; fi
+  start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
+  if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; fi
   breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"
   printf '%-32s %s  %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
 done
