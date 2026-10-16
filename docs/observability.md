@@ -104,7 +104,7 @@ Multiplayer.Debug/
     {captureName}-{role}-{sessionId}.jsonl
 ```
 
-The human-readable `multiplayer-{sessionId}.log` is controlled by **Enable Log File**. It uses the same session ID as the structured observability JSONL, so host and client logs never share a filename and the two log formats from one process can be paired directly. The mod no longer deletes or appends to the legacy shared `multiplayer.log` file.
+The human-readable `multiplayer-{sessionId}.log` is controlled by **Enable Log File**. It uses the same session ID as the structured observability JSONL (a game the dvmp harness launches takes its launch ID, `-dvmp-launch`, as the session ID, so these match its game log), so host and client logs never share a filename and the two log formats from one process can be paired directly. The mod no longer deletes or appends to the legacy shared `multiplayer.log` file.
 
 Discovery records are written atomically and refreshed every two seconds. They are removed during a clean shutdown. Consumers reject a session when:
 

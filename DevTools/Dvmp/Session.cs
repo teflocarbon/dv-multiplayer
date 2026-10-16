@@ -262,15 +262,33 @@ internal static class Session
         return process;
     }
 
+    private const int KeptLogs = 40;
+
+    // Keeps the newest game logs of this session (and drops the old fixed-name host.log and
+    // client.log, and their .prev copies).
+    private static void PruneLogs(string logs)
+    {
+        try
+        {
+            foreach (FileInfo old in new DirectoryInfo(logs).GetFiles("*.log")
+                .OrderByDescending(f => f.LastWriteTimeUtc).Skip(KeptLogs)
+                .Concat(new DirectoryInfo(logs).GetFiles("*.log").Where(f => f.Name is "host.log" or "client.log" || f.Name.EndsWith(".prev.log"))))
+                old.Delete();
+        }
+        catch (IOException) { }
+    }
+
     private static Process Launch(string role, UpOptions o)
     {
         if (!File.Exists(Paths.GameExe)) throw new Exception($"game not found at {Paths.GameExe} (set DVMP_DV_DIR)");
         string logs = Sessions.LogsDir;
         Directory.CreateDirectory(logs);
-        // Keep the last game's log: a relaunch after a failure (the gate recovering a pair) would
-        // otherwise overwrite the one log that says what went wrong.
-        string log = Path.Combine(logs, role + ".log");
-        try { if (File.Exists(log)) File.Copy(log, Path.Combine(logs, role + ".prev.log"), overwrite: true); } catch (IOException) { }
+        // Every launch gets its own ID, which names its game log here and the mod's own log and
+        // event stream (multiplayer-{id}.log, dvmp-debug-{id}.jsonl), so a relaunch never
+        // overwrites the logs of the game that failed.
+        string launchId = $"{DateTime.Now:yyyyMMdd-HHmmss}-{(Sessions.IsDefault ? "default" : Sessions.Current)}-{role}";
+        string log = Path.Combine(logs, launchId + ".log");
+        PruneLogs(logs);
         string args = string.Join(" ",
             "-nonvr",
             "-screen-fullscreen 0",
@@ -278,6 +296,7 @@ internal static class Session
             $"-screen-height {o.Height}",
             $"-logFile \"{log}\"",
             $"-dvmp-role {role}",
+            $"-dvmp-launch {launchId}",
             Sessions.IsDefault ? string.Empty : $"-dvmp-session {Sessions.Current}",
             $"-dvmp-fps {o.FpsCap}",
             o.Sound ? "-dvmp-sound" : string.Empty);

@@ -61,6 +61,8 @@ internal static class Endpoints
         scene = SceneManager.GetActiveScene().name,
         worldLoaded = SafeWorldLoaded(),
         loadingScreen = SafeLoadingScreen(),
+        launchId = LaunchId(),
+        logFile = Application.consoleLogPath,
         frame = Time.frameCount,
         fps = Math.Round(MainThread.Fps, 1),
         uptimeSeconds = Math.Round(Time.realtimeSinceStartup, 1),
@@ -76,6 +78,14 @@ internal static class Endpoints
         // Vanilla IsLoaded reports true when no world exists at all (bootstrap, main menu).
         try { return UnityEngine.Object.FindObjectOfType<WorldStreamingInit>() != null && WorldStreamingInit.IsLoaded; }
         catch { return null; }
+    }
+
+    // The ID dvmp launched this game with (-dvmp-launch), which names its game log and the mod's.
+    private static string LaunchId()
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        int i = Array.IndexOf(args, "-dvmp-launch");
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
     }
 
     // In loading mode: from the loading screen starting until FinishLoading() (in VR, the hand
