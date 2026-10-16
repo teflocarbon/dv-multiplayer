@@ -89,15 +89,20 @@ The same commands are MCP tools (`dvmp_up`, `dvmp_eval`, `dvmp_logs`, ...) regis
 
 ## Regression gate
 
-Run the gate against a running pair for any change touching items, joins, ticks or trains. It
-exits non-zero if any scenario failed.
+For a change, run the scenarios for the area it touches, on three pairs; that takes minutes:
 
 ```bash
-bash DevTools/Scenarios/gate.sh
+DVMP=DevTools/Dvmp/bin/cli/dvmp.exe PAIRS=3 ONLY="rejoin rejoin-crash" bash DevTools/Scenarios/gate.sh
 ```
 
-`ONLY="rejoin recall"` runs a subset; `LOG_DIR` sets where per-run logs go. The scenario list is
-in [testing.md](testing.md#regression-gate).
+Run the whole gate before a release, or after a change to shared plumbing (the tick,
+serialization, the join sequence), in the background: it runs every scenario, back to back on
+each pair, which is what catches one feature breaking another, and takes about half an hour. It
+exits non-zero if any scenario failed.
+
+`ONLY` takes scenario or run names; `LOG_DIR` sets where per-run logs go. A relaunched game
+keeps its previous log as `host.prev.log` or `client.prev.log`, next to the current one. The
+scenario list is in [testing.md](testing.md#regression-gate).
 
 ## CI
 

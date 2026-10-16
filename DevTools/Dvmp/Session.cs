@@ -267,12 +267,16 @@ internal static class Session
         if (!File.Exists(Paths.GameExe)) throw new Exception($"game not found at {Paths.GameExe} (set DVMP_DV_DIR)");
         string logs = Sessions.LogsDir;
         Directory.CreateDirectory(logs);
+        // Keep the last game's log: a relaunch after a failure (the gate recovering a pair) would
+        // otherwise overwrite the one log that says what went wrong.
+        string log = Path.Combine(logs, role + ".log");
+        try { if (File.Exists(log)) File.Copy(log, Path.Combine(logs, role + ".prev.log"), overwrite: true); } catch (IOException) { }
         string args = string.Join(" ",
             "-nonvr",
             "-screen-fullscreen 0",
             $"-screen-width {o.Width}",
             $"-screen-height {o.Height}",
-            $"-logFile \"{Path.Combine(logs, role + ".log")}\"",
+            $"-logFile \"{log}\"",
             $"-dvmp-role {role}",
             Sessions.IsDefault ? string.Empty : $"-dvmp-session {Sessions.Current}",
             $"-dvmp-fps {o.FpsCap}",
