@@ -1793,6 +1793,14 @@ public class NetworkServer : NetworkManager
                 List<string> baselineFailures = new();
                 foreach (Trainset set in Trainset.allSets.ToArray())
                 {
+                    // A trainset with no live cars has nothing to send. DV can leave one behind
+                    // when its own split throws (two cars coupled at both ends, which only cars
+                    // spawned inside each other manage); it used to make every join fail.
+                    if (set == null || set.cars == null || !set.cars.Any(car => car != null))
+                    {
+                        LogWarning($"Skipping an empty trainset ({set?.id}) in the rolling-stock baseline");
+                        continue;
+                    }
                     try
                     {
                         ClientboundSpawnTrainSetPacket spawnPacket =

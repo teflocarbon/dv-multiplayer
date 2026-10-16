@@ -71,6 +71,16 @@ digest; the manifest is counts only.
 - Scenario: `coupler-desync` couples a loco and wagon by the chain on the client only, then pulls
   the loco away on the host.
 
+**Car identity survives DV's car pool (#69).** A deleted car of a pooled livery goes back to
+DV's pool, and `GetFromPool` hands out the most recently returned object first. `NetworkedTrainCar`
+destroys itself when its car is disabled, but Unity only does that at the end of the frame. So a
+delete and a spawn of the same livery in one frame (on the host, or in one packet batch on a
+client) used to give the new car the old, doomed component: the host announced it with the old
+net ID, the client rejected that ID as taken, and both ended up with an unnetworked car. Every
+topology snapshot then waited for that car, so couplings stopped syncing for the session. Now
+`OnDisable` frees the net ID at once and marks the component retired, and `TrainCarPatch`
+replaces a retired component when the pool hands the car out. Scenario: `car-pool-reuse`.
+
 **Controls (stage 4): implemented, without the simulation snapshot.** Handbrake, brake-cylinder
 release, fuses and ports are requests carrying an operation ID and expected control revision; the
 host applies them and answers with `ClientboundTrainControlCommitPacket`. The thresholded

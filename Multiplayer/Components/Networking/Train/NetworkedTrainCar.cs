@@ -782,9 +782,15 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         interiorControlsManager = null;
     }
 
+    /// <summary>
+    /// Set when the car is deleted (or returned to DV's car pool). The component destroys itself
+    /// then, but Unity only does that at the end of the frame; see <see cref="OnDisable"/>.
+    /// </summary>
+    internal bool Retired { get; private set; }
+
     public void OnDisable()
     {
-        if (UnloadWatcher.isQuitting)
+        if (UnloadWatcher.isQuitting || Retired)
             return;
 
         DebugRuntime.Publish("train", "train.unregistered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
@@ -862,6 +868,15 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         CurrentID = string.Empty;
+        // Destroy only takes effect at the end of the frame, and DV's car pool can hand this
+        // same object to a new car before then: a delete and a spawn of the same livery in one
+        // packet batch, or a host deleting and spawning in one frame. Free the ID now, so the
+        // new car's can't collide with it, and mark the component retired so the pool hand-out
+        // replaces it instead of keeping it (TrainCarPatch). Kept, it was destroyed at the end of
+        // the frame and left the new car with no network identity, which blocked every topology
+        // snapshot on the client from then on (#69).
+        Retired = true;
+        ReleaseNetId();
         Destroy(this);
     }
 

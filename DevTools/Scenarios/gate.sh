@@ -25,6 +25,7 @@ runs=( # name | scenario | variables
   "couple-impact-chain|couple-impact|CHAIN=1 WAGON_BRAKE=0 SPEEDS=2,4"
   "coupler-desync|coupler-desync|LAG=150"
   "derail|pileup|SPEED=25 K=2 N=4 MIN_DERAILED=1 LAG=150"
+  "car-pool-reuse|car-pool-reuse|"
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
@@ -82,15 +83,19 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
     printf '%s|%s|%s|%s|%s\n' "$label" "$r" "$(( $(date +%s) - start ))" "$session" "$first" >"$Q/result/${label//#/_}.$session"
     printf '%-34s %s  %3ss  %-4s %s\n' "$label" "$r" "$(( $(date +%s) - start ))" "$session" "$first"
   }
+  healthy() { # session: both the host and the client have a world loaded
+    local st; st=$(DVMP_SESSION=$1 $DVMP status 2>/dev/null)
+    [ "$(echo "$st" | grep -c '"worldLoaded": true')" -ge 2 ] && echo "$st" | grep -q '"role": "client"'
+  }
   worker() { # session: claims items until the queue is empty
     local session=$1 i
     for i in "${!items[@]}"; do
       mkdir "$Q/claim/$i" 2>/dev/null || continue   # atomic claim
       IFS='|' read -r label dir vars <<<"${items[$i]}"
       run_one "$label" "$dir" "$vars" "$session"
-      # A run that left its pair without a loaded world (a crash, a failed rejoin) gets it back.
-      DVMP_SESSION=$session $DVMP status 2>/dev/null | grep -q '"worldLoaded": true' ||
-        DVMP_SESSION=$session $DVMP up >/dev/null 2>&1
+      # A run that left its pair without a loaded world on both games (a crash, a failed
+      # rejoin leaving the client at the menu) gets it back.
+      healthy "$session" || DVMP_SESSION=$session $DVMP up >/dev/null 2>&1
     done
   }
   echo "== starting $PAIRS pair(s): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive"
