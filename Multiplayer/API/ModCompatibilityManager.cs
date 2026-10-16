@@ -41,6 +41,9 @@ public class ModCompatibilityManager : SingletonBehaviour<ModCompatibilityManage
         RegisterCompatibility("dv_f_spammer", MultiplayerCompatibility.Client);
         RegisterCompatibility("MessageBox", MultiplayerCompatibility.Client);
         RegisterCompatibility("BetterModUI", MultiplayerCompatibility.Client);
+        // The dvmp harness agent: an eval/screenshot server on loopback, no gameplay changes, so
+        // one player can run it without everyone else needing it.
+        RegisterCompatibility("MultiplayerDevTools", MultiplayerCompatibility.Client);
 
         //Json entries will override hardcoded entries
         ReadModJsons();

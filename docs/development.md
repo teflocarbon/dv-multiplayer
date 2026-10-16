@@ -46,7 +46,9 @@ Release additionally signs the DLLs when `Cert-Thumb` is set and zips `build/` t
 [observability.md](observability.md)).
 
 The dvmp harness is built separately. The agent's Debug build deploys it to
-`Mods/MultiplayerDevTools`:
+`Mods/MultiplayerDevTools`. It's marked `MultiplayerCompatibility: Client` (no effect on gameplay),
+so the mod check leaves it out: you can keep it enabled when you join or host players who don't
+have it.
 
 ```bash
 dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug
