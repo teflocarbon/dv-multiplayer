@@ -107,7 +107,11 @@ in [testing.md](testing.md#regression-gate).
   anywhere, including on pull requests from forks.
 - **Build and protocol tests** (Windows): Debug builds of the mod and the dev tools, then
   `Multiplayer.Protocol.Tests`. GitHub doesn't give secrets to pull requests from forks, so those
-  skip this job.
+  skip this job. It uploads the installable mod as an artifact on the run's page, e.g.
+  `Multiplayer 2026.10.16.1 debug beta 2026.10.16.0842 1a2b3c4d`: the same files as a release zip,
+  installed the same way. Builds of `beta` are kept 90 days, pull requests' 14. Every player
+  needs the same build: the fingerprint includes the commit, so two builds with the same version
+  still won't join each other.
 
 The regression gate isn't in CI: it needs real games. Run it locally before merging.
 
