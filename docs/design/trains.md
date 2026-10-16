@@ -88,6 +88,19 @@ host applies them and answers with `ClientboundTrainControlCommitPacket`. The th
 `ClientboundBrakeStateUpdatePacket` (0.02 bar threshold, 2 s heartbeat, topology-revision gating
 and a brake-line member digest).
 
+A client only sends a cab control's port while it holds that control's lease, so every control has
+to be hooked when the cab loads (`NetworkedTrainCar.HookControls`). The port comes from the controls
+overrider or, failing that, the control's `InteractablePortFeeder`, and a second pass hooks
+feeder-driven controls the `InteriorControlsManager` doesn't list (the DE2's cab fan). A control
+that feeds several ports (the CCL C Class's bright switch feeds the front and rear headlights)
+leases and releases them together. The controls are hooked once they're all set up, a few frames
+after the cab loads, with one shared timeout rather than one per control. The lease is
+taken on `Grabbed` (levers, knobs, flat-screen buttons), on hover-scrolling, and on `Used`: VR
+buttons and toggle switches, and keyboard presses, work through `Use()` and never raise `Grabbed`.
+A `Used` lease is handed back 0.5 s later, once the change has been sent. Fuses, the handbrake and
+brake-cylinder release have their own packets. #73 was the DE2's wipers, fan and lights never
+syncing from clients, and every button and switch a VR client pressed being dropped.
+
 **Motion: host-authoritative and steered; stage 5 not started.**
 
 - Clients steer on-rail cars towards the host's bogie positions every physics step instead of
