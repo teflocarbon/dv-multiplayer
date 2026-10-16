@@ -120,6 +120,7 @@ temp directory, printed at the end). `DVMP` points at the CLI (default
 | `derail` | `pileup` with `SPEED=25 K=2 N=4 MIN_DERAILED=1 LAG=150` | A deliberate derailment: two rows on Steel Mill's B yard are rammed at 25 m/s. Every car must match (derailed, coupled neighbours, position); derailed cars must face the same way (within 10 degrees) and hold still on the client once stopped. Fails as invalid if nothing derailed on the host. |
 | `client-derail` | default | A car derailed on the client only is put back on the host's track, still coupled, without touching the host's train. |
 | `explosion` | default | A client can't set off loco or tank-car explosions; a host explosion leaves both peers with the same burnt car, derailments and positions. |
+| `car-fire` | default | A client's comms radio damages a gasoline tank until it leaks on both peers, its lighter lights the leak, and the tank burns and explodes on both. A tank the host lights burns for the client too (#74). |
 | `hazmat` | default | Spilled and burning hazmat tiles match on both peers; a client's own spill does nothing. |
 | `rejoin` | default; `CRASH=1` | A client quits (or is killed) holding an item; the host keeps its items and drops the held one, and the client gets exactly one of each back on rejoin. |
 | `save-reload` | `CYCLES=2` | Repeated host save and reload: items don't multiply, fall from the sky or drift into Lost and Found. |

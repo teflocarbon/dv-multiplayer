@@ -99,6 +99,8 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundTrainDeleteRequestPacket),
         typeof(ServerboundTrainRerailRequestPacket),
         typeof(ServerboundSandboxCargoPacket),
+        typeof(ServerboundSandboxCarDamagePacket),
+        typeof(ServerboundCargoIgnitePacket),
         typeof(ServerboundTrainSpawnRequestPacket),
         typeof(ServerboundWorkTrainRequestPacket),
         typeof(ServerboundLicensePurchaseRequestPacket),
@@ -307,6 +309,7 @@ public class NetworkClient : NetworkManager
 
         netPacketProcessor.SubscribeReusable<ClientboundCargoStatePacket>(OnClientboundCargoStatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundExplosionPacket>(OnClientboundExplosionPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundCargoFirePacket>(OnClientboundCargoFirePacket);
         netPacketProcessor.SubscribeReusable<ClientboundCargoHealthUpdatePacket>(OnClientboundCargoHealthUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundCarHealthUpdatePacket>(OnClientboundCarHealthUpdatePacket);
         netPacketProcessor.SubscribeReusable<ClientboundWarehouseControllerUpdatePacket>(OnClientboundWarehouseControllerUpdatePacket);
@@ -1260,6 +1263,12 @@ public class NetworkClient : NetworkManager
             return;
         Log($"The host's {car.ID} exploded ({(global::Multiplayer.Patches.Train.ExplosionSync.Kind)packet.Kind})");
         global::Multiplayer.Patches.Train.ExplosionSync.ClientPlay(car, (global::Multiplayer.Patches.Train.ExplosionSync.Kind)packet.Kind, packet.Index);
+    }
+
+    private void OnClientboundCargoFirePacket(ClientboundCargoFirePacket packet)
+    {
+        if (NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) && car != null)
+            global::Multiplayer.Patches.Train.CargoFireSync.Client_Receive(car, packet.Index, (global::Multiplayer.Patches.Train.CargoFireSync.FireState)packet.State);
     }
 
     private void OnClientboundCargoStatePacket(ClientboundCargoStatePacket packet)
@@ -2456,6 +2465,18 @@ public class NetworkClient : NetworkManager
     public void SendSandboxCargo(ushort carNetId, uint cargoTypeNetId)
     {
         SendPacketToServer(new ServerboundSandboxCargoPacket { CarNetId = carNetId, CargoTypeNetId = cargoTypeNetId },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendSandboxCarDamage(ushort carNetId, byte damageLevel, bool derail)
+    {
+        SendPacketToServer(new ServerboundSandboxCarDamagePacket { CarNetId = carNetId, DamageLevel = damageLevel, Derail = derail },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendCargoIgnite(ushort carNetId, byte index, float strength, bool explode)
+    {
+        SendPacketToServer(new ServerboundCargoIgnitePacket { CarNetId = carNetId, Index = index, Strength = strength, Explode = explode },
             DeliveryMethod.ReliableOrdered);
     }
 
