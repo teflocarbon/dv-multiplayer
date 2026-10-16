@@ -60,6 +60,7 @@ internal static class Endpoints
         role = Mp.Role(),
         scene = SceneManager.GetActiveScene().name,
         worldLoaded = SafeWorldLoaded(),
+        loadingScreen = SafeLoadingScreen(),
         frame = Time.frameCount,
         fps = Math.Round(MainThread.Fps, 1),
         uptimeSeconds = Math.Round(Time.realtimeSinceStartup, 1),
@@ -74,6 +75,14 @@ internal static class Endpoints
     {
         // Vanilla IsLoaded reports true when no world exists at all (bootstrap, main menu).
         try { return UnityEngine.Object.FindObjectOfType<WorldStreamingInit>() != null && WorldStreamingInit.IsLoaded; }
+        catch { return null; }
+    }
+
+    // In loading mode: from the loading screen starting until FinishLoading() (in VR, the hand
+    // controllers and the teleport pointer are off until then).
+    private static bool? SafeLoadingScreen()
+    {
+        try { return LoadingScreenManager.IsLoading; }
         catch { return null; }
     }
 

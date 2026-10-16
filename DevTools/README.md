@@ -27,7 +27,7 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 | MCP tool | CLI | Purpose |
 |---|---|---|
 | `dvmp_status` | `dvmp status` | Running games: role, scene, world loaded, fps, absolute player position. |
-| `dvmp_up` | `dvmp up [--fresh] [--save X]` | Ensure a host + client are running and joined (reuses a healthy pair). |
+| `dvmp_up` | `dvmp up [--fresh] [--save X]` | Ensure a host + client are running and joined (reuses a healthy pair). A join is done once the client has left loading mode. |
 | `dvmp_down` | `dvmp down` | Quit all agent-enabled games. |
 | `dvmp_eval` | `dvmp eval [-t host\|client\|all] CODE` | Run C# in the game(s); see the tool description for the probe API. |
 | `dvmp_screenshot` | `dvmp screenshot [-t ...] [-o DIR]` | What each window shows. |

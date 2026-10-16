@@ -191,8 +191,14 @@ internal static class Session
             ["guid"] = ClientGuid
         });
         Mark("client: waiting for world");
-        return await WaitUntilAsync(clientAgent.Pid, a => a.Role == "client" && WorldLoaded(a), TimeSpan.FromSeconds(300),
+        await WaitUntilAsync(clientAgent.Pid, a => a.Role == "client" && WorldLoaded(a), TimeSpan.FromSeconds(300),
             "client world load", failFast: ClientDisconnectAsync);
+        // The world loads before the host has synced it: the join is done when the host's "remove
+        // loading screen" has taken the client out of loading mode. A client left in it (in VR: no
+        // teleport, their own controllers showing; #72) fails here instead of counting as joined.
+        Mark("client: waiting for the loading screen");
+        return await WaitUntilAsync(clientAgent.Pid, a => !LoadingScreen(a), TimeSpan.FromSeconds(120),
+            "client leaving loading mode (LoadingScreenManager.IsLoading)", failFast: ClientDisconnectAsync);
     }
 
     // Installed at the main menu so everything that happens while the world loads is recorded.
@@ -348,6 +354,8 @@ internal static class Session
     }
 
     private static bool WorldLoaded(Agent agent) => agent.Status?["worldLoaded"]?.GetValue<bool?>() == true;
+
+    private static bool LoadingScreen(Agent agent) => agent.Status?["loadingScreen"]?.GetValue<bool?>() == true;
 
     private static async Task<bool> WaitForExitAsync(int pid, TimeSpan timeout)
     {

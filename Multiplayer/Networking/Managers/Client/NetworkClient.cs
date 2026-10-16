@@ -888,13 +888,19 @@ public class NetworkClient : NetworkManager
         Log("World sync finished, removing loading screen");
 
         DisplayLoadingInfo displayLoadingInfo = Object.FindObjectOfType<DisplayLoadingInfo>();
-        if (displayLoadingInfo == null)
-        {
-            LogDebug(() => $"Received {nameof(ClientboundRemoveLoadingScreenPacket)} but couldn't find {nameof(DisplayLoadingInfo)}!");
-            return;
-        }
+        if (displayLoadingInfo != null)
+            displayLoadingInfo.OnLoadingFinished();
+        else
+            LogWarning($"Received {nameof(ClientboundRemoveLoadingScreenPacket)} but couldn't find {nameof(DisplayLoadingInfo)}");
 
-        displayLoadingInfo.OnLoadingFinished();
+        // Only FinishLoading() leaves loading mode. Without it a VR player is left in the world (the
+        // VR loading overlay closes by itself at 100%) with the hand controllers switched off, their
+        // own controllers showing and no teleport (#72).
+        if (LoadingScreenManager.IsLoading)
+        {
+            LogWarning("Still in loading mode after removing the loading screen, finishing it");
+            LoadingScreenManager.Instance.FinishLoading();
+        }
 
         //if not single player, add in chat
         if (!isSinglePlayer)
