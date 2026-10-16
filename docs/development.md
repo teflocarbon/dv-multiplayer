@@ -17,8 +17,9 @@ cp Directory.Build.targets.EXAMPLE Directory.Build.targets
 
 - `MultiplayerEditor.dll`, `UnityChan.dll` and `multiplayer.assetbundle` in `build/` (git-ignored).
   Either copy them from a released zip, or build them: open `MultiplayerAssets/` in Unity
-  **2019.4.40f1** and run **Multiplayer > Build Asset Bundle and Scripts**, which writes them to
-  `build/`. Redo this only when something under `MultiplayerAssets` changes.
+  **2019.4.41f2** and run **Multiplayer > Build Asset Bundle and Scripts**, which writes them to
+  `build/`. Redo this only when something under `MultiplayerAssets` changes, then update CI's
+  copy (see [CI](#ci)).
 
 ## Building
 
@@ -98,6 +99,37 @@ bash DevTools/Scenarios/gate.sh
 `ONLY="rejoin recall"` runs a subset; `LOG_DIR` sets where per-run logs go. The scenario list is
 in [testing.md](testing.md#regression-gate).
 
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `beta`:
+
+- **Core tests** (Linux): `Multiplayer.Core.Tests`. Core doesn't reference the game, so this runs
+  anywhere, including on pull requests from forks.
+- **Build and protocol tests** (Windows): Debug builds of the mod and the dev tools, then
+  `Multiplayer.Protocol.Tests`. GitHub doesn't give secrets to pull requests from forks, so those
+  skip this job. It uploads the installable mod as an artifact on the run's page, named by its dev
+  version, branch or PR, and commit (`Multiplayer 2026.10.16-dev.0842 beta 1a2b3c4d`): the same
+  files as a release zip, installed the same way. Builds of `beta` are kept 90 days, pull
+  requests' 14. Every player needs the same build: the fingerprint includes the commit, so two
+  builds with the same version still won't join each other.
+
+The regression gate isn't in CI: it needs real games. Run it locally before merging.
+
+The build compiles against the game's own DLLs, kept in the private repo
+`teflocarbon/dv-gamelibs` (laid out like a game install), and checked out with the
+`GAMELIBS_TOKEN` secret: a fine-grained token with read access to that repo's contents. The
+public repo must never upload them: no artifacts of `gamelibs/` or of any `bin/` folder, which hold
+copies.
+
+- **When the game updates:** copy the same DLLs from the new install into dv-gamelibs, commit, tag
+  it `steam-<buildid>` (the `buildid` in `steamapps/appmanifest_588030.acf`), and bump
+  `GAMELIBS_REF` in the workflow.
+- **When `MultiplayerAssets` changes:** CI fails until the Unity files are rebuilt. Rebuild them,
+  copy them to dv-gamelibs' `prebuilt/` (new commit and tag), and update `prebuilt.lock`: their
+  SHA-256 hashes and the `MultiplayerAssets` tree they were built from
+  (`git rev-parse HEAD:MultiplayerAssets`). CI checks both, so it never builds with Unity files
+  that don't match the project.
+
 ## Workflow
 
 `beta` is the main branch and is protected by a GitHub ruleset:
@@ -134,13 +166,14 @@ and git commit) decides that, and a client refuses a host whose fingerprint diff
 - **Nothing to bump by hand.** A Release build stamps today's date and the next build number, one
   past the zips already in `Releases/` for today, and `post-build.ps1` writes it into
   `info.json`. Deleting today's zips lets a number be reused.
-- **Other builds** (Debug) report the last release's version, read from `info.json`, and leave it
-  alone.
+- **Debug builds are dev builds,** `YYYY.M.D-dev.HHMM` from the build time (`2026.10.16-dev.2014`),
+  so one can't be mistaken for a release. The version goes into the built copy of `info.json` (in
+  `build/` and the installed mod), never the repo's, which keeps the last release's.
 - **`info.json` is the only place the version is kept.** The manifest pass of a Release build
   reuses the first pass's version from `build/release-version.txt`, so the DLL, `info.json`, the
   fingerprint and the zip name agree.
-- **`dvmp-build-number.txt` is separate:** the build's time (`2026.10.15.2240`), for telling the
-  harness's builds apart.
+- **`dvmp-build-number.txt`** is the build's time (`2026.10.15.2240`), for telling the harness's
+  builds apart. A dev build's version is made from it.
 - **There's no update check.** `info.json` has no `Repository` URL, so mod managers don't offer
   other forks' builds as updates. Hand out the zip.
 

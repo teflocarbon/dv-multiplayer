@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [beta]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # The game build the mod compiles against: a tag in teflocarbon/dv-gamelibs.
+  GAMELIBS_REF: steam-20251481
+
+jobs:
+  core-tests:
+    name: Core tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+      - run: dotnet test Multiplayer.Core.Tests
+
+  build:
+    name: Build and protocol tests
+    # Compiles against the game's assemblies from the private dv-gamelibs repo. GitHub doesn't give
+    # secrets to pull requests from forks, so those get the Core tests only.
+    #
+    # Uploads only the packaged mod. Never upload gamelibs/ or any bin/ folder: this repo is public,
+    # and the bin folders hold copies of the game's DLLs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    steps:
+      # The branch's own commit, not GitHub's merge of it into the base: the uploaded build should be
+      # exactly that commit, and its fingerprint names it. (Merges into beta are built on push.)
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Check out the game assemblies
+        uses: actions/checkout@v4
+        with:
+          repository: teflocarbon/dv-gamelibs
+          ref: ${{ env.GAMELIBS_REF }}
+          token: ${{ secrets.GAMELIBS_TOKEN }}
+          path: gamelibs
+          persist-credentials: false
+
+      - name: Check and copy the prebuilt Unity files
+        shell: pwsh
+        run: |
+          $lock = Get-Content prebuilt.lock | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $locked = ($lock | Where-Object { $_ -like 'tree *' }) -replace '^tree ', ''
+          $tree = git rev-parse HEAD:MultiplayerAssets
+          if ($tree -ne $locked) {
+            "::error file=prebuilt.lock::MultiplayerAssets has changed since the prebuilt files were built (tree $locked, now $tree). Rebuild them in Unity, push them to dv-gamelibs and update prebuilt.lock."
+            exit 1
+          }
+          New-Item -ItemType Directory -Force build | Out-Null
+          foreach ($line in $lock | Where-Object { $_ -notlike 'tree *' }) {
+            $hash, $name = $line -split '\s+', 2
+            $file = "gamelibs/prebuilt/$name"
+            $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $hash) {
+              "::error file=prebuilt.lock::$file doesn't match prebuilt.lock (sha256 $actual)."
+              exit 1
+            }
+            Copy-Item $file build/
+          }
+
+      - name: Point the build at the game assemblies
+        shell: pwsh
+        run: |
+          $dv = Join-Path $env:GITHUB_WORKSPACE gamelibs
+          @"
+          <Project>
+              <PropertyGroup>
+                  <DvInstallDir>$dv</DvInstallDir>
+                  <ReferencePath>`$(DvInstallDir)\DerailValley_Data\Managed\;</ReferencePath>
+                  <AssemblySearchPaths>`$(AssemblySearchPaths);`$(ReferencePath);</AssemblySearchPaths>
+                  <Cert-Thumb></Cert-Thumb>
+              </PropertyGroup>
+          </Project>
+          "@ | Set-Content Directory.Build.targets
+
+      # Debug: a Release build would stamp a new version into info.json.
+      - name: Build the mod
+        run: dotnet build Multiplayer/Multiplayer.csproj -c Debug
+
+      - name: Build the dev tools
+        run: |
+          dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug
+          dotnet build DevTools/Dvmp/Dvmp.csproj -c Debug
+
+      - name: Protocol tests
+        shell: pwsh
+        run: dotnet test Multiplayer.Protocol.Tests -c Debug "-p:DerailValleyManagedDir=$env:GITHUB_WORKSPACE\gamelibs\DerailValley_Data\Managed"
+
+      # The installable mod: the same files as a release zip, picked from build/ by name so nothing
+      # else (above all a game DLL) can end up in the upload.
+      - name: Package the Debug build
+        id: package
+        shell: pwsh
+        run: |
+          $files = 'info.json', 'locale.csv', 'LICENSE', 'dvmp-build-number.txt',
+            'Multiplayer.dll', 'Multiplayer.Core.dll', 'Multiplayer.DebugProtocol.dll', 'MultiplayerAPI.dll',
+            'Humanizer.dll', 'LiteNetLib.dll', 'MultiplayerEditor.dll', 'UnityChan.dll', 'multiplayer.assetbundle'
+          New-Item -ItemType Directory -Force package | Out-Null
+          foreach ($f in $files) {
+            if (-not (Test-Path "build/$f")) { "::error::build/$f is missing."; exit 1 }
+            Copy-Item "build/$f" package/
+          }
+          $version = (Get-Content build/info.json -Raw | ConvertFrom-Json).Version
+          $sha = "${{ github.event.pull_request.head.sha || github.sha }}".Substring(0, 8)
+          $source = if ('${{ github.event_name }}' -eq 'pull_request') { "pr${{ github.event.pull_request.number }}" } else { '${{ github.ref_name }}' }
+          "name=Multiplayer $version $source $sha" >> $env:GITHUB_OUTPUT
+
+      - name: Upload the Debug build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: package/
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 14 || 90 }}

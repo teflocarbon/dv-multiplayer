@@ -1,0 +1,9 @@
+# The Unity outputs of this project that the mod builds against, kept in teflocarbon/dv-gamelibs
+# (prebuilt/). CI fails if the files there don't match these hashes, or if this project has changed
+# since they were built. After rebuilding them in Unity (Multiplayer > Build Asset Bundle and
+# Scripts), push them to dv-gamelibs and update this file: the tree is
+# 'git rev-parse HEAD:MultiplayerAssets' at the commit they were built from.
+tree bfdaeb9c11a8c3abdfe71922031c62b6677b6be4
+202752012fc05f6ef4ce698ff5e4bb2269f7a7314934e181b7a1dba529428a65  MultiplayerEditor.dll
+4b479502ec2ea2db34956e2ef9eaa70a0f1204859d55a4a692f5da9441f10cef  UnityChan.dll
+226b85a4fe9528233bd58eabcfbad1f850ade0066823d2bafc4e5cd8d1034fef  multiplayer.assetbundle
