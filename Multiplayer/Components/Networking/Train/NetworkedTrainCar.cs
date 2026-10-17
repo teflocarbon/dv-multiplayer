@@ -277,6 +277,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private SimulationFlow simulationFlow;
     SimController simController;
     public FireboxSimController firebox;
+    // The compressor's activation signal: typed CONTROL, but the brake system sets it.
+    private readonly HashSet<uint> compressorSignalPorts = new();
+    private Port compressorSignalPort;
     public CoalPileSimController coalPile;
     private readonly Dictionary<TrainDamage, TrainDamage.HealthChanged> trainDamageDelegates = [];
 
@@ -515,6 +518,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
             if (simulationFlow != null)
             {
+                foreach (CompressorSimController compressor in TrainCar.GetComponentsInChildren<CompressorSimController>(true))
+                    if (!string.IsNullOrEmpty(compressor.activationSignalExtInPortId) &&
+                        simulationFlow.TryGetPort(compressor.activationSignalExtInPortId, out Port signal))
+                    {
+                        compressorSignalPorts.Add(GetPortNetId(compressor.activationSignalExtInPortId));
+                        compressorSignalPort = signal;
+                    }
                 dirtyPorts = new HashSet<uint>(simulationFlow.fullPortIdToPort.Count);
                 lastSentPortValues = new Dictionary<uint, float>(dirtyPorts.Count);
                 foreach (KeyValuePair<string, Port> kvp in simulationFlow.fullPortIdToPort)
@@ -1048,7 +1058,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 var portId = GetPort(portNetId);
                 if (simulationFlow.TryGetPort(portId, out Port port))
                 {
-                    if (port.valueType != PortValueType.CONTROL)
+                    if (port.valueType != PortValueType.CONTROL || compressorSignalPorts.Contains(portNetId))
                     {
                         NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a non-control port! ([{portId}, {portNetId}] on [{CurrentID}, {NetId}])");
                         Common_DirtyPorts(packet.PortIds);
@@ -1323,11 +1333,27 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void Server_CouplerCoupled(object _, CoupleEventArgs args) => topologyDirty = true;
 
+    /// <summary>
+    /// The compressor's activation signal follows the brake system's decision (main reservoir
+    /// below the threshold), which DV writes to the port only when that decision changes. Once
+    /// the port held anything else (in playtest 2 it was 0 with the reservoir empty and the engine
+    /// running: no air, so no brakes), nothing put it right. The host keeps them matched.
+    /// </summary>
+    private void Server_KeepCompressorSignal()
+    {
+        if (compressorSignalPort == null || TrainCar.brakeSystem == null)
+            return;
+        float wanted = TrainCar.brakeSystem.compressorActivationSignal ? 1f : 0f;
+        if (compressorSignalPort.Value != wanted)
+            compressorSignalPort.ExternalValueUpdate(wanted);
+    }
+
     private void Server_OnTick(uint tick)
     {
         if (UnloadWatcher.isUnloading)
             return;
 
+        Server_KeepCompressorSignal();
         Server_SendBrakeStates(tick);
         Server_SendCouplers();
         Server_SendCables();
@@ -1803,6 +1829,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             Multiplayer.LogDebug(() => $"Common_OnPortUpdated() Ignoring non-control port update for [{port.id}] on [{CurrentID}, {NetId}]");
             return;
         }
+        // The compressor's on/off signal is typed CONTROL but set by the brake system, not a
+        // player: a client never sends it (see compressorSignalPorts).
+        if (!NetworkLifecycle.Instance.IsHost() && compressorSignalPorts.Contains(portNetId))
+            return;
 
         if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket)
             return;
