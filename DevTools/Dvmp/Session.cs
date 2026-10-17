@@ -396,6 +396,9 @@ internal static class Session
             $"-dvmp-fps {o.FpsCap}",
             o.BackgroundFpsCap is int bgFps ? $"-dvmp-bg-fps {bgFps}" : string.Empty,
             role == "host" && o.Dedicated ? DedicatedArg : string.Empty,
+            // The harness's games share one Steam account, so a host verifying Steam tickets
+            // would see every client as its own player.
+            role == "host" ? "-mp-allow-unverified" : string.Empty,
             o.Sound ? "-dvmp-sound" : string.Empty);
         Process process = Process.Start(new ProcessStartInfo(Paths.GameExe, args)
         {

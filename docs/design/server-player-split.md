@@ -5,13 +5,32 @@
 > - **Steps 1-3 of the [plan](#plan):** starting items, the host's own player stored per player,
 >   and the one-time conversion. They're written (branch `dev/player-state`). Step 1 is tested;
 >   steps 2 and 3 aren't, and wait for step 0.
-> - **Step 0, [identity by SteamID](#identity):** agreed (2026-10-17), not built. It goes in
+> - **Step 0, [identity by SteamID](#identity):** agreed (2026-10-17). Part 0a (the ID, tickets,
+>   admins) is built and untested; 0b (re-keying old install GUIDs) isn't built yet. It goes in
 >   before steps 2-3 land.
 > - **The dedicated-host pieces** in [dedicated-host.md](dedicated-host.md) are its "no local
 >   player" case.
 
 ## Implementation status (2026-10-17)
 
+- **Step 0a, the Steam identity: built, not yet tested.**
+  - `PlayerIdentity` turns a SteamID64 into a player ID and back, parses typed IDs (a SteamID64,
+    or a GUID) and gives the local player's ID and the owner's (`-mp-owner`, or the local one).
+  - The login packet carries the claimed SteamID64, a session ticket and, from the host's own
+    client only, a per-process host token. It still carries the install GUID, for 0b.
+  - `PlayerAuthentication` on the server:
+    - the host token admits the host's own player, or the service identity on a dedicated host;
+    - with `-mp-allow-unverified`, everyone else gets the GUID they claim;
+    - otherwise a ticket is required and checked with `BeginAuthSession`, and a negative
+      `OnValidateAuthTicketResponse` kicks the player;
+    - the session ends on disconnect, and a reconnect replaces the old one.
+  - A refused login gets `dr/auth_failed`.
+  - `Settings.Admins` (SteamID64s, or GUIDs) replaces `AdminGuids`, and the dedicated host's owner
+    is `PlayerIdentity.Owner`.
+  - dvmp starts every host with `-mp-allow-unverified`, so the gate doesn't exercise verified
+    logins.
+  - The ticket is requested for no particular server (`GetAuthSessionTicket(default)`). If Steam
+    turns out to need the host's identity there, `AuthTicketNetworkIdentityFailure` will say so.
 - **Step 1, starting items: built and tested.**
   - The host sends what a joining player already owns: prefab and inventory slot, from live
     records, unrestored Lost and Found entries and cold containers (`OwnedItemsSummary`, two new
@@ -127,15 +146,16 @@ transport already uses.
   verified, which a guessable GUID isn't. It decides who the one-time conversion gives the old host
   player's state to, and who is an admin without being listed. `-mp-owner <SteamID64>` overrides it
   for a career copied to another PC.
-- **Admins:** a new `Admins` setting with SteamID64s replaces `AdminGuids`.
+- **Admins:** a new `Admins` setting with SteamID64s replaces `AdminGuids` (built).
 - **No Steam:** the game runs without Steam, and so does single player. The local player then falls
   back to the install GUID, and the next run with Steam re-keys it to the Steam ID as above.
 - **Two games on one Steam account:**
   - **What collides:** the test harness runs a host player and a client on the same account, so
     they'd have the same ID.
-  - **The fix:** hosts started by dvmp get `-mp-allow-unverified`. There, a client without a
-    ticket is admitted under the GUID it claims, as today, and the dvmp client keeps its fixed
-    `â€¦c11e` GUID.
+  - **The fix:** hosts started by dvmp get `-mp-allow-unverified`. There, every client is
+    admitted under the GUID it claims, ticket or not, as before. The host's own player is keyed
+    by the install's GUID, so the harness can still set it, and the dvmp client keeps its fixed
+    `…c11e` GUID.
   - It's off by default and should never be used on a public server.
 - **Re-keying risk:** an old install GUID isn't secret, so someone who learned it could in principle
   claim that player's old data with their own Steam account. That only works until the owner's own
@@ -157,7 +177,7 @@ that the host's own player is special in several places:
 | **Starting items** | Each game's DV adds missing starting items (comms radio, maps, compass, wallet, catalogue, ...) to its local inventory while loading (`StartingItemsController.StartingItemsSafeguard`). A client therefore gets fresh copies before the server hands back its saved ones; that was the duplicate behind a rejoin failure on 2026-10-17. | The server decides. A player new to the career gets the starting items from the server. A returning player gets theirs back. No game adds its own copies in multiplayer. |
 | **Logic shortcuts** | About 300 `IsHost()` uses. Some bypass checks for the host's own player: control range (`NetworkServer.cs:2406`), topology range (`:2533`), port authority (`NetworkedTrainCar.cs:1072`). The host's own changes go through vanilla directly. | Changes the local player makes still go through the server, which validates them like anyone's. Shortcuts stay only where the server and that client share a process, and only for transport (no packet round trip), not for skipping validation. |
 | **World coverage** | DV loads scenery and terrain, and gives cars their near physics LOD, around the one local player. A client far from the host gets frozen derailments and far-LOD cars on the host. | The server keeps the world loaded and at full physics detail around every player: the local one if any, and every remote one. |
-| **Admin** | "Host only" means the host's own player. | Admins are identities (built: `ChatManager.IsAdmin`, with the install's own player and `Settings.AdminGuids`). With step 0: verified Steam accounts, the owner and a `Settings.Admins` list of SteamID64s. |
+| **Admin** | "Host only" means the host's own player. | Admins are identities (built: `ChatManager.IsAdmin`): the host's own player, a dedicated host's owner, and the `Settings.Admins` list of SteamID64s, all verified Steam accounts from step 0a. |
 
 The shared career progress (money, licences, garages, debt, jobs) is already the server's: one
 shared wallet, broadcast to everyone ([world-sync.md](../world-sync.md)). That doesn't change.

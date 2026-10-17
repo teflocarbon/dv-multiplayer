@@ -77,16 +77,14 @@ too.
     A test with `-mp-autosave 1` rotated out the save it had loaded within about 15 minutes. The
     rotation acts as bounded backups, but a long-term backup copy outside the slots is still to do.
 - **Admins** (`ChatManager.IsAdmin`):
-  - Who: the host's own player, the player with this install's GUID (on a dedicated host, that's
-    its owner playing from the same PC), and the GUIDs in the new `AdminGuids` setting.
+  - Who: the host's own player, the dedicated host's owner (the Steam account running it, or
+    `-mp-owner`), and the players in the new `Admins` setting (SteamID64s).
   - `/kick`, `/server` and setting others' crew names now take an admin, not only the host.
   - New commands: `/save`; `/stop`, which saves, says so in chat and quits a dedicated host;
     `/payfees`, which pays every payable fee and debt from the shared wallet the way the career
     manager's cash register does.
-  - GUIDs aren't secret or verified, so the server password is what keeps strangers out.
-  - **Planned:** identity by SteamID ([server-player-split.md](server-player-split.md#identity)).
-    - The owner becomes the Steam account running the server, verified with a Steam auth ticket.
-    - `AdminGuids` becomes `Admins`, a list of SteamID64s.
+  - Players are their Steam accounts, verified with a Steam auth ticket at login (built, not yet
+    tested: [server-player-split.md](server-player-split.md#identity)).
     - `-mp-owner` takes a SteamID64.
     - The service identity stays a reserved non-Steam ID, since the dedicated host and its owner's
       client on one PC share an account.
@@ -648,8 +646,8 @@ simulation rate (`NetworkTrainsetWatcher`), so a starved host slows the whole wo
 Today's admin is the host's keyboard plus `/kick` and `/server` for `IsHost(sender)` (section 3).
 A dedicated host needs:
 
-- **Owner or admin identities**: built with GUIDs (the install's own player, `AdminGuids`). Planned:
-  verified Steam accounts ([server-player-split.md](server-player-split.md#identity)).
+- **Owner or admin identities**: built, as verified Steam accounts: the owner and `Admins`
+  ([server-player-split.md](server-player-split.md#identity)).
 - **Commands**: save, stop (save then quit), kick, ban (there is none), say, pay fees, set difficulty
   and game parameters, list players and status.
 - **A local console.** Stdin doesn't exist in a Unity player. The options are chat commands from an

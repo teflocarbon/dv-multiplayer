@@ -34,9 +34,11 @@ namespace Multiplayer.Components.Networking;
 ///   -mp-fps N                frame cap, at least 25 (default 30)
 ///   -mp-autosave N           minutes between saves while anyone is online (default 10)
 ///   -mp-heartbeat PATH       rewrite PATH every 5 s with the host's state (JSON), for a watchdog
+///   -mp-owner STEAMID64      the career's owner when the server runs under another Steam account
+///                            (PlayerIdentity.Owner); any host takes it
 /// Server name, password, max players and details come from the mod's settings.
-/// With nobody online the game saves and pauses; admins (the install's own player, and
-/// Settings.AdminGuids) have /save, /stop and /payfees in chat (ChatManager).
+/// With nobody online the game saves and pauses; admins (the owner, and Settings.Admins) have
+/// /save, /stop and /payfees in chat (ChatManager).
 /// </summary>
 public static class DedicatedHost
 {

@@ -219,10 +219,10 @@ public class ChatManager
     }
 
     /// <summary>
-    /// Whether a player may use the admin commands: the host's own player; on a dedicated host, the
-    /// player with this install's GUID (its owner, playing from the same PC); and any GUID in
-    /// Settings.AdminGuids. GUIDs are the mod's identity but aren't secret or verified, so the
-    /// server password is what keeps strangers out.
+    /// Whether a player may use the admin commands: the host's own player; on a dedicated host, its
+    /// owner (PlayerIdentity.Owner: the Steam account running it, or -mp-owner); and anyone in
+    /// Settings.Admins. Player IDs are verified Steam accounts (PlayerAuthentication), except on a
+    /// host with -mp-allow-unverified.
     /// </summary>
     public static bool IsAdmin(ServerPlayer player)
     {
@@ -230,8 +230,8 @@ public class ChatManager
             return false;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         return lifecycle.IsHost(player) ||
-               (lifecycle.IsDedicatedHost && player.Guid == Multiplayer.Settings.GetGuid()) ||
-               Multiplayer.Settings.IsAdminGuid(player.Guid);
+               (lifecycle.IsDedicatedHost && player.Guid == PlayerIdentity.Owner) ||
+               Multiplayer.Settings.IsListedAdmin(player.Guid);
     }
 
     private static void Reply(ServerPlayer player, string message) =>

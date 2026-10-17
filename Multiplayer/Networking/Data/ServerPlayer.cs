@@ -48,7 +48,13 @@ public class ServerPlayer : IDisposable
     public float TotalPlaytime => PreviousPlayTime + (DateTime.UtcNow - LastLogin).Minutes;
     public string Username { get; set; }
     public string OriginalUsername { get; set; }
+    // The player ID (PlayerIdentity): their Steam account's, once verified.
     public Guid Guid { get; set; }
+    // The GUID of the install they play from, which their data was saved under before player IDs
+    // were Steam accounts.
+    public Guid LegacyGuid { get; set; }
+    // Their verified Steam account, or 0 (the host's own client, or a host with -mp-allow-unverified).
+    public ulong SteamId { get; set; }
     public string CharacterId { get; set; }
     public bool IsVR { get; }
     public uint LastHighPingTickLogged { get; set; }

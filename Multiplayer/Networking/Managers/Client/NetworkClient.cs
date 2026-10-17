@@ -163,6 +163,8 @@ public class NetworkClient : NetworkManager
 
     private bool isAlsoHost;
     IGameSession originalSession;
+    // Proves this game's Steam account to the server; Steam keeps it valid until cancelled.
+    private Steamworks.AuthTicket authTicket;
 
     // Allow mods to add to the wait Queue
     private readonly List<string> readyBlocks = [];
@@ -193,10 +195,32 @@ public class NetworkClient : NetworkManager
         //netManager.Start();
         base.Start();
 
+        // The host's own client is trusted by its token and needs no ticket.
+        bool hosting = NetworkLifecycle.Instance.IsServerRunning;
+        ulong steamId = hosting ? 0 : PlayerIdentity.LocalSteamId;
+        byte[] ticket = [];
+        if (steamId != 0)
+        {
+            try
+            {
+                authTicket = Steamworks.SteamUser.GetAuthSessionTicket(default);
+                ticket = authTicket?.Data ?? [];
+            }
+            catch (Exception e)
+            {
+                LogWarning($"Couldn't get a Steam session ticket: {e.Message}");
+            }
+            if (ticket.Length == 0)
+                LogWarning("No Steam session ticket: a host that verifies players will refuse this login");
+        }
+
         ServerboundClientLoginPacket serverboundClientLoginPacket = new()
         {
             Username = this.Username,
             Guid = (NetworkLifecycle.Instance.IsDedicatedHost ? Multiplayer.Settings.GetServiceGuid() : Multiplayer.Settings.GetGuid()).ToByteArray(),
+            SteamId = ticket.Length > 0 ? steamId : 0,
+            AuthTicket = ticket,
+            HostToken = hosting ? Managers.Server.PlayerAuthentication.HostToken : [],
             Password = password,
             BuildVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
             Mods = ModCompatibilityManager.Instance.GetLocalMods(),
@@ -229,6 +253,8 @@ public class NetworkClient : NetworkManager
         }
 
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
+        authTicket?.Cancel();
+        authTicket = null;
         if (worldLoadingFinishedHandler != null)
             WorldStreamingInit.LoadingFinished -= worldLoadingFinishedHandler;
         worldLoadingFinishedHandler = null;

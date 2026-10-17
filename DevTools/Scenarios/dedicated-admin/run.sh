@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A dedicated host run by its players: admin commands and the empty-server pause.
 #  1. A player who isn't an admin can't /save.
-#  2. Made an admin (Settings.AdminGuids, in memory only), /save saves. /payfees is refused while
+#  2. Made an admin (Settings.Admins, in memory only), /save saves. /payfees is refused while
 #     the wallet can't cover the fees, then pays them all once when it can.
 #  3. When the last player leaves, the host saves and pauses; when they come back it unpauses.
 # Needs a dedicated host (dvmp up --dedicated); on an ordinary host it skips.
@@ -21,7 +21,7 @@ money() { host "DV.InventorySystem.Inventory.Instance.SetMoney($1); return 0;" >
 [ "$(host 'return new { d = NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = "true" ] ||
   { echo "SKIP: needs a dedicated host (dvmp up --dedicated)"; exit 0; }
 guid=$(host 'return new { g = NetworkLifecycle.Instance.Server.GameplayPlayers.First().Guid.ToString() };' | field g)
-restore() { host 'Multiplayer.Multiplayer.Settings.AdminGuids = ""; return 0;' >/dev/null 2>&1 || true; }
+restore() { host 'Multiplayer.Multiplayer.Settings.Admins = ""; return 0;' >/dev/null 2>&1 || true; }
 trap restore EXIT
 
 echo "== a player who isn't an admin tries /save"
@@ -30,7 +30,7 @@ echo "   last save: $(echo "$s1" | field saved)"
 echo "$s1" | field saved | grep -q "/save" && fail "a non-admin's /save saved the game"
 
 echo "== made an admin, /save"
-host "Multiplayer.Multiplayer.Settings.AdminGuids = \"$guid\"; return 0;" >/dev/null
+host "Multiplayer.Multiplayer.Settings.Admins = \"$guid\"; return 0;" >/dev/null
 chat "save"; s2=$(host "$state")
 echo "   last save: $(echo "$s2" | field saved)"
 echo "$s2" | field saved | grep -q "/save by" || fail "an admin's /save didn't save"

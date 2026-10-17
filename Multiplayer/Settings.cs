@@ -63,8 +63,8 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public int Port = 7777;
     [Draw("Details", Tooltip = "Details shown in the server browser.")]
     public string Details = "";
-    [Draw("Admin GUIDs", Tooltip = "Players (by GUID, separated by commas) who may use the admin chat commands: /kick, /server, /save, /stop, /payfees. On a dedicated server this install's own player always may.")]
-    public string AdminGuids = "";
+    [Draw("Admins", Tooltip = "Players (by SteamID64, separated by commas) who may use the admin chat commands: /kick, /server, /save, /stop, /payfees. On a dedicated server the Steam account running it always may.")]
+    public string Admins = "";
 
     [Space(10)]
     [Header("Lobby Server")]
@@ -223,9 +223,11 @@ public class Settings : UnityModManager.ModSettings, IDrawable
         return guid;
     }
 
-    public bool IsAdminGuid(Guid guid) =>
-        guid != System.Guid.Empty && !string.IsNullOrWhiteSpace(AdminGuids) &&
-        System.Linq.Enumerable.Any(AdminGuids.Split(','), entry => System.Guid.TryParse(entry.Trim(), out Guid admin) && admin == guid);
+    /// <summary>Whether a player ID is in <see cref="Admins"/> (SteamID64s, or player IDs as GUIDs).</summary>
+    public bool IsListedAdmin(Guid playerId) =>
+        playerId != System.Guid.Empty && !string.IsNullOrWhiteSpace(Admins) &&
+        System.Linq.Enumerable.Any(Admins.Split(','),
+            entry => Networking.Data.PlayerIdentity.TryParse(entry, out Guid admin) && admin == playerId);
 
     public Guid GetServiceGuid()
     {

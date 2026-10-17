@@ -102,11 +102,11 @@ A run that logged a coupler break (an error on either peer) is flagged with `[N 
 temp directory, printed at the end). `DVMP` points at the CLI (default
 `DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`).
 
-**Planned, identity by SteamID** ([design/server-player-split.md](design/server-player-split.md#identity)):
+**Identity by SteamID** ([design/server-player-split.md](design/server-player-split.md#identity)):
 - Hosts verify each player's Steam auth ticket. The harness runs a host player and a client on one
   Steam account, which would give them the same ID.
-- So hosts started by dvmp will get `-mp-allow-unverified`, which admits a client without a ticket
-  under the GUID it claims (the dvmp client keeps its fixed `â€¦c11e`).
+- So hosts started by dvmp get `-mp-allow-unverified`, which admits every client under the GUID it
+  claims, and keys the host's own player by the install's GUID (the dvmp client keeps its fixed `…c11e`).
 - The gate exercises the unverified path only. Verified logins need a second Steam account and are
   checked by hand.
 

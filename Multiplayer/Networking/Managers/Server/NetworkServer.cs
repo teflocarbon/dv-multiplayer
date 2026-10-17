@@ -117,6 +117,7 @@ public class NetworkServer : NetworkManager
     private bool IsLoaded;
 
     private readonly ChatManager _chatManager = new();
+    private readonly PlayerAuthentication authentication;
     public ChatManager ChatManager => _chatManager;
 
     private uint lastTick;
@@ -144,6 +145,7 @@ public class NetworkServer : NetworkManager
 
         fastTravelAdvancesTime = settings.FastTravelAdvancesTime;
         TimeAdvancePatch.FastTravelAdvancesTime = fastTravelAdvancesTime;
+        authentication = new PlayerAuthentication(this);
     }
 
     public override void OnSettingsUpdated(Settings settings)
@@ -213,6 +215,7 @@ public class NetworkServer : NetworkManager
         //Reset player ID pool
         foreach (var player in serverPlayers.Values)
             player.Dispose();
+        authentication.Dispose();
 
         NetworkLifecycle.Instance.OnTick -= OnTick;
 
@@ -584,6 +587,7 @@ public class NetworkServer : NetworkManager
             foreach (Action<ServerPlayer> handler in PlayerDisconnected.GetInvocationList())
                 RunDisconnectStep(handler.Method.DeclaringType?.Name ?? "subscriber", () => handler(player));
 
+        RunDisconnectStep("authentication", () => authentication.OnDisconnected(player));
         player.Dispose();
         RunDisconnectStep("dedicated host", () => DedicatedHost.OnPlayersChanged(someoneLeft: true));
     }
@@ -1583,7 +1587,7 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        Log($"Processing login packet for {packet.Username} ({guid}){(Multiplayer.Settings.LogIps ? $" at {request.RemoteEndPoint.Address}" : "")}");
+        Log($"Processing login packet for {packet.Username}{(Multiplayer.Settings.LogIps ? $" at {request.RemoteEndPoint.Address}" : "")}");
 
         if (Multiplayer.Settings.Password != packet.Password)
         {
@@ -1608,11 +1612,30 @@ public class NetworkServer : NetworkManager
             return;
         }
 
+        var validation = ModCompatibilityManager.Instance.ValidateClientMods(packet.Mods);
+        if (!validation.IsValid)
+        {
+            RejectForMods(packet, validation, request);
+            return;
+        }
+
+        if (!authentication.TryResolve(packet, guid, out PlayerAuthentication.Identity identity))
+        {
+            ClientboundLoginResponsePacket denyPacket = new()
+            {
+                ReasonKey = Locale.DISCONN_REASON__AUTH_FAILED_KEY
+            };
+            request.Reject(WritePacket(denyPacket));
+            return;
+        }
+        Guid playerId = identity.PlayerId;
+        Log($"{packet.Username} is player {PlayerIdentity.Describe(playerId)}");
+
         // The same player reconnecting (e.g. after a crash) before their old connection has timed
         // out. Retire the stale session now: left alone it holds their slot, and when it finally
         // times out its cleanup unbinds item ownership by identity - including from the new session.
         ServerPlayer stale = ServerPlayers.FirstOrDefault(player =>
-            guid != Guid.Empty && player.Guid == guid && player.Peer != SelfPeer);
+            playerId != Guid.Empty && player.Guid == playerId && player.Peer != SelfPeer);
         if (stale != null)
         {
             Log($"{packet.Username} reconnected while their previous session (player {stale.PlayerId}) was still open; closing it");
@@ -1629,46 +1652,10 @@ public class NetworkServer : NetworkManager
         if (GameplayPlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
         {
             LogWarning("Denied login due to server being full!");
+            authentication.Abandon(identity);
             ClientboundLoginResponsePacket denyPacket = new()
             {
                 ReasonKey = Locale.DISCONN_REASON__FULL_SERVER_KEY
-            };
-            request.Reject(WritePacket(denyPacket));
-            return;
-        }
-
-        var validation = ModCompatibilityManager.Instance.ValidateClientMods(packet.Mods);
-        if (!validation.IsValid)
-        {
-
-            LogWarning($"Denied login due to mod mismatch! {validation.Missing.Count} missing, {validation.Extra} extra");
-            LogDebug(() =>
-            {
-                StringBuilder sb = new("Mod mis-match:");
-                sb.AppendLine("Server Mods:");
-                foreach (ModInfo mod in ModCompatibilityManager.Instance.GetLocalMods())
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                sb.AppendLine("\r\nClient Mods:");
-                foreach (ModInfo mod in packet.Mods)
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                sb.AppendLine("\r\nMissing Mods:");
-                foreach (ModInfo mod in validation.Missing)
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                sb.AppendLine("\r\nExtra Mods:");
-                foreach (ModInfo mod in validation.Extra)
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                return sb.ToString();
-            });
-
-            ClientboundLoginResponsePacket denyPacket = new()
-            {
-                ReasonKey = Locale.DISCONN_REASON__MODS_KEY,
-                Missing = validation.Missing.ToArray(),
-                Extra = validation.Extra.ToArray(),
             };
             request.Reject(WritePacket(denyPacket));
             return;
@@ -1685,13 +1672,18 @@ public class NetworkServer : NetworkManager
             peer,
             overrideUsername,
             packet.Username,
-            guid,
+            playerId,
             packet.CharacterId,
             packet.IsVR
-        );
+        )
+        {
+            LegacyGuid = guid,
+            SteamId = identity.SteamId,
+        };
 
         serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
         peerToPlayer.Add(peer, serverPlayer);
+        authentication.Admit(identity, serverPlayer);
         AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
         NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
         WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
@@ -1706,6 +1698,40 @@ public class NetworkServer : NetworkManager
         };
 
         SendPacket(peer, acceptPacket, DeliveryMethod.ReliableUnordered);
+    }
+
+    private void RejectForMods(ServerboundClientLoginPacket packet, ModValidationResult validation, IConnectionRequest request)
+    {
+        LogWarning($"Denied login due to mod mismatch! {validation.Missing.Count} missing, {validation.Extra} extra");
+        LogDebug(() =>
+        {
+            StringBuilder sb = new("Mod mis-match:");
+            sb.AppendLine("Server Mods:");
+            foreach (ModInfo mod in ModCompatibilityManager.Instance.GetLocalMods())
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            sb.AppendLine("\r\nClient Mods:");
+            foreach (ModInfo mod in packet.Mods)
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            sb.AppendLine("\r\nMissing Mods:");
+            foreach (ModInfo mod in validation.Missing)
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            sb.AppendLine("\r\nExtra Mods:");
+            foreach (ModInfo mod in validation.Extra)
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            return sb.ToString();
+        });
+
+        ClientboundLoginResponsePacket denyPacket = new()
+        {
+            ReasonKey = Locale.DISCONN_REASON__MODS_KEY,
+            Missing = validation.Missing.ToArray(),
+            Extra = validation.Extra.ToArray(),
+        };
+        request.Reject(WritePacket(denyPacket));
     }
 
     private void OnServerboundLoadStateUpdatePacket(ServerboundLoadStateUpdatePacket packet, ITransportPeer peer)
