@@ -1,0 +1,87 @@
+# Playtest tracker
+
+The working list for playtests with friends on the dedicated server: what broke, what's fixed, and
+what's still open. Update it in the same commit as a fix. Anything still open after a few sessions
+should become a GitHub issue instead (as [#76](https://github.com/teflocarbon/dv-multiplayer/issues/76)
+was).
+
+**Status words:**
+- **Fixed, tested:** checked in a game or a dvmp scenario.
+- **Fixed, untested:** committed and builds, not yet run in a game.
+- **Open:** cause known, not fixed.
+- **Needs a repro:** cause not known yet.
+
+## Session 1: 2026-10-17, dedicated server, 3 players
+
+**Setup:**
+- Build: release 2026.10.17.1, from `dev/player-state` at 083f39c0 (the merge of
+  `dev/world-terrain`).
+- Server: a dedicated host on the owner's PC, under the watchdog (`run-dedicated-host.ps1`). The
+  owner joined from VR on the same PC, with two friends over Steam.
+- Logs:
+  - Server: `%LOCALAPPDATA%\dv-multiplayer\dedicated-host\logs\`.
+  - Players: `%USERPROFILE%\AppData\LocalLow\Altfuture\Derail Valley\Player.log`, or
+    `Player-prev.log` after a restart.
+  - Debug Logging is off by default: turn it on in the mod settings before a session. The server
+    reads it at start.
+
+**Not in that build:** every fix below was committed after it. They all go into the next build,
+which every player has to install, since some of the fixes run in players' games.
+
+### Fixed
+
+| Problem | Cause | Fix | Status |
+|---|---|---|---|
+| The owner was kicked whenever another player joined or left | Steam reported the owner's ticket cancelled (the server and the owner's game share one Steam account), and the late-rejection check kicked them | A player Steam has confirmed is kicked later only for a ban or a lost licence (`PlayerAuthentication`, 82ddb491) | Fixed, untested |
+| S282: compressor, dynamo, cylinder cocks, lubricator and oiling did nothing; DE6: a friend's open window showed only for them | These controls never raise Grabbed or Used, so nothing took their control lease. The player's game dropped the change as feedback, and the server refused unleased writes anyway (#73 covered only buttons and switches) | Players' games send a control change that nobody else holds a lease on; the server takes it (`NetworkedTrainCar`, `NetworkServer`, 69d0548a). `cab-controls` gained a case with `LOCOS="LocoS282A LocoDE6"` | Fixed, untested |
+| A client's radio and maps came back lying in the world on a dedicated host | Items without a slot claim took the slots the essentials reserve | An item without its own claim on a slot moves aside for the essential that reserves it (`InventoryIntegration.MakeRoomForClaim`, 1e101ef4) | Fixed, tested |
+| A carried item a player found in the world (a mug) was gone after a reload | The save kept only items DV marks as the player's own | Anything in a player's inventory or hand is saved (4844d6d6) | Fixed, tested |
+| A crashed player lost five sandbox starting items (boombox, handheld console, EOT lantern, stopwatch, remote) | Starting items a player's own game makes stay unbound until first used, so only that game knew them | Ten seconds after the loading screen, the player's game asks the server to adopt what's still unbound in its inventory (375eb1c5) | Fixed, untested |
+| A radio left in a train became unreachable once the car was deleted, and the server looked up the missing car 30 times a second | Items in a deleted car went to the car pool with it | Before a car is deleted, a player's own items in it go to their Lost and Found, and anything else goes with the car cleanly (b503fabc) | Fixed, untested |
+| Ground fire burnt for 20 minutes with no fuel | A vanilla bug: a burning tile's list of flammable liquids is rebuilt empty, or never rebuilt, so it neither burns its fuel nor goes out | The server rebuilds an empty list and clears traces (`HazmatSync.PutOutBurntTiles`, bb890858) | Fixed, tested (applied by hand to the live server: all 31 tiles went out) |
+| A damaged tank car leaked from different places on each screen ([#76](https://github.com/teflocarbon/dv-multiplayer/issues/76)) | Each game rolled its own random rupture point | The pick is seeded from the car's ID (`CargoLeakPointPatch`, 1f2e53be) | Fixed, untested |
+
+### Added for running the server
+
+| What | Commit | Status |
+|---|---|---|
+| The watchdog's window shows the mod's log, and takes server commands (they run as the owner) | 3dd2e0e9 | Untested |
+| `/give <player> <item> [count]` and `/restore <player>`, straight into the inventory | a8bbdf78 | Tested by hand on the live server (a mug) |
+| `/weather clear\|rain\|storm [hours]`, `/weather auto`, `/weather new` | 52196852 | Untested |
+| `/time HH:mm` and `/time +hours` (forward only) | a6f18314 | Untested |
+| `/repair [player] [all]` | 0372e8d4 | Tested by hand on the live server (a DE6 with dead traction motors) |
+
+### Open
+
+| Problem | What's known | Next step |
+|---|---|---|
+| Friends-only servers don't appear in the server browser | The browser asks Steam only for public lobbies, and Steam never returns friends-only ones. This affects every host, not just a dedicated one | Also list friends' lobbies. Meanwhile, use `-Visibility public` with a password |
+| The whistle sometimes stuck | Its lease is taken and released over and over, so a late or out-of-order release can leave it stuck | Make a release always reach everyone |
+| A friend couldn't pick up one job overview (#800, refused 5 times between 08:51 and 09:04 UTC); their map pickups worked | The server refuses it, and a Release server doesn't log why | Repeat with server Debug Logging on and read the refusal reason |
+| Duplicate item numbers on job overviews at FRS ("Rejected duplicate NetId") | Seven of a client's own overview copies kept number 0, so nothing could be done with them | Find who creates the second copy |
+| Items an admin put on a train's floor couldn't be picked up | The train-item system never announced them to anyone. `/give` now uses the inventory, but the gap remains | Have the server announce items it places in a train |
+| Licence papers aren't covered by `/restore` | Only starting items are | Add licences (`LicensesSafeguard`) |
+| No refused-ticket test | It needs a second Steam account | Check by hand when one is available |
+| No `career-convert` scenario | Converting an old career once is untested | Write the scenario |
+| The watchdog has no "server ready" line | Players have to watch the log for `[Server] Server loaded` | Print it in the watchdog's window |
+| The fees screen doesn't work from a client | — | `/payfees` covers it meanwhile |
+
+### Needs a repro
+
+| Problem | Leads |
+|---|---|
+| The handcar's crank feels glued | The crank is linked to the wheels, and a client's copy of the car follows the server's position. Or it's the lease, if it only sticks with two people on it. Ask whether it sticks with one person |
+| Recall didn't fetch a radio left in a train | The client had the item, but after its rejoin the slot probably had no ghost, and so no **Get** button. Leave a radio in a cab, move away, rejoin, try **Get** |
+| Trains hop up and back down onto the track | Either the "only move where there's ground under both bogies" check, or correction jumps after gaps in updates ("large gap between snapshots: 141 ticks"). Note the time and the train |
+| A player's game crashed natively (Burst code) 0.3 s after cars around them were deleted | They were standing in one of the deleted cars. Their crash report is in `%TEMP%\Altfuture\Derail Valley\Crashes` |
+| The S282's mechanical lubricator handle didn't move at all | The lease fix covers its port, but not a handle that won't move. It may be VR interaction |
+| Manual oiling | Probably fixed by the lease change. Confirm with the S282 `cab-controls` case |
+| "Items fall through the map" | Never reproduced. Needs the original circumstances |
+| Memory per player, and the cost of the extra Far tiles on a player host | Not measured |
+
+### Before the next build goes out
+
+1. Run `cab-controls` with `LOCOS="LocoS282A LocoDE6"` on one pair.
+2. Try `/weather`, `/time` and `/repair` once each.
+3. Do the recall repro, and check a leaking tank car from two games.
+4. Build Release. Every player installs the new zip.

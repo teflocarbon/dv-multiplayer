@@ -14,6 +14,7 @@ host-authority model works end to end, then points at the rest.
 | [development.md](development.md) | Building, tests, testing in game with dvmp, the regression gate, branches and pull requests |
 | [testing.md](testing.md) | Unit and protocol tests, the protocol fingerprint, and every dvmp scenario in the gate |
 | [observability.md](observability.md) | In-game debug overlay, structured events, traces and the debug HTTP API |
+| [playtest-tracker.md](playtest-tracker.md) | The working list from playtests: what broke, what's fixed, what's open |
 
 ## How each system syncs
 
