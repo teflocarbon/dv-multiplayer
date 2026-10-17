@@ -42,6 +42,7 @@ runs=( # name | scenario | variables
   "rejoin-crash|rejoin|CRASH=1"
   "save-reload|save-reload|CYCLES=2"
   "inventory-persist|inventory-persist|"
+  "host-player-persist|host-player-persist|"
   "borrowed-disconnect|borrowed-disconnect|"
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
@@ -73,7 +74,7 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
   PAIRS=${PAIRS:-1}; REPEAT=${REPEAT:-1}
   # Measure frame timing (run alone) or write saves into the shared profile (alone until each
   # session has its own data folder): these run on p1 after the parallel phase, other pairs down.
-  EXCLUSIVE=${EXCLUSIVE:-"fps-drop host-stall player-soak save-reload inventory-persist"}
+  EXCLUSIVE=${EXCLUSIVE:-"fps-drop host-stall player-soak save-reload inventory-persist host-player-persist"}
   Q="$LOG_DIR/.queue"; mkdir -p "$Q/claim" "$Q/result"
   items=(); exclusive=()
   for entry in "${runs[@]}"; do

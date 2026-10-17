@@ -56,11 +56,11 @@ internal static partial class WorldItemPersistenceManager
             Revision = record.Revision,
             HasPersistentOverride = record.HasPersistentOverride || checkpoint != null,
             IsReplenishableStockFork = record.IsReplenishableStockFork,
-            // An item in another player's hand when the host saves goes back into their inventory.
-            Placement = spatial.Placement == ItemPlacementKind.PlayerHand && IsRemotePlayerPossession(record)
+            // An item in a player's hand when the host saves goes back into their inventory.
+            Placement = spatial.Placement == ItemPlacementKind.PlayerHand && IsPlayerPossession(record)
                 ? ItemPlacementKind.PlayerInventory : spatial.Placement,
             OwnerIdentity = ResolveSavedOwnerIdentity(record),
-            PlacementPlayerIdentity = record.PlacementPlayerIdentity,
+            PlacementPlayerIdentity = ResolvePlacementIdentity(record),
             ClaimSlot = record.InventoryClaimSlot,
             ClaimFlags = record.InventoryClaimFlags,
             WorldParentKind = spatial.ParentKind,
@@ -108,18 +108,25 @@ internal static partial class WorldItemPersistenceManager
         prefabName is "JobOverview" or "JobBooklet";
 
     /// <summary>
-    /// An item in another player's inventory or hand, connected or not. Vanilla saves only the
-    /// host's own inventory, so without this a friend's purchases and pickups were gone after every
-    /// reload. Restored, it waits for that player to connect and goes back into their inventory.
+    /// An item in a player's inventory or hand, connected or not, the host's own player included:
+    /// every player's possessions are saved by their GUID (PerPlayerSaveFormat). Restored, it waits
+    /// for that player to connect and goes back into their inventory, wherever the server runs.
     /// </summary>
-    internal static bool IsRemotePlayerPossession(AuthoritativeItemRegistry.Record record)
+    internal static bool IsPlayerPossession(AuthoritativeItemRegistry.Record record) =>
+        record?.Placement is ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand &&
+        ResolvePlacementIdentity(record) != Guid.Empty;
+
+    // The GUID of the player holding an item. A record of the host's own player's item may carry
+    // only the runtime player ID.
+    private static Guid ResolvePlacementIdentity(AuthoritativeItemRegistry.Record record)
     {
-        if (record?.Placement is not (ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand) ||
-            record.PlacementPlayerIdentity == Guid.Empty)
-            return false;
+        if (record.PlacementPlayerIdentity != Guid.Empty)
+            return record.PlacementPlayerIdentity;
+        if (record.PlacementPlayerId == 0)
+            return Guid.Empty;
         NetworkServer server = NetworkLifecycle.Instance?.Server;
-        return server == null || !server.TryGetServerPlayer(server.SelfId, out ServerPlayer host) ||
-               host.Guid != record.PlacementPlayerIdentity;
+        ServerPlayer holder = server?.ServerPlayers.FirstOrDefault(player => player.PlayerId == record.PlacementPlayerId);
+        return holder == null || holder.IsServiceHost ? Guid.Empty : holder.Guid;
     }
 
     private static bool ShouldPersist(AuthoritativeItemRegistry.Record record)
@@ -140,7 +147,7 @@ internal static partial class WorldItemPersistenceManager
                 item?.Item?.InventorySpecs?.BelongsToPlayer != true)
                 return false;
             return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
-                ItemPlacementKind.StaticParent || IsRemotePlayerPossession(record);
+                ItemPlacementKind.StaticParent || IsPlayerPossession(record);
         }
 
         if (!WorldItemStableIdentity.IsValid(record.AuthoredItemKey))

@@ -102,6 +102,14 @@ A run that logged a coupler break (an error on either peer) is flagged with `[N 
 temp directory, printed at the end). `DVMP` points at the CLI (default
 `DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`).
 
+**Planned, identity by SteamID** ([design/server-player-split.md](design/server-player-split.md#identity)):
+- Hosts verify each player's Steam auth ticket. The harness runs a host player and a client on one
+  Steam account, which would give them the same ID.
+- So hosts started by dvmp will get `-mp-allow-unverified`, which admits a client without a ticket
+  under the GUID it claims (the dvmp client keeps its fixed `â€¦c11e`).
+- The gate exercises the unverified path only. Verified logins need a second Steam account and are
+  checked by hand.
+
 `UP_ARGS=--dedicated` (with `PAIRS`) runs the scenarios against dedicated hosts
 ([design/dedicated-host.md](design/dedicated-host.md)). Only the client-driven ones mean anything
 there, for example `cab-controls manual-uncouple lost-and-found shop rejoin car-fire`. A dedicated
@@ -133,6 +141,7 @@ host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 | `rejoin` | default; `CRASH=1` | A client quits (or is killed) holding an item; the host keeps its items and drops the held one, and the client gets exactly one of each back on rejoin. |
 | `save-reload` | `CYCLES=2` | Repeated host save and reload: items don't multiply, fall from the sky or drift into Lost and Found. |
 | `inventory-persist` | default | A client's inventory item survives a host save and restart of both games, bound to the host, once. |
+| `host-player-persist` | default (skips on a dedicated host) | The host's own player is stored by GUID like any player: the host stashes a mug, saves, both games restart, and its whole inventory comes back once at the same place. The save is in the per-player format, with the host's items as records and DV's own inventory list kept for vanilla. |
 | `borrowed-disconnect` | default | A client leaving with the host's item puts it down in the world, still the host's. |
 | `shop` | default | A client purchase is paid once from the shared wallet, exists with one NetId on both peers and drops the stock; a cancelled basket refunds without a local banknote. |
 | `jobs` | `ACCEPT=host HANDIN=client` | A job taken, delivered, handed in and paid across both players; both agree at every step and the wallet goes up once. |

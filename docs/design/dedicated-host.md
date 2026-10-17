@@ -84,6 +84,12 @@ too.
     `/payfees`, which pays every payable fee and debt from the shared wallet the way the career
     manager's cash register does.
   - GUIDs aren't secret or verified, so the server password is what keeps strangers out.
+  - **Planned:** identity by SteamID ([server-player-split.md](server-player-split.md#identity)).
+    - The owner becomes the Steam account running the server, verified with a Steam auth ticket.
+    - `AdminGuids` becomes `Admins`, a list of SteamID64s.
+    - `-mp-owner` takes a SteamID64.
+    - The service identity stays a reserved non-Steam ID, since the dedicated host and its owner's
+      client on one PC share an account.
 - **Heartbeat:** with `-mp-heartbeat PATH`, every 5 s the host replaces `PATH` with a JSON line: time,
   tick, fps, players, paused, last save, Mono heap. A watchdog can restart the game if it goes
   stale. The watchdog itself isn't built.
@@ -642,8 +648,8 @@ simulation rate (`NetworkTrainsetWatcher`), so a starved host slows the whole wo
 Today's admin is the host's keyboard plus `/kick` and `/server` for `IsHost(sender)` (section 3).
 A dedicated host needs:
 
-- **Owner or admin identities**: GUIDs in the host's settings. On one PC, the install's own GUID on a
-  loopback connection is the obvious owner.
+- **Owner or admin identities**: built with GUIDs (the install's own player, `AdminGuids`). Planned:
+  verified Steam accounts ([server-player-split.md](server-player-split.md#identity)).
 - **Commands**: save, stop (save then quit), kick, ban (there is none), say, pay fees, set difficulty
   and game parameters, list players and status.
 - **A local console.** Stdin doesn't exist in a Unity player. The options are chat commands from an
@@ -714,8 +720,9 @@ anchor and checks it settles on the host as well as on the client. That scenario
    Keeping the client as a service identity contains this, but each missed spot is a quiet bug: a
    station kept alive by the parked body, a vanilla path running against it, a slot taken.
 3. **Identity and personal state.** Two games on one install share `Settings.Guid`, and the login
-   check lets the duplicate in. The old host player's inventory and position need migrating to the
-   user, or they're stranded on the parked body.
+   check lets the duplicate in. The service identity fixes that for the host, but GUIDs aren't
+   verified at all. Planned: identity by SteamID with Steam auth, and the old host player's state
+   converted once to its owner ([server-player-split.md](server-player-split.md)).
 4. **Steam.** Hosting needs a logged-in Steam account that owns DV. Two instances on one account
    work for loopback; relay and lobby behaviour is unknown.
 5. **Resources on one PC.** A second game costs 4-5.5 GB of RAM and about 3 cores. If the host is
