@@ -149,16 +149,27 @@ These are built and tested in the game:
     - Each command runs as the server's service player, which counts as an admin only for these
       (`ChatManager.RunConsoleCommand`). Replies go to the log, so they show in the window.
     - A line without a slash is said in chat as the server.
-- **Item commands** (`AdminItemGrants`, added 2026-10-17, untested in the game), for a player who
-  lost items, e.g. to a crash:
-  - `/give <player> <item> [count]` spawns DV's item by its prefab name (`EOTLantern`, `Boombox`)
-    at the player's feet, owned by them as a shop purchase is, so recall and Lost and Found work for
-    it. An unknown name gets near matches suggested.
+- **Item commands** (`AdminItemGrants`, added 2026-10-17), for a player who lost items, e.g. to a
+  crash:
+  - `/give <player> <item> [count]` puts DV's item, by its prefab name (`EOTLantern`, `Boombox`),
+    straight into the player's inventory, owned by them, the way a saved inventory comes back at
+    login. Recall and Lost and Found then work for it. Only if that's refused (a full inventory) is
+    it left at their feet. An unknown name gets near matches suggested.
+  - Checked on the live server: a mug given this way arrived in the player's inventory slot 10.
+    Items first spawned at a player's feet while they stood in a train landed on the cab floor and
+    were never projected to anyone, so nobody could pick them up.
   - Essentials (radio, maps, wallet) are one per player in DV, so `/give` refuses one the player
     already owns anywhere.
   - `/restore <player>` gives back the career's starting items (DV's `GetStartingItemsPrefabs`) that
     the player owns nowhere (`OwnedItemsSummary`). It's safe to repeat.
   - Licence papers aren't covered yet.
+- **World commands** (added 2026-10-17, untested in the game):
+  - `/weather clear|rain|storm [hours]` holds a weather for some in-game hours (default 2), through
+    DV's starting-weather override, which the weather state sent to every game carries. `auto`
+    returns to natural weather; `new` rolls a different natural pattern (DV's weather seed).
+  - `/time HH:mm` skips forward to the next such time of day, and `/time +hours` skips ahead. The
+    skip goes to every game as fast travel's does, so DV's `TimeAdvance` moves jobs on. It never
+    goes back: DV reads a clock going back as a day passing.
 - **Save lock** (`DedicatedHostSaveLock`, `LauncherControllerSaveLockPatch`):
   - While its world is loaded, a dedicated host keeps `dedicated-host.lock` open in the career's
     folder, with sharing denied.
