@@ -129,13 +129,18 @@ syncing from clients, and every button and switch a VR client pressed being drop
   0903b06).
 - A car derailed for 30 s can be rerailed even if it never stops moving
   (`Patches/Train/TrainCarRerailPatch.cs`).
+- A host rerail or move-to-track resets everything on the client that follows the host's samples,
+  before and after vanilla relocates the car, and the client then asks for a full sync; the host
+  sends one reliably anyway once its own relocation is done. The rigidbody queue only steers a
+  derailed car. Before, a rerailed car slid off at 1.5 m/s and was snapped back and flung, forever
+  (playtest 2; see "What the code does").
 - Explosions are the host's: clients play the host's explosions but never apply explosion forces
   to trains (`Patches/Train/ExplosionPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
 - Deleting a car steps any player on it off first, so players are no longer destroyed with it
   (`Patches/Train/CarDeletePlayerSafetyPatch.cs`).
-- Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`)
-  and the client-only rerail are the only things that clear a client's motion queues; a host
-  rerail or move packet does not. `NetworkServer.SendTrainsetRelocation` has no caller, so the
+- Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`),
+  a derail, a rerail (host or client-only) and a host move-to-track are the only things that clear
+  a client's motion queues. `NetworkServer.SendTrainsetRelocation` has no caller, so the
   relocation/ack path is unused. There is no correction or bandwidth telemetry.
 
 **Stage 6: partly done.** Protocol mismatch is rejected at connect, and the legacy `Common*`
@@ -150,7 +155,7 @@ dashboard.
 **Runtime coverage** (dvmp gate, `DevTools/Scenarios/gate.sh`; see
 [`../testing.md`](../testing.md)): `manual-uncouple` (hand uncouple/recouple, with lag),
 `uncouple-moving`, `couple-impact` (coupling while the buffers bounce, by menu or chain),
-`fps-drop`, `host-stall`, `client-derail`, `explosion`.
+`fps-drop`, `host-stall`, `client-derail`, `rerail`, `explosion`.
 
 **Known open issues:**
 
@@ -709,8 +714,9 @@ host's last speed, without the correction term.
 
 A sample under 0.01 m/s (vanilla's stationary threshold) means the host's car is stopped, and the
 client holds its car there (`TrainSpeedQueue.Hold`); it is followed again only above 0.05 m/s, so a
-car crawling around the threshold doesn't flip between modes. A held sample is not projected and
-never goes stale. Within 5 cm the rigidbody is not touched: writing a velocity wakes the car, and an
+car crawling around the threshold doesn't flip between modes. A held sample is not projected, and
+goes stale only after 10 s (the host resyncs every car every 2 s; an older one is for something the
+host no longer has). Within 5 cm the rigidbody is not touched: writing a velocity wakes the car, and an
 awake, unbraked car creeps and wakes every car on its track (vanilla's `TrainsOptimizer`). Further
 off for more than 0.5 s (so a local loco pushing the car isn't fought before the host's samples
 arrive):
@@ -740,8 +746,9 @@ Full-sync positions are a safety net. The host pose is projected forward by the 
 alone, and the motion queues and train stress are reset. `isKinematic` is only written when it
 changes.
 
-Derailment: a rigidbody snapshot for an on-rail client car calls `TrainCar.Derail()` once, then
-interpolates the snapshots; afterwards the client reapplies the host's topology, because native
+Derailment: a rigidbody snapshot for an on-rail client car clears its bogie samples (they are for
+the rails it left), calls `TrainCar.Derail()` once, then interpolates the snapshots
+(`NetworkedRigidbody`, only while the car is derailed); afterwards the client reapplies the host's topology, because native
 derailment changes couplers. A car derailed on a client but on the rails on the host is rerailed
 onto the host's track at the host's pose (asking for a full sync if the sample lacks one), its
 queues are cleared, and the topology is reapplied once the rerail finishes
@@ -749,8 +756,20 @@ queues are cleared, and the topology is reapplied once the rerail finishes
 it never drops below vanilla's 1 m/s limit. Explosions never push client trains; the host's
 result arrives through this sync (see [`../world-sync.md`](../world-sync.md)).
 
-There is no `motionEpoch`. Host rerail (`ClientboundRerailTrainPacket`) and move packets don't
-clear client queues; stale samples are discarded only by tick order. The relocation packet with
+Host rerail and move-to-track (`ClientboundRerailTrainPacket`, `ClientboundMoveTrainPacket`;
+`NetworkedTrainCar.Client_RerailFromHost`, `Client_MoveToTrackFromHost`): the client clears the
+speed, rigidbody and bogie queues and makes the body dynamic (a derailed car at rest is kinematic,
+and vanilla's rerail needs a dynamic one), lets vanilla relocate the car (a coroutine: one physics
+step, `IsTeleporting`), ignores samples meanwhile, clears the queues again and asks the host for a
+full sync (`ServerboundTrainSyncRequestPacket`). The host, once its own relocation is done, sends
+the car's pose and both bogies' tracks and spans reliably on the next tick
+(`Server_ResyncAfterRelocation`, `Server_ResyncPose`; `Server_DirtyAllState` does the same).
+In playtest 2 none of this was reset: the rigidbody queue kept sliding the rerailed FEF-3 towards
+its derailed pose at its 1.5 m/s limit, the speed queue placed it back towards the host's spans,
+and each 2 s full sync found it over 5 m off and snapped it, flinging the body off its bogies
+(5-7 m/s, spinning), every ~1.3 s. Scenario `rerail`.
+
+There is no `motionEpoch`; other stale samples are discarded only by tick order. The relocation packet with
 its acknowledgement exists on the client, but the host never sends it.
 
 Open issues: an intermittent ~5.8 m snap at ~10 m/s on clients (#44). Vanilla jitter can keep
@@ -874,7 +893,8 @@ bytes/sec.
 dvmp scenarios in `DevTools/Scenarios/` (all in the gate) cover part of this: `couple-impact` and
 `manual-uncouple MODE=recouple` (1, with lag), `uncouple-moving` (2), `manual-uncouple` (3: hand
 uncouple through cocks, hoses and chain), `fps-drop` and `host-stall` (10: low client and host
-frame rates), `client-derail` (12: client-only derail). The others have no scenario. Scenarios
+frame rates), `client-derail` (12: client-only derail), `rerail` (12: host rerail, requested by a
+client or done by the host). The others have no scenario. Scenarios
 check agreement and position error; they don't record bytes/sec.
 
 ## Native research status

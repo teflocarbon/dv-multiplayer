@@ -1056,10 +1056,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         cargoHealthDirty = true;
         cargoIsLoading = true;
         carHealthDirty = true;
-        BogieTracksDirty = true;
         sendCouplers = true;
         sendCables = true;
-        TicksSinceSync = uint.MaxValue / 2; // full pose on the next tick (a client rerailing to it needs one); not MaxValue, the tick's ++ would wrap it to 0
+        Server_ResyncPose();
 
         if (!hasSimFlow)
             return;
@@ -1074,6 +1073,32 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             var netId = GetFuseNetId(fuseId);
             dirtyFuses.Add(netId);
         }
+    }
+
+    /// <summary>
+    /// Send the car's pose and both bogies' tracks and spans on the next tick, reliably, even if
+    /// it's standing still (a stopped set is otherwise only resent every couple of seconds).
+    /// </summary>
+    public void Server_ResyncPose()
+    {
+        BogieTracksDirty = true; // makes the set's packet reliable
+        TicksSinceSync = uint.MaxValue / 2; // full pose on the next tick (a client rerailing to it needs one); not MaxValue, the tick's ++ would wrap it to 0
+    }
+
+    /// <summary>
+    /// The host is rerailing this car or moving it to another track: once vanilla has (a physics
+    /// step later), send clients where it is now, so their followers aren't left aiming at
+    /// where it was.
+    /// </summary>
+    public void Server_ResyncAfterRelocation() => CoroutineManager.Instance.StartCoroutine(Server_ResyncAfterRelocationCoro());
+
+    private IEnumerator Server_ResyncAfterRelocationCoro()
+    {
+        yield return new WaitForFixedUpdate();
+        for (float t0 = Time.realtimeSinceStartup; TrainCar != null && TrainCar.IsTeleporting && Time.realtimeSinceStartup - t0 < 5f;)
+            yield return null;
+        if (this != null && TrainCar != null)
+            Server_ResyncPose();
     }
 
     public bool Server_ValidateClientSimFlowPacket(ServerPlayer player, CommonTrainPortsPacket packet)
@@ -2410,13 +2435,75 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         Multiplayer.LogWarning($"{CurrentID} derailed here but not on the host; rerailing it to the host's track");
+        Client_BeginRelocation();
         TrainCar.Rerail(track.RailTrack, movementPart.Position + WorldMover.currentMove,
             movementPart.Rotation * Vector3.forward);
-        Client_trainSpeedQueue.Clear();
-        Client_trainRigidbodyQueue.Clear();
-        client_bogie1Queue.Clear();
-        client_bogie2Queue.Clear();
+        Client_FinishRelocationLater();
         CoroutineManager.Instance.StartCoroutine(RestoreTopologyAfterRerail());
+    }
+
+    /// <summary>The host rerailed this car (<see cref="TrainCar.Rerail"/>).</summary>
+    public void Client_RerailFromHost(RailTrack track, Vector3 worldPos, Vector3 forward)
+    {
+        if (!TrainCar.derailed)
+            return;
+        Client_BeginRelocation();
+        TrainCar.Rerail(track, worldPos, forward);
+        Client_FinishRelocationLater();
+    }
+
+    /// <summary>The host moved this car to another track (<see cref="TrainCar.MoveToTrackWithCarUncouple"/>).</summary>
+    public void Client_MoveToTrackFromHost(RailTrack track, Vector3 worldPos, Vector3 forward)
+    {
+        if (TrainCar.derailed)
+            return;
+        Client_BeginRelocation();
+        TrainCar.MoveToTrackWithCarUncouple(track, worldPos, forward);
+        Client_FinishRelocationLater();
+    }
+
+    /// <summary>
+    /// Everything that follows the host's samples still aims at where the car was before a rerail
+    /// or move: the rigidbody queue at its derailed pose, the bogie queues at their old spans (a
+    /// stopped car's sample never goes stale). Left in place, after a rerail the rigidbody queue
+    /// dragged the body off at 1.5 m/s, the speed queue placed it back kinematically towards the
+    /// old sample, and every resync snapped it over 5 m and flung it, forever (playtest 2, FEF-3).
+    /// Vanilla's rerail must also act on a dynamic body: one resting derailed at the host's pose
+    /// is kinematic (see <see cref="UpdateDerailedKinematic"/>).
+    /// </summary>
+    private void Client_BeginRelocation()
+    {
+        Client_ResetFollowers();
+        if (TrainCar.rb != null && TrainCar.rb.isKinematic)
+            TrainCar.rb.isKinematic = false;
+    }
+
+    private void Client_ResetFollowers()
+    {
+        Client_trainSpeedQueue?.Clear();
+        Client_trainRigidbodyQueue?.Clear();
+        client_bogie1Queue?.Clear();
+        client_bogie2Queue?.Clear();
+        kinematicCycles = 0;
+        TrainCar?.stress?.ResetTrainStress();
+    }
+
+    /// <summary>
+    /// Vanilla relocates the car a physics step later (a coroutine); samples arriving meanwhile
+    /// are ignored (see <see cref="Client_ReceiveTrainPhysicsUpdate"/>), so once it's done, reset
+    /// again and ask the host for the car's pose and bogie tracks.
+    /// </summary>
+    private void Client_FinishRelocationLater() => CoroutineManager.Instance.StartCoroutine(Client_FinishRelocation());
+
+    private IEnumerator Client_FinishRelocation()
+    {
+        for (float t0 = Time.realtimeSinceStartup; TrainCar != null && TrainCar.IsTeleporting && Time.realtimeSinceStartup - t0 < 5f;)
+            yield return null;
+        yield return new WaitForFixedUpdate();
+        if (this == null || TrainCar == null)
+            yield break;
+        Client_ResetFollowers();
+        NetworkLifecycle.Instance.Client?.SendTrainSyncRequest(NetId);
     }
 
     private System.Collections.IEnumerator RestoreTopologyAfterRerail()
@@ -2439,6 +2526,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             DebugRuntime.Publish("train", "train.physics-received", DebugRuntimeSide.Client, entityType: "TrainCar", entityId: NetId.ToString(),
                 data: DebugValueSnapshotter.SnapshotObject(movementPart), highFrequency: true, samplingDecided: true);
         if (!Client_Initialized)
+            return false;
+
+        // Mid rerail or move (vanilla takes a physics step): the sample is for the car's new spot,
+        // ours isn't there yet. Client_FinishRelocation asks for a fresh one.
+        if (TrainCar.IsTeleporting)
             return false;
 
         if (tick <= lastTickProcessed)
@@ -2464,8 +2556,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             becameDerailed = !TrainCar.derailed;
             if (becameDerailed)
             {
-                // Vanilla's derail must act on a dynamic body: stop any placement first.
+                // Vanilla's derail must act on a dynamic body: stop any placement first. The bogie
+                // samples are for the rails it just left; a rerail must not find them.
                 Client_trainSpeedQueue.Clear();
+                client_bogie1Queue.Clear();
+                client_bogie2Queue.Clear();
                 if (TrainCar.rb.isKinematic)
                     TrainCar.rb.isKinematic = false;
                 kinematicCycles = 0;
