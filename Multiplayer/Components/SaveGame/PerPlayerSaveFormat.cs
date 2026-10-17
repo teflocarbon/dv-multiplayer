@@ -5,6 +5,7 @@ using DV.ThingTypes;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Core.Containers;
+using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Newtonsoft.Json.Linq;
 using System;
@@ -15,8 +16,9 @@ using UnityEngine;
 namespace Multiplayer.Components.SaveGame;
 
 /// <summary>
-/// The save format where every player's state is stored by their GUID, the host's own player
-/// included: a position under Multiplayer.Players.&lt;GUID&gt;, and item records owned by that GUID
+/// The save format where every player's state is stored by their player ID (PlayerIdentity), the
+/// host's own player included: a position under Multiplayer.Players.&lt;ID&gt;, and item records
+/// owned by that ID
 /// (WorldItemsV1). The server restores it at that player's login, wherever the server runs. See
 /// docs/design/server-player-split.md.
 ///
@@ -40,15 +42,14 @@ public static class PerPlayerSaveFormat
     /// </summary>
     public static List<StorageItemData> LocalOwnedItems { get; private set; }
 
-    /// <summary>The GUID the local player logs in with: the install's own (Settings.Guid).</summary>
-    private static Guid LocalGuid => Multiplayer.Settings.GetGuid();
+    /// <summary>The ID the local player logs in with: this game's Steam account's.</summary>
+    private static Guid LocalId => PlayerIdentity.Local;
 
     /// <summary>
-    /// Who a career saved before this format belongs to: the install's own player, or on a dedicated
-    /// host -mp-owner GUID, for a career copied to a server PC.
+    /// Who a career saved before this format belongs to: the Steam account the game runs under, or
+    /// -mp-owner, for a career copied to a server PC running under another account.
     /// </summary>
-    private static Guid ConversionOwner =>
-        Guid.TryParse(DedicatedHost.Arg("-mp-owner"), out Guid owner) && owner != Guid.Empty ? owner : LocalGuid;
+    private static Guid ConversionOwner => PlayerIdentity.Owner;
 
     public static void PrepareLoad(SaveGameData data)
     {
@@ -61,13 +62,21 @@ public static class PerPlayerSaveFormat
         if (((int?)root[FormatKey] ?? 0) < Version)
             Convert(data, root, ConversionOwner);
         root[FormatKey] = Version;
+
+        // The local player's state saved under the install's GUID, before player IDs were Steam
+        // accounts, moves to their Steam ID once. Other players' moves at their login.
+        Guid installGuid = Multiplayer.Settings.GetGuid();
+        if (!lifecycle.IsDedicatedHost && installGuid != LocalId &&
+            InstallGuidRekey.SaveOwns(root, installGuid) && !InstallGuidRekey.SaveOwns(root, LocalId))
+            Multiplayer.Log($"Save format: moved {InstallGuidRekey.RekeySave(root, installGuid, LocalId)} record(s) " +
+                            $"of the local player from install GUID {installGuid} to {PlayerIdentity.Describe(LocalId)}");
         data.SetJObject(RootKey, root);
 
         if (!lifecycle.IsDedicatedHost)
         {
-            // The local player spawns where their GUID was last, which needn't be where DV's own
+            // The local player spawns where their ID was last, which needn't be where DV's own
             // copy says (a dedicated host's copy is its parked body).
-            JObject self = (root[PlayersKey] as JObject)?.GetJObject(LocalGuid.ToString());
+            JObject self = (root[PlayersKey] as JObject)?.GetJObject(LocalId.ToString());
             Vector3? position = self?.GetVector3(SaveGameKeys.Player_position);
             if (position.HasValue)
             {
@@ -75,7 +84,7 @@ public static class PerPlayerSaveFormat
                 data.SetVector3(SaveGameKeys.Player_rotation, new Vector3(0f, self.GetFloat(SaveGameKeys.Player_rotation) ?? 0f, 0f));
                 data.SetString(SaveGameKeys.Player_car_guid, string.Empty);
             }
-            LocalOwnedItems = OwnedInSave(root, LocalGuid);
+            LocalOwnedItems = OwnedInSave(root, LocalId);
         }
 
         // The local inventory comes back from the server at the local player's login, like any
@@ -85,8 +94,9 @@ public static class PerPlayerSaveFormat
     }
 
     // A career saved before this format: the host player's state is only in DV's fields. Move it to
-    // the owner's GUID, as if they had been a client all along. Other players' entries are already
-    // per GUID. Runs once: the marker is set after it.
+    // the owner's ID, as if they had been a client all along. Other players' entries are already
+    // per player (under install GUIDs, which InstallGuidRekey moves at their login). Runs once:
+    // the marker is set after it.
     private static void Convert(SaveGameData data, JObject root, Guid owner)
     {
         JObject players = root.GetJObject(PlayersKey) ?? new JObject();
@@ -130,7 +140,7 @@ public static class PerPlayerSaveFormat
         Multiplayer.Log($"Save format: converted a career saved before per-player state; {moved} inventory item(s) and the position now belong to {owner}");
     }
 
-    // What a GUID owns according to the save: its item records, Lost and Found entries and
+    // What a player ID owns according to the save: its item records, Lost and Found entries and
     // cold-container contents, by prefab and inventory slot.
     private static List<StorageItemData> OwnedInSave(JObject root, Guid owner)
     {

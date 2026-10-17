@@ -4,10 +4,10 @@
 > together.
 > - **Steps 1-3 of the [plan](#plan):** starting items, the host's own player stored per player,
 >   and the one-time conversion. They're written (branch `dev/player-state`). Step 1 is tested;
->   steps 2 and 3 aren't, and wait for step 0.
+>   steps 2 and 3 aren't. They key players by the Steam-derived ID from step 0.
 > - **Step 0, [identity by SteamID](#identity):** agreed (2026-10-17). Part 0a (the ID, tickets,
->   admins) and 0b (re-keying old install GUIDs) are built and untested. It goes in before steps
->   2-3 land.
+>   admins) and 0b (re-keying old install GUIDs) are built and untested, and go in with steps
+>   2-3.
 > - **The dedicated-host pieces** in [dedicated-host.md](dedicated-host.md) are its "no local
 >   player" case.
 
@@ -56,15 +56,17 @@
   - This is narrower than "the server gives starting items": a genuinely missing item is still made
     by the player's own game, as in single player, and then adopted. It removes the duplicates
     without new item spawning on the server.
-- **Steps 2 and 3, the host's own player by GUID and the one-time conversion: built, not yet
-  tested.** All of it is in `PerPlayerSaveFormat`, called when hosting starts
+- **Steps 2 and 3, the host's own player by player ID and the one-time conversion: built, not
+  yet tested.** All of it is in `PerPlayerSaveFormat`, called when hosting starts
   (`SaveGameManager_FindStartGameData_Patch`), before DV places the player or loads an item.
   - **Conversion:** a save without the marker `Multiplayer.PlayerStateFormat = 2` has its
     `Player_position`, rotation and `Storage_Inventory` turned into `Players.<owner>` and item
-    records owned by the owner's GUID. The owner is the install's own player, or `-mp-owner` on a
-    dedicated host. Then the marker is set.
+    records owned by the owner's player ID. The owner is the Steam account the game runs under, or
+    `-mp-owner` (`PlayerIdentity.Owner`). Then the marker is set.
   - **Each load:**
-    - the local player spawns at its GUID's saved position (not on a dedicated host);
+    - a player host's own state saved under the install's GUID moves to its Steam ID, once
+      (`InstallGuidRekey.RekeySave`); other players' moves at their login;
+    - the local player spawns at its ID's saved position (not on a dedicated host);
     - DV's inventory list is emptied for the load, since items come back from the records at the
       local player's login;
     - the local player's owned items, read from the save, feed the safeguards.
