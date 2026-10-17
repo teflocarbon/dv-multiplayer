@@ -266,6 +266,21 @@ essential tiles wait behind another anchor's far ring.
 load, because `tilesLoaded` is cumulative. `LoadLevelAsyncManage` then paces with
 `sceneLoadWaitFrames`; that's harmless.
 
+**As built for Far tiles (2026-10-17, untested in game):** `ServerSceneryCoverage` and
+`StreamerPatch`, on every multiplayer server. It is simpler than the plan above:
+`CheckPositionTiles` isn't replaced, and `xPos/zPos` stay the primary's.
+
+- **Loading.** Once a second, the extra tiles are queued directly, the way `SceneLoading` queues
+  them: `loaded = true`, no limit moves, then added to `scenesToLoad` and `loadedScenes`. The
+  streamer then loads them in turn, behind its own.
+  - A remote player gets range 1 (3×3 tiles) and a derailed car the tiles within 64 m of it.
+  - Each anchor keeps its tiles until it's a tile further away than the range that loads them.
+  - At most 40 extra tiles, nearest to an anchor first.
+- **Unloading.** The prefix and postfix on `SceneUnloading` take the kept tiles out of
+  `loadedScenes` and put them back. When a tile nobody keeps lies outside the primary's range,
+  `SceneUnloading` is called directly; vanilla only calls it after the tracker crosses a tile.
+- Near isn't touched: every Near tile is loaded already (section 1.6).
+
 ### 1.5 Several Streamer instances, one per anchor: not workable
 
 - **Shared collection, duplicate loads.** Each instance has its own `SceneSplit` objects
@@ -301,6 +316,12 @@ never unloads.
   - origin-shift cost with every collider loaded (section 3).
 
   Measure before choosing (section 7, M1).
+
+**Built for Near (2026-10-17):** every multiplayer server now loads every Near tile
+(`ServerWorldCoverage`, see [server-player-split.md](server-player-split.md#world-coverage-around-every-player)).
+Measured on a player host: all 256 tiles in 36 s in the background, about +76 MB, no change in frame
+time, and Near ballast under 38 of 40 random far track points (the other two are yard tracks on Far
+yard geometry). Far tiles and terrain are still single-anchor.
 
 ---
 
@@ -442,6 +463,28 @@ each cell (`GridCell.DisplayTerrain` `:90-95`).
 - **Measure the hitch.** If it's large, add the new anchor's region in steps: ring 0, then 1, then
   2. Each step is one re-evaluation.
 - Keep `maxConcurrentLoads` at 3. The bundle loads are asynchronous.
+
+**As built (2026-10-17, untested in game):** `ServerTerrainCoverage` and `TerrainGridPatch`, on
+every multiplayer server, with extra cells around every remote player and every derailed car. It
+differs from the plan above:
+
+- **A second pool instead of a bigger one.** The extra cells are displayed with terrains of our own,
+  made on demand, that have a collider but don't render (`drawHeightmap = false`, no vegetation, no
+  MicroSplat). A player host would otherwise draw full-detail terrain far away over DV's distant
+  terrain. DV's pool of 25 is left for its own box, so `Awake` isn't patched and VS Pro stays on.
+  - An extra cell inside DV's box is DV's. Our terrain is handed back before the box is displayed
+    (prefix on `UpdateWorld`), and when the box moves off an extra cell, DV's terrain is swapped
+    for ours instead of the cell being unloaded (postfix on `GetActiveCellsOutsideRegion`).
+  - A guard on `GridCell.HideTerrain` returns our terrains to our pool, never DV's.
+- **No trigger through `Update`.** A change of the extra set calls `SetTargetCoord` directly, with
+  `targetCoord` cleared first, so the grid unloads and queues in one call.
+- **Displayed by us.** The grid only displays its own box, and with only extra cells loading it
+  never reaches `UpdateWorld`. It also never clears finished loads from `inProgress`, so we do.
+  Two cells are displayed per frame at most, against the heightfield hitch. Then `TerrainsMoved`
+  is raised, so tunnel holes, buffer stops and the derail freeze re-check, and `TerrainDataLoaded`
+  and `TerrainDataAboutToBeUnloaded` are raised for hazmat. Our terrains get a
+  `HazmatParticleDetector` when DV's have one.
+- `IsInTargetRegion` and `IsInLoadedRegion` are patched as in 2 and 6.
 
 ### 2.4 Not needed for physics
 

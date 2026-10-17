@@ -191,6 +191,8 @@ Only on a dedicated host; an ordinary host loads its world around its own player
     gameplay player's position.
   - Cars near any player get the near LODs on the host: walkable and item colliders, and active
     items riding on them.
+  - It now applies on every multiplayer host, as do the Near tiles loaded everywhere and the
+    derail freeze that trusts real ground ([server-player-split.md](server-player-split.md#world-coverage-around-every-player)).
 - **`far-derail` scenario** ([testing.md](../testing.md#regression-gate)): it passed on
   2026-10-17. The client went to OR, 4.5 km from the host's body. A tank car the host derailed
   next to the client came to rest on the host's ground: not kinematic, speed 0, world cell loaded,

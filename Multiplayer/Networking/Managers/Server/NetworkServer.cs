@@ -428,6 +428,8 @@ public class NetworkServer : NetworkManager
     {
         // A dedicated host loads its world around a player rather than its parked body.
         DedicatedHostAnchor.Create();
+        // Any multiplayer server keeps ground under its derailed cars, wherever they are.
+        ServerWorldCoverage.Create();
         DedicatedHostSaveLock.Take();
         // ... and with nobody online yet, waits paused.
         DedicatedHost.OnPlayersChanged(someoneLeft: false);
