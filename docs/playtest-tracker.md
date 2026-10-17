@@ -69,6 +69,11 @@ checks below, so most fixes are first tested by playing it.
 | No `career-convert` scenario | Converting an old career once is untested | Write the scenario |
 | The watchdog has no "server ready" line | Players have to watch the log for `[Server] Server loaded` | Print it in the watchdog's window |
 | The fees screen doesn't work from a client | — | `/payfees` covers it meanwhile |
+| Session 2 (2026-10-17 evening): a player couldn't pick up job overviews another player could; they jumped back to the table | The server had only 1 of 10 overviews in that player's `AcknowledgedWorldItems`, so it refused the other pickups, though the player's game held them all (it sent updates for them by NetId). All 10 went through the "job document already exists, bind it" path. Worked around live by adding the 10 NetIds to the player's acknowledged set | Find where those acknowledgements are lost or never sent (`NetworkedItemManager.ClientProjection`: the deferred world projection and pending special-snapshot paths for job documents; `ServerInterest` removing them when an item leaves the player's area) |
+| Session 2: a lost radio blocked `/give` ("already has a CommsRadio somewhere") and DV's own safeguard, so the player had none | Two things counted as owning one: (1) `OwnedItemsSummary` also matches `PersistentOwnerPlayerId`, a per-session number, so another player's saved radio counted as theirs; (2) a saved Lost and Found entry that can never come back (DV's Lost and Found storage was empty, so `TryBindPendingSaveEntries` can't bind it) stays in `pendingSaveImports` forever, invisible but owned. Fixed live by removing the entry and `/give` | Match owners by identity only; drop (and report) pending Lost and Found entries that can't bind once the world is loaded |
+| Session 2: a radio was thrown away on load ("Discarding persisted world item CommsRadio at height 5002") | `WorldItemPersistenceRestore` skips World items above 1500 m as old-build leftovers, but the current build still saves some inventory items as World at the hidden inventory height | Find which path saves a carried item as World; restore such items into the owner's inventory instead of discarding them |
+| "Sending CommonItemUpdatePacket to <player>" logged at Info, about 10 times a second per player | — | Log it at Debug |
+| "Unable to find player N for item … Could not project item … disabling" for every saved inventory item on each login | The items are projected before the player is registered; they're sent once the player has loaded, so it's noise | Don't project until the player exists, or log at Debug |
 
 ### Needs a repro
 
@@ -81,7 +86,7 @@ checks below, so most fixes are first tested by playing it.
 | The S282's mechanical lubricator handle didn't move at all | The lease fix covers its port, but not a handle that won't move. It may be VR interaction |
 | Manual oiling | Probably fixed by the lease change. Confirm with the S282 `cab-controls` case |
 | "Items fall through the map" | Never reproduced. Needs the original circumstances |
-| "World item state save failed for <id>: Object reference not set to an instance of an object" on save (82 times in the playtest's server log, 3 in a test start with nobody online) | The warning has no stack trace. Log the exception's stack, then see which items and which step of the save fail |
+| "World item state save failed for <id>: Object reference not set to an instance of an object" on save (82 times in the playtest's server log, 3 in a test start with nobody online) | In session 2 the three were all flashlights (735, 752, 768), one per player, two of them lying in the world. The warning has no stack trace. Log the exception's stack, then see which step of the save fails for a flashlight |
 | Memory per player, and the cost of the extra Far tiles on a player host | Not measured |
 
 ### Before the next build goes out
