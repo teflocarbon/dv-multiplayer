@@ -41,6 +41,8 @@ internal sealed class PlayerAuthentication : IDisposable
 
     // Open auth sessions by Steam account, and the player each belongs to once admitted.
     private readonly Dictionary<ulong, ServerPlayer> sessions = [];
+    // Sessions Steam has confirmed (OnValidateAuthTicketResponse OK).
+    private readonly HashSet<ulong> validated = [];
     private readonly NetworkServer server;
     private bool subscribed;
 
@@ -113,6 +115,7 @@ internal sealed class PlayerAuthentication : IDisposable
         }
 
         sessions[steamId] = null;
+        validated.Remove(steamId);
         identity = new Identity(PlayerIdentity.FromSteamId(steamId), steamId);
         Multiplayer.Log($"{packet.Username} is Steam account {steamId}");
         return true;
@@ -131,6 +134,7 @@ internal sealed class PlayerAuthentication : IDisposable
         if (identity.SteamId != 0 && sessions.TryGetValue(identity.SteamId, out ServerPlayer player) && player == null)
         {
             sessions.Remove(identity.SteamId);
+            validated.Remove(identity.SteamId);
             EndSession(identity.SteamId);
         }
     }
@@ -142,6 +146,7 @@ internal sealed class PlayerAuthentication : IDisposable
         if (steamId != 0)
         {
             sessions.Remove(steamId);
+            validated.Remove(steamId);
             EndSession(steamId);
         }
     }
@@ -173,13 +178,27 @@ internal sealed class PlayerAuthentication : IDisposable
 
         if (response == AuthResponse.OK)
         {
+            validated.Add(steamId.Value);
             if (ownerId.Value != steamId.Value)
                 Multiplayer.Log($"Steam account {steamId.Value} plays a copy shared by {ownerId.Value} (Family Sharing)");
             return;
         }
 
+        // Once Steam has confirmed a ticket, a later "cancelled" says nothing about who the player
+        // is, and the connection itself is still there. It came for the server owner's own game
+        // whenever another player joined or left (two games on the one account), and kicked them.
+        // Only a ban or a lost licence still kicks a confirmed player.
+        if (validated.Contains(steamId.Value) && response is not (AuthResponse.VACBanned or
+                AuthResponse.PublisherIssuedBan or AuthResponse.NoLicenseOrExpired))
+        {
+            Multiplayer.Log($"Steam reported {response} for confirmed account {steamId.Value}" +
+                            $"{(player != null ? $" ({player.Username})" : "")}; keeping them");
+            return;
+        }
+
         Multiplayer.LogWarning($"Steam rejected account {steamId.Value}{(player != null ? $" ({player.Username})" : "")}: {response}");
         sessions.Remove(steamId.Value);
+        validated.Remove(steamId.Value);
         EndSession(steamId.Value);
         if (player != null)
             server.KickPlayer(player);
@@ -203,6 +222,7 @@ internal sealed class PlayerAuthentication : IDisposable
         foreach (ulong steamId in sessions.Keys.ToArray())
             EndSession(steamId);
         sessions.Clear();
+        validated.Clear();
         if (subscribed)
             SteamUser.OnValidateAuthTicketResponse -= OnValidateAuthTicketResponse;
         subscribed = false;
