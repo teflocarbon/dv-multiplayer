@@ -82,7 +82,8 @@ checks below, so most fixes are first tested by playing it.
 | Trains hop up and back down onto the track | Either the "only move where there's ground under both bogies" check, or correction jumps after gaps in updates ("large gap between snapshots: 141 ticks"). Note the time and the train |
 | A player's game crashed natively (Burst code) 0.3 s after cars around them were deleted | They were standing in one of the deleted cars. Their crash report is in `%TEMP%\Altfuture\Derail Valley\Crashes` |
 | The S282's mechanical lubricator handle didn't move at all | The lease fix covers its port, but not a handle that won't move. It may be VR interaction |
-| Manual oiling | Probably fixed by the lease change. Confirm with the S282 `cab-controls` case |
+| Manual oiling | Confirmed working in session 2 |
+| The firebox coal flickered on an S484-840 (a mod's loco, with a stoker) for a while, then settled (session 2) | On the server the firebox stayed full and the tender drained smoothly. The host sends state ports like `firebox.COAL_LEVEL` while each game also simulates the firebox, so with the stoker topping it up at full the local value and the corrections may take turns. Watch for it on a client with the dev tools loaded |
 | "Items fall through the map" | Never reproduced. Needs the original circumstances |
 | "World item state save failed for <id>: Object reference not set to an instance of an object" on save (82 times in the playtest's server log, 3 in a test start with nobody online) | In session 2 the three were all flashlights (735, 752, 768), one per player, two of them lying in the world. The warning has no stack trace. Log the exception's stack, then see which step of the save fails for a flashlight |
 | Memory per player, and the cost of the extra Far tiles on a player host | Not measured |
