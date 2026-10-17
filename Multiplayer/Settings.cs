@@ -63,6 +63,8 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public int Port = 7777;
     [Draw("Details", Tooltip = "Details shown in the server browser.")]
     public string Details = "";
+    [Draw("Admin GUIDs", Tooltip = "Players (by GUID, separated by commas) who may use the admin chat commands: /kick, /server, /save, /stop, /payfees. On a dedicated server this install's own player always may.")]
+    public string AdminGuids = "";
 
     [Space(10)]
     [Header("Lobby Server")]
@@ -220,6 +222,10 @@ public class Settings : UnityModManager.ModSettings, IDrawable
         Guid = guid.ToString();
         return guid;
     }
+
+    public bool IsAdminGuid(Guid guid) =>
+        guid != System.Guid.Empty && !string.IsNullOrWhiteSpace(AdminGuids) &&
+        System.Linq.Enumerable.Any(AdminGuids.Split(','), entry => System.Guid.TryParse(entry.Trim(), out Guid admin) && admin == guid);
 
     public Guid GetServiceGuid()
     {

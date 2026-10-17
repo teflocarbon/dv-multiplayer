@@ -24,6 +24,9 @@ public class ChatManager
     public const string COMMAND_KICK = "kick";
     public const string COMMAND_SET_CREW_NAME = "crew";
     public const string COMMAND_SET_CREW_NAME_SHORT = "sc";
+    public const string COMMAND_SAVE = "save";
+    public const string COMMAND_STOP = "stop";
+    public const string COMMAND_PAY_FEES = "payfees";
 
 
     public const string MESSAGE_COLOUR_SERVER = "9CDCFE";
@@ -90,6 +93,33 @@ public class ChatManager
                     $"\r\n\t\t/{COMMAND_SET_CREW_NAME} <{Locale.CHAT_HELP_CREW_NAME}>" +
                     $"\r\n\t\t/{COMMAND_SET_CREW_NAME_SHORT} <{Locale.CHAT_HELP_CREW_NAME}>",
                 SetCrewNameMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_SAVE,
+            null,
+            () => "Save the game now (admins)" +
+                    $"\r\n\t\t/{COMMAND_SAVE}",
+            SaveMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_STOP,
+            null,
+            () => "Save and shut a dedicated server down (admins)" +
+                    $"\r\n\t\t/{COMMAND_STOP}",
+            StopMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_PAY_FEES,
+            null,
+            () => "Pay every payable fee and debt from the shared wallet (admins)" +
+                    $"\r\n\t\t/{COMMAND_PAY_FEES}",
+            PayFeesMessage
         );
 
 #if DEBUG
@@ -188,10 +218,28 @@ public class ChatManager
         NetworkLifecycle.Instance.Server.SendChat(message, sender);
     }
 
+    /// <summary>
+    /// Whether a player may use the admin commands: the host's own player; on a dedicated host, the
+    /// player with this install's GUID (its owner, playing from the same PC); and any GUID in
+    /// Settings.AdminGuids. GUIDs are the mod's identity but aren't secret or verified, so the
+    /// server password is what keeps strangers out.
+    /// </summary>
+    public static bool IsAdmin(ServerPlayer player)
+    {
+        if (player == null || player.IsServiceHost)
+            return false;
+        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
+        return lifecycle.IsHost(player) ||
+               (lifecycle.IsDedicatedHost && player.Guid == Multiplayer.Settings.GetGuid()) ||
+               Multiplayer.Settings.IsAdminGuid(player.Guid);
+    }
+
+    private static void Reply(ServerPlayer player, string message) =>
+        NetworkLifecycle.Instance.Server.SendWhisper($"<color=#{MESSAGE_COLOUR_SERVER}>{message}</color>", player);
+
     public void ServerMessage(string message, ServerPlayer sender, ServerPlayer exclude = null)
     {
-        //If user is not the host, we should ignore - will require changes for dedicated server
-        if (sender != null && !NetworkLifecycle.Instance.IsHost(sender))
+        if (sender != null && !IsAdmin(sender))
             return;
 
         message = $"<color=#{MESSAGE_COLOUR_SERVER}>{message}</color>";
@@ -253,8 +301,7 @@ public class ChatManager
         string playerName;
         string whisper;
 
-        //If user is not the host, we should ignore - will require changes for dedicated server
-        if (sender == null || !NetworkLifecycle.Instance.IsHost(sender))
+        if (!IsAdmin(sender))
             return;
 
         playerName = message.Split(' ')[0];
@@ -291,7 +338,7 @@ public class ChatManager
         if (parts.Length < 1)
             return;
 
-        if (!NetworkLifecycle.Instance.IsHost(sender))
+        if (!IsAdmin(sender))
         {
             if (!Multiplayer.Settings.AllowClientCrewNames)
             {
@@ -326,6 +373,70 @@ public class ChatManager
 
             NetworkLifecycle.Instance.Server.SendChat(announce);
         }
+    }
+
+    private void SaveMessage(string _, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        bool saved = NetworkLifecycle.Instance.IsDedicatedHost
+            ? DedicatedHost.Save($"/{COMMAND_SAVE} by {sender.Username}")
+            : SaveGameManager.Instance.SaveAllowed() && SaveGameManager.Instance.Save(DV.Common.SaveType.Auto) != null;
+        Reply(sender, saved ? "Saved." : "The game couldn't be saved right now.");
+    }
+
+    private void StopMessage(string _, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        if (!NetworkLifecycle.Instance.IsDedicatedHost)
+        {
+            Reply(sender, $"/{COMMAND_STOP} only shuts down a dedicated server.");
+            return;
+        }
+        bool saved = DedicatedHost.Save($"/{COMMAND_STOP} by {sender.Username}");
+        ServerMessage(saved ? "The server is shutting down; the game is saved." : "The server is shutting down (saving failed).", null);
+        Multiplayer.Log($"Dedicated host: stopping, asked by {sender.Username}");
+        // A moment for the message to go out before the transport closes.
+        NetworkLifecycle.Instance.StartCoroutine(QuitSoon());
+    }
+
+    private static System.Collections.IEnumerator QuitSoon()
+    {
+        yield return new UnityEngine.WaitForSecondsRealtime(1f);
+        UnityEngine.Application.Quit();
+    }
+
+    // What the career manager's fees screen does for each debt (its cash register takes the money,
+    // then the debt is paid), for every payable debt at once.
+    private void PayFeesMessage(string _, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        var debts = DV.ServicePenalty.CareerManagerDebtController.Instance;
+        debts.RefreshExistingDebtsState();
+        var payable = debts.currentNonZeroPricedDebts.Where(debt => debt.IsPayable).ToList();
+        if (payable.Count == 0)
+        {
+            Reply(sender, "There are no fees to pay.");
+            return;
+        }
+        double total = payable.Sum(debt => (double)debt.GetTotalPrice());
+        if (DV.InventorySystem.Inventory.Instance.PlayerMoney < total)
+        {
+            Reply(sender, $"The fees come to ${total:N2}, more than the ${DV.InventorySystem.Inventory.Instance.PlayerMoney:N2} in the wallet.");
+            return;
+        }
+        if (!DV.InventorySystem.Inventory.Instance.RemoveMoney(total))
+        {
+            Reply(sender, "The fees couldn't be paid.");
+            return;
+        }
+        foreach (var debt in payable)
+            debt.Pay();
+        debts.RefreshExistingDebtsState();
+        Multiplayer.Log($"{sender.Username} paid {payable.Count} fee(s), ${total:N2}");
+        ServerMessage($"{sender.Username} paid {payable.Count} fee(s), ${total:N2}.", null);
     }
 
     private void HelpMessage(string _, ServerPlayer player)

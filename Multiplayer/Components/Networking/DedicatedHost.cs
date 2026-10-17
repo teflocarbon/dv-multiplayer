@@ -1,3 +1,4 @@
+using DV;
 using DV.Common;
 using DV.UI;
 using DV.UI.PresetEditors;
@@ -31,7 +32,11 @@ namespace Multiplayer.Components.Networking;
 ///   -mp-port N               server port (default: the mod's Port setting)
 ///   -mp-visibility private|friends|public  (default: the mod's Visibility setting)
 ///   -mp-fps N                frame cap, at least 25 (default 30)
+///   -mp-autosave N           minutes between saves while anyone is online (default 10)
+///   -mp-heartbeat PATH       rewrite PATH every 5 s with the host's state (JSON), for a watchdog
 /// Server name, password, max players and details come from the mod's settings.
+/// With nobody online the game saves and pauses; admins (the install's own player, and
+/// Settings.AdminGuids) have /save, /stop and /payfees in chat (ChatManager).
 /// </summary>
 public static class DedicatedHost
 {
@@ -56,6 +61,67 @@ public static class DedicatedHost
     }
 
     public static int FpsCap => int.TryParse(Arg("-mp-fps"), out int fps) ? Math.Max(fps, MinimumFps) : 30;
+
+    /// <summary>Minutes between saves while anyone is online (-mp-autosave, default 10).</summary>
+    public static int AutosaveMinutes => int.TryParse(Arg("-mp-autosave"), out int minutes) ? Math.Max(1, minutes) : 10;
+
+    /// <summary>A file the host rewrites every few seconds with its state, for a watchdog (-mp-heartbeat).</summary>
+    public static string HeartbeatPath => Arg("-mp-heartbeat");
+
+    public static DateTime? LastSave { get; private set; }
+    public static string LastSaveReason { get; private set; }
+
+    // The game is paused while nobody is online; this is the request that holds it.
+    private static readonly object emptyServerPause = new();
+
+    /// <summary>
+    /// Called when a player has logged in or left, and once the world has loaded. With nobody
+    /// online the game saves (if someone just left) and pauses, so time, jobs and loose trains
+    /// don't run on unwatched; the first login unpauses it.
+    /// </summary>
+    public static void OnPlayersChanged(bool someoneLeft)
+    {
+        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
+        if (!lifecycle.IsDedicatedHost)
+            return;
+        if (lifecycle.Server.GameplayPlayerCount > 0)
+            AppUtil.Instance.RemovePauseRequest(emptyServerPause);
+        else
+            lifecycle.StartCoroutine(SaveAndPauseWhenEmpty(someoneLeft));
+    }
+
+    /// <summary>Whether the game may pause: only while a dedicated host has nobody online.</summary>
+    public static bool AllowsPause => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.Server.GameplayPlayerCount == 0;
+
+    private static IEnumerator SaveAndPauseWhenEmpty(bool save)
+    {
+        // Let the disconnect finish (it updates the save data with the departing player first).
+        yield return null;
+        if (!AllowsPause)
+            yield break;
+        if (save)
+            Save("the last player left");
+        AppUtil.Instance.RequestPause(emptyServerPause, true);
+        Multiplayer.Log("Dedicated host: nobody online, paused");
+    }
+
+    /// <summary>Saves the game now. Returns whether DV wrote a save.</summary>
+    public static bool Save(string reason)
+    {
+        if (SaveGameManager.Instance == null || !SaveGameManager.Instance.SaveAllowed())
+        {
+            Multiplayer.LogWarning($"Dedicated host: not saving ({reason}): the game doesn't allow saving right now");
+            return false;
+        }
+        bool saved = SaveGameManager.Instance.Save(DV.Common.SaveType.Auto) != null;
+        if (saved)
+        {
+            LastSave = DateTime.UtcNow;
+            LastSaveReason = reason;
+        }
+        Multiplayer.Log(saved ? $"Dedicated host: saved ({reason})" : $"Dedicated host: saving failed ({reason})");
+        return saved;
+    }
 
     /// <summary>Called when the main menu loads. Hosts the -mp-save save once per process.</summary>
     public static void OnMainMenu()
@@ -147,6 +213,61 @@ public static class DedicatedHost
 public sealed class DedicatedHostMode : MonoBehaviour
 {
     private float nextGraphicsPass;
+    private float nextSave;
+    private float nextHeartbeat;
+
+    private void Update()
+    {
+        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
+        if (!lifecycle.IsDedicatedHost)
+            return;
+        float now = Time.realtimeSinceStartup;
+
+        // Timed saves while anyone is online; the last player leaving saves too.
+        if (lifecycle.Server.GameplayPlayerCount == 0 || AppUtil.Instance.IsTimePaused)
+            nextSave = 0f;
+        else if (nextSave == 0f)
+            nextSave = now + DedicatedHost.AutosaveMinutes * 60f;
+        else if (now >= nextSave)
+        {
+            nextSave = now + DedicatedHost.AutosaveMinutes * 60f;
+            DedicatedHost.Save("timed");
+        }
+
+        if (DedicatedHost.HeartbeatPath != null && now >= nextHeartbeat)
+        {
+            nextHeartbeat = now + 5f;
+            WriteHeartbeat(lifecycle);
+        }
+    }
+
+    // One JSON object, replaced whole each time, so a reader never sees half of one.
+    private static void WriteHeartbeat(NetworkLifecycle lifecycle)
+    {
+        try
+        {
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(new
+            {
+                time = DateTime.UtcNow.ToString("o"),
+                tick = lifecycle.Tick,
+                // Unscaled: while paused the scaled frame time is zero.
+                fps = Math.Round(1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f), 1),
+                players = lifecycle.Server.GameplayPlayers.Select(player => player.Username).ToArray(),
+                paused = AppUtil.Instance.IsTimePaused,
+                lastSave = DedicatedHost.LastSave?.ToString("o"),
+                monoHeapMb = GC.GetTotalMemory(false) / (1024 * 1024),
+            });
+            string path = DedicatedHost.HeartbeatPath;
+            string temp = path + ".tmp";
+            System.IO.File.WriteAllText(temp, json);
+            if (System.IO.File.Exists(path)) System.IO.File.Replace(temp, path, null);
+            else System.IO.File.Move(temp, path);
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogWarning($"Dedicated host: couldn't write the heartbeat file: {e.Message}");
+        }
+    }
 
     private void Awake()
     {

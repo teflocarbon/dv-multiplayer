@@ -424,6 +424,8 @@ public class NetworkServer : NetworkManager
     {
         // A dedicated host loads its world around a player rather than its parked body.
         DedicatedHostAnchor.Create();
+        // ... and with nobody online yet, waits paused.
+        DedicatedHost.OnPlayersChanged(someoneLeft: false);
 
         if (!IsSinglePlayer)
         {
@@ -581,6 +583,7 @@ public class NetworkServer : NetworkManager
                 RunDisconnectStep(handler.Method.DeclaringType?.Name ?? "subscriber", () => handler(player));
 
         player.Dispose();
+        RunDisconnectStep("dedicated host", () => DedicatedHost.OnPlayersChanged(someoneLeft: true));
     }
 
     private void RunDisconnectStep(string step, Action action)
@@ -1690,6 +1693,7 @@ public class NetworkServer : NetworkManager
         AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
         NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
         WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
+        DedicatedHost.OnPlayersChanged(someoneLeft: false);
 
         ClientboundLoginResponsePacket acceptPacket = new()
         {

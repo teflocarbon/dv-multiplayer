@@ -174,7 +174,8 @@ public static class DvExtensions
     {
         return NetworkLifecycle.Instance.IsHost() &&
             (NetworkLifecycle.Instance.Server.IsSinglePlayer ||
-            (NetworkLifecycle.Instance.IsHostPlayingAlone && NetworkLifecycle.Instance.IsClientRunning));
+            (NetworkLifecycle.Instance.IsHostPlayingAlone && NetworkLifecycle.Instance.IsClientRunning) ||
+            DedicatedHost.AllowsPause);
     }
     #endregion
 }

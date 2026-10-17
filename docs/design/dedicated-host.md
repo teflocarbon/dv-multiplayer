@@ -44,6 +44,58 @@ decompiled per type with `ilspycmd -t`.
 **Stages 0, 1 and 3 (a, b) are built.** Stage 2, stage 3c (several players far apart) and stage 4
 of the [plan](#recommended-plan) are still to do.
 
+### Stage 2 (first part): running unattended
+
+Only on a dedicated host, apart from the admin commands, which an ordinary host's admins can use
+too.
+
+- **Pause when empty** (`DedicatedHost.OnPlayersChanged`, called from `NetworkServer.OnLoaded`, at
+  each login and at the end of each disconnect):
+  - With nobody online the host saves (if a player just left) and pauses through its own
+    `AppUtil.RequestPause` request. `AllowPause` allows that only while a dedicated host has no
+    players.
+  - The first login removes the request.
+  - Time, jobs and loose trains don't run unwatched. The network tick runs on real time, so joins
+    still work while it's paused.
+- **Saves:**
+  - Every `-mp-autosave` minutes (default 10) while anyone is online, plus when the last player
+    leaves, and on `/save` and `/stop`. These come on top of vanilla autosave.
+  - `DedicatedHost.Save` writes an Auto save, but only when DV's `SaveAllowed` agrees.
+  - Auto saves rotate through DV's autosave slots, so frequent timed saves push out older saves.
+    A test with `-mp-autosave 1` rotated out the save it had loaded within about 15 minutes. The
+    rotation acts as bounded backups, but a long-term backup copy outside the slots is still to do.
+- **Admins** (`ChatManager.IsAdmin`):
+  - Who: the host's own player, the player with this install's GUID (on a dedicated host, that's
+    its owner playing from the same PC), and the GUIDs in the new `AdminGuids` setting.
+  - `/kick`, `/server` and setting others' crew names now take an admin, not only the host.
+  - New commands: `/save`; `/stop`, which saves, says so in chat and quits a dedicated host;
+    `/payfees`, which pays every payable fee and debt from the shared wallet the way the career
+    manager's cash register does.
+  - GUIDs aren't secret or verified, so the server password is what keeps strangers out.
+- **Heartbeat:** with `-mp-heartbeat PATH`, every 5 s the host replaces `PATH` with a JSON line: time,
+  tick, fps, players, paused, last save, Mono heap. A watchdog can restart the game if it goes
+  stale. The watchdog itself isn't built.
+
+Checked in the game (2026-10-17):
+
+- **Auto-hosted with `-mp-autosave 1 -mp-heartbeat`:** it paused at load with nobody online, and
+  unpaused when a client joined. It saved on the minute, and the heartbeat showed the players, the
+  pause and the last save.
+- **The `dedicated-admin` scenario passed:**
+  - a non-admin's `/save` did nothing, and an admin's saved;
+  - `/payfees` was refused while the wallet couldn't cover 10 fees ($550,990), then paid them all
+    once when it could;
+  - the host saved and paused when the last player left, and unpaused when they came back.
+- **Scenario setup:** chat commands are sent without the slash, because Git Bash turns `/save`
+  into a Windows path.
+
+Still to do in stage 2:
+- moving the old host body's inventory to the owner's GUID the first time a save is opened as a
+  dedicated host;
+- a save lock, so the same save can't be opened in single player while the server runs;
+- paying fees through the career manager's own screen from a client;
+- the watchdog.
+
 ### Stage 3 (a, b): the world follows a player
 
 Only on a dedicated host; an ordinary host loads its world around its own player as before.
