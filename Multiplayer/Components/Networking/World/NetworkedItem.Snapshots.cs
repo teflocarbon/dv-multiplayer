@@ -372,7 +372,6 @@ public partial class NetworkedItem
                 if (!NetworkLifecycle.Instance.IsHost())
                     SetClientNetworkBinding(false);
             }
-            Multiplayer.Log($"NetworkedItem.ReceiveSnapshot() netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}. Queuing");
             PendingEnqueueResult enqueue = pendingSnapshots.Enqueue(snapshot);
             if (enqueue.Accepted)
                 DebugDiagnostics.QueueReceived("ItemPendingSnapshot", NetId.ToString(), pendingSnapshots.Count,

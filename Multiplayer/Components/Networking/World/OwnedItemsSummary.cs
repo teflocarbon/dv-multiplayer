@@ -45,8 +45,13 @@ public static class OwnedItemsSummary
         {
             if (record.Placement == ItemPlacementKind.Destroyed || string.IsNullOrEmpty(record.PrefabName))
                 continue;
-            bool mine = record.PersistentOwnerIdentity == guid ||
-                        (record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId == player.PlayerId);
+            // Player numbers are handed out per session, and a record restored from the save keeps
+            // the number its owner had then: another player can have it now. That counted one
+            // player's radio as another's, so DV wouldn't make them one and /give refused it. The
+            // number is used only for a record without an owner identity.
+            bool mine = record.PersistentOwnerIdentity != Guid.Empty
+                ? record.PersistentOwnerIdentity == guid
+                : record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId == player.PlayerId;
             if (!mine)
                 continue;
             int slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.InventoryClaimSlot : -1;

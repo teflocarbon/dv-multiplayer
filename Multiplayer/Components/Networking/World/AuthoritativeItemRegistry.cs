@@ -244,6 +244,7 @@ public static class AuthoritativeItemRegistry
             : previousPlacementHand;
         record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
             ? actor.Guid : Guid.Empty;
+        KeepRemotePossession(item, record, snapshot);
         if (record.PersistentOwnerPlayerId == actor.PlayerId && record.PersistentOwnerIdentity == Guid.Empty)
             record.PersistentOwnerIdentity = actor.Guid;
         if (previousPersistentOwner == 0 && record.PersistentOwnerPlayerId == actor.PlayerId)
@@ -813,6 +814,32 @@ public static class AuthoritativeItemRegistry
     public static void Remove(ushort netId) => records.Remove(netId);
     public static void Clear() => records.Clear();
     public static IEnumerable<Record> Records => records.Values;
+
+    /// <summary>
+    /// A backstop for the server's own player taking another player's item. In playtest 2 items
+    /// in a VR player's hand or inventory (lanterns as they were lit, an EOT lantern) ended up
+    /// recorded in the server's player's hand, though the server's copy still belonged to the
+    /// player; the next update moved them to the server's parked body and they vanished from the
+    /// player's hand. Not every path that did it was found, so whatever the transition, a record
+    /// that lands on the server's player while its item is another present player's goes back.
+    /// </summary>
+    private static void KeepRemotePossession(NetworkedItem item, Record record, ItemUpdateData snapshot)
+    {
+        if (record.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory))
+            return;
+        var server = NetworkLifecycle.Instance?.Server;
+        if (server == null || record.PlacementPlayerId != server.SelfId)
+            return;
+        byte possessor = item.playerBelongsToId;
+        if (possessor == 0 || possessor == server.SelfId || !server.TryGetServerPlayer(possessor, out ServerPlayer holder))
+            return;
+        record.PlacementPlayerId = possessor;
+        record.PlacementPlayerIdentity = holder.Guid;
+        if (snapshot != null && snapshot.PlayerId == server.SelfId)
+            snapshot.PlayerId = possessor;
+        Multiplayer.LogWarning($"Item {item.NetId} ({record.PrefabName}) was recorded as the server's player's, " +
+                               $"but it's {holder.Username}'s; kept it theirs");
+    }
 
     private static ItemAuthorityState ToCore(Record record)
     {

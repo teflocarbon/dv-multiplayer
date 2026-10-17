@@ -213,6 +213,14 @@ parent, or cell. Intermediate motion samples do not.
 While held, the item inherits the player's existing movement replication. It does not require an
 independent world-physics stream.
 
+What another player holds or carries changes only by that player's own packets. The host's copy of
+the item mirrors them, and when the host observes a change in it (taken in a hand, a lantern lit),
+it applies only the object state, never a placement by the host's own player
+(`NetworkedItemManager.TryKeepRemotePossession`). Applying it as the host's change booked the item
+to the host's player, and the next update took it out of the player's hand; on a dedicated server
+that's the parked service body (playtest 2). `AuthoritativeItemRegistry.KeepRemotePossession` is a
+backstop for any other path that records such an item as the host player's.
+
 ### Drop without impulse
 
 1. Holder sends a logical drop intent containing the release pose and current parent candidate.

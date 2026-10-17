@@ -97,7 +97,7 @@ public partial class NetworkedItem
             if (!NetworkLifecycle.Instance.Client.ClientPlayerManager.TryGetPlayer(playerId, out playerBelongsTo))
             {
                 DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player", $"playerId={playerId}");
-                Multiplayer.LogWarning($"Unable to find player {playerId} for item {NetId}");
+                Multiplayer.LogDebug(() => $"Unable to find player {playerId} for item {NetId}");
             }
             else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "missing-player");
     }
@@ -698,7 +698,13 @@ public partial class NetworkedItem
         {
             DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player",
                 $"playerId={snapshot.PlayerId} projection={plan.Action}");
-            Multiplayer.LogWarning($"Could not project item {NetId} to player {snapshot.PlayerId}; disabling");
+            // A joining player's saved items are applied before the player exists here, one line
+            // per item on every login, and are sent again once they've loaded: not a fault. An
+            // item in nobody's hand or inventory is.
+            if (snapshot.PlayerId == 0)
+                Multiplayer.LogWarning($"Could not project item {NetId} to player 0 (no player); disabling");
+            else
+                Multiplayer.LogDebug(() => $"Could not project item {NetId} to player {snapshot.PlayerId} (not here yet); disabling");
             if (plan.Deactivate)
                 gameObject.SetActive(false);
         }

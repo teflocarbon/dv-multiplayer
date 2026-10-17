@@ -361,8 +361,13 @@ public class NetworkServer : NetworkManager
     {
         if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player)) return;
         bool known = NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) && item != null;
+        // An ack names the revision the client applied. Another player's update can move the item
+        // on while it's in flight (everyone near a new job overview sends one as it appears); the
+        // later revisions follow it on the same reliable ordered channel, so an older one still
+        // means the client has the item. Only an ack from beyond the server's revision is wrong.
+        // Requiring an exact match left those items unacknowledged, and their pickups refused.
         bool revisionMatches = known && AuthoritativeItemRegistry.TryGet(packet.ItemNetId, out var record) &&
-                               record.Revision == packet.AuthorityRevision;
+                               packet.AuthorityRevision <= record.Revision;
         if (packet.Projected && (!known || !revisionMatches || !player.KnownItems.ContainsKey(item)))
         {
             DebugRuntime.Publish("item-world", "world-item.projection-ack-rejected", DebugRuntimeSide.Server,
@@ -1271,39 +1276,15 @@ public class NetworkServer : NetworkManager
 
     public void SendItemsBulkUpdatePacket(List<ItemUpdateData> items, ServerPlayer player)
     {
-        DebugRuntime.Publish("item", "item.bulk-send-requested", DebugRuntimeSide.Server, data: new() { ["count"] = items?.Count ?? 0, ["playerId"] = player?.PlayerId ?? 0 });
-        Log($"Sending SendItemsBulkUpdatePacket with {items?.Count()} items to {player?.Username ?? "all players"}");
+        // Item packets go out many times a second: they're traced (the debug system), not logged.
+        DebugRuntime.Publish("item", "item.bulk-send-requested", DebugRuntimeSide.Server, data: new()
+        {
+            ["count"] = items?.Count ?? 0,
+            ["playerId"] = player?.PlayerId ?? 0,
+            ["itemNetIds"] = string.Join(",", items?.Select(item => item?.ItemNetId ?? 0) ?? Enumerable.Empty<ushort>())
+        });
 
         var packet = new CommonItemsBulkUpdatePacket { Items = items };
-
-        LogDebug(() =>
-        {
-            string debug = "Items:\r\n";
-
-            foreach (var item in packet?.Items)
-            {
-                debug += "UpdateType: " + item?.UpdateType + "\r\n";
-                debug += "itemNetId: " + item?.ItemNetId + "\r\n";
-                debug += "PrefabName: " + item?.PrefabName + "\r\n";
-                debug += "Equipped: " + item?.ItemState + "\r\n";
-                debug += "Position: " + item?.ItemPosition + "\r\n";
-                debug += "Rotation: " + item?.ItemRotation + "\r\n";
-                debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
-                debug += "Player: " + item?.PlayerId + "\r\n";
-                debug += "CarNetId: " + item?.CarNetId + "\r\n";
-                debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
-
-                debug += $"States: {item?.States?.Count}\r\n";
-
-                if (item.States != null)
-                    foreach (var state in item?.States)
-                        debug += "\t" + state.Key + ": " + state.Value + "\r\n";
-                else
-                    debug += "\r\n";
-            }
-
-            return debug;
-        });
 
         if (player == null)
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludeSelf: true);
@@ -1318,7 +1299,6 @@ public class NetworkServer : NetworkManager
     {
         DebugRuntime.Publish("item", "item.relay-requested", DebugRuntimeSide.Server, entityType: "Item", entityId: item?.ItemNetId.ToString(),
             data: Merge(DebugTrace.ItemSnapshotData(item), new() { ["sendToPlayer"] = sendToPlayer?.PlayerId ?? 0, ["excludePlayer"] = excludePlayer?.PlayerId ?? 0 }));
-        Log($"Sending CommonItemUpdatePacket to {sendToPlayer?.Username ?? "all players"}");
 
         var packet = new CommonItemUpdatePacket { ItemData = item };
         if (sendToPlayer == null)

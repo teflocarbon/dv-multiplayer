@@ -94,7 +94,7 @@ internal static partial class WorldItemPersistenceManager
         }
         catch (Exception ex)
         {
-            Multiplayer.LogWarning($"World item state save failed for {netId}: {ex.Message}");
+            Multiplayer.LogWarning($"World item state save failed for {netId}: {ex.Message}\r\n{ex.StackTrace}");
             return null;
         }
     }

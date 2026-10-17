@@ -561,7 +561,18 @@ public static class NetworkedLostAndFoundManager
                 : null;
             if (baseItem == null || !available.Contains(baseItem) ||
                 !string.Equals(baseItem.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal))
+                baseItem = available.FirstOrDefault(candidate =>
+                    string.Equals(candidate.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal));
+            if (baseItem == null)
+            {
+                // DV's Lost and Found storage, loaded with the save, has nothing left for this
+                // entry, and it won't gain anything later. Kept, it showed nowhere but still
+                // counted as the owner's item: DV made them no new radio and /give refused one.
+                pendingSaveImports.Remove(value);
+                Multiplayer.LogWarning($"Lost and Found: {owner.Username}'s saved {prefab} ({persistentItemId:D}) " +
+                                       "isn't in the game's Lost and Found storage; dropping the entry");
                 continue;
+            }
             if (baseItem == null || !NetworkedItem.TryGetNetworkedItem(baseItem, out NetworkedItem item) || item.NetId == 0)
                 continue;
             string authoredItemKey = (string)value["authoredItemKey"] ?? string.Empty;

@@ -69,11 +69,9 @@ checks below, so most fixes are first tested by playing it.
 | No `career-convert` scenario | Converting an old career once is untested | Write the scenario |
 | The watchdog has no "server ready" line | Players have to watch the log for `[Server] Server loaded` | Print it in the watchdog's window |
 | The fees screen doesn't work from a client | — | `/payfees` covers it meanwhile |
-| Session 2 (2026-10-17 evening): a player couldn't pick up job overviews another player could; they jumped back to the table | The server had only 1 of 10 overviews in that player's `AcknowledgedWorldItems`, so it refused the other pickups, though the player's game held them all (it sent updates for them by NetId). All 10 went through the "job document already exists, bind it" path. Worked around live by adding the 10 NetIds to the player's acknowledged set | Find where those acknowledgements are lost or never sent (`NetworkedItemManager.ClientProjection`: the deferred world projection and pending special-snapshot paths for job documents; `ServerInterest` removing them when an item leaves the player's area) |
-| Session 2: a lost radio blocked `/give` ("already has a CommsRadio somewhere") and DV's own safeguard, so the player had none | Two things counted as owning one: (1) `OwnedItemsSummary` also matches `PersistentOwnerPlayerId`, a per-session number, so another player's saved radio counted as theirs; (2) a saved Lost and Found entry that can never come back (DV's Lost and Found storage was empty, so `TryBindPendingSaveEntries` can't bind it) stays in `pendingSaveImports` forever, invisible but owned. Fixed live by removing the entry and `/give` | Match owners by identity only; drop (and report) pending Lost and Found entries that can't bind once the world is loaded |
 | Session 2: a radio was thrown away on load ("Discarding persisted world item CommsRadio at height 5002") | `WorldItemPersistenceRestore` skips World items above 1500 m as old-build leftovers, but the current build still saves some inventory items as World at the hidden inventory height | Find which path saves a carried item as World; restore such items into the owner's inventory instead of discarding them |
-| "Sending CommonItemUpdatePacket to <player>" logged at Info, about 10 times a second per player | — | Log it at Debug |
-| "Unable to find player N for item … Could not project item … disabling" for every saved inventory item on each login | The items are projected before the player is registered; they're sent once the player has loaded, so it's noise | Don't project until the player exists, or log at Debug |
+| Session 2: items clipped to the VR belt ("carabiner") fell to the floor and couldn't be picked up | Belt slots are inventory slots, but DV shows the item snapped to the belt. The mod doesn't know the belt, and the server recorded the items in the inventory of player 0 at the clipping spot. Replaced live with `/give` | Being fixed in its own session (VR belt sync). Meanwhile, VR players shouldn't use the belt |
+| Session 2: Dynamic Seasons sends about 50 KB of season state every 5 seconds | Three `SeasonStatePacket`s (24, 24 and 16 KB before compression) | Ask its author to send it only on change |
 
 ### Needs a repro
 
@@ -95,3 +93,23 @@ checks below, so most fixes are first tested by playing it.
 2. Try `/weather`, `/time` and `/repair` once each.
 3. Do the recall repro, and check a leaking tank car from two games.
 4. Build Release. Every player installs the new zip.
+
+## Session 2: 2026-10-17 evening, dedicated server, 4 players
+
+**Setup:** release 2026.10.17.2. The server ran from its own folder, with its own copy of Unity Mod
+Manager and 20 mods (a2ac773d, d4dabf7f), under the new server app. The dev tools ran on the server
+only, so fixes were made live with `dvmp_eval`: Harmony patches applied to the running game, and
+items put back with `AdminItemGrants.PutInInventory`. The code fixes are in the commit after this
+list. They build and the core tests pass, but they haven't run in a game.
+
+| Problem | Cause | Fix | Status |
+|---|---|---|---|
+| A player couldn't pick up job overviews another player could; they jumped back to the table | A client's "I have it" acknowledgement was accepted only at the item's exact revision. Every game near a new overview sends an update as it appears, which moves the revision on before a slower client's acknowledgement arrives, so it was dropped and that player's pickups refused | Accept an acknowledgement at or below the record's revision (`NetworkServer.OnServerboundWorldItemProjectionAckPacket`) | Fixed live; code fixed, untested |
+| A VR player's item vanished from their hand: a lantern as it was lit, an EOT lantern, a flashlight | The server's copy of the item mirrors the player's. Its observation of that (taken in a hand, lit) was applied as a change by the server's own player, which booked the item to the server's parked body; the next update moved it there | The server's own observations of another player's hand or inventory keep only their object state (`NetworkedItemManager.TryKeepRemotePossession`). A backstop puts a record that still lands on the server's player back with the player whose item it is (`AuthoritativeItemRegistry.KeepRemotePossession`): one path that did it wasn't found, and the backstop logs when it acts | Fixed live; code fixed, untested |
+| A lost radio blocked `/give` ("already has a CommsRadio somewhere") and DV's own safeguard, so the player had none | `OwnedItemsSummary` also matched the per-session player number, so another player's saved radio counted. A saved Lost and Found entry that can never come back (DV's Lost and Found storage was empty) also stayed pending forever, unseen but owned | Owners are matched by identity, and by number only for a record without one. A pending Lost and Found entry binds to any free stored item of its kind, or is dropped with a warning | Fixed live; code fixed, untested |
+| Log noise: "Sending CommonItemUpdatePacket" about 10 times a second per player, a 13-line dump per item in bulk updates, "Queuing", and two lines per saved item at every login | — | Removed (they're in the debug trace) or moved to Debug; an item with no player at all stays a warning | Fixed, untested |
+| "World item state save failed" had no stack trace | — | The warning includes the stack now | Fixed, untested |
+
+Other code also uses the per-session player number as an owner (Lost and Found's owner distance, for
+one), so a saved record whose owner hasn't joined yet can point at whoever has that number now. Clear
+the number when a record is restored, and set it when its owner logs in.

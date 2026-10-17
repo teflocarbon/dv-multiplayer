@@ -212,6 +212,23 @@ public partial class NetworkedItemManager
         (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved |
             ItemInventoryClaimFlags.Locked)) != 0;
 
+    /// <summary>
+    /// What another player holds or carries changes only by their own packets; the server's copy
+    /// of the item just mirrors them. Applied as the server's own change, its observation of that
+    /// (taking it in a hand, a lantern lit in one) booked the item to the server's player: the
+    /// next update moved it out of the player's hand to the server's body, and it vanished for
+    /// them. Such a snapshot keeps only its object state (and is skipped if that's all it had).
+    /// </summary>
+    private static bool TryKeepRemotePossession(ItemUpdateData snapshot, ServerPlayer hostPlayer)
+    {
+        if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) ||
+            snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
+            snapshot.PlayerId == 0 || snapshot.PlayerId == hostPlayer.PlayerId)
+            return true;
+        snapshot.UpdateType &= ItemUpdateData.ItemUpdateType.ObjectState;
+        return snapshot.UpdateType != ItemUpdateData.ItemUpdateType.None;
+    }
+
     private void ProcessChanged(uint tick)
     {
         List<ItemUpdateData> dirtyItems = [];
@@ -230,6 +247,8 @@ public partial class NetworkedItemManager
                 existingRecord.Placement == ItemPlacementKind.Destroyed)
                 continue;
             ItemUpdateData snapshot = item.GetSnapshot();
+            if (snapshot != null && hostPlayer != null && !TryKeepRemotePossession(snapshot, hostPlayer))
+                continue;
             if (snapshot != null && hostPlayer != null)
             {
                 if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, hostPlayer,
