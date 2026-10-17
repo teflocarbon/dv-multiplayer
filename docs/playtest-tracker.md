@@ -53,6 +53,7 @@ checks below, so most fixes are first tested by playing it.
 | `/time HH:mm` and `/time +hours` (forward only) | a6f18314 | Untested |
 | `/repair [player] [all]` | 0372e8d4 | Tested by hand on the live server (a DE6 with dead traction motors) |
 | The server runs from its own folder, with its own mods and settings; the watchdog and `Start Dedicated Server.cmd` ship with the mod | a2ac773d, and its own copy of Unity Mod Manager in the commit below | Tested: the server started twice, loaded all 7 mods from its own folder, created its lobby and stopped cleanly |
+| "DV Multiplayer Server.exe": a window for the setup (save, server settings, admins, which mods) and for running the server (log, status, commands), in place of the script | see the commit below | Tested: started the live server for session 2 (2026-10-17), which loaded its own mods and settings through its own UMM, created its lobby, and the owner joined |
 | `/season spring\|summer\|autumn\|winter\|next\|blizzard\|calm`, with the [Dynamic Seasons](https://github.com/HerodrineYT/DVSeasons) mod (0.4.0, which syncs itself through the Multiplayer API, the host as its authority) | see the commit below | Untested |
 
 ### Open
@@ -67,7 +68,7 @@ checks below, so most fixes are first tested by playing it.
 | Licence papers aren't covered by `/restore` | Only starting items are | Add licences (`LicensesSafeguard`) |
 | No refused-ticket test | It needs a second Steam account | Check by hand when one is available |
 | No `career-convert` scenario | Converting an old career once is untested | Write the scenario |
-| The watchdog has no "server ready" line | Players have to watch the log for `[Server] Server loaded` | Print it in the watchdog's window |
+| The watchdog script has no "server ready" line | Players have to watch the log for `[Server] Server loaded` | The server app shows "players can join"; the script still doesn't |
 | The fees screen doesn't work from a client | — | `/payfees` covers it meanwhile |
 | Session 2: a radio was thrown away on load ("Discarding persisted world item CommsRadio at height 5002") | `WorldItemPersistenceRestore` skips World items above 1500 m as old-build leftovers, but the current build still saves some inventory items as World at the hidden inventory height | Find which path saves a carried item as World; restore such items into the owner's inventory instead of discarding them |
 | Session 2: items clipped to the VR belt ("carabiner") fell to the floor and couldn't be picked up | Belt slots are inventory slots, but DV shows the item snapped to the belt. The mod doesn't know the belt, and the server recorded the items in the inventory of player 0 at the clipping spot. Replaced live with `/give` | Being fixed in its own session (VR belt sync). Meanwhile, VR players shouldn't use the belt |
