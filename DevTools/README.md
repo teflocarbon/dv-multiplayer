@@ -46,6 +46,7 @@ VR host with a desktop one (#78).
 
 ```bash
 dvmp up --host-only --session light --save "DVMP Test Career 2"   # host only; prints port and password
+dvmp up --host-only --dedicated --session light --save "..."      # the same, as a dedicated host (-mp-dedicated)
 dvmp up --session light          # optional: join a dvmp client to it (the client-only path)
 dvmp perf --session light -s 30  # sample both games
 dvmp down --session light
@@ -63,6 +64,9 @@ dvmp down --session light
   count every send and receive whether or not the debug system is on, and stay installed until the
   game quits. The forced GC behind `monoRetained` costs one frame hitch; skip it with
   `-a retained=false` through `dvmp eval -f Probes/perf.cs`.
+- `--dedicated` launches the host as a dedicated host (`-mp-dedicated`). Its own client is then a
+  service identity, not a player: no avatar for the client to see, no slot, not a nearby player.
+  A plain `dvmp up` reuses either kind of host; `--dedicated` only reuses a dedicated one.
 - Not in the MCP tools yet: they have no `session` argument, so use the CLI.
 
 ## Regression scenarios

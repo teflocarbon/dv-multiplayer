@@ -16,6 +16,7 @@ internal static class Program
                                              start/reuse a joined host + client (minimised, muted)
           dvmp up --host-only --session NAME [--save ...]   start/reuse only a host, with its own identity,
                                              for a dvmp client (a later `up`) or your own game to join
+          dvmp up ... --dedicated            launch the host with -mp-dedicated (a dedicated host: no avatar, no slot)
           dvmp down [--all]                          quit this session's games (--all: every session's)
           dvmp trace [-t target] [--ids 1,2] [--last N]   install/refresh tracer, show item history
           dvmp desync [-n samples] [-i seconds] [--top N]   cross-peer desync report
@@ -60,7 +61,7 @@ internal static class Program
                         Sound: args.Contains("--sound"), Trace: args.Contains("--trace"),
                         NewSession: Opt(args, "--new"), NewSessionName: Opt(args, "--name"),
                         BackgroundFpsCap: Opt(args, "--bg-fps") is string bg ? int.Parse(bg) : null,
-                        HostOnly: args.Contains("--host-only")),
+                        HostOnly: args.Contains("--host-only"), Dedicated: args.Contains("--dedicated")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
                 "down" => Print(await Session.DownAsync(CancellationToken.None, all: args.Contains("--all"))),
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),

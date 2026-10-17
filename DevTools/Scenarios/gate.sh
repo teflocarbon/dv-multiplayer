@@ -5,6 +5,8 @@
 #   PAIRS=N: run on N host+client pairs at once (dvmp sessions p1..pN). REPEAT=N: each run N
 #   times (ONLY=host-stall REPEAT=6 PAIRS=3 hunts an intermittent bug). EXCLUSIVE= overrides
 #   which scenarios run alone at the end.
+#   UP_ARGS: extra `dvmp up` arguments for the pairs it starts, e.g. UP_ARGS=--dedicated to run
+#   against a dedicated host (docs/design/dedicated-host.md).
 cd "$(dirname "$0")/../.."
 export DVMP=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 S=DevTools/Scenarios
@@ -103,11 +105,11 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
       run_one "$label" "$dir" "$vars" "$session"
       # A run that left its pair without a loaded world on both games (a crash, a failed
       # rejoin leaving the client at the menu) gets it back.
-      healthy "$session" || DVMP_SESSION=$session $DVMP up >/dev/null 2>&1
+      healthy "$session" || DVMP_SESSION=$session $DVMP up ${UP_ARGS:-} >/dev/null 2>&1
     done
   }
   echo "== starting $PAIRS pair(s): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive"
-  for p in $(seq 1 "$PAIRS"); do DVMP_SESSION=p$p $DVMP up >"$LOG_DIR/up-p$p.log" 2>&1 & done
+  for p in $(seq 1 "$PAIRS"); do DVMP_SESSION=p$p $DVMP up ${UP_ARGS:-} >"$LOG_DIR/up-p$p.log" 2>&1 & done
   wait
   for p in $(seq 1 "$PAIRS"); do
     grep -q '"ok": true' "$LOG_DIR/up-p$p.log" || { echo "pair p$p failed to start (see $LOG_DIR/up-p$p.log)"; exit 2; }

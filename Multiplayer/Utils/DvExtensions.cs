@@ -124,9 +124,12 @@ public static class DvExtensions
         float result = float.MaxValue;
         //string origin = new StackTrace().GetFrame(1).GetMethod().Name;
 
-        //Loop through all of the players and return the one thats closest to the anchor
+        //Loop through all of the players and return the one thats closest to the anchor (a
+        //dedicated host's parked body isn't a player)
         foreach (ServerPlayer serverPlayer in NetworkLifecycle.Instance.Server.ServerPlayers)
         {
+            if (serverPlayer.IsServiceHost)
+                continue;
             float sqDist = (serverPlayer.WorldPosition - anchor).sqrMagnitude;
 
             if (sqDist < result)
@@ -171,7 +174,7 @@ public static class DvExtensions
     {
         return NetworkLifecycle.Instance.IsHost() &&
             (NetworkLifecycle.Instance.Server.IsSinglePlayer ||
-            (NetworkLifecycle.Instance.Server.PlayerCount == 1 && NetworkLifecycle.Instance.IsClientRunning));
+            (NetworkLifecycle.Instance.IsHostPlayingAlone && NetworkLifecycle.Instance.IsClientRunning));
     }
     #endregion
 }

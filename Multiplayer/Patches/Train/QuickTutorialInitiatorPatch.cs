@@ -9,6 +9,6 @@ public static class QuickTutorialInitiator_IsPlayerOnLocoThatSupportsQuickTutori
 {
     private static bool Prefix()
     {
-        return NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1;
+        return NetworkLifecycle.Instance.IsHostPlayingAlone;
     }
 }

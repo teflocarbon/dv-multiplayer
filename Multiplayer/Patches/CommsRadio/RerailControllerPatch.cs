@@ -29,7 +29,7 @@ public static class RerailControllerPatch
     {
         if (__instance.CurrentState != RerailController.State.ConfirmRerail)
             return true;
-        if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
         if (!__instance.carToRerail.IsRerailAllowed)
             return true;
@@ -74,7 +74,7 @@ public static class RerailControllerPatch
     {
         if (__instance.CurrentState != RerailController.State.DerailedCarScan)
             return true;
-        if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
         if (!Physics.Raycast(__instance.signalOrigin.position, __instance.signalOrigin.forward, out __instance.hit, RerailController.SIGNAL_RANGE, __instance.trainCarMask))
             return true;

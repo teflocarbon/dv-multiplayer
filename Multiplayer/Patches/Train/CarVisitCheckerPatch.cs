@@ -13,7 +13,7 @@ public static class CarVisitCheckerPatch
     [HarmonyPatch(nameof(CarVisitChecker.IsRecentlyVisited), MethodType.Getter)]
     public static bool IsRecentlyVisited_Prefix(CarVisitChecker __instance, ref bool __result)
     {
-        if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;    //playing in "vanilla mode" allow game code to run
 
         if (!NetworkLifecycle.Instance.IsHost())
@@ -23,7 +23,7 @@ public static class CarVisitCheckerPatch
             __result = true; //Pretend there's a player in the car
             return false;   //don't run our vanilla game code
         }
-        if (NetworkLifecycle.Instance.Server.ServerPlayers.Count == 0)
+        if (NetworkLifecycle.Instance.Server.GameplayPlayerCount == 0)
         {
 
             //no server players (this should only apply to a dedicated server), don't despawn
@@ -33,7 +33,7 @@ public static class CarVisitCheckerPatch
         }
 
         //We are the host, check all players against this car
-        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.GameplayPlayers)
         {
             if (NetworkedTrainCar.TryGetFromTrainCar(__instance.car, out NetworkedTrainCar netTC))
             {
@@ -64,7 +64,7 @@ public static class CarVisitCheckerPatch
     [HarmonyPatch(nameof(CarVisitChecker.RecentlyVisitedRemainingTime), MethodType.Getter)]
     private static bool RecentlyVisitedRemainingTime_Prefix(ref float __result)
     {
-        if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
         __result = CarVisitChecker.RECENTLY_VISITED_TIME_THRESHOLD;
         return false;

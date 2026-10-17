@@ -178,7 +178,8 @@ public class NetworkClient : NetworkManager
         WorldStreamingInit.LoadingFinished -= NetworkedPlayer.CaptureItemAnchorOffset;
         WorldStreamingInit.LoadingFinished += NetworkedPlayer.CaptureItemAnchorOffset;
 
-        Username = Multiplayer.Settings.GetUserName();
+        // A dedicated host's own client is a service identity, not the install's player.
+        Username = NetworkLifecycle.Instance.IsDedicatedHost ? DedicatedHost.ServiceName : Multiplayer.Settings.GetUserName();
         characterModelId = Multiplayer.Settings.CharacterId;
 
         Settings.OnSettingsUpdated += OnSettingsUpdated;
@@ -195,7 +196,7 @@ public class NetworkClient : NetworkManager
         ServerboundClientLoginPacket serverboundClientLoginPacket = new()
         {
             Username = this.Username,
-            Guid = Multiplayer.Settings.GetGuid().ToByteArray(),
+            Guid = (NetworkLifecycle.Instance.IsDedicatedHost ? Multiplayer.Settings.GetServiceGuid() : Multiplayer.Settings.GetGuid()).ToByteArray(),
             Password = password,
             BuildVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
             Mods = ModCompatibilityManager.Instance.GetLocalMods(),
@@ -905,8 +906,9 @@ public class NetworkClient : NetworkManager
             LoadingScreenManager.Instance.FinishLoading();
         }
 
-        //if not single player, add in chat
-        if (!isSinglePlayer)
+        //if not single player, add in chat (nobody reads it on a dedicated host, and building it
+        //pauses the game)
+        if (!isSinglePlayer && !NetworkLifecycle.Instance.IsDedicatedHost)
         {
             GameObject common = GameObject.Find("[MAIN]/[GameUI]/[NewCanvasController]/Auxiliary Canvas, EventSystem, Input Module");
             if (common != null)

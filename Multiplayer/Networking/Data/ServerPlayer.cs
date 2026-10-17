@@ -36,6 +36,12 @@ public class ServerPlayer : IDisposable
 
     public ITransportPeer Peer { get; private set; }
     public byte PlayerId { get; private set; }
+
+    /// <summary>
+    /// The dedicated host's own loopback client: a service identity, not a player. Use
+    /// <see cref="Managers.Server.NetworkServer.GameplayPlayers"/> wherever "the players" are meant.
+    /// </summary>
+    public bool IsServiceHost => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.IsHost(this);
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     public DateTime LastLogin { get; set; }
     private float PreviousPlayTime { get; set; }

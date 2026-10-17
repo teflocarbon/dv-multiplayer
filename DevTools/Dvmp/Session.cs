@@ -10,9 +10,12 @@ namespace Dvmp;
 /// <param name="BackgroundFpsCap">Frame cap while unfocused; null keeps the agent's default (20).</param>
 /// <param name="HostOnly">Start only a host, with its own identity, for a client that joins later
 /// (a later <c>up</c> in the same session, or the user's own game).</param>
+/// <param name="Dedicated">Launch the host as a dedicated host (<c>-mp-dedicated</c>): its own
+/// client is a service identity, not a player, so it has no avatar and takes no player slot.</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
     bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false,
-    string? NewSession = null, string? NewSessionName = null, int? BackgroundFpsCap = null, bool HostOnly = false);
+    string? NewSession = null, string? NewSessionName = null, int? BackgroundFpsCap = null, bool HostOnly = false,
+    bool Dedicated = false);
 
 /// <summary>
 /// Brings up (or reuses) a host + client pair of real game instances joined to each other.
@@ -105,7 +108,9 @@ internal static class Session
         {
             Mark("checking existing games");
             List<Agent> agents = await Agents.DiscoverAsync();
-            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a));
+            // --dedicated only reuses a dedicated host; without it, either kind is reused (a client joining
+            // a dedicated host-only host goes through here).
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)));
             Agent? client = agents.FirstOrDefault(a => a.Role == "client" && WorldLoaded(a));
             if (!o.Fresh && host != null && client != null)
             {
@@ -180,7 +185,7 @@ internal static class Session
 
             Mark("checking existing games");
             List<Agent> agents = await Agents.DiscoverAsync();
-            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a));
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)));
             if (!o.Fresh && host != null)
             {
                 Mark("reusing running host");
@@ -390,6 +395,7 @@ internal static class Session
             Sessions.IsDefault ? string.Empty : $"-dvmp-session {Sessions.Current}",
             $"-dvmp-fps {o.FpsCap}",
             o.BackgroundFpsCap is int bgFps ? $"-dvmp-bg-fps {bgFps}" : string.Empty,
+            role == "host" && o.Dedicated ? DedicatedArg : string.Empty,
             o.Sound ? "-dvmp-sound" : string.Empty);
         Process process = Process.Start(new ProcessStartInfo(Paths.GameExe, args)
         {
@@ -466,6 +472,10 @@ internal static class Session
         JsonNode? value = r["results"]?.AsObject().FirstOrDefault().Value?["result"];
         return value is JsonValue v && v.TryGetValue(out string? s) && !string.IsNullOrEmpty(s) ? "disconnected: " + s : null;
     }
+
+    private static bool IsDedicated(Agent agent) => agent.Info.Args?.Contains(DedicatedArg) == true;
+
+    private const string DedicatedArg = "-mp-dedicated";
 
     private static bool WorldLoaded(Agent agent) => agent.Status?["worldLoaded"]?.GetValue<bool?>() == true;
 

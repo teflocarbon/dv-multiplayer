@@ -21,7 +21,7 @@ public static class CommsRadioCrewVehiclePatch
     {
         if (__instance.CurrentState != CommsRadioCrewVehicle.State.ConfirmSummon)
             return true;
-        if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
         if (Inventory.Instance.PlayerMoney < __instance.SummonPrice)
             return true;

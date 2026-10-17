@@ -1,7 +1,7 @@
 # Dedicated host: the full game as a server with no local player
 
-> Status: investigated; stage 0 (a DevTools host-only harness mode and a perf probe) is built,
-> nothing in the shipped mod is. The findings below were checked against the
+> Status: investigated. Stage 0 (a DevTools host-only harness mode and a perf probe) and stage 1
+> (the `-mp-dedicated` service-identity host) are built; stages 2-4 aren't. The findings below were checked against the
 > decompiled game (build 99, Unity 2019.4.40) and this repository on 2026-10-17, and the headless
 > launch was tried for real with the dvmp harness. No shipped code changed; the throwaway patches
 > used for the experiment are described in [Prototype](#prototype-what-was-run).
@@ -36,8 +36,72 @@ decompiled per type with `ilspycmd -t`.
 
 ## Implementation status (2026-10-17)
 
-**Stage 0 is built** (DevTools only). Stages 1-4 of the [plan](#recommended-plan) are still to do;
-nothing in the shipped mod has changed.
+**Stages 0 and 1 are built.** Stages 2-4 of the [plan](#recommended-plan) are still to do.
+
+### Stage 1: the service-identity host (`-mp-dedicated`)
+
+Without the flag nothing changes. With it, the game is a dedicated host:
+
+- **The loopback client stays.** Its `ServerPlayer` is a service identity,
+  `ServerPlayer.IsServiceHost` (`Networking/Data/ServerPlayer.cs`), which is computed from
+  `NetworkLifecycle.IsDedicatedHost` and `IsHost(player)`, so a client can't claim it. It logs in
+  as "Dedicated host" with `Settings.ServiceGuid`, so the player's own game on the same install
+  joins as itself (`NetworkClient`).
+- **It isn't a player.** `NetworkServer.GameplayPlayers` and `GameplayPlayerCount` leave it out.
+  They're used for:
+  - `MaxPlayers` at login;
+  - `AnyPlayerSqrMag` (job generation, loco spawners, the car deleter, cash registers, refill
+    stations, warehouses);
+  - car visits;
+  - Lost and Found's nearby-player protection;
+  - world-item replenishment;
+  - the existing-players list sent to a joiner;
+  - the lobby's player count;
+  - MPAPI's `PlayerCount`.
+
+  When it finishes loading, it gets only `RemoveLoadingScreen`: no `PlayerJoined`, no chat line,
+  no `PlayerReady` (`NetworkServer.OnServerboundLoadStateUpdatePacket`).
+- **"Host is alone" checks** (`PlayerCount == 1` in nine patches, plus `AllowPause` and the debt
+  tracker) go through `NetworkLifecycle.IsHostPlayingAlone`, which is never true on a dedicated
+  host. Vanilla code that acts on the local player doesn't run, and the game can't be paused.
+- **The parked body** gets no `LocalPlayerTracker`, so it sends no position. It also gets no chat
+  UI, whose construction pauses the game.
+- **Reduced rendering** (`DedicatedHostMode`, never saved): muted, quality level 0, texture limit
+  2, a 512 MB texture budget, `runInBackground`, and a frame cap of at least 25 (default 30).
+- **Auto-host** (`DedicatedHost.AutoHost`, a port of the dvmp `host` probe): with `-mp-save`, it
+  hosts that save from the main menu through DV's launcher.
+- **MPAPI** `IsDedicatedServer` is true.
+- dvmp `up --dedicated` launches the host with the flag, and `gate.sh` passes `UP_ARGS` to its
+  `dvmp up` calls.
+
+To run one:
+
+```text
+DerailValley.exe -nonvr -mp-dedicated -mp-save "My Career" [-mp-port 7777] [-mp-visibility private|friends|public] [-mp-fps 30]
+```
+
+`-mp-save` takes a save name or UID, a session name (its latest save), or `continue` (what the
+launcher shows). Server name, password, max players and details come from the mod's settings.
+Without `-mp-save` the mode waits for hosting to start some other way, which is how dvmp drives it.
+
+Checked in the game (2026-10-17):
+
+- **Dedicated host:** zero gameplay players and out of loading mode, with no tracker and no chat.
+  It ran at 30 fps, muted, at quality level 0, not paused.
+- **Client:** no avatar for the host and no entry in its player list.
+- **Host's view of the client:** it is the only gameplay player, it has an avatar, and the
+  nearest-player distance is measured to it.
+- **Auto-host:** `-mp-dedicated -mp-save "DVMP Test Career 2" -mp-port 7899 -mp-visibility private`
+  hosted in 44 s with no probe, and a dvmp client joined.
+
+Not done in stage 1, because they belong to stage 2 or later:
+
+- **The parked body still has physics.** It stands where the save put it and isn't made kinematic.
+- **Old host inventory isn't migrated.** Its inventory from earlier, hosted play stays on the body.
+- **Fees and debt** are still only payable at the host's own career manager.
+- **No empty-server policy.** The game never pauses, so the world runs with nobody online.
+
+### Stage 0: the harness light host
 
 - `dvmp up --host-only --session NAME` starts or reuses only a host. Its player is `DVMP-Host` with
   its own GUID, and it runs at 30 fps in the background. A later `dvmp up` in the same session joins
@@ -457,7 +521,7 @@ what the experiments showed.
 | Stage | Work | Size |
 |---|---|---|
 | **0. Harness light host** (DevTools only) | **Built.** `dvmp up --host-only` in a named session, a distinct host GUID, a background cap of 30, and `dvmp perf`. Still to do: run it with the user joining from VR, sampling `dvmp perf` every 30 s over a long session, which is the split test for #78. | Done; the VR run remains |
-| **1. Service-identity host** (shipped, behind `-mp-dedicated`) | Keep the loopback client and flag its `ServerPlayer`. Add a `GameplayPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
+| **1. Service-identity host** (shipped, behind `-mp-dedicated`) | **Built** (see [Implementation status](#implementation-status-2026-10-17)). Keep the loopback client and flag its `ServerPlayer`. Add a `GameplayPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
 | **2. Unattended operation** | A timed save, save on stop, backups and a save lock. Owner and admin identities with chat commands (save, stop, kick, ban, pay fees, game parameters). A serverbound fee and debt payment. Pause when empty. A heartbeat file and a watchdog. Migrate the old host body's state to the user's GUID. Update `docs/architecture.md` ("the host is also a player"). | Medium |
 | **3. Anchor the world on clients** | (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: heightmap ground proxies first; multi-anchor `TerrainGrid` and streamers only if measurement shows platforms and buildings matter. Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) large |
 | **4. GPU-less host** (optional) | The five render stubs and three silenced systems from section 1, gated on `-nographics`. Tested against each mod in use. | Small, plus per-mod testing |

@@ -89,6 +89,15 @@ public class NetworkServer : NetworkManager
     public IReadOnlyCollection<ServerPlayerWrapper> ServerPlayerWrappers => PlayerWrapperCache.Values;
     public int PlayerCount => ServerPlayers.Count;
 
+    /// <summary>
+    /// The players: every <see cref="ServerPlayers"/> entry except a dedicated host's service
+    /// identity. The same as ServerPlayers when the host plays.
+    /// </summary>
+    public IEnumerable<ServerPlayer> GameplayPlayers =>
+        NetworkLifecycle.Instance.IsDedicatedHost ? ServerPlayers.Where(player => !player.IsServiceHost) : ServerPlayers;
+    public int GameplayPlayerCount =>
+        NetworkLifecycle.Instance.IsDedicatedHost ? ServerPlayers.Count(player => !player.IsServiceHost) : ServerPlayers.Count;
+
     private ITransportPeer _selfPeer;
     public ITransportPeer SelfPeer
     {
@@ -1609,7 +1618,7 @@ public class NetworkServer : NetworkManager
         if (uniqueName > 0)
             overrideUsername += uniqueName;
 
-        if (PlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
+        if (GameplayPlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
         {
             LogWarning("Denied login due to server being full!");
             ClientboundLoginResponsePacket denyPacket = new()
@@ -1936,7 +1945,14 @@ public class NetworkServer : NetworkManager
         if (advanceLoadingState)
             player.LoadingState = packet.LoadState;
 
-        if (packet.LoadState == PlayerLoadingState.Complete)
+        if (packet.LoadState == PlayerLoadingState.Complete && player.IsServiceHost)
+        {
+            // A dedicated host's own client: nobody is told about it and it gets no avatar, but
+            // only this takes its game out of loading mode.
+            Log("Dedicated host loaded");
+            SendPacket(peer, new ClientboundRemoveLoadingScreenPacket(), DeliveryMethod.ReliableOrdered);
+        }
+        else if (packet.LoadState == PlayerLoadingState.Complete)
         {
             Log($"Player {player.Username} has completed loading");
 
@@ -1960,7 +1976,7 @@ public class NetworkServer : NetworkManager
             ChatManager.ServerMessage(player.Username + " joined the game", null, player);
 
             // Send existing players
-            foreach (ServerPlayer otherPlayer in ServerPlayers)
+            foreach (ServerPlayer otherPlayer in GameplayPlayers)
             {
                 if (player.PlayerId == otherPlayer.PlayerId)
                     continue;

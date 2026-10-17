@@ -28,6 +28,9 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     [Draw("Username", Tooltip = "Your username in-game.", VisibleOn = "UseSteamName|false")]
     public string Username = "Player";
     public string Guid = System.Guid.NewGuid().ToString();
+    // The identity of this install's dedicated host (DedicatedHost), so the player's own game on
+    // the same install, which reads this file too, can join it as itself.
+    public string ServiceGuid = System.Guid.NewGuid().ToString();
     public string CharacterId = "MP_UC";
 
     [Space(10)]
@@ -215,6 +218,15 @@ public class Settings : UnityModManager.ModSettings, IDrawable
             return guid;
         guid = System.Guid.NewGuid();
         Guid = guid.ToString();
+        return guid;
+    }
+
+    public Guid GetServiceGuid()
+    {
+        if (System.Guid.TryParse(ServiceGuid, out Guid guid) && guid != GetGuid())
+            return guid;
+        guid = System.Guid.NewGuid();
+        ServiceGuid = guid.ToString();
         return guid;
     }
 

@@ -102,6 +102,12 @@ A run that logged a coupler break (an error on either peer) is flagged with `[N 
 temp directory, printed at the end). `DVMP` points at the CLI (default
 `DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`).
 
+`UP_ARGS=--dedicated` (with `PAIRS`) runs the scenarios against dedicated hosts
+([design/dedicated-host.md](design/dedicated-host.md)). Only the client-driven ones mean anything
+there, for example `cab-controls manual-uncouple lost-and-found shop rejoin car-fire`. A dedicated
+host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
+`borrowed-disconnect` don't apply.
+
 | Scenario | Gate runs | Checks |
 | --- | --- | --- |
 | `train-items` | default; `WHO=host MODE=throw WHEN=moving` | A mug dropped or thrown in a loco cab stays in the cab, attached to the loco at the same spot, on both peers while the host pushes the train. |
