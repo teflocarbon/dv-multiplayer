@@ -103,8 +103,21 @@ than straight from the save.
 
 These are needed on a player host as much as on a dedicated one:
 
-- **Physics LOD:** add every player's position to DV's physics-LOD reference points. It's built for
-  dedicated hosts (`DistanceLodSystemPatch`); it needs extending to every host.
+- **Physics LOD (built):** every multiplayer server adds every player's position to DV's
+  physics-LOD reference points (`DistanceLodSystemPatch`).
+- **Track ballast everywhere (built):** every multiplayer server loads every Near scenery tile
+  (`Components/Networking/ServerWorldCoverage.cs`): the ballast along all the track, bridge decks
+  and tunnel portals. Measured: 36 s in the background after a load, about +76 MB, no frame cost.
+- **The derail freeze (built):** DV keeps a derailed car kinematic until its Near and Far tiles and
+  terrain cell are all loaded. On a server it may also move where there's static ground under both
+  bogies (`ServerWorldCoverage.MayMove`, `Patches/Train/DerailedTrainCarIsKinematicHandlerPatch.cs`).
+  DV only re-checks on streaming changes, so the server also re-checks every derailed car four
+  times a second: a car that slides off the ballast where no terrain is loaded is frozen where it
+  is rather than falling through the map. Its client copy then rests on the client's terrain,
+  below the host's, until the server loads terrain around derailed cars.
+  - A client keeps a derailed car kinematic, at the host's pose, wherever the client itself has no
+    world under it (`NetworkedTrainCar.UpdateDerailedKinematic`).
+  - Scenarios: `far-derail`, `far-derail-embankment` ([testing.md](../testing.md#regression-gate)).
 - **Scenery and terrain streaming:** today one anchor follows the one local player, or, on a
   dedicated host, the longest-connected player (`DedicatedHostAnchor`). The target is the world
   loaded around every player: [multi-anchor-streaming.md](multi-anchor-streaming.md). In short:

@@ -302,6 +302,12 @@ never unloads.
 
   Measure before choosing (section 7, M1).
 
+**Built for Near (2026-10-17):** every multiplayer server now loads every Near tile
+(`ServerWorldCoverage`, see [server-player-split.md](server-player-split.md#world-coverage-around-every-player)).
+Measured on a player host: all 256 tiles in 36 s in the background, about +76 MB, no change in frame
+time, and Near ballast under 38 of 40 random far track points (the other two are yard tracks on Far
+yard geometry). Far tiles and terrain are still single-anchor.
+
 ---
 
 ## 2. TerrainGrid, DistantTerrain, railway visuals, tunnels
