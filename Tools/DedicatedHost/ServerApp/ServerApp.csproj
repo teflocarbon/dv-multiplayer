@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- "DV Multiplayer Server": sets up and runs a dedicated server (docs/design/dedicated-host.md).
+       .NET Framework 4.8, which every Windows 10 and 11 has, so it's one small exe with nothing to
+       install. post-build.ps1 ships it in the mod's folder next to run-dedicated-host.ps1. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>DV Multiplayer Server</AssemblyName>
+    <RootNamespace>DvmpServer</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- No .exe.config next to it: the exe is the whole app. -->
+    <GenerateSupportedRuntime>false</GenerateSupportedRuntime>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Xml.Linq" />
+  </ItemGroup>
+</Project>

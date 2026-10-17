@@ -172,6 +172,35 @@ These are built and tested in the game:
     - Each command runs as the server's service player, which counts as an admin only for these
       (`ChatManager.RunConsoleCommand`). Replies go to the log, so they show in the window.
     - A line without a slash is said in chat as the server.
+- **Server app** (`Tools/DedicatedHost/ServerApp`, "DV Multiplayer Server.exe", added 2026-10-17):
+  the watchdog as a window, for running a server without the script. It's a .NET Framework 4.8
+  WinForms exe (every Windows 10 and 11 has the runtime), built before Multiplayer and shipped next
+  to `run-dedicated-host.ps1` by `post-build.ps1`. The script still works, and both use the same
+  data folder.
+  - **Setup:**
+    - It sets up the save to host (DV's sessions, by `sessionData.json`'s Name) and Multiplayer's
+      server settings, which it writes into the server's own copy of the mod's `Settings.xml`
+      (ServerName, Password, MaxPlayers, Visibility, Port, Details, Admins, DebugLogging; every
+      other field is kept).
+    - It also sets the autosave, the daily restart, the frame cap and whether the game's window
+      shows. These go in `server-app.xml` in the data folder.
+  - **Mods:**
+    - A checklist of the game's mods and the server's, by info.json Id, showing each one's
+      MultiplayerCompatibility (or Multiplayer's built-in entry). Multiplayer is always on.
+    - Turning a mod off moves its folder to the server's `Mods (off)`, keeping its settings.
+      Turning it on moves it back, or copies it from the game's with its settings.
+    - Each start refreshes the server's mods from the game's, as the script does.
+    - Saving offers to turn on what a ticked mod's `Requirements` need.
+  - **Server tab:**
+    - It starts and watches the game exactly as the script does.
+    - It shows the mod's log lines coloured by level, the heartbeat's players, fps and last save,
+      and "players can join" once the log says `Server loaded`.
+    - It has a command box (Up and Down recall earlier commands).
+    - Closing the app while the server runs stops the server gracefully first.
+  - **Tests:** the setup was checked saved and reopened, with the mods selection, the folder moves
+    and `Settings.xml`. Start, log, commands, a crash restart and stop were checked against a fake
+    `DerailValley.exe`, not the game yet. `DVMP_SERVER_APP_DATA` moves the data folder for such
+    tests.
 - **Item commands** (`AdminItemGrants`, added 2026-10-17), for a player who lost items, e.g. to a
   crash:
   - `/give <player> <item> [count]` puts DV's item, by its prefab name (`EOTLantern`, `Boombox`),

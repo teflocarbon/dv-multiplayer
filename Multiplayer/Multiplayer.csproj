@@ -56,6 +56,8 @@
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\Tools\ProtocolManifestGenerator\ProtocolManifestGenerator.csproj" ReferenceOutputAssembly="false" />
+        <!-- The dedicated server app, built first so post-build.ps1 can ship it with the mod. -->
+        <ProjectReference Include="..\Tools\DedicatedHost\ServerApp\ServerApp.csproj" ReferenceOutputAssembly="false" />
         <EmbeddedResource Include="$(ProtocolManifestPath)" LogicalName="Multiplayer.ProtocolManifest.json" Condition="'$(ManifestEmbedPass)' == 'true' AND Exists('$(ProtocolManifestPath)')" />
     </ItemGroup>
     

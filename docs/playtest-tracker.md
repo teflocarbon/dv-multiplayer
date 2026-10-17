@@ -53,6 +53,7 @@ checks below, so most fixes are first tested by playing it.
 | `/time HH:mm` and `/time +hours` (forward only) | a6f18314 | Untested |
 | `/repair [player] [all]` | 0372e8d4 | Tested by hand on the live server (a DE6 with dead traction motors) |
 | The server runs from its own folder, with its own mods and settings; the watchdog and `Start Dedicated Server.cmd` ship with the mod | a2ac773d, and its own copy of Unity Mod Manager in the commit below | Tested: the server started twice, loaded all 7 mods from its own folder, created its lobby and stopped cleanly |
+| "DV Multiplayer Server.exe": a window for the setup (save, server settings, admins, which mods) and for running the server (log, status, commands), in place of the script | see the commit below | Setup round trip and mods folder tested; running tested against a fake game, not yet the real one |
 | `/season spring\|summer\|autumn\|winter\|next\|blizzard\|calm`, with the [Dynamic Seasons](https://github.com/HerodrineYT/DVSeasons) mod (0.4.0, which syncs itself through the Multiplayer API, the host as its authority) | see the commit below | Untested |
 
 ### Open
@@ -67,7 +68,7 @@ checks below, so most fixes are first tested by playing it.
 | Licence papers aren't covered by `/restore` | Only starting items are | Add licences (`LicensesSafeguard`) |
 | No refused-ticket test | It needs a second Steam account | Check by hand when one is available |
 | No `career-convert` scenario | Converting an old career once is untested | Write the scenario |
-| The watchdog has no "server ready" line | Players have to watch the log for `[Server] Server loaded` | Print it in the watchdog's window |
+| The watchdog script has no "server ready" line | Players have to watch the log for `[Server] Server loaded` | The server app shows "players can join"; the script still doesn't |
 | The fees screen doesn't work from a client | — | `/payfees` covers it meanwhile |
 
 ### Needs a repro
