@@ -33,6 +33,7 @@ public class ChatManager
     public const string COMMAND_WEATHER = "weather";
     public const string COMMAND_TIME = "time";
     public const string COMMAND_REPAIR = "repair";
+    public const string COMMAND_SEASON = "season";
 
 
     public const string MESSAGE_COLOUR_SERVER = "9CDCFE";
@@ -173,6 +174,16 @@ public class ChatManager
             () => "Fully repair the car a player is in, as a service station does (admins); all for their whole train. Without a name, your own" +
                     $"\r\n\t\t/{COMMAND_REPAIR} [{Locale.CHAT_HELP_PLAYER_NAME}] [all]",
             RepairMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_SEASON,
+            null,
+            () => "With the Dynamic Seasons mod: set the season for everyone, move on to the next, or start or end a blizzard in winter (admins). Without an argument, the current season" +
+                    $"\r\n\t\t/{COMMAND_SEASON} spring|summer|autumn|winter|next" +
+                    $"\r\n\t\t/{COMMAND_SEASON} blizzard|calm",
+            SeasonMessage
         );
 
 #if DEBUG
@@ -545,6 +556,63 @@ public class ChatManager
         }
         string what = cars.Count == 1 ? car.ID : $"{repaired} car(s) of {car.ID}'s train";
         string said = $"{sender.Username} repaired {what} for {player.Username}.";
+        Multiplayer.Log(said);
+        ServerMessage(said, null);
+    }
+
+    // Dynamic Seasons' own runtime, on the server (DVSeasonsIntegration); it publishes the change to
+    // every player itself.
+    private void SeasonMessage(string message, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        if (!global::Multiplayer.Integrations.Seasons.DVSeasonsIntegration.Installed)
+        {
+            Reply(sender, "The Dynamic Seasons mod isn't installed on the server.");
+            return;
+        }
+        string arg = message.Trim().ToLowerInvariant();
+        string error;
+        string said;
+        switch (arg)
+        {
+            case "":
+                string current = global::Multiplayer.Integrations.Seasons.DVSeasonsIntegration.Current() ?? "an unknown season";
+                Reply(sender, $"It's {current}. /{COMMAND_SEASON} spring|summer|autumn|winter|next|blizzard|calm");
+                return;
+            case "next":
+                if (!global::Multiplayer.Integrations.Seasons.DVSeasonsIntegration.TryCall("AdvanceToNextSeason", out error))
+                {
+                    Reply(sender, error);
+                    return;
+                }
+                said = $"{sender.Username} moved the season on.";
+                break;
+            case "blizzard":
+                if (!global::Multiplayer.Integrations.Seasons.DVSeasonsIntegration.TryCall("ScheduleBlizzard", out error))
+                {
+                    Reply(sender, error);
+                    return;
+                }
+                said = $"{sender.Username} called up a blizzard (it only comes in winter).";
+                break;
+            case "calm":
+                if (!global::Multiplayer.Integrations.Seasons.DVSeasonsIntegration.TryCall("EndBlizzard", out error))
+                {
+                    Reply(sender, error);
+                    return;
+                }
+                said = $"{sender.Username} ended the blizzard.";
+                break;
+            default:
+                if (!global::Multiplayer.Integrations.Seasons.DVSeasonsIntegration.TrySetSeason(arg, out error))
+                {
+                    Reply(sender, error);
+                    return;
+                }
+                said = $"{sender.Username} set the season to {arg}.";
+                break;
+        }
         Multiplayer.Log(said);
         ServerMessage(said, null);
     }

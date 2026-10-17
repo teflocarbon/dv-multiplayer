@@ -50,6 +50,7 @@ which every player has to install, since some of the fixes run in players' games
 | `/weather clear\|rain\|storm [hours]`, `/weather auto`, `/weather new` | 52196852 | Untested |
 | `/time HH:mm` and `/time +hours` (forward only) | a6f18314 | Untested |
 | `/repair [player] [all]` | 0372e8d4 | Tested by hand on the live server (a DE6 with dead traction motors) |
+| `/season spring\|summer\|autumn\|winter\|next\|blizzard\|calm`, with the [Dynamic Seasons](https://github.com/HerodrineYT/DVSeasons) mod (0.4.0, which syncs itself through the Multiplayer API, the host as its authority) | see the commit below | Untested |
 
 ### Open
 
