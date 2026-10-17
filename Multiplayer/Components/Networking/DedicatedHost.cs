@@ -196,6 +196,39 @@ public static class DedicatedHost
     /// <summary>A watchdog asks the host to stop by creating this file (the heartbeat path + ".stop").</summary>
     public static string StopRequestPath => HeartbeatPath == null ? null : HeartbeatPath + ".stop";
 
+    /// <summary>
+    /// Lines typed in the watchdog's window, one command per line (the heartbeat path + ".cmd"):
+    /// chat commands run as the server (ChatManager.RunConsoleCommand), with replies in the log.
+    /// </summary>
+    public static string CommandRequestPath => HeartbeatPath == null ? null : HeartbeatPath + ".cmd";
+
+    internal static void RunConsoleCommands()
+    {
+        string path = CommandRequestPath;
+        if (path == null || !System.IO.File.Exists(path))
+            return;
+        // Taken whole, so a line the watchdog appends meanwhile goes into a new file.
+        string taken = path + ".taken";
+        string[] lines;
+        try
+        {
+            System.IO.File.Delete(taken);
+            System.IO.File.Move(path, taken);
+            lines = System.IO.File.ReadAllLines(taken);
+            System.IO.File.Delete(taken);
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogWarning($"Dedicated host: couldn't read console commands: {e.Message}");
+            return;
+        }
+        foreach (string line in lines.Select(line => line.Trim()).Where(line => line.Length > 0))
+        {
+            Multiplayer.Log($"[Console] > {line}");
+            NetworkLifecycle.Instance.Server?.ChatManager.RunConsoleCommand(line);
+        }
+    }
+
     // One JSON object, replaced whole each time, so a reader never sees half of one.
     internal static void WriteHeartbeat()
     {
@@ -319,6 +352,7 @@ public sealed class DedicatedHostMode : MonoBehaviour
     private float nextGraphicsPass;
     private float nextSave;
     private float nextHeartbeat;
+    private float nextCommandPoll;
 
     private void Update()
     {
@@ -336,6 +370,12 @@ public sealed class DedicatedHostMode : MonoBehaviour
         {
             nextSave = now + DedicatedHost.AutosaveMinutes * 60f;
             DedicatedHost.Save("timed");
+        }
+
+        if (DedicatedHost.HeartbeatPath != null && now >= nextCommandPoll)
+        {
+            nextCommandPoll = now + 1f;
+            DedicatedHost.RunConsoleCommands();
         }
 
         if (DedicatedHost.HeartbeatPath != null && now >= nextHeartbeat)

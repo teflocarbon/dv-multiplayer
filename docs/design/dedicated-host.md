@@ -141,6 +141,24 @@ These are built and tested in the game:
   - **`/stop`:** it stops too.
   - **`-DailyRestart HH:mm`:** it restarts the game through the stop request.
   - **Ctrl+C:** it stops the game gracefully.
+  - **Its window** (added 2026-10-17, untested in the game):
+    - It shows the mod's lines from the game's log as they're written: logins, kicks, warnings in
+      yellow, errors in red, command replies in cyan. `-VerboseLog` adds the debug lines.
+    - It takes server commands: a typed line goes to `heartbeat.json.cmd`, which the host reads every
+      second (`DedicatedHost.RunConsoleCommands`).
+    - Each command runs as the server's service player, which counts as an admin only for these
+      (`ChatManager.RunConsoleCommand`). Replies go to the log, so they show in the window.
+    - A line without a slash is said in chat as the server.
+- **Item commands** (`AdminItemGrants`, added 2026-10-17, untested in the game), for a player who
+  lost items, e.g. to a crash:
+  - `/give <player> <item> [count]` spawns DV's item by its prefab name (`EOTLantern`, `Boombox`)
+    at the player's feet, owned by them as a shop purchase is, so recall and Lost and Found work for
+    it. An unknown name gets near matches suggested.
+  - Essentials (radio, maps, wallet) are one per player in DV, so `/give` refuses one the player
+    already owns anywhere.
+  - `/restore <player>` gives back the career's starting items (DV's `GetStartingItemsPrefabs`) that
+    the player owns nowhere (`OwnedItemsSummary`). It's safe to repeat.
+  - Licence papers aren't covered yet.
 - **Save lock** (`DedicatedHostSaveLock`, `LauncherControllerSaveLockPatch`):
   - While its world is loaded, a dedicated host keeps `dedicated-host.lock` open in the career's
     folder, with sharing denied.

@@ -1,4 +1,5 @@
 using Multiplayer.Components.Networking;
+using DV.Utils;
 using Multiplayer.Networking.Data;
 using System;
 using System.Collections.Generic;
@@ -27,6 +28,8 @@ public class ChatManager
     public const string COMMAND_SAVE = "save";
     public const string COMMAND_STOP = "stop";
     public const string COMMAND_PAY_FEES = "payfees";
+    public const string COMMAND_GIVE = "give";
+    public const string COMMAND_RESTORE = "restore";
 
 
     public const string MESSAGE_COLOUR_SERVER = "9CDCFE";
@@ -120,6 +123,24 @@ public class ChatManager
             () => "Pay every payable fee and debt from the shared wallet (admins)" +
                     $"\r\n\t\t/{COMMAND_PAY_FEES}",
             PayFeesMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_GIVE,
+            null,
+            () => "Give a player an item at their feet, theirs to keep (admins). Item names are DV's, e.g. EOTLantern, Boombox" +
+                    $"\r\n\t\t/{COMMAND_GIVE} <{Locale.CHAT_HELP_PLAYER_NAME}> <item> [count]",
+            GiveMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_RESTORE,
+            null,
+            () => "Give a player back any starting items they no longer own (admins)" +
+                    $"\r\n\t\t/{COMMAND_RESTORE} <{Locale.CHAT_HELP_PLAYER_NAME}>",
+            RestoreMessage
         );
 
 #if DEBUG
@@ -226,8 +247,11 @@ public class ChatManager
     /// </summary>
     public static bool IsAdmin(ServerPlayer player)
     {
-        if (player == null || player.IsServiceHost)
+        if (player == null)
             return false;
+        // The server's own service player sends only what was typed in its console.
+        if (player.IsServiceHost)
+            return runningConsoleCommand;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         return lifecycle.IsHost(player) ||
                (lifecycle.IsDedicatedHost && player.Guid == PlayerIdentity.Owner) ||
@@ -235,7 +259,141 @@ public class ChatManager
     }
 
     private static void Reply(ServerPlayer player, string message) =>
-        NetworkLifecycle.Instance.Server.SendWhisper($"<color=#{MESSAGE_COLOUR_SERVER}>{message}</color>", player);
+        Tell($"<color=#{MESSAGE_COLOUR_SERVER}>{message}</color>", player);
+
+    // A whisper, or for the console its log, where the watchdog's window shows it.
+    private static void Tell(string message, ServerPlayer player)
+    {
+        if (runningConsoleCommand && player != null && player.IsServiceHost)
+        {
+            string plain = Regex.Replace(message ?? string.Empty, "<[^>]+>", string.Empty)
+                .Replace("\r\n\t\t", "  ").Replace("\r\n\t", "\n  ").Replace("\r\n", "\n");
+            Multiplayer.Log("[Console] " + plain);
+            return;
+        }
+        NetworkLifecycle.Instance.Server.SendWhisper(message, player);
+    }
+
+    private static bool runningConsoleCommand;
+
+    /// <summary>
+    /// A line typed in a dedicated host's console (DedicatedHost.RunConsoleCommands). It runs as the
+    /// server's own service player, which is an admin for it, and the replies go to the log. A line
+    /// without a slash is said in chat as the server.
+    /// </summary>
+    public void RunConsoleCommand(string line)
+    {
+        ServerPlayer console = NetworkLifecycle.Instance.Server?.ServerPlayers.FirstOrDefault(player => player.IsServiceHost);
+        if (console == null)
+        {
+            Multiplayer.LogWarning($"[Console] the server isn't ready for commands yet: {line}");
+            return;
+        }
+        if (!line.StartsWith("/"))
+            line = $"/{COMMAND_SERVER} {line}";
+        string command = line.Substring(1).Split(' ')[0].ToLower();
+        if (!_registeredCommands.ContainsKey(command))
+        {
+            Multiplayer.Log($"[Console] unknown command /{command}; /help lists them");
+            return;
+        }
+        runningConsoleCommand = true;
+        try
+        {
+            ProcessMessage(line, console);
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogError($"[Console] {line} failed: {e}");
+        }
+        finally
+        {
+            runningConsoleCommand = false;
+        }
+    }
+
+    // A player by name, ignoring case, or by the start of their name if only one matches.
+    private static ServerPlayer FindPlayer(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return null;
+        var players = NetworkLifecycle.Instance.Server.GameplayPlayers.ToList();
+        ServerPlayer exact = players.FirstOrDefault(p => string.Equals(p.Username, name, StringComparison.OrdinalIgnoreCase));
+        if (exact != null)
+            return exact;
+        var starting = players.Where(p => p.Username.StartsWith(name, StringComparison.OrdinalIgnoreCase)).ToList();
+        return starting.Count == 1 ? starting[0] : null;
+    }
+
+    private void GiveMessage(string message, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        string[] parts = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            Reply(sender, $"/{COMMAND_GIVE} <player> <item> [count]");
+            return;
+        }
+        ServerPlayer player = FindPlayer(parts[0]);
+        if (player == null)
+        {
+            Reply(sender, $"No player called {parts[0]}.");
+            return;
+        }
+        InventoryItemSpec spec = AdminItemGrants.Find(parts[1], out string[] near);
+        if (spec == null)
+        {
+            Reply(sender, near.Length > 0 ? $"No item called {parts[1]}. Did you mean: {string.Join(", ", near)}?" : $"No item called {parts[1]}.");
+            return;
+        }
+        int count = parts.Length > 2 && int.TryParse(parts[2], out int n) ? Math.Max(1, Math.Min(n, AdminItemGrants.MaxCount)) : 1;
+        if (spec.IsEssential)
+        {
+            // DV allows one of each essential per player.
+            if (AdminItemGrants.OwnedPrefabs(player).Contains(spec.ItemPrefabName))
+            {
+                Reply(sender, $"{player.Username} already has a {spec.ItemPrefabName} somewhere, and it's one per player. /{COMMAND_RESTORE} gives back only what's missing.");
+                return;
+            }
+            count = 1;
+        }
+        CoroutineManager.Instance.StartCoroutine(AdminItemGrants.Spawn(player, Enumerable.Repeat(spec, count).ToList()));
+        Multiplayer.Log($"{sender.Username} gave {player.Username} {count} x {spec.ItemPrefabName}");
+        Reply(sender, $"Giving {player.Username} {count} x {spec.ItemPrefabName} at their feet.");
+        if (sender != player)
+            Reply(player, $"You've been given {count} x {spec.ItemPrefabName}, at your feet.");
+    }
+
+    private void RestoreMessage(string message, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        string name = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        ServerPlayer player = FindPlayer(name);
+        if (player == null)
+        {
+            Reply(sender, string.IsNullOrEmpty(name) ? $"/{COMMAND_RESTORE} <player>" : $"No player called {name}.");
+            return;
+        }
+        HashSet<string> owned = AdminItemGrants.OwnedPrefabs(player);
+        List<InventoryItemSpec> missing = AdminItemGrants.StartingItemPrefabs()
+            .Where(prefab => !owned.Contains(prefab))
+            .Select(prefab => AdminItemGrants.Find(prefab, out _))
+            .Where(spec => spec != null)
+            .ToList();
+        if (missing.Count == 0)
+        {
+            Reply(sender, $"{player.Username} still owns all their starting items (they may be elsewhere: recall or Lost and Found).");
+            return;
+        }
+        string list = string.Join(", ", missing.Select(spec => spec.ItemPrefabName));
+        CoroutineManager.Instance.StartCoroutine(AdminItemGrants.Spawn(player, missing));
+        Multiplayer.Log($"{sender.Username} restored {player.Username}'s starting items: {list}");
+        Reply(sender, $"Giving {player.Username} back: {list}.");
+        if (sender != player)
+            Reply(player, $"You've been given back: {list}, at your feet.");
+    }
 
     public void ServerMessage(string message, ServerPlayer sender, ServerPlayer exclude = null)
     {
@@ -274,7 +432,7 @@ public class ChatManager
             Multiplayer.LogDebug(() => $"Whispering failed: \"{message}\", sender: {sender?.Username}, senderID: {sender?.PlayerId}, peerName: {recipientName}");
 
             whisperMessage = $"<color=#{MESSAGE_COLOUR_SERVER}>{Locale.Get(Locale.CHAT_WHISPER_NOT_FOUND_KEY, [recipientName])}</color>";
-            NetworkLifecycle.Instance.Server.SendWhisper(whisperMessage, sender);
+            Tell(whisperMessage, sender);
             return;
         }
 
@@ -292,7 +450,7 @@ public class ChatManager
 
         whisperMessage = "<i><alpha=#50>" + sender.DisplayName + ":</color> <noparse>" + whisperMessage + "</noparse></i>";
 
-        NetworkLifecycle.Instance.Server.SendWhisper(whisperMessage, recipient);
+        Tell(whisperMessage, recipient);
     }
 
     public void KickMessage(string message, ServerPlayer sender)
@@ -321,7 +479,7 @@ public class ChatManager
             NetworkLifecycle.Instance.Server.KickPlayer(playerToKick);
         }
 
-        NetworkLifecycle.Instance.Server.SendWhisper(whisper, sender);
+        Tell(whisper, sender);
     }
 
     private void SetCrewNameMessage(string message, ServerPlayer sender)
@@ -343,7 +501,7 @@ public class ChatManager
             if (!Multiplayer.Settings.AllowClientCrewNames)
             {
                 var whisper = $"<color=#{MESSAGE_COLOUR_SERVER}>{Locale.CHAT_SET_CREW_DISALLOWED}</color>";
-                NetworkLifecycle.Instance.Server.SendWhisper(whisper, sender);
+                Tell(whisper, sender);
                 return;
             }
 
@@ -358,7 +516,7 @@ public class ChatManager
             if (playerToSet == null)
             {
                 string whisper = $"<color=#{MESSAGE_COLOUR_SERVER}>{Locale.Get(Locale.CHAT_SET_CREW_PLAYER_NOT_FOUND_KEY, [playerName])}</color>";
-                NetworkLifecycle.Instance.Server.SendWhisper(whisper, sender);
+                Tell(whisper, sender);
                 return;
             }
 
@@ -465,7 +623,7 @@ public class ChatManager
 
                         "</color>";
         */
-        NetworkLifecycle.Instance.Server.SendWhisper(sb.ToString(), player);
+        Tell(sb.ToString(), player);
     }
 
 
