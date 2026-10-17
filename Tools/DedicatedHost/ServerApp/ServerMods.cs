@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace DvmpServer;
 
@@ -79,19 +80,86 @@ public class ModInfo
 }
 
 /// <summary>
-/// The server's own Mods folder, the same way run-dedicated-host.ps1's Initialize-ServerDir keeps it:
-/// a mod is on the server when its folder is in the server's Mods. Each start refreshes every one of
-/// them from the game's copy (matched by mod ID) except its Settings.xml. A mod turned off here moves
-/// to the server's "Mods (off)" folder, which keeps its settings for when it's turned back on.
+/// The server's own mods, kept the way run-dedicated-host.ps1's Initialize-ServerDir and
+/// Initialize-ServerUmm keep them. The server has its own copy of Unity Mod Manager
+/// (Managed\UnityModManager), which the game loads instead of its own (Watchdog.StartGame). Its
+/// Config.xml points at the server's Mods, and its Params.xml says which of them are enabled. A mod
+/// is on the server when its folder is in the server's Mods and Params.xml doesn't disable it. Each
+/// start refreshes every one of them from the game's copy (matched by mod ID) except its Settings.xml.
 /// </summary>
 public static class ServerMods
 {
     public const string MultiplayerId = "Multiplayer";
 
     public static string ModsDir(string serverDir) => Path.Combine(serverDir, "Mods");
-    public static string OffDir(string serverDir) => Path.Combine(serverDir, "Mods (off)");
+
+    /// <summary>UMM checks that it sits in a Managed\UnityModManager folder, so its copy does too.</summary>
+    public static string UmmDir(string serverDir) => Path.Combine(serverDir, "Managed", "UnityModManager");
+
+    /// <summary>What the game's Doorstop loads in place of the game's own UMM (--doorstop-target-assembly).</summary>
+    public static string UmmAssembly(string serverDir) => Path.Combine(UmmDir(serverDir), "UnityModManager.dll");
+
+    private static string ParamsPath(string serverDir) => Path.Combine(UmmDir(serverDir), "Params.xml");
 
     public static bool Exists(string serverDir) => Directory.Exists(ModsDir(serverDir));
+
+    /// <summary>
+    /// The server's copy of UMM: the game's, without its Config.xml, Params.xml and log. Config.xml
+    /// gets the server's Mods as its ModsDirectory; Params.xml starts as a copy of the game's and is
+    /// the server's own from then on.
+    /// </summary>
+    public static void InitializeUmm(string gameDir, string serverDir)
+    {
+        string gameUmm = Path.Combine(gameDir, "DerailValley_Data", "Managed", "UnityModManager");
+        string serverUmm = UmmDir(serverDir);
+        Directory.CreateDirectory(serverUmm);
+        RunRobocopy(gameUmm, serverUmm, "/E /XF Config.xml Params.xml Log.txt");
+        XDocument config = XDocument.Load(Path.Combine(gameUmm, "Config.xml"));
+        XElement modsDirectory = config.Root.Element("ModsDirectory");
+        if (modsDirectory == null)
+            config.Root.Add(modsDirectory = new XElement("ModsDirectory"));
+        modsDirectory.Value = ModsDir(serverDir);
+        config.Save(Path.Combine(serverUmm, "Config.xml"));
+        string gameParams = Path.Combine(gameUmm, "Params.xml");
+        if (!File.Exists(ParamsPath(serverDir)) && File.Exists(gameParams))
+            File.Copy(gameParams, ParamsPath(serverDir));
+    }
+
+    /// <summary>Mod IDs the server's Params.xml disables (UMM enables any mod it has no entry for).</summary>
+    public static HashSet<string> Disabled(string serverDir)
+    {
+        var disabled = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            if (File.Exists(ParamsPath(serverDir)))
+                foreach (XElement mod in XDocument.Load(ParamsPath(serverDir)).Root?.Element("ModParams")?.Elements("Mod") ?? Enumerable.Empty<XElement>())
+                    if (string.Equals((string)mod.Attribute("Enabled"), "false", StringComparison.OrdinalIgnoreCase))
+                        disabled.Add((string)mod.Attribute("Id") ?? "");
+        }
+        catch (Exception) { }
+        return disabled;
+    }
+
+    // Each mod's entry in the server's Params.xml, as UMM writes them.
+    private static void SetEnabled(string serverDir, IDictionary<string, bool> enabled)
+    {
+        string path = ParamsPath(serverDir);
+        XDocument doc = File.Exists(path) ? XDocument.Load(path) : null;
+        if (doc?.Root == null)
+            doc = new XDocument(new XDeclaration("1.0", "utf-8", null), new XElement("Param"));
+        XElement modParams = doc.Root.Element("ModParams");
+        if (modParams == null)
+            doc.Root.Add(modParams = new XElement("ModParams"));
+        foreach (var pair in enabled)
+        {
+            XElement mod = modParams.Elements("Mod").FirstOrDefault(m => (string)m.Attribute("Id") == pair.Key);
+            if (mod == null)
+                modParams.Add(mod = new XElement("Mod", new XAttribute("Id", pair.Key), new XAttribute("Enabled", "true"),
+                    new XElement("Hotkey", new XElement("keyCode", "None"), new XElement("modifiers", "0"))));
+            mod.SetAttributeValue("Enabled", pair.Value ? "true" : "false");
+        }
+        doc.Save(path);
+    }
 
     /// <summary>Mods in a folder by ID (the first folder of an ID wins, as Unity Mod Manager's does).</summary>
     public static Dictionary<string, ModInfo> Scan(string modsDir)
@@ -118,42 +186,27 @@ public static class ServerMods
     }
 
     /// <summary>
-    /// Makes the server's Mods hold exactly the mods in <paramref name="enabled"/>: turned-off ones
-    /// move to "Mods (off)"; turned-on ones come back from there, or are copied from the game's with
-    /// their settings. Multiplayer is always on.
+    /// Turns on exactly the mods in <paramref name="enabled"/> on the server, in its own Params.xml:
+    /// ones it doesn't have yet are copied from the game's, with their settings. Turned-off ones stay
+    /// in its Mods, disabled, with their settings. Multiplayer is always on.
     /// </summary>
     public static void Apply(string gameDir, string serverDir, ISet<string> enabled, Action<string> say)
     {
         string mods = ModsDir(serverDir);
-        string off = OffDir(serverDir);
         Directory.CreateDirectory(mods);
-        WriteSteamAppId(serverDir);
+        InitializeUmm(gameDir, serverDir);
         Dictionary<string, ModInfo> game = Scan(Path.Combine(gameDir, "Mods"));
         Dictionary<string, ModInfo> server = Scan(mods);
-        Dictionary<string, ModInfo> parked = Scan(off);
+        HashSet<string> wasDisabled = Disabled(serverDir);
+        var on = new HashSet<string>(enabled) { MultiplayerId };
 
-        foreach (ModInfo mod in server.Values.Where(m => m.Id != MultiplayerId && !enabled.Contains(m.Id)))
-        {
-            Directory.CreateDirectory(off);
-            string to = Path.Combine(off, Path.GetFileName(mod.Folder));
-            if (Directory.Exists(to))
-                DeleteDirectory(to);
-            Directory.Move(mod.Folder, to);
-            say($"turned off {mod.Id} on the server (kept in {off})");
-        }
-        foreach (string id in enabled.Concat(new[] { MultiplayerId }).Distinct())
+        foreach (string id in on)
         {
             if (server.ContainsKey(id))
-                continue;
-            if (parked.TryGetValue(id, out ModInfo back))
             {
-                string to = Path.Combine(mods, Path.GetFileName(back.Folder));
-                if (!Directory.Exists(to))
-                {
-                    Directory.Move(back.Folder, to);
+                if (wasDisabled.Contains(id))
                     say($"turned on {id} on the server");
-                    continue;
-                }
+                continue;
             }
             if (game.TryGetValue(id, out ModInfo source))
             {
@@ -165,17 +218,27 @@ public static class ServerMods
                 say($"copied {id} from your game to the server, with its settings");
             }
         }
+        var flags = new Dictionary<string, bool>();
+        foreach (string id in Scan(mods).Keys)
+        {
+            flags[id] = on.Contains(id);
+            if (!flags[id] && !wasDisabled.Contains(id))
+                say($"turned off {id} on the server (its folder and settings stay)");
+        }
+        SetEnabled(serverDir, flags);
     }
 
     /// <summary>
     /// Before each start: refreshes every server mod from the game's copy by ID, except its
-    /// Settings.xml, so versions match what players have (Initialize-ServerDir).
+    /// Settings.xml, so versions match what players have, and the server's UMM from the game's
+    /// (Initialize-ServerDir).
     /// </summary>
     public static void Refresh(string gameDir, string serverDir, Action<string> say)
     {
-        WriteSteamAppId(serverDir);
+        InitializeUmm(gameDir, serverDir);
         Dictionary<string, ModInfo> game = Scan(Path.Combine(gameDir, "Mods"));
         Dictionary<string, ModInfo> server = Scan(ModsDir(serverDir));
+        HashSet<string> disabled = Disabled(serverDir);
         foreach (ModInfo mod in server.Values)
         {
             if (!game.TryGetValue(mod.Id, out ModInfo source))
@@ -188,8 +251,14 @@ public static class ServerMods
                 say($"updated the server's {mod.Id} from your game ({copied} file(s))");
         }
         if (!server.ContainsKey(MultiplayerId))
-            throw new InvalidOperationException($"the server's Mods folder ({ModsDir(serverDir)}) has no Multiplayer mod: turn it on in Setup");
-        say("server mods: " + string.Join(", ", server.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)));
+            throw new InvalidOperationException($"the server's Mods folder ({ModsDir(serverDir)}) has no Multiplayer mod: Save the setup again");
+        if (disabled.Contains(MultiplayerId))
+        {
+            SetEnabled(serverDir, new Dictionary<string, bool> { [MultiplayerId] = true });
+            disabled.Remove(MultiplayerId);
+        }
+        say("server mods: " + string.Join(", ", server.Keys.Where(id => !disabled.Contains(id)).OrderBy(k => k, StringComparer.OrdinalIgnoreCase)) +
+            (disabled.Count > 0 ? "; turned off: " + string.Join(", ", disabled.Where(server.ContainsKey).OrderBy(k => k, StringComparer.OrdinalIgnoreCase)) : ""));
     }
 
     /// <summary>Mods the enabled ones require that aren't enabled themselves.</summary>
@@ -199,22 +268,22 @@ public static class ServerMods
         return enabled.SelectMany(m => m.Requirements.Where(r => !ids.Contains(r)).Select(r => $"{m.Id} needs {r}")).ToList();
     }
 
-    // Steam's app ID, for a game started outside Steam's own folder.
-    private static void WriteSteamAppId(string serverDir)
-    {
-        Directory.CreateDirectory(serverDir);
-        File.WriteAllText(Path.Combine(serverDir, "steam_appid.txt"), "588030");
-    }
-
     /// <summary>
-    /// Files of one mod folder into another, except its settings; only what changed. robocopy, as
-    /// some mods' files sit deeper than Windows' 260-character path limit allows. Returns how many
-    /// files it copied.
+    /// Files of one mod folder into another, except its settings; only what changed. Returns how
+    /// many files it copied.
     /// </summary>
     private static int Sync(string from, string to)
     {
+        string output = RunRobocopy(from, to, "/E /XF Settings.xml");
+        Match files = Regex.Match(output, @"^\s*Files\s*:\s*\d+\s+(\d+)", RegexOptions.Multiline);
+        return files.Success ? int.Parse(files.Groups[1].Value) : 0;
+    }
+
+    // robocopy, as some mods' files sit deeper than Windows' 260-character path limit allows.
+    private static string RunRobocopy(string from, string to, string options)
+    {
         var start = new ProcessStartInfo("robocopy.exe",
-            $"\"{from.TrimEnd('\\')}\" \"{to.TrimEnd('\\')}\" /E /XF Settings.xml /R:1 /W:1 /NJH /NFL /NDL /NP")
+            $"\"{from.TrimEnd('\\')}\" \"{to.TrimEnd('\\')}\" {options} /R:1 /W:1 /NJH /NFL /NDL /NP")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -225,23 +294,6 @@ public static class ServerMods
         robocopy.WaitForExit();
         if (robocopy.ExitCode >= 8)
             throw new IOException($"copying {from} to {to} failed (robocopy {robocopy.ExitCode}): {output.Trim()}");
-        Match files = Regex.Match(output, @"^\s*Files\s*:\s*\d+\s+(\d+)", RegexOptions.Multiline);
-        return files.Success ? int.Parse(files.Groups[1].Value) : 0;
-    }
-
-    // robocopy again: Directory.Delete fails on paths past 260 characters.
-    private static void DeleteDirectory(string dir)
-    {
-        string empty = Path.Combine(Path.GetTempPath(), "dvmp-empty-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(empty);
-        try
-        {
-            var start = new ProcessStartInfo("robocopy.exe", $"\"{empty}\" \"{dir.TrimEnd('\\')}\" /MIR /R:1 /W:1 /NJH /NJS /NFL /NDL /NP")
-            { UseShellExecute = false, CreateNoWindow = true };
-            using (Process p = Process.Start(start))
-                p.WaitForExit();
-            Directory.Delete(dir, true);
-        }
-        finally { Directory.Delete(empty, true); }
+        return output;
     }
 }

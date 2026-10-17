@@ -211,7 +211,7 @@ public class MainForm : Form
             AutoSize = true, MaximumSize = new Size(600, 0), ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 3),
             Text = "Players must have the same mods as the server, except ones marked \"server only\" or \"not needed on " +
                    "the server\". Multiplayer is always on. Each start updates the server's mods from your game's copies; " +
-                   "their settings are the server's own. A mod turned off is kept aside with its settings.",
+                   "their settings are the server's own. A mod turned off stays in the server's folder, disabled.",
         }, 0, 1);
         var openMods = new Button { Text = "Open the server's folder", AutoSize = true };
         openMods.Click += (_, _) => OpenFolder(AppConfig.ServerDir);
@@ -438,8 +438,8 @@ public class MainForm : Form
     }
 
     /// <summary>
-    /// The game's mods and the server's (on, or turned off). Ticked: what's in the server's Mods, or
-    /// with no server folder yet, everything (as the watchdog's first run copies everything).
+    /// The game's mods and the server's. Ticked: what's in the server's Mods and enabled in its own
+    /// Params.xml, or with no server folder yet, everything (as the watchdog's first run copies everything).
     /// </summary>
     private void LoadMods(ISet<string> ticked)
     {
@@ -447,19 +447,18 @@ public class MainForm : Form
         loading = true;
         Dictionary<string, ModInfo> game = ServerMods.Scan(Path.Combine(gameDir.Text, "Mods"));
         Dictionary<string, ModInfo> server = ServerMods.Scan(ServerMods.ModsDir(AppConfig.ServerDir));
-        Dictionary<string, ModInfo> off = ServerMods.Scan(ServerMods.OffDir(AppConfig.ServerDir));
+        HashSet<string> disabled = ServerMods.Disabled(AppConfig.ServerDir);
         bool serverExists = ServerMods.Exists(AppConfig.ServerDir);
         mods.BeginUpdate();
         mods.Items.Clear();
-        IEnumerable<string> ids = game.Keys.Union(server.Keys).Union(off.Keys)
+        IEnumerable<string> ids = game.Keys.Union(server.Keys)
             .OrderBy(id => id == ServerMods.MultiplayerId ? 0 : 1)
-            .ThenBy(id => (game.TryGetValue(id, out ModInfo g) ? g : server.TryGetValue(id, out ModInfo s) ? s : off[id]).DisplayName, StringComparer.OrdinalIgnoreCase);
+            .ThenBy(id => (game.TryGetValue(id, out ModInfo g) ? g : server[id]).DisplayName, StringComparer.OrdinalIgnoreCase);
         foreach (string id in ids)
         {
             game.TryGetValue(id, out ModInfo inGame);
             server.TryGetValue(id, out ModInfo onServer);
-            off.TryGetValue(id, out ModInfo turnedOff);
-            ModInfo mod = inGame ?? onServer ?? turnedOff;
+            ModInfo mod = inGame ?? onServer;
             string note = "";
             if (inGame == null)
                 note = "not in your game: kept as it is";
@@ -469,7 +468,7 @@ public class MainForm : Form
                 note = "doesn't work with Multiplayer";
             if (mod.Requirements.Length > 0)
                 note = (note.Length > 0 ? note + "; " : "") + "needs " + string.Join(", ", mod.Requirements);
-            bool on = id == ServerMods.MultiplayerId || (ticked != null ? ticked.Contains(id) : serverExists ? onServer != null : true);
+            bool on = id == ServerMods.MultiplayerId || (ticked != null ? ticked.Contains(id) : serverExists ? onServer != null && !disabled.Contains(id) : true);
             var item = new ListViewItem(new[] { mod.DisplayName, id, mod.Version, $"{mod.Compatibility}: {mod.CompatibilityMeaning}", note })
             {
                 Tag = new ModRow { Id = id },
@@ -522,7 +521,7 @@ public class MainForm : Form
 
         // Requirements: offer to turn on what the ticked mods need.
         var known = new Dictionary<string, ModInfo>();
-        foreach (var dir in new[] { Path.Combine(game, "Mods"), ServerMods.ModsDir(AppConfig.ServerDir), ServerMods.OffDir(AppConfig.ServerDir) })
+        foreach (var dir in new[] { Path.Combine(game, "Mods"), ServerMods.ModsDir(AppConfig.ServerDir) })
             foreach (var pair in ServerMods.Scan(dir))
                 if (!known.ContainsKey(pair.Key)) known[pair.Key] = pair.Value;
         ISet<string> enabled = SelectedMods() ?? new HashSet<string>();

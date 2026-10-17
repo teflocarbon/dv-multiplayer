@@ -280,10 +280,13 @@ public class Watchdog
             args.AddRange(new[] { "-mp-port", options.Port.ToString() });
         if (!string.IsNullOrEmpty(options.Visibility))
             args.AddRange(new[] { "-mp-visibility", options.Visibility.ToLowerInvariant() });
+        // Unity Mod Manager looks for Mods in the working directory, but the game resets that to its
+        // own folder before UMM starts, so the server picks its mods by giving Doorstop (which starts
+        // UMM) the server's own UMM instead (ServerMods.InitializeUmm).
+        args.AddRange(new[] { "--doorstop-target-assembly", Quote(ServerMods.UmmAssembly(options.ServerDir)) });
         game = Process.Start(new ProcessStartInfo(Path.Combine(options.GameDir, "DerailValley.exe"), string.Join(" ", args))
         {
-            // Unity Mod Manager loads mods from the Mods folder of the folder the game starts in.
-            WorkingDirectory = options.ServerDir,
+            WorkingDirectory = options.GameDir,
             UseShellExecute = true,
             WindowStyle = options.ShowGameWindow ? ProcessWindowStyle.Normal : ProcessWindowStyle.Minimized,
         });

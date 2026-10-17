@@ -187,8 +187,13 @@ These are built and tested in the game:
   - **Mods:**
     - A checklist of the game's mods and the server's, by info.json Id, showing each one's
       MultiplayerCompatibility (or Multiplayer's built-in entry). Multiplayer is always on.
-    - Turning a mod off moves its folder to the server's `Mods (off)`, keeping its settings.
-      Turning it on moves it back, or copies it from the game's with its settings.
+    - On and off are the server's own UMM `Params.xml` (Enabled), which Multiplayer's mod check
+      follows (`ModInfo.FromModEntries` takes enabled mods only). A mod turned off stays in the
+      server's Mods with its settings. Turning on one the server doesn't have copies it from the
+      game's, with its settings.
+    - Like the script, it keeps the server's copy of UMM (`Managed\UnityModManager`, Config.xml
+      pointing at the server's Mods) and starts the game from its own folder with
+      `--doorstop-target-assembly` set to that copy.
     - Each start refreshes the server's mods from the game's, as the script does.
     - Saving offers to turn on what a ticked mod's `Requirements` need.
   - **Server tab:**
