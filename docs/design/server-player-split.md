@@ -45,7 +45,7 @@
   dedicated host on that career, 31 records (item records' owner and placement identities, and
   `Players`) moved to its Steam ID, none were left under `...c11e`, and all 15 items were in the
   registry under the new ID. Four of them came back on the client wrongly, from a dedicated-host
-  bug that happens without any re-key too (dedicated-host.md, Implementation status).
+  bug that happened without any re-key too, since fixed (dedicated-host.md, Implementation status).
   `InstallGuidRekey` runs at login, before the player's records are bound:
   - It runs when the player's ID is a Steam one, the install GUID they sent differs, and the
     career has data for that GUID and none for the Steam ID.

@@ -33,7 +33,7 @@ else
   echo "== client quits"
   $D eval -t client 'Application.Quit();' >/dev/null || true
   for i in $(seq 1 30); do tasklist //FI "PID eq $client_pid" //NH | grep -q DerailValley || break; sleep 1; done
-  $D eval -t host -m coroutine 'yield return new WaitForSeconds(4);' >/dev/null
+  $D eval -t host -m coroutine 'yield return new WaitForSecondsRealtime(4);' >/dev/null
 
   echo "== host keeps everything"
   r1=$($D eval -t host -m body -u "$U" -a held=$held -a inventory=$inventory -f $P/after-disconnect.cs)

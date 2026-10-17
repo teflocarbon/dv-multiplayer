@@ -56,19 +56,20 @@ decompiled per type with `ilspycmd -t`.
 **Stages 0, 1 and 3 (a, b) are built.** Stage 2, stage 3c (several players far apart) and stage 4
 of the [plan](#recommended-plan) are still to do.
 
-**Known bug (2026-10-17): a client loses slotted inventory items on a dedicated host.**
-- What happens: a client joining or rejoining a dedicated host gets its radio, map and schematic
-  (inventory slots 0-3) back lying in the world, not in its inventory.
-- On the client: the host sends them "in inventory, slot N", the client fails to put them there
-  and reports them dropped, and the two go back and forth.
-- On the host: its registry has them in the client's inventory.
-- What it isn't: it happens with and without Steam verification and the re-key, and not on an
-  ordinary host, where `rejoin` passes.
-- Not found yet: the client's reason, which goes to the debug-runtime channel
-  (`inventory.essential-claim-invariant-violation`). A suspect: a dedicated host pauses while
-  nobody is online, and both failing logins came as it unpaused.
-- Also: `rejoin` doesn't finish on a dedicated host, because its wait on the host never ends
-  while the host is paused for nobody being online.
+**Fixed (2026-10-17): a client lost slotted inventory items on a dedicated host.**
+- What happened: a client joining or rejoining a dedicated host got its radio and maps (slots 0-3)
+  back lying in the world. It reported them dropped, the host sent them back, every update.
+- Why: a player's possessions arrive in any order. Those without a retrieval claim (an oiler, a
+  shovel) took the first free slots, which were the slots the essentials reserve. The essential's
+  restore was then refused as `recall-claim-slot-occupied`, and a reserved claim never falls back
+  to another slot.
+- Fix: before restoring a claim, an item without its own claim on that slot is moved to the last
+  free slot, as a player dragging it would (`InventoryIntegration.MakeRoomForClaim`). An ordinary
+  host happened to send the essentials first.
+- `rejoin` didn't finish on a dedicated host either: its wait on the host used game time, which
+  stops while the host is paused for nobody being online. It now waits in real time.
+- Tested: `rejoin` and `rejoin-crash` on a dedicated pair and on an ordinary one, and
+  `inventory-persist`, `rejoin` and `rejoin-crash` three times each on an ordinary pair.
 
 ### Stage 2 (first part): running unattended
 
