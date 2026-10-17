@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# A derailed car off the ballast, kilometres from the host's body. The server keeps every Near tile
-# loaded (the track ballast) but not the terrain beside the track, so a car that ends up off the
-# ballast there has nothing under it on the host. It must be frozen where it is (kinematic) rather
-# than fall through the map: ServerWorldCoverage lets a derailed car move only with ground under
-# both ends, and checks again a few times a second.
-# Where the host does have ground there (a dedicated host loads the terrain around the player), it
-# skips. The client's copy isn't checked: the client has terrain there and its copy rests on it,
-# below the host's frozen one, until the server also loads terrain around derailed cars.
-# Exit code 0 = pass. Needs a running pair (dvmp up).
+# A derailed car off the track ballast, kilometres from the host's body. The server loads terrain
+# around every remote player and every derailed car (ServerTerrainCoverage), as well as every Near
+# tile (ServerWorldCoverage), so:
+# - the host has terrain under the client's player;
+# - a derailed car the host puts beside the track, 3 m above the terrain, falls onto it and comes
+#   to rest on the host, and the client's copy rests where the host's does.
+# Before that, the host froze such a car in mid-air (no terrain there), and the client's copy fell
+# to the client's terrain below it.
+# Exit code 0 = pass. Needs a running pair (dvmp up, or dvmp up --dedicated).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
@@ -17,11 +17,16 @@ U="using Multiplayer.Components.Networking;"
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 fail() { echo "FAIL: $*"; exit 1; }
 
-# A station office 4-8 km from the host's body.
-s=$($D eval -t host -m body 'var body = PlayerManager.PlayerTransform.position; var st = StationController.allStations.Select(x => new { x, d = Vector3.Distance(x.transform.position, body) }).Where(x => x.d > 4000 && x.d < 8000).OrderBy(x => x.d).First(); var a = Dev.Abs(st.x.transform.position); return new { station = st.x.stationInfo.YardID, x = a.x, z = a.z, d = Math.Round(st.d) };') || fail "no station 4-8 km from the host's body: $(echo "$s" | grep -o '"error": "[^"]*"' | head -1)"
-echo "== client goes to $(echo "$s" | field station), $(echo "$s" | field d) m from the host's body"
+# Open line 4-8 km from the host's body, away from stations.
+s=$($D eval -t host -m body -f $P/place.cs) || fail "no open line 4-8 km from the host's body: $(echo "$s" | grep -o '"error": "[^"]*"' | head -1)"
+echo "== client goes to open line at $(echo "$s" | field x), $(echo "$s" | field z), $(echo "$s" | field d) m from the host's body"
 $D eval -t client -m coroutine --timeout 120 -a x=$(echo "$s" | field x) -a z=$(echo "$s" | field z) \
   'yield return LocalPlayer.TeleportToGround(float.Parse(ctx.Args["x"], System.Globalization.CultureInfo.InvariantCulture), float.Parse(ctx.Args["z"], System.Globalization.CultureInfo.InvariantCulture)); yield return new WaitForSeconds(15);' >/dev/null
+
+t=$($D eval -t host -m body -u "$U" -f $P/terrain-at.cs) || fail "terrain probe: $(echo "$t" | grep -o '"error": "[^"]*"' | head -1)"
+echo "   host, under the client ($(echo "$t" | field fromHostBody) m from the host's body): top $(echo "$t" | field top), terrain $(echo "$t" | field terrain), Far tile loaded $(echo "$t" | field farLoaded)"
+[ "$(echo "$t" | field farLoaded)" = "true" ] || fail "the host hasn't loaded the Far scenery tile under the client's player"
+[ "$(echo "$t" | field terrain)" != "" ] && [ "$(echo "$t" | field terrain)" != "null" ] || fail "the host has no terrain under the client's player"
 
 c=$($D eval -t host -m coroutine --timeout 150 -u "$U" -f $F/spawn.cs) || fail "spawn: $(echo "$c" | grep -o '"error": "[^"]*"' | head -1)"
 car=$(echo "$c" | field id)
@@ -34,14 +39,16 @@ echo "== host derails $car and lets it settle on the ballast"
 $D eval -t host -m body -a car=$car 'var car = Trains.Find(ctx.Args["car"]); car.Derail(); return new { derailed = car.derailed };' >/dev/null
 sleep 8
 o=$($D eval -t host -m body -a car=$car -f $P/offset.cs) || fail "offset: $(echo "$o" | grep -o '"error": "[^"]*"' | head -1)"
-[ "$(echo "$o" | field found)" = "true" ] || { echo "SKIP: the host has ground everywhere beside the track here"; exit 0; }
-y0=$(echo "$o" | field y)
-echo "== moved it $(echo "$o" | field moved) m off the track, where the host has no ground; waiting 10 s"
-sleep 10
-h=$($D eval -t host -m body -a car=$car -f $F/state.cs)
-drop=$(node -e 'console.log((+process.argv[1] - JSON.parse(process.argv[2]).y).toFixed(2))' "$y0" "$(echo "$h" | field abs)")
-echo "   host: derailed $(echo "$h" | field derailed), kinematic $(echo "$h" | field kinematic), ground $(echo "$h" | field groundCollider), dropped $drop m"
+[ "$(echo "$o" | field found)" = "true" ] || fail "no terrain beside the track on the host, 15-80 m either side"
+echo "== moved it $(echo "$o" | field moved) m off the track, 3 m above the host's terrain ($(echo "$o" | field terrain)); waiting 12 s"
+sleep 12
+h=$($D eval -t host -m body -a car=$car -f $F/state.cs); cl=$($D eval -t client -m body -a car=$car -f $F/state.cs)
+apart=$(node -e 'const a=JSON.parse(process.argv[1]),b=JSON.parse(process.argv[2]);console.log(Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z).toFixed(2))' "$(echo "$h" | field abs)" "$(echo "$cl" | field abs)")
+echo "   host: derailed $(echo "$h" | field derailed), kinematic $(echo "$h" | field kinematic), ground $(echo "$h" | field groundCollider), speed $(echo "$h" | field speed)"
+echo "   client: derailed $(echo "$cl" | field derailed), kinematic $(echo "$cl" | field kinematic), ground $(echo "$cl" | field groundCollider), $apart m from the host's"
 [ "$(echo "$h" | field derailed)" = "true" ] || fail "rerailed on the host"
-[ "$(echo "$h" | field kinematic)" = "true" ] || fail "the host left the car dynamic with nothing under it"
-node -e 'process.exit(+process.argv[1] < 2 ? 0 : 1)' "$drop" || fail "the car fell $drop m on the host before it was frozen"
+[ "$(echo "$h" | field kinematic)" = "false" ] || fail "the host froze the car instead of letting it land on its terrain"
+[ "$(echo "$h" | field ground)" = "true" ] || fail "no ground under the car on the host"
+node -e 'process.exit(+process.argv[1] < 0.5 ? 0 : 1)' "$(echo "$h" | field speed)" || fail "the car hasn't come to rest on the host"
+node -e 'process.exit(+process.argv[1] < 1.5 ? 0 : 1)' "$apart" || fail "client car $apart m from the host's"
 echo PASS

@@ -3,9 +3,10 @@
 # dedicated host, its player on a player host). DV only loads terrain and scenery around one point
 # and freezes a derailed car (kinematic) where its whole cell isn't loaded, so it used to hang in
 # mid-air on the host. The server keeps every Near tile (the track ballast) loaded and lets a
-# derailed car move wherever there's ground under it (ServerWorldCoverage); a dedicated host's
-# world also follows the player (DedicatedHostAnchor). The car must come to rest on the ground on
-# the host, and the client's copy where the host has it.
+# derailed car move wherever there's ground under it (ServerWorldCoverage), and loads terrain and Far
+# tiles around derailed cars and remote players (ServerTerrainCoverage, ServerSceneryCoverage). The
+# car must come to rest on the ground on the host with its whole cell loaded there, and the
+# client's copy where the host has it.
 # Exit code 0 = pass. Needs a running pair (dvmp up, or dvmp up --dedicated).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -40,6 +41,7 @@ echo "   host: derailed $(echo "$h" | field derailed), kinematic $(echo "$h" | f
 echo "   client: derailed $(echo "$cl" | field derailed), kinematic $(echo "$cl" | field kinematic), $apart m from the host's"
 [ "$(echo "$h" | field derailed)" = "true" ] || fail "the test derail didn't happen on the host"
 [ "$(echo "$h" | field kinematic)" = "false" ] || fail "the host froze the derailed car (kinematic)"
+[ "$(echo "$h" | field loaded)" = "true" ] || fail "the host hasn't loaded the car's whole cell (Near and Far tiles, terrain)"
 [ "$(echo "$h" | field ground)" = "true" ] || fail "no ground under the car on the host"
 node -e 'process.exit(+process.argv[1] < 0.5 ? 0 : 1)' "$(echo "$h" | field speed)" || fail "the car hasn't come to rest on the host"
 [ "$(echo "$cl" | field derailed)" = "true" ] || fail "not derailed on the client"

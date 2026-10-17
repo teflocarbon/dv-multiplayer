@@ -14,6 +14,8 @@ namespace Multiplayer.Components.Networking;
 /// - A derailed car may move where real ground is under both its ends, not only where DV has its
 ///   whole cell (Near and Far tiles and terrain) loaded. It's checked a few times a second, so a
 ///   car that slides off the covered ground is frozen again rather than falling.
+/// - Terrain and Far scenery tiles are loaded around every remote player and every derailed car
+///   (ServerTerrainCoverage, ServerSceneryCoverage), so that freeze is only until they arrive.
 ///
 /// Multiplayer servers only, player host or dedicated; single player stays vanilla.
 /// See docs/design/multi-anchor-streaming.md and docs/design/server-player-split.md.
@@ -45,6 +47,10 @@ public sealed class ServerWorldCoverage : MonoBehaviour
     private void Start()
     {
         LoadEveryNearTile();
+        // Terrain and Far scenery tiles (platforms, buildings, tunnel walls) around every remote
+        // player and derailed car.
+        ServerTerrainCoverage.Create(gameObject);
+        ServerSceneryCoverage.Create(gameObject);
     }
 
     private void OnDestroy()
