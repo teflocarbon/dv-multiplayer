@@ -45,6 +45,10 @@ public static class LanternPatch
                 value =>
                 {
                     __instance.UpdateWickRelatedLogic(value);
+                    // The wick follows the knob, a physics body: left where it was, the knob's next
+                    // movement set the wick back. Not while our player is turning it.
+                    if (__instance.knob != null && !networkedItem.IsLocalInteractionOpen)
+                        __instance.knob.SetValue(value);
                 }
             );
 
