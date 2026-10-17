@@ -56,6 +56,20 @@ decompiled per type with `ilspycmd -t`.
 **Stages 0, 1 and 3 (a, b) are built.** Stage 2, stage 3c (several players far apart) and stage 4
 of the [plan](#recommended-plan) are still to do.
 
+**Known bug (2026-10-17): a client loses slotted inventory items on a dedicated host.**
+- What happens: a client joining or rejoining a dedicated host gets its radio, map and schematic
+  (inventory slots 0-3) back lying in the world, not in its inventory.
+- On the client: the host sends them "in inventory, slot N", the client fails to put them there
+  and reports them dropped, and the two go back and forth.
+- On the host: its registry has them in the client's inventory.
+- What it isn't: it happens with and without Steam verification and the re-key, and not on an
+  ordinary host, where `rejoin` passes.
+- Not found yet: the client's reason, which goes to the debug-runtime channel
+  (`inventory.essential-claim-invariant-violation`). A suspect: a dedicated host pauses while
+  nobody is online, and both failing logins came as it unpaused.
+- Also: `rejoin` doesn't finish on a dedicated host, because its wait on the host never ends
+  while the host is paused for nobody being online.
+
 ### Stage 2 (first part): running unattended
 
 Only on a dedicated host, apart from the admin commands, which an ordinary host's admins can use

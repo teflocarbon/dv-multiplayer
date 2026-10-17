@@ -107,8 +107,10 @@ temp directory, printed at the end). `DVMP` points at the CLI (default
   Steam account, which would give them the same ID.
 - So hosts started by dvmp get `-mp-allow-unverified`, which admits every client under the GUID it
   claims, and keys the host's own player by the install's GUID (the dvmp client keeps its fixed `…c11e`).
-- The gate exercises the unverified path only. Verified logins need a second Steam account and are
-  checked by hand.
+- The gate exercises the unverified path only. `dvmp up --fresh --dedicated --verified` starts a
+  host that checks tickets: a dedicated host's own client is the service identity, so the dvmp
+  client can log in verified as the owner on the one account. A refused ticket needs a second
+  account.
 
 `UP_ARGS=--dedicated` (with `PAIRS`) runs the scenarios against dedicated hosts
 ([design/dedicated-host.md](design/dedicated-host.md)). Only the client-driven ones mean anything

@@ -5,21 +5,25 @@
 > - **Steps 1-3 of the [plan](#plan):** starting items, the host's own player stored per player,
 >   and the one-time conversion. They're written (branch `dev/player-state`) and tested on one
 >   pair. They key players by the Steam-derived ID from step 0.
-> - **Step 0, [identity by SteamID](#identity):** agreed (2026-10-17). Part 0a (the ID, tickets,
->   admins) is built and its unverified path tested; verified logins and 0b (re-keying old install
->   GUIDs) still need a second Steam account to test.
+> - **Step 0, [identity by SteamID](#identity):** agreed (2026-10-17), built and tested on one
+>   Steam account (a verified login to a dedicated host, and the re-key). A refused ticket from
+>   another account is still untested.
 > - **The dedicated-host pieces** in [dedicated-host.md](dedicated-host.md) are its "no local
 >   player" case.
 
 ## Implementation status (2026-10-17)
 
-- **Step 0a, the Steam identity: built; tested only as far as one Steam account allows.**
+- **Step 0a, the Steam identity: built and tested (2026-10-17), as far as one Steam account allows.**
   - On a dvmp pair (`-mp-allow-unverified`) the host's player had the install GUID, the client
-    its `...c11e`, and every persistence scenario passed.
-  - A ticket requested as the client does (`GetAuthSessionTicket(default)`) passed
-    `BeginAuthSession` on the host, and `OnValidateAuthTicketResponse` came back `OK`.
-  - Not tested: a verified login from another account, a refused ticket, the kick on a late
-    rejection.
+    its `...c11e`, and every persistence scenario passed, `dedicated-admin` too.
+  - **Verified:** a dedicated host started with `dvmp up --dedicated --verified` (no
+    `-mp-allow-unverified`). Its own client is the service identity, so the dvmp client, on the
+    same Steam account, logs in as the owner, as a server's owner would from their own game.
+    - The ticket (`GetAuthSessionTicket(default)`) passed `BeginAuthSession`, and
+      `OnValidateAuthTicketResponse` came back `OK`.
+    - The client was admitted as the Steam-derived ID, and was an admin as the owner with
+      `Admins` empty.
+  - Not tested: a refused ticket and the kick on a late rejection, which need another account.
   - `PlayerIdentity` turns a SteamID64 into a player ID and back, parses typed IDs (a SteamID64,
     or a GUID) and gives the local player's ID and the owner's (`-mp-owner`, or the local one).
   - The login packet carries the claimed SteamID64, a session ticket and, from the host's own
@@ -36,8 +40,13 @@
   - dvmp starts every host with `-mp-allow-unverified`, so the gate doesn't exercise verified
     logins.
 
-- **Step 0b, re-keying old install GUIDs: built, not yet tested.** `InstallGuidRekey`, at login
-  before the player's records are bound:
+- **Step 0b, re-keying old install GUIDs: built and tested** (2026-10-17). On a new career, the
+  dvmp client got 15 items under `...c11e` on an ordinary host; at its first verified login to a
+  dedicated host on that career, 31 records (item records' owner and placement identities, and
+  `Players`) moved to its Steam ID, none were left under `...c11e`, and all 15 items were in the
+  registry under the new ID. Four of them came back on the client wrongly, from a dedicated-host
+  bug that happens without any re-key too (dedicated-host.md, Implementation status).
+  `InstallGuidRekey` runs at login, before the player's records are bound:
   - It runs when the player's ID is a Steam one, the install GUID they sent differs, and the
     career has data for that GUID and none for the Steam ID.
   - It rewrites the save as loaded: the `Players` key, item records' owner and placement
@@ -45,8 +54,8 @@
     encoded again). A system that imports later then finds the new ID.
   - It also re-keys what's already imported: the item registry, Lost and Found (restored and
     pending entries), the cold-container graph and the starter kits given.
-  - The gate can't reach it, since `-mp-allow-unverified` keeps GUIDs. `InstallGuidRekey.Rekey`
-    can be called by hand on a running host to try it.
+  - The gate can't reach it, since `-mp-allow-unverified` keeps GUIDs. A verified dvmp pair
+    (above) does.
 - **Step 1, starting items: built and tested.**
   - The host sends what a joining player already owns: prefab and inventory slot, from live
     records, unrestored Lost and Found entries and cold containers (`OwnedItemsSummary`, two new
