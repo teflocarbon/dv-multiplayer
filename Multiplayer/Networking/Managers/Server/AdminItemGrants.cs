@@ -8,15 +8,18 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.Utils;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Components.Networking;
 using Multiplayer.Networking.Data;
+using Multiplayer.Networking.Data.Items;
 using UnityEngine;
 
 namespace Multiplayer.Networking.Managers.Server;
 
 /// <summary>
 /// Items an admin gives a player (/give, /restore in ChatManager), for one who lost theirs, e.g. to
-/// a crash. Each item is spawned at the player's feet and owned by them, as a shop purchase is, so
-/// it's theirs to pick up, recall and find in Lost and Found.
+/// a crash. Each item goes straight into the player's inventory, owned by them, the way a saved
+/// inventory comes back at login, so it's theirs to recall and find in Lost and Found. Only if
+/// that's refused is it left at their feet.
 ///
 /// Essentials (comms radio, maps, wallet, ...) are one per player in DV, so /give refuses an
 /// essential the player already owns anywhere; /restore only gives starting items they own nowhere.
@@ -42,17 +45,11 @@ internal static class AdminItemGrants
         return null;
     }
 
-    /// <summary>
-    /// Whether items can be put at the player's feet now. Not while they're on a train: an item
-    /// spawned on a cab floor was never projected to anyone, so nobody could pick it up.
-    /// </summary>
+    /// <summary>Whether items can be given now. They go into the inventory, so anywhere will do.</summary>
     public static bool CanReceive(ServerPlayer player, out string reason)
     {
         reason = string.Empty;
-        if (player.CarId == 0)
-            return true;
-        reason = $"{player.Username} is on a train; ask them to step off onto the ground first, then try again.";
-        return false;
+        return player != null && player.Peer != null;
     }
 
     /// <summary>The prefab names of everything the player owns, wherever it is.</summary>
@@ -109,15 +106,48 @@ internal static class AdminItemGrants
             }
             NetworkedItem networked = obj.GetComponent<NetworkedItem>() ?? obj.AddComponent<NetworkedItem>();
             yield return null; // its net id is assigned as it starts
-            if (networked != null && networked.NetId != 0 && player.Guid != Guid.Empty &&
-                AuthoritativeItemRegistry.Ensure(networked) is { } record && record.PersistentOwnerPlayerId == 0)
+            if (networked == null || networked.NetId == 0 || player.Guid == Guid.Empty)
+            {
+                Multiplayer.LogWarning($"Couldn't give {player.Username} a {spec.ItemPrefabName}: it has no net id");
+                continue;
+            }
+            AuthoritativeItemRegistry.Record record = AuthoritativeItemRegistry.Ensure(networked);
+            if (record != null && record.PersistentOwnerPlayerId == 0)
             {
                 record.PersistentOwnerPlayerId = player.PlayerId;
                 record.PersistentOwnerIdentity = player.Guid;
                 player.AddOwnedItem(networked.NetId);
             }
-            Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {networked?.NetId})");
+            bool inInventory = PutInInventory(player, networked, record);
+            Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {networked.NetId}), " +
+                            (inInventory ? "in their inventory" : "at their feet"));
             yield return new WaitForSeconds(0.5f);
         }
+    }
+
+    // As a saved inventory item comes back at the owner's login (WorldItemPersistenceRestore): the
+    // host makes it "in this player's inventory", and their game puts it in a free slot.
+    private static bool PutInInventory(ServerPlayer player, NetworkedItem item, AuthoritativeItemRegistry.Record record)
+    {
+        if (record == null)
+            return false;
+        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
+        if (snapshot == null)
+            return false;
+        snapshot.ItemState = ItemState.InInventory;
+        snapshot.PlayerId = player.PlayerId;
+        snapshot.PlayerHand = PlayerHand.None;
+        snapshot.AuthorityRevision = record.Revision;
+        if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, player,
+                ItemTransitionReason.HostLocalState, true, out string rejection))
+        {
+            Multiplayer.LogWarning($"Couldn't put {item.name} in {player.Username}'s inventory ({rejection}); leaving it at their feet");
+            return false;
+        }
+        AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, ItemTransitionReason.HostLocalState);
+        item.ApplyServerCanonicalSnapshot(snapshot);
+        NetworkedItemManager.Instance.RegisterHostWorldItem(item);
+        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
+        return true;
     }
 }

@@ -130,7 +130,7 @@ public class ChatManager
         (
             COMMAND_GIVE,
             null,
-            () => "Give a player an item at their feet, theirs to keep (admins). Item names are DV's, e.g. EOTLantern, Boombox" +
+            () => "Give a player an item, into their inventory, theirs to keep (admins). Item names are DV's, e.g. EOTLantern, Boombox" +
                     $"\r\n\t\t/{COMMAND_GIVE} <{Locale.CHAT_HELP_PLAYER_NAME}> <item> [count]",
             GiveMessage
         );
@@ -376,9 +376,9 @@ public class ChatManager
         }
         CoroutineManager.Instance.StartCoroutine(AdminItemGrants.Spawn(player, Enumerable.Repeat(spec, count).ToList()));
         Multiplayer.Log($"{sender.Username} gave {player.Username} {count} x {spec.ItemPrefabName}");
-        Reply(sender, $"Giving {player.Username} {count} x {spec.ItemPrefabName} at their feet.");
+        Reply(sender, $"Giving {player.Username} {count} x {spec.ItemPrefabName}.");
         if (sender != player)
-            Reply(player, $"You've been given {count} x {spec.ItemPrefabName}, at your feet.");
+            Reply(player, $"You've been given {count} x {spec.ItemPrefabName}, in your inventory (or at your feet if it's full).");
     }
 
     // DV's "starting weather": the override a new career starts with, which holds a weather for a
@@ -472,7 +472,7 @@ public class ChatManager
         Multiplayer.Log($"{sender.Username} restored {player.Username}'s starting items: {list}");
         Reply(sender, $"Giving {player.Username} back: {list}.");
         if (sender != player)
-            Reply(player, $"You've been given back: {list}, at your feet.");
+            Reply(player, $"You've been given back: {list}, in your inventory (or at your feet if it's full).");
     }
 
     public void ServerMessage(string message, ServerPlayer sender, ServerPlayer exclude = null)
