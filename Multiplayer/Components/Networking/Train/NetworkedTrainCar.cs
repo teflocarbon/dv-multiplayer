@@ -200,7 +200,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private const int MAX_COUPLER_ITERATIONS = 50;
     private const float MAX_PORT_DELTA = 0.001f;
     // How far an unleased control's port must be from the host's last value to count as the
-    // player's change rather than simulation feedback (Client_IsUnleasedChange).
+    // player's change rather than simulation feedback (Client_UnleasedChange).
     private const float UNLEASED_CHANGE_TOLERANCE = 0.02f;
     // And how long after a host update to a port its control may still be catching up to it.
     private const float UNLEASED_CHANGE_SETTLE_SECONDS = 1.5f;
@@ -399,7 +399,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // bundled with a control the client does not own.
     private readonly HashSet<uint> locallyOwnedPortAuthorities = [];
     // Each control port's value as the host last had it, to tell a player's change to a control
-    // that took no lease from the host's own values echoing back (Client_IsUnleasedChange).
+    // that took no lease from the host's own values echoing back (Client_UnleasedChange).
     private readonly Dictionary<uint, float> client_hostPortValues = [];
     private readonly Dictionary<uint, float> client_hostPortReceivedAt = [];
     #endregion
@@ -565,7 +565,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             // Ports pulsed on an event (adding coal, igniting firebox, etc)
             if (firebox != null)
             {
-                firebox.fireboxCoalControlPort.ValueUpdatedInternally += Client_OnFireboxAddCoal;   //Player adding coal
+                // A player adding coal: FireboxTransferCoalPatch (the coal port is a stoker's too).
                 firebox.fireboxIgnitionPort.ValueUpdatedInternally += Client_OnIgnite;      //Player igniting firebox
             }
 
@@ -763,7 +763,36 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         // physical controls exist. Request the authoritative state again now so
         // default-engaged handbrakes and all SimFlow-backed levers are projected onto
         // the newly loaded interior instead of retaining their prefab defaults.
-        NetworkLifecycle.Instance?.Client.SendTrainSyncRequest(NetId);
+        Client_RequestInteriorResync();
+    }
+
+    private const float INTERIOR_RESYNC_INTERVAL = 10f;
+    private float client_nextInteriorResyncAt;
+    private bool client_interiorResyncPending;
+
+    // A player standing at the distance an interior loads at reloads it every few seconds, and
+    // each full resync makes the host send the whole car to everyone (playtest 2: one car every
+    // 5-15 s, two requests a time). One per car per interval; any more in it make one at its end.
+    private void Client_RequestInteriorResync()
+    {
+        if (Time.realtimeSinceStartup >= client_nextInteriorResyncAt)
+        {
+            client_nextInteriorResyncAt = Time.realtimeSinceStartup + INTERIOR_RESYNC_INTERVAL;
+            NetworkLifecycle.Instance?.Client.SendTrainSyncRequest(NetId);
+        }
+        else if (!client_interiorResyncPending)
+        {
+            client_interiorResyncPending = true;
+            CoroutineManager.Instance.StartCoroutine(Client_InteriorResyncLater());
+        }
+    }
+
+    private IEnumerator Client_InteriorResyncLater()
+    {
+        yield return new WaitForSecondsRealtime(client_nextInteriorResyncAt - Time.realtimeSinceStartup);
+        client_interiorResyncPending = false;
+        if (this != null)
+            Client_RequestInteriorResync();
     }
 
     // Most controls name their port through the controls overrider. Some only through the feeder
@@ -920,7 +949,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         if (firebox != null)
         {
-            firebox.fireboxCoalControlPort.ValueUpdatedInternally -= Client_OnFireboxAddCoal;   //Player adding coal
             firebox.fireboxIgnitionPort.ValueUpdatedInternally -= Client_OnIgnite;      //Player igniting firebox
         }
 
@@ -1693,12 +1721,33 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!hasSimFlow || dirtyPorts.Count == 0)
             return;
 
-        uint[] portIds = NetworkLifecycle.Instance.IsHost()
-            ? dirtyPorts.ToArray()
-            : dirtyPorts.Where(id => locallyOwnedPortAuthorities.Contains(id) || Client_IsUnleasedChange(id)).ToArray();
+        uint[] portIds;
+        List<uint> settling = null;
+        if (NetworkLifecycle.Instance.IsHost())
+            portIds = dirtyPorts.ToArray();
+        else
+        {
+            List<uint> send = new(dirtyPorts.Count);
+            foreach (uint id in dirtyPorts)
+            {
+                UnleasedChange change = locallyOwnedPortAuthorities.Contains(id) ? UnleasedChange.Send : Client_UnleasedChange(id);
+                if (change == UnleasedChange.Send)
+                    send.Add(id);
+                else if (change == UnleasedChange.Settling)
+                    (settling ??= new()).Add(id);
+            }
+            portIds = send.ToArray();
+        }
         // Other unowned dirty controls are native simulation feedback, not client intent.
         // Retaining them would either spin forever or contaminate a later leased batch.
         dirtyPorts.Clear();
+        // A change made while the host's last value is still settling waits for it to settle,
+        // then goes if it still differs. Dropping it lost a player's change for good whenever it
+        // fell in that window: on a car resynced every few seconds (each game loading its interior
+        // asks for a full resync), closed oiling caps reopened at the next resync (playtest 2).
+        if (settling != null)
+            foreach (uint id in settling)
+                dirtyPorts.Add(id);
         if (portIds.Length == 0)
             return;
 
@@ -1735,17 +1784,21 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // only the player saw the change (#73 covered buttons and switches, which raise Used). The host
     // takes a change nobody holds a lease on. Feedback is told apart by its value: once settled it's
     // what the host last sent.
-    private bool Client_IsUnleasedChange(uint portNetId)
+    private enum UnleasedChange { No, Settling, Send }
+
+    private UnleasedChange Client_UnleasedChange(uint portNetId)
     {
         if (!hasSimFlow || (portNetIdToBlockState.TryGetValue(portNetId, out bool blocked) && blocked) ||
             !Client_LocalPlayerCanTouch() ||
             !simulationFlow.TryGetPort(GetPort(portNetId), out Port port) || port.valueType != PortValueType.CONTROL ||
             !client_hostPortValues.TryGetValue(portNetId, out float hostValue))
-            return false;
+            return UnleasedChange.No;
+        if (Mathf.Abs(port.Value - hostValue) <= UNLEASED_CHANGE_TOLERANCE)
+            return UnleasedChange.No;
         if (client_hostPortReceivedAt.TryGetValue(portNetId, out float receivedAt) &&
             Time.realtimeSinceStartup - receivedAt < UNLEASED_CHANGE_SETTLE_SECONDS)
-            return false;
-        return Mathf.Abs(port.Value - hostValue) > UNLEASED_CHANGE_TOLERANCE;
+            return UnleasedChange.Settling;
+        return UnleasedChange.Send;
     }
 
     private void Common_SendFuses()
@@ -2588,18 +2641,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         brakeSystem.heatController.overheatReductionFactor = packet.OverheatReductionFactor;
         brakeSystem.heatController.temperature = packet.Temperature;
         return lineApplied;
-    }
-
-    private void Client_OnFireboxAddCoal(float coalMassDelta)
-    {
-        if (NetworkLifecycle.Instance.IsProcessingPacket)
-            return;
-
-        if (coalMassDelta <= 0)
-            return;
-
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"Client_OnFireboxAddCoal({CurrentID}): coalMassDelta: {coalMassDelta}");
-        NetworkLifecycle.Instance.Client.SendAddCoal(NetId, coalMassDelta);
     }
 
     private void Client_OnIgnite(float ignition)
