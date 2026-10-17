@@ -932,6 +932,10 @@ public class NetworkClient : NetworkManager
             LoadingScreenManager.Instance.FinishLoading();
         }
 
+        // Starting items this game made itself are only this game's until the server adopts them.
+        if (!isAlsoHost)
+            NetworkedItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
+
         //if not single player, add in chat (nobody reads it on a dedicated host, and building it
         //pauses the game)
         if (!isSinglePlayer && !NetworkLifecycle.Instance.IsDedicatedHost)

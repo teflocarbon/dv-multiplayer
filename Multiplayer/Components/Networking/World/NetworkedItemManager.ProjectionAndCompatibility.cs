@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using DV.Utils;
@@ -141,6 +142,38 @@ public partial class NetworkedItemManager
         TraceItem("item.unbound-classified", item, classification);
         if (PendingUnboundClientItemSet.Add(item))
             PendingUnboundClientItems.Enqueue(item);
+    }
+
+    private const float UnboundInventoryAdoptionDelaySeconds = 10f;
+
+    /// <summary>
+    /// Starting items a player's own game makes as it joins (DV's safeguard adds what the server says
+    /// they don't own) stay unbound until first used, and until then only that game knows them: a
+    /// crash lost them for good (a sandbox's boombox and handheld console, 2026-10-17). Once the
+    /// server's originals have had time to arrive, ask it to adopt whatever is still unbound in the
+    /// inventory. Where the server holds an original, it hands that back instead
+    /// (TryAdoptClientItem), so this can't duplicate.
+    /// </summary>
+    internal void AdoptUnboundInventoryItemsSoon() => StartCoroutine(AdoptUnboundInventoryItems());
+
+    private IEnumerator AdoptUnboundInventoryItems()
+    {
+        yield return new WaitForSecondsRealtime(UnboundInventoryAdoptionDelaySeconds);
+        if (NetworkLifecycle.Instance == null || NetworkLifecycle.Instance.IsHost() || !NetworkLifecycle.Instance.IsClientRunning)
+            yield break;
+        int requested = 0;
+        foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null && item.NetId == 0).ToArray())
+        {
+            bool inInventory;
+            try { inInventory = Inventory.Instance?.Contains(item.gameObject, false) == true; }
+            catch { inInventory = false; }
+            if (!inInventory)
+                continue;
+            RequestItemAdoption(item, "unbound-in-inventory-after-join");
+            requested++;
+        }
+        if (requested > 0)
+            Multiplayer.Log($"Asked the server to adopt {requested} item(s) only this game knew, from the inventory");
     }
 
     internal void RequestItemAdoption(NetworkedItem item, string reason)
