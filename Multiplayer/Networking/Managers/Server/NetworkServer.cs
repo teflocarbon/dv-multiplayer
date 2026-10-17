@@ -825,6 +825,11 @@ public class NetworkServer : NetworkManager
         SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForGameData, excludeSelf: true);
     }
 
+    /// <summary>A time skip for every game, this server's own client included (/time).</summary>
+    public void SendTimeAdvance(float seconds) =>
+        SendPacketToAll(new ClientboundTimeAdvancePacket { amountOfTimeToSkipInSeconds = seconds },
+            DeliveryMethod.ReliableUnordered, PlayerLoadingState.ReadyForWorldState);
+
     public void SendWeatherState(ITransportPeer peer = null)
     {
         var packet = WeatherDriver.Instance.GetSaveData(Globals.G.GameParams.WeatherEditorAlwaysAllowed).ToObject<ClientboundWeatherPacket>();

@@ -31,6 +31,7 @@ public class ChatManager
     public const string COMMAND_GIVE = "give";
     public const string COMMAND_RESTORE = "restore";
     public const string COMMAND_WEATHER = "weather";
+    public const string COMMAND_TIME = "time";
 
 
     public const string MESSAGE_COLOUR_SERVER = "9CDCFE";
@@ -152,6 +153,16 @@ public class ChatManager
                     $"\r\n\t\t/{COMMAND_WEATHER} clear|rain|storm [hours]" +
                     $"\r\n\t\t/{COMMAND_WEATHER} auto|new",
             WeatherMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_TIME,
+            null,
+            () => "Skip time forward for everyone (admins): to the next time of day, or by some hours. It only goes forward, as sleeping does" +
+                    $"\r\n\t\t/{COMMAND_TIME} HH:mm" +
+                    $"\r\n\t\t/{COMMAND_TIME} +hours",
+            TimeMessage
         );
 
 #if DEBUG
@@ -436,6 +447,53 @@ public class ChatManager
             return;
         }
         NetworkLifecycle.Instance.Server.SendWeatherState();
+        Multiplayer.Log(said);
+        ServerMessage(said, null);
+    }
+
+    // A time skip, as fast travel and sleeping make one: every game, the server's own included,
+    // runs DV's TimeAdvance for it (ClientboundTimeAdvancePacket), so jobs and everything else that
+    // goes by the clock move on properly. Never backwards: DV reads a clock going back as a whole day
+    // passing (a lit flashlight's battery emptied at once).
+    private void TimeMessage(string message, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        var weather = DV.WeatherSystem.WeatherDriver.Instance;
+        if (weather?.manager == null)
+        {
+            Reply(sender, "The clock isn't running yet.");
+            return;
+        }
+        DateTime now = weather.manager.DateTime;
+        string arg = message.Trim();
+        double seconds;
+        if (arg.StartsWith("+") && double.TryParse(arg.Substring(1), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double hours))
+        {
+            seconds = hours * 3600;
+        }
+        else if (TimeSpan.TryParse(arg, System.Globalization.CultureInfo.InvariantCulture, out TimeSpan timeOfDay) &&
+                 timeOfDay >= TimeSpan.Zero && timeOfDay < TimeSpan.FromDays(1))
+        {
+            DateTime target = now.Date + timeOfDay;
+            if (target <= now)
+                target = target.AddDays(1);
+            seconds = (target - now).TotalSeconds;
+        }
+        else
+        {
+            Reply(sender, $"It's {now:HH:mm}. /{COMMAND_TIME} HH:mm skips to the next such time, /{COMMAND_TIME} +hours skips ahead.");
+            return;
+        }
+        if (seconds < 60 || seconds > 24 * 3600)
+        {
+            Reply(sender, "Time skips forward by at least a minute and at most a day.");
+            return;
+        }
+        // To every game, the server's own client included: that one advances the server's world.
+        NetworkLifecycle.Instance.Server.SendTimeAdvance((float)seconds);
+        string said = $"{sender.Username} skipped the time to {now.AddSeconds(seconds):HH:mm} ({seconds / 3600:0.#} h on).";
         Multiplayer.Log(said);
         ServerMessage(said, null);
     }
