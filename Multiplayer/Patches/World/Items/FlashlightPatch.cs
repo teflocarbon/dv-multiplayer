@@ -2,6 +2,7 @@ using HarmonyLib;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Utils;
 using System;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Patches.World.Items;
@@ -77,5 +78,25 @@ public static class FlashlightItemPatch
             );
 
         networkedItem.FinaliseTrackedValues();
+    }
+}
+
+/// <summary>
+/// A flashlight that has never been active has not run Start, so it has no button yet, and its save
+/// handler threw on it ("World item state save failed ... Object reference not set"). The server
+/// keeps other players' inventory items inactive, so their flashlights never saved. Save the
+/// battery and keep the switch as it was loaded.
+/// </summary>
+[HarmonyPatch(typeof(FlashlightItem), nameof(FlashlightItem.OnItemSaveDataRequested))]
+public static class FlashlightItemSavePatch
+{
+    private static bool Prefix(FlashlightItem __instance, JObject data, ref JObject __result)
+    {
+        if (__instance.button != null)
+            return true;
+        if (__instance.battery != null)
+            __instance.battery.SaveState(data);
+        __result = data;
+        return false;
     }
 }

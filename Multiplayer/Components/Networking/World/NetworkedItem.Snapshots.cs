@@ -793,6 +793,13 @@ public partial class NetworkedItem
         if (playerBelongsTo?.HoldsItem(gameObject) == true)
             return ItemState.InHand;
 
+        // Let go in VR: if that was next to the belt, the belt takes it at the end of this frame.
+        // Until then it isn't dropped yet; the next frame tells which it was.
+        if (vrBeltReleaseFrame >= 0 && BeltItemPolicy.HoldVrRelease(Item.IsBeltSnappable,
+                vrBeltReleaseFrame, Time.frameCount, grabbed: false,
+                InventoryIntegration.ContainsActive(gameObject)))
+            return lastState;
+
         // Derail Valley exposes only this process's local inventory. Preserve another player's
         // accepted placement on both host and clients; otherwise a remote InInventory projection
         // is recomputed as Dropped merely because it is absent from the local Inventory singleton.
