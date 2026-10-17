@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using HarmonyLib;
 using Multiplayer.Components.Networking.Player;
+using Multiplayer.Components.Networking.World;
 using UnityEngine;
 
 namespace Multiplayer.Patches.Train;
@@ -50,5 +51,7 @@ public static class CarDeletePlayerSafetyPatch
 
         foreach (NetworkedPlayer avatar in car.GetComponentsInChildren<NetworkedPlayer>(true))
             avatar.UpdateCar(0);
+
+        NetworkedLostAndFoundManager.CollectFromDeletedCar(car);
     }
 }

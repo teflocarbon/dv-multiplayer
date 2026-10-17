@@ -8,6 +8,7 @@ using Multiplayer.Integrations.Inventory;
 using Multiplayer.Integrations.Storage;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Newtonsoft.Json.Linq;
 using System;
@@ -255,6 +256,38 @@ public static class NetworkedLostAndFoundManager
             out rejectionReason);
     }
 
+    /// <summary>
+    /// A car is about to be deleted (CarDeletePlayerSafetyPatch): the items lying in it would go to
+    /// the car pool with it, leaving records that point at a car that no longer exists, in nobody's
+    /// reach and out of recall (a player's radio, 2026-10-17). A player's own item goes to their
+    /// Lost and Found; anything else goes with the car, as in single player, but cleanly.
+    /// </summary>
+    public static void CollectFromDeletedCar(TrainCar car)
+    {
+        if (car == null || NetworkLifecycle.Instance?.IsHost() != true)
+            return;
+        NetworkedTrainCar networkedCar = car.GetComponent<NetworkedTrainCar>();
+        if (networkedCar == null || networkedCar.NetId == 0)
+            return;
+        var inCar = AuthoritativeItemRegistry.GetAll()
+            .Where(record => record.Placement == ItemPlacementKind.TrainInterior && record.WorldParentNetId == networkedCar.NetId)
+            .Select(record => record.NetId).ToList();
+        foreach (ushort netId in inCar)
+        {
+            if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
+                continue;
+            // Off the car first, so the pool doesn't take it.
+            item.transform.SetParent(WorldMover.OriginShiftParent, true);
+            if (Collect(item, LostItemReason.ContainerCleared))
+            {
+                Multiplayer.Log($"Car {car.ID} deleted: {item.name} ({netId}) went to its owner's Lost and Found");
+                continue;
+            }
+            Multiplayer.Log($"Car {car.ID} deleted: {item.name} ({netId}) went with it");
+            UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
+        }
+    }
+
     public static bool Collect(NetworkedItem item, LostItemReason reason)
     {
         if (!NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0)
@@ -293,7 +326,9 @@ public static class NetworkedLostAndFoundManager
             NetId = item.NetId,
             Revision = authority.Revision,
             OwnerPlayerId = authority.PersistentOwnerPlayerId,
-            OwnerIdentity = OwnerIdentity(authority.PersistentOwnerPlayerId),
+            OwnerIdentity = authority.PersistentOwnerIdentity != Guid.Empty
+                ? authority.PersistentOwnerIdentity.ToString("D")
+                : OwnerIdentity(authority.PersistentOwnerPlayerId),
             PrefabName = authority.PrefabName,
             DisplayName = item.Item?.name ?? authority.PrefabName,
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
