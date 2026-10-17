@@ -30,6 +30,7 @@ public class ChatManager
     public const string COMMAND_PAY_FEES = "payfees";
     public const string COMMAND_GIVE = "give";
     public const string COMMAND_RESTORE = "restore";
+    public const string COMMAND_WEATHER = "weather";
 
 
     public const string MESSAGE_COLOUR_SERVER = "9CDCFE";
@@ -141,6 +142,16 @@ public class ChatManager
             () => "Give a player back any starting items they no longer own (admins)" +
                     $"\r\n\t\t/{COMMAND_RESTORE} <{Locale.CHAT_HELP_PLAYER_NAME}>",
             RestoreMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_WEATHER,
+            null,
+            () => "Set the weather for everyone (admins): clear, rain or storm for some in-game hours (default 2), auto to go back to natural weather, new for a different natural pattern" +
+                    $"\r\n\t\t/{COMMAND_WEATHER} clear|rain|storm [hours]" +
+                    $"\r\n\t\t/{COMMAND_WEATHER} auto|new",
+            WeatherMessage
         );
 
 #if DEBUG
@@ -368,6 +379,65 @@ public class ChatManager
         Reply(sender, $"Giving {player.Username} {count} x {spec.ItemPrefabName} at their feet.");
         if (sender != player)
             Reply(player, $"You've been given {count} x {spec.ItemPrefabName}, at your feet.");
+    }
+
+    // DV's "starting weather": the override a new career starts with, which holds a weather for a
+    // while and then fades back to the natural one. It's in the weather state the server sends
+    // everyone (ClientboundWeatherPacket), so every game shows the same.
+    private void WeatherMessage(string message, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        string[] parts = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        string kind = parts.FirstOrDefault()?.ToLowerInvariant() ?? string.Empty;
+        var weather = DV.WeatherSystem.WeatherDriver.Instance;
+        if (weather == null)
+        {
+            Reply(sender, "The weather isn't running yet.");
+            return;
+        }
+        float hours = parts.Length > 1 && float.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out float h) ? Math.Max(0.25f, Math.Min(h, 72f)) : 2f;
+        (float rain, float thunder, float wetness)? set = kind switch
+        {
+            "clear" or "sun" or "sunny" => (0f, 0f, 0f),
+            "rain" => (0.7f, 0f, 0.7f),
+            "storm" or "thunder" => (1f, 0.8f, 1f),
+            _ => null
+        };
+        string said;
+        if (set is { } w)
+        {
+            weather.SetStartingWeather(weather.manager.DateTime + TimeSpan.FromHours(hours), TimeSpan.FromMinutes(20),
+                UnityEngine.Vector2.zero, w.rain, w.thunder, w.wetness);
+            said = $"{sender.Username} set the weather to {kind} for {hours:0.##} in-game hour(s).";
+        }
+        else if (kind == "auto")
+        {
+            weather.ResetStartingWeather();
+            said = $"{sender.Username} set the weather back to natural.";
+        }
+        else if (kind == "new")
+        {
+            weather.ResetStartingWeather();
+            var seed = typeof(DV.WeatherSystem.WeatherDriver).GetField("weatherSeed",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            if (seed == null)
+            {
+                Reply(sender, "This version of the game doesn't let the weather pattern change.");
+                return;
+            }
+            seed.SetValue(weather, UnityEngine.Random.Range(0f, 1000f));
+            said = $"{sender.Username} rolled a new weather pattern.";
+        }
+        else
+        {
+            Reply(sender, $"/{COMMAND_WEATHER} clear|rain|storm [hours], or auto, or new");
+            return;
+        }
+        NetworkLifecycle.Instance.Server.SendWeatherState();
+        Multiplayer.Log(said);
+        ServerMessage(said, null);
     }
 
     private void RestoreMessage(string message, ServerPlayer sender)
