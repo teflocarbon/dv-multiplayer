@@ -1684,6 +1684,7 @@ public class NetworkServer : NetworkManager
         serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
         peerToPlayer.Add(peer, serverPlayer);
         authentication.Admit(identity, serverPlayer);
+        Components.SaveGame.InstallGuidRekey.OnLogin(serverPlayer);
         AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
         NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
         WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);

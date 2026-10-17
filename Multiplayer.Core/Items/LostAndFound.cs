@@ -253,6 +253,30 @@ public sealed class LostItemRegistry
         return changed;
     }
 
+    /// <summary>Whether any record belongs to this owner identity.</summary>
+    public bool HasOwner(string ownerIdentity) =>
+        !string.IsNullOrEmpty(ownerIdentity) && records.Values.Any(record =>
+            string.Equals(record.OwnerIdentity, ownerIdentity, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The owner's identity changed (an install GUID re-keyed to a Steam account): their records
+    /// move to the new one. Returns how many changed.
+    /// </summary>
+    public int RekeyOwner(string fromIdentity, string toIdentity)
+    {
+        if (string.IsNullOrEmpty(fromIdentity) || string.IsNullOrEmpty(toIdentity))
+            return 0;
+        int changed = 0;
+        foreach (LostItemRecord record in records.Values)
+        {
+            if (!string.Equals(record.OwnerIdentity, fromIdentity, StringComparison.OrdinalIgnoreCase))
+                continue;
+            record.OwnerIdentity = toIdentity;
+            changed++;
+        }
+        return changed;
+    }
+
     /// <summary>
     /// The owner left: release their session id so a player who is given it next does not see or
     /// retrieve these items. Records with an identity wait for <see cref="RebindOwner"/>.

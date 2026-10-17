@@ -390,6 +390,38 @@ public sealed class ColdContainerGraphTests
         Assert.That(container.Revision, Is.Zero);
     }
 
+    [Test]
+    public void RekeyOwner_MovesContainersAndTheirItemsTogether()
+    {
+        Deposit(root, 0);
+        Guid other = Guid.NewGuid();
+        Assert.That(graph.AddContainer(Container(other, "owner-b", 4)).Accepted, Is.True);
+
+        Assert.That(graph.RekeyOwner(Owner, "owner-c"), Is.EqualTo(2));
+
+        Assert.That(graph.HasOwner(Owner), Is.False);
+        Assert.That(graph.HasOwner("owner-c"), Is.True);
+        Assert.That(graph.Browse("owner-c", root, 0, 64, out var view).Accepted, Is.True);
+        Assert.That(view.Slots, Has.Count.EqualTo(1));
+        Assert.That(graph.TryGetContainer(other, out var untouched) && untouched.OwnerIdentity == "owner-b", Is.True);
+        Assert.That(graph.ValidateWholeGraph().Accepted, Is.True);
+        Assert.That(graph.RekeyOwner(string.Empty, "owner-c"), Is.Zero);
+    }
+
+    [Test]
+    public void SnapshotRekey_SurvivesImport()
+    {
+        Deposit(root, 0);
+        ColdContainerGraphSnapshot snapshot = graph.ExportSnapshot();
+
+        Assert.That(snapshot.RekeyOwner(Owner, "owner-c"), Is.EqualTo(2));
+
+        ColdContainerGraph imported = new();
+        Assert.That(imported.ImportSnapshot(snapshot).Accepted, Is.True);
+        Assert.That(imported.HasOwner("owner-c"), Is.True);
+        Assert.That(imported.HasOwner(Owner), Is.False);
+    }
+
     private void Deposit(Guid container, int slot, ColdStoredItemRecord item = null,
         ushort physicalNetId = 0)
     {

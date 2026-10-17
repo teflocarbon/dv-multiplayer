@@ -9,6 +9,7 @@ using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Components.Networking.Train;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Components.Networking.World;
@@ -762,6 +763,36 @@ public static class AuthoritativeItemRegistry
         foreach (Record record in records.Values)
             if (record.PlacementPlayerIdentity == player.Guid)
                 record.PlacementPlayerId = player.PlayerId;
+    }
+
+    /// <summary>Whether any record is owned by, or placed with, this player ID.</summary>
+    internal static bool HasIdentity(Guid identity) =>
+        identity != Guid.Empty && records.Values.Any(record =>
+            record.PersistentOwnerIdentity == identity || record.PlacementPlayerIdentity == identity);
+
+    /// <summary>A player's ID changed (InstallGuidRekey): their records follow. Returns how many changed.</summary>
+    internal static int RekeyIdentity(Guid from, Guid to)
+    {
+        if (from == Guid.Empty || to == Guid.Empty)
+            return 0;
+        int changed = 0;
+        foreach (Record record in records.Values)
+        {
+            bool touched = false;
+            if (record.PersistentOwnerIdentity == from)
+            {
+                record.PersistentOwnerIdentity = to;
+                touched = true;
+            }
+            if (record.PlacementPlayerIdentity == from)
+            {
+                record.PlacementPlayerIdentity = to;
+                touched = true;
+            }
+            if (touched)
+                changed++;
+        }
+        return changed;
     }
 
     public static void UnbindPersistentOwner(ServerPlayer player)

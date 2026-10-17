@@ -26,7 +26,7 @@ namespace Multiplayer.Components.Networking.World.Containers;
 /// <summary>Host authority for detached container contents; shells remain ordinary network items.</summary>
 public static class NetworkedColdContainerManager
 {
-    private const string SaveKey = "ColdContainers";
+    internal const string SaveKey = "ColdContainers";
     private const uint ScanIntervalTicks = 24;
     private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly HostRuntimeCompatibility compatibility = new();

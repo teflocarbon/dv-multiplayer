@@ -6,8 +6,8 @@
 >   and the one-time conversion. They're written (branch `dev/player-state`). Step 1 is tested;
 >   steps 2 and 3 aren't, and wait for step 0.
 > - **Step 0, [identity by SteamID](#identity):** agreed (2026-10-17). Part 0a (the ID, tickets,
->   admins) is built and untested; 0b (re-keying old install GUIDs) isn't built yet. It goes in
->   before steps 2-3 land.
+>   admins) and 0b (re-keying old install GUIDs) are built and untested. It goes in before steps
+>   2-3 land.
 > - **The dedicated-host pieces** in [dedicated-host.md](dedicated-host.md) are its "no local
 >   player" case.
 
@@ -31,6 +31,17 @@
     logins.
   - The ticket is requested for no particular server (`GetAuthSessionTicket(default)`). If Steam
     turns out to need the host's identity there, `AuthTicketNetworkIdentityFailure` will say so.
+- **Step 0b, re-keying old install GUIDs: built, not yet tested.** `InstallGuidRekey`, at login
+  before the player's records are bound:
+  - It runs when the player's ID is a Steam one, the install GUID they sent differs, and the
+    career has data for that GUID and none for the Steam ID.
+  - It rewrites the save as loaded: the `Players` key, item records' owner and placement
+    identities, Lost and Found owners, and the cold-container snapshot (decoded, re-keyed and
+    encoded again). A system that imports later then finds the new ID.
+  - It also re-keys what's already imported: the item registry, Lost and Found (restored and
+    pending entries), the cold-container graph and the starter kits given.
+  - The gate can't reach it, since `-mp-allow-unverified` keeps GUIDs. `InstallGuidRekey.Rekey`
+    can be called by hand on a running host to try it.
 - **Step 1, starting items: built and tested.**
   - The host sends what a joining player already owns: prefab and inventory slot, from live
     records, unrestored Lost and Found entries and cold containers (`OwnedItemsSummary`, two new

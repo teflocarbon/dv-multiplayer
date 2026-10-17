@@ -365,6 +365,26 @@ public sealed class LostAndFoundTests
         Assert.That(registry.RebindOwner(string.Empty, 6), Is.Zero);
     }
 
+    [Test]
+    public void RekeyOwner_MovesOnlyThatOwnersRecords()
+    {
+        LostItemRegistry registry = new();
+        LostItemRecord mine = Record();
+        mine.OwnerIdentity = "owner-a";
+        LostItemRecord theirs = Record();
+        theirs.NetId = 43;
+        theirs.PersistentItemId = Guid.NewGuid();
+        theirs.OwnerIdentity = "owner-b";
+        registry.Add(mine);
+        registry.Add(theirs);
+
+        Assert.That(registry.RekeyOwner("OWNER-A", "owner-c"), Is.EqualTo(1), "identities compare without case");
+        Assert.That(registry.HasOwner("owner-a"), Is.False);
+        Assert.That(registry.HasOwner("owner-c"), Is.True);
+        Assert.That(registry.HasOwner("owner-b"), Is.True);
+        Assert.That(registry.RekeyOwner("owner-a", string.Empty), Is.Zero);
+    }
+
     private static LostItemRecord Record() => new()
     {
         PersistentItemId = Guid.Parse("11111111-1111-1111-1111-111111111111"),

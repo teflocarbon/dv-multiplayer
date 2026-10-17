@@ -692,6 +692,27 @@ public static class NetworkedLostAndFoundManager
             generation++;
     }
 
+    /// <summary>Whether a Lost and Found entry, restored or not yet, belongs to this player ID.</summary>
+    internal static bool HasOwner(Guid owner) =>
+        registry.HasOwner(owner.ToString("D")) || PendingOwnedBy(owner).Any();
+
+    /// <summary>A player's ID changed (InstallGuidRekey): their entries follow. Returns how many changed.</summary>
+    internal static int RekeyOwner(Guid from, Guid to)
+    {
+        int changed = registry.RekeyOwner(from.ToString("D"), to.ToString("D"));
+        foreach (JObject value in PendingOwnedBy(from).ToArray())
+        {
+            value["ownerIdentity"] = to.ToString("D");
+            changed++;
+        }
+        if (changed > 0)
+            generation++;
+        return changed;
+    }
+
+    private static IEnumerable<JObject> PendingOwnedBy(Guid owner) =>
+        pendingSaveImports.Where(value => Guid.TryParse((string)value["ownerIdentity"], out Guid identity) && identity == owner);
+
     public static void OnOwnerDisconnected(ServerPlayer player)
     {
         if (player != null && registry.UnbindOwner(player.PlayerId) > 0)
