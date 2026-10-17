@@ -18,6 +18,7 @@ runs=( # name | scenario | variables
   "item-release-regrab-late|item-release|MODE=regrab-late"
   "item-release-throw-flatcar|item-release|MODE=throw-flatcar"
   "item-release-object-state|item-release|MODE=object-state"
+  "item-release-interact|item-release|MODE=interact"
   "lost-and-found|lost-and-found|"
   "recall|recall|"
   "recall-taken|recall|TAKEN=1"

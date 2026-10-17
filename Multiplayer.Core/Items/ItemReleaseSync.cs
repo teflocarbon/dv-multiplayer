@@ -45,16 +45,30 @@ public static class ItemReleaseGrace
 }
 
 /// <summary>
-/// Who may change an item's object state (a lantern's flame, a radio's channel). Only the
-/// player holding or carrying it: everyone else's copy of a world item drifts on its own (a thrown
+/// Who may change an item's object state (a lantern's flame, a radio's channel): the player
+/// holding or carrying it, and a player who is working it where it lies (turning a set-down
+/// lantern's knob, lighting it with their lighter). A value changing isn't enough to tell: every
+/// game's copy of a world item drifts on its own (a lantern's knob is a physics body; a thrown
 /// lantern's flame flickers in every game it flies through), and when those copies all reported
-/// it the host's refusals set them off again, several times a second.
+/// it the host's refusals set them off again, several times a second. So a non-holder's change
+/// counts only inside a window its own player's interaction opened, and says so on the wire.
 /// </summary>
 public static class ItemObjectStateAuthority
 {
+    /// <summary>How far from the item a player working it may be, in metres (VR reach, a lighter).</summary>
+    public const float InteractionReach = 6f;
+
     /// <summary>Whether a client sends a change to its copy's object state with no placement change.</summary>
-    public static bool ClientMaySend(WireItemState localState, bool pageOnly) =>
-        pageOnly || localState is WireItemState.InHand or WireItemState.InInventory;
+    public static bool ClientMaySend(WireItemState localState, bool pageOnly, bool localInteraction) =>
+        pageOnly || localInteraction || localState is WireItemState.InHand or WireItemState.InInventory;
+
+    /// <summary>
+    /// Whether the host takes a non-holder's object state for an item in the world: marked as an
+    /// interaction, from a player whose game has the item, within reach of it.
+    /// </summary>
+    public static bool HostAcceptsWorldInteraction(bool markedInteraction, bool senderHasItem,
+        bool itemInWorld, float senderDistance) =>
+        markedInteraction && senderHasItem && itemInWorld && senderDistance <= InteractionReach;
 
     /// <summary>
     /// Whether the host drops an update without answering. A non-holder's object state isn't a
@@ -62,7 +76,38 @@ public static class ItemObjectStateAuthority
     /// the sender's copy. Placement and position still get one.
     /// </summary>
     public static bool HostIgnores(bool carriesItemState, bool carriesPosition, bool carriesObjectState,
-        bool carriesLifecycle, bool senderPossesses, bool pageOnly) =>
+        bool carriesLifecycle, bool senderPossesses, bool allowedInteraction) =>
         carriesObjectState && !carriesItemState && !carriesPosition && !carriesLifecycle &&
-        !senderPossesses && !pageOnly;
+        !senderPossesses && !allowedInteraction;
+}
+
+/// <summary>
+/// The time a local player is working an item they don't hold: open while they hold one of its
+/// controls (a lantern's knob), and for <see cref="GraceSeconds"/> after they let go of it or use
+/// it, while the knob settles or the flame takes.
+/// </summary>
+public struct ItemInteractionWindow
+{
+    public const float GraceSeconds = 1.5f;
+
+    private int held;
+    private float until;
+
+    public void Begin() => held++;
+
+    public void End(float now)
+    {
+        if (held > 0) held--;
+        Touch(now);
+    }
+
+    public void Touch(float now) => until = System.Math.Max(until, now + GraceSeconds);
+
+    public bool IsOpen(float now) => held > 0 || now < until;
+
+    public void Reset()
+    {
+        held = 0;
+        until = 0f;
+    }
 }

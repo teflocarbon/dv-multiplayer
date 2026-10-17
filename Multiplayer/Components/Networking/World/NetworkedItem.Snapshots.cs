@@ -199,17 +199,22 @@ public partial class NetworkedItem
             updateType = ItemUpdateData.ItemUpdateType.Create;
         }
 
-        // Only the holder's game changes an item's object state. A thrown lantern's flame flickers
-        // in every game it flies through; each of them reporting it was refused by the host, and
-        // the correction set the copy off again, several times a second (playtest 2). A book lying
-        // in the world is the exception: anyone may turn its pages.
+        // Only the holder's game changes an item's object state, or the game of a player working
+        // it where it lies (a set-down lantern's knob, lighting it). A thrown lantern's flame
+        // flickers in every game it flies through; each of them reporting it was refused by the
+        // host, and the correction set the copy off again, several times a second (playtest 2).
+        // A book lying in the world is the other exception: anyone may turn its pages.
         bool pageOnlyWorldState = false;
+        bool worldInteraction = false;
         if (!NetworkLifecycle.Instance.IsHost() &&
             updateType == ItemUpdateData.ItemUpdateType.ObjectState &&
-            !ItemObjectStateAuthority.ClientMaySend(ToWireState(currentState), pageOnly: false))
+            !ItemObjectStateAuthority.ClientMaySend(ToWireState(currentState), pageOnly: false,
+                localInteraction: false))
         {
-            pageOnlyWorldState = IsTrackedValueDirty(NetworkedPageBookState.TrackedValueKey);
-            if (!pageOnlyWorldState)
+            worldInteraction = IsLocalInteractionOpen;
+            pageOnlyWorldState = !worldInteraction &&
+                IsTrackedValueDirty(NetworkedPageBookState.TrackedValueKey);
+            if (!worldInteraction && !pageOnlyWorldState)
             {
                 PublishLocalState("item.snapshot-suppressed", currentState, lastState, "object-state",
                     "object-state-not-holder");
@@ -238,6 +243,9 @@ public partial class NetworkedItem
             snapshot.States = snapshot.States
                 .Where(state => state.Key == NetworkedPageBookState.TrackedValueKey)
                 .ToDictionary(state => state.Key, state => state.Value);
+        // The host takes a non-holder's object state only when it says it's an interaction.
+        if (snapshot != null && worldInteraction)
+            snapshot.TransitionReason = ItemTransitionReason.ClientInteraction;
         if (snapshot != null)
         {
             lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
@@ -376,6 +384,12 @@ public partial class NetworkedItem
                 });
             return;
         }
+
+        // The host's echo of our own object-state change (a lantern's knob still being turned).
+        if (ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(NetworkLifecycle.Instance.IsHost(),
+                NetworkLifecycle.Instance.Client?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
+                snapshot.UpdateType == ItemUpdateData.ItemUpdateType.ObjectState))
+            return;
 
         if (ItemSnapshotApplicationPolicy.IsLocalThrowAcknowledgement(
                 NetworkLifecycle.Instance.IsHost(),

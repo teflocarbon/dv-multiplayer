@@ -285,6 +285,25 @@ public static class AuthoritativeItemRegistry
     }
 
     /// <summary>
+    /// Puts the record's pose into an object-state update before it's applied, so a transition
+    /// that doesn't move the item doesn't take the sender's copy's position as the item's.
+    /// </summary>
+    public static void KeepRecordedPose(NetworkedItem item, ItemUpdateData snapshot)
+    {
+        if (item == null || snapshot == null || !records.TryGetValue(item.NetId, out Record record))
+            return;
+        snapshot.ItemPosition = record.Position;
+        snapshot.ItemRotation = record.Rotation;
+        snapshot.WorldParentKind = record.WorldParentKind;
+        snapshot.WorldParentNetId = record.WorldParentNetId;
+        snapshot.WorldParentKey = record.WorldParentKey ?? string.Empty;
+        snapshot.ParentLocalPosition = record.ParentLocalPosition;
+        snapshot.ParentLocalRotation = record.ParentLocalRotation;
+        snapshot.CarNetId = record.AttachedCarNetId;
+        snapshot.AttachedFront = record.AttachedFront;
+    }
+
+    /// <summary>
     /// Whether the item is where it was at <paramref name="revision"/>: only object state (a
     /// lantern's flame) has changed since. A physics lease granted then is still good.
     /// </summary>

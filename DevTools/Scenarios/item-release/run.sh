@@ -10,6 +10,8 @@
 #                          must be on the car, at the same spot, in both games
 #   MODE=object-state      the client changes the wick of a lantern lying in the world: nothing
 #                          is sent, so the server corrects nothing
+#   MODE=interact          the client turns the knob of a lantern lying in the world (grabbing it,
+#                          as a VR hand does): the server takes the new wick, knob included
 # Every mode fails if the server sent the client a rejection correction for the item.
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
@@ -88,6 +90,21 @@ object-state)
   step $D eval -t client -m coroutine --timeout 60 -u "$U" -a item=$item -f $P/nudge.cs
   after=$($D eval -t host -m body -u "$U" -a item=$item -f $P/record.cs | field revision)
   [ "$before" = "$after" ] || fail "server revision moved $before -> $after: a non-holder's object state was taken"
+  ;;
+interact)
+  item=$($D eval -t host -m coroutine -u "$U" -a prefab=Lantern -f $P/spawn.cs | field item)
+  sleep 3
+  wick=$($D eval -t host -m body -u "$U" -a item=$item 'NetworkedItem.TryGet(ushort.Parse(ctx.Args["item"]), out var i); return new { w = i.GetComponent<Lantern>().wickSize < 0.5f ? 0.85f : 0.15f };' | field w)
+  echo "== client turns the knob of lantern $item lying in the world to $wick"
+  c=$($D eval -t client -m coroutine --timeout 60 -u "$U" -a item=$item -a wick=$wick -f $P/interact.cs | val)
+  h=$($D eval -t host -m body -u "$U" -a item=$item 'NetworkedItem.TryGet(ushort.Parse(ctx.Args["item"]), out var i); return new { wick = i.GetComponent<Lantern>().wickSize, knob = i.GetComponent<Lantern>().knob.Value };' | val)
+  echo "   client $c; server $h"
+  node -e '
+    const c=JSON.parse(process.argv[1]), h=JSON.parse(process.argv[2]), w=+process.argv[3]; const f=[];
+    if (Math.abs(c.wick-w)>0.05) f.push("the client'"'"'s own wick is "+c.wick+" (set back?)");
+    if (Math.abs(h.wick-w)>0.05) f.push("the server'"'"'s wick is "+h.wick+", not "+w);
+    if (Math.abs(h.knob-w)>0.05) f.push("the server'"'"'s knob is at "+h.knob+": its next movement would undo the wick");
+    if (f.length) { console.log("FAIL: "+f.join("; ")); process.exit(1); }' "$c" "$h" "$wick" || exit 1
   ;;
 *) fail "unknown MODE $MODE" ;;
 esac

@@ -24,6 +24,14 @@ public static class ItemSnapshotApplicationPolicy
     /// re-grab, or into the inventory). Applied, it took the item out of the hand again; the
     /// pickup that follows it on the wire is what counts.
     /// </summary>
+    /// <summary>
+    /// The host's echo of our own object-state change: our values, a round trip old. Applied while
+    /// the player is still turning a lantern's knob, it set the wick back.
+    /// </summary>
+    public static bool IsOwnObjectStateEcho(bool isHost, byte localPlayerId, byte originatingPlayerId,
+        bool objectStateOnly) =>
+        !isHost && localPlayerId != 0 && originatingPlayerId == localPlayerId && objectStateOnly;
+
     public static bool IsSupersededLocalRelease(bool isHost, byte localPlayerId,
         byte originatingPlayerId, WireItemState receivedState, bool locallyPossessed) =>
         !isHost && localPlayerId != 0 && originatingPlayerId == localPlayerId &&

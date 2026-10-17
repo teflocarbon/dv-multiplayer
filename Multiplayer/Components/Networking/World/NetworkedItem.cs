@@ -117,6 +117,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private float releaseSpeed = -1f;
     private int releasedFrame;
     private bool releaseDeferralPublished;
+    private ItemInteractionWindow localInteraction;
 
     private Vector3 thrownPosition;
     private Quaternion thrownRotation;
@@ -320,6 +321,28 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             velocity -= car.velocity;
         return velocity.magnitude;
     }
+
+    // The local player working this item without holding it (a set-down lantern's knob, lighting
+    // it): only then may its game send this item's object state (ItemObjectStateAuthority).
+    internal void BeginLocalInteraction()
+    {
+        localInteraction.Begin();
+        MarkLocalStateDirty("interaction-began");
+    }
+
+    internal void EndLocalInteraction()
+    {
+        localInteraction.End(Time.realtimeSinceStartup);
+        MarkLocalStateDirty("interaction-ended");
+    }
+
+    internal void TouchLocalInteraction()
+    {
+        localInteraction.Touch(Time.realtimeSinceStartup);
+        MarkLocalStateDirty("interaction-used");
+    }
+
+    internal bool IsLocalInteractionOpen => localInteraction.IsOpen(Time.realtimeSinceStartup);
 
     public void OnThrow(Vector3 direction)
     {
@@ -536,6 +559,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         releasedAt = -1f;
         releaseSpeed = -1f;
         releaseDeferralPublished = false;
+        localInteraction.Reset();
         hasLastSentState = false;
         ResetVrHandState();
         lastSentProjection = default;

@@ -268,6 +268,20 @@ and one thrown onto a train vanished. What the code does now:
   (`ItemObjectStateAuthority.HostIgnores`): such a correction carried the record's position,
   which put a thrown item back at its release point, and set the sender's copy off again.
   Placement and position disputes still get a correction.
+- **Working an item where it lies.** A player may still change a set-down item: turn a lantern's
+  knob, light it with their lighter, flip a mounted gadget's switch. A value changing can't tell
+  that from drift (a lantern's knob is a physics body in every game), so the player's own action
+  opens a window: grabbing or using one of the item's controls (`ControlImplBase.FireGrabbed`,
+  `FireUngrabbed`, `Use`), or lighting a lantern with a flame they hold (`IgnitableUse.HandleUse`,
+  `Igniter.IgniteNow`, then `Lantern.Ignite`), all in `ItemInteractionPatch`. It's open while the
+  control is held and 1.5 s after (`ItemInteractionWindow`). Changes inside it go out as
+  object state marked `ItemTransitionReason.ClientInteraction`. The host takes a marked change
+  from a player whose game has the item (it acknowledged it) within 6 m of it, for an item in the
+  world, on a car or attached, as object state only: the record keeps its own pose
+  (`AuthoritativeItemRegistry.KeepRecordedPose`). Unmarked changes, and every change from older
+  builds, are still ignored. A client doesn't re-apply the host's echo of its own object-state
+  change (the knob may still be turning), and a received wick also sets the lantern's knob, which
+  the wick follows, unless the local player is turning it.
 - **Object state doesn't void a lease.** Every accepted change advances the authority revision,
   object state included, and the host's own copy of a flying lantern changes its flame. The lease,
   its samples and its settlement were tied to the exact revision, so one flicker on the host
@@ -282,8 +296,8 @@ and one thrown onto a train vanished. What the code does now:
 The resting report the tracker asked for ("the thrower's game reports where the item comes to
 rest, car parent included") is the existing settlement: the releaser holds the lease and proposes
 the resting pose with its train or static parent. It was being refused, not missing. The
-`item-release` scenario covers all four (`MODE=regrab`, `regrab-late`, `throw-flatcar`,
-`object-state`).
+`item-release` scenario covers these (`MODE=regrab`, `regrab-late`, `throw-flatcar`,
+`object-state`, `interact`).
 
 ### Lease timeout
 

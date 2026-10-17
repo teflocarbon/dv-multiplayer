@@ -101,19 +101,77 @@ public sealed class ItemReleaseSyncTests
     [TestCase(WireItemState.Dropped, true, true)]
     public void ObjectState_OnlyTheHolderSendsIt(WireItemState local, bool pageOnly, bool sends)
     {
-        Assert.That(ItemObjectStateAuthority.ClientMaySend(local, pageOnly), Is.EqualTo(sends));
+        Assert.That(ItemObjectStateAuthority.ClientMaySend(local, pageOnly, localInteraction: false), Is.EqualTo(sends));
     }
 
     [Test]
     public void ObjectState_HostIgnoresANonHoldersObjectStateButAnswersPlacementAndPosition()
     {
         Assert.That(ItemObjectStateAuthority.HostIgnores(carriesItemState: false, carriesPosition: false,
-            carriesObjectState: true, carriesLifecycle: false, senderPossesses: false, pageOnly: false), Is.True);
+            carriesObjectState: true, carriesLifecycle: false, senderPossesses: false, allowedInteraction: false), Is.True);
         Assert.That(ItemObjectStateAuthority.HostIgnores(false, false, true, false, senderPossesses: true, false), Is.False);
-        Assert.That(ItemObjectStateAuthority.HostIgnores(false, false, true, false, false, pageOnly: true), Is.False);
+        Assert.That(ItemObjectStateAuthority.HostIgnores(false, false, true, false, false, allowedInteraction: true), Is.False);
         Assert.That(ItemObjectStateAuthority.HostIgnores(carriesItemState: true, false, true, false, false, false), Is.False);
         Assert.That(ItemObjectStateAuthority.HostIgnores(false, carriesPosition: true, true, false, false, false), Is.False);
         Assert.That(ItemObjectStateAuthority.HostIgnores(false, false, true, carriesLifecycle: true, false, false), Is.False);
+    }
+
+    [Test]
+    public void ObjectState_ANonHolderWorkingTheItemSendsIt()
+    {
+        Assert.That(ItemObjectStateAuthority.ClientMaySend(WireItemState.Dropped, pageOnly: false,
+            localInteraction: true), Is.True);
+        Assert.That(ItemObjectStateAuthority.ClientMaySend(WireItemState.Attached, pageOnly: false,
+            localInteraction: true), Is.True);
+    }
+
+    [Test]
+    public void ObjectState_HostTakesAMarkedInteractionFromANearbyPlayerWhoHasTheItem()
+    {
+        Assert.That(ItemObjectStateAuthority.HostAcceptsWorldInteraction(true, true, true, 1.5f), Is.True);
+        Assert.That(ItemObjectStateAuthority.HostAcceptsWorldInteraction(false, true, true, 1.5f), Is.False,
+            "a drifting copy's change isn't marked");
+        Assert.That(ItemObjectStateAuthority.HostAcceptsWorldInteraction(true, false, true, 1.5f), Is.False,
+            "the sender never had the item");
+        Assert.That(ItemObjectStateAuthority.HostAcceptsWorldInteraction(true, true, false, 1.5f), Is.False,
+            "someone else holds it");
+        Assert.That(ItemObjectStateAuthority.HostAcceptsWorldInteraction(true, true, true,
+            ItemObjectStateAuthority.InteractionReach + 0.1f), Is.False, "out of reach");
+    }
+
+    [Test]
+    public void InteractionWindow_OpenWhileHeldAndForTheGraceAfter()
+    {
+        ItemInteractionWindow window = default;
+        Assert.That(window.IsOpen(10f), Is.False);
+
+        window.Begin();
+        Assert.That(window.IsOpen(100f), Is.True, "held");
+        window.End(100f);
+        Assert.That(window.IsOpen(100f + ItemInteractionWindow.GraceSeconds - 0.1f), Is.True);
+        Assert.That(window.IsOpen(100f + ItemInteractionWindow.GraceSeconds + 0.1f), Is.False);
+
+        window.Touch(200f);   // a use: a lighter's click
+        Assert.That(window.IsOpen(200.5f), Is.True);
+        window.End(201f);     // an unmatched release doesn't hold it open
+        Assert.That(window.IsOpen(201f + ItemInteractionWindow.GraceSeconds + 0.1f), Is.False);
+
+        window.Begin();
+        window.Reset();
+        Assert.That(window.IsOpen(0f), Is.False);
+    }
+
+    [Test]
+    public void OwnObjectStateEcho_IsNotReapplied()
+    {
+        Assert.That(ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(false, 2, 2, objectStateOnly: true), Is.True);
+        Assert.That(ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(false, 2, 3, objectStateOnly: true), Is.False,
+            "another player's change applies");
+        Assert.That(ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(false, 2, 0, objectStateOnly: true), Is.False,
+            "the host's own change applies");
+        Assert.That(ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(false, 2, 2, objectStateOnly: false), Is.False,
+            "placement acknowledgements have their own rules");
+        Assert.That(ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(true, 2, 2, objectStateOnly: true), Is.False);
     }
 
     [Test]

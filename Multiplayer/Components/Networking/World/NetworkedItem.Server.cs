@@ -92,6 +92,10 @@ public partial class NetworkedItem
         snapshot.OriginatingPlayerId = senderPlayer.PlayerId;
 
         bool senderHeldIt = SenderPossesses(senderPlayer);
+        // Working an item where it lies changes its state, not where it is: the record keeps its
+        // pose (a physics lease or the last settlement set it), not the sender's copy's.
+        if (!senderHeldIt && IsAcceptedWorldInteraction(snapshot, senderPlayer))
+            AuthoritativeItemRegistry.KeepRecordedPose(this, snapshot);
         if (!AuthoritativeItemRegistry.TryApplyTransition(this, snapshot, senderPlayer,
                 ItemTransitionReason.ClientState, false, out string authorityRejection))
         {
@@ -196,12 +200,14 @@ public partial class NetworkedItem
             return false;
         }
 
-        // A projection acknowledgement permits the initial world -> hand interaction only.
-        // Once placement is not changing, tracked-state and position mutations require current
-        // possession; merely seeing a nearby object is not an authority grant.
-        bool pageOnlyInteraction = IsPageOnlyInteraction(snapshot) && authority != null &&
-            authority.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory);
-        if (!senderPossesses && !pageOnlyInteraction &&
+        // A projection acknowledgement permits the initial world -> hand interaction, a book's
+        // pages, and a nearby player working the item where it lies (its game marks that). Any
+        // other tracked-state or position change needs possession: merely seeing a nearby object
+        // is not an authority grant.
+        bool allowedInteraction = IsPageOnlyInteraction(snapshot) && authority != null &&
+            authority.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory) ||
+            IsAcceptedWorldInteraction(snapshot, senderPlayer);
+        if (!senderPossesses && !allowedInteraction &&
             !ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
             snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ObjectState |
                                             ItemUpdateData.ItemUpdateType.ItemPosition))
@@ -288,7 +294,28 @@ public partial class NetworkedItem
             // Anyone may turn the pages of a book lying in the world; not one in someone's hand.
             IsPageOnlyInteraction(snapshot) &&
             !(AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority) &&
-              authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory));
+              authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory) ||
+            IsAcceptedWorldInteraction(snapshot, senderPlayer));
+
+    /// <summary>
+    /// A nearby player working an item where it lies (turning a set-down lantern's knob, lighting it
+    /// with their lighter): their game marks the change as an interaction, and it's taken as object
+    /// state only. Unmarked changes from other games' drifting copies are still ignored.
+    /// </summary>
+    private bool IsAcceptedWorldInteraction(ItemUpdateData snapshot, ServerPlayer senderPlayer)
+    {
+        if (snapshot == null || senderPlayer == null ||
+            snapshot.UpdateType != ItemUpdateData.ItemUpdateType.ObjectState ||
+            !AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority))
+            return false;
+        bool itemInWorld = authority.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
+            ItemPlacementKind.StaticParent or ItemPlacementKind.Attached;
+        float distance = Vector3.Distance(transform.position - WorldMover.currentMove,
+            senderPlayer.AbsoluteWorldPosition);
+        return ItemObjectStateAuthority.HostAcceptsWorldInteraction(
+            snapshot.TransitionReason == ItemTransitionReason.ClientInteraction,
+            senderPlayer.AcknowledgedWorldItems.Contains(NetId), itemInWorld, distance);
+    }
 
     private static bool IsPageOnlyInteraction(ItemUpdateData snapshot) =>
         snapshot != null &&
