@@ -3,17 +3,23 @@
 > Status: being built (2026-10-17). This is the target model for how a host and its players fit
 > together.
 > - **Steps 1-3 of the [plan](#plan):** starting items, the host's own player stored per player,
->   and the one-time conversion. They're written (branch `dev/player-state`). Step 1 is tested;
->   steps 2 and 3 aren't. They key players by the Steam-derived ID from step 0.
+>   and the one-time conversion. They're written (branch `dev/player-state`) and tested on one
+>   pair. They key players by the Steam-derived ID from step 0.
 > - **Step 0, [identity by SteamID](#identity):** agreed (2026-10-17). Part 0a (the ID, tickets,
->   admins) and 0b (re-keying old install GUIDs) are built and untested, and go in with steps
->   2-3.
+>   admins) is built and its unverified path tested; verified logins and 0b (re-keying old install
+>   GUIDs) still need a second Steam account to test.
 > - **The dedicated-host pieces** in [dedicated-host.md](dedicated-host.md) are its "no local
 >   player" case.
 
 ## Implementation status (2026-10-17)
 
-- **Step 0a, the Steam identity: built, not yet tested.**
+- **Step 0a, the Steam identity: built; tested only as far as one Steam account allows.**
+  - On a dvmp pair (`-mp-allow-unverified`) the host's player had the install GUID, the client
+    its `...c11e`, and every persistence scenario passed.
+  - A ticket requested as the client does (`GetAuthSessionTicket(default)`) passed
+    `BeginAuthSession` on the host, and `OnValidateAuthTicketResponse` came back `OK`.
+  - Not tested: a verified login from another account, a refused ticket, the kick on a late
+    rejection.
   - `PlayerIdentity` turns a SteamID64 into a player ID and back, parses typed IDs (a SteamID64,
     or a GUID) and gives the local player's ID and the owner's (`-mp-owner`, or the local one).
   - The login packet carries the claimed SteamID64, a session ticket and, from the host's own
@@ -29,8 +35,7 @@
     is `PlayerIdentity.Owner`.
   - dvmp starts every host with `-mp-allow-unverified`, so the gate doesn't exercise verified
     logins.
-  - The ticket is requested for no particular server (`GetAuthSessionTicket(default)`). If Steam
-    turns out to need the host's identity there, `AuthTicketNetworkIdentityFailure` will say so.
+
 - **Step 0b, re-keying old install GUIDs: built, not yet tested.** `InstallGuidRekey`, at login
   before the player's records are bound:
   - It runs when the player's ID is a Steam one, the install GUID they sent differs, and the
@@ -56,8 +61,15 @@
   - This is narrower than "the server gives starting items": a genuinely missing item is still made
     by the player's own game, as in single player, and then adopted. It removes the duplicates
     without new item spawning on the server.
-- **Steps 2 and 3, the host's own player by player ID and the one-time conversion: built, not
-  yet tested.** All of it is in `PerPlayerSaveFormat`, called when hosting starts
+- **Steps 2 and 3, the host's own player by player ID and the one-time conversion: built and
+  tested** (2026-10-17, one pair: `host-player-persist`, `rejoin`, `rejoin-crash`, `save-reload`,
+  `inventory-persist`, `borrowed-disconnect`, `lost-and-found`, `recall`, `shop`).
+  - The test found that an item a player found in the world and carried (a mug) wasn't saved:
+    the save only kept dynamic items with DV's `BelongsToPlayer`, which only bought items,
+    licences, money and starting items have. Clients had always lost them at a host restart; the
+    host used to keep them through DV's own inventory list. Now anything in a player's inventory
+    or hand is saved, as vanilla's inventory keeps everything (`ShouldPersist`).
+  - Not tested yet: converting an old career (`career-convert`), and a dedicated host. All of it is in `PerPlayerSaveFormat`, called when hosting starts
   (`SaveGameManager_FindStartGameData_Patch`), before DV places the player or loads an item.
   - **Conversion:** a save without the marker `Multiplayer.PlayerStateFormat = 2` has its
     `Player_position`, rotation and `Storage_Inventory` turned into `Players.<owner>` and item

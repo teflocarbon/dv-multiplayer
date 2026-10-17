@@ -139,6 +139,12 @@ internal static partial class WorldItemPersistenceManager
 
         if (record.PersistentItemId != Guid.Empty)
         {
+            // Whatever a player carries is theirs to keep, as vanilla's inventory keeps everything
+            // in it: an item found in the world (a mug) has no BelongsToPlayer, and was lost from
+            // the inventory at the next load.
+            if (IsPlayerPossession(record))
+                return NetworkedItem.TryGet(record.NetId, out NetworkedItem carried) && carried?.Item != null;
+
             // Like vanilla's world storage, only keep dynamic items a player owns. Unowned ones
             // are respawned by their source each load (e.g. the paint station's spray can, which
             // vanilla only skips when the player already owns one), so persisting them added a
