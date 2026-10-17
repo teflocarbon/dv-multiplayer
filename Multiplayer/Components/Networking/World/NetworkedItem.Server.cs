@@ -71,6 +71,14 @@ public partial class NetworkedItem
             SendCanonicalRejectionCorrection(senderPlayer, "item-in-lost-and-found");
             return;
         }
+        if (IsIgnoredNonHolderObjectState(snapshot, senderPlayer))
+        {
+            // Not a dispute about where the item is, so no correction: its position put a thrown
+            // item back where it was let go, and set off the sender's copy again (playtest 2).
+            DebugTrace.Validation("item", "Item", NetId.ToString(), false,
+                "non-holder-object-state-ignored", DebugRuntimeSide.Server);
+            return;
+        }
         //TODO: rollback if validation fails
         if (!ValidateUpdate(snapshot, senderPlayer))
         {
@@ -83,6 +91,7 @@ public partial class NetworkedItem
         // already-running local throw a second time.
         snapshot.OriginatingPlayerId = senderPlayer.PlayerId;
 
+        bool senderHeldIt = SenderPossesses(senderPlayer);
         if (!AuthoritativeItemRegistry.TryApplyTransition(this, snapshot, senderPlayer,
                 ItemTransitionReason.ClientState, false, out string authorityRejection))
         {
@@ -90,6 +99,10 @@ public partial class NetworkedItem
             SendCanonicalRejectionCorrection(senderPlayer, authorityRejection);
             return;
         }
+        // The player who let go of it has it in their world, whether or not they were ever sent
+        // it there (a /give, a starting item): their next grab of it is a pickup like anyone's.
+        if (senderHeldIt && !SenderPossesses(senderPlayer))
+            senderPlayer.AcknowledgedWorldItems.Add(NetId);
         DebugTrace.Validation("item", "Item", NetId.ToString(), true, "accepted", DebugRuntimeSide.Server);
 
         Multiplayer.LogDebug(() => $"NetworkedItem.Server_ReceiveItemUpdate() NetId: {snapshot?.ItemNetId}, ItemState: {snapshot?.ItemState}, Player: {senderPlayer.DisplayName}");
@@ -174,9 +187,8 @@ public partial class NetworkedItem
             return false;
         }
 
-        bool senderPossesses = AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority) &&
-            authority.PlacementPlayerId == senderPlayer.PlayerId &&
-            authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
+        AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority);
+        bool senderPossesses = SenderPossesses(senderPlayer);
         if (!senderPossesses && !senderPlayer.AcknowledgedWorldItems.Contains(NetId))
         {
             DebugTrace.Validation("item", "Item", NetId.ToString(), false,
@@ -258,6 +270,25 @@ public partial class NetworkedItem
 
         return true;
     }
+
+    private bool SenderPossesses(ServerPlayer senderPlayer) =>
+        senderPlayer != null &&
+        AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority) &&
+        authority.PlacementPlayerId == senderPlayer.PlayerId &&
+        authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
+
+    private bool IsIgnoredNonHolderObjectState(ItemUpdateData snapshot, ServerPlayer senderPlayer) =>
+        snapshot != null && senderPlayer != null &&
+        ItemObjectStateAuthority.HostIgnores(
+            ItemUpdateData.IncludesItemState(snapshot.UpdateType),
+            snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ItemPosition),
+            snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ObjectState),
+            snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.Create | ItemUpdateData.ItemUpdateType.Destroy),
+            SenderPossesses(senderPlayer),
+            // Anyone may turn the pages of a book lying in the world; not one in someone's hand.
+            IsPageOnlyInteraction(snapshot) &&
+            !(AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority) &&
+              authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory));
 
     private static bool IsPageOnlyInteraction(ItemUpdateData snapshot) =>
         snapshot != null &&

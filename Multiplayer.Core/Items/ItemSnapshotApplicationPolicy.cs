@@ -18,4 +18,14 @@ public static class ItemSnapshotApplicationPolicy
         !isHost && localPlayerId != 0 && originatingPlayerId == localPlayerId &&
         previousState == WireItemState.InHand && receivedState == WireItemState.Dropped &&
         previousHand != 0;
+
+    /// <summary>
+    /// The host's acceptance of our own drop or throw, arriving after we took the item back (a
+    /// re-grab, or into the inventory). Applied, it took the item out of the hand again; the
+    /// pickup that follows it on the wire is what counts.
+    /// </summary>
+    public static bool IsSupersededLocalRelease(bool isHost, byte localPlayerId,
+        byte originatingPlayerId, WireItemState receivedState, bool locallyPossessed) =>
+        !isHost && localPlayerId != 0 && originatingPlayerId == localPlayerId &&
+        receivedState is WireItemState.Dropped or WireItemState.Thrown && locallyPossessed;
 }

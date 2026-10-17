@@ -121,6 +121,7 @@ host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 | Scenario | Gate runs | Checks |
 | --- | --- | --- |
 | `train-items` | default; `WHO=host MODE=throw WHEN=moving` | A mug dropped or thrown in a loco cab stays in the cab, attached to the loco at the same spot, on both peers while the host pushes the train. |
+| `item-release` | default (`regrab`); `MODE=regrab-late`, `MODE=throw-flatcar`, `MODE=object-state` | An item that leaves a hand: let go and taken again the next frame (a VR hand swap), it stays in the hand and no drop reaches the server; taken again a second later while the server's copy of the lantern changes, the pickup is still taken; thrown from the ground onto a flatcar, it lands on the car at the same spot on both peers and stays there as the car moves; a client changing a lantern lying in the world sends nothing. Each fails if the server sent a rejection correction for the item. |
 | `lost-and-found` | default | A client's personal item left behind is collected into Lost and Found by the host and retrieved into the client's inventory. |
 | `recall` | default; `TAKEN=1` | A dropped essential item is recalled into its reserved slot; `TAKEN=1` recalls it out of the host's hands. |
 | `containers` | default; `CONTAINER=ItemContainerBriefcase PREFAB=Flashlight` | Client deposits into its container, reopens it (contents from the host) and withdraws a stateful item; the host can't browse it. |

@@ -131,7 +131,7 @@ Each host item has a canonical record containing:
 - retained inventory-claim player, slot, and lock/reserve/dropped flags;
 - prefab, last world pose, and transition reason.
 
-Every accepted host-local change, client update, temporary compatibility adoption, and owner recall is converted into a canonical transition before it is applied or broadcast. The host replaces packet holder fields with the authenticated actor and returns the resulting revision and ownership projection to the sender. A client update with an old revision is rejected as `stale-authority-revision`; a non-possessor attempting to mutate a held/inventory item is rejected as `sender-not-current-possessor`.
+Every accepted host-local change, client update, temporary compatibility adoption, and owner recall is converted into a canonical transition before it is applied or broadcast. The host replaces packet holder fields with the authenticated actor and returns the resulting revision and ownership projection to the sender. A client update with an old revision is rejected as `stale-authority-revision`, unless only object state has changed since (see "Leaving the hand" in `item-spatial-physics.md`); a non-possessor attempting to mutate a held/inventory item is rejected as `sender-not-current-possessor`, and a non-holder's object-state-only update is ignored without a correction.
 
 `TemporaryClientAdoptionCompatibility` is an explicitly temporary bridge for unconverted DV item
 producers. It permits only non-authored, non-job items marked as player property and associated with

@@ -103,6 +103,9 @@ public partial class NetworkedItem
             return trackedValues.Any(tv => ((dynamic)tv).IsDirty);
     }
 
+    private bool IsTrackedValueDirty(string key) =>
+        trackedValues.Any(tv => ((dynamic)tv).Key == key && ((dynamic)tv).IsDirty);
+
     private Dictionary<string, object> GetDirtyStateData()
     {
         return TrackedStateComposer.Compose(GetTrackedStateEntries(),
@@ -196,6 +199,25 @@ public partial class NetworkedItem
             updateType = ItemUpdateData.ItemUpdateType.Create;
         }
 
+        // Only the holder's game changes an item's object state. A thrown lantern's flame flickers
+        // in every game it flies through; each of them reporting it was refused by the host, and
+        // the correction set the copy off again, several times a second (playtest 2). A book lying
+        // in the world is the exception: anyone may turn its pages.
+        bool pageOnlyWorldState = false;
+        if (!NetworkLifecycle.Instance.IsHost() &&
+            updateType == ItemUpdateData.ItemUpdateType.ObjectState &&
+            !ItemObjectStateAuthority.ClientMaySend(ToWireState(currentState), pageOnly: false))
+        {
+            pageOnlyWorldState = IsTrackedValueDirty(NetworkedPageBookState.TrackedValueKey);
+            if (!pageOnlyWorldState)
+            {
+                PublishLocalState("item.snapshot-suppressed", currentState, lastState, "object-state",
+                    "object-state-not-holder");
+                updateType = ItemUpdateData.ItemUpdateType.None;
+                MarkValuesClean();
+            }
+        }
+
         //no changes this snapshot
         if (updateType == ItemUpdateData.ItemUpdateType.None)
         {
@@ -212,6 +234,10 @@ public partial class NetworkedItem
             ? outboundRevisionPipeline.Reserve(AuthorityRevision)
             : null;
         snapshot = CreateUpdateData(updateType, authorityRevisionOverride);
+        if (snapshot != null && pageOnlyWorldState && snapshot.States != null)
+            snapshot.States = snapshot.States
+                .Where(state => state.Key == NetworkedPageBookState.TrackedValueKey)
+                .ToDictionary(state => state.Key, state => state.Value);
         if (snapshot != null)
         {
             lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
@@ -329,6 +355,27 @@ public partial class NetworkedItem
         DebugRuntime.Publish("item", "item.snapshot-received", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: receivedDebugData);
         DebugDesyncDetector.Remember(snapshot);
+
+        // Our own drop, accepted after we took the item back (a VR hand swap that got past the
+        // release grace, a quick re-grab). The pickup we sent since follows it; applying the
+        // drop would take the item out of the hand that has it now.
+        if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+            ItemSnapshotApplicationPolicy.IsSupersededLocalRelease(
+                NetworkLifecycle.Instance.IsHost(),
+                NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+                snapshot.OriginatingPlayerId,
+                ToWireState(snapshot.ItemState),
+                IsLocallyPossessed()))
+        {
+            DebugRuntime.Publish("item", "item.local-release-superseded", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: NetId.ToString(), data: new()
+                {
+                    ["authorityRevision"] = snapshot.AuthorityRevision,
+                    ["acknowledgedState"] = snapshot.ItemState.ToString(),
+                    ["localState"] = GetItemState().ToString()
+                });
+            return;
+        }
 
         if (ItemSnapshotApplicationPolicy.IsLocalThrowAcknowledgement(
                 NetworkLifecycle.Instance.IsHost(),
@@ -515,6 +562,16 @@ public partial class NetworkedItem
             ApplyTrackedValues(snapshot.States);
         MarkValuesClean();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
+    }
+
+    internal bool IsLocallyPossessed()
+    {
+        if (Item == null)
+            return false;
+        if (Item.IsGrabbed())
+            return true;
+        try { return InventoryIntegration.ContainsActive(gameObject); }
+        catch { return false; }
     }
 
     private bool IsLocalDropAcknowledgement(ItemUpdateData snapshot) =>

@@ -209,7 +209,7 @@ internal sealed class NetworkedItemSpatialManager
             pendingHostBegins.Remove(pair.Key);
             var pending = pair.Value;
             if (pending.Item == null || !AuthoritativeItemRegistry.TryGet(pair.Key, out var record) ||
-                record.Revision != pending.Revision ||
+                !AuthoritativeItemRegistry.PlacementUnchangedSince(record, pending.Revision) ||
                 record.Placement is not (ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                     ItemPlacementKind.StaticParent))
                 continue;
@@ -320,6 +320,17 @@ internal sealed class NetworkedItemSpatialManager
         ItemSpatialStateData state = packet.State;
         if (leases.TryGetValue(item.NetId, out Lease old) && old.Epoch > state.SimulationEpoch)
             return;
+        // A lease for our own release, arriving once we have the item back (a quick re-grab):
+        // the pickup we sent ends it at the host. Simulating it would loosen the held body.
+        if (state.SimulatorPlayerId == NetworkLifecycle.Instance.Client.PlayerId && item.IsLocallyPossessed())
+        {
+            Publish("item.spatial-lease-skipped", item.NetId, new()
+            {
+                ["simulationEpoch"] = state.SimulationEpoch,
+                ["reason"] = "item-locally-possessed"
+            }, DebugRuntimeSide.Client);
+            return;
+        }
         float now = Time.realtimeSinceStartup;
         Lease lease = new()
         {
@@ -487,7 +498,8 @@ internal sealed class NetworkedItemSpatialManager
 
         ItemSpatialStateData baseline;
         if (!committedStates.TryGetValue(itemNetId, out ItemSpatialStateData committed) ||
-            committed == null || committed.AuthorityRevision != record.Revision ||
+            committed == null ||
+            !AuthoritativeItemRegistry.PlacementUnchangedSince(record, committed.AuthorityRevision) ||
             committed.WorldParentKind != ItemWorldParentKind.TrainInterior ||
             committed.WorldParentNetId != record.WorldParentNetId)
         {
@@ -649,7 +661,7 @@ internal sealed class NetworkedItemSpatialManager
     {
         if (item == null || previous?.LastAccepted == null ||
             !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) ||
-            record.Revision != previous.AuthorityRevision)
+            !AuthoritativeItemRegistry.PlacementUnchangedSince(record, previous.AuthorityRevision))
             return false;
 
         ServerPlayer candidate = NetworkLifecycle.Instance.Server.ServerPlayers
@@ -824,8 +836,11 @@ internal sealed class NetworkedItemSpatialManager
             rejection = "unknown-item-or-lease";
             return false;
         }
+        // The lease stays good while only object state has changed since it was granted (the
+        // server's copy of a thrown lantern flickering): placement is what it simulates.
         bool registryCurrent = AuthoritativeItemRegistry.TryGet(state.ItemNetId,
-            out AuthoritativeItemRegistry.Record record) && record.Revision == lease.AuthorityRevision;
+            out AuthoritativeItemRegistry.Record record) &&
+            AuthoritativeItemRegistry.PlacementUnchangedSince(record, lease.AuthorityRevision);
         bool simulatablePlacement = registryCurrent && record.Placement is ItemPlacementKind.World or
             ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent;
         rejection = ItemSpatialStreamValidator.Validate(

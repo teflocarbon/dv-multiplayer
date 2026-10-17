@@ -53,6 +53,9 @@ public static class AuthoritativeItemRegistry
         public ushort AttachedCarNetId;
         public string AttachedCarPersistentId = string.Empty;
         public bool AttachedFront;
+        // The revisions that changed only object state; see ItemPlacementRevision.
+        public uint ObjectStateRunBase;
+        public uint ObjectStateRunTop;
     }
 
     private static readonly Dictionary<ushort, Record> records = new();
@@ -281,6 +284,14 @@ public static class AuthoritativeItemRegistry
         return true;
     }
 
+    /// <summary>
+    /// Whether the item is where it was at <paramref name="revision"/>: only object state (a
+    /// lantern's flame) has changed since. A physics lease granted then is still good.
+    /// </summary>
+    public static bool PlacementUnchangedSince(Record record, uint revision) =>
+        record != null && ItemPlacementRevision.UnchangedSince(revision, record.Revision,
+            record.ObjectStateRunBase, record.ObjectStateRunTop);
+
     public static bool TryCommitSpatialPose(NetworkedItem item, uint expectedRevision,
         ItemSpatialStateData state, out Record record, out string rejectionReason)
     {
@@ -292,7 +303,7 @@ public static class AuthoritativeItemRegistry
             rejectionReason = "invalid-spatial-commit-input";
             return false;
         }
-        if (record.Revision != expectedRevision || state.AuthorityRevision != expectedRevision)
+        if (!PlacementUnchangedSince(record, expectedRevision) || state.AuthorityRevision != expectedRevision)
         {
             rejectionReason = "stale-spatial-authority-revision";
             return false;
@@ -310,6 +321,7 @@ public static class AuthoritativeItemRegistry
         }
 
         record.Revision++;
+        record.ObjectStateRunBase = record.ObjectStateRunTop = 0;
         record.Placement = state.WorldParentKind switch
         {
             ItemWorldParentKind.TrainInterior => ItemPlacementKind.TrainInterior,
@@ -558,6 +570,7 @@ public static class AuthoritativeItemRegistry
             return null;
         Record record = Ensure(item);
         record.Revision = revision;
+        record.ObjectStateRunBase = record.ObjectStateRunTop = 0;
         record.Placement = ItemPlacementKind.LostAndFound;
         record.PlacementPlayerId = 0;
         record.PlacementHand = PlayerHand.None;
@@ -852,7 +865,9 @@ public static class AuthoritativeItemRegistry
             PersistentOwnerPlayerId = record.PersistentOwnerPlayerId,
             InventoryClaimPlayerId = record.InventoryClaimPlayerId,
             InventoryClaimSlot = record.InventoryClaimSlot,
-            InventoryClaimFlags = (AuthorityClaimFlags)(byte)record.InventoryClaimFlags
+            InventoryClaimFlags = (AuthorityClaimFlags)(byte)record.InventoryClaimFlags,
+            ObjectStateRunBase = record.ObjectStateRunBase,
+            ObjectStateRunTop = record.ObjectStateRunTop
         };
     }
 
@@ -866,6 +881,8 @@ public static class AuthoritativeItemRegistry
         record.InventoryClaimPlayerId = state.InventoryClaimPlayerId;
         record.InventoryClaimSlot = state.InventoryClaimSlot;
         record.InventoryClaimFlags = (ItemInventoryClaimFlags)(byte)state.InventoryClaimFlags;
+        record.ObjectStateRunBase = state.ObjectStateRunBase;
+        record.ObjectStateRunTop = state.ObjectStateRunTop;
     }
 
     private static ItemPlacementKind PlacementFrom(ItemState state) => state switch
