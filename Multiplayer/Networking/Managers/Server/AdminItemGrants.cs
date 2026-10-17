@@ -42,6 +42,19 @@ internal static class AdminItemGrants
         return null;
     }
 
+    /// <summary>
+    /// Whether items can be put at the player's feet now. Not while they're on a train: an item
+    /// spawned on a cab floor was never projected to anyone, so nobody could pick it up.
+    /// </summary>
+    public static bool CanReceive(ServerPlayer player, out string reason)
+    {
+        reason = string.Empty;
+        if (player.CarId == 0)
+            return true;
+        reason = $"{player.Username} is on a train; ask them to step off onto the ground first, then try again.";
+        return false;
+    }
+
     /// <summary>The prefab names of everything the player owns, wherever it is.</summary>
     public static HashSet<string> OwnedPrefabs(ServerPlayer player) =>
         new(OwnedItemsSummary.For(player).Select(item => item.Prefab), StringComparer.OrdinalIgnoreCase);

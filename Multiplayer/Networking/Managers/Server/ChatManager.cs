@@ -341,6 +341,11 @@ public class ChatManager
             Reply(sender, $"No player called {parts[0]}.");
             return;
         }
+        if (!AdminItemGrants.CanReceive(player, out string notNow))
+        {
+            Reply(sender, notNow);
+            return;
+        }
         InventoryItemSpec spec = AdminItemGrants.Find(parts[1], out string[] near);
         if (spec == null)
         {
@@ -374,6 +379,11 @@ public class ChatManager
         if (player == null)
         {
             Reply(sender, string.IsNullOrEmpty(name) ? $"/{COMMAND_RESTORE} <player>" : $"No player called {name}.");
+            return;
+        }
+        if (!AdminItemGrants.CanReceive(player, out string notNow))
+        {
+            Reply(sender, notNow);
             return;
         }
         HashSet<string> owned = AdminItemGrants.OwnedPrefabs(player);
