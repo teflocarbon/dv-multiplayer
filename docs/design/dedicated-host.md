@@ -707,8 +707,9 @@ and exits. A supervisor (a scheduled task or a small watchdog) should relaunch t
 auto-host arguments. It can also catch a hang from a heartbeat file the mod updates every few
 seconds, with tick, frame time, player count and retained heap, as LocoMP's `SoakReporter` does.
 That heartbeat is also the "is the server healthy" signal a remote user can't otherwise see. A
-daily restart is cheap insurance against slow growth like
-[#78](https://github.com/teflocarbon/dv-multiplayer/issues/78).
+daily restart is cheap insurance against slow growth. (#78, the VR frame-rate collapse, turned out
+to be a vanilla leak in the VR client, not host load: VRTK's near-touch colliders piling up each
+time a hand controller is re-enabled. Its fix is PR #89.)
 
 Log growth matters for a long-running host: under `-nographics`, 1 MB a minute from one decal
 renderer. The windowed game logs far less, but the mod's own debug log should be checked over a day.
@@ -742,7 +743,7 @@ This plan keeps what's specific to running without a local player.
 
 | Stage | Work | Size |
 |---|---|---|
-| **0. Harness light host** (DevTools only) | **Built.** `dvmp up --host-only` in a named session, a distinct host GUID, a background cap of 30, and `dvmp perf`. Still to do: run it with the user joining from VR, sampling `dvmp perf` every 30 s over a long session, which is the split test for #78. | Done; the VR run remains |
+| **0. Harness light host** (DevTools only) | **Built.** `dvmp up --host-only` in a named session, a distinct host GUID, a background cap of 30, and `dvmp perf`. #78 no longer needs it as a split test: its cause, a VR client leak, is fixed in PR #89. A light or dedicated host is now worth having for convenience and for not having to play as the host, not for performance. | Done |
 | **1. Service-identity host** (shipped, behind `-mp-dedicated`) | **Built** (see [Implementation status](#implementation-status-2026-10-17)). Keep the loopback client and flag its `ServerPlayer`. Add a `GameplayPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
 | **2. Unattended operation** | A timed save, save on stop, backups and a save lock. Owner and admin identities with chat commands (save, stop, kick, ban, pay fees, game parameters). A serverbound fee and debt payment. Pause when empty. A heartbeat file and a watchdog. (Migrating the old host body's state is replaced by the version-1 conversion in [server-player-split.md](server-player-split.md#save-format).) | Medium |
 | **3. Anchor the world on clients** | **(a) and (b) built** (see [Implementation status](#implementation-status-2026-10-17)). (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: multi-anchor `TerrainGrid` and one streamer loading the union of tiles around every player, with a centred origin. Heightmap proxies are rejected. See [multi-anchor-streaming.md](multi-anchor-streaming.md). Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) medium |
