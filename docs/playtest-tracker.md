@@ -25,8 +25,10 @@ was).
   - Debug Logging is off by default: turn it on in the mod settings before a session. The server
     reads it at start.
 
-**Not in that build:** every fix below was committed after it. They all go into the next build,
-which every player has to install, since some of the fixes run in players' games.
+**Not in that build:** every fix below was committed after it. They're all in **release
+2026.10.17.2**, built from `dev/player-state` at eedb3689 at the end of the session. Every player
+installs it, since some of the fixes run in players' games. It went out without the pre-release
+checks below, so most fixes are first tested by playing it.
 
 ### Fixed
 
