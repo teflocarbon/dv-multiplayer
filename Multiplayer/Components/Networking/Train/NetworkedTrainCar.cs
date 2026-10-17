@@ -2442,12 +2442,29 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     /// derailed bogies) is made kinematic at the host's pose once ours has reached it. As a
     /// dynamic body moved there every step it was a bulldozer: after a pile-up that went a little
     /// differently here it kept shoving the cars around it off their places.
+    ///
+    /// With no world loaded here under the car (this player is far from it), there's nothing for a
+    /// dynamic copy to land on: it fell, was snapped back at 20 m and fell again, endlessly. It
+    /// stays kinematic there instead, and the rigidbody queue places it at the host's pose. When
+    /// the world loads, DV's DerailedTrainCarIsKinematicHandler releases it, and the rules above
+    /// apply again.
     /// </summary>
     private void UpdateDerailedKinematic(RigidbodySnapshot snapshot)
     {
         Rigidbody rb = TrainCar.rb;
         if (snapshot == null || rb == null)
             return;
+        if (WorldStreamingInit.Instance != null && !WorldStreamingInit.Instance.IsSceneAndTerrainCellLoaded(rb.position))
+        {
+            kinematicCycles = 0;
+            if (!rb.isKinematic)
+            {
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.isKinematic = true;
+            }
+            return;
+        }
         var flags = (RigidbodySnapshot.IncludedData)snapshot.IncludedDataFlags;
         float hostSpeed = flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) ? snapshot.Velocity.magnitude : 0f;
         if (hostSpeed > DERAILED_DYNAMIC_SPEED)
