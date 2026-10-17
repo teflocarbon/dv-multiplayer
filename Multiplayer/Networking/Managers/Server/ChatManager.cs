@@ -32,6 +32,7 @@ public class ChatManager
     public const string COMMAND_RESTORE = "restore";
     public const string COMMAND_WEATHER = "weather";
     public const string COMMAND_TIME = "time";
+    public const string COMMAND_REPAIR = "repair";
 
 
     public const string MESSAGE_COLOUR_SERVER = "9CDCFE";
@@ -163,6 +164,15 @@ public class ChatManager
                     $"\r\n\t\t/{COMMAND_TIME} HH:mm" +
                     $"\r\n\t\t/{COMMAND_TIME} +hours",
             TimeMessage
+        );
+
+        RegisterChatCommand
+        (
+            COMMAND_REPAIR,
+            null,
+            () => "Fully repair the car a player is in, as a service station does (admins); all for their whole train. Without a name, your own" +
+                    $"\r\n\t\t/{COMMAND_REPAIR} [{Locale.CHAT_HELP_PLAYER_NAME}] [all]",
+            RepairMessage
         );
 
 #if DEBUG
@@ -494,6 +504,47 @@ public class ChatManager
         // To every game, the server's own client included: that one advances the server's world.
         NetworkLifecycle.Instance.Server.SendTimeAdvance((float)seconds);
         string said = $"{sender.Username} skipped the time to {now.AddSeconds(seconds):HH:mm} ({seconds / 3600:0.#} h on).";
+        Multiplayer.Log(said);
+        ServerMessage(said, null);
+    }
+
+    // DV's own full repair (DamageController.RepairAll: body, engine, traction motors, compressor
+    // and the rest), on the host; the car's health goes to every game as any other change does.
+    private void RepairMessage(string message, ServerPlayer sender)
+    {
+        if (!IsAdmin(sender))
+            return;
+        List<string> parts = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        bool wholeTrain = parts.RemoveAll(part => string.Equals(part, "all", StringComparison.OrdinalIgnoreCase)) > 0;
+        ServerPlayer player = parts.Count > 0 ? FindPlayer(parts[0]) : sender.IsServiceHost ? null : sender;
+        if (player == null)
+        {
+            Reply(sender, parts.Count > 0 ? $"No player called {parts[0]}." : $"/{COMMAND_REPAIR} <player> [all]");
+            return;
+        }
+        if (player.CarId == 0 || !global::Multiplayer.Components.Networking.Train.NetworkedTrainCar.TryGet(player.CarId, out TrainCar car) || car == null)
+        {
+            Reply(sender, $"{player.Username} isn't in or on a car.");
+            return;
+        }
+        List<TrainCar> cars = wholeTrain && car.trainset != null ? car.trainset.cars.ToList() : new List<TrainCar> { car };
+        int repaired = 0;
+        foreach (TrainCar each in cars)
+        {
+            DV.Damage.DamageController damage = each.GetComponentInChildren<DV.Damage.DamageController>(true);
+            if (damage != null)
+            {
+                damage.RepairAll();
+                repaired++;
+            }
+            else if (each.CarDamage != null)
+            {
+                each.CarDamage.RepairCar(each.CarDamage.maxHealth);
+                repaired++;
+            }
+        }
+        string what = cars.Count == 1 ? car.ID : $"{repaired} car(s) of {car.ID}'s train";
+        string said = $"{sender.Username} repaired {what} for {player.Username}.";
         Multiplayer.Log(said);
         ServerMessage(said, null);
     }
