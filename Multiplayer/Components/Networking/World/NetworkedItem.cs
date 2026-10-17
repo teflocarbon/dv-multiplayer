@@ -113,6 +113,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool stateDirty;
     private bool wasThrown;
     private bool wasRemoved;
+    // The frame the local VR player let go of a belt-snappable item, or -1 (BeltItemPolicy).
+    private int vrBeltReleaseFrame = -1;
 
     private Vector3 thrownPosition;
     private Quaternion thrownRotation;
@@ -257,6 +259,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void OnUngrabbed(ControlImplBase obj)
     {
+        if (VRManager.IsVREnabled() && Item != null && Item.IsBeltSnappable)
+            vrBeltReleaseFrame = Time.frameCount;
         RefreshLocalVrHandAfterInteraction();
         MarkLocalStateDirty("released");
     }

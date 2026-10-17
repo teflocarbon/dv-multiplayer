@@ -33,7 +33,7 @@ public partial class NetworkedItem
     private void PrepareForStateChange(byte playerId, ItemState targetState)
     {
         // Cleanup from previous state/desyncs
-        if (Item.IsSnapped)
+        if (Item.IsSnapped && !KeepsLocalBeltSnap(playerId, targetState))
             Item.SnappableItem.SnappedTo.UnsnapItem(false); //Todo: should this be forced?
 
         if (playerBelongsTo != null && playerBelongsTo.PlayerId != playerId)
@@ -101,6 +101,12 @@ public partial class NetworkedItem
             }
             else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "missing-player");
     }
+
+    // An item on the local VR player's belt is in their inventory: the snap only shows the slot.
+    private bool KeepsLocalBeltSnap(byte playerId, ItemState targetState) =>
+        BeltItemPolicy.KeepBeltSnap(ToWireState(targetState), playerId, InventoryIntegration.LocalPlayerId,
+            Item.SnappableItem?.SnappedTo is DV.Items.Snapping.ItemSnapPointBelt,
+            InventoryIntegration.ContainsActive(gameObject));
 
     private void HandleDroppedOrThrownState(ItemUpdateData snapshot)
     {
@@ -643,6 +649,10 @@ public partial class NetworkedItem
 
             if (plan.Action == RemoteItemProjectionAction.LocalInventory)
             {
+                // A VR release that ended on the belt is settled: a later Dropped from the host is
+                // a correction, not the echo of that release.
+                CompleteLocalVrReleaseAcknowledgement();
+
                 // A rejoining player's game spawns fresh starting items that stay unbound until
                 // first used. When the host hands back the originals, the fresh copy must make
                 // way, otherwise essentials are dropped (DV allows one of each) and everything

@@ -85,7 +85,7 @@ checks below, so most fixes are first tested by playing it.
 | Manual oiling | Confirmed working in session 2 |
 | The firebox coal flickered on an S484-840 (a mod's loco, with a stoker) for a while, then settled (session 2) | On the server the firebox stayed full and the tender drained smoothly. The host sends state ports like `firebox.COAL_LEVEL` while each game also simulates the firebox, so with the stoker topping it up at full the local value and the corrections may take turns. Watch for it on a client with the dev tools loaded |
 | "Items fall through the map" | Never reproduced. Needs the original circumstances |
-| "World item state save failed for <id>: Object reference not set to an instance of an object" on save (82 times in the playtest's server log, 3 in a test start with nobody online) | In session 2 the three were all flashlights (735, 752, 768), one per player, two of them lying in the world. The warning has no stack trace. Log the exception's stack, then see which step of the save fails for a flashlight |
+| "World item state save failed for <id>: Object reference not set to an instance of an object" for items other than flashlights (82 times in the playtest's server log, 3 in a test start with nobody online) | Flashlights are fixed (session 2, below). Tonight's server logs also name 733 (84 times), 737, 754, 755, 770 and 772; numbers are reused between runs, so these aren't identified yet. The warning has its stack now: read it after the next save |
 | Memory per player, and the cost of the extra Far tiles on a player host | Not measured |
 
 ### Before the next build goes out
@@ -93,7 +93,12 @@ checks below, so most fixes are first tested by playing it.
 1. Run `cab-controls` with `LOCOS="LocoS282A LocoDE6"` on one pair.
 2. Try `/weather`, `/time` and `/repair` once each.
 3. Do the recall repro, and check a leaking tank car from two games.
-4. Build Release. Every player installs the new zip.
+4. If `fix/belt-items` is in: in VR, clip a lantern and a flashlight to the belt. They stay on the
+   belt, no other game shows them on the floor, and the server's record is `PlayerInventory` of
+   that player (`AuthoritativeItemRegistry`, not `PlayerInventory` of player 0). Take one off the
+   belt into a hand and drop it; leave, rejoin, and check the other is back in the inventory. Save
+   with nobody online and check for "World item state save failed" on a flashlight.
+5. Build Release. Every player installs the new zip.
 
 ## Session 2: 2026-10-17 evening, dedicated server, 4 players
 
@@ -110,6 +115,8 @@ list. They build and the core tests pass, but they haven't run in a game.
 | A lost radio blocked `/give` ("already has a CommsRadio somewhere") and DV's own safeguard, so the player had none | `OwnedItemsSummary` also matched the per-session player number, so another player's saved radio counted. A saved Lost and Found entry that can never come back (DV's Lost and Found storage was empty) also stayed pending forever, unseen but owned | Owners are matched by identity, and by number only for a record without one. A pending Lost and Found entry binds to any free stored item of its kind, or is dropped with a warning | Fixed live; code fixed, untested |
 | Log noise: "Sending CommonItemUpdatePacket" about 10 times a second per player, a 13-line dump per item in bulk updates, "Queuing", and two lines per saved item at every login | — | Removed (they're in the debug trace) or moved to Debug; an item with no player at all stays a warning | Fixed, untested |
 | "World item state save failed" had no stack trace | — | The warning includes the stack now | Fixed, untested |
+| A VR player clipped a lantern and a flashlight to the belt; they fell to the floor in their own game and nobody could pick them up. The server had them as `PlayerInventory` of player 0 at the spot they were clipped, and other games logged "Could not project item N to player 0" | Two things. (1) The belt takes a released item only at the end of the frame, so the frame in between sent `Dropped`, then `InInventory`: the server gave the item to the world, and the inventory update behind it was refused or arrived out of turn. (2) Applying the server's echo of the owner's own `InInventory` unsnapped any snapped item first, belt included, so it fell while staying in the inventory slot. Player 0: the server clears the holder's per-session number on every record when a player disconnects (`UnbindPersistentOwner`) | A VR release keeps its last state until the next frame, and an item on the local player's belt that a snapshot puts in their own inventory stays snapped (`BeltItemPolicy`; "VR belt items" in `docs/design/item-world-sync.md`). Others see it as an inventory item (hidden), not on the avatar's belt (`fix/belt-items`) | Fixed, untested (unit tests only; needs the VR check below) |
+| "World item state save failed for <id>: Object reference not set" for flashlights | A flashlight that has never been active hasn't run `Start`, so its save handler has no button yet. The server keeps other players' inventory items inactive | Save the battery and the loaded switch state when the button isn't there yet (`FlashlightItemSavePatch`, `fix/belt-items`) | Fixed, untested |
 
 Other code also uses the per-session player number as an owner (Lost and Found's owner distance, for
 one), so a saved record whose owner hasn't joined yet can point at whoever has that number now. Clear
