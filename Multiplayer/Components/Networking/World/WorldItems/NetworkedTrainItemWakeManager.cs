@@ -422,6 +422,8 @@ internal sealed class NetworkedTrainItemWakeManager
 
     private void SampleOccupiedCars(float now)
     {
+        if (settledByCar.Count == 0)
+            return;
         foreach (ushort carNetId in settledByCar.Keys.ToArray())
         {
             if (!settledByCar.TryGetValue(carNetId, out HashSet<ushort> items) || items.Count == 0)
@@ -430,7 +432,18 @@ internal sealed class NetworkedTrainItemWakeManager
                 carMotion.Remove(carNetId);
                 continue;
             }
-            if (!NetworkedTrainCar.TryGet(carNetId, out TrainCar car) || car?.rb == null)
+            if (!NetworkedTrainCar.TryGet(carNetId, out TrainCar car))
+            {
+                // The car was deleted with items settled in it. Kept, it was looked up every
+                // frame for the rest of the session (playtest 2: three deleted locos, three
+                // lookups a frame for hours), and a later car given its ID would inherit them.
+                foreach (ushort itemNetId in items.ToArray())
+                    RemoveSettled(itemNetId);
+                settledByCar.Remove(carNetId);
+                carMotion.Remove(carNetId);
+                continue;
+            }
+            if (car?.rb == null)
                 continue;
             if (!carMotion.TryGetValue(carNetId, out CarMotion motion))
                 carMotion[carNetId] = motion = new CarMotion();

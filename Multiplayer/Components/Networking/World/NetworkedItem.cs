@@ -58,7 +58,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     public static bool TryGet(ushort netId, out NetworkedItem obj)
     {
-        bool b = TryGet(netId, out IdMonoBehaviour<ushort, NetworkedItem> rawObj);
+        bool b = Get(netId, out IdMonoBehaviour<ushort, NetworkedItem> rawObj);
         obj = (NetworkedItem)rawObj;
         return b;
     }

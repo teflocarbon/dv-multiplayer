@@ -31,6 +31,9 @@ Implemented:
 - **Car motion:** the host samples `TrainCar.rb` every 0.1 s for cars that have settled items and
   wakes the whole car on derailment, violent rotation, a jolt, or heavy acceleration/braking, with a
   1 s cooldown. Position jumps and long gaps reset the baseline instead of counting as motion.
+  A car that no longer exists (deleted with items settled in it; DV pools a deleted car with
+  whatever is parented to it, so the items are never removed) drops its settled records the first
+  time it is sampled.
 - **Wake grant:** reuses the spatial lease protocol. `NetworkedItemSpatialManager.TryBeginTrainWake`
   opens a new epoch with reason `train-wake:<reason>` and an initial train-local velocity; one
   simulator is chosen for the first item and preferred for the rest of the set.

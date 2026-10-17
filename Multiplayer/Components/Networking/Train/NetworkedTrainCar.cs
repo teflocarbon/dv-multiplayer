@@ -105,7 +105,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     internal static bool TryGetQuiet(ushort netId, out NetworkedTrainCar obj)
     {
-        bool found = TryGet(netId, out IdMonoBehaviour<ushort, NetworkedTrainCar> rawObj);
+        bool found = Get(netId, out IdMonoBehaviour<ushort, NetworkedTrainCar> rawObj);
         obj = found ? (NetworkedTrainCar)rawObj : null;
         return found;
     }
@@ -574,15 +574,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             coalPile = simController.coalPile;
 
             // Ports pulsed on an event (adding coal, igniting firebox, etc)
+            // A player adding coal: FireboxTransferCoalPatch; a player shovelling from the coal pile:
+            // CoalPileTransferCoalPatch (the coal ports are a stoker's too).
             if (firebox != null)
             {
-                // A player adding coal: FireboxTransferCoalPatch (the coal port is a stoker's too).
                 firebox.fireboxIgnitionPort.ValueUpdatedInternally += Client_OnIgnite;      //Player igniting firebox
-            }
-
-            if (coalPile != null)
-            {
-                coalPile.coalConsumePort.ValueUpdatedInternally += Client_OnCoalPileInteraction; //Coal being added/removed by shovel or feeder
             }
         }
 
@@ -967,11 +963,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (firebox != null)
         {
             firebox.fireboxIgnitionPort.ValueUpdatedInternally -= Client_OnIgnite;      //Player igniting firebox
-        }
-
-        if (coalPile != null)
-        {
-            coalPile.coalConsumePort.ValueUpdatedInternally -= Client_OnCoalPileInteraction; //Coal being added/removed by shovel or feeder
         }
 
         if (brakeSystem != null)
@@ -2668,15 +2659,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         NetworkLifecycle.Instance.Client.LogDebug(() => $"Common_OnIgnite({CurrentID})");
         NetworkLifecycle.Instance.Client.SendFireboxIgnition(NetId);
-    }
-
-    private void Client_OnCoalPileInteraction(float coalMassDelta)
-    {
-        if (NetworkLifecycle.Instance.IsProcessingPacket)
-            return;
-
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"Client_OnCoalPileInteraction({CurrentID}): coalMassDelta: {coalMassDelta}");
-        NetworkLifecycle.Instance.Client.SendTenderCoalPileInteraction(NetId, coalMassDelta);
     }
 
     public void Client_CouplerStateChange(ChainCouplerInteraction.State state, Coupler coupler)
