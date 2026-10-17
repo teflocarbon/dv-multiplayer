@@ -137,3 +137,17 @@ list. They build and the core tests pass, but they haven't run in a game.
 Other code also uses the per-session player number as an owner (Lost and Found's owner distance, for
 one), so a saved record whose owner hasn't joined yet can point at whoever has that number now. Clear
 the number when a record is restored, and set it when its owner logs in.
+
+**Merged after the session (2026-10-18), not yet run in a game:** the side branches with the
+session's other fixes are merged into `dev/player-state`: player-driven controls only
+(`claude/focused-haibt-37d703`), VR belt items (`fix/belt-items`), items after they leave the hand
+(`fix/item-release-sync`), the regression scenarios (`claude/determined-mahavira-831b1d`) and the
+server app (`dev/server-app`). Each merge builds and the core tests pass (356). Still to do before
+the next release:
+
+1. A Debug build on one test pair: run the new scenarios (`settle-window`, `compressor-signal`,
+   `stoker-coal`, `overview-pickup`, `remote-held-item`, `owned-items`, the five `item-release`
+   ones) and `cab-controls` with `LOCOS="LocoS282A LocoDE6"`.
+2. A VR check by a player: belt items, hand swaps and re-grabs, throws.
+3. The rerail fix (`fix/rerail-follower`, in progress) when it's done.
+4. Build Release. Every player installs the new zip.
