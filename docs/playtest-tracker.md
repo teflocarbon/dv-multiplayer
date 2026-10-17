@@ -53,7 +53,7 @@ checks below, so most fixes are first tested by playing it.
 | `/time HH:mm` and `/time +hours` (forward only) | a6f18314 | Untested |
 | `/repair [player] [all]` | 0372e8d4 | Tested by hand on the live server (a DE6 with dead traction motors) |
 | The server runs from its own folder, with its own mods and settings; the watchdog and `Start Dedicated Server.cmd` ship with the mod | a2ac773d, and its own copy of Unity Mod Manager in the commit below | Tested: the server started twice, loaded all 7 mods from its own folder, created its lobby and stopped cleanly |
-| "DV Multiplayer Server.exe": a window for the setup (save, server settings, admins, which mods) and for running the server (log, status, commands), in place of the script | see the commit below | Setup round trip and mods folder tested; running tested against a fake game, not yet the real one |
+| "DV Multiplayer Server.exe": a window for the setup (save, server settings, admins, which mods) and for running the server (log, status, commands), in place of the script | see the commit below | Tested: started the live server for session 2 (2026-10-17), which loaded its own mods and settings through its own UMM, created its lobby, and the owner joined |
 | `/season spring\|summer\|autumn\|winter\|next\|blizzard\|calm`, with the [Dynamic Seasons](https://github.com/HerodrineYT/DVSeasons) mod (0.4.0, which syncs itself through the Multiplayer API, the host as its authority) | see the commit below | Untested |
 
 ### Open
