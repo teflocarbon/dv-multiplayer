@@ -99,6 +99,9 @@ public class MainForm : Form
 
         LoadSetup();
         SetRunning(false);
+        var logTimer = new Timer { Interval = 250 };
+        logTimer.Tick += (_, _) => FlushLog();
+        logTimer.Start();
         if (!ServerMods.Exists(AppConfig.ServerDir) || string.IsNullOrEmpty(config.Save))
             setupStatus.Text = "Nothing is set up yet: pick a save and the server's settings, then Save.";
         else
@@ -278,7 +281,7 @@ public class MainForm : Form
         var openLogs = new Button { Text = "Logs folder", AutoSize = true };
         openLogs.Click += (_, _) => OpenFolder(Path.Combine(AppConfig.DataDir, "logs"));
         var clear = new Button { Text = "Clear", AutoSize = true };
-        clear.Click += (_, _) => log.Clear();
+        clear.Click += (_, _) => { log.Clear(); linesShown = 0; };
         buttons.Controls.AddRange(new Control[] { startButton, restartButton, stopButton, openLogs, clear });
         top.Controls.Add(buttons, 1, 0);
 
@@ -672,7 +675,7 @@ public class MainForm : Form
             DailyRestart = config.DailyRestart.Length > 0 && TimeSpan.TryParse(config.DailyRestart, out TimeSpan t) ? t : null,
             ShowGameWindow = config.ShowGameWindow,
         });
-        watchdog.Line += (text, kind) => Ui(() => AppendLine(text, kind));
+        watchdog.Line += AppendLine;
         watchdog.Beat += b => Ui(() => ShowBeat(b));
         watchdog.Ready += () => Ui(() => { state.Text = "Running: players can join"; state.ForeColor = Color.ForestGreen; });
         watchdog.GameStarted += () => Ui(() =>
@@ -744,32 +747,107 @@ public class MainForm : Form
         command.SelectionStart = command.Text.Length;
     }
 
+    // ---- Log view ----
+    // Lines arrive from the watchdog's thread at any rate (a busy server logs many a second). They
+    // queue here and go into the view in batches a few times a second, so the window stays
+    // responsive however fast they come; a burst too big to show is cut to its newest lines.
+
+    private const int MaxLinesShown = 5000;
+    private const int MaxLinesPerBatch = 1000;
+    private const int MaxLinesQueued = 20000;
+
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(string Text, LineKind Kind)> pendingLines = new();
+    private int linesShown;
+    private int linesSkipped;
+
+    /// <summary>Queues a line for the log view; any thread.</summary>
     private void AppendLine(string text, LineKind kind)
     {
-        if (kind == LineKind.Debug && !showDebug.Checked)
+        pendingLines.Enqueue((text, kind));
+        // Never let a backlog grow without bound: drop the oldest.
+        while (pendingLines.Count > MaxLinesQueued && pendingLines.TryDequeue(out _))
+            System.Threading.Interlocked.Increment(ref linesSkipped);
+    }
+
+    private static Color ColourOf(LineKind kind) => kind switch
+    {
+        LineKind.Error => Color.FromArgb(255, 110, 100),
+        LineKind.Warning => Color.FromArgb(240, 200, 80),
+        LineKind.Console => Color.FromArgb(90, 210, 230),
+        LineKind.App => Color.White,
+        LineKind.Debug => Color.Gray,
+        _ => Color.Gainsboro,
+    };
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+    private const int WM_SETREDRAW = 0x000B;
+
+    // On the UI timer: one batch into the view, drawn once.
+    private void FlushLog()
+    {
+        if (pendingLines.IsEmpty)
             return;
-        // Keep the view to the last few thousand lines.
-        if (log.Lines.Length > 5000)
+        var batch = new List<(string Text, LineKind Kind)>();
+        while (pendingLines.TryDequeue(out var line))
+            if (line.Kind != LineKind.Debug || showDebug.Checked)
+                batch.Add(line);
+        int skipped = System.Threading.Interlocked.Exchange(ref linesSkipped, 0);
+        if (batch.Count > MaxLinesPerBatch)
         {
-            log.ReadOnly = false;
-            log.Select(0, log.GetFirstCharIndexFromLine(1000));
-            log.SelectedText = "";
-            log.ReadOnly = true;
+            skipped += batch.Count - MaxLinesPerBatch;
+            batch.RemoveRange(0, batch.Count - MaxLinesPerBatch);
         }
-        log.SelectionStart = log.TextLength;
-        log.SelectionLength = 0;
-        log.SelectionColor = kind switch
+        if (skipped > 0)
+            batch.Insert(0, ($"… {skipped} line(s) came too fast to show; the full log is in the logs folder", LineKind.Warning));
+        if (batch.Count == 0)
+            return;
+
+        SendMessage(log.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+        try
         {
-            LineKind.Error => Color.FromArgb(255, 110, 100),
-            LineKind.Warning => Color.FromArgb(240, 200, 80),
-            LineKind.Console => Color.FromArgb(90, 210, 230),
-            LineKind.App => Color.White,
-            LineKind.Debug => Color.Gray,
-            _ => Color.Gainsboro,
-        };
-        log.AppendText(text + Environment.NewLine);
-        log.SelectionColor = log.ForeColor;
-        log.ScrollToCaret();
+            // Consecutive lines of one colour go in as one piece.
+            var text = new System.Text.StringBuilder();
+            for (int i = 0; i < batch.Count; i++)
+            {
+                text.Append(batch[i].Text).Append('\n');
+                if (i + 1 < batch.Count && batch[i + 1].Kind == batch[i].Kind)
+                    continue;
+                log.SelectionStart = log.TextLength;
+                log.SelectionLength = 0;
+                log.SelectionColor = ColourOf(batch[i].Kind);
+                log.AppendText(text.ToString());
+                text.Clear();
+            }
+            linesShown += batch.Count;
+            // Keep the view to the last few thousand lines.
+            if (linesShown > MaxLinesShown)
+            {
+                // By newlines rather than GetFirstCharIndexFromLine, which counts wrapped lines.
+                // Once per thousand lines or so, so reading the whole text here is cheap enough.
+                int drop = linesShown - MaxLinesShown + MaxLinesShown / 5;
+                string all = log.Text;
+                int end = 0;
+                for (int n = 0; n < drop && end >= 0; n++)
+                    end = all.IndexOf('\n', end) is int at && at >= 0 ? at + 1 : -1;
+                if (end > 0)
+                {
+                    log.ReadOnly = false;
+                    log.Select(0, end);
+                    log.SelectedText = "";
+                    log.ReadOnly = true;
+                    linesShown -= drop;
+                }
+            }
+            log.SelectionStart = log.TextLength;
+            log.SelectionLength = 0;
+            log.ScrollToCaret();
+        }
+        finally
+        {
+            SendMessage(log.Handle, WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
+            log.Invalidate();
+        }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
