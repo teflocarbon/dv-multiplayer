@@ -118,6 +118,8 @@
     </ItemGroup>
     <!-- Unity References -->
     <ItemGroup>
+        <Reference Include="Unity.Collections" />
+        <Reference Include="Unity.Mathematics" />
         <Reference Include="Unity.TextMeshPro" />
         <Reference Include="UnityEngine" />
         <Reference Include="UnityEngine.AssetBundleModule" />

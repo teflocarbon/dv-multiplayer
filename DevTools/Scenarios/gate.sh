@@ -33,6 +33,7 @@ runs=( # name | scenario | variables
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
+  "far-derail|far-derail|"
   "explosion|explosion|"
   "car-fire|car-fire|"
   "hazmat|hazmat|"

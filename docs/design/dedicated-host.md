@@ -1,10 +1,15 @@
 # Dedicated host: the full game as a server with no local player
 
-> Status: investigated. Stage 0 (a DevTools host-only harness mode and a perf probe) and stage 1
-> (the `-mp-dedicated` service-identity host) are built; stages 2-4 aren't. The findings below were checked against the
-> decompiled game (build 99, Unity 2019.4.40) and this repository on 2026-10-17, and the headless
-> launch was tried for real with the dvmp harness. No shipped code changed; the throwaway patches
-> used for the experiment are described in [Prototype](#prototype-what-was-run).
+> Status: built through stage 1 and stage 3 (a, b):
+> - stage 0: a DevTools host-only harness mode and a perf probe;
+> - stage 1: the `-mp-dedicated` service-identity host;
+> - stage 3 (a, b): the world follows a player.
+>
+> Stage 2, stage 3c and stage 4 aren't built; see
+> [Implementation status](#implementation-status-2026-10-17). The investigation below was checked
+> against the decompiled game (build 99, Unity 2019.4.40) and this repository on 2026-10-17. The
+> headless launch was tried for real with the dvmp harness, using the throwaway patches described
+> in [Prototype](#prototype-what-was-run).
 
 ## Purpose
 
@@ -36,7 +41,45 @@ decompiled per type with `ilspycmd -t`.
 
 ## Implementation status (2026-10-17)
 
-**Stages 0 and 1 are built.** Stages 2-4 of the [plan](#recommended-plan) are still to do.
+**Stages 0, 1 and 3 (a, b) are built.** Stage 2, stage 3c (several players far apart) and stage 4
+of the [plan](#recommended-plan) are still to do.
+
+### Stage 3 (a, b): the world follows a player
+
+Only on a dedicated host; an ordinary host loads its world around its own player as before.
+
+- **Streaming anchor** (`Components/Networking/DedicatedHostAnchor.cs`, created from
+  `NetworkServer.OnLoaded`):
+  - DV's `PlayerTracker` follows `PlayerManager.ActiveCamera`, which is `PlayerCameraOverride`
+    when that's set (`Assembly-CSharp/PlayerTracker.cs`, `PlayerManager.cs:14-42`).
+  - The anchor is a disabled camera with culling mask 0, put in as that override. Each frame it
+    moves to the player who has been connected longest, at eye height.
+  - The scene streamers, the terrain grid with its colliders, the origin shift, `ItemDisablerGrid`
+    and the other camera-distance checks follow it. The body stays parked, and vanilla still saves
+    its position.
+  - With nobody connected the anchor stays where it was. It takes the override back if DV clears it.
+- **Physics LOD** (`Patches/Train/DistanceLodSystemPatch.cs`):
+  - `DistanceLodSystem` measures from a `NativeList` of reference points (the local player, plus
+    the external camera) and hands it to a scheduled job in the same `OnUpdate`, so a postfix
+    would race the job.
+  - A transpiler replaces the load of that list at the hand-over with a call that adds every
+    gameplay player's position.
+  - Cars near any player get the near LODs on the host: walkable and item colliders, and active
+    items riding on them.
+- **`far-derail` scenario** ([testing.md](../testing.md#regression-gate)): it passed on
+  2026-10-17. The client went to OR, 4.5 km from the host's body. A tank car the host derailed
+  next to the client came to rest on the host's ground: not kinematic, speed 0, world cell loaded,
+  and 0.00 m from the client's copy. `cab-controls`, `lost-and-found`, `rejoin` and
+  `rejoin-crash` passed on the same dedicated pair.
+
+Still open:
+
+- **Several players far apart:** one anchor follows one player, so the others get what a client
+  far from a playing host gets today. That's stage 3c.
+- **Normal hosting:** neither change applies there, so a client far from a playing host still sees
+  that host freeze its derailments. Adding remote players to the physics-LOD points would also suit
+  normal hosting, but it changes how cars near clients behave on a playing host, so it's left for
+  its own change.
 
 ### Stage 1: the service-identity host (`-mp-dedicated`)
 
@@ -536,7 +579,7 @@ what the experiments showed.
 | **0. Harness light host** (DevTools only) | **Built.** `dvmp up --host-only` in a named session, a distinct host GUID, a background cap of 30, and `dvmp perf`. Still to do: run it with the user joining from VR, sampling `dvmp perf` every 30 s over a long session, which is the split test for #78. | Done; the VR run remains |
 | **1. Service-identity host** (shipped, behind `-mp-dedicated`) | **Built** (see [Implementation status](#implementation-status-2026-10-17)). Keep the loopback client and flag its `ServerPlayer`. Add a `GameplayPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
 | **2. Unattended operation** | A timed save, save on stop, backups and a save lock. Owner and admin identities with chat commands (save, stop, kick, ban, pay fees, game parameters). A serverbound fee and debt payment. Pause when empty. A heartbeat file and a watchdog. Migrate the old host body's state to the user's GUID. Update `docs/architecture.md` ("the host is also a player"). | Medium |
-| **3. Anchor the world on clients** | (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: heightmap ground proxies first; multi-anchor `TerrainGrid` and streamers only if measurement shows platforms and buildings matter. Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) large |
+| **3. Anchor the world on clients** | **(a) and (b) built** (see [Implementation status](#implementation-status-2026-10-17)). (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: heightmap ground proxies first; multi-anchor `TerrainGrid` and streamers only if measurement shows platforms and buildings matter. Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) large |
 | **4. GPU-less host** (optional) | The five render stubs and three silenced systems from section 1, gated on `-nographics`. Tested against each mod in use. | Small, plus per-mod testing |
 
 **Tests for each stage** go in `DevTools/Scenarios`: the existing gate with the host as a service

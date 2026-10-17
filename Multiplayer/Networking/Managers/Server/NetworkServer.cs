@@ -422,6 +422,9 @@ public class NetworkServer : NetworkManager
 
     private void OnLoaded()
     {
+        // A dedicated host loads its world around a player rather than its parked body.
+        DedicatedHostAnchor.Create();
+
         if (!IsSinglePlayer)
         {
             lobbyServerManager = NetworkLifecycle.Instance.GetOrAddComponent<LobbyServerManager>();
