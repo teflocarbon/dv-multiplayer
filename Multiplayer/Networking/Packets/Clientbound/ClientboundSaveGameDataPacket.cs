@@ -10,6 +10,8 @@ using Multiplayer.Networking.Data.Items;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Collections.Generic;
+using System.Linq;
+using Multiplayer.Components.Networking.World;
 using UnityEngine;
 
 namespace Multiplayer.Networking.Packets.Clientbound;
@@ -35,6 +37,12 @@ public class ClientboundSaveGameDataPacket
     // public string Debt_insurance { get; set; }
 
     public PlayerItemSaveData[] PlayerItems { get; set; }
+
+    // What this player already owns somewhere the host keeps items (prefab names, and the
+    // inventory slot it holds, or -1). The client's own DV only adds starting items and licence
+    // papers missing from these, instead of a fresh set on every join (OwnedItemsSummary).
+    public string[] OwnedItemPrefabs { get; set; }
+    public int[] OwnedItemSlots { get; set; }
 
     public float JobManagerTime { get; set; }
 
@@ -88,6 +96,9 @@ public class ClientboundSaveGameDataPacket
             playerItems.Add(starterItem);
         }
 
+        List<OwnedItemsSummary.OwnedItem> owned = OwnedItemsSummary.For(player);
+        Multiplayer.LogDebug(() => $"ClientboundSaveGameDataPacket.CreatePacket() {player.Username} already owns {owned.Count} item(s)");
+
         return new ClientboundSaveGameDataPacket
         {
             GameMode = data.GetString(SaveGameKeys.Game_mode),
@@ -109,7 +120,9 @@ public class ClientboundSaveGameDataPacket
 
             JobManagerTime = JobsManager.Instance.Time,
 
-            PlayerItems = playerItems.ToArray()
+            PlayerItems = playerItems.ToArray(),
+            OwnedItemPrefabs = owned.Select(item => item.Prefab).ToArray(),
+            OwnedItemSlots = owned.Select(item => item.Slot).ToArray(),
         };
     }
 

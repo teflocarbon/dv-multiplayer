@@ -26,6 +26,13 @@ public static class NetworkedLostAndFoundManager
     private static readonly Dictionary<ushort, float> eligibleSince = new();
     private static readonly List<LostItemData> clientItems = new();
     private static readonly List<JObject> pendingSaveImports = new();
+
+    /// <summary>Prefab names of saved Lost and Found items, not yet restored, that belong to this owner.</summary>
+    internal static IEnumerable<string> PendingPrefabsOwnedBy(Guid owner) =>
+        pendingSaveImports
+            .Where(value => Guid.TryParse((string)value["ownerIdentity"], out Guid identity) && identity == owner)
+            .Select(value => (string)value["prefabName"] ?? string.Empty)
+            .Where(prefab => prefab.Length > 0);
     private static readonly Dictionary<ushort, Dictionary<string, object>> lastEvaluations = new();
     private static uint generation;
     private static bool saveImportAttempted;
