@@ -199,6 +199,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     #endregion
     private const int MAX_COUPLER_ITERATIONS = 50;
     private const float MAX_PORT_DELTA = 0.001f;
+    // How far an unleased control's port must be from the host's last value to count as the
+    // player's change rather than simulation feedback (Client_IsUnleasedChange).
+    private const float UNLEASED_CHANGE_TOLERANCE = 0.02f;
+    // And how long after a host update to a port its control may still be catching up to it.
+    private const float UNLEASED_CHANGE_SETTLE_SECONDS = 1.5f;
     private const uint MIN_KINEMATIC_CYCLES = 10;
     private const float DISTANCE_TOLERANCE = 2f;
     private const float MAX_PAINT_DISTANCE_SQ = (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE) * (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE);
@@ -390,6 +395,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // Track the leases we requested locally so client simulation feedback cannot be
     // bundled with a control the client does not own.
     private readonly HashSet<uint> locallyOwnedPortAuthorities = [];
+    // Each control port's value as the host last had it, to tell a player's change to a control
+    // that took no lease from the host's own values echoing back (Client_IsUnleasedChange).
+    private readonly Dictionary<uint, float> client_hostPortValues = [];
+    private readonly Dictionary<uint, float> client_hostPortReceivedAt = [];
     #endregion
 
     #region Common Variables
@@ -513,6 +522,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     var portNetId = GetPortNetId(kvp.Key);
                     if (kvp.Value.valueType == PortValueType.CONTROL || NetworkLifecycle.Instance.IsHost())
                     {
+                        if (!NetworkLifecycle.Instance.IsHost())
+                            client_hostPortValues[portNetId] = kvp.Value.Value;
                         if (portToBaseControl.TryGetValue(portNetId, out var control))
                         {
                             Multiplayer.LogDebug(() => $"NetworkedTrainCar.Start({CurrentID}, {NetId}) Subscribing to control {control.ControlType} for {kvp.Key} with netId {portNetId}");
@@ -1065,14 +1076,20 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return false;
     }
 
-    public bool Server_HasPortAuthority(ServerPlayer player, IEnumerable<uint> portNetIds)
+    /// <summary>
+    /// Whether a player may write these ports: nobody else holds a lease on any of them. A lease
+    /// keeps a lever being held, or the whistle rope, from being fought over. A control that's only
+    /// turned or clicked never asks for one (a VR valve, a cab window): requiring a lease refused
+    /// every change to those, so the player saw it and nobody else did.
+    /// </summary>
+    public bool Server_MayWritePorts(ServerPlayer player, IEnumerable<uint> portNetIds)
     {
         if (player == null)
             return false;
         if (NetworkLifecycle.Instance.IsHost(player))
             return true;
         return portNetIds != null && portNetIds.All(portNetId =>
-            portAuthority.TryGetValue(portNetId, out ServerPlayer owner) && owner == player);
+            !portAuthority.TryGetValue(portNetId, out ServerPlayer owner) || owner == null || owner == player);
     }
 
     public bool TryCapturePortValues(uint[] portNetIds, out float[] values)
@@ -1652,8 +1669,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         uint[] portIds = NetworkLifecycle.Instance.IsHost()
             ? dirtyPorts.ToArray()
-            : dirtyPorts.Where(locallyOwnedPortAuthorities.Contains).ToArray();
-        // Unowned dirty controls are native simulation feedback, not client intent.
+            : dirtyPorts.Where(id => locallyOwnedPortAuthorities.Contains(id) || Client_IsUnleasedChange(id)).ToArray();
+        // Other unowned dirty controls are native simulation feedback, not client intent.
         // Retaining them would either spin forever or contaminate a later leased batch.
         dirtyPorts.Clear();
         if (portIds.Length == 0)
@@ -1669,6 +1686,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 float value = port.Value;
                 portValues[i] = value;
                 lastSentPortValues[portNetId] = value;
+                if (!NetworkLifecycle.Instance.IsHost())
+                    client_hostPortValues[portNetId] = value;
             }
             else
             {
@@ -1682,6 +1701,25 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!NetworkLifecycle.Instance.IsHost())
             foreach (uint portNetId in portIds)
                 client_pendingPortOperations[portNetId] = operationId;
+    }
+
+    // A control the player changed without anything taking its lease: a valve, lever or cylinder
+    // cock turned in VR (they don't all raise Grabbed), or a control on the car body like a cab
+    // window or an oiling point, which isn't hooked at all. The client dropped these as feedback, so
+    // only the player saw the change (#73 covered buttons and switches, which raise Used). The host
+    // takes a change nobody holds a lease on. Feedback is told apart by its value: once settled it's
+    // what the host last sent.
+    private bool Client_IsUnleasedChange(uint portNetId)
+    {
+        if (!hasSimFlow || (portNetIdToBlockState.TryGetValue(portNetId, out bool blocked) && blocked) ||
+            !Client_LocalPlayerCanTouch() ||
+            !simulationFlow.TryGetPort(GetPort(portNetId), out Port port) || port.valueType != PortValueType.CONTROL ||
+            !client_hostPortValues.TryGetValue(portNetId, out float hostValue))
+            return false;
+        if (client_hostPortReceivedAt.TryGetValue(portNetId, out float receivedAt) &&
+            Time.realtimeSinceStartup - receivedAt < UNLEASED_CHANGE_SETTLE_SECONDS)
+            return false;
+        return Mathf.Abs(port.Value - hostValue) > UNLEASED_CHANGE_TOLERANCE;
     }
 
     private void Common_SendFuses()
@@ -1830,6 +1868,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             if (simulationFlow.TryGetPort(portId, out Port port))
             {
                 float value = packet.PortValues[i];
+                if (!NetworkLifecycle.Instance.IsHost())
+                {
+                    client_hostPortValues[packet.PortIds[i]] = value;
+                    client_hostPortReceivedAt[packet.PortIds[i]] = Time.realtimeSinceStartup;
+                }
 
                 if (port.type == PortType.EXTERNAL_IN)
                     port.ExternalValueUpdate(value);

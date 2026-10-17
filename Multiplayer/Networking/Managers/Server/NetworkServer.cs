@@ -2460,7 +2460,7 @@ public class NetworkServer : NetworkManager
         if (!skipRangeCheck && !NetworkLifecycle.Instance.IsHost(player) &&
             (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
             return TrainControlCommitResult.OutOfRange;
-        if (requireLease && !car.Server_HasPortAuthority(player, portIds))
+        if (requireLease && !car.Server_MayWritePorts(player, portIds))
             return TrainControlCommitResult.AuthorityDenied;
         var key = (player.PlayerId, car.NetId);
         bool orderedOperationStream = operationId != 0 &&
