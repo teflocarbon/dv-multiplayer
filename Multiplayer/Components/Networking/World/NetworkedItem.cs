@@ -113,6 +113,13 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool stateDirty;
     private bool wasThrown;
     private bool wasRemoved;
+    // The frame the local VR player let go of a belt-snappable item, or -1 (BeltItemPolicy).
+    private int vrBeltReleaseFrame = -1;
+    private float releasedAt = -1f;     // when a local hand last let go, until it's sent or re-grabbed
+    private float releaseSpeed = -1f;
+    private int releasedFrame;
+    private bool releaseDeferralPublished;
+    private ItemInteractionWindow localInteraction;
 
     private Vector3 thrownPosition;
     private Quaternion thrownRotation;
@@ -257,7 +264,12 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void OnUngrabbed(ControlImplBase obj)
     {
+        if (VRManager.IsVREnabled() && Item != null && Item.IsBeltSnappable)
+            vrBeltReleaseFrame = Time.frameCount;
         RefreshLocalVrHandAfterInteraction();
+        releasedAt = Time.realtimeSinceStartup;
+        releasedFrame = Time.frameCount;
+        releaseSpeed = -1f;
         MarkLocalStateDirty("released");
     }
 
@@ -265,8 +277,76 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         playerBelongsToId = NetworkLifecycle.Instance.Client.PlayerId;
         RefreshLocalVrHandAfterInteraction();
+        releasedAt = -1f;
         MarkLocalStateDirty("grabbed");
     }
+
+    /// <summary>
+    /// Holds back a gentle release for <see cref="ItemReleaseGrace.GraceSeconds"/>: a VR hand
+    /// swap or a re-grab at another spot lets go for a moment, and sent at once that became a
+    /// drop, with the new hold arriving as a change to an item the player no longer had.
+    /// </summary>
+    private bool DeferLocalRelease(ItemState currentState)
+    {
+        if (releasedAt < 0f)
+            return false;
+        float now = Time.realtimeSinceStartup;
+        // VRTK gives a thrown body its velocity as it lets go, not necessarily before the
+        // Ungrabbed event: measure from the next frame.
+        if (releaseSpeed < 0f && Time.frameCount > releasedFrame)
+            releaseSpeed = RelativeReleaseSpeed();
+        WireItemState lastSent = hasLastSentState ? lastSentProjection.State : WireItemState.Dropped;
+        if (ItemReleaseGrace.ShouldDefer(lastSent, ToWireState(currentState), wasThrown,
+                Mathf.Max(releaseSpeed, 0f), now - releasedAt))
+        {
+            if (!releaseDeferralPublished && releaseSpeed >= 0f)
+            {
+                releaseDeferralPublished = true;
+                PublishLocalState("item.release-deferred", currentState, lastState, "released",
+                    $"release-grace speed={releaseSpeed:F2}");
+            }
+            return true;
+        }
+        releasedAt = -1f;
+        releaseDeferralPublished = false;
+        return false;
+    }
+
+    // Measured against the car the player is on: a gentle drop in a moving cab isn't a throw.
+    // A body DV has already parented to a car moves relative to it.
+    private float RelativeReleaseSpeed()
+    {
+        Rigidbody body = Item?.ItemRigidbody;
+        if (body == null || body.isKinematic)
+            return 0f;
+        Vector3 velocity = body.velocity;
+        Rigidbody car = PlayerManager.Car?.rb;
+        if (car != null && !TryGetPhysicalTrainParent(out _))
+            velocity -= car.velocity;
+        return velocity.magnitude;
+    }
+
+    // The local player working this item without holding it (a set-down lantern's knob, lighting
+    // it): only then may its game send this item's object state (ItemObjectStateAuthority).
+    internal void BeginLocalInteraction()
+    {
+        localInteraction.Begin();
+        MarkLocalStateDirty("interaction-began");
+    }
+
+    internal void EndLocalInteraction()
+    {
+        localInteraction.End(Time.realtimeSinceStartup);
+        MarkLocalStateDirty("interaction-ended");
+    }
+
+    internal void TouchLocalInteraction()
+    {
+        localInteraction.Touch(Time.realtimeSinceStartup);
+        MarkLocalStateDirty("interaction-used");
+    }
+
+    internal bool IsLocalInteractionOpen => localInteraction.IsOpen(Time.realtimeSinceStartup);
 
     public void OnThrow(Vector3 direction)
     {
@@ -480,6 +560,10 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
+        releasedAt = -1f;
+        releaseSpeed = -1f;
+        releaseDeferralPublished = false;
+        localInteraction.Reset();
         hasLastSentState = false;
         ResetVrHandState();
         lastSentProjection = default;
@@ -581,6 +665,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                 reason, "recall-prepare-pending");
             return;
         }
+        // Stays dirty, so LateUpdate looks again each frame until it's sent or re-grabbed.
+        if (!NetworkLifecycle.Instance.IsHost() && NetId != 0 && DeferLocalRelease(currentState))
+            return;
         bool networkStateChanged = HasNetworkStateProjectionChanged(currentState);
         if (currentState != previousObservedState || networkStateChanged)
             stateDirty = true;

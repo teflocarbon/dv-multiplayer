@@ -280,6 +280,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // The compressor's activation signal: typed CONTROL, but the brake system sets it.
     private readonly HashSet<uint> compressorSignalPorts = new();
     private Port compressorSignalPort;
+    // Which CONTROL ports players drive: the only ones a client sends, or the host takes from one.
+    private ControlPortWriters<uint> portWriters;
     public CoalPileSimController coalPile;
     private readonly Dictionary<TrainDamage, TrainDamage.HealthChanged> trainDamageDelegates = [];
 
@@ -510,12 +512,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 }
             }
 
-            TrainCar.InteriorLoaded += OnTrainCarInteriorLoaded;
-            TrainCar.InteriorAboutToBeUnloaded += OnTrainCarInteriorUnloaded;
-
-            if (TrainCar.loadedInterior != null)
-                OnTrainCarInteriorLoaded(TrainCar.loadedInterior.gameObject);
-
             if (simulationFlow != null)
             {
                 foreach (CompressorSimController compressor in TrainCar.GetComponentsInChildren<CompressorSimController>(true))
@@ -525,6 +521,21 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                         compressorSignalPorts.Add(GetPortNetId(compressor.activationSignalExtInPortId));
                         compressorSignalPort = signal;
                     }
+                portWriters = new ControlPortWriters<uint>(
+                    simulationFlow.fullPortIdToPort.Where(kvp => kvp.Value.valueType == PortValueType.CONTROL).Select(kvp => GetPortNetId(kvp.Key)),
+                    InteractablePortScan.PortsOf(TrainCar.carLivery).Select(GetPortNetId),
+                    compressorSignalPorts);
+                Multiplayer.LogDebug(() => $"NetworkedTrainCar.Start({CurrentID}, {NetId}) {portWriters.PlayerPortCount} player-driven control ports");
+            }
+
+            TrainCar.InteriorLoaded += OnTrainCarInteriorLoaded;
+            TrainCar.InteriorAboutToBeUnloaded += OnTrainCarInteriorUnloaded;
+
+            if (TrainCar.loadedInterior != null)
+                OnTrainCarInteriorLoaded(TrainCar.loadedInterior.gameObject);
+
+            if (simulationFlow != null)
+            {
                 dirtyPorts = new HashSet<uint>(simulationFlow.fullPortIdToPort.Count);
                 lastSentPortValues = new Dictionary<uint, float>(dirtyPorts.Count);
                 foreach (KeyValuePair<string, Port> kvp in simulationFlow.fullPortIdToPort)
@@ -816,6 +827,12 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void HookControl(ControlImplBase implementation, uint netId)
     {
+        // Normally in the prefab scan already; a control only the loaded cab has counts too.
+        portWriters?.AddPlayerPort(netId);
+        foreach (InteractablePortFeeder feeder in implementation.GetComponents<InteractablePortFeeder>())
+            if (!string.IsNullOrEmpty(feeder.portId))
+                portWriters?.AddPlayerPort(GetPortNetId(feeder.portId));
+
         // Check for ObiRopeGrabHandler used by steam whistles
         ObiRopeGrabAreaHandler ObiGrabHandler = implementation.transform?.parent?.GetComponentInChildren<ObiRopeGrabAreaHandler>(false);
         if (ObiGrabHandler != null)
@@ -1109,11 +1126,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             {
 
                 var portId = GetPort(portNetId);
-                if (simulationFlow.TryGetPort(portId, out Port port))
+                if (simulationFlow.TryGetPort(portId, out Port _))
                 {
-                    if (port.valueType != PortValueType.CONTROL || compressorSignalPorts.Contains(portNetId))
+                    // Only controls players drive: the others are the host's simulation's to set.
+                    bool holdsLease = portAuthority.TryGetValue(portNetId, out ServerPlayer owner) && owner == player;
+                    if (portWriters == null || !portWriters.HostAccepts(portNetId, holdsLease))
                     {
-                        NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a non-control port! ([{portId}, {portNetId}] on [{CurrentID}, {NetId}])");
+                        NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a port players don't drive ({portWriters?.Classify(portNetId)})! ([{portId}, {portNetId}] on [{CurrentID}, {NetId}])");
                         Common_DirtyPorts(packet.PortIds);
                         return false;
                     }
@@ -1807,23 +1826,19 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // cock turned in VR (they don't all raise Grabbed), or a control on the car body like a cab
     // window or an oiling point, which isn't hooked at all. The client dropped these as feedback, so
     // only the player saw the change (#73 covered buttons and switches, which raise Used). The host
-    // takes a change nobody holds a lease on. Feedback is told apart by its value: once settled it's
-    // what the host last sent.
-    private enum UnleasedChange { No, Settling, Send }
-
+    // takes a change nobody holds a lease on. Only controls players drive count (ControlPortWriters):
+    // DV and mods set some CONTROL ports from the simulation. Feedback is told apart by its value:
+    // once settled it's what the host last sent.
     private UnleasedChange Client_UnleasedChange(uint portNetId)
     {
-        if (!hasSimFlow || (portNetIdToBlockState.TryGetValue(portNetId, out bool blocked) && blocked) ||
-            !Client_LocalPlayerCanTouch() ||
-            !simulationFlow.TryGetPort(GetPort(portNetId), out Port port) || port.valueType != PortValueType.CONTROL ||
-            !client_hostPortValues.TryGetValue(portNetId, out float hostValue))
+        if (!hasSimFlow || portWriters == null || !simulationFlow.TryGetPort(GetPort(portNetId), out Port port))
             return UnleasedChange.No;
-        if (Mathf.Abs(port.Value - hostValue) <= UNLEASED_CHANGE_TOLERANCE)
-            return UnleasedChange.No;
-        if (client_hostPortReceivedAt.TryGetValue(portNetId, out float receivedAt) &&
-            Time.realtimeSinceStartup - receivedAt < UNLEASED_CHANGE_SETTLE_SECONDS)
-            return UnleasedChange.Settling;
-        return UnleasedChange.Send;
+        bool blocked = portNetIdToBlockState.TryGetValue(portNetId, out bool isBlocked) && isBlocked;
+        float? hostValue = client_hostPortValues.TryGetValue(portNetId, out float value) ? value : null;
+        float? sinceHostValue = client_hostPortReceivedAt.TryGetValue(portNetId, out float receivedAt)
+            ? Time.realtimeSinceStartup - receivedAt : null;
+        return portWriters.Unleased(portNetId, blocked, Client_LocalPlayerCanTouch(), port.Value, hostValue, sinceHostValue,
+            UNLEASED_CHANGE_TOLERANCE, UNLEASED_CHANGE_SETTLE_SECONDS);
     }
 
     private void Common_SendFuses()
@@ -1907,9 +1922,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             Multiplayer.LogDebug(() => $"Common_OnPortUpdated() Ignoring non-control port update for [{port.id}] on [{CurrentID}, {NetId}]");
             return;
         }
-        // The compressor's on/off signal is typed CONTROL but set by the brake system, not a
-        // player: a client never sends it (see compressorSignalPorts).
-        if (!NetworkLifecycle.Instance.IsHost() && compressorSignalPorts.Contains(portNetId))
+        // CONTROL ports simulation code sets (the compressor's signal, a horn fed from its control,
+        // a gearbox's gear input) are the host's: a client sends only the ones players drive.
+        if (!NetworkLifecycle.Instance.IsHost() && portWriters?.ClientReports(portNetId) != true)
             return;
 
         if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket)

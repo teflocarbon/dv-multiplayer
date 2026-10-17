@@ -107,6 +107,29 @@ A `Used` lease is handed back 0.5 s later, once the change has been sent. Fuses,
 brake-cylinder release have their own packets. #73 was the DE2's wipers, fan and lights never
 syncing from clients, and every button and switch a VR client pressed being dropped.
 
+Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and the car-body
+controls, which aren't hooked at all (cab windows, doors, oiling points). A client sends a change
+to one of those that nobody holds the lease on (`Client_UnleasedChange`): the port differs from the
+host's last value by more than 0.02, and that value isn't still settling (1.5 s after the host set
+it; a change in that window waits and goes if it still differs).
+
+Only ports a player drives go that way. Being typed CONTROL isn't enough: DV and mods set several
+CONTROL ports from the simulation, usually from a control's own port (`horn.HORN` from the horn
+control, the DM3's `gearInputA.GEAR` from its gear lever, the headlight decoders). Playtest 2 had a
+client's copy of the DE6's compressor signal overwrite the host's, and the loco never built air.
+`ControlPortWriters` (Multiplayer.Core) sorts each car's ports into player-driven, simulation and
+host-kept. The player-driven ones come from the livery's prefabs (`InteractablePortScan`): the car
+body, the cab, the car-body controls, and the exploded versions of the last two. In them it takes
+the ports of every `InteractablePortFeeder` (the base controls such as the throttle take their
+values from these), `OilingPointPortFeederReader` (an oiler can), the `NotchedPort*Input`
+keyboard inputs and `HandcarBarController`, plus any control hooked when a cab loads. Custom Car
+Loader builds its cars' controls from the same DV components when it imports them, so the scan
+covers them, and every game, a dedicated server included, gets the same set without loading the
+cab. A client sends only player-driven ports; the host takes only those, or one the sender holds
+the lease on. The compressor's activation signal is host-kept: clients never send it, and the host
+keeps it matched to `brakeSystem.compressorActivationSignal`, since DV writes it only when that
+decision changes (`Server_KeepCompressorSignal`).
+
 **Motion: host-authoritative and steered; stage 5 not started.**
 
 - Clients steer on-rail cars towards the host's bogie positions every physics step instead of
