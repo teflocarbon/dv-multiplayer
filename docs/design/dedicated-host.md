@@ -141,6 +141,19 @@ These are built and tested in the game:
   - **`/stop`:** it stops too.
   - **`-DailyRestart HH:mm`:** it restarts the game through the stop request.
   - **Ctrl+C:** it stops the game gracefully.
+  - **Its own folder** (added 2026-10-17, untested in the game):
+    - The server starts from `%LOCALAPPDATA%\dv-multiplayer\dedicated-host\server` (`-ServerDir`).
+      Unity Mod Manager loads mods from the Mods folder of the game's working directory, so the
+      server has its own mods, and each mod's settings (Multiplayer's server name, password and
+      admins among them) apart from the player's own game. `steam_appid.txt` there lets Steam start
+      the game outside its own folder.
+    - The first run copies every mod of the game, with its settings. Each start then refreshes the
+      server's mods from the game's by mod ID, except `Settings.xml` (robocopy: some mods' paths
+      pass Windows' 260-character limit), so versions match what players have. Deleting a mod's
+      folder keeps it off the server. `-SharedMods` starts from the game's folder as before.
+    - Unity Mod Manager's enabled list (`Params.xml`) is for the whole install, so it's shared.
+    - The watchdog and `Start Dedicated Server.cmd` ship in the mod's folder and the release zip
+      (`post-build.ps1`), and find the game from there.
   - **Its window** (added 2026-10-17, untested in the game):
     - It shows the mod's lines from the game's log as they're written: logins, kicks, warnings in
       yellow, errors in red, command replies in cyan. `-VerboseLog` adds the debug lines.

@@ -62,6 +62,9 @@ if (!$configuredMatches) {
 #Copy files to Build Dir
 Copy-Item ($Target) -Destination ("$PSScriptRoot/build/")
 Copy-Item ($PSScriptRoot + '/LICENSE') -Destination ("$PSScriptRoot/build/")
+# The dedicated server's watchdog and its double-click launcher ship with the mod.
+Copy-Item ($PSScriptRoot + '/Tools/DedicatedHost/run-dedicated-host.ps1') -Destination ("$PSScriptRoot/build/")
+Copy-Item ($PSScriptRoot + '/Tools/DedicatedHost/Start Dedicated Server.cmd') -Destination ("$PSScriptRoot/build/")
 
 #Copy files to Game Dir
 if (!(Test-Path ($GameDir))) {

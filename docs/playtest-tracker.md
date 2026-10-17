@@ -52,6 +52,7 @@ checks below, so most fixes are first tested by playing it.
 | `/weather clear\|rain\|storm [hours]`, `/weather auto`, `/weather new` | 52196852 | Untested |
 | `/time HH:mm` and `/time +hours` (forward only) | a6f18314 | Untested |
 | `/repair [player] [all]` | 0372e8d4 | Tested by hand on the live server (a DE6 with dead traction motors) |
+| The server runs from its own folder, with its own mods and settings; the watchdog and `Start Dedicated Server.cmd` ship with the mod | see the commit below | Folder setup tested offline (7 mods copied, a second run copied nothing); not yet started a game |
 | `/season spring\|summer\|autumn\|winter\|next\|blizzard\|calm`, with the [Dynamic Seasons](https://github.com/HerodrineYT/DVSeasons) mod (0.4.0, which syncs itself through the Multiplayer API, the host as its authority) | see the commit below | Untested |
 
 ### Open

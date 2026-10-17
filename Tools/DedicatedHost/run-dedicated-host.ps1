@@ -17,6 +17,19 @@
     /restore Bob, /kick Bob. They run as the server's owner, and the replies show here. A line
     without a slash is said in chat as the server.
 
+    The server has its own folder (-ServerDir, default %LOCALAPPDATA%\dv-multiplayer\dedicated-host\server)
+    and is started from it. Unity Mod Manager loads mods from the Mods folder of the folder the game
+    starts in, so the server has its own mods, and each mod keeps its settings (the Multiplayer
+    server name, password, admins) inside its folder, apart from your own game's:
+      - The first run copies every mod of your game into the server's Mods folder.
+      - Every start refreshes each of them from your game's copy (matched by mod ID), except its
+        Settings.xml, so versions always match what players have.
+      - To keep a mod off the server, delete its folder from the server's Mods. To add one, copy its
+        folder in. Players must have the same mods as the server to join.
+      - -SharedMods starts the game from its own folder instead, with your game's mods and settings.
+    Whether a mod is enabled is kept by Unity Mod Manager for the whole install, so it's shared;
+    leaving a mod out of the server's folder is what keeps it off the server.
+
     Steam must be running and logged in to an account that owns Derail Valley.
 
 .EXAMPLE
@@ -28,7 +41,8 @@
 param(
     # A save name or UID, a career (session) name for its latest save, or "continue".
     [Parameter(Mandatory = $true)][string]$Save,
-    [string]$GameDir = "C:\Program Files (x86)\Steam\steamapps\common\Derail Valley",
+    # The game's folder. Found from this script's place when it's in the game's Mods folder.
+    [string]$GameDir = "",
     [int]$Port = 0,
     [ValidateSet("", "private", "friends", "public")][string]$Visibility = "",
     [int]$AutosaveMinutes = 10,
@@ -44,10 +58,21 @@ param(
     # Show the game window instead of starting it minimised.
     [switch]$Visible,
     # Show the mod's debug lines here too (they're in the game's log either way).
-    [switch]$VerboseLog
+    [switch]$VerboseLog,
+    # The server's own folder, with its own Mods (see above).
+    [string]$ServerDir = "",
+    # Start from the game's folder, sharing its mods and settings, as before.
+    [switch]$SharedMods
 )
 
 $ErrorActionPreference = "Stop"
+if ($GameDir -eq "") {
+    # Shipped in the mod's folder: <game>\Mods\<Multiplayer>\run-dedicated-host.ps1.
+    $fromHere = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    $GameDir = if (Test-Path (Join-Path $fromHere "DerailValley.exe")) { $fromHere }
+               else { "C:\Program Files (x86)\Steam\steamapps\common\Derail Valley" }
+}
+if ($ServerDir -eq "") { $ServerDir = Join-Path $DataDir "server" }
 $exe = Join-Path $GameDir "DerailValley.exe"
 if (-not (Test-Path $exe)) { throw "Derail Valley not found at $exe (pass -GameDir)" }
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "logs") | Out-Null
@@ -134,6 +159,59 @@ function Read-Typed {
     }
 }
 
+# A mod folder's ID, from its info.json (Unity Mod Manager's).
+function Get-ModId([string]$folder) {
+    $info = Get-ChildItem -LiteralPath $folder -Filter "info.json" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $info) { return $null }
+    try { return (Get-Content -Raw -LiteralPath $info.FullName | ConvertFrom-Json).Id } catch { return $null }
+}
+
+# Files of one mod folder into another, except its settings; only what changed. robocopy, as some
+# mods' files sit deeper than Windows' 260-character path limit allows Copy-Item.
+function Sync-Mod([string]$from, [string]$to) {
+    $out = & robocopy $from $to /E /XF Settings.xml /R:1 /W:1 /NJH /NFL /NDL /NP
+    if ($LASTEXITCODE -ge 8) { throw "copying $from to $to failed (robocopy $LASTEXITCODE): $($out -join ' ')" }
+    $files = $out | Where-Object { $_ -match '^\s*Files\s*:' } | Select-Object -First 1
+    if ($files -and $files -match ':\s*\d+\s+(\d+)') { return [int]$Matches[1] }
+    return 0
+}
+
+# The server's own folder: its Mods, refreshed from the game's, and Steam's app ID for a game
+# started outside Steam's own folder.
+function Initialize-ServerDir {
+    $mods = Join-Path $ServerDir "Mods"
+    $gameMods = Join-Path $GameDir "Mods"
+    $first = -not (Test-Path $mods)
+    New-Item -ItemType Directory -Force -Path $mods | Out-Null
+    Set-Content -Path (Join-Path $ServerDir "steam_appid.txt") -Value "588030" -NoNewline
+    $gameById = @{}
+    foreach ($dir in Get-ChildItem -LiteralPath $gameMods -Directory -ErrorAction SilentlyContinue) {
+        $id = Get-ModId $dir.FullName
+        if ($id) { $gameById[$id] = $dir.FullName }
+    }
+    if ($first) {
+        foreach ($id in $gameById.Keys) {
+            $to = Join-Path $mods (Split-Path $gameById[$id] -Leaf)
+            Sync-Mod $gameById[$id] $to | Out-Null
+            $settings = Join-Path $gameById[$id] "Settings.xml"
+            if (Test-Path $settings) { Copy-Item -LiteralPath $settings -Destination $to }
+        }
+        Say "made the server's folder $ServerDir with a copy of your $($gameById.Count) mod(s) and their settings; delete a mod's folder from its Mods to keep it off the server"
+        return
+    }
+    $serverIds = @()
+    foreach ($dir in Get-ChildItem -LiteralPath $mods -Directory) {
+        $id = Get-ModId $dir.FullName
+        if (-not $id) { continue }
+        $serverIds += $id
+        if (-not $gameById.ContainsKey($id)) { Say "the server has mod $id, which your game doesn't; keeping it as it is"; continue }
+        $copied = Sync-Mod $gameById[$id] $dir.FullName
+        if ($copied -gt 0) { Say "updated the server's $id from your game ($copied file(s))" }
+    }
+    if (-not ($serverIds -contains "Multiplayer")) { throw "the server's Mods folder ($mods) has no Multiplayer mod: copy it in from $gameMods" }
+    Say ("server mods: " + (($serverIds | Sort-Object) -join ", "))
+}
+
 function Start-Game {
     Remove-Item -Force -ErrorAction SilentlyContinue $heartbeat, $stopRequest, $commandFile
     $log = Join-Path $DataDir ("logs\{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
@@ -142,7 +220,8 @@ function Start-Game {
     if ($Port -gt 0) { $arguments += @("-mp-port", $Port) }
     if ($Visibility -ne "") { $arguments += @("-mp-visibility", $Visibility) }
     $style = if ($Visible) { "Normal" } else { "Minimized" }
-    $process = Start-Process -FilePath $exe -WorkingDirectory $GameDir -ArgumentList ($arguments -join " ") -WindowStyle $style -PassThru
+    $workingDir = if ($SharedMods) { $GameDir } else { $ServerDir }
+    $process = Start-Process -FilePath $exe -WorkingDirectory $workingDir -ArgumentList ($arguments -join " ") -WindowStyle $style -PassThru
     if ($script:logReader) { $script:logReader.Dispose() }
     $script:logReader = $null
     $script:logRest = ""
@@ -167,6 +246,7 @@ $lastDaily = (Get-Date).Date
 $game = $null
 try {
     while ($true) {
+        if (-not $SharedMods) { Initialize-ServerDir }
         $game = Start-Game
         $started = Get-Date
         $restart = $false
