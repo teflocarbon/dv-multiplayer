@@ -35,6 +35,7 @@ host-authority model works end to end, then points at the rest.
 | Doc | What it covers |
 |---|---|
 | [design/server-player-split.md](design/server-player-split.md) | The target model: one server that owns the world, and players who are all its clients, whether the server runs in a player's game or on a dedicated host. Per-player saves, the one-time conversion of old careers, and world coverage for every player |
+| [design/multi-anchor-streaming.md](design/multi-anchor-streaming.md) | Research: loading the world (scenery tiles, terrain, origin) around several far-apart players, what lives in which streamed scene, the exact patch points, costs and the measurements still needed |
 | [design/dedicated-host.md](design/dedicated-host.md) | The full game as a host with no local player (`-mp-dedicated`, partly built): the investigation, the service identity, the world following a player, running unattended, and what's left |
 
 ## Tooling

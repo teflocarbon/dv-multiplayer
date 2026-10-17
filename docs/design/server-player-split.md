@@ -106,10 +106,19 @@ These are needed on a player host as much as on a dedicated one:
 - **Physics LOD:** add every player's position to DV's physics-LOD reference points. It's built for
   dedicated hosts (`DistanceLodSystemPatch`); it needs extending to every host.
 - **Scenery and terrain streaming:** today one anchor follows the one local player, or, on a
-  dedicated host, the longest-connected player (`DedicatedHostAnchor`). The target is the union of
-  tiles around every player. That's stage 3c, researched in the side-session note
-  `stage-3c-multi-anchor.md` (it lands in this doc when done).
-- **The origin shift** stays single. Where to put it, with players far apart, is part of 3c.
+  dedicated host, the longest-connected player (`DedicatedHostAnchor`). The target is the world
+  loaded around every player: [multi-anchor-streaming.md](multi-anchor-streaming.md). In short:
+  - **Terrain alone isn't enough.** Derailed cars and items rest on more than terrain:
+    - track ballast, bridge decks and tunnel portals are in the Near scenery tiles;
+    - platforms, buildings, roads and tunnel walls are in the Far tiles.
+  - **Scenery:** one streamer per tile set, loading the union of the tile boxes around every
+    player, which is two patches on `Streamer`. A possibly simpler option is loading the whole
+    map's scenery on the host; that needs measuring first.
+  - **Terrain:** six small patches to `TerrainGrid`, about 40 MB per extra player.
+  - **Cost:** about 60-200 MB per extra player all told.
+  - **Rejected:** heightmap ground proxies and leasing derailments to clients.
+- **The origin shift** stays single. It's centred on the box around all players, so precision is
+  about 1 mm anywhere on the map.
 
 ## What stays specific to a dedicated host
 
@@ -131,7 +140,7 @@ too.
 | 2 | **The host's own player stored per GUID.** Save its position and items like any player's. Restore them at its loopback login. Its DV inventory starts empty in multiplayer. | Medium |
 | 3 | **Format marker and version-1 conversion,** with the vanilla mirror and its fingerprint. `-mp-owner`. | Medium |
 | 4 | **Physics LOD for every player on every host.** | Small |
-| 5 | **Multi-anchor streaming** (3c), after its research. | Large |
+| 5 | **Multi-anchor streaming** ([multi-anchor-streaming.md](multi-anchor-streaming.md#73-stages)): first a second dvmp client or a debug "virtual player", and the two deciding measurements (whole-map scenery, what a derailed car lands on today). Then the terrain and streamer patches, then items, then the origin policy. | Medium (was thought large) |
 | 6 | **Audit of the host-player shortcuts:** the local player's changes are validated like anyone's. Done gradually, area by area. | Ongoing |
 
 Steps 1-3 change how every multiplayer save stores players, and step 4 changes normal hosting, so

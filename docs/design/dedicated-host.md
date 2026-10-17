@@ -473,18 +473,22 @@ near the client sits at LOD 3-5 on the host too. A dedicated host just makes it 
 1. **Terrain colliders, and the near and far tiles**, around each remote player and each moving or
    derailed consist. Otherwise derailed cars freeze and the host has no ground to validate items
    against. DV supports one anchor: `Streamer` reads the singleton `WorldMover.playerTracker`, and
-   `TerrainGrid` has a fixed collider pool that drops everything outside one region. Options, from
-   cheapest:
-   - **Heightmap ground proxies.** The heightmap is global and in memory, so generate a coarse
-     collider patch around each remote player and each derailed car. That covers derailments and
-     items on open ground but not buildings, platforms or tunnels.
-   - **Patched multi-anchor terrain.** Make `TerrainGrid` load the union of cells around N anchors,
-     with a pool sized to match.
-   - **Patched multi-anchor streamers.** Make `Streamer` load the union of tiles around N anchors.
-     That's the most memory, and the most invasive.
+   `TerrainGrid` has a fixed collider pool that drops everything outside one region.
 
-   Whether station platforms and buildings live in the streamed scenes is scene data the code
-   doesn't show. Measure it before choosing.
+   *Since answered* ([multi-anchor-streaming.md](multi-anchor-streaming.md), read from the game's
+   scene files):
+   - **What lives where:** track ballast, bridge decks and tunnel portals are in the Near scenery
+     tiles. Platforms, buildings, roads, yards and tunnel walls are in the Far tiles. Buffer stops
+     and the tunnel triggers are in the always-loaded railway scene.
+   - **So terrain alone isn't enough:**
+     - on a bridge a derailed car falls into the valley;
+     - in a tunnel it hits the terrain;
+     - on open track it sinks below the ballast the client has.
+   - **Heightmap proxies are rejected:** DV's in-memory heightmap is only 8 m resolution, and has no
+     ballast, bridges or tunnels.
+   - **The recommendation:** patched multi-anchor terrain (six small patches, about 40 MB per
+     extra player) plus one streamer loading the union of tiles around every player (two patches).
+     It's a medium job, not a large one.
 2. **Physics LOD reference points.** `DistanceLodSystem` already takes the minimum distance over a
    list (`DistanceLodSystem.cs:316-330`). Add each remote player's position, so cars near a client
    get walkable and item colliders and their items stay active. It's a transpiler on one method.
@@ -691,7 +695,7 @@ This plan keeps what's specific to running without a local player.
 | **0. Harness light host** (DevTools only) | **Built.** `dvmp up --host-only` in a named session, a distinct host GUID, a background cap of 30, and `dvmp perf`. Still to do: run it with the user joining from VR, sampling `dvmp perf` every 30 s over a long session, which is the split test for #78. | Done; the VR run remains |
 | **1. Service-identity host** (shipped, behind `-mp-dedicated`) | **Built** (see [Implementation status](#implementation-status-2026-10-17)). Keep the loopback client and flag its `ServerPlayer`. Add a `GameplayPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
 | **2. Unattended operation** | A timed save, save on stop, backups and a save lock. Owner and admin identities with chat commands (save, stop, kick, ban, pay fees, game parameters). A serverbound fee and debt payment. Pause when empty. A heartbeat file and a watchdog. (Migrating the old host body's state is replaced by the version-1 conversion in [server-player-split.md](server-player-split.md#save-format).) | Medium |
-| **3. Anchor the world on clients** | **(a) and (b) built** (see [Implementation status](#implementation-status-2026-10-17)). (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: heightmap ground proxies first; multi-anchor `TerrainGrid` and streamers only if measurement shows platforms and buildings matter. Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) large |
+| **3. Anchor the world on clients** | **(a) and (b) built** (see [Implementation status](#implementation-status-2026-10-17)). (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: multi-anchor `TerrainGrid` and one streamer loading the union of tiles around every player, with a centred origin. Heightmap proxies are rejected. See [multi-anchor-streaming.md](multi-anchor-streaming.md). Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) medium |
 | **4. GPU-less host** (optional) | The five render stubs and three silenced systems from section 1, gated on `-nographics`. Tested against each mod in use. | Small, plus per-mod testing |
 
 **Tests for each stage** go in `DevTools/Scenarios`: the existing gate with the host as a service
