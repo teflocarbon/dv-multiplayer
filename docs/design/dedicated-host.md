@@ -1,17 +1,29 @@
 # Dedicated host: the full game as a server with no local player
 
-> Status: built through stage 1 and stage 3 (a, b):
-> - stage 0: a DevTools host-only harness mode and a perf probe;
-> - stage 1: the `-mp-dedicated` service-identity host;
-> - stage 3 (a, b): the world follows a player.
+> Status:
+> - built: stage 0 (a DevTools host-only harness mode and a perf probe), stage 1 (the
+>   `-mp-dedicated` service-identity host), and stage 3 (a, b) (the world follows a player);
+> - stage 2: built and tested, apart from paying fees through the career manager's screen
+>   (`/payfees` covers admins meanwhile);
+> - stage 4 isn't built.
 >
-> Stage 2, stage 3c and stage 4 aren't built; see
+> The work every host needs (per-player state, multi-anchor streaming) is now planned in
+> [server-player-split.md](server-player-split.md). See
 > [Implementation status](#implementation-status-2026-10-17). The investigation below was checked
 > against the decompiled game (build 99, Unity 2019.4.40) and this repository on 2026-10-17. The
 > headless launch was tried for real with the dvmp harness, using the throwaway patches described
 > in [Prototype](#prototype-what-was-run).
 
 ## Purpose
+
+**Where this fits.** The target model is [server-player-split.md](server-player-split.md): one
+server that owns the world, and players who are all its clients. A player host is a client and the
+server in one process, with graphics. A dedicated host is that server with nobody logged in
+locally. This document covers what's specific to having no local player, and the investigation
+that led here. The pieces every host needs are moving to the split:
+- player state stored per GUID;
+- the world kept loaded around every player;
+- physics LOD for every player.
 
 LocoMP ships a headless server that doesn't run Derail Valley, so it can't run DV's physics. This
 mod's host is already the real game: it simulates every train and validates client intent (see
@@ -89,12 +101,54 @@ Checked in the game (2026-10-17):
 - **Scenario setup:** chat commands are sent without the slash, because Git Bash turns `/save`
   into a Windows path.
 
-Still to do in stage 2:
-- moving the old host body's inventory to the owner's GUID the first time a save is opened as a
-  dedicated host;
-- a save lock, so the same save can't be opened in single player while the server runs;
-- paying fees through the career manager's own screen from a client;
-- the watchdog.
+### Stage 2 (second part): watchdog, backups, save lock
+
+These are built and tested in the game:
+
+- **Backups** (`DedicatedHost.BackUp`, called after each save): every `-mp-backup-minutes`
+  (default 60; 0 turns them off), a copy of the newest save goes to `DedicatedBackups` in the
+  career's folder, keeping the newest `-mp-backups` (default 48). The copies are outside DV's
+  autosave rotation.
+- **Graceful stop:**
+  - `/stop` and a stop request file (the heartbeat path plus `.stop`, which the host checks every
+    5 s) both go through `DedicatedHost.Stop`.
+  - That saves, tells the players and quits.
+  - It marks the heartbeat `stopping` first, so a watchdog doesn't take the exit for a crash.
+- **Watchdog** (`Tools/DedicatedHost/run-dedicated-host.ps1`): it starts the game with
+  `-mp-dedicated`, and handles each way the game can end:
+  - **a crash:** it restarts the game. After three exits within 10 minutes, it waits 5 minutes
+    first.
+  - **a hang** (the heartbeat goes stale for `-StaleSeconds`): it kills the game and restarts it.
+  - **`/stop`:** it stops too.
+  - **`-DailyRestart HH:mm`:** it restarts the game through the stop request.
+  - **Ctrl+C:** it stops the game gracefully.
+- **Save lock** (`DedicatedHostSaveLock`, `LauncherControllerSaveLockPatch`):
+  - While its world is loaded, a dedicated host keeps `dedicated-host.lock` open in the career's
+    folder, with sharing denied.
+  - DV's launcher on any other game with the mod then refuses to start a save of that career,
+    with a popup.
+  - Windows drops the lock when the host process ends, so a crash never leaves the career locked.
+  - Note: parallel dvmp pairs share the test careers, so a dedicated pair locks its career against
+    the others.
+
+Checked in the game (2026-10-17), with one host started by the watchdog (`-AutosaveMinutes 1`) and
+a dvmp client:
+- **Startup:** the host loaded in about 70 s and paused with nobody online. It kept the lock open,
+  and the client's game found the career locked (`IsLocked`). An exclusive open from another
+  process failed.
+- **Backup:** the first timed save after the client joined wrote a copy to `DedicatedBackups`.
+- **Crash:** killed outright, the host was restarted by the watchdog 15 s later. The new process
+  took the lock again, since the dead one's lock had gone with it.
+- **Stop request:** the stop file made the host save, mark the heartbeat `stopping`, quit within
+  10 s and remove its lock. The watchdog then ended without restarting it.
+
+**Replaced:** moving the old host body's inventory to its owner. That's now the version-1
+conversion in [server-player-split.md](server-player-split.md#save-format). It isn't
+dedicated-specific: once the host's own player is stored per GUID like everyone else's, a
+dedicated host just loads the save, and the body stays empty.
+
+**Still to do in stage 2:** paying fees through the career manager's own screen from a client.
+`/payfees` covers admins until then.
 
 ### Stage 3 (a, b): the world follows a player
 
@@ -624,13 +678,19 @@ renderer. The windowed game logs far less, but the mod's own debug log should be
 ## Recommended plan
 
 Each stage is useful on its own. The earlier report's stage 0 to 2 still stand; this version adds
-what the experiments showed.
+what the experiments showed. Since then, the work every host needs has moved to
+[server-player-split.md](server-player-split.md#plan):
+- player state per GUID, including the conversion of old careers;
+- physics LOD for every player on every host;
+- multi-anchor streaming, which was 3c here.
+
+This plan keeps what's specific to running without a local player.
 
 | Stage | Work | Size |
 |---|---|---|
 | **0. Harness light host** (DevTools only) | **Built.** `dvmp up --host-only` in a named session, a distinct host GUID, a background cap of 30, and `dvmp perf`. Still to do: run it with the user joining from VR, sampling `dvmp perf` every 30 s over a long session, which is the split test for #78. | Done; the VR run remains |
 | **1. Service-identity host** (shipped, behind `-mp-dedicated`) | **Built** (see [Implementation status](#implementation-status-2026-10-17)). Keep the loopback client and flag its `ServerPlayer`. Add a `GameplayPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
-| **2. Unattended operation** | A timed save, save on stop, backups and a save lock. Owner and admin identities with chat commands (save, stop, kick, ban, pay fees, game parameters). A serverbound fee and debt payment. Pause when empty. A heartbeat file and a watchdog. Migrate the old host body's state to the user's GUID. Update `docs/architecture.md` ("the host is also a player"). | Medium |
+| **2. Unattended operation** | A timed save, save on stop, backups and a save lock. Owner and admin identities with chat commands (save, stop, kick, ban, pay fees, game parameters). A serverbound fee and debt payment. Pause when empty. A heartbeat file and a watchdog. (Migrating the old host body's state is replaced by the version-1 conversion in [server-player-split.md](server-player-split.md#save-format).) | Medium |
 | **3. Anchor the world on clients** | **(a) and (b) built** (see [Implementation status](#implementation-status-2026-10-17)). (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: heightmap ground proxies first; multi-anchor `TerrainGrid` and streamers only if measurement shows platforms and buildings matter. Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) large |
 | **4. GPU-less host** (optional) | The five render stubs and three silenced systems from section 1, gated on `-nographics`. Tested against each mod in use. | Small, plus per-mod testing |
 

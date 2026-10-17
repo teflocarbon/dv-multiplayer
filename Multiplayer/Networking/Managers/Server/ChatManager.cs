@@ -394,17 +394,7 @@ public class ChatManager
             Reply(sender, $"/{COMMAND_STOP} only shuts down a dedicated server.");
             return;
         }
-        bool saved = DedicatedHost.Save($"/{COMMAND_STOP} by {sender.Username}");
-        ServerMessage(saved ? "The server is shutting down; the game is saved." : "The server is shutting down (saving failed).", null);
-        Multiplayer.Log($"Dedicated host: stopping, asked by {sender.Username}");
-        // A moment for the message to go out before the transport closes.
-        NetworkLifecycle.Instance.StartCoroutine(QuitSoon());
-    }
-
-    private static System.Collections.IEnumerator QuitSoon()
-    {
-        yield return new UnityEngine.WaitForSecondsRealtime(1f);
-        UnityEngine.Application.Quit();
+        DedicatedHost.Stop($"/{COMMAND_STOP} by {sender.Username}");
     }
 
     // What the career manager's fees screen does for each debt (its cash register takes the money,

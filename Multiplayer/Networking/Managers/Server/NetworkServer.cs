@@ -194,6 +194,7 @@ public class NetworkServer : NetworkManager
     {
         Log($"Stopping server...");
         WorldStreamingInit.LoadingFinished -= OnLoaded;
+        DedicatedHostSaveLock.Release();
 
         if (lobbyServerManager != null)
         {
@@ -424,6 +425,7 @@ public class NetworkServer : NetworkManager
     {
         // A dedicated host loads its world around a player rather than its parked body.
         DedicatedHostAnchor.Create();
+        DedicatedHostSaveLock.Take();
         // ... and with nobody online yet, waits paused.
         DedicatedHost.OnPlayersChanged(someoneLeft: false);
 

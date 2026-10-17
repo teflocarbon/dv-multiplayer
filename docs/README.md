@@ -34,7 +34,8 @@ host-authority model works end to end, then points at the rest.
 
 | Doc | What it covers |
 |---|---|
-| [design/dedicated-host.md](design/dedicated-host.md) | The full game as a host with no local player: headless test, streaming far from the host, host-is-a-player assumptions, operations and a staged plan (stage 0, the dvmp host-only mode, is built) |
+| [design/server-player-split.md](design/server-player-split.md) | The target model: one server that owns the world, and players who are all its clients, whether the server runs in a player's game or on a dedicated host. Per-player saves, the one-time conversion of old careers, and world coverage for every player |
+| [design/dedicated-host.md](design/dedicated-host.md) | The full game as a host with no local player (`-mp-dedicated`, partly built): the investigation, the service identity, the world following a player, running unattended, and what's left |
 
 ## Tooling
 

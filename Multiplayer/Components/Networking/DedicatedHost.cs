@@ -113,14 +113,116 @@ public static class DedicatedHost
             Multiplayer.LogWarning($"Dedicated host: not saving ({reason}): the game doesn't allow saving right now");
             return false;
         }
-        bool saved = SaveGameManager.Instance.Save(DV.Common.SaveType.Auto) != null;
+        ISaveGame save = SaveGameManager.Instance.Save(DV.Common.SaveType.Auto);
+        bool saved = save != null;
         if (saved)
         {
             LastSave = DateTime.UtcNow;
             LastSaveReason = reason;
+            BackUp(save);
         }
         Multiplayer.Log(saved ? $"Dedicated host: saved ({reason})" : $"Dedicated host: saving failed ({reason})");
         return saved;
+    }
+
+    /// <summary>Minutes between backup copies (-mp-backup-minutes, default 60; 0 turns them off).</summary>
+    public static int BackupMinutes => int.TryParse(Arg("-mp-backup-minutes"), out int minutes) ? Math.Max(0, minutes) : 60;
+
+    /// <summary>How many backup copies to keep (-mp-backups, default 48).</summary>
+    public static int BackupsKept => int.TryParse(Arg("-mp-backups"), out int count) ? Math.Max(1, count) : 48;
+
+    private static DateTime lastBackup = DateTime.MinValue;
+
+    // DV's Auto saves rotate through a few slots, so frequent saves push old ones out. Every
+    // BackupMinutes a copy of the newest goes to DedicatedBackups in the career's folder, outside
+    // that rotation, keeping the newest BackupsKept.
+    private static void BackUp(ISaveGame save)
+    {
+        if (BackupMinutes == 0 || (DateTime.UtcNow - lastBackup).TotalMinutes < BackupMinutes)
+            return;
+        try
+        {
+            if (save is not DV.UserManagement.Data.SaveGameSnapshot snapshot || string.IsNullOrEmpty(snapshot.BasePath))
+                return;
+            // Save paths are relative to the user storage's base, the game's persistent data folder.
+            string file = System.IO.Path.Combine(Application.persistentDataPath, snapshot.BasePath);
+            if (!System.IO.File.Exists(file))
+                return;
+            string careerDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(file));
+            string backups = System.IO.Path.Combine(careerDir, "DedicatedBackups");
+            System.IO.Directory.CreateDirectory(backups);
+            System.IO.File.Copy(file, System.IO.Path.Combine(backups, $"{DateTime.Now:yyyyMMdd-HHmmss}_{System.IO.Path.GetFileName(file)}"), overwrite: true);
+            foreach (var old in new System.IO.DirectoryInfo(backups).GetFiles("*.save")
+                         .OrderByDescending(f => f.LastWriteTimeUtc).Skip(BackupsKept))
+                old.Delete();
+            lastBackup = DateTime.UtcNow;
+            Multiplayer.Log($"Dedicated host: backed the save up to {backups}");
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogWarning($"Dedicated host: backing the save up failed: {e.Message}");
+        }
+    }
+
+    /// <summary>True once the host has been told to stop; the heartbeat says so, for a watchdog.</summary>
+    public static bool Stopping { get; private set; }
+
+    /// <summary>
+    /// Saves, tells the players and quits, from /stop or a stop request file. The heartbeat is
+    /// marked first, so a watchdog doesn't take the exit for a crash.
+    /// </summary>
+    public static void Stop(string reason)
+    {
+        if (Stopping || !NetworkLifecycle.Instance.IsDedicatedHost)
+            return;
+        Stopping = true;
+        bool saved = Save(reason);
+        NetworkLifecycle.Instance.Server.ChatManager.ServerMessage(
+            saved ? "The server is shutting down; the game is saved." : "The server is shutting down (saving failed).", null);
+        Multiplayer.Log($"Dedicated host: stopping ({reason})");
+        WriteHeartbeat();
+        // A moment for the message to go out before the transport closes.
+        NetworkLifecycle.Instance.StartCoroutine(QuitSoon());
+    }
+
+    private static IEnumerator QuitSoon()
+    {
+        yield return new WaitForSecondsRealtime(1f);
+        Application.Quit();
+    }
+
+    /// <summary>A watchdog asks the host to stop by creating this file (the heartbeat path + ".stop").</summary>
+    public static string StopRequestPath => HeartbeatPath == null ? null : HeartbeatPath + ".stop";
+
+    // One JSON object, replaced whole each time, so a reader never sees half of one.
+    internal static void WriteHeartbeat()
+    {
+        if (HeartbeatPath == null)
+            return;
+        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
+        try
+        {
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(new
+            {
+                time = DateTime.UtcNow.ToString("o"),
+                tick = lifecycle.Tick,
+                // Unscaled: while paused the scaled frame time is zero.
+                fps = Math.Round(1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f), 1),
+                players = lifecycle.IsServerRunning ? lifecycle.Server.GameplayPlayers.Select(player => player.Username).ToArray() : new string[0],
+                paused = AppUtil.Instance.IsTimePaused,
+                stopping = Stopping,
+                lastSave = LastSave?.ToString("o"),
+                monoHeapMb = GC.GetTotalMemory(false) / (1024 * 1024),
+            });
+            string temp = HeartbeatPath + ".tmp";
+            System.IO.File.WriteAllText(temp, json);
+            if (System.IO.File.Exists(HeartbeatPath)) System.IO.File.Replace(temp, HeartbeatPath, null);
+            else System.IO.File.Move(temp, HeartbeatPath);
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogWarning($"Dedicated host: couldn't write the heartbeat file: {e.Message}");
+        }
     }
 
     /// <summary>Called when the main menu loads. Hosts the -mp-save save once per process.</summary>
@@ -237,35 +339,20 @@ public sealed class DedicatedHostMode : MonoBehaviour
         if (DedicatedHost.HeartbeatPath != null && now >= nextHeartbeat)
         {
             nextHeartbeat = now + 5f;
-            WriteHeartbeat(lifecycle);
-        }
-    }
-
-    // One JSON object, replaced whole each time, so a reader never sees half of one.
-    private static void WriteHeartbeat(NetworkLifecycle lifecycle)
-    {
-        try
-        {
-            string json = Newtonsoft.Json.JsonConvert.SerializeObject(new
+            DedicatedHost.WriteHeartbeat();
+            // A watchdog's graceful stop (e.g. a daily restart): save and quit as /stop does.
+            try
             {
-                time = DateTime.UtcNow.ToString("o"),
-                tick = lifecycle.Tick,
-                // Unscaled: while paused the scaled frame time is zero.
-                fps = Math.Round(1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f), 1),
-                players = lifecycle.Server.GameplayPlayers.Select(player => player.Username).ToArray(),
-                paused = AppUtil.Instance.IsTimePaused,
-                lastSave = DedicatedHost.LastSave?.ToString("o"),
-                monoHeapMb = GC.GetTotalMemory(false) / (1024 * 1024),
-            });
-            string path = DedicatedHost.HeartbeatPath;
-            string temp = path + ".tmp";
-            System.IO.File.WriteAllText(temp, json);
-            if (System.IO.File.Exists(path)) System.IO.File.Replace(temp, path, null);
-            else System.IO.File.Move(temp, path);
-        }
-        catch (Exception e)
-        {
-            Multiplayer.LogWarning($"Dedicated host: couldn't write the heartbeat file: {e.Message}");
+                if (System.IO.File.Exists(DedicatedHost.StopRequestPath))
+                {
+                    System.IO.File.Delete(DedicatedHost.StopRequestPath);
+                    DedicatedHost.Stop("stop requested by the watchdog");
+                }
+            }
+            catch (Exception e)
+            {
+                Multiplayer.LogWarning($"Dedicated host: couldn't read the stop request: {e.Message}");
+            }
         }
     }
 
