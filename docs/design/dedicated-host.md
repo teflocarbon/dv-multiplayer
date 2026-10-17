@@ -93,6 +93,19 @@ Checked in the game (2026-10-17):
   nearest-player distance is measured to it.
 - **Auto-host:** `-mp-dedicated -mp-save "DVMP Test Career 2" -mp-port 7899 -mp-visibility private`
   hosted in 44 s with no probe, and a dvmp client joined.
+- **Scenarios against a dedicated host** (`UP_ARGS=--dedicated`, one pair, the 03:37:14 save of
+  "DVMP Test Career 2"): all nine passed. The runs were:
+  - `lost-and-found`
+  - `manual-uncouple` and `manual-recouple-lag`
+  - `cab-controls`
+  - `car-fire`
+  - `rejoin` and `rejoin-crash`
+  - `shop`
+  - `jobs`
+
+  The gate's `jobs` run is `ACCEPT=host`, so the harness took the job with the parked body. That
+  shows the host-side job path still works, not that a dedicated host should be taking jobs.
+- **Normal mode on the same build:** `rejoin`, `rejoin-crash` and `jobs` passed on one pair.
 
 Not done in stage 1, because they belong to stage 2 or later:
 
