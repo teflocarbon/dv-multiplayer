@@ -52,7 +52,7 @@ checks below, so most fixes are first tested by playing it.
 | `/weather clear\|rain\|storm [hours]`, `/weather auto`, `/weather new` | 52196852 | Untested |
 | `/time HH:mm` and `/time +hours` (forward only) | a6f18314 | Untested |
 | `/repair [player] [all]` | 0372e8d4 | Tested by hand on the live server (a DE6 with dead traction motors) |
-| The server runs from its own folder, with its own mods and settings; the watchdog and `Start Dedicated Server.cmd` ship with the mod | see the commit below | Folder setup tested offline (7 mods copied, a second run copied nothing); not yet started a game |
+| The server runs from its own folder, with its own mods and settings; the watchdog and `Start Dedicated Server.cmd` ship with the mod | a2ac773d, and its own copy of Unity Mod Manager in the commit below | Tested: the server started twice, loaded all 7 mods from its own folder, created its lobby and stopped cleanly |
 | `/season spring\|summer\|autumn\|winter\|next\|blizzard\|calm`, with the [Dynamic Seasons](https://github.com/HerodrineYT/DVSeasons) mod (0.4.0, which syncs itself through the Multiplayer API, the host as its authority) | see the commit below | Untested |
 
 ### Open
@@ -81,6 +81,7 @@ checks below, so most fixes are first tested by playing it.
 | The S282's mechanical lubricator handle didn't move at all | The lease fix covers its port, but not a handle that won't move. It may be VR interaction |
 | Manual oiling | Probably fixed by the lease change. Confirm with the S282 `cab-controls` case |
 | "Items fall through the map" | Never reproduced. Needs the original circumstances |
+| "World item state save failed for <id>: Object reference not set to an instance of an object" on save (82 times in the playtest's server log, 3 in a test start with nobody online) | The warning has no stack trace. Log the exception's stack, then see which items and which step of the save fail |
 | Memory per player, and the cost of the extra Far tiles on a player host | Not measured |
 
 ### Before the next build goes out

@@ -18,17 +18,17 @@
     without a slash is said in chat as the server.
 
     The server has its own folder (-ServerDir, default %LOCALAPPDATA%\dv-multiplayer\dedicated-host\server)
-    and is started from it. Unity Mod Manager loads mods from the Mods folder of the folder the game
-    starts in, so the server has its own mods, and each mod keeps its settings (the Multiplayer
-    server name, password, admins) inside its folder, apart from your own game's:
-      - The first run copies every mod of your game into the server's Mods folder.
+    with its own copy of Unity Mod Manager (Managed\UnityModManager), which the game is told to load
+    instead of its own. That copy loads the server's Mods folder and keeps its own list of enabled
+    mods (Params.xml), and each mod keeps its settings (the Multiplayer server name, password,
+    admins) inside its folder, so all of it is apart from your own game's:
+      - The first run copies every mod of your game into the server's Mods folder, with its settings
+        and whether it's enabled.
       - Every start refreshes each of them from your game's copy (matched by mod ID), except its
         Settings.xml, so versions always match what players have.
       - To keep a mod off the server, delete its folder from the server's Mods. To add one, copy its
         folder in. Players must have the same mods as the server to join.
-      - -SharedMods starts the game from its own folder instead, with your game's mods and settings.
-    Whether a mod is enabled is kept by Unity Mod Manager for the whole install, so it's shared;
-    leaving a mod out of the server's folder is what keeps it off the server.
+      - -SharedMods runs the game's own Unity Mod Manager instead, with your game's mods and settings.
 
     Steam must be running and logged in to an account that owns Derail Valley.
 
@@ -73,6 +73,8 @@ if ($GameDir -eq "") {
                else { "C:\Program Files (x86)\Steam\steamapps\common\Derail Valley" }
 }
 if ($ServerDir -eq "") { $ServerDir = Join-Path $DataDir "server" }
+# UMM checks it sits in a Managed\UnityModManager folder, so its copy does too.
+$serverUmm = Join-Path $ServerDir "Managed\UnityModManager"
 $exe = Join-Path $GameDir "DerailValley.exe"
 if (-not (Test-Path $exe)) { throw "Derail Valley not found at $exe (pass -GameDir)" }
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "logs") | Out-Null
@@ -176,14 +178,30 @@ function Sync-Mod([string]$from, [string]$to) {
     return 0
 }
 
-# The server's own folder: its Mods, refreshed from the game's, and Steam's app ID for a game
-# started outside Steam's own folder.
+# The server's own copy of Unity Mod Manager, which Doorstop loads instead of the game's (see
+# Start-Game). Its Config.xml points it at the server's Mods; its Params.xml (which mods are
+# enabled) starts as a copy of the game's and is the server's own from then on.
+function Initialize-ServerUmm([string]$mods) {
+    $gameUmm = Join-Path $GameDir "DerailValley_Data\Managed\UnityModManager"
+    New-Item -ItemType Directory -Force -Path $serverUmm | Out-Null
+    $out = & robocopy $gameUmm $serverUmm /E /XF Config.xml Params.xml Log.txt /R:1 /W:1 /NJH /NJS /NFL /NDL /NP
+    if ($LASTEXITCODE -ge 8) { throw "copying Unity Mod Manager to $serverUmm failed (robocopy $LASTEXITCODE): $($out -join ' ')" }
+    $config = New-Object Xml.XmlDocument
+    $config.Load((Join-Path $gameUmm "Config.xml"))
+    $config.Config.ModsDirectory = $mods
+    $config.Save((Join-Path $serverUmm "Config.xml"))
+    $params = Join-Path $serverUmm "Params.xml"
+    $gameParams = Join-Path $gameUmm "Params.xml"
+    if (-not (Test-Path $params) -and (Test-Path $gameParams)) { Copy-Item -LiteralPath $gameParams -Destination $params }
+}
+
+# The server's own folder: its Mods, refreshed from the game's, and its own Unity Mod Manager.
 function Initialize-ServerDir {
     $mods = Join-Path $ServerDir "Mods"
     $gameMods = Join-Path $GameDir "Mods"
     $first = -not (Test-Path $mods)
     New-Item -ItemType Directory -Force -Path $mods | Out-Null
-    Set-Content -Path (Join-Path $ServerDir "steam_appid.txt") -Value "588030" -NoNewline
+    Initialize-ServerUmm $mods
     $gameById = @{}
     foreach ($dir in Get-ChildItem -LiteralPath $gameMods -Directory -ErrorAction SilentlyContinue) {
         $id = Get-ModId $dir.FullName
@@ -219,9 +237,12 @@ function Start-Game {
                    "-mp-autosave", $AutosaveMinutes, "-mp-fps", $Fps, "-logFile", "`"$log`"")
     if ($Port -gt 0) { $arguments += @("-mp-port", $Port) }
     if ($Visibility -ne "") { $arguments += @("-mp-visibility", $Visibility) }
+    # Unity Mod Manager looks for Mods in the working directory, but the game resets that to its own
+    # folder before UMM starts, so the server picks its mods by giving Doorstop (which starts UMM)
+    # the server's UMM instead.
+    if (-not $SharedMods) { $arguments += @("--doorstop-target-assembly", "`"$(Join-Path $serverUmm 'UnityModManager.dll')`"") }
     $style = if ($Visible) { "Normal" } else { "Minimized" }
-    $workingDir = if ($SharedMods) { $GameDir } else { $ServerDir }
-    $process = Start-Process -FilePath $exe -WorkingDirectory $workingDir -ArgumentList ($arguments -join " ") -WindowStyle $style -PassThru
+    $process = Start-Process -FilePath $exe -WorkingDirectory $GameDir -ArgumentList ($arguments -join " ") -WindowStyle $style -PassThru
     if ($script:logReader) { $script:logReader.Dispose() }
     $script:logReader = $null
     $script:logRest = ""

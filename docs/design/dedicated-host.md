@@ -141,17 +141,27 @@ These are built and tested in the game:
   - **`/stop`:** it stops too.
   - **`-DailyRestart HH:mm`:** it restarts the game through the stop request.
   - **Ctrl+C:** it stops the game gracefully.
-  - **Its own folder** (added 2026-10-17, untested in the game):
-    - The server starts from `%LOCALAPPDATA%\dv-multiplayer\dedicated-host\server` (`-ServerDir`).
-      Unity Mod Manager loads mods from the Mods folder of the game's working directory, so the
-      server has its own mods, and each mod's settings (Multiplayer's server name, password and
-      admins among them) apart from the player's own game. `steam_appid.txt` there lets Steam start
-      the game outside its own folder.
+  - **Its own folder** (added 2026-10-17, tested by starting the server twice):
+    - The server has its own folder, `%LOCALAPPDATA%\dv-multiplayer\dedicated-host\server`
+      (`-ServerDir`), with its own copy of Unity Mod Manager in `Managed\UnityModManager`. The game
+      is started with `--doorstop-target-assembly <that copy>\UnityModManager.dll`, so Doorstop
+      (`winhttp.dll`, 4.5) loads it instead of the game's. UMM reads `Config.xml` and `Params.xml`
+      from beside its own DLL, so:
+      - the copy's `Config.xml` has `ModsDirectory` set to the server's `Mods` (an absolute path;
+        UMM combines it with the working directory, which leaves an absolute one as it is);
+      - its `Params.xml`, which mods are enabled, starts as a copy of the game's and is the
+        server's own from then on.
+      Each mod keeps its settings inside its folder, so Multiplayer's server name, password and
+      admins are apart from the player's own game too.
+    - Starting the game from the server folder doesn't work: UMM takes its Mods folder from the
+      working directory, but the game sets that back to its own folder before UMM starts.
+    - UMM checks that its DLL sits in a `Managed\UnityModManager` folder (it only logs an error
+      otherwise), so the copy does. Each start refreshes it from the game's, except its two XML
+      files and `Log.txt`, and rewrites `ModsDirectory`.
     - The first run copies every mod of the game, with its settings. Each start then refreshes the
       server's mods from the game's by mod ID, except `Settings.xml` (robocopy: some mods' paths
       pass Windows' 260-character limit), so versions match what players have. Deleting a mod's
-      folder keeps it off the server. `-SharedMods` starts from the game's folder as before.
-    - Unity Mod Manager's enabled list (`Params.xml`) is for the whole install, so it's shared.
+      folder keeps it off the server. `-SharedMods` runs the game's own UMM, as before.
     - The watchdog and `Start Dedicated Server.cmd` ship in the mod's folder and the release zip
       (`post-build.ps1`), and find the game from there.
   - **Its window** (added 2026-10-17, untested in the game):
