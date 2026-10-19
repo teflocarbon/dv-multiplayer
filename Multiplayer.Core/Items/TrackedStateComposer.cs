@@ -64,6 +64,26 @@ public static class TrackedStateComposer
         return result;
     }
 
+    /// <summary>
+    /// The values the host's copy of an item another player holds or carries may report: only the
+    /// server's own. Its copy runs the item as well (a flashlight's battery drains in the player's
+    /// hand, with no sun on its solar panel), but the holder's game is the one they see, so the
+    /// rest are theirs to report; the host's drift overwrote them (playtest 3).
+    /// </summary>
+    public static Dictionary<string, object> HostReportsForRemoteHolder(
+        IEnumerable<TrackedStateEntry> entries,
+        IReadOnlyDictionary<string, object> states)
+    {
+        if (entries == null) throw new ArgumentNullException(nameof(entries));
+        var result = new Dictionary<string, object>(StringComparer.Ordinal);
+        if (states == null)
+            return result;
+        foreach (TrackedStateEntry entry in entries)
+            if (entry.ServerAuthoritative && states.TryGetValue(entry.Key, out object value))
+                result[entry.Key] = value;
+        return result;
+    }
+
     public static TrackedStateMergePlan PlanMerge(
         IEnumerable<TrackedStateEntry> localEntries,
         IReadOnlyDictionary<string, object> incoming,

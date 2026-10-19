@@ -63,6 +63,25 @@ public sealed class ItemReleaseSyncTests
     }
 
     [Test]
+    public void StateMachine_AcceptsHoldersSwitchOffAfterTheServersBatteryTicks()
+    {
+        // Player 3 carries a flashlight; the server's copy's battery ticks twice (playtest 3).
+        ItemAuthorityState state = State(revision: 4, placement: AuthorityPlacement.World);
+        state = Apply(state, actor: 3, expected: 4, AuthorityPlacement.PlayerInventory); // -> 5
+        state = Apply(state, actor: 1, expected: 0, null, force: true);                  // -> 6
+        state = Apply(state, actor: 1, expected: 0, null, force: true);                  // -> 7
+
+        Assert.That(state.Placement, Is.EqualTo(AuthorityPlacement.PlayerInventory));
+        Assert.That(state.PlacementPlayerId, Is.EqualTo(3), "object state doesn't move it to the server");
+
+        ItemAuthorityResult switchOff = ItemAuthorityStateMachine.Apply(state,
+            Command(actor: 3, expected: 5, null));
+
+        Assert.That(switchOff.Accepted, Is.True, switchOff.RejectionReason);
+        Assert.That(switchOff.State.PlacementPlayerId, Is.EqualTo(3));
+    }
+
+    [Test]
     public void StateMachine_StillRefusesATransitionMadeBeforeTheItemMoved()
     {
         ItemAuthorityState state = State(revision: 4, placement: AuthorityPlacement.World);

@@ -54,7 +54,11 @@ public static class FlashlightItemPatch
                     __instance.battery.UpdatePower(0f);          //process a delta of 0 to force an update
                 },
             (current, last) => (Math.Abs(current - last) >= 1.0f) || (current != last && (current == 0.0f || current == 1.0f)), //Don't communicate updates for changes less than 1.0f, unless hitting upper/lower limits
-            true                                                 //This parameter is driven by the server: true
+            // The holder's: it drains and charges (the solar panel) in their game. The server's copy
+            // of a carried flashlight never sees the sun, and as the authority it ran the holder's
+            // battery down on its own schedule (playtest 2026-10-19). Lying in the world, the
+            // server's copy still reports it.
+            serverAuthoritative: false
             );
 
         networkedItem.RegisterTrackedValue(

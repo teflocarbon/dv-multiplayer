@@ -301,7 +301,13 @@ and one thrown onto a train vanished. What the code does now:
   a pending lease grant, a lease transfer and a spatial commit stay good while the item's
   placement is unchanged since their revision, and so does a client transition made against a
   revision inside the run (a pickup that crossed the host's flame change). Any other revision
-  change ends the run.
+  change ends the run. What counts as a placement change is `ItemUpdateData.ChangesPlacement`
+  (create, item state or position). The registry used to test the update type against
+  `FullSync`, which contains `ObjectState`, so every object-state change ended the run and booked
+  the item to the acting player. On the host, that was the host's own player: each battery tick of
+  the server's copy of a carried flashlight logged "recorded as the server's player's", and the
+  holder's next change (their "off", a stash on the belt) arrived stale and was refused
+  (playtest 2026-10-19).
 
 The resting report the tracker asked for ("the thrower's game reports where the item comes to
 rest, car parent included") is the existing settlement: the releaser holds the lease and proposes
