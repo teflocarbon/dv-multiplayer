@@ -19,7 +19,7 @@ cars=""
 cleanup() { [ -n "$cars" ] && $D eval -t host -m body -a cars="$cars" 'var ids = ctx.Args["cars"].Split((char)44); foreach (var c in CarSpawner.Instance.AllCars.Where(c => c != null && ids.Contains(c.ID)).ToList()) CarSpawner.Instance.DeleteCar(c); return 0;' >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 # Every car without a NetworkedTrainCar, on the peer it runs on.
-unnetworked() { $D eval -t $1 -m body 'return string.Join(",", CarSpawner.Instance.AllCars.Where(c => c != null && c.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>() == null).Select(c => c.ID));' | result; }
+unnetworked() { $D eval -t $1 -m body 'return string.Join(",", CarSpawner.Instance.AllCars.Where(c => c != null && c.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>() == null).Select(c => c.ID));' | result; }
 empty_sets() { $D eval -t host -m body 'return Trainset.allSets.Count(s => s.cars.Count == 0).ToString();' | result; }
 fails=0
 before_host=$(unnetworked host); before_client=$(unnetworked client); before_empty=$(empty_sets)
@@ -32,7 +32,7 @@ for n in 1 $N; do
   h=$(echo "$r" | field ids)
   echo "   on $(echo "$r" | field track): pool reused $(echo "$r" | field reused) of $n objects; old net IDs $(echo "$r" | field oldIds); new $h"
   sleep 2
-  c=$($D eval -t client -m body -a cars="$new" 'var ids = ctx.Args["cars"].Split((char)44); return string.Join(",", ids.Select(id => { var c = CarSpawner.Instance.AllCars.FirstOrDefault(x => x != null && x.ID == id); return id + ":" + (c == null ? "missing" : (c.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>()?.NetId ?? 0).ToString()); }));' | result)
+  c=$($D eval -t client -m body -a cars="$new" 'var ids = ctx.Args["cars"].Split((char)44); return string.Join(",", ids.Select(id => { var c = CarSpawner.Instance.AllCars.FirstOrDefault(x => x != null && x.ID == id); return id + ":" + (c == null ? "missing" : (c.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>()?.NetId ?? 0).ToString()); }));' | result)
   echo "   client $c"
   o=$(node -e '
     const [h,c,oldIds]=process.argv.slice(1); const bad=[]; const old=new Set(oldIds.split(","));
