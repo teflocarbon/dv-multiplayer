@@ -18,7 +18,6 @@ Multiplayer.Server.Session.LobbyServerManager -> Multiplayer.Menus.ServerBrowser
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.World.TimeAdvancePatch
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
-Multiplayer.Server.World.GlobalShopControllerPatch -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Api.APIProvider -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Api.ModCompatibilityManager -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.NetworkServer
@@ -112,12 +111,3 @@ Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.MainMenuT
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.RightPaneController_Patch
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.ServerBrowserPane
 Multiplayer.Shared.Utils.UIHelpers -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
-Multiplayer.Shared.World.HazmatSync -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.World.HazmatSync -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.World.NetworkedGenericSwitch -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.World.NetworkedGenericSwitch -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.World.NetworkedGenericSwitch -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.World.NetworkedJunction -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.World.NetworkedJunction -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.World.NetworkedTurntable -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.World.NetworkedTurntable -> Multiplayer.Server.Session.NetworkServer

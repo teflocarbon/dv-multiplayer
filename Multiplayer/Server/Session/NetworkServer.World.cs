@@ -8,13 +8,15 @@ using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Transport;
+using Multiplayer.Server.World;
+using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.World;
 using System;
 
 namespace Multiplayer.Server.Session;
 
 // NetworkServer's world handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkServer
+public partial class NetworkServer : IWorldServer
 {
     /// <summary>A time skip for every game, this server's own client included (/time).</summary>
     public void SendTimeAdvance(float seconds) =>
@@ -125,7 +127,7 @@ public partial class NetworkServer
     private void OnServerboundHazmatIgnitePacket(ServerboundHazmatIgnitePacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))
-            HazmatSync.Server_Ignite(new HazmatSync.ServerPlayerIgnite(packet.GridCoords, packet.Strength, player.AbsoluteWorldPosition));
+            HazmatServer.Ignite(new HazmatServer.PlayerIgnite(packet.GridCoords, packet.Strength, player.AbsoluteWorldPosition));
     }
 
     public void SendSleepState(ITransportPeer peer = null)
@@ -168,6 +170,16 @@ public partial class NetworkServer
             return;
         }
 
-        netSwitch.Server_ReceiveSwitchState(packet.IsOn, player);
+        if (!netSwitch.transform.PlayerCanReach(player))
+        {
+            LogWarning($"Player \"{player.Username}\" tried to change switch [\"{netSwitch.Switch.persistenceKey}\", {netSwitch.NetId}] state but is too far away.");
+            SendGenericSwitchState(netSwitch.NetId, netSwitch.IsOn, player);
+            return;
+        }
+
+        // Switching it here broadcasts the new state (NetworkedGenericSwitch.OnSwitchValueChanged).
+        netSwitch.Apply(packet.IsOn);
     }
+
+    void IWorldServer.BroadcastGenericSwitchState(uint netId, bool isOn) => SendGenericSwitchState(netId, isOn);
 }

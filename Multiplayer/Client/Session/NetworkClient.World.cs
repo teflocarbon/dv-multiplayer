@@ -2,6 +2,7 @@
 using DV.Customization;
 using DV.WeatherSystem;
 using LiteNetLib;
+using Multiplayer.Client.World;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
@@ -14,7 +15,7 @@ using System;
 namespace Multiplayer.Client.Session;
 
 // NetworkClient's world handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkClient
+public partial class NetworkClient : IWorldClient
 {
     private void OnClientboundWeatherPacket(ClientboundWeatherPacket packet)
     {
@@ -108,7 +109,7 @@ public partial class NetworkClient
             return;
         }
 
-        netSwitch.Client_ReceiveSwitchState(packet.IsOn);
+        netSwitch.Apply(packet.IsOn);
     }
 
     public void SendTimeAdvance(float amountOfTimeToSkipInSeconds, bool isSleep = false)
@@ -122,7 +123,7 @@ public partial class NetworkClient
 
     private void OnClientboundHazmatTilesPacket(ClientboundHazmatTilesPacket packet)
     {
-        HazmatSync.Client_Apply(packet.Data);
+        HazmatClient.Apply(packet.Data);
     }
 
     public void SendHazmatIgnite(int gridCoords, float strength)

@@ -41,7 +41,7 @@ sends world state at these steps:
 | `ReadyForGameData` | `ClientboundGameParamsPacket`, `ClientboundSaveGameDataPacket` (wallet, licences, garages, debt flag, job clock) |
 | `ReadyForWorldState` | `ClientboundWeatherPacket`, `ClientboundSleepStatePacket`, `ClientboundShopStockPacket`, `ClientboundRailwayStatePacket`, one `CommonGenericSwitchStatePacket` per switch, `ClientboundCustomizationsPacket` |
 | `ReadyForTrainSets` | Train baseline, which carries each car's exploded flag and cargo |
-| `ReadyForTiles` | Every hazmat tile (`HazmatSync.Server_SendAll`) |
+| `ReadyForTiles` | Every hazmat tile (`HazmatServer.SendAll`) |
 
 The player is added to the server's `peers` table at `ReadyForWorldState`, and every broadcast
 (`SendPacketToAll`) only walks `peers`. Anything broadcast between `ReadyForGameData` and
@@ -188,8 +188,9 @@ exist on that client. `NetworkServer.OnServerboundShopPaymentPacket` rejects NaN
 above `MaxShopPayment` (1,000,000). A payment takes what the wallet has, up to the amount, and adds
 it to that player's escrow (`ServerPlayer.ShopCashInRegisters`); a refund is capped by the escrow.
 
-Purchase (`Server/World/GlobalShopControllerPatch.cs`): a client's `AddItemToInstantiationQueue`
-sends `ServerboundShopPurchasePacket` (shop index, item prefab, amount) instead of spawning, and
+Purchase (`Client/World/GlobalShopControllerClientPatch.cs`; the host's stock sends are in
+`Server/World/GlobalShopControllerPatch.cs`): a client's `AddItemToInstantiationQueue` sends
+`ServerboundShopPurchasePacket` (shop index, item prefab, amount) instead of spawning, and
 bumps its local stock count so the shelf updates at once. The host rejects an unknown shop or item,
 an escrow short of the price by more than 0.5, too little stock, or a buyer more than 50 m from
 `shop.itemSpawnTransform`. A rejection refunds the price from escrow and resends the stock to the
@@ -278,7 +279,9 @@ No scenario covers service stations.
 
 `Shared/World/JunctionPatch.cs` and `TurntableControllerPatch.cs` add `NetworkedJunction` and
 `NetworkedTurntable`. Ids are assigned locally in `Awake` order (`IsIdServerAuthoritative` is
-false): `ushort` for junctions, `byte` for turntables.
+false): `ushort` for junctions, `byte` for turntables. These components, and
+`NetworkedGenericSwitch`, are Shared: they send through `IWorldClient` (`WorldClient.Current`,
+implemented by `NetworkClient.World.cs`) and the server's switch broadcast through `IWorldServer`.
 
 - A junction switched locally sends `CommonChangeJunctionPacket` (id, branch, switch mode).
 - A turntable sends `CommonRotateTurntablePacket` from `OnTick` whenever its `targetYRotation`
@@ -383,20 +386,22 @@ biohazard and radiation flags, fed by leaking cars and evolved by a cellular aut
 used to run its own, fed by its own copy of the leaks, so fires and spills were in different places
 on each screen and a late joiner saw none.
 
-`Shared/World/HazmatSync.cs` and `Client/World/HazmatTileManagerPatch.cs`:
+`Server/World/HazmatServer.cs` (the host), `Client/World/HazmatClient.cs` and
+`Client/World/HazmatTileManagerPatch.cs` (clients), and `Shared/World/HazmatSync.cs` (the tile
+format):
 
-- Host: `HazmatSync.Server_Tick` runs every 12 ticks (half a second at 24 ticks/s). It compares
+- Host: `HazmatServer.Tick` runs every 12 ticks (half a second at 24 ticks/s). It compares
   each tile's visible state (the four flags, and each liquid rounded to 20 L) with what it last
   sent, and sends the tiles that changed plus the ones that disappeared as
   `ClientboundHazmatTilesPacket`, up to 256 tiles per packet, in vanilla's own tile format
   (`HazmatGridTile.SerializeData`), to players at `ReadyForTiles` or later.
-- Join: at `ReadyForTiles` the host sends every tile (`Server_SendAll`).
+- Join: at `ReadyForTiles` the host sends every tile (`HazmatServer.SendAll`).
 - Client: doesn't simulate. `EvolveLiquidCellularAutomaton`, `PrepareReaction` and `ProcessReaction`
   are skipped, and `UpdateTileLiquidContentExternal` drops the local leak queues (the host's leaks
-  feed the host's tiles). `HazmatSync.Client_Apply` replaces each tile's content and spawns or
+  feed the host's tiles). `HazmatClient.Apply` replaces each tile's content and spawns or
   removes fire, corrosion and biohazard effects as flags change, as vanilla does when loading a
   save; removed tiles are reset to empty. The radiation effect follows.
-- Client ignition: `IgniteTerrainTile` on a client calls `HazmatSync.Client_ForwardIgnite`, which
+- Client ignition: `IgniteTerrainTile` on a client calls `HazmatClient.ForwardIgnite`, which
   sends `ServerboundHazmatIgnitePacket` (tile, strength) if the tile isn't burning and holds
   something, at most once a second per tile. The host ignores tiles it doesn't have or that are more
   than 40 m (horizontally) from the sender, clamps the strength to [0, 100000] and calls

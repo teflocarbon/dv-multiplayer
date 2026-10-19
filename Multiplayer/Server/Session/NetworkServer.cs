@@ -26,6 +26,7 @@ using Multiplayer.Server.Dedicated;
 using Multiplayer.Server.Items;
 using Multiplayer.Server.Jobs;
 using Multiplayer.Server.Trains;
+using Multiplayer.Server.World;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -146,7 +147,7 @@ public partial class NetworkServer : NetworkManager
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
     {
         Log($"Server created for {(singlePlayer ? "single player" : "multiplayer")} game");
-        HazmatSync.Reset();
+        HazmatServer.Reset();
         global::Multiplayer.Server.Trains.CargoFireServer.Clear();
 
         IsSinglePlayer = singlePlayer;
@@ -399,7 +400,7 @@ public partial class NetworkServer : NetworkManager
         if (!IsLoaded)
             return;
 
-        HazmatSync.Server_Tick(tick);
+        HazmatServer.Tick(tick);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)
         {
@@ -1172,7 +1173,7 @@ public partial class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForTiles:
-                HazmatSync.Server_SendAll(peer);
+                HazmatServer.SendAll(peer);
                 global::Multiplayer.Server.Trains.CargoFireServer.SendAll(peer);
                 break;
 
