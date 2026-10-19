@@ -59,6 +59,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "radio-tools-host|radio-tools|WHO=host"
   "cab-controls|cab-controls|"
   "cab-controls-authority|cab-controls|MODE=authority"
+  "cab-controls-no-grab|cab-controls|MODE=no-grab-sequence"
   "settle-window|settle-window|"
   "compressor-signal|compressor-signal|"
   "stoker-coal|stoker-coal|"

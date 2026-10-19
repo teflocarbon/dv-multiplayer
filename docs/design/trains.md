@@ -204,7 +204,12 @@ Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and
 hooks (a Custom Car Loader car's, say). A client sends a change to one of those that nobody holds
 the lease on (`NetworkedTrainCarClient.GetUnleasedChange`): the port differs from the host's last value by more than
 0.02, and that value isn't still settling (1.5 s after the host set it; a change in that window
-waits and goes if it still differs).
+waits and goes if it still differs). A change its player can't make, out of reach of the car (the
+host's distance, a car's length from its centre) or on a control another player holds, isn't sent:
+the control goes back to the host's value, logged the first time for each port (and
+`train.control-put-back` in the event stream). Before, it was dropped and stayed on that game
+only, for good: in #159 a client left behind by a rolling S282 kept turning its valves, which the
+host never had (`cab-controls MODE=no-grab-sequence`).
 
 Only ports a player drives go that way. Being typed CONTROL isn't enough: DV and mods set several
 CONTROL ports from the simulation, usually from a control's own port (`horn.HORN` from the horn

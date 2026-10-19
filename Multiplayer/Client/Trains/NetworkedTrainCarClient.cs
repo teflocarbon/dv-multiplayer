@@ -153,6 +153,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     {
         settling = null;
         List<uint> send = new(dirtyPorts.Count);
+        List<uint> putBack = null;
         foreach (uint id in dirtyPorts)
         {
             if (handcarHandlePorts.Contains(id))
@@ -166,7 +167,12 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                 send.Add(id);
             else if (change == UnleasedChange.Settling)
                 (settling ??= new()).Add(id);
+            else if (change == UnleasedChange.PutBack)
+                (putBack ??= new()).Add(id);
         }
+        if (putBack != null)
+            foreach (uint id in putBack)
+                PutBackHostValue(id);
         // Taking hold of the handle: the host needs where it is, which may not have moved.
         if (handcarDrive != null && send.Contains(handcarEngagedPortNetId) && !send.Contains(handcarBarPortNetId))
             send.Add(handcarBarPortNetId);
@@ -261,6 +267,8 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     // that took no lease from the host's own values echoing back (GetUnleasedChange).
     private readonly Dictionary<uint, float> hostPortValues = [];
     private readonly Dictionary<uint, float> hostPortReceivedAt = [];
+    // Controls put back to the host's value at least once (PutBackHostValue), logged the first time.
+    private readonly HashSet<uint> putBackPortsLogged = [];
     // How a client shows the simulation's outputs: played out smoothly, or predicted while the
     // local player drives (TrainPortPresenter).
     private TrainPortPresenter portPresenter;
@@ -847,6 +855,25 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             ? Time.realtimeSinceStartup - receivedAt : null;
         return portWriters.Unleased(portNetId, blocked, LocalPlayerCanTouch(), port.Value, hostValue, sinceHostValue,
             UNLEASED_CHANGE_TOLERANCE, UNLEASED_CHANGE_SETTLE_SECONDS);
+    }
+
+    // A change to a control this game's player can't make, out of reach of the car or held by
+    // another player: it isn't sent, so the control goes back to the host's value. Dropped, it
+    // showed only on this game, for good, and neither player knew (#159: a client left behind by
+    // its rolling loco turned the valves on it).
+    private void PutBackHostValue(uint portNetId)
+    {
+        if (!hostPortValues.TryGetValue(portNetId, out float hostValue) ||
+            !simulationFlow.TryGetPort(GetPort(portNetId), out Port port))
+            return;
+        float value = port.Value;
+        string why = IsBlocked(portNetId) ? "another player holds it" : "the player is out of reach of the car";
+        TrainPortPresenter.ShowHostValue(port, hostValue);
+        if (putBackPortsLogged.Add(portNetId))
+            Multiplayer.Log($"{CurrentID}: {port.id} set to {value} on this game, but {why}: put back to the host's {hostValue}");
+        DebugRuntime.Publish("train", "train.control-put-back", DebugRuntimeSide.Client,
+            entityType: "TrainCar", entityId: NetId.ToString(),
+            data: DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, port.id, value, hostValue, why }));
     }
 
     // This game's player's handcar handle: whether they hold it, whenever that changes (vanilla's

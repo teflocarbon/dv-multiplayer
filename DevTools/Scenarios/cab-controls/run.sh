@@ -10,6 +10,14 @@
 #   host's cab has it blocked, the host can't take it, and gets the client's value. Then the
 #   reverse: the host holds it (its request handled in-process) and turns it, the client's cab has
 #   it blocked, can't take it, and gets the host's value. No lease is left held. CONTROL=C_Wipers.
+#   MODE=no-grab-sequence (#159): an S282A, both players in its cab. The client sets the valves
+#   (compressor, dynamo, lubricator, cylinder cocks) with no grab, again and again on the one loco,
+#   now the cab's copies, now the outside ones: every change reaches the host. Then the client steps
+#   off, out of reach, and turns the outside valves: the host keeps its value and the client's go
+#   back to it (left turned, they showed only on the client, for good). Back aboard, its next change
+#   reaches the host again. The loco must not move: a rolling one left the client behind. A
+#   dedicated host works too (only the client boards).
+#   STEPS="external 1;external 0;..." (which copies, value)
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -22,8 +30,11 @@ P=DevTools/Scenarios/cab-controls
 LOCOS=${LOCOS:-"LocoDE2 LocoDM3"}
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 result() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}console.log(JSON.stringify(x.result))'; }
-loco=""
-cleanup() { [ -n "$loco" ] && $D eval -t host -m body -a id=$loco 'Trains.Delete(Trains.Find(ctx.Args["id"])); return 0;' >/dev/null 2>&1 || true; }
+loco=""; tender=""
+cleanup() {
+  for c in $loco $tender; do "$dvmp_bin" eval -t host -m body -a id=$c 'Trains.Delete(Trains.Find(ctx.Args["id"])); return 0;' >/dev/null 2>&1 || true; done
+  loco=""; tender=""
+}
 trap cleanup EXIT
 fail=0
 
@@ -38,6 +49,53 @@ compare() { # what clientJson
     console.log("   "+process.argv[3]+": "+Object.keys(c).length+" port(s)"+(bad.length?", differ: "+bad.join("; "):", all match")+(h.leases?", "+h.leases+" lease(s) still held":""));
     process.exit(bad.length||h.leases?1:0);' "$2" "$host" "$1"
 }
+
+# The loco, held still (spawn.cs), and its id and tender set; where it is in $spawned.
+spawn() { spawned=$($D eval -t host -m coroutine --timeout 60 -a t=$1 -f $P/spawn.cs); loco=$(echo "$spawned" | field id); tender=$(echo "$spawned" | field tender); }
+board() { $D eval -t $1 -m coroutine --timeout 60 -a loco=$loco "yield return Trains.Board(Trains.Find(ctx.Args[\"loco\"])); yield return new WaitForSeconds($2);" >/dev/null; }
+
+if [ "${MODE:-}" = no-grab-sequence ]; then
+  PORTS="compressorControl.EXT_IN,dynamoControl.EXT_IN,lubricatorControl.EXT_IN,cylinderCock.EXT_IN"
+  STEPS=${STEPS:-"external 1;external 0;external 1;cab 0;cab 1;external 0;cab 1;cab 0;external 1;external 0"}
+  spawn LocoS282A
+  # A dedicated host has no player to board.
+  [ "$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = true ] || board host 2
+  board client 4
+  # The client sets one copy of each valve (valve.cs), and the host's values must match.
+  valve() { $D eval -t client -m coroutine --timeout 30 -a loco=$loco -a which=$1 -a ports=$PORTS -a value=$2 -f $P/valve.cs | field values; }
+  IFS=";" read -ra steps <<< "$STEPS"
+  last=0
+  for step in "${steps[@]}"; do
+    set -- $step
+    c=$(valve $1 $2); sleep 1
+    compare "the $1 copies set to $2" "$c" || fail=1
+    last=$2
+  done
+
+  echo "== the client steps off, out of reach"
+  a=$($D eval -t client -m coroutine --timeout 60 -a loco=$loco -f $P/away.cs | result)
+  echo "   $a"
+  which=$(echo "$a" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).external?"external":"cab")')
+  turned=$((1 - last))
+  c=$(valve $which $turned); sleep 1
+  compare "out of reach, the $which copies set to $turned: back to the host's" "$c" || fail=1
+  h=$($D eval -t host -m body -a loco=$loco -a ports=$PORTS -f $P/ports.cs | result)
+  node -e 'const v=JSON.parse(process.argv[1]).values;const bad=Object.keys(v).filter(p=>Math.abs(v[p]-process.argv[2])>0.01);console.log("   host: "+(bad.length?"FAIL took the change: "+bad.join(", "):"kept "+process.argv[2]));process.exit(bad.length?1:0)' "$h" $last || fail=1
+
+  echo "== back aboard"
+  board client 4
+  c=$(valve $which $turned); sleep 1
+  compare "the $which copies set to $turned" "$c" || fail=1
+
+  moved=$($D eval -t host -m body -a loco=$loco -a x=$(echo "$spawned" | field x) -a y=$(echo "$spawned" | field y) -a z=$(echo "$spawned" | field z)     'float F(string k) => float.Parse(ctx.Args[k], System.Globalization.CultureInfo.InvariantCulture); return Math.Round(Vector3.Distance(Dev.Abs(Trains.Find(ctx.Args["loco"]).transform.position), new Vector3(F("x"), F("y"), F("z"))), 2);' | result)
+  echo "   the loco moved $moved m"
+  node -e 'process.exit(Number(process.argv[1])>1?1:0)' "$moved" || { echo "   FAIL the loco moved: the steps ran on a moving loco"; fail=1; }
+
+  $D eval -t client -m coroutine 'yield return LocalPlayer.TeleportToGround(7190f, 6880f);' >/dev/null
+  $D eval -t host -m coroutine 'yield return LocalPlayer.TeleportToGround(7194f, 6873f);' >/dev/null
+  [ $fail = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }
+  exit 0
+fi
 
 if [ "${MODE:-}" = authority ]; then
   CONTROL=${CONTROL:-C_Wipers}
@@ -80,10 +138,10 @@ fi
 
 for type in $LOCOS; do
   echo "== $type"
-  # The handbrake on: a loco left free rolls away on a grade and leaves the client too far away for
-  # the host to grant it a control.
-  loco=$($D eval -t host -m coroutine -a t=$type 'var car = Trains.SpawnNearPlayer(ctx.Args["t"]); car.brakeSystem.SetHandbrakePosition(1f); for (int i = 0; i < 120; i++) yield return null; ctx.Result = new { id = car.ID };' | field id)
-  $D eval -t client -m coroutine -a loco=$loco 'yield return Trains.Board(Trains.Find(ctx.Args["loco"])); yield return new WaitForSeconds(4);' >/dev/null
+  # Held still: a loco left free rolls away on a grade and leaves the client too far away for the
+  # host to take its changes.
+  spawn $type
+  board client 4
 
   h=$($D eval -t client -m body -a loco=$loco -f $P/hooked.cs)
   unhooked=$(echo "$h" | field unhooked)
