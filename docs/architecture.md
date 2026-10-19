@@ -21,6 +21,10 @@ The code is the source of truth. File paths below are relative to the repository
 | `MultiplayerAPI Tests/` | A sample mod that exercises the API. |
 | `DevTools/DvmpAgent/` | In-game agent mod for the dvmp harness (Debug only, never shipped). |
 
+Nothing in `Multiplayer/`'s layout says yet whether code runs on the server, on a player's game or
+both. The planned split into Shared, Server and Client is
+[design/code-layout.md](design/code-layout.md).
+
 Outside the solution:
 
 | Path | Purpose |
@@ -284,7 +288,8 @@ is kicked. Broadcasts carry a minimum loading state, so a player only receives l
 system once it has that system's baseline.
 
 The host's own client skips straight to `ReadyForWorldState`, which the server treats as
-`Complete`.
+`Complete`. The plan to remove that loopback client, with the host's player as a local session of
+the server in the same process, is [design/host-local-session.md](design/host-local-session.md).
 
 ```mermaid
 sequenceDiagram
