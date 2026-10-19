@@ -17,8 +17,12 @@ var all = under(car.loadedInterior, "cab").Concat(under(car.loadedExternalIntera
 var copies = ports.ToDictionary(p => p, p => string.Join(",", all.Where(x => x.port == p).Select(x => x.where)));
 var chosen = ports.Select(p => all.FirstOrDefault(x => x.port == p && x.where == which)).Where(x => x.control != null).ToList();
 if (chosen.Count == 0) throw new Exception("no " + which + " control feeds " + ctx.Args["ports"] + "; copies: " + string.Join("; ", copies.Select(kv => kv.Key + "=" + kv.Value)));
+// Named now: a control can be unloaded by the time the values are read (the player moving off).
+var set = chosen.Select(x => x.port + "@" + x.where + ":" + x.control.name).ToArray();
 foreach (var x in chosen)
 {
+    if (x.control == null)
+        throw new Exception(x.port + "'s " + x.where + " control was unloaded before it could be set");
     x.control.SetValue(value);
     yield return new WaitForSecondsRealtime(0.2f);
 }
@@ -26,7 +30,7 @@ yield return new WaitForSecondsRealtime(2.5f);
 var flow = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>().simulationFlow;
 ctx.Result = new
 {
-    set = chosen.Select(x => x.port + "@" + x.where + ":" + x.control.name).ToArray(),
+    set,
     copies,
     values = chosen.Select(x => x.port).Distinct().ToDictionary(id => id, id => flow.TryGetPort(id, out var p) ? Math.Round(p.Value, 3) : -1),
 };
