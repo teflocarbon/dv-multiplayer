@@ -1,9 +1,10 @@
 # Parallel dvmp test sessions
 
-> Status: steps 1-3, 6 and 7 are built (sessions, ports, launch lock, the parallel gate runner,
-> lean harness games); see [Results](#results). Three pairs fit on the reference machine. Steps 4
-> (MCP), 5 (separate user data) and 8 (docs) are still to do. Findings below were checked against
-> the code on 2026-10-14.
+> Status: steps 1-3, 5, 6 and 7 are built (sessions, ports, launch lock, separate user data, the
+> parallel gate runner with one queue for every kind of run, lean harness games); see
+> [Results](#results). Step 5 is built but not yet run in game (2026-10-20). Three pairs fit on
+> the reference machine. Steps 4 (MCP) and 8 (docs) are still to do. Findings below were checked
+> against the code on 2026-10-14.
 
 ## Purpose
 
@@ -141,35 +142,53 @@ games one after the other.
 
 ### Separate user data per harness game
 
-DV's `DV.UserManagement.Storage.Implementation.FileSystemStorage` has a `basePath` field and a
-`(string basePathOverride)` constructor. The dev agent loads before DV creates its
-`UserManager`. So when the game is launched with `-dvmp-userdata DIR`, a Harmony postfix on the
-parameterless constructor, installed in `AgentMain.Load`, points the game at `DIR`. Use
-`AccessTools.TypeByName`, so the agent needs no new reference. Fallbacks:
-`UserManager.inMemoryTestingMode` or `UserManager.StaticReload()`.
+Built in step 5; checked against the decompiled game (2026-10-20), not yet in game.
 
-**Check first, on an idle pair**, what `basePath` points at and whether `Preferences` lives
-under it:
+**The hook.** DV reads and writes all user data through one
+`DV.UserManagement.Storage.Implementation.FileSystemStorage`, which `UserManager.Initialize`
+creates with its parameterless constructor (`basePath = Application.persistentDataPath`).
+`UserManager` lives in a scene, and Unity Mod Manager loads mods at `DV.Globals.AssignSelfToHelpers`,
+a `BeforeSceneLoad` method, so the dev agent always loads first. A game launched with
+`-dvmp-userdata DIR` gets a Harmony postfix on that constructor (`UserDataRedirect`, installed
+first thing in `AgentMain.Load`, the type found with `AccessTools.TypeByName` so the agent needs no
+new reference) that sets `basePath` to `DIR`. Through it go `Users\global.json`, each user's
+`userData.json`, careers and saves, `Preferences\<user>.ini` (`User.GetPreferencesPath` is relative
+to the storage) and `ControlBindings.json` (`UserDataStore_DV` writes through the user's storage).
 
-```bash
-dvmp eval -t host -u "using DV.UserManagement;" 'return new { b = (UserManager.Instance.storage as DV.UserManagement.Storage.Implementation.FileSystemStorage)?.basePath, u = UserManager.Instance.CurrentUser.UserBasePath, p = DV.UserManagement.Data.User.GetPreferencesPath(UserManager.Instance.CurrentUser), g = UserManager.Instance.CurrentUser.GameDataPath };'
-```
+What doesn't use the storage, and so still lands in the real profile folder: Unity's analytics
+cache (`Unity\`), and DV's bug reports, telemetry exports and dev-console marks, none of which a
+harness game makes. Unity's `Player.log` doesn't: harness games get `-logFile`. The mod's dedicated
+host built its backup folder and its career lock from `Application.persistentDataPath`; both now
+go through `UserManager.Instance.Storage.GetFilesystemPath`, the same path for a normal game.
 
-dvmp seeds `sessions\<s>\data\{host,client}` from the real profile, reading it only:
-- **host:** `global.json`, the user's `userData.json` and `ControlBindings.json`, the
-  preferences file if it falls under the base path, and every session folder named "DVMP Test…"
-  (optionally only the newest saves plus `lastLoaded_0.bak`);
-- **client:** the same profile files without session folders.
+**Seeding.** dvmp seeds `sessions\<s>\data\host` and `\client` from the real profile
+(`UserData.cs`), reading it only, into a staging folder that is moved into place when complete:
+`Users\global.json`, each user's `userData.json`, `ControlBindings.json` and `GameData\`, every
+`Preferences\*.ini`, and the careers and sandboxes named "DVMP…" plus each mode's selected one (the
+save the launcher shows), each with its `sessionData.json`, newest 5 saves by time (DV's save
+numbers rotate) and `lastLoaded_*.bak`. Dedicated-host backups and locks are left out. About 6 MB
+and 150 ms for the reference profile. The client gets the same as the host: its launcher's
+selected career then exists, so DV never creates a fallback career for it.
 
-Seeding happens only when the folder is missing, or with `up --reseed`, because `save-reload`
-and `inventory-persist` rely on saves surviving `down` and `up`. A bonus: every pair starts from
-the same world, which is what repeat runs need.
+Seeding happens only when the folder is missing, or with `up --reseed` (which restarts the
+session's games), because `save-reload` and `inventory-persist` rely on saves surviving `down`
+and `up`. A bonus: every pair starts from the same world, which is what repeat runs need. The
+default session keeps the real profile.
 
-When harness mode is active, clear UMM's `OnSaveGUI` for loaded mods, so harness games never
+**The check.** At the main menu, before anything is saved, `up` asks each game where its storage
+points (`GetFilesystemPath("")`) and fails if it isn't the session's folder: an agent too old for
+`-dvmp-userdata`, or a hook that missed. The game log says `dvmp: user data in DIR`, or an error
+if DV made its storage before the agent loaded. A running game is only reused if it passes the
+same check, so pairs an older dvmp started are restarted rather than left writing the real profile.
+
+When harness mode is active, the agent clears UMM's `OnSaveGUI` for every loaded mod at the first
+frame and again as the game quits (UMM saves settings in its `OnDestroy`), so harness games never
 write `Settings.xml` at quit.
 
-If the storage hook doesn't work, keep `save-reload` and `inventory-persist` exclusive on the
-default session, and set `SaveGameManager.Instance.disableAutosave = true` on harness hosts.
+With that, `save-reload`, `inventory-persist` and `host-player-persist` run in parallel. If the
+storage hook doesn't work, `DVMP_SHARED_PROFILE=1` puts every session back on the real profile
+(no `-dvmp-userdata`, no check); then put them back in `EXCLUSIVE` and set
+`SaveGameManager.Instance.disableAutosave = true` on harness hosts.
 
 ### MCP
 
@@ -180,19 +199,47 @@ default session, and set `SaveGameManager.Instance.disableAutosave = true` on ha
 
 ### Parallel gate runner
 
-`gate.sh` gains `PAIRS=N` (sessions `p1..pN`) and `REPEAT=N`, and keeps `ONLY=`. With `PAIRS`
+`gate.sh` gains `PAIRS`, `REPEAT=N` and `RUNS`, and keeps `ONLY=`. With `PAIRS` and `REPEAT`
 unset, today's serial run is unchanged.
 
-1. Start every pair (`dvmp up --session pK`) in the background, and wait. The launch lock
-   staggers mod loading.
-2. Expand the runs times `REPEAT` into `name#k` items. Each pair runs a worker that claims the
-   next item with an atomic `mkdir "$LOG_DIR/.claim/<item>"` and resets the player positions. It
-   then runs the scenario under `timeout`, and writes `$LOG_DIR/<name>#<k>.<session>.log` and a
-   one-line result.
-3. If a pair is unhealthy after a run (no world loaded), its worker runs `dvmp up` to recover it.
-4. Exclusive phase: run the tagged runs on `p1` after dropping the other pairs to 5 fps
-   (`HarnessMode.FpsCap` and `BackgroundFpsCap` via eval).
-5. Summary per run name: passes out of repeats, average and maximum duration, which pair, and
+**One queue for every kind of run.** A batch used to need separate invocations: the gate's list
+on N pairs, then a scenario with other variables (`jobs ACCEPT=client HANDIN=host`) on one pair,
+then the dedicated-host runs with `UP_ARGS=--dedicated`. Each phase waited for the slowest pair
+of the one before. Now all of it is one queue:
+
+- `PAIRS` declares pairs by kind: `PAIRS="p:2 d:1"` is player-host sessions `p1`, `p2` and a
+  dedicated-host session `d1` (`dvmp up --dedicated`). A plain count (`PAIRS=3`) is player hosts,
+  or dedicated ones with the older `UP_ARGS=--dedicated`.
+- `RUNS` (a file, or lines separated by `;`) lists the runs instead of the gate's own list. Each
+  line is a gate run name, or a scenario with its variables, plus an optional kind and label:
+  `jobs ACCEPT=client HANDIN=host`, `host-actions @dedicated`, `rev: jobs ACCEPT=client`. `*`
+  is the gate's whole list. Every entry carries its own variables, so the same scenario can be
+  queued several ways in one invocation. Labels default to the scenario plus `[VAR=value,...]`
+  and `@kind`, or the gate's run name when the variables match one.
+- A worker only claims entries that fit its pair. `@kind` is a requirement (the gate exits
+  before starting anything if no pair has that kind); otherwise runs go to player hosts, or to
+  any pair when there are none. The gate's own list marks `dedicated-admin` as preferring a
+  dedicated host.
+
+The steps:
+
+1. Start every pair (`dvmp up --session <s>`, plus `--dedicated` for `d` pairs) in the
+   background, and wait. The launch lock staggers mod loading.
+2. Expand the runs times `REPEAT`; labels that appear more than once become `name#k`. Order them
+   longest first by the average of each run's last 5 passing durations, which the gate keeps in
+   `%LOCALAPPDATA%\dvmp\durations\<run label>` (written from the `.queue/result` lines at the end
+   of each gate); runs with no duration yet go first. With the longest runs started early, the
+   pairs finish close together instead of one pair running a long scenario alone. Each pair
+   runs a worker that claims the next entry that fits its pair with an atomic
+   `mkdir "$LOG_DIR/.queue/claim/<entry>"`, resets the player positions, runs the scenario and
+   writes `$LOG_DIR/<label>.<session>.log` and a one-line result.
+3. If a pair is unhealthy after a run (no world loaded), its worker runs `dvmp up` (with the
+   pair's kind) to recover it.
+4. A worker with nothing left to claim takes its pair down if exclusive runs follow and it
+   isn't the pair that runs them, so the pairs still busy get its CPU and memory.
+5. Exclusive phase: each exclusive run goes to the first pair that fits it, with every other pair
+   down; a pair that was taken down comes back up for it.
+6. Summary per run label: passes out of repeats, average and maximum duration, which pair, and
    the first FAIL line. Exit non-zero on any failure, and print `$LOG_DIR`.
 
 `ONLY=x REPEAT=N PAIRS=N` is the "same scenario on every pair at once" mode. A `dvmp gate`
@@ -204,7 +251,7 @@ subcommand in C#, with better timeouts and JSON output, could replace the bash r
 |---|---|
 | `fps-drop`, `host-stall`, `player-soak` (and `station-load` if gated) | Always alone: they measure frame timing |
 | `manual-recouple-lag`, `uncouple-moving-loco-lag`, `couple-impact` | Parallel, rerun alone on failure: lag is per process, but physics timing matters |
-| `save-reload`, `inventory-persist` | Alone until separate user data lands |
+| `save-reload`, `inventory-persist`, `host-player-persist` | Parallel: each session has its own user data |
 | `rejoin`, `rejoin-crash`, `borrowed-disconnect` | Parallel once sessions exist |
 | Everything else | Parallel |
 

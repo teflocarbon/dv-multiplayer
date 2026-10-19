@@ -43,8 +43,9 @@ public static class McpTools
         [Description("Leave game audio on. Default false.")] bool sound = false,
         [Description("Start a brand-new session instead of a save: \"career\" or \"sandbox\" (requires fresh or no running games).")] string? newSession = null,
         [Description("Install the mutation tracer at the main menu, before the world loads, so load-time item changes are recorded (see dvmp_trace).")] bool trace = false,
+        [Description("Restart both games with the session's own user data copied afresh from the real profile (named sessions only; DVMP_SESSION).")] bool reseed = false,
         CancellationToken ct = default) =>
-        Render(await Session.UpAsync(new UpOptions(fresh, save, 960, 540, Arrange: true, background, Math.Clamp(fpsCap, 5, 240), sound, trace, newSession),
+        Render(await Session.UpAsync(new UpOptions(fresh, save, 960, 540, Arrange: true, background, Math.Clamp(fpsCap, 5, 240), sound, trace, newSession, Reseed: reseed),
             TimeSpan.FromSeconds(Math.Clamp(waitSeconds, 1, 600)), ct));
 
     [McpServerTool(Name = "dvmp_down", Destructive = true)]

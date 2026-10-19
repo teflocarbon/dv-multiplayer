@@ -23,10 +23,12 @@ public static class DedicatedHostSaveLock
     private static FileStream held;
     private static string heldPath;
 
-    /// <summary>The folder of a career (DV's GameSession), or null.</summary>
+    /// <summary>The folder of a career (DV's GameSession), or null. Through DV's storage, whose base
+    /// is the persistent data folder unless something moved it (the dev harness gives each test game
+    /// its own).</summary>
     public static string CareerFolder(IGameSession session) =>
-        session is GameSession gameSession && !string.IsNullOrEmpty(gameSession.BasePath)
-            ? Path.Combine(Application.persistentDataPath, gameSession.BasePath)
+        session is GameSession gameSession && !string.IsNullOrEmpty(gameSession.BasePath) && UserManager.Instance?.Storage is { } storage
+            ? storage.GetFilesystemPath(gameSession.BasePath)
             : null;
 
     /// <summary>Called by a dedicated host once its world has loaded.</summary>

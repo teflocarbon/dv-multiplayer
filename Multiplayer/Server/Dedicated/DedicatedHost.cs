@@ -147,9 +147,10 @@ public static class DedicatedHost
         {
             if (save is not DV.UserManagement.Data.SaveGameSnapshot snapshot || string.IsNullOrEmpty(snapshot.BasePath))
                 return;
-            // Save paths are relative to the user storage's base, the game's persistent data folder.
-            string file = System.IO.Path.Combine(Application.persistentDataPath, snapshot.BasePath);
-            if (!System.IO.File.Exists(file))
+            // Save paths are relative to the user storage's base: the game's persistent data folder,
+            // or a test game's own (the dev harness moves it).
+            string file = UserManager.Instance?.Storage?.GetFilesystemPath(snapshot.BasePath);
+            if (file == null || !System.IO.File.Exists(file))
                 return;
             string careerDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(file));
             string backups = System.IO.Path.Combine(careerDir, "DedicatedBackups");

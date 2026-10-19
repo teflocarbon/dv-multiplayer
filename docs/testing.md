@@ -102,8 +102,8 @@ script's header lists its variables). They need a running pair (`dvmp up`).
 ### Regression gate
 
 `DevTools/Scenarios/gate.sh` runs every scenario below against a running pair, resetting both
-players to the same spot before each run, and prints PASS/FAIL per run. It exits non-zero if
-anything failed. Run it after any change touching items, joins, ticks or trains.
+players to the same spot and topping the host's wallet up to $100,000 (`MONEY`; 0 leaves it)
+before each run, and prints PASS/FAIL per run. It exits non-zero if anything failed. Run it after any change touching items, joins, ticks or trains.
 
 ```bash
 bash DevTools/Scenarios/gate.sh
@@ -119,6 +119,41 @@ A run that logged a coupler break (an error on either peer) is flagged with `[N 
 temp directory, printed at the end). `DVMP` points at the CLI (default
 `DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`).
 
+**Parallel runs.** `PAIRS` starts several host+client pairs (dvmp sessions) and every pair takes
+runs from one queue until it's empty ([design](design/parallel-test-sessions.md#parallel-gate-runner)).
+`PAIRS=3` is three player-host pairs (`p1`..`p3`); `PAIRS="p:2 d:1"` is two player-host pairs
+and one dedicated-host pair (`d1`, started with `dvmp up --dedicated`). `REPEAT=N` queues every
+run N times.
+
+`RUNS` replaces the gate's list with your own, as a file or as lines separated by `;`, so one
+invocation can mix runs that used to need separate ones:
+
+```bash
+PAIRS="p:2 d:1" RUNS=batch.txt bash DevTools/Scenarios/gate.sh
+```
+
+```text
+# batch.txt: one run per line
+*                                  every run of the gate's list
+derail                             a run of the gate's list, by name
+jobs ACCEPT=client HANDIN=host     a scenario with exactly these variables
+host-actions @dedicated            only on a dedicated-host pair (@player, @dedicated, @any)
+jobs-reverse: jobs ACCEPT=client   "label:" names the run in the logs and summary
+cab-controls LOCOS="LocoS282A LocoDE6"
+```
+
+Runs start longest first, so a long one never starts last while the other pairs sit idle. The gate
+keeps each run's last 5 passing durations in `%LOCALAPPDATA%\dvmp\durations\<run>` (`DURATIONS`
+overrides the folder); runs with none recorded yet start first.
+
+A run marked `@kind` only goes to that kind of pair, and the gate refuses to start if `PAIRS` has
+none. Other runs go to player-host pairs, or to any pair when there are only dedicated ones. The
+gate's `dedicated-admin` prefers a dedicated pair. The frame-timing runs in `EXCLUSIVE` (`fps-drop`,
+`host-stall`, `player-soak`) run alone at the end, each on the first pair that fits it with every
+other pair down. Runs that write saves run in parallel: each pair's games keep their own copy of
+DV's user data ([DevTools/README.md](../DevTools/README.md#session-user-data)), so they never
+write each other's saves or your profile.
+
 **Identity by SteamID** ([design/server-player-split.md](design/server-player-split.md#identity)):
 - Hosts verify each player's Steam auth ticket. The harness runs a host player and a client on one
   Steam account, which would give them the same ID.
@@ -129,8 +164,8 @@ temp directory, printed at the end). `DVMP` points at the CLI (default
   client can log in verified as the owner on the one account. A refused ticket needs a second
   account.
 
-`UP_ARGS=--dedicated` (with `PAIRS`) runs the scenarios against dedicated hosts
-([design/dedicated-host.md](design/dedicated-host.md)). Only the client-driven ones mean anything
+Dedicated-host pairs (`PAIRS=d:N`, or the older `UP_ARGS=--dedicated` with `PAIRS=N`) run the
+scenarios against dedicated hosts ([design/dedicated-host.md](design/dedicated-host.md)). Only the client-driven ones mean anything
 there, for example `cab-controls manual-uncouple lost-and-found shop rejoin car-fire`. A dedicated
 host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 `borrowed-disconnect` don't apply.
