@@ -221,7 +221,13 @@ are dormant projections:
 The client sends a catalogue version/count/hash after discovery. A mismatch is a visible loading or
 debug error, not permission to bind the next object with a matching prefab name. In the code a
 mismatched player gets no scene-authored items at all (`WorldItemCatalogueAccepted`); dynamic items
-still flow.
+still flow, and the server logs a warning.
+
+Both sides compare the catalogue as built from the scene (`AuthoredWorldItemCatalogue.Baseline*`),
+not the live key map. The live map loses a key while a taken office prop waits to be replenished
+(see "Replenishable authored office stock"), so comparing it rejected anyone who joined in that
+window. On 2026-10-19 a player was rejected although their catalogue matched the host's
+afterwards, and every shop scanner vanished for them for the whole session.
 
 ### Stable scene key
 

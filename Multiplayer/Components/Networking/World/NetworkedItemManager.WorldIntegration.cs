@@ -45,7 +45,8 @@ public partial class NetworkedItemManager
     internal (int Count, int Collisions, string Digest) GetAuthoredCatalogueSummary()
     {
         EnsureAuthoredCatalogue();
-        return (AuthoredCatalogue.Count, AuthoredCatalogue.CollisionCount, AuthoredCatalogue.Digest());
+        return (AuthoredCatalogue.BaselineCount, AuthoredCatalogue.BaselineCollisionCount,
+            AuthoredCatalogue.BaselineDigest);
     }
 
     internal bool TryGetAuthoredItem(string key, out NetworkedItem item)
