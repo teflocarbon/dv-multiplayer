@@ -21,8 +21,8 @@ namespace Multiplayer.Server.Jobs;
 
 /// <summary>
 /// An offered job's overview dropped in a station office bin (Client/Jobs/JobAbandonerClientPatch).
-/// If nobody is in or on the job's cars and none is coupled to a locomotive, the server expires
-/// the job, deletes its cars at once (vanilla would leave them for the unused-car deleter) and
+/// If nobody is in or on the job's cars, the server expires the job, deletes all its cars at once
+/// (vanilla would leave them for the unused-car deleter), even ones coupled to a locomotive, and
 /// lets the station generate a replacement. Otherwise it throws the paper back out of the bin at
 /// the player who binned it. Every peer sees the result through the usual job, car and item sync.
 /// </summary>
@@ -61,7 +61,7 @@ public static class JobReroll
         }
 
         List<TrainCar> cars = JobCars(networkedJob.Job);
-        string refusal = Refusal(networkedJob, bin, cars);
+        string refusal = Refusal(cars);
         if (refusal != null)
         {
             Publish("job.reroll-refused", networkedJob, requester, refusal);
@@ -73,18 +73,13 @@ public static class JobReroll
         Reroll(networkedJob, cars, requester);
     }
 
-    // Why the job can't be re-rolled from this bin, or null if it can.
-    private static string Refusal(NetworkedJob networkedJob, JobAbandoner bin, List<TrainCar> cars)
+    // Why the job can't be re-rolled, or null if it can: only a player in or on one of its cars
+    // stops it (a car coupled to a locomotive is deleted all the same).
+    private static string Refusal(List<TrainCar> cars)
     {
-        if (NearestStation(bin.transform.position) != networkedJob.Station)
-            return "the bin is at another station";
         foreach (TrainCar car in cars)
-        {
             if (IsOccupied(car))
                 return $"someone is on {car.ID}";
-            if (car.trainset?.cars.Any(c => c != null && CarTypes.IsAnyLocomotiveOrTender(c.carLivery)) == true)
-                return $"{car.ID} is coupled to a locomotive";
-        }
         return null;
     }
 
@@ -121,10 +116,15 @@ public static class JobReroll
 
     /// <summary>
     /// Refills the station's offered jobs, as entering its zone does. The first job generated is
-    /// one the players are licensed for (vanilla's forcePlayerLicensedJobGeneration).
+    /// one the players are licensed for (vanilla's forcePlayerLicensedJobGeneration). A station
+    /// nobody is near (the paper was carried to another station's bin) is left: it fills itself
+    /// when a player arrives, rather than spawning cars nobody is there for.
     /// </summary>
-    public static void GenerateReplacement(StationController station) =>
-        station.ProceduralJobsController.TryToGenerateJobs();
+    public static void GenerateReplacement(StationController station)
+    {
+        if (station.playerEnteredJobGenerationZone)
+            station.ProceduralJobsController.TryToGenerateJobs();
+    }
 
     private static void ThrowBack(NetworkedItem item, JobAbandoner bin, ServerPlayer requester, string refusal)
     {
@@ -184,24 +184,6 @@ public static class JobReroll
             .Where(bin => Vector3.Distance(bin.transform.position, position) < BinMatchDistance)
             .OrderBy(bin => Vector3.Distance(bin.transform.position, position))
             .FirstOrDefault();
-    }
-
-    // The station whose office the bin is in: the one with the nearest validator.
-    private static NetworkedStationController NearestStation(Vector3 position)
-    {
-        NetworkedStationController nearest = null;
-        float nearestDistance = float.MaxValue;
-        foreach (JobValidator validator in Object.FindObjectsOfType<JobValidator>())
-        {
-            float distance = Vector3.Distance(validator.transform.position, position);
-            if (distance < nearestDistance &&
-                NetworkedStationController.GetFromJobValidator(validator, out NetworkedStationController station))
-            {
-                nearest = station;
-                nearestDistance = distance;
-            }
-        }
-        return nearest;
     }
 
     private static void Publish(string eventName, NetworkedJob job, ServerPlayer requester, string refusal,

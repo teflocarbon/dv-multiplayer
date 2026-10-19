@@ -274,18 +274,19 @@ item that isn't the job's overview: a second request for the same paper finds th
 two players binning it can't race. Otherwise it decides:
 
 - **Re-roll** when nobody is in or on any of the job's cars (`NetworkedTrainCar.HasPlayers`, or a
-  player's `CarId`) and none of them is in a trainset with a locomotive or tender. The host removes
-  and destroys the overview, expires the job (`Job.ExpireJob`: the chain controller releases its
+  player's `CarId`). All its cars go, even ones coupled to a locomotive (the loco stays). The host
+  removes and destroys the overview, expires the job (`Job.ExpireJob`: the chain controller releases its
   track reservations and marks the cars for vanilla's `UnusedTrainCarDeleter`), deletes the cars
   at once (`CarSpawner.DeleteTrainCars(..., forceInstantDestroy: true)`, removal cause
   `CarRemovalReason.JobRerolled`) instead of leaving them for the deleter, which waits until every
   player is far away, and calls `StationProceduralJobsController.TryToGenerateJobs`
   (`JobReroll.GenerateReplacement`). That refills the station to `jobsCapacity`; vanilla forces the
   first job it generates to be one the players are licensed for. Track space
-  (`YardTracksOrganizer`) is the real limit, and the freed cars give it back.
-- **Throw the paper back out** when someone is on a car, a car is coupled to a locomotive, or the
-  bin is at another station's office (the nearest validator isn't the job's station's). The host
-  applies an authoritative `Thrown` transition (`ItemTransitionReason.JobRerollRefused`, move cause
+  (`YardTracksOrganizer`) is the real limit, and the freed cars give it back. A paper carried to
+  another station's bin re-rolls its own station's job; if no player is in that station's zone,
+  nothing is generated there until one arrives (vanilla generates on arrival).
+- **Throw the paper back out** when someone is in or on one of the job's cars (standing on it,
+  riding it, in a cab). That is the only refusal. The host applies an authoritative `Thrown` transition (`ItemTransitionReason.JobRerollRefused`, move cause
   `ItemMoveReason.ThrownOutOfBin`) from just above the bin, up and towards the requester. The
   requester is the transition's actor, so their game gets the physics lease and simulates the
   flight. The paper visibly comes back, which is the player's answer: nothing else is sent.

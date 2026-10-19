@@ -1,6 +1,6 @@
 // Host: clear payable debts (vanilla refuses jobs with them) and pick an offered job at the station
 // that can be re-rolled: its overview lies where it was printed, and every one of its cars is
-// there, none ridden or coupled to a locomotive. Args: station (yard ID), except (a job's NetId to
+// there and nobody is on them. Args: station (yard ID), except (a job's NetId to
 // skip, optional).
 var debts = DV.ServicePenalty.CareerManagerDebtController.Instance;
 debts.ClearRestOfThePayableDebts(); debts.RefreshExistingDebtsState();
@@ -16,8 +16,7 @@ foreach (var job in st.logicStation.availableJobs.ToList())
     if (!JobsManager.Instance.jobToJobCars.TryGetValue(job, out var logicCars) || logicCars.Count == 0)
         continue;
     var cars = logicCars.Select(c => registry.TryGetValue(c, out var tc) ? tc : null).ToList();
-    if (cars.Any(tc => tc == null || !NetworkedTrainCar.TryGetFromTrainCar(tc, out var n) || n.HasPlayers || players.Contains(n.NetId) ||
-                       tc.trainset.cars.Any(o => DV.ThingTypes.CarTypes.IsAnyLocomotiveOrTender(o.carLivery))))
+    if (cars.Any(tc => tc == null || !NetworkedTrainCar.TryGetFromTrainCar(tc, out var n) || n.HasPlayers || players.Contains(n.NetId)))
         continue;
     return new
     {
