@@ -50,7 +50,8 @@ client.
 
 A small `NetworkRole` in Shared replaces the role half of today's `IsHost()`: `IsServer` (this
 game is the authority), `HasLocalPlayer` (someone plays here), `IsRemoteClient` (playing on
-someone else's server). `IsHost()` keeps meaning `IsServer` until its callers move.
+someone else's server). `IsHost()` keeps meaning `IsServer` until its callers move. Built:
+`Components/Networking/NetworkRole.cs` (it moves to Shared with the rest).
 
 ### Assemblies
 
@@ -207,7 +208,8 @@ go, and moving to assemblies is mechanical once it's empty.
    conflicts with every edit to a moved file that isn't merged yet. Git follows renames across a
    merge when the file is still mostly the same, which a move plus a namespace line keeps, but
    fewer branches open means fewer surprises.
-2. **`NetworkRole`** in Shared, with `IsHost()` delegating to it. Small, no behaviour change.
+2. **`NetworkRole`**, built on `IsHost()` for now (the other way round once its callers move), and
+   replacing the hand-copied `IsClient` helpers. Small, no behaviour change.
 3. **The move.** One PR, two commits:
    1. move files into `Multiplayer/Shared/`, `Multiplayer/Server/`, `Multiplayer/Client/` and the
       mod's root, change namespaces to match, update `DevTools/`; no logic changes. Files that
@@ -236,4 +238,13 @@ Steps 2-3 are mechanical and change no behaviour; the regression gate on one pai
 
 ## Implementation status (2026-10-19)
 
-Not started.
+- **CI is required.** Both jobs ("Core tests", "Build and protocol tests") are required status
+  checks on `beta`, so the boundary test, once it exists, blocks a merge.
+- **Step 2, `NetworkRole`: built.** `Components/Networking/NetworkRole.cs`. The four hand-copied
+  "playing on someone else's server" helpers (`HazmatSync.IsClient`, `ExplosionSync.IsClient` and
+  the private ones in `CommsRadioCargoLoaderPatch` and `CommsRadioDamagePatch`) now use
+  `NetworkRole.IsRemoteClient`. `CouplerBreakPatch.IsClient` is left: it tests
+  `Client != null` rather than a running client, so it isn't quite the same question.
+- **Grouping inside each role: by system** (agreed 2026-10-19): `Server/Trains/`,
+  `Client/Items/`, `Shared/Protocol/`..., with patches next to the code they serve.
+- Steps 3-5: not started.

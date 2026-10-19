@@ -40,8 +40,6 @@ public static class CargoFireSync
     // A lighter has to touch the leak; a flare can be thrown at it.
     private const float MaxIgniteDistance = 60f;
 
-    private static bool IsClient => ExplosionSync.IsClient;
-
     private static bool IsHostWithPlayers =>
         NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server != null;
 
@@ -120,7 +118,7 @@ public static class CargoFireSync
     // Holds the client's copy to the host's state, whatever its own simulation decided.
     internal static void Client_Hold(CargoReactionBase reaction)
     {
-        if (IsClient && reaction.initialized)
+        if (NetworkRole.IsRemoteClient && reaction.initialized)
             Apply(reaction);
     }
 
@@ -167,7 +165,7 @@ public static class CargoReactionIgnitePatch
 
     private static bool Prefix(CargoReactionBase __instance, float ignitionStrength, ref bool __result)
     {
-        if (!ExplosionSync.IsClient || ExplosionSync.ApplyingHostExplosion)
+        if (!NetworkRole.IsRemoteClient || ExplosionSync.ApplyingHostExplosion)
             return true;
         __result = CargoFireSync.Client_ForwardIgnite(__instance, ignitionStrength, explode: false);
         return false;
@@ -182,7 +180,7 @@ public static class CargoReactionExplodeExternallyPatch
 
     private static bool Prefix(CargoReactionBase __instance)
     {
-        if (!ExplosionSync.IsClient || ExplosionSync.ApplyingHostExplosion)
+        if (!NetworkRole.IsRemoteClient || ExplosionSync.ApplyingHostExplosion)
             return true;
         CargoFireSync.Client_ForwardIgnite(__instance, 0f, explode: true);
         return false;
