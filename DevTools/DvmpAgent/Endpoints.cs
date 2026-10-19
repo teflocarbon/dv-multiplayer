@@ -25,6 +25,7 @@ internal static class Endpoints
             "/v1/status" => Ok(Await(MainThread.Run(() => Json.ToToken(Status())), Timeout(request, 10_000), "status")),
             "/v1/eval" => Eval(request),
             "/v1/screenshot" => Ok(Await(MainThread.RunCoroutine<object>(tcs => Screenshot(request, tcs)), Timeout(request, 15_000), "screenshot")),
+            "/v1/probes" => Ok(Await(MainThread.Run(() => Json.ToToken(Probes(request))), Timeout(request, 10_000), "probes")),
             "/v1/logs" => Ok(Logs(request)),
             "/v1/quit" => Ok(Await(MainThread.Run(Quit), 5_000, "quit")),
             _ => throw new HttpError(404, "unknown endpoint " + path)
@@ -70,6 +71,7 @@ internal static class Endpoints
         multiplayer = Mp.Snapshot(),
         focused = Application.isFocused,
         harness = HarnessMode.Snapshot(),
+        probes = ProbeSummary(),
         screen = new { width = Screen.width, height = Screen.height }
     };
 
@@ -115,19 +117,20 @@ internal static class Endpoints
                          ?? throw new HttpError(400, $"{typeName} has no public static Run(DevContext)");
 
         DevContext context = new(args);
-        bool cancelled = false;
+        string owner = assembly.GetName().Name;
+        ProbeCoroutine root = null;
         object returned = null;
         int startFrame = 0;
+        JArray stopped = new();
         Stopwatch clock = Stopwatch.StartNew();
+        TaskCompletionSource<JObject> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        Task<JObject> task = MainThread.RunMaybeCoroutine(
-            start: () =>
-            {
-                startFrame = Time.frameCount;
-                returned = run.Invoke(null, new object[] { context });
-                return returned;
-            },
-            finish: () =>
+        // Runs on the main thread once the probe (and every coroutine it started) has ended.
+        void Finish(ProbeCoroutine ended, Exception error)
+        {
+            stopped = StoppedList(ended);
+            if (error != null) { tcs.TrySetException(error); return; }
+            try
             {
                 object result = returned is IEnumerator ? context.Result : returned;
                 JObject o = new()
@@ -138,35 +141,114 @@ internal static class Endpoints
                     ["role"] = Mp.Role()
                 };
                 if (truncated) o["truncated"] = true;
-                return o;
-            },
-            cancelled: () => cancelled);
+                AddStopped(o, stopped);
+                tcs.TrySetResult(o);
+            }
+            catch (Exception e) { tcs.TrySetException(e); }
+        }
+
+        MainThread.Post(() =>
+        {
+            ProbeRegistry.InstallHook();
+            root = ProbeRegistry.BeginProbe(owner, ProbeName(typeName));
+            context.Root = root;
+            startFrame = Time.frameCount;
+            ProbeCoroutine previous = ProbeRegistry.Current;
+            ProbeRegistry.Current = root;
+            try { returned = run.Invoke(null, new object[] { context }); }
+            catch (Exception e)
+            {
+                ProbeRegistry.Current = previous;
+                ProbeRegistry.EndProbe(root, "exception");
+                Finish(root, e);
+                return;
+            }
+            ProbeRegistry.Current = previous;
+
+            if (returned is IEnumerator routine)
+                ProbeRegistry.RunProbeRoutine(root, routine, r =>
+                    Finish(r, r.Error ?? (r.EndReason == "completed" ? null : new ProbeStoppedException(r.EndReason))));
+            else
+            {
+                ProbeRegistry.EndProbe(root, "completed");
+                Finish(root, null);
+            }
+        });
 
         try
         {
-            if (!task.Wait(timeoutMs))
-            {
-                cancelled = true;
-                throw new HttpError(504, $"probe did not finish within {timeoutMs} ms");
-            }
+            if (!tcs.Task.Wait(timeoutMs))
+                return (200, TimedOut(() => root, context, timeoutMs, clock));
         }
         catch (AggregateException e)
         {
             Exception inner = e.InnerException is TargetInvocationException tie ? tie.InnerException : e.InnerException;
-            return (200, new JObject
+            JObject failed = new()
             {
                 ["ok"] = false,
                 ["error"] = inner?.GetType().Name + ": " + inner?.Message,
-                ["stack"] = inner?.StackTrace,
+                ["stack"] = inner is ProbeStoppedException ? null : inner?.StackTrace,
                 ["output"] = SafeOutput(context),
                 ["elapsedMs"] = clock.ElapsedMilliseconds
-            }.ToString(Newtonsoft.Json.Formatting.None));
+            };
+            AddStopped(failed, stopped);
+            return (200, failed.ToString(Newtonsoft.Json.Formatting.None));
         }
 
-        JObject response = task.Result;
+        JObject response = tcs.Task.Result;
         response["elapsedMs"] = clock.ElapsedMilliseconds;
         response["ok"] = true;
         return (200, response.ToString(Newtonsoft.Json.Formatting.None));
+    }
+
+    private sealed class ProbeStoppedException(string reason) : Exception("probe stopped: " + reason);
+
+    // "DvmpProbe_<guid>.Probe" says nothing; the guid is already the owner id.
+    private static string ProbeName(string typeName) => typeName.Substring(typeName.LastIndexOf('.') + 1);
+
+    // A probe that runs past its timeout is stopped, with everything it started, rather than
+    // left running in a game other people may be playing in.
+    private static string TimedOut(Func<ProbeCoroutine> root, DevContext context, int timeoutMs, Stopwatch clock)
+    {
+        JArray stopped = null;
+        string note;
+        try
+        {
+            Task<JArray> t = MainThread.Run(() =>
+            {
+                ProbeCoroutine r = root();
+                if (r == null) return null;
+                ProbeRegistry.EndProbe(r, $"its probe timed out after {timeoutMs} ms");
+                return StoppedList(r);
+            });
+            stopped = t.Wait(2000) ? t.Result : null;
+            note = stopped != null
+                ? "it was stopped, with every coroutine it started"
+                : "the main thread is still busy (a probe stuck without yielding can't be stopped); it will be stopped when it next yields";
+        }
+        catch (Exception e) { note = "stopping it failed: " + e.Message; }
+        if (stopped == null) MainThread.Post(() => { if (root() is ProbeCoroutine r) ProbeRegistry.EndProbe(r, $"its probe timed out after {timeoutMs} ms"); });
+
+        JObject o = new()
+        {
+            ["ok"] = false,
+            ["timedOut"] = true,
+            ["error"] = $"probe did not finish within {timeoutMs} ms; {note}",
+            ["output"] = SafeOutput(context),
+            ["elapsedMs"] = clock.ElapsedMilliseconds
+        };
+        AddStopped(o, stopped);
+        return o.ToString(Newtonsoft.Json.Formatting.None);
+    }
+
+    private static JArray StoppedList(ProbeCoroutine root) =>
+        new((root.StoppedWithIt ?? new List<ProbeCoroutine>()).Select(c => Json.ToToken(new { id = c.Id, name = c.Name, kind = c.Kind, host = c.HostPath })));
+
+    private static void AddStopped(JObject o, JArray stopped)
+    {
+        if (stopped == null || stopped.Count == 0) return;
+        o["stoppedCoroutines"] = stopped;
+        o["stoppedHint"] = "coroutines a probe starts stop when it ends; for a watcher that should keep running use ctx.StartBackground(name, routine, maxSeconds), list it with dvmp_probes";
     }
 
     private static JArray SafeOutput(DevContext context)
@@ -178,6 +260,54 @@ internal static class Endpoints
             return t.Wait(2000) ? t.Result : new JArray();
         }
         catch { return new JArray(); }
+    }
+
+    // ---------------------------------------------------------------- probes
+
+    // What probes left running in this process: coroutines (with their logs) and Harmony
+    // patches, optionally stopping or removing some first.
+    private static object Probes(JObject request)
+    {
+        string stop = request.Value<string>("stop");
+        List<string> unpatch = request["unpatch"] is JArray u ? u.Select(t => t.Value<string>()).ToList() : new List<string>();
+
+        List<ProbeCoroutine> stopped = ProbeRegistry.StopMatching(stop, "stopped by dvmp probes");
+        if (stopped.Count > 0)
+            Debug.Log($"[DvmpDevAgent] dvmp probes stopped {stopped.Count} probe coroutine(s): " + string.Join(", ", stopped.Select(c => $"#{c.Id} {c.Name}")));
+        var (removed, refused) = unpatch.Count > 0 ? ProbePatches.Unpatch(unpatch) : (new List<string>(), new List<string>());
+        if (removed.Count > 0)
+            Debug.Log("[DvmpDevAgent] dvmp probes removed Harmony patches of " + string.Join(", ", removed));
+
+        return new
+        {
+            coroutines = ProbeRegistry.Live.Select(c => c.Describe(withLog: true)).ToList(),
+            recentlyEnded = ProbeRegistry.Recent.Reverse().Take(10).Select(c => c.Describe(withLog: false)).ToList(),
+            patches = ProbePatches.Snapshot().Select(ProbePatches.Describe).ToList(),
+            probeAssemblies = ProbePatches.ProbeAssemblyCount(),
+            stopped = stop == null ? null : stopped.Select(c => new { id = c.Id, name = c.Name }).ToList(),
+            unpatched = unpatch.Count == 0 ? null : removed,
+            refused = refused.Count == 0 ? null : refused
+        };
+    }
+
+    // The short form for status: enough for dvmp to warn about anything left running.
+    private static object ProbeSummary()
+    {
+        try
+        {
+            List<ProbeCoroutine> live = ProbeRegistry.Live.ToList();
+            return new
+            {
+                assemblies = ProbePatches.ProbeAssemblyCount(),
+                inFlight = live.Count(c => c.Kind == "probe"),
+                // Outlived their probe: background watchers, and hooked coroutines with no probe to stop with.
+                lingering = live.Where(c => c.Kind == "background" || c.Kind == "hooked" && c.Parent == null)
+                    .Select(c => new { id = c.Id, name = c.Name, kind = c.Kind, ageSeconds = Math.Round(Time.realtimeSinceStartup - c.StartedAt), maxSeconds = c.MaxSeconds > 0 ? c.MaxSeconds : (float?)null })
+                    .ToList(),
+                patches = ProbePatches.Snapshot().Where(o => o.Category is "probe" or "harness").Select(o => new { owner = o.Id, category = o.Category, methods = o.Methods }).ToList()
+            };
+        }
+        catch (Exception e) { return new { error = e.Message }; }
     }
 
     // ---------------------------------------------------------------- screenshot

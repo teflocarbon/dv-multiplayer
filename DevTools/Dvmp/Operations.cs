@@ -16,6 +16,7 @@ internal static class Operations
     {
         List<Agent> agents = await Agents.DiscoverAsync(ct, all);
         JsonArray list = new();
+        JsonArray warnings = new();
         foreach (Agent agent in agents)
         {
             JsonObject entry = agent.Status?.DeepClone() as JsonObject ?? new JsonObject();
@@ -24,6 +25,8 @@ internal static class Operations
             entry["port"] = agent.Info.Port;
             entry["session"] = agent.Session;
             if (agent.StatusError != null) entry["error"] = agent.StatusError;
+            foreach (string w in ProbeWarnings(entry["probes"] as JsonObject))
+                warnings.Add($"{agent.Label}: {w}");
             list.Add(entry);
         }
         // Paired remote games are listed, not contacted: a status call is a request in their audit log.
@@ -37,12 +40,56 @@ internal static class Operations
             });
         return new JsonObject
         {
+            ["warnings"] = warnings.Count > 0 ? warnings : null,
             ["agents"] = list,
             ["remotes"] = remotes.Count > 0 ? remotes : null,
             ["session"] = all ? "(all)" : Sessions.Current,
             ["gameDir"] = Paths.GameDir,
             ["hint"] = agents.Count == 0 ? "no game running with the dev agent" : null
         };
+    }
+
+    // Coroutines or Harmony patches a probe left behind are easy to forget, and they degrade a
+    // game other people may be playing in (a forgotten watcher once hitched a live host for 50 minutes).
+    private static List<string> ProbeWarnings(JsonObject? probes)
+    {
+        List<string> warnings = new();
+        if (probes == null) return warnings;
+        if (probes["lingering"] is JsonArray lingering && lingering.Count > 0)
+            warnings.Add($"{lingering.Count} probe coroutine(s) running past their probe: " +
+                string.Join(", ", lingering.Select(c => $"#{c?["id"]} {c?["name"]} ({c?["kind"]}, {c?["ageSeconds"]} s" +
+                    (c?["maxSeconds"] is JsonValue max ? $" of {max}" : "") + ")")) +
+                "; inspect with dvmp_probes, stop with dvmp_probes stop=<id|all>");
+        if (probes["patches"] is JsonArray patches)
+        {
+            List<string> owners = patches.Where(p => p?["category"]?.GetValue<string>() == "probe")
+                .Select(p => $"{p?["owner"]} ({p?["methods"]} methods)").ToList();
+            if (owners.Count > 0)
+                warnings.Add("Harmony patches from probes still installed: " + string.Join(", ", owners) +
+                    "; remove with dvmp_probes unpatch=<owner|all>");
+        }
+        return warnings;
+    }
+
+    public static async Task<JsonObject> ProbesAsync(string? target, string? stop, IReadOnlyList<string>? unpatch, CancellationToken ct = default)
+    {
+        List<Agent> agents = await Agents.ResolveAsync(target, ct);
+        JsonObject body = new() { ["stop"] = stop };
+        if (unpatch is { Count: > 0 }) body["unpatch"] = new JsonArray(unpatch.Select(u => (JsonNode?)u).ToArray());
+        JsonObject results = new();
+        await Task.WhenAll(agents.Select(async agent =>
+        {
+            JsonNode node;
+            try
+            {
+                JsonObject r = await Agents.CallAsync(agent, "/v1/probes", (JsonObject)body.DeepClone(), TimeSpan.FromSeconds(15), ct);
+                r.Remove("ok");
+                node = r;
+            }
+            catch (AgentException e) { node = new JsonObject { ["error"] = e.Message }; }
+            lock (results) results[agent.Label] = node;
+        }));
+        return results;
     }
 
     public static async Task<JsonObject> EvalAsync(string code, string? target, string? mode, string? usings,

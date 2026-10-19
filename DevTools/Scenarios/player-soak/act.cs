@@ -22,7 +22,7 @@ IEnumerator Sample()
         yield return new WaitForSecondsRealtime(0.25f);
     }
 }
-CoroutineManager.Instance.StartCoroutine(Sample());
+ctx.StartCoroutine(Sample(), "sample");
 IEnumerator Wait(float s) { for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < s;) yield return null; }
 float start = Time.realtimeSinceStartup;
 while (Time.realtimeSinceStartup - start < seconds)
