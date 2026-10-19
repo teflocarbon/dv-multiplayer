@@ -128,6 +128,12 @@ public partial class NetworkedItem
                 ((dynamic)trackedValue).ServerAuthoritative);
     }
 
+    /// <summary>Drops the values another player holding this item reports themselves.</summary>
+    internal void KeepHostReportsForRemoteHolder(ItemUpdateData snapshot)
+    {
+        snapshot.States = TrackedStateComposer.HostReportsForRemoteHolder(GetTrackedStateEntries(), snapshot.States);
+    }
+
     private void MarkValuesClean()
     {
         foreach (var trackedValue in trackedValues)

@@ -192,9 +192,7 @@ public static class AuthoritativeItemRegistry
             ["reason"] = reason.ToString()
         });
 
-        ItemUpdateData.ItemUpdateType placementFlags = ItemUpdateData.ItemUpdateType.Create |
-            ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.FullSync;
-        bool appliesPlacement = (snapshot.UpdateType & placementFlags) != 0;
+        bool appliesPlacement = ItemUpdateData.ChangesPlacement(snapshot.UpdateType);
         ItemPlacementKind requestedPlacement = appliesPlacement ? PlacementFrom(snapshot.ItemState) : record.Placement;
         if (appliesPlacement && snapshot.ItemState is ItemState.Dropped or ItemState.Thrown)
             requestedPlacement = snapshot.WorldParentKind switch
@@ -245,8 +243,10 @@ public static class AuthoritativeItemRegistry
                 ? PlayerHandRules.Normalize(snapshot.PlayerHand)
                 : PlayerHand.None
             : previousPlacementHand;
-        record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
-            ? actor.Guid : Guid.Empty;
+        // Object state alone (the server's copy of a flashlight a player carries) keeps the holder.
+        if (appliesPlacement)
+            record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
+                ? actor.Guid : Guid.Empty;
         KeepRemotePossession(item, record, snapshot);
         if (record.PersistentOwnerPlayerId == actor.PlayerId && record.PersistentOwnerIdentity == Guid.Empty)
             record.PersistentOwnerIdentity = actor.Guid;

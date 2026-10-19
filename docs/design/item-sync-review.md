@@ -268,8 +268,7 @@ The currently registered values are:
 |---|---|---|
 | Flashlight | `originalLightIntensity` | Server-authoritative. |
 | Flashlight | `originalBeamColour` | Server-authoritative, encoded as `uint`. |
-| Flashlight | `beamColour` | Server-authoritative, encoded as `uint`. |
-| Flashlight | `batteryPower` | Server-authoritative; sends at differences of at least 1, and at boundary values. |
+| Flashlight | `batteryPower` | Holder-reported: the holder's game drains and charges it. Sends at differences of at least 1, and at boundary values. |
 | Flashlight | `buttonState` | Client-changeable. |
 | Lantern | `wickSize` | Client-changeable. |
 | Lantern | `Ignited` | Client-changeable. |
@@ -290,6 +289,8 @@ Every `NetworkedItem` runs a `LateUpdate()` state check. A snapshot is produced 
 - an event marked `stateDirty` (grab, ungrab, throw, or gadget removal);
 - the computed high-level state differs from `lastState`; or
 - a registered value is dirty.
+
+For an item another player holds or carries, the host's snapshot keeps only its server-authoritative values (`TrackedStateComposer.HostReportsForRemoteHolder`). The server's copy runs the item too, in the player's projected hand, but the holder's game is the one they see: the server's copy of a carried flashlight drained its battery with no sun on its panel, and pushed that over the holder's charging one.
 
 Host-side `NetworkedItemManager.ProcessChanged()` also calls `GetSnapshot()` for every item once per network tick. Because `GetSnapshot()` consumes the dirty state, the frame path and tick path can race to be the first consumer on a listen host. The implementation appears designed to allow host-local changes to travel through the local client/server path, but this split ownership of dirty consumption is fragile and should be made explicit.
 

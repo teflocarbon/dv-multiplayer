@@ -26,6 +26,19 @@ public sealed class ItemPacketFixtureTests
         Assert.That(ItemUpdateData.IncludesItemState(updateType), Is.EqualTo(expected));
     }
 
+    // A flashlight's battery ticking on the server's copy must not count as moving it (playtest 3).
+    [TestCase(ItemUpdateData.ItemUpdateType.ObjectState, false)]
+    [TestCase(ItemUpdateData.ItemUpdateType.None, false)]
+    [TestCase(ItemUpdateData.ItemUpdateType.ItemPosition, true)]
+    [TestCase(ItemUpdateData.ItemUpdateType.ItemPosition | ItemUpdateData.ItemUpdateType.ObjectState, true)]
+    [TestCase(ItemUpdateData.ItemUpdateType.ItemState, true)]
+    [TestCase(ItemUpdateData.ItemUpdateType.FullSync, true)]
+    [TestCase(ItemUpdateData.ItemUpdateType.Create, true)]
+    public void ObjectStateAloneDoesNotChangePlacement(ItemUpdateData.ItemUpdateType updateType, bool expected)
+    {
+        Assert.That(ItemUpdateData.ChangesPlacement(updateType), Is.EqualTo(expected));
+    }
+
     [Test]
     public void ExistingProjectorFixtureRunsUnderNUnit()
     {
