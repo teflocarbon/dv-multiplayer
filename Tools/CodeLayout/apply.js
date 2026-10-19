@@ -138,14 +138,13 @@ function rewriteQualified(text, ownOld) {
             for (let n = parts.length - 1; n >= 1; n--) {
                 const target = typeMap.get(`${ns}.${parts.slice(0, n).join('.')}|${parts[n]}`);
                 if (!target) continue;
-                const type = `global::${target}.${parts[n]}`;
-                const rest = parts.slice(n + 1).map(p => '.' + p).join('');
-                // In an interpolation hole `{global::...}` reads `::` as a format: parenthesise.
-                return all[offset - 1] === '{' ? `(${type})${rest}` : type + rest;
+                return `global::${[target, ...parts.slice(n)].join('.')}`;
             }
         }
         return whole;
     });
+    // In an interpolation hole `{global::...}` reads `::` as a format: parenthesise the expression.
+    text = text.replace(/\{(global::[\w.?()]*)\}/g, '{($1)}');
     return text.replace(qualified, (whole, global, rest) => {
         const parts = rest.slice(1).split('.');
         // Longest old namespace prefix followed by a type declared in it.
