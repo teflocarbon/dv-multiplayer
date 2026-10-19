@@ -149,7 +149,10 @@ decision changes (`Server_KeepCompressorSignal`).
   correction are eased separately, but a step in the host's speed above 1.5 m/s (an impact) is
   followed at once (72db159).
 - The host scales the speed it sends by its simulation rate, so clients don't run ahead and snap
-  back after a host stall (`NetworkTrainsetWatcher.UpdateSimulationRate`; 7deb3b9).
+  back after a host stall (`NetworkTrainsetWatcher.UpdateSimulationRate`; 7deb3b9). The rate is
+  `Time.deltaTime` (which DV caps at 1/12 s) over `Time.unscaledDeltaTime`, averaged over about a
+  second. Measured per tick, every ordinary host hitch read as a one-tick dip to ~0.6, and clients
+  followed the dipped speed as an impact: their trains' speed swung by 5-15 km/h every second.
 - The network tick advances by elapsed real time, so it keeps step below 24 fps
   (`Components/Networking/NetworkLifecycle.cs`; 274c250).
 - Full syncs use the transform instead of the rigidbody while a just-spawned car's body is still
@@ -739,7 +742,7 @@ keeps step below 24 fps) each moving trainset is sent as one `ClientboundTrainse
 unreliable unless a bogie changed track. On-rail cars carry speed, slow stress and both bogies'
 track and span; derailed cars carry a rigidbody snapshot. Every 2 s a car also carries its full
 position and rotation, even when stationary. The speed is `GetForwardSpeed()` multiplied by the
-host's simulation rate (game time per real second, smoothed, 1 above 0.97), so a host that drops
+host's simulation rate (game time per real second, averaged over about a second), so a host that drops
 to a few frames a second doesn't send speeds its world isn't making. A full sync of a car whose
 rigidbody is still more than 5 m from its transform (a just-spawned car whose body is at its
 pooled position) sends the transform instead. A set counts as moving while any car is not
