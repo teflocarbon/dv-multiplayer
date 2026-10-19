@@ -115,6 +115,29 @@ public sealed class TrackedStateComposerTests
         }
     }
 
+    [Test]
+    public void HostCopyOfAHeldItemReportsOnlyServerValues()
+    {
+        // The server's copy of a flashlight a player carries: its own battery drain and switch
+        // are the holder's to report, its light settings are the server's.
+        TrackedStateEntry[] entries = {
+            new("batteryPower", 0.2f, true, false),
+            new("buttonState", true, true, false),
+            new("originalLightIntensity", 6f, true, true)
+        };
+        var states = new Dictionary<string, object>
+        {
+            ["batteryPower"] = 0.2f,
+            ["buttonState"] = true,
+            ["originalLightIntensity"] = 6f
+        };
+
+        Dictionary<string, object> reported = TrackedStateComposer.HostReportsForRemoteHolder(entries, states);
+
+        Assert.That(reported.Keys, Is.EquivalentTo(new[] { "originalLightIntensity" }));
+        Assert.That(TrackedStateComposer.HostReportsForRemoteHolder(entries, null), Is.Empty);
+    }
+
     private static TrackedStateEntry[] Entries() => new[] {
         new TrackedStateEntry("dirty", 1, true, false),
         new TrackedStateEntry("clean", 2, false, false),

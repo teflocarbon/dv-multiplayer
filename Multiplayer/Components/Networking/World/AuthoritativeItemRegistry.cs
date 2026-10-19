@@ -4,11 +4,13 @@ using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Items;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Networking.Managers.Server;
 using Multiplayer.Utils;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Components.Networking.Train;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Components.Networking.World;
@@ -52,6 +54,9 @@ public static class AuthoritativeItemRegistry
         public ushort AttachedCarNetId;
         public string AttachedCarPersistentId = string.Empty;
         public bool AttachedFront;
+        // The revisions that changed only object state; see ItemPlacementRevision.
+        public uint ObjectStateRunBase;
+        public uint ObjectStateRunTop;
     }
 
     private static readonly Dictionary<ushort, Record> records = new();
@@ -188,9 +193,7 @@ public static class AuthoritativeItemRegistry
             ["reason"] = reason.ToString()
         });
 
-        ItemUpdateData.ItemUpdateType placementFlags = ItemUpdateData.ItemUpdateType.Create |
-            ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.FullSync;
-        bool appliesPlacement = (snapshot.UpdateType & placementFlags) != 0;
+        bool appliesPlacement = ItemUpdateData.ChangesPlacement(snapshot.UpdateType);
         ItemPlacementKind requestedPlacement = appliesPlacement ? PlacementFrom(snapshot.ItemState) : record.Placement;
         if (appliesPlacement && snapshot.ItemState is ItemState.Dropped or ItemState.Thrown)
             requestedPlacement = snapshot.WorldParentKind switch
@@ -200,6 +203,7 @@ public static class AuthoritativeItemRegistry
                 _ => requestedPlacement
             };
         byte previousPersistentOwner = record.PersistentOwnerPlayerId;
+        int previousClaimSlot = record.InventoryClaimSlot;
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(currentState, new ItemTransitionCommand
         {
             ActorPlayerId = actor.PlayerId,
@@ -241,8 +245,11 @@ public static class AuthoritativeItemRegistry
                 ? PlayerHandRules.Normalize(snapshot.PlayerHand)
                 : PlayerHand.None
             : previousPlacementHand;
-        record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
-            ? actor.Guid : Guid.Empty;
+        // Object state alone (the server's copy of a flashlight a player carries) keeps the holder.
+        if (appliesPlacement)
+            record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
+                ? actor.Guid : Guid.Empty;
+        KeepRemotePossession(item, record, snapshot);
         if (record.PersistentOwnerPlayerId == actor.PlayerId && record.PersistentOwnerIdentity == Guid.Empty)
             record.PersistentOwnerIdentity = actor.Guid;
         if (previousPersistentOwner == 0 && record.PersistentOwnerPlayerId == actor.PlayerId)
@@ -276,8 +283,41 @@ public static class AuthoritativeItemRegistry
         });
         NetworkedItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
+        // The owner's client put the item in this slot, so it keeps the slot if another of their
+        // essentials claims it too (one dropped or stolen leaves its slot looking empty in DV).
+        bool ownerPlacedClaim = appliesPlacement && record.PersistentOwnerPlayerId == actor.PlayerId &&
+            (record.InventoryClaimSlot != previousClaimSlot || record.Placement == ItemPlacementKind.PlayerInventory);
+        if (HasRetrievalClaim(record))
+            EnsureDistinctClaimSlots(record, ownerPlacedClaim ? record.NetId : (ushort)0, reason.ToString());
         return true;
     }
+
+    /// <summary>
+    /// Puts the record's pose into an object-state update before it's applied, so a transition
+    /// that doesn't move the item doesn't take the sender's copy's position as the item's.
+    /// </summary>
+    public static void KeepRecordedPose(NetworkedItem item, ItemUpdateData snapshot)
+    {
+        if (item == null || snapshot == null || !records.TryGetValue(item.NetId, out Record record))
+            return;
+        snapshot.ItemPosition = record.Position;
+        snapshot.ItemRotation = record.Rotation;
+        snapshot.WorldParentKind = record.WorldParentKind;
+        snapshot.WorldParentNetId = record.WorldParentNetId;
+        snapshot.WorldParentKey = record.WorldParentKey ?? string.Empty;
+        snapshot.ParentLocalPosition = record.ParentLocalPosition;
+        snapshot.ParentLocalRotation = record.ParentLocalRotation;
+        snapshot.CarNetId = record.AttachedCarNetId;
+        snapshot.AttachedFront = record.AttachedFront;
+    }
+
+    /// <summary>
+    /// Whether the item is where it was at <paramref name="revision"/>: only object state (a
+    /// lantern's flame) has changed since. A physics lease granted then is still good.
+    /// </summary>
+    public static bool PlacementUnchangedSince(Record record, uint revision) =>
+        record != null && ItemPlacementRevision.UnchangedSince(revision, record.Revision,
+            record.ObjectStateRunBase, record.ObjectStateRunTop);
 
     public static bool TryCommitSpatialPose(NetworkedItem item, uint expectedRevision,
         ItemSpatialStateData state, out Record record, out string rejectionReason)
@@ -290,7 +330,7 @@ public static class AuthoritativeItemRegistry
             rejectionReason = "invalid-spatial-commit-input";
             return false;
         }
-        if (record.Revision != expectedRevision || state.AuthorityRevision != expectedRevision)
+        if (!PlacementUnchangedSince(record, expectedRevision) || state.AuthorityRevision != expectedRevision)
         {
             rejectionReason = "stale-spatial-authority-revision";
             return false;
@@ -308,6 +348,7 @@ public static class AuthoritativeItemRegistry
         }
 
         record.Revision++;
+        record.ObjectStateRunBase = record.ObjectStateRunTop = 0;
         record.Placement = state.WorldParentKind switch
         {
             ItemWorldParentKind.TrainInterior => ItemPlacementKind.TrainInterior,
@@ -443,6 +484,7 @@ public static class AuthoritativeItemRegistry
             ["requestedSlot"] = requestedSlot,
             ["baseRevision"] = expectedRevision
         });
+        EnsureDistinctClaimSlots(record, record.NetId, nameof(ItemTransitionReason.OwnerRecall));
         return true;
     }
 
@@ -545,6 +587,7 @@ public static class AuthoritativeItemRegistry
             ["requestingPlayerId"] = requester.PlayerId,
             ["targetSlot"] = targetSlot
         });
+        EnsureDistinctClaimSlots(record, record.NetId, nameof(ItemTransitionReason.LostAndFoundRetrieval));
         return true;
     }
 
@@ -556,6 +599,7 @@ public static class AuthoritativeItemRegistry
             return null;
         Record record = Ensure(item);
         record.Revision = revision;
+        record.ObjectStateRunBase = record.ObjectStateRunTop = 0;
         record.Placement = ItemPlacementKind.LostAndFound;
         record.PlacementPlayerId = 0;
         record.PlacementHand = PlayerHand.None;
@@ -764,6 +808,36 @@ public static class AuthoritativeItemRegistry
                 record.PlacementPlayerId = player.PlayerId;
     }
 
+    /// <summary>Whether any record is owned by, or placed with, this player ID.</summary>
+    internal static bool HasIdentity(Guid identity) =>
+        identity != Guid.Empty && records.Values.Any(record =>
+            record.PersistentOwnerIdentity == identity || record.PlacementPlayerIdentity == identity);
+
+    /// <summary>A player's ID changed (InstallGuidRekey): their records follow. Returns how many changed.</summary>
+    internal static int RekeyIdentity(Guid from, Guid to)
+    {
+        if (from == Guid.Empty || to == Guid.Empty)
+            return 0;
+        int changed = 0;
+        foreach (Record record in records.Values)
+        {
+            bool touched = false;
+            if (record.PersistentOwnerIdentity == from)
+            {
+                record.PersistentOwnerIdentity = to;
+                touched = true;
+            }
+            if (record.PlacementPlayerIdentity == from)
+            {
+                record.PlacementPlayerIdentity = to;
+                touched = true;
+            }
+            if (touched)
+                changed++;
+        }
+        return changed;
+    }
+
     public static void UnbindPersistentOwner(ServerPlayer player)
     {
         if (player == null || player.Guid == Guid.Empty) return;
@@ -779,9 +853,135 @@ public static class AuthoritativeItemRegistry
                 record.PlacementPlayerId = 0;
     }
 
+    /// <summary>
+    /// Moves the player's essentials apart if any two claim the same slot, as a save or an earlier
+    /// session may have left them (EssentialClaimSlotPolicy). Returns how many claims moved.
+    /// </summary>
+    public static int EnsureDistinctClaimSlots(ServerPlayer owner, string reason)
+    {
+        if (owner == null || owner.Guid == Guid.Empty && owner.PlayerId == 0)
+            return 0;
+        return EnsureDistinctClaimSlots(records.Values.Where(record => HasRetrievalClaim(record) &&
+            (owner.Guid != Guid.Empty && record.PersistentOwnerIdentity == owner.Guid ||
+             owner.PlayerId != 0 && record.PersistentOwnerPlayerId == owner.PlayerId)).ToArray(), 0, reason);
+    }
+
+    // Checks the claims of this record's owner. preferredNetId keeps its slot; 0 lets the policy rank them.
+    private static int EnsureDistinctClaimSlots(Record claimed, ushort preferredNetId, string reason)
+    {
+        if (claimed == null || claimed.PersistentOwnerIdentity == Guid.Empty && claimed.PersistentOwnerPlayerId == 0)
+            return 0;
+        return EnsureDistinctClaimSlots(records.Values.Where(record => HasRetrievalClaim(record) &&
+            (claimed.PersistentOwnerIdentity != Guid.Empty && record.PersistentOwnerIdentity != Guid.Empty
+                ? record.PersistentOwnerIdentity == claimed.PersistentOwnerIdentity
+                : claimed.PersistentOwnerPlayerId != 0 &&
+                  record.PersistentOwnerPlayerId == claimed.PersistentOwnerPlayerId)).ToArray(),
+            preferredNetId, reason);
+    }
+
+    private static int EnsureDistinctClaimSlots(Record[] ownerClaims, ushort preferredNetId, string reason)
+    {
+        if (ownerClaims.Length < 2)
+            return 0;
+        IReadOnlyList<ClaimSlotMove> moves = EssentialClaimSlotPolicy.Resolve(ownerClaims.Select(record =>
+            new EssentialClaim(record.NetId, record.InventoryClaimSlot, InOwnerInventory(record),
+                (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Dropped | ItemInventoryClaimFlags.Stolen)) != 0)),
+            preferredNetId);
+        foreach (ClaimSlotMove move in moves)
+        {
+            if (!records.TryGetValue(move.NetId, out Record record))
+                continue;
+            // The revision stays: only the owner's metadata changes, and a holder's next transition
+            // must not be refused as stale for it.
+            record.InventoryClaimSlot = move.ToSlot;
+            NetworkedItem.TryGet(move.NetId, out NetworkedItem item);
+            Publish("item.essential-claim-slot-collision-repaired", item, record, new()
+            {
+                ["fromSlot"] = move.FromSlot,
+                ["toSlot"] = move.ToSlot,
+                ["keptBy"] = ownerClaims.FirstOrDefault(other => other.NetId != move.NetId &&
+                    other.InventoryClaimSlot == move.FromSlot)?.NetId ?? 0,
+                ["reason"] = reason ?? string.Empty
+            }, DebugSeverity.Warning);
+            Multiplayer.Log($"Item {move.NetId} ({record.PrefabName}): claim slot {move.FromSlot} is another " +
+                $"essential's of the same owner, moved to {move.ToSlot} ({reason})");
+            PushClaimSlotCorrection(item, record);
+        }
+        return moves.Count;
+    }
+
+    // Sends the moved claim to its owner, whose client then puts the silhouette in the new slot.
+    private static void PushClaimSlotCorrection(NetworkedItem item, Record record)
+    {
+        bool lost = record.Placement == ItemPlacementKind.LostAndFound;
+        if (lost)
+            NetworkedLostAndFoundManager.SetInventoryClaimSlot(record.NetId, record.InventoryClaimSlot);
+        if (item == null)
+            return;
+        ItemUpdateData correction = null;
+        bool corrected = lost
+            ? NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out correction)
+            : TryCreateCorrectionSnapshot(item, out correction);
+        NetworkServer server = NetworkLifecycle.Instance?.Server;
+        bool hostOwns = server != null && record.PersistentOwnerPlayerId != 0 &&
+            record.PersistentOwnerPlayerId == server.SelfId;
+        if (corrected && hostOwns && !lost)
+            item.ApplyServerCanonicalSnapshot(correction);
+        else
+            item.ApplyAuthorityMetadata(new ItemUpdateData
+            {
+                ItemNetId = item.NetId,
+                AuthorityRevision = item.AuthorityRevision,
+                PersistentOwnerPlayerId = record.PersistentOwnerPlayerId,
+                InventoryClaimPlayerId = record.InventoryClaimPlayerId,
+                InventoryClaimSlot = record.InventoryClaimSlot,
+                InventoryClaimFlags = record.InventoryClaimFlags,
+                TransitionReason = item.LastTransitionReason
+            });
+        // An owner still loading gets the claim with the rest of their items.
+        if (corrected && server != null && !hostOwns &&
+            server.TryGetServerPlayer(record.PersistentOwnerPlayerId, out ServerPlayer owner) &&
+            owner.LoadingState >= PlayerLoadingState.ReadyForItems)
+            server.SendItemUpdatePacket(correction, owner);
+    }
+
+    private static bool InOwnerInventory(Record record) =>
+        record.Placement == ItemPlacementKind.PlayerInventory &&
+        (record.PlacementPlayerIdentity != Guid.Empty && record.PlacementPlayerIdentity == record.PersistentOwnerIdentity ||
+         record.PlacementPlayerId != 0 && record.PlacementPlayerId == record.PersistentOwnerPlayerId);
+
+    private static bool HasRetrievalClaim(Record record) =>
+        record.InventoryClaimSlot >= 0 && HasRetrievalFlag(record.InventoryClaimFlags);
+
     public static void Remove(ushort netId) => records.Remove(netId);
     public static void Clear() => records.Clear();
     public static IEnumerable<Record> Records => records.Values;
+
+    /// <summary>
+    /// A backstop for the server's own player taking another player's item. In playtest 2 items
+    /// in a VR player's hand or inventory (lanterns as they were lit, an EOT lantern) ended up
+    /// recorded in the server's player's hand, though the server's copy still belonged to the
+    /// player; the next update moved them to the server's parked body and they vanished from the
+    /// player's hand. Not every path that did it was found, so whatever the transition, a record
+    /// that lands on the server's player while its item is another present player's goes back.
+    /// </summary>
+    private static void KeepRemotePossession(NetworkedItem item, Record record, ItemUpdateData snapshot)
+    {
+        if (record.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory))
+            return;
+        var server = NetworkLifecycle.Instance?.Server;
+        if (server == null || record.PlacementPlayerId != server.SelfId)
+            return;
+        byte possessor = item.playerBelongsToId;
+        if (possessor == 0 || possessor == server.SelfId || !server.TryGetServerPlayer(possessor, out ServerPlayer holder))
+            return;
+        record.PlacementPlayerId = possessor;
+        record.PlacementPlayerIdentity = holder.Guid;
+        if (snapshot != null && snapshot.PlayerId == server.SelfId)
+            snapshot.PlayerId = possessor;
+        Multiplayer.LogWarning($"Item {item.NetId} ({record.PrefabName}) was recorded as the server's player's, " +
+                               $"but it's {holder.Username}'s; kept it theirs");
+    }
 
     private static ItemAuthorityState ToCore(Record record)
     {
@@ -794,7 +994,9 @@ public static class AuthoritativeItemRegistry
             PersistentOwnerPlayerId = record.PersistentOwnerPlayerId,
             InventoryClaimPlayerId = record.InventoryClaimPlayerId,
             InventoryClaimSlot = record.InventoryClaimSlot,
-            InventoryClaimFlags = (AuthorityClaimFlags)(byte)record.InventoryClaimFlags
+            InventoryClaimFlags = (AuthorityClaimFlags)(byte)record.InventoryClaimFlags,
+            ObjectStateRunBase = record.ObjectStateRunBase,
+            ObjectStateRunTop = record.ObjectStateRunTop
         };
     }
 
@@ -808,6 +1010,8 @@ public static class AuthoritativeItemRegistry
         record.InventoryClaimPlayerId = state.InventoryClaimPlayerId;
         record.InventoryClaimSlot = state.InventoryClaimSlot;
         record.InventoryClaimFlags = (ItemInventoryClaimFlags)(byte)state.InventoryClaimFlags;
+        record.ObjectStateRunBase = state.ObjectStateRunBase;
+        record.ObjectStateRunTop = state.ObjectStateRunTop;
     }
 
     private static ItemPlacementKind PlacementFrom(ItemState state) => state switch

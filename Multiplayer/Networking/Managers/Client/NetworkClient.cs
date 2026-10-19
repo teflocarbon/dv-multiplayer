@@ -104,6 +104,7 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundTrainSpawnRequestPacket),
         typeof(ServerboundWorkTrainRequestPacket),
         typeof(ServerboundLicensePurchaseRequestPacket),
+        typeof(ServerboundPayFeesRequestPacket),
         typeof(ServerboundJobValidateRequestPacket),
         typeof(ServerboundWarehouseMachineControllerRequestPacket),
         typeof(CommonPitStopInteractionPacket),
@@ -163,6 +164,8 @@ public class NetworkClient : NetworkManager
 
     private bool isAlsoHost;
     IGameSession originalSession;
+    // Proves this game's Steam account to the server; Steam keeps it valid until cancelled.
+    private Steamworks.AuthTicket authTicket;
 
     // Allow mods to add to the wait Queue
     private readonly List<string> readyBlocks = [];
@@ -178,7 +181,8 @@ public class NetworkClient : NetworkManager
         WorldStreamingInit.LoadingFinished -= NetworkedPlayer.CaptureItemAnchorOffset;
         WorldStreamingInit.LoadingFinished += NetworkedPlayer.CaptureItemAnchorOffset;
 
-        Username = Multiplayer.Settings.GetUserName();
+        // A dedicated host's own client is a service identity, not the install's player.
+        Username = NetworkLifecycle.Instance.IsDedicatedHost ? DedicatedHost.ServiceName : Multiplayer.Settings.GetUserName();
         characterModelId = Multiplayer.Settings.CharacterId;
 
         Settings.OnSettingsUpdated += OnSettingsUpdated;
@@ -192,10 +196,32 @@ public class NetworkClient : NetworkManager
         //netManager.Start();
         base.Start();
 
+        // The host's own client is trusted by its token and needs no ticket.
+        bool hosting = NetworkLifecycle.Instance.IsServerRunning;
+        ulong steamId = hosting ? 0 : PlayerIdentity.LocalSteamId;
+        byte[] ticket = [];
+        if (steamId != 0)
+        {
+            try
+            {
+                authTicket = Steamworks.SteamUser.GetAuthSessionTicket(default);
+                ticket = authTicket?.Data ?? [];
+            }
+            catch (Exception e)
+            {
+                LogWarning($"Couldn't get a Steam session ticket: {e.Message}");
+            }
+            if (ticket.Length == 0)
+                LogWarning("No Steam session ticket: a host that verifies players will refuse this login");
+        }
+
         ServerboundClientLoginPacket serverboundClientLoginPacket = new()
         {
             Username = this.Username,
-            Guid = Multiplayer.Settings.GetGuid().ToByteArray(),
+            Guid = (NetworkLifecycle.Instance.IsDedicatedHost ? Multiplayer.Settings.GetServiceGuid() : Multiplayer.Settings.GetGuid()).ToByteArray(),
+            SteamId = ticket.Length > 0 ? steamId : 0,
+            AuthTicket = ticket,
+            HostToken = hosting ? Managers.Server.PlayerAuthentication.HostToken : [],
             Password = password,
             BuildVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
             Mods = ModCompatibilityManager.Instance.GetLocalMods(),
@@ -228,6 +254,8 @@ public class NetworkClient : NetworkManager
         }
 
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
+        authTicket?.Cancel();
+        authTicket = null;
         if (worldLoadingFinishedHandler != null)
             WorldStreamingInit.LoadingFinished -= worldLoadingFinishedHandler;
         worldLoadingFinishedHandler = null;
@@ -905,8 +933,13 @@ public class NetworkClient : NetworkManager
             LoadingScreenManager.Instance.FinishLoading();
         }
 
-        //if not single player, add in chat
-        if (!isSinglePlayer)
+        // Starting items this game made itself are only this game's until the server adopts them.
+        if (!isAlsoHost)
+            NetworkedItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
+
+        //if not single player, add in chat (nobody reads it on a dedicated host, and building it
+        //pauses the game)
+        if (!isSinglePlayer && !NetworkLifecycle.Instance.IsDedicatedHost)
         {
             GameObject common = GameObject.Find("[MAIN]/[GameUI]/[NewCanvasController]/Auxiliary Canvas, EventSystem, Input Module");
             if (common != null)
@@ -1391,29 +1424,31 @@ public class NetworkClient : NetworkManager
     private void OnClientboundRerailTrainPacket(ClientboundRerailTrainPacket packet)
     {
         LogDebug(() => $"OnClientboundRerailTrainPacket() NetId: {packet.NetId}, TrackId: {packet.TrackId}, Position: {packet.Position}, Forward: {packet.Forward}, currentMove: {WorldMover.currentMove}");
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar))
+        if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
         if (!NetworkedRailTrack.TryGet(packet.TrackId, out NetworkedRailTrack networkedRailTrack))
             return;
+        TrainCar trainCar = networkedTrainCar.TrainCar;
 
         Log($"Rerailing [{trainCar?.ID}, {packet.NetId}] to track {networkedRailTrack?.RailTrack?.LogicTrack()?.ID}");
         LogDebug(() => $"Rerailing [{trainCar?.ID}, {packet.NetId}] track: [{networkedRailTrack?.RailTrack?.LogicTrack()?.ID}, {packet.TrackId}], raw position: {packet.Position}, adjusted position: {packet.Position + WorldMover.currentMove}, forward: {packet.Forward}");
-        trainCar.Rerail(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
+        networkedTrainCar.Client_RerailFromHost(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
     }
 
     private void OnClientboundMoveTrainPacket(ClientboundMoveTrainPacket packet)
     {
         LogDebug(() => $"OnClientboundMoveTrainPacket() received for netId: {packet.NetId}, trackId: {packet.TrackId}, position: {packet.Position}, forward: {packet.Forward}, isTeleporting: {packet.IsTeleporting}");
-        if (!NetworkedTrainCar.TryGet(packet.NetId, out TrainCar trainCar))
+        if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
         if (!NetworkedRailTrack.TryGet(packet.TrackId, out NetworkedRailTrack networkedRailTrack))
             return;
+        TrainCar trainCar = networkedTrainCar.TrainCar;
 
         Log($"Moving [{trainCar?.ID}, {packet.NetId}] to track {networkedRailTrack?.RailTrack?.LogicTrack()?.ID}");
         LogDebug(() => $"Moving [{trainCar?.ID}, {packet.NetId}] track: [{networkedRailTrack?.RailTrack?.LogicTrack()?.ID}, {packet.TrackId}], raw position: {packet.Position}, adjusted position: {packet.Position + WorldMover.currentMove}, forward: {packet.Forward}, front coupled: {trainCar.frontCoupler.coupledTo != null}, rear coupled:{trainCar.rearCoupler.coupledTo != null}, derailed: {trainCar.derailed}");
 
         if (!packet.IsTeleporting)
-            trainCar.MoveToTrackWithCarUncouple(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
+            networkedTrainCar.Client_MoveToTrackFromHost(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
         else
             LogDebug(() => $"OnClientboundMoveTrainPacket() netId: {packet.NetId} Attempting to move train, teleport not implemented");
     }
@@ -2420,7 +2455,8 @@ public class NetworkClient : NetworkManager
             ExpectedRevision = revision,
             NetId = netId,
             PortIds = portIds,
-            PortValues = portValues
+            PortValues = portValues,
+            Tick = NetworkLifecycle.Instance.Tick
         }, DeliveryMethod.ReliableOrdered);
 
         /*
@@ -2537,6 +2573,11 @@ public class NetworkClient : NetworkManager
             Id = id,
             IsJobLicense = isJobLicense
         }, DeliveryMethod.ReliableUnordered);
+    }
+
+    public void SendPayFeesRequest()
+    {
+        SendPacketToServer(new ServerboundPayFeesRequestPacket(), DeliveryMethod.ReliableUnordered);
     }
 
     public void SendJobValidateRequest(NetworkedJob job, NetworkedStationController station,

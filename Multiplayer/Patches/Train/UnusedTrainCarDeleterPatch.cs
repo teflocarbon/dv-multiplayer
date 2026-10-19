@@ -67,7 +67,7 @@ public static class UnusedTrainCarDeleterPatch
     [HarmonyPrefix]
     public static bool InstantConditionalDeleteOfUnusedCars(UnusedTrainCarDeleter __instance)
     {
-        if(NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if(NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
 
         return false;

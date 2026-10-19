@@ -47,23 +47,34 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
     // at a fraction of real time. Clients predict along the track in real time with the speed we
     // send, so sending the raw speed made them run far ahead of the host (hundreds of metres over
     // a long stall) and snap back when it recovered. Send the speed the train is really making.
-    private float lastRateRealTime = -1f;
-    private float lastRateGameTime;
+    //
+    // The rate is game time over real time per frame (Time.deltaTime, capped by DV at 1/12 s,
+    // against Time.unscaledDeltaTime, which isn't), averaged over about a second. It used to be
+    // measured per tick against Time.realtimeSinceStartup, read part-way through a frame, and
+    // eased only over two ticks: every ordinary 120 ms hitch read as a rate of ~0.6 for a tick,
+    // so the speed sent dipped by a third and climbed back over the next four ticks. Clients took
+    // the dip as an impact and followed it at once, so their trains' speed swung by 5-15 km/h
+    // every second while the host's held steady.
+    private const float SimulationRateSeconds = 1f;
+    private float rateGameTime;
+    private float rateRealTime;
     private float simulationRate = 1f;
+
+    private void Update()
+    {
+        if (!NetworkLifecycle.Instance.IsHost())
+            return;
+        rateGameTime += Time.deltaTime;
+        rateRealTime += Time.unscaledDeltaTime;
+    }
 
     private void UpdateSimulationRate()
     {
-        float real = Time.realtimeSinceStartup, game = Time.time;
-        if (lastRateRealTime >= 0f && real - lastRateRealTime > 0.0001f)
-        {
-            float rate = Mathf.Clamp01((game - lastRateGameTime) / (real - lastRateRealTime));
-            // Smooth over a few ticks: a single long frame shouldn't halve every train's speed.
-            simulationRate = Mathf.Lerp(simulationRate, rate, 0.5f);
-            if (simulationRate > 0.97f)
-                simulationRate = 1f;
-        }
-        lastRateRealTime = real;
-        lastRateGameTime = game;
+        if (rateRealTime <= 0f)
+            return;
+        float rate = Mathf.Clamp01(rateGameTime / rateRealTime);
+        simulationRate = Mathf.Lerp(simulationRate, rate, 1f - Mathf.Exp(-rateRealTime / SimulationRateSeconds));
+        rateGameTime = rateRealTime = 0f;
     }
 
     private void Server_OnTick(uint tick)

@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Player;
 using Multiplayer.Utils;
 using System;
@@ -14,6 +15,10 @@ public static class CustomFirstPersonControllerPatch
     [HarmonyPostfix]
     private static void Awake(CustomFirstPersonController __instance)
     {
+        // A dedicated host's local player is a parked body, not a player: it sends no position.
+        if (NetworkLifecycle.Instance?.IsDedicatedHost == true)
+            return;
+
         LocalPlayerTrackerBase tracker;
 
         if (VRManager.IsVREnabled())

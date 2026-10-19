@@ -28,6 +28,15 @@ public class ItemUpdateData
     public static bool IncludesItemState(ItemUpdateType updateType) =>
         updateType.HasFlag(ItemUpdateType.ItemState) || updateType.HasFlag(ItemUpdateType.Create);
 
+    /// <summary>
+    /// Whether an accepted update changes where the item is (its placement, holder or pose), not
+    /// just its object state. Masking with FullSync instead matched a plain ObjectState update:
+    /// every flicker of the server's copy of a flashlight and every tick of its battery moved
+    /// the item, so its holder's own changes then arrived on a stale revision and were refused.
+    /// </summary>
+    public static bool ChangesPlacement(ItemUpdateType updateType) =>
+        IncludesItemState(updateType) || updateType.HasFlag(ItemUpdateType.ItemPosition);
+
     public ItemUpdateType UpdateType { get; set; }
     public ushort ItemNetId { get; set; }
     public string PrefabName { get; set; }

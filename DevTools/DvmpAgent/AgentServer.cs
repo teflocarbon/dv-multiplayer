@@ -10,33 +10,70 @@ using System.Threading;
 namespace Dvmp.Agent;
 
 /// <summary>
-/// Minimal loopback-only HTTP/1.1 server. One request per connection, JSON in and out.
-/// Every request must carry the bearer token from the discovery file and a loopback Host
-/// header (blocks DNS-rebinding from a browser). No endpoint discloses the token.
+/// Minimal HTTP/1.1 server. One request per connection, JSON in and out.
+///
+/// The local server listens on loopback: every request must carry the bearer token from the
+/// discovery file and a loopback Host header (blocks DNS-rebinding from a browser). No endpoint
+/// discloses the token.
+///
+/// A remote server (<see cref="RemoteAccess"/>) listens on this PC's Tailscale address only,
+/// accepts connections from Tailscale addresses only, and leaves authentication to
+/// <see cref="RemoteAccess"/>: a pairing code, or a paired debugger's per-session token. It
+/// authenticates before reading a body, and never serves /v1/quit.
 /// </summary>
 internal sealed class AgentServer
 {
     private const int MaxHeaderBytes = 16 * 1024;
     private const int MaxBodyBytes = 32 * 1024 * 1024;
 
+    private readonly IPAddress address;
+    private readonly int firstPort;
+    private readonly int portCount;
+    private readonly bool remote;
+
     private TcpListener listener;
     private Thread acceptThread;
     private volatile bool running;
 
+    /// <summary>The loopback server for the local dvmp tool, on a random free port.</summary>
+    public AgentServer() : this(IPAddress.Loopback, 0, 1, remote: false) { }
+
+    /// <summary>A remote server on <paramref name="address"/>, on the first free port from <paramref name="firstPort"/>.</summary>
+    public AgentServer(IPAddress address, int firstPort, int portCount, bool remote)
+    {
+        this.address = address;
+        this.firstPort = firstPort;
+        this.portCount = portCount;
+        this.remote = remote;
+    }
+
+    public IPAddress Address => address;
     public int Port { get; private set; }
+    /// <summary>The local server's bearer token; the remote server has none.</summary>
     public string Token { get; private set; }
 
     public void Start()
     {
-        byte[] secret = new byte[32];
-        using (RandomNumberGenerator rng = RandomNumberGenerator.Create()) rng.GetBytes(secret);
-        Token = BitConverter.ToString(secret).Replace("-", string.Empty).ToLowerInvariant();
+        if (!remote)
+        {
+            byte[] secret = new byte[32];
+            using (RandomNumberGenerator rng = RandomNumberGenerator.Create()) rng.GetBytes(secret);
+            Token = BitConverter.ToString(secret).Replace("-", string.Empty).ToLowerInvariant();
+        }
 
-        listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
+        SocketException lastError = null;
+        for (int i = 0; i < portCount && listener == null; i++)
+        {
+            TcpListener candidate = new(address, firstPort == 0 ? 0 : firstPort + i);
+            try { candidate.Start(); listener = candidate; }
+            catch (SocketException e) { lastError = e; }
+        }
+        if (listener == null)
+            throw new InvalidOperationException($"no free port on {address} from {firstPort}: {lastError?.Message}");
+
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
         running = true;
-        acceptThread = new Thread(AcceptLoop) { IsBackground = true, Name = "dvmp-agent-http" };
+        acceptThread = new Thread(AcceptLoop) { IsBackground = true, Name = remote ? "dvmp-agent-remote" : "dvmp-agent-http" };
         acceptThread.Start();
     }
 
@@ -61,6 +98,11 @@ internal sealed class AgentServer
     {
         using (client)
         {
+            IPAddress peer = (client.Client.RemoteEndPoint as IPEndPoint)?.Address;
+            // Only Tailscale peers reach the Tailscale address, but don't rely on that alone.
+            if (remote && (peer == null || !RemoteAccess.IsTailscaleAddress(peer)))
+                return;
+
             client.ReceiveTimeout = 30_000;
             client.SendTimeout = 30_000;
             NetworkStream stream = client.GetStream();
@@ -68,9 +110,17 @@ internal sealed class AgentServer
             string body;
             try
             {
-                Request request = Read(stream);
-                Authorize(request);
-                (status, body) = Endpoints.Handle(request.Path, request.Body);
+                Request request = ReadHead(stream);
+                if (!running) throw new HttpError(503, "remote debugging was turned off");
+                RemoteCaller caller = Authorize(request, peer);
+                ReadBody(stream, request);
+                if (remote && request.Path == "/v1/pair")
+                    (status, body) = (200, RemoteAccess.CompletePairing(request.Body, peer));
+                else
+                {
+                    if (caller != null) RemoteAccess.Audit(caller, request.Path, request.Body);
+                    (status, body) = Endpoints.Handle(request.Path, request.Body);
+                }
             }
             catch (HttpError e)
             {
@@ -80,35 +130,51 @@ internal sealed class AgentServer
             catch (Exception e)
             {
                 status = 500;
-                body = Json.Error(e.ToString());
+                body = Json.Error(remote ? e.GetType().Name + ": " + e.Message : e.ToString());
             }
             try { Write(stream, status, body); } catch { }
         }
     }
 
-    private void Authorize(Request request)
+    /// <returns>The paired debugger making a remote request; null for local and pairing requests.</returns>
+    private RemoteCaller Authorize(Request request, IPAddress peer)
     {
         if (request.Method != "POST") throw new HttpError(405, "only POST is supported");
 
         string host = request.Header("host");
-        if (host != $"127.0.0.1:{Port}" && host != $"localhost:{Port}")
-            throw new HttpError(403, "bad host header");
+        bool hostOk = remote
+            ? host == $"{address}:{Port}"
+            : host == $"127.0.0.1:{Port}" || host == $"localhost:{Port}";
+        if (!hostOk) throw new HttpError(403, "bad host header");
 
         string auth = request.Header("authorization");
-        if (auth == null || !auth.StartsWith("Bearer ", StringComparison.Ordinal) ||
-            !FixedTimeEquals(auth.Substring(7), Token))
+        string presented = auth != null && auth.StartsWith("Bearer ", StringComparison.Ordinal) ? auth.Substring(7).Trim() : null;
+
+        if (remote)
+        {
+            if (request.Path == "/v1/pair")
+            {
+                RemoteAccess.CheckPairingCode(presented, peer);
+                return null;
+            }
+            if (request.Path == "/v1/quit") throw new HttpError(403, "quit is not available remotely");
+            return RemoteAccess.CheckSession(request.Header("x-dvmp-pairing"), presented, peer);
+        }
+
+        if (presented == null || !FixedTimeEquals(presented, Token))
             throw new HttpError(401, "bad or missing token");
+        return null;
     }
 
-    private static bool FixedTimeEquals(string a, string b)
+    internal static bool FixedTimeEquals(string a, string b)
     {
-        if (a.Length != b.Length) return false;
+        if (a == null || b == null || a.Length != b.Length) return false;
         int diff = 0;
         for (int i = 0; i < a.Length; i++) diff |= a[i] ^ b[i];
         return diff == 0;
     }
 
-    private static Request Read(Stream stream)
+    private static Request ReadHead(Stream stream)
     {
         // Read until the end of headers.
         MemoryStream head = new();
@@ -134,7 +200,11 @@ internal sealed class AgentServer
             if (colon <= 0) continue;
             request.Headers[lines[i].Substring(0, colon).Trim().ToLowerInvariant()] = lines[i].Substring(colon + 1).Trim();
         }
+        return request;
+    }
 
+    private static void ReadBody(Stream stream, Request request)
+    {
         int length = 0;
         string lengthHeader = request.Header("content-length");
         if (lengthHeader != null && (!int.TryParse(lengthHeader, out length) || length < 0))
@@ -150,7 +220,6 @@ internal sealed class AgentServer
             read += n;
         }
         request.Body = Encoding.UTF8.GetString(body);
-        return request;
     }
 
     private static void Write(Stream stream, int status, string body)

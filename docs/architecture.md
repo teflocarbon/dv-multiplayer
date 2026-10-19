@@ -49,6 +49,18 @@ owns the current `NetworkServer` and `NetworkClient` and runs the network tick. 
 is addressed by the server as `SelfPeer`. Most broadcasts pass `excludeSelf` because the host's
 game already has the state. Single-player games run the same way with a one-player limit.
 
+A **dedicated host** (`-mp-dedicated`, `Components/Networking/DedicatedHost.cs`) keeps that
+loopback client, because it carries the host's own simulation and applies relayed state to its
+world. Its `ServerPlayer` is a service identity (`IsServiceHost`), not a player: it has its own
+GUID, no avatar and no slot. Code that means "the players" uses `NetworkServer.GameplayPlayers`.
+Code that means "the host plays alone, so vanilla is right" uses
+`NetworkLifecycle.IsHostPlayingAlone`, never `PlayerCount == 1`. See
+[design/dedicated-host.md](design/dedicated-host.md).
+
+The planned target is to separate the server from its players fully: the host's own player
+stored and restored by GUID like everyone else's, and the world kept loaded around every player.
+See [design/server-player-split.md](design/server-player-split.md).
+
 Use `NetworkLifecycle.Instance.IsHost()` for "am I the host" checks. Server-side code must
 validate through `ServerPlayer`, never through the client's own idea of who it is.
 

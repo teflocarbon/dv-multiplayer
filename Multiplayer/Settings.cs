@@ -28,6 +28,9 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     [Draw("Username", Tooltip = "Your username in-game.", VisibleOn = "UseSteamName|false")]
     public string Username = "Player";
     public string Guid = System.Guid.NewGuid().ToString();
+    // The identity of this install's dedicated host (DedicatedHost), so the player's own game on
+    // the same install, which reads this file too, can join it as itself.
+    public string ServiceGuid = System.Guid.NewGuid().ToString();
     public string CharacterId = "MP_UC";
 
     [Space(10)]
@@ -60,6 +63,8 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public int Port = 7777;
     [Draw("Details", Tooltip = "Details shown in the server browser.")]
     public string Details = "";
+    [Draw("Admins", Tooltip = "Players (by SteamID64, separated by commas) who may use the admin chat commands: /kick, /server, /save, /stop, /payfees. On a dedicated server the Steam account running it always may.")]
+    public string Admins = "";
 
     [Space(10)]
     [Header("Lobby Server")]
@@ -146,6 +151,12 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool UseNativeSockets = true;
     [Draw("Log Full IPs", Tooltip = "Whether to log the full IP address of clients. This is useful for debugging, but should otherwise be kept off.", VisibleOn = "ShowAdvancedSettings|true")]
     public bool LogIps;
+    [Draw("Smooth Train Readouts", Tooltip = "As a client, show the host's train gauges, sounds and animations a moment late so they move smoothly instead of in network steps. Never delayed on a train you're driving.", VisibleOn = "ShowAdvancedSettings|true")]
+    public bool SmoothTrainPorts = true;
+    [Draw("Max Readout Delay (ms)", Tooltip = "The most the smoothing may delay them on a jittery connection.", Min = 84, Max = 500, VisibleOn = "SmoothTrainPorts|true")]
+    public int MaxPortPlayoutDelayMs = 300;
+    [Draw("Predict Train Sounds", Tooltip = "As a client, work out the whistle, horn, bell, sanders and similar on a train you're driving from your own controls, instead of waiting for the host's.", VisibleOn = "ShowAdvancedSettings|true")]
+    public bool PredictTrainPorts = true;
     [Draw("Simulate Packet Loss", VisibleOn = "ShowAdvancedSettings|true")]
     public bool SimulatePacketLoss;
     [Draw("Packet Loss Chance", VisibleOn = "SimulatePacketLoss|true")]
@@ -215,6 +226,21 @@ public class Settings : UnityModManager.ModSettings, IDrawable
             return guid;
         guid = System.Guid.NewGuid();
         Guid = guid.ToString();
+        return guid;
+    }
+
+    /// <summary>Whether a player ID is in <see cref="Admins"/> (SteamID64s, or player IDs as GUIDs).</summary>
+    public bool IsListedAdmin(Guid playerId) =>
+        playerId != System.Guid.Empty && !string.IsNullOrWhiteSpace(Admins) &&
+        System.Linq.Enumerable.Any(Admins.Split(','),
+            entry => Networking.Data.PlayerIdentity.TryParse(entry, out Guid admin) && admin == playerId);
+
+    public Guid GetServiceGuid()
+    {
+        if (System.Guid.TryParse(ServiceGuid, out Guid guid) && guid != GetGuid())
+            return guid;
+        guid = System.Guid.NewGuid();
+        ServiceGuid = guid.ToString();
         return guid;
     }
 

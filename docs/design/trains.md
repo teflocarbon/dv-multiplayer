@@ -107,6 +107,66 @@ A `Used` lease is handed back 0.5 s later, once the change has been sent. Fuses,
 brake-cylinder release have their own packets. #73 was the DE2's wipers, fan and lights never
 syncing from clients, and every button and switch a VR client pressed being dropped.
 
+The controls on the car body are hooked the same way when its external interactables load
+(`HookExternalControls`, from `ExternalInteractableLoaded`; an exploded loco's come through the same
+event), and unhooked when they unload. They load near the car, while the cab loads only once a
+player is on it, and never on a dedicated server. There are more of them than the name suggests
+(the prefabs, 2026-10-19): doors, windows, hatches and curtains on most cars, but also the S282's,
+S060's, FEF-3's, S464's and S484's compressor valve, dynamo, lubricator and oiling-point doors, the
+DE6's starter and primer, the 2901's bell, blowdown, cylinder cocks and dynamo, the S484's mars
+light, and a handcar's handle. Handbrake feeders are left to the handbrake sync. Unhooked, a grab on
+one took no lease, so its change went only as an unleased one (below), after the settle window,
+and nothing stopped another game's copy writing the port: a handcar never moved, since the host's
+own `HandcarBarController` wrote the handle as let go every frame. A control in the cab's controls
+manager as well (a handcar's handle) is hooked once. A handcar handle's lease also covers
+`ENGAGED_EXT_IN`, which its `HandcarBarController` writes. Several controls can feed one port (an
+FEF-3's two lubricator buttons): a lease blocks them all.
+
+A few vanilla controllers write a control's port every frame from their own game's input, whoever
+is using the control: `WhistleRopeController` (the rope's tension, into its dummy lever) and
+`HandcarBarController` (whether the handle is held). Every game runs them, so while a player on
+another game uses the control, this game's write it back as let go. The rule: such a writer is off
+while another player holds the lease on a port it writes (`LocalInputWriters`, toggled in
+`Client_ReceiveAuthorityUpdate`; the host gets the lease updates too). Other controllers write only
+on their own game's input, which a lease covers, or from the car's own state (`TractionPortsFeeder`,
+`BoilerSimController`'s boiler angle, `DamageController`'s health ports), which are local values and
+not a player's.
+
+One more of the first kind isn't a port: a handcar's handbrake springs off by itself. Vanilla
+`HandcarHandbrakeController` lowers it every frame unless its own game's player is holding it
+(grabbed, or hover- or keyboard-scrolled), and every game with the handcar's handbrake loaded runs
+it. So the host's copy, or another client's, undid a player holding it on. Handbrakes take no lease,
+so the handbrake sync stands in for one (`HandcarHandbrakeControllerPatch`). A game leaves its
+spring-back off for a second after another player's handbrake change reaches it: the host on a
+client's request, a client on a commit for another player's operation (its own commits don't
+count). A player holding the handbrake on resends its position every 0.25 s, so that stays true
+while they hold it. Once they let go, their own game springs it back and sends the changes, which
+keep the others off until it's down. If they drop out while holding it, the others spring it back a
+second later.
+
+Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and controls nothing
+hooks (a Custom Car Loader car's, say). A client sends a change to one of those that nobody holds
+the lease on (`Client_UnleasedChange`): the port differs from the host's last value by more than
+0.02, and that value isn't still settling (1.5 s after the host set it; a change in that window
+waits and goes if it still differs).
+
+Only ports a player drives go that way. Being typed CONTROL isn't enough: DV and mods set several
+CONTROL ports from the simulation, usually from a control's own port (`horn.HORN` from the horn
+control, the DM3's `gearInputA.GEAR` from its gear lever, the headlight decoders). Playtest 2 had a
+client's copy of the DE6's compressor signal overwrite the host's, and the loco never built air.
+`ControlPortWriters` (Multiplayer.Core) sorts each car's ports into player-driven, simulation and
+host-kept. The player-driven ones come from the livery's prefabs (`InteractablePortScan`): the car
+body, the cab, the car-body controls, and the exploded versions of the last two. In them it takes
+the ports of every `InteractablePortFeeder` (the base controls such as the throttle take their
+values from these), `OilingPointPortFeederReader` (an oiler can), the `NotchedPort*Input`
+keyboard inputs and `HandcarBarController`, plus any control hooked when a cab loads. Custom Car
+Loader builds its cars' controls from the same DV components when it imports them, so the scan
+covers them, and every game, a dedicated server included, gets the same set without loading the
+cab. A client sends only player-driven ports; the host takes only those, or one the sender holds
+the lease on. The compressor's activation signal is host-kept: clients never send it, and the host
+keeps it matched to `brakeSystem.compressorActivationSignal`, since DV writes it only when that
+decision changes (`Server_KeepCompressorSignal`).
+
 **Motion: host-authoritative and steered; stage 5 not started.**
 
 - Clients steer on-rail cars towards the host's bogie positions every physics step instead of
@@ -114,7 +174,10 @@ syncing from clients, and every button and switch a VR client pressed being drop
   correction are eased separately, but a step in the host's speed above 1.5 m/s (an impact) is
   followed at once (72db159).
 - The host scales the speed it sends by its simulation rate, so clients don't run ahead and snap
-  back after a host stall (`NetworkTrainsetWatcher.UpdateSimulationRate`; 7deb3b9).
+  back after a host stall (`NetworkTrainsetWatcher.UpdateSimulationRate`; 7deb3b9). The rate is
+  `Time.deltaTime` (which DV caps at 1/12 s) over `Time.unscaledDeltaTime`, averaged over about a
+  second. Measured per tick, every ordinary host hitch read as a one-tick dip to ~0.6, and clients
+  followed the dipped speed as an impact: their trains' speed swung by 5-15 km/h every second.
 - The network tick advances by elapsed real time, so it keeps step below 24 fps
   (`Components/Networking/NetworkLifecycle.cs`; 274c250).
 - Full syncs use the transform instead of the rigidbody while a just-spawned car's body is still
@@ -129,13 +192,18 @@ syncing from clients, and every button and switch a VR client pressed being drop
   0903b06).
 - A car derailed for 30 s can be rerailed even if it never stops moving
   (`Patches/Train/TrainCarRerailPatch.cs`).
+- A host rerail or move-to-track resets everything on the client that follows the host's samples,
+  before and after vanilla relocates the car, and the client then asks for a full sync; the host
+  sends one reliably anyway once its own relocation is done. The rigidbody queue only steers a
+  derailed car. Before, a rerailed car slid off at 1.5 m/s and was snapped back and flung, forever
+  (playtest 2; see "What the code does").
 - Explosions are the host's: clients play the host's explosions but never apply explosion forces
   to trains (`Patches/Train/ExplosionPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
 - Deleting a car steps any player on it off first, so players are no longer destroyed with it
   (`Patches/Train/CarDeletePlayerSafetyPatch.cs`).
-- Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`)
-  and the client-only rerail are the only things that clear a client's motion queues; a host
-  rerail or move packet does not. `NetworkServer.SendTrainsetRelocation` has no caller, so the
+- Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`),
+  a derail, a rerail (host or client-only) and a host move-to-track are the only things that clear
+  a client's motion queues. `NetworkServer.SendTrainsetRelocation` has no caller, so the
   relocation/ack path is unused. There is no correction or bandwidth telemetry.
 
 **Stage 6: partly done.** Protocol mismatch is rejected at connect, and the legacy `Common*`
@@ -150,7 +218,7 @@ dashboard.
 **Runtime coverage** (dvmp gate, `DevTools/Scenarios/gate.sh`; see
 [`../testing.md`](../testing.md)): `manual-uncouple` (hand uncouple/recouple, with lag),
 `uncouple-moving`, `couple-impact` (coupling while the buffers bounce, by menu or chain),
-`fps-drop`, `host-stall`, `client-derail`, `explosion`.
+`fps-drop`, `host-stall`, `client-derail`, `rerail`, `explosion`.
 
 **Known open issues:**
 
@@ -607,6 +675,16 @@ As implemented (`NetworkServer.ValidateControlEnvelope` and the `OnCommon*` cont
 The host alone ticks locomotive and pneumatic simulation. Clients display snapshots and never feed
 locally integrated pressure, traction, wheelslip, or resource values back as truth.
 
+The exception is the ports vanilla writes every frame on every game from that game's own car:
+the three `TractionPortsFeeder` writes (forward speed, wheel rpm and wheel speed km/h, which the
+speedometers and steam cylinder-cock and blowback effects read) and a steam boiler's tilt
+(`BoilerSimController`, read only by the boiler simulation). `SimController.Update` runs these on
+clients too; only `SimComponent.Tick` is skipped. The host doesn't send these ports and a client
+drops them if an older host does (`NetworkedTrainCar.locallyFedPorts`). Applying the host's too gave
+the port two writers: the needle showed the host's value on each frame a packet arrived and the
+client's on the next, up to 25 km/h apart at speed. A client's wheel speed doesn't include wheelslip
+the host's simulation produces.
+
 Brake replication has two distinct inputs:
 
 - topology/control: reliable canonical hose, cock, handbrake, brake-valve and release state;
@@ -665,6 +743,102 @@ adapter catches exceptions, then checks reciprocal hose pointers, brake-set memb
 line pressure before deciding whether to commit or repair. A Unity callback is never proof of
 brake-line convergence.
 
+## Showing the simulation on clients
+
+Clients don't tick the simulation: `SimComponent_Tick_Patch` blocks every `SimComponent.Tick`
+off the host. What a client shows of it, its gauges, sounds, particles and animations, is the
+host's port values, read by DV's port readers (`LayeredAudioPortReader`, `IndicatorPortReader`,
+`AnimatorPortReader`, the particle readers) whenever a port's value changes. Those values go out
+at the network tick (24 Hz) in the control commits, land unevenly, and used to be applied as they
+landed. So whatever a player's control drives through the simulation came back a round trip late,
+in steps: at 110 ms a VR player pulling the FEF-3's whistle cord heard it go straight to full with
+no taper, and another player heard that player's whistle stutter. Levers themselves are fine: they
+move locally.
+
+`TrainPortPresenter` (one per car, on clients) shows the outputs two ways instead. Physics stays
+the host's: torque, motion, pressures, resources. This is only what a client shows of them.
+
+**Prediction, for the player driving.** Outputs that are a function of controls and slowly
+changing host state are worked out on the client, every frame, while the local player is driving
+the train: they've changed one of its cars' controls in the last 4 s, or hold a control's lease
+(`NetworkedTrainCar.Client_IsLocalPlayerDrivingTrain`). For vanilla components with no other state,
+their own `Tick` runs (`SimComponent_Tick_Patch.LocalTick` lets it through); the rest are copies
+of the part of `Tick` that sets the output. The host's values for those ports are kept but not
+shown, and take over again, played out, once the player stops driving. The audit (DV.Simulation,
+checked against the live S282, FEF-3/S464, DE2 and DE6 graphs on 2026-10-19):
+
+| Output | Inputs | Predicted |
+|---|---|---|
+| Whistle, `exhaust.WHISTLE_FLOW_NORMALIZED` (`SteamExhaust`) | `whistle.EXT_IN`, `boiler.PRESSURE` | Yes: `Min(InverseLerp(1, 2, pressure), control)`. The rest of `SteamExhaust` (draught, steam use, exhaust flow) is the host's |
+| Horn, `horn.HORN` (`Horn`), and its smoothed control `hornControl.CONTROL` (`GenericControl`) | the horn control, its fuse | Yes, both components' `Tick` |
+| Bells, `bell.BELL_NORMALIZED` (`SteamBell`, `ElectricBell`) | the bell control, boiler pressure or a fuse | Yes, `Tick` (on at once, eased off) |
+| Dynamo, `dynamo.DYNAMO_FLOW_NORMALIZED` (`Dynamo`) | the dynamo control, boiler pressure | Yes, `Tick` |
+| Sanders, `sander.SAND_FLOW`, `SAND_COEF` (`Sander`) | the sander control, sand left, a fuse | Yes, without taking the sand (the host's) |
+| Reverser readout, `reverser.REVERSER` (`Reverser`) | the reverser control | Yes, `Tick` |
+| Smoothed controls: `GenericControl`, `SmoothedOutput` (`cabFan.OUTPUT`, `lubricatorControlSmoothing.OUTPUT`) | their control, a fuse | Yes, `Tick` |
+| A handcar's crank, `handcarDrive.CURRENT_POSITION` and `DIRECTION` (`HandcarDrive`) | the wheel RPM (the client's own traction feeder), the gear ratio, and where the crank was | Moved on from the wheel RPM every frame, turning at the ends, and eased toward the host's position brought forward by its age (its tick's distance behind the clock, plus half the ping). Replaces PR #91's `HandcarCrankSmoothingPatch`. Making the crank follow the player's hand instead was tried: it took away the resistance you pump against and the car stopped |
+| Lamps (`LampLogic`) | a control or a readout | Already local: they update on a port change, not on `Tick` |
+| Blowdown, `boiler.BLOWDOWN_FLOW_NORMALIZED` | the blowdown control, the vessel's pressure and water | Could be: `Boiler` reads its vessel, not the `PRESSURE` port. Played out for now |
+| Injector, `boiler.INJECTOR_FLOW_NORMALIZED` | the injector control, gated on tender water, a broken boiler and a full one | Could be, with a gate the client can't fully see. Played out for now |
+| Cylinder cocks, `steamEngine.CYLINDER_COCK_FLOW_NORMALIZED` | the control times the cylinders' admission pressure, internal to the engine | No: the host's |
+| Engine RPM, amps, traction, boiler and brake pressures, temperatures, water level, exhaust and chuffs, crank rotation, safety valve, compressor production, fuel, oil, sand and water levels, damage | the host's simulation | No: played out |
+
+All of it runs once a frame before the car's simulation controllers (`SimControllerUpdatePatch`, a
+prefix on `SimController.Update`), so a `HandcarController` draws the crank predicted that frame.
+
+**Playout, for everyone else.** Every other output port the host sends (typed `READONLY_OUT` or
+`OUT`), and every control a player drives (`EXTERNAL_IN`, player-driven by `ControlPortWriters`:
+another player's doors, windows, levers and valves, the whistle cord), is stamped with the host's
+tick and shown a little behind the newest value, interpolated between ticks (`PlayoutTrack`,
+Multiplayer.Core). A control's port moves the control with it, through its `InteractablePortFeeder`;
+vanilla levers and pullers jump straight to the value they're given (`AcceptSetValue`), so as they
+landed another player's door swung in uneven 24 Hz steps:
+
+- The commit carries the tick (`ClientboundTrainControlCommitPacket.Tick`). The host's own values
+  are stamped with the tick its local client read them at (`CommonTrainPortsPacket.Tick`), since
+  that packet reaches the server a frame or so later; a player's are stamped when the host takes
+  them.
+- `PlayoutClock` measures the link from the commits' arrivals: each gives the offset between the
+  client's clock and the host's ticks; the lowest recent offset is the latency, and how far
+  arrivals run above it is the jitter (a peak that decays by 10 ms a second). An observer's delay
+  is one tick plus the jitter (with 15 % headroom), at least two ticks (83 ms) and at most
+  `Max Readout Delay` (300 ms by default). One tick is so the value after the one shown has
+  arrived by the time it's needed.
+- The delay is per car (`PlayoutDelay`) and zero while the local player drives the train, so the
+  driver sees the host's values as they land, as before. It grows by a quarter of real time (the
+  values play at 75 % speed for a moment) and shrinks at double speed, so time never jumps back.
+- The host sends a port only when it moved by 0.001 (a `STATE` port when it changes at all), so a
+  long gap between samples can be a port that sat still and then moved: past four ticks the older
+  value holds until the tick before the newer one.
+- Being typed `STATE` doesn't make a port discrete: bells, the dynamo, cylinder cocks, the safety
+  valve and the crank's rotation are all `STATE`, next to lamp states and chuff pulses. `GENERIC`,
+  `CONTROL`, `STATE` and `DAMAGE` ports blend, but a change of more than 0.5 in one sample is a
+  step (a crank's wrap from 1 to 0, a lamp switching); physical quantities always blend. A step
+  passed over within one frame (a one-tick chuff pulse on a slow frame) is still written, in order.
+- A port something on the client writes itself (a feeder or a controller, or `LampLogic`) is found
+  by its value differing from what the playout last wrote, and from then on shown as it lands.
+- A control is the local player's while they hold its lease or have a change to it not yet
+  committed (`Client_HoldsPort`): never played out over their hand; the host's values for it are
+  shown as they land, as before (a pending change's are dropped, `WithoutPending`). One that changes
+  between the playout's writes was moved by the local player: its history restarts at their value.
+- The playout's own writes aren't the local player's: `Common_OnPortUpdated` ignores them
+  (`TrainPortPresenter.Writing`), as it does a packet's, so they're never sent, never read as an
+  unleased change (a control differing from the host's last value), and don't count as driving.
+- A resync (a control state without a tick) is shown as it lands and restarts that port's history.
+
+**Not done:**
+- The host applies a remote player's control as it arrives, so the uneven arrivals of that
+  player's 24 Hz sends are baked into the host's own outputs (the whistle a friend at 110 ms pulls
+  steps unevenly on the host itself). Playout on observers makes those outputs continuous, not
+  even. Evening them out would need the host to play remote players' continuous controls out on
+  the sender's tick, a delay of a tick or two on that player's physics.
+- Ports a client's own game writes every frame (`TractionPortsFeeder`'s speed and wheel RPM,
+  `BoilerSimController`'s boiler angle) are `EXTERNAL_IN`, so the playout leaves them alone, but the
+  host also sends them and the two writers alternate (PR #92 stops that for the traction ports).
+
+Settings (advanced): `Smooth Train Readouts`, `Max Readout Delay (ms)` and `Predict Train Sounds`,
+all read live, for comparing with and without in a game.
+
 ## Motion
 
 Existing on-rail motion remains host-authoritative:
@@ -689,7 +863,7 @@ keeps step below 24 fps) each moving trainset is sent as one `ClientboundTrainse
 unreliable unless a bogie changed track. On-rail cars carry speed, slow stress and both bogies'
 track and span; derailed cars carry a rigidbody snapshot. Every 2 s a car also carries its full
 position and rotation, even when stationary. The speed is `GetForwardSpeed()` multiplied by the
-host's simulation rate (game time per real second, smoothed, 1 above 0.97), so a host that drops
+host's simulation rate (game time per real second, averaged over about a second), so a host that drops
 to a few frames a second doesn't send speeds its world isn't making. A full sync of a car whose
 rigidbody is still more than 5 m from its transform (a just-spawned car whose body is at its
 pooled position) sends the transform instead. A set counts as moving while any car is not
@@ -709,8 +883,9 @@ host's last speed, without the correction term.
 
 A sample under 0.01 m/s (vanilla's stationary threshold) means the host's car is stopped, and the
 client holds its car there (`TrainSpeedQueue.Hold`); it is followed again only above 0.05 m/s, so a
-car crawling around the threshold doesn't flip between modes. A held sample is not projected and
-never goes stale. Within 5 cm the rigidbody is not touched: writing a velocity wakes the car, and an
+car crawling around the threshold doesn't flip between modes. A held sample is not projected, and
+goes stale only after 10 s (the host resyncs every car every 2 s; an older one is for something the
+host no longer has). Within 5 cm the rigidbody is not touched: writing a velocity wakes the car, and an
 awake, unbraked car creeps and wakes every car on its track (vanilla's `TrainsOptimizer`). Further
 off for more than 0.5 s (so a local loco pushing the car isn't fought before the host's samples
 arrive):
@@ -740,8 +915,9 @@ Full-sync positions are a safety net. The host pose is projected forward by the 
 alone, and the motion queues and train stress are reset. `isKinematic` is only written when it
 changes.
 
-Derailment: a rigidbody snapshot for an on-rail client car calls `TrainCar.Derail()` once, then
-interpolates the snapshots; afterwards the client reapplies the host's topology, because native
+Derailment: a rigidbody snapshot for an on-rail client car clears its bogie samples (they are for
+the rails it left), calls `TrainCar.Derail()` once, then interpolates the snapshots
+(`NetworkedRigidbody`, only while the car is derailed); afterwards the client reapplies the host's topology, because native
 derailment changes couplers. A car derailed on a client but on the rails on the host is rerailed
 onto the host's track at the host's pose (asking for a full sync if the sample lacks one), its
 queues are cleared, and the topology is reapplied once the rerail finishes
@@ -749,8 +925,20 @@ queues are cleared, and the topology is reapplied once the rerail finishes
 it never drops below vanilla's 1 m/s limit. Explosions never push client trains; the host's
 result arrives through this sync (see [`../world-sync.md`](../world-sync.md)).
 
-There is no `motionEpoch`. Host rerail (`ClientboundRerailTrainPacket`) and move packets don't
-clear client queues; stale samples are discarded only by tick order. The relocation packet with
+Host rerail and move-to-track (`ClientboundRerailTrainPacket`, `ClientboundMoveTrainPacket`;
+`NetworkedTrainCar.Client_RerailFromHost`, `Client_MoveToTrackFromHost`): the client clears the
+speed, rigidbody and bogie queues and makes the body dynamic (a derailed car at rest is kinematic,
+and vanilla's rerail needs a dynamic one), lets vanilla relocate the car (a coroutine: one physics
+step, `IsTeleporting`), ignores samples meanwhile, clears the queues again and asks the host for a
+full sync (`ServerboundTrainSyncRequestPacket`). The host, once its own relocation is done, sends
+the car's pose and both bogies' tracks and spans reliably on the next tick
+(`Server_ResyncAfterRelocation`, `Server_ResyncPose`; `Server_DirtyAllState` does the same).
+In playtest 2 none of this was reset: the rigidbody queue kept sliding the rerailed FEF-3 towards
+its derailed pose at its 1.5 m/s limit, the speed queue placed it back towards the host's spans,
+and each 2 s full sync found it over 5 m off and snapped it, flinging the body off its bogies
+(5-7 m/s, spinning), every ~1.3 s. Scenario `rerail`.
+
+There is no `motionEpoch`; other stale samples are discarded only by tick order. The relocation packet with
 its acknowledgement exists on the client, but the host never sends it.
 
 Open issues: an intermittent ~5.8 m snap at ~10 m/s on clients (#44). Vanilla jitter can keep
@@ -874,7 +1062,8 @@ bytes/sec.
 dvmp scenarios in `DevTools/Scenarios/` (all in the gate) cover part of this: `couple-impact` and
 `manual-uncouple MODE=recouple` (1, with lag), `uncouple-moving` (2), `manual-uncouple` (3: hand
 uncouple through cocks, hoses and chain), `fps-drop` and `host-stall` (10: low client and host
-frame rates), `client-derail` (12: client-only derail). The others have no scenario. Scenarios
+frame rates), `client-derail` (12: client-only derail), `rerail` (12: host rerail, requested by a
+client or done by the host). The others have no scenario. Scenarios
 check agreement and position error; they don't record bytes/sec.
 
 ## Native research status

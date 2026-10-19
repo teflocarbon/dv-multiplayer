@@ -212,6 +212,28 @@ public partial class NetworkedItemManager
         (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved |
             ItemInventoryClaimFlags.Locked)) != 0;
 
+    /// <summary>
+    /// What another player holds or carries changes only by their own packets; the server's copy
+    /// of the item just mirrors them. Applied as the server's own change, its observation of that
+    /// (taking it in a hand, a lantern lit in one) booked the item to the server's player: the
+    /// next update moved it out of the player's hand to the server's body, and it vanished for
+    /// them. Such a snapshot keeps only the server's own object state (and is skipped if it has
+    /// none): the rest is the holder's, and the server's copy drifting (a flashlight draining in
+    /// their hand with no sun on its panel) overwrote what their game had.
+    /// </summary>
+    private static bool TryKeepRemotePossession(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer hostPlayer)
+    {
+        if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) ||
+            snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
+            snapshot.PlayerId == 0 || snapshot.PlayerId == hostPlayer.PlayerId)
+            return true;
+        snapshot.UpdateType &= ItemUpdateData.ItemUpdateType.ObjectState;
+        if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
+            return false;
+        item.KeepHostReportsForRemoteHolder(snapshot);
+        return snapshot.States is { Count: > 0 };
+    }
+
     private void ProcessChanged(uint tick)
     {
         List<ItemUpdateData> dirtyItems = [];
@@ -230,6 +252,8 @@ public partial class NetworkedItemManager
                 existingRecord.Placement == ItemPlacementKind.Destroyed)
                 continue;
             ItemUpdateData snapshot = item.GetSnapshot();
+            if (snapshot != null && hostPlayer != null && !TryKeepRemotePossession(item, snapshot, hostPlayer))
+                continue;
             if (snapshot != null && hostPlayer != null)
             {
                 if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, hostPlayer,

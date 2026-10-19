@@ -177,6 +177,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
     public InventoryClaimExecution RestoreClaim(GameObject item, int expectedSlot)
     {
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
+        MakeRoomForClaim(inventory, item, expectedSlot);
         RuntimeInventoryView view = new(inventory, item, expectedSlot);
         InventoryClaimPlan plan = InventoryClaimPlanner.RestoreClaim(view, expectedSlot);
         bool succeeded = !plan.Rejected;
@@ -189,6 +190,31 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                 failure = "recall-claim-restore-failed";
         }
         return ClaimResult(inventory, item, plan, succeeded, failure);
+    }
+
+    // A joining player's possessions arrive in any order, and those without a retrieval claim take
+    // the first free slots, which may be the very slots the essentials (radio, maps) reserve. The
+    // essential was then refused its slot and left in the world: the player reported it dropped,
+    // the host sent it back, every update. Move the item without a claim on that slot elsewhere,
+    // as a player dragging it would.
+    private static void MakeRoomForClaim(DV.InventorySystem.Inventory inventory, GameObject item, int expectedSlot)
+    {
+        if (inventory == null || item == null || expectedSlot < 0 || inventory.IndexOf(item) >= 0)
+            return;
+        GameObject occupant = inventory.PeekItemAtSlot(expectedSlot, true);
+        if (occupant == null || occupant == item || inventory.GetSlotDroppedState(expectedSlot))
+            return;
+        NetworkedItem other = occupant.GetComponent<NetworkedItem>();
+        if (other != null && other.InventoryClaimSlot == expectedSlot &&
+            (other.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0)
+            return;
+        // From the end of the backpack: DV marks a reservation only on the item holding it, so an
+        // empty slot another essential still has to claim looks free, and those are the low ones.
+        int free = inventory.GetLastFreeSlot();
+        if (free < 0 || free == expectedSlot)
+            return;
+        if (inventory.MoveItemFromTo(expectedSlot, free, false))
+            Multiplayer.Log($"Inventory: moved {occupant.name} from slot {expectedSlot} to {free} for {item.name}, which reserves it");
     }
 
     public InventoryRemovalSnapshot RevokeMembership(GameObject item, ushort itemNetId = 0)

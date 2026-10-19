@@ -14,6 +14,7 @@ host-authority model works end to end, then points at the rest.
 | [development.md](development.md) | Building, tests, testing in game with dvmp, the regression gate, branches and pull requests |
 | [testing.md](testing.md) | Unit and protocol tests, the protocol fingerprint, and every dvmp scenario in the gate |
 | [observability.md](observability.md) | In-game debug overlay, structured events, traces and the debug HTTP API |
+| [playtest-tracker.md](playtest-tracker.md) | The working list from playtests: what broke, what's fixed, what's open |
 
 ## How each system syncs
 
@@ -29,6 +30,14 @@ host-authority model works end to end, then points at the rest.
 | [design/container-storage.md](design/container-storage.md) | Cold container storage on the host |
 | [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | Ownership rules that are decided, and the game-design questions that are still open |
 | [design/item-sync-review.md](design/item-sync-review.md) | The July review of item sync, with the status of each finding |
+
+## Planned
+
+| Doc | What it covers |
+|---|---|
+| [design/server-player-split.md](design/server-player-split.md) | The target model: one server that owns the world, and players who are all its clients, whether the server runs in a player's game or on a dedicated host. Per-player saves, the one-time conversion of old careers, and world coverage for every player |
+| [design/multi-anchor-streaming.md](design/multi-anchor-streaming.md) | Research: loading the world (scenery tiles, terrain, origin) around several far-apart players, what lives in which streamed scene, the exact patch points, costs and the measurements still needed |
+| [design/dedicated-host.md](design/dedicated-host.md) | The full game as a host with no local player (`-mp-dedicated`, partly built): the investigation, the service identity, the world following a player, running unattended, and what's left |
 
 ## Tooling
 

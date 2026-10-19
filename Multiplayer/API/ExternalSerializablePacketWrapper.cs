@@ -29,12 +29,7 @@ public class ExternalSerializablePacketWrapper<T> : INetSerializable where T : c
         writer.Put(shouldCompress);
 
         if (shouldCompress)
-        {
-            var lenBefore = data.Length;
             data = PacketCompression.Compress(data);
-
-            Multiplayer.LogDebug(() => $"ExternalSerializablePacketWrapper<{typeof(T).Name}>: Compressed {lenBefore} to {data.Length} bytes");
-        }
 
         writer.PutBytesWithLength(data);
     }

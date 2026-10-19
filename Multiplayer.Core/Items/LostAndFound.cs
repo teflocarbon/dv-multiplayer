@@ -253,6 +253,30 @@ public sealed class LostItemRegistry
         return changed;
     }
 
+    /// <summary>Whether any record belongs to this owner identity.</summary>
+    public bool HasOwner(string ownerIdentity) =>
+        !string.IsNullOrEmpty(ownerIdentity) && records.Values.Any(record =>
+            string.Equals(record.OwnerIdentity, ownerIdentity, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The owner's identity changed (an install GUID re-keyed to a Steam account): their records
+    /// move to the new one. Returns how many changed.
+    /// </summary>
+    public int RekeyOwner(string fromIdentity, string toIdentity)
+    {
+        if (string.IsNullOrEmpty(fromIdentity) || string.IsNullOrEmpty(toIdentity))
+            return 0;
+        int changed = 0;
+        foreach (LostItemRecord record in records.Values)
+        {
+            if (!string.Equals(record.OwnerIdentity, fromIdentity, StringComparison.OrdinalIgnoreCase))
+                continue;
+            record.OwnerIdentity = toIdentity;
+            changed++;
+        }
+        return changed;
+    }
+
     /// <summary>
     /// The owner left: release their session id so a player who is given it next does not see or
     /// retrieve these items. Records with an identity wait for <see cref="RebindOwner"/>.
@@ -270,6 +294,15 @@ public sealed class LostItemRegistry
             changed++;
         }
         return changed;
+    }
+
+    /// <summary>The host moved the item's retrieval claim (EssentialClaimSlotPolicy): keep the saved copy in step.</summary>
+    public bool SetInventoryClaimSlot(ushort netId, int slot)
+    {
+        if (!records.TryGetValue(netId, out LostItemRecord record))
+            return false;
+        record.InventoryClaimSlot = slot;
+        return true;
     }
 
     public LostItemRegistryResult Restore(LostItemRecord record)
@@ -308,6 +341,40 @@ public sealed class LostItemRegistry
         while (nextHandle == 0 || handleToNetId.ContainsKey(nextHandle))
             nextHandle++;
         return nextHandle++;
+    }
+}
+
+public enum LostItemEntryStatus : byte
+{
+    /// <summary>The item exists and its authority still says Lost and Found.</summary>
+    Stored,
+    /// <summary>The item exists but has no authority record yet. Leave the entry alone.</summary>
+    AwaitingAuthority,
+    /// <summary>Another host system moved the item out of Lost and Found.</summary>
+    PlacementChanged,
+    /// <summary>
+    /// The item no longer exists, e.g. a job booklet the job system destroyed when its job ended.
+    /// Nothing is left to retrieve.
+    /// </summary>
+    ItemDestroyed
+}
+
+/// <summary>Host check of a Lost and Found entry against the item it points at.</summary>
+public static class LostItemEntryReconciler
+{
+    /// <param name="itemPresent">The canonical Unity object for the entry's NetId still exists.</param>
+    /// <param name="placement">The item's authority placement, or null with no authority record.</param>
+    public static LostItemEntryStatus Classify(bool itemPresent, AuthorityPlacement? placement)
+    {
+        // Retrieval revives the canonical object in place, so without it the entry can never be
+        // retrieved, whatever an authority record still says.
+        if (!itemPresent)
+            return LostItemEntryStatus.ItemDestroyed;
+        if (placement == null)
+            return LostItemEntryStatus.AwaitingAuthority;
+        return placement == AuthorityPlacement.LostAndFound
+            ? LostItemEntryStatus.Stored
+            : LostItemEntryStatus.PlacementChanged;
     }
 }
 

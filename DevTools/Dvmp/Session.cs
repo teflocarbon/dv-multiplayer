@@ -7,9 +7,18 @@ namespace Dvmp;
 
 /// <param name="Background">Start minimised, below-normal priority, so the games stay out of the way.</param>
 /// <param name="FpsCap">Frame cap while focused (the agent uses a lower one in the background).</param>
+/// <param name="BackgroundFpsCap">Frame cap while unfocused; null keeps the agent's default (20).</param>
+/// <param name="HostOnly">Start only a host, with its own identity, for a client that joins later
+/// (a later <c>up</c> in the same session, or the user's own game).</param>
+/// <param name="Dedicated">Launch the host as a dedicated host (<c>-mp-dedicated</c>): its own
+/// client is a service identity, not a player, so it has no avatar and takes no player slot.</param>
+/// <param name="Verified">Launch the host without <c>-mp-allow-unverified</c>, so it checks each
+/// client's Steam ticket. The harness's games share one Steam account, so only a dedicated host
+/// (whose own client isn't a player) can then tell its client apart from itself.</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
     bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false,
-    string? NewSession = null, string? NewSessionName = null);
+    string? NewSession = null, string? NewSessionName = null, int? BackgroundFpsCap = null, bool HostOnly = false,
+    bool Dedicated = false, bool Verified = false);
 
 /// <summary>
 /// Brings up (or reuses) a host + client pair of real game instances joined to each other.
@@ -19,6 +28,13 @@ internal static class Session
 {
     private const string ClientName = "DVMP-Client";
     private const string ClientGuid = "00000000-0000-0000-0000-00000000c11e";
+    // A host-only host is joined by the user's own game, which has the install's GUID (both games
+    // read the same Settings.xml), so the host takes this one instead.
+    private const string HostName = "DVMP-Host";
+    private const string HostGuid = "00000000-0000-0000-0000-00000000b057";
+
+    // At or above NetworkLifecycle.TICK_RATE (24): a host below it ticks and polls slower.
+    private const int HostOnlyBackgroundFps = 30;
 
     private static readonly object gate = new();
     private static Task<JsonObject>? running;
@@ -90,11 +106,14 @@ internal static class Session
 
     private static async Task<JsonObject> RunUpAsync(UpOptions o)
     {
+        if (o.HostOnly) return await RunHostOnlyAsync(o);
         try
         {
             Mark("checking existing games");
             List<Agent> agents = await Agents.DiscoverAsync();
-            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a));
+            // --dedicated only reuses a dedicated host; without it, either kind is reused (a client joining
+            // a dedicated host-only host goes through here).
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
             Agent? client = agents.FirstOrDefault(a => a.Role == "client" && WorldLoaded(a));
             if (!o.Fresh && host != null && client != null)
             {
@@ -132,27 +151,10 @@ internal static class Session
             Mark("launching client");
             Process clientProcess = await LaunchAsync("client", o);
 
-            Mark("host: waiting for main menu");
-            await WaitForMenuAsync(hostAgent, TimeSpan.FromSeconds(120));
-            if (o.Trace) await InstallTracerAsync(hostAgent);
-            Mark("host: loading save");
-            Dictionary<string, string> hostArgs = new();
-            if (!string.IsNullOrWhiteSpace(o.Save)) hostArgs["save"] = o.Save!;
-            if (!string.IsNullOrWhiteSpace(o.NewSession)) hostArgs["new"] = o.NewSession!;
-            if (!string.IsNullOrWhiteSpace(o.NewSessionName)) hostArgs["name"] = o.NewSessionName!;
-            if (Sessions.Port() is int sessionPort) hostArgs["port"] = sessionPort.ToString();
-            JsonObject hosted = await RunProbeAsync(hostAgent, "host", hostArgs);
+            (hostAgent, JsonObject hosted) = await HostAsync(hostAgent, o, identity: null,
+                beforeWorldWait: () => { if (o.Arrange && !o.Background) Arrange(hostProcess, clientProcess, o); });
             int port = hosted["port"]?.GetValue<int>() ?? 7777;
             string password = hosted["password"]?.GetValue<string>() ?? string.Empty;
-
-            if (o.Arrange && !o.Background) Arrange(hostProcess, clientProcess, o);
-
-            Mark("host: waiting for world + server");
-            hostAgent = await WaitUntilAsync(hostAgent.Pid, a => a.Role == "host" && WorldLoaded(a), TimeSpan.FromSeconds(300), "host world load");
-            // If the host doesn't own its port, its client would join whatever else does (see
-            // Sessions.Port).
-            if (!Sessions.IsDefault && !Win32.UdpPortOwners(port).Contains(hostAgent.Pid))
-                throw new Exception($"the host is not listening on port {port}");
 
             Agent clientAgent = await JoinAsync(clientProcess, port, password, o);
 
@@ -171,6 +173,102 @@ internal static class Session
             failed["error"] = e.Message;
             return failed;
         }
+    }
+
+    // A host on its own, for a client that joins later: a later `up` in the same session launches
+    // a dvmp client (its client-only path), or the user joins from their own game. Named sessions
+    // only, so it can never quit or mistake the default session's games (the dev agent also loads
+    // in the user's own Debug game).
+    private static async Task<JsonObject> RunHostOnlyAsync(UpOptions o)
+    {
+        try
+        {
+            if (Sessions.IsDefault)
+                throw new Exception("--host-only needs a named session (--session NAME), so it never touches the default session's games");
+
+            Mark("checking existing games");
+            List<Agent> agents = await Agents.DiscoverAsync();
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
+            if (!o.Fresh && host != null)
+            {
+                Mark("reusing running host");
+                JsonObject server = await RunProbeExpressionAsync(host,
+                    "new { port = global::Multiplayer.Multiplayer.Settings.Port, password = global::Multiplayer.Multiplayer.Settings.Password ?? \"\" }");
+                return HostOnlyResult(host, Sessions.Port() ?? server["port"]!.GetValue<int>(),
+                    server["password"]!.GetValue<string>(), save: null, reused: true);
+            }
+
+            if (agents.Count > 0)
+            {
+                Mark($"stopping {agents.Count} existing game(s)");
+                await DownAsync(CancellationToken.None);
+            }
+
+            DeployStaleBuild();
+            Mark("launching host");
+            Process hostProcess = await LaunchAsync("host", o with { BackgroundFpsCap = o.BackgroundFpsCap ?? HostOnlyBackgroundFps });
+            Agent hostAgent = await WaitForAgentAsync(hostProcess, TimeSpan.FromSeconds(90));
+            (hostAgent, JsonObject hosted) = await HostAsync(hostAgent, o, identity: (HostName, HostGuid));
+
+            Mark("ready");
+            Win32.SetTitle(hostAgent.Pid, "DVMP HOST (host only)" + TitleSuffix);
+            return HostOnlyResult(hostAgent, hosted["port"]?.GetValue<int>() ?? 7777,
+                hosted["password"]?.GetValue<string>() ?? string.Empty, hosted["save"]?.DeepClone(), reused: false);
+        }
+        catch (Exception e)
+        {
+            Mark("failed: " + e.Message);
+            JsonObject failed = Progress(done: true);
+            failed["ok"] = false;
+            failed["error"] = e.Message;
+            return failed;
+        }
+    }
+
+    // From the host's main menu to a loaded, hosted world: loads the save through the host probe
+    // and checks the host owns its port. identity gives the host's player its own name and GUID.
+    private static async Task<(Agent, JsonObject)> HostAsync(Agent hostAgent, UpOptions o, (string Name, string Guid)? identity,
+        Action? beforeWorldWait = null)
+    {
+        Mark("host: waiting for main menu");
+        await WaitForMenuAsync(hostAgent, TimeSpan.FromSeconds(120));
+        if (o.Trace) await InstallTracerAsync(hostAgent);
+        Mark("host: loading save");
+        Dictionary<string, string> hostArgs = new();
+        if (!string.IsNullOrWhiteSpace(o.Save)) hostArgs["save"] = o.Save!;
+        if (!string.IsNullOrWhiteSpace(o.NewSession)) hostArgs["new"] = o.NewSession!;
+        if (!string.IsNullOrWhiteSpace(o.NewSessionName)) hostArgs["name"] = o.NewSessionName!;
+        if (Sessions.Port() is int sessionPort) hostArgs["port"] = sessionPort.ToString();
+        if (identity is { } id)
+        {
+            hostArgs["playerName"] = id.Name;
+            hostArgs["playerGuid"] = id.Guid;
+        }
+        JsonObject hosted = await RunProbeAsync(hostAgent, "host", hostArgs);
+        int port = hosted["port"]?.GetValue<int>() ?? 7777;
+
+        beforeWorldWait?.Invoke();
+
+        Mark("host: waiting for world + server");
+        hostAgent = await WaitUntilAsync(hostAgent.Pid, a => a.Role == "host" && WorldLoaded(a), TimeSpan.FromSeconds(300), "host world load");
+        // If the host doesn't own its port, its client would join whatever else does (see
+        // Sessions.Port).
+        if (!Sessions.IsDefault && !Win32.UdpPortOwners(port).Contains(hostAgent.Pid))
+            throw new Exception($"the host is not listening on port {port}");
+        return (hostAgent, hosted);
+    }
+
+    private static JsonObject HostOnlyResult(Agent host, int port, string password, JsonNode? save, bool reused)
+    {
+        JsonObject result = Progress(done: true);
+        result["ok"] = true;
+        result["reused"] = reused;
+        result["host"] = new JsonObject { ["pid"] = host.Pid, ["playerAbs"] = host.Status?["playerAbs"]?.DeepClone() };
+        result["port"] = port;
+        result["password"] = password;
+        if (save != null) result["save"] = save;
+        result["join"] = $"`dvmp up --session {Sessions.Current}` adds a dvmp client; or join 127.0.0.1:{port} from your own game";
+        return result;
     }
 
     // Waits for a launched client process to reach the menu, joins it to the host, and waits
@@ -299,6 +397,11 @@ internal static class Session
             $"-dvmp-launch {launchId}",
             Sessions.IsDefault ? string.Empty : $"-dvmp-session {Sessions.Current}",
             $"-dvmp-fps {o.FpsCap}",
+            o.BackgroundFpsCap is int bgFps ? $"-dvmp-bg-fps {bgFps}" : string.Empty,
+            role == "host" && o.Dedicated ? DedicatedArg : string.Empty,
+            // The harness's games share one Steam account, so a host verifying Steam tickets
+            // would see every client as its own player.
+            role == "host" && !o.Verified ? "-mp-allow-unverified" : string.Empty,
             o.Sound ? "-dvmp-sound" : string.Empty);
         Process process = Process.Start(new ProcessStartInfo(Paths.GameExe, args)
         {
@@ -375,6 +478,13 @@ internal static class Session
         JsonNode? value = r["results"]?.AsObject().FirstOrDefault().Value?["result"];
         return value is JsonValue v && v.TryGetValue(out string? s) && !string.IsNullOrEmpty(s) ? "disconnected: " + s : null;
     }
+
+    private static bool IsDedicated(Agent agent) => agent.Info.Args?.Contains(DedicatedArg) == true;
+
+    // Launched without -mp-allow-unverified (UpOptions.Verified).
+    private static bool IsVerified(Agent agent) => agent.Info.Args?.Contains("-mp-allow-unverified") != true;
+
+    private const string DedicatedArg = "-mp-dedicated";
 
     private static bool WorldLoaded(Agent agent) => agent.Status?["worldLoaded"]?.GetValue<bool?>() == true;
 

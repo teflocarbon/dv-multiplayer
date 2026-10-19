@@ -15,6 +15,9 @@ public static class SaveGameManager_FindStartGameData_Patch
         if (NetworkLifecycle.Instance.IsServerRunning || NetworkLifecycle.Instance.IsClientRunning)
             return;
         StartServer(__result.DifficultyToUse);
+        // Before DV places the player or loads any item: every player's state is by GUID.
+        if (NetworkLifecycle.Instance.IsServerRunning)
+            PerPlayerSaveFormat.PrepareLoad(SaveGameManager.Instance.data);
     }
 
     private static void StartServer(IDifficulty difficulty)

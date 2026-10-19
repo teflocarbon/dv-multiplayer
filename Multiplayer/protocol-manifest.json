@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+d3d080259d4b29a2ef65cb302636166ad7dfaabd",
-  "Fingerprint": "246f6b444125a0f0595f9755059becc07b54fce53d4660e23d2f4c99610e7082",
+  "BuildVersion": "2026.10.19.2+fa5d4b7b747a79a81fe56cc6d163d4e048341f11",
+  "Fingerprint": "2147b1d484ccc55b144052ecbf394e16f25c7e4425a90363e0d56efdd532dd9c",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -265,6 +265,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "3CDBC69A829FB3EE",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundCargoFirePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "3DE0E04500B75F76",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket",
       "Direction": "Clientbound",
@@ -359,6 +368,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundTrainControlCommitPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "4BDFFD9DCF1F9C44",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundSandboxCarDamagePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Train",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -778,6 +796,15 @@
       "SuppressByDefault": true
     },
     {
+      "Hash": "B7274F4202427AB2",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundPayFeesRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "B805F1DB0B9896AE",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundItemSpatialCommitPacket",
       "Direction": "Clientbound",
@@ -971,6 +998,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundDestroyTrainCarPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "E247268AB7438DDC",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundCargoIgnitePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Train",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1292,7 +1328,8 @@
       "AuthoredProjectionBinding": 12,
       "PersistenceRestore": 13,
       "SpatialSettlement": 14,
-      "Convergence": 15
+      "Convergence": 15,
+      "ClientInteraction": 16
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+ItemUpdateType": {
       "None": 0,

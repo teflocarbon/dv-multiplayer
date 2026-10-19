@@ -1,7 +1,9 @@
 // Starts hosting from the main menu, through DV's own launcher so the normal
 // ContinueGameRequested pipeline (which Multiplayer hooks to start its server) runs.
 // Args: save = save name or UID (optional; defaults to the save the launcher shows),
-//       port = server port (optional; defaults to the mod's setting).
+//       port = server port (optional; defaults to the mod's setting),
+//       playerName, playerGuid = an identity for the host's own player (optional; defaults to
+//       the install's). Patched in memory like join.cs does, so Settings.xml is never touched.
 using System.Reflection;
 using DV.Common;
 using DV.UI;
@@ -13,9 +15,13 @@ using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Managers.Server;
 using Multiplayer.Patches.MainMenu;
 using MP = Multiplayer.Multiplayer;
+using MpSettings = Multiplayer.Settings;
 
 public static class Probe
 {
+    private static string playerName;
+    private static System.Guid playerGuid;
+
     public static object Run(DevContext ctx)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance ?? throw new Exception("NetworkLifecycle missing (is Multiplayer loaded?)");
@@ -66,6 +72,21 @@ public static class Probe
         harmony.Patch(AccessTools.Method(typeof(LobbyServerManager), "Start"),
             prefix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(SkipLobby), BindingFlags.NonPublic | BindingFlags.Static)));
 
+        // A host joined by the user's own game (dvmp up --host-only) can't share the install's
+        // GUID with it: the login check lets a client with the host's GUID in, and items and saved
+        // player data are keyed by it. Installed before Run, so the loopback client logs in with it.
+        Harmony identity = new("dvmp.harness.identity");
+        identity.UnpatchAll("dvmp.harness.identity");
+        if (ctx.Args.TryGetValue("playerGuid", out string g) && !string.IsNullOrEmpty(g))
+        {
+            playerGuid = System.Guid.Parse(g);
+            playerName = ctx.Args.TryGetValue("playerName", out string pn) && pn.Length > 0 ? pn : "DVMP-Host";
+            identity.Patch(AccessTools.Method(typeof(MpSettings), nameof(MpSettings.GetUserName)),
+                prefix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(UserName), BindingFlags.NonPublic | BindingFlags.Static)));
+            identity.Patch(AccessTools.Method(typeof(MpSettings), nameof(MpSettings.GetGuid)),
+                prefix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(Guid), BindingFlags.NonPublic | BindingFlags.Static)));
+        }
+
         // A named dvmp session passes its own port, so parallel hosts never share one. The mod's
         // settings (shared by every game) are left alone.
         int port = ctx.Args.TryGetValue("port", out string p) ? int.Parse(p) : MP.Settings.Port;
@@ -90,10 +111,14 @@ public static class Probe
 
         launcher.OnRunClicked();
 
+        string player = playerGuid == System.Guid.Empty ? null : $"{playerName} ({playerGuid})";
         return save != null
-            ? new { save = save.Name, uid = save.UID, type = save.Type.ToString(), gameMode = save.GameMode, port, password }
-            : (object)new { save = "new " + newMode + " session: " + launcher.startGameData.session?.Name, uid = 0, type = "New", gameMode = launcher.startGameData.session?.GameMode, port, password };
+            ? new { save = save.Name, uid = save.UID, type = save.Type.ToString(), gameMode = save.GameMode, port, password, player }
+            : (object)new { save = "new " + newMode + " session: " + launcher.startGameData.session?.Name, uid = 0, type = "New", gameMode = launcher.startGameData.session?.GameMode, port, password, player };
     }
+
+    private static bool UserName(ref string __result) { __result = playerName; return false; }
+    private static bool Guid(ref System.Guid __result) { __result = playerGuid; return false; }
 
     private static bool SkipLobby(ref IEnumerator __result)
     {

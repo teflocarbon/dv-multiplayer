@@ -200,6 +200,10 @@ public sealed class ColdContainerGraphSnapshot
     public int Version { get; set; } = 2;
     public List<ColdContainerRecord> Containers { get; set; } = new();
     public List<ColdStoredItemRecord> Items { get; set; } = new();
+
+    /// <summary>Moves an owner's containers and items to a new identity. Returns how many changed.</summary>
+    public int RekeyOwner(string fromIdentity, string toIdentity) =>
+        ColdContainerGraph.RekeyOwner(Containers, Items, fromIdentity, toIdentity);
 }
 
 /// <summary>
@@ -760,6 +764,43 @@ public sealed class ColdContainerGraph
                 completedOperations.Remove(completedOperationOrder.Dequeue());
         }
         return result;
+    }
+
+    /// <summary>Whether any container or item belongs to this owner identity.</summary>
+    public bool HasOwner(string ownerIdentity) =>
+        !string.IsNullOrWhiteSpace(ownerIdentity) &&
+        (containers.Values.Any(container => string.Equals(container.OwnerIdentity, ownerIdentity, StringComparison.Ordinal)) ||
+         items.Values.Any(item => string.Equals(item.PersistentOwnerIdentity, ownerIdentity, StringComparison.Ordinal)));
+
+    /// <summary>
+    /// The owner's identity changed (an install GUID re-keyed to a Steam account): their containers
+    /// and the items in them move to the new one together, so every item still matches its
+    /// container's owner. Returns how many changed.
+    /// </summary>
+    public int RekeyOwner(string fromIdentity, string toIdentity) =>
+        RekeyOwner(containers.Values, items.Values, fromIdentity, toIdentity);
+
+    internal static int RekeyOwner(IEnumerable<ColdContainerRecord> containers, IEnumerable<ColdStoredItemRecord> items,
+        string fromIdentity, string toIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(fromIdentity) || string.IsNullOrWhiteSpace(toIdentity))
+            return 0;
+        int changed = 0;
+        foreach (ColdContainerRecord container in containers)
+        {
+            if (!string.Equals(container.OwnerIdentity, fromIdentity, StringComparison.Ordinal))
+                continue;
+            container.OwnerIdentity = toIdentity;
+            changed++;
+        }
+        foreach (ColdStoredItemRecord item in items)
+        {
+            if (!string.Equals(item.PersistentOwnerIdentity, fromIdentity, StringComparison.Ordinal))
+                continue;
+            item.PersistentOwnerIdentity = toIdentity;
+            changed++;
+        }
+        return changed;
     }
 
     private int CountOwnedItems(string owner) => items.Values.Count(item =>

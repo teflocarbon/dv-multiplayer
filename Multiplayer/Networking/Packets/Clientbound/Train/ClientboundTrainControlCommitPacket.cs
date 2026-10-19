@@ -23,4 +23,7 @@ public sealed class ClientboundTrainControlCommitPacket
     public bool IncludesHandbrake { get; set; }
     public float HandbrakePosition { get; set; }
     public bool BrakeCylinderReleased { get; set; }
+    /// <summary>The host's tick the port values are from: when its simulation produced them, or
+    /// when it took a player's. Clients play port values out on this timeline (TrainPortPresenter).</summary>
+    public uint Tick { get; set; }
 }

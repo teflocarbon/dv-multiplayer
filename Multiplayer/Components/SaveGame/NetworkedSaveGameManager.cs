@@ -72,13 +72,19 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
 
         foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
         {
-            if (player.Peer == NetworkLifecycle.Instance.Server.SelfPeer || player.LoadingState != PlayerLoadingState.Complete)
+            // Every player by GUID, the host's own included (PerPlayerSaveFormat); a dedicated
+            // host's own client isn't a player.
+            if (player.IsServiceHost || player.LoadingState != PlayerLoadingState.Complete)
                 continue;
 
             JObject playerData = [];
-            // Player position data
-            playerData.SetVector3(SaveGameKeys.Player_position, player.AbsoluteWorldPosition);
-            playerData.SetFloat(SaveGameKeys.Player_rotation, player.WorldRotationY);
+            // Player position data: the host's own player from its local transform, the rest from
+            // what their games send.
+            bool local = NetworkLifecycle.Instance.IsHost(player) && PlayerManager.PlayerTransform != null;
+            playerData.SetVector3(SaveGameKeys.Player_position,
+                local ? PlayerManager.PlayerTransform.position - WorldMover.currentMove : player.AbsoluteWorldPosition);
+            playerData.SetFloat(SaveGameKeys.Player_rotation,
+                local ? PlayerManager.PlayerTransform.eulerAngles.y : player.WorldRotationY);
 
             //Player Inventory data
             SaveGameData saveGameData = new();
@@ -95,7 +101,7 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
         root.SetJObject(PLAYERS_KEY, players);
         NetworkedLostAndFoundManager.WriteSave(root);
         NetworkedColdContainerManager.WriteSave(root);
-        WorldItemPersistenceManager.RemoveVanillaStorageDuplicates(data);
+        WorldItemPersistenceManager.RemoveVanillaStorageDuplicates(data, keepInventory: true);
         WorldItemPersistenceManager.WriteSave(root);
         data.SetJObject(ROOT_KEY, root);
     }

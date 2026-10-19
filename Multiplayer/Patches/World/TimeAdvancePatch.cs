@@ -25,7 +25,7 @@ public static class TimeAdvancePatch
             return true;
 
         // Host is the only player - allow time to advance normally
-        if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
 
         // Applying a relayed advance (on the host too: its local client receives the relay of a

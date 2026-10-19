@@ -22,7 +22,7 @@ public class ServerAPIProvider : IServer
 
     #region Server Properties
 
-    public int PlayerCount => server.PlayerCount;
+    public int PlayerCount => server.GameplayPlayerCount;
 
     public IReadOnlyCollection<IPlayer> Players => server.ServerPlayerWrappers;
 

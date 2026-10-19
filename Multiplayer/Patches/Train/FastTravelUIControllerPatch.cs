@@ -11,7 +11,7 @@ public static class FastTravelUIControllerPatch
     private static void Postfix(FastTravelUIController __instance)
     {
         // If the host is playing alone, don't disable the fast travel with loco button
-        if (NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1)
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return;
 
         if (__instance?.fastTravelWithLocoButton != null)

@@ -5,6 +5,8 @@
 #   PAIRS=N: run on N host+client pairs at once (dvmp sessions p1..pN). REPEAT=N: each run N
 #   times (ONLY=host-stall REPEAT=6 PAIRS=3 hunts an intermittent bug). EXCLUSIVE= overrides
 #   which scenarios run alone at the end.
+#   UP_ARGS: extra `dvmp up` arguments for the pairs it starts, e.g. UP_ARGS=--dedicated to run
+#   against a dedicated host (docs/design/dedicated-host.md).
 cd "$(dirname "$0")/../.."
 export DVMP=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 S=DevTools/Scenarios
@@ -12,6 +14,11 @@ LOG_DIR=${LOG_DIR:-$(mktemp -d)}; mkdir -p "$LOG_DIR"
 runs=( # name | scenario | variables
   "train-items|train-items|"
   "train-items-host-throw-moving|train-items|WHO=host MODE=throw WHEN=moving"
+  "item-release-regrab|item-release|"
+  "item-release-regrab-late|item-release|MODE=regrab-late"
+  "item-release-throw-flatcar|item-release|MODE=throw-flatcar"
+  "item-release-object-state|item-release|MODE=object-state"
+  "item-release-interact|item-release|MODE=interact"
   "lost-and-found|lost-and-found|"
   "recall|recall|"
   "recall-taken|recall|TAKEN=1"
@@ -28,9 +35,17 @@ runs=( # name | scenario | variables
   "car-pool-reuse|car-pool-reuse|"
   "car-delete|car-delete|"
   "cab-controls|cab-controls|"
+  "settle-window|settle-window|"
+  "compressor-signal|compressor-signal|"
+  "stoker-coal|stoker-coal|"
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
+  "rerail|rerail|"
+  "rerail-host|rerail|WHO=host"
+  "far-derail|far-derail|"
+  "far-derail-embankment|far-derail-embankment|"
+  "dedicated-admin|dedicated-admin|"
   "explosion|explosion|"
   "car-fire|car-fire|"
   "hazmat|hazmat|"
@@ -38,9 +53,13 @@ runs=( # name | scenario | variables
   "rejoin-crash|rejoin|CRASH=1"
   "save-reload|save-reload|CYCLES=2"
   "inventory-persist|inventory-persist|"
+  "host-player-persist|host-player-persist|"
   "borrowed-disconnect|borrowed-disconnect|"
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
+  "overview-pickup|overview-pickup|"
+  "remote-held-item|remote-held-item|"
+  "owned-items|owned-items|"
   "sandbox-cargo|sandbox-cargo|"
   "player-soak|player-soak|DURATION=120"
 )
@@ -69,7 +88,7 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
   PAIRS=${PAIRS:-1}; REPEAT=${REPEAT:-1}
   # Measure frame timing (run alone) or write saves into the shared profile (alone until each
   # session has its own data folder): these run on p1 after the parallel phase, other pairs down.
-  EXCLUSIVE=${EXCLUSIVE:-"fps-drop host-stall player-soak save-reload inventory-persist"}
+  EXCLUSIVE=${EXCLUSIVE:-"fps-drop host-stall player-soak save-reload inventory-persist host-player-persist"}
   Q="$LOG_DIR/.queue"; mkdir -p "$Q/claim" "$Q/result"
   items=(); exclusive=()
   for entry in "${runs[@]}"; do
@@ -103,11 +122,11 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
       run_one "$label" "$dir" "$vars" "$session"
       # A run that left its pair without a loaded world on both games (a crash, a failed
       # rejoin leaving the client at the menu) gets it back.
-      healthy "$session" || DVMP_SESSION=$session $DVMP up >/dev/null 2>&1
+      healthy "$session" || DVMP_SESSION=$session $DVMP up ${UP_ARGS:-} >/dev/null 2>&1
     done
   }
   echo "== starting $PAIRS pair(s): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive"
-  for p in $(seq 1 "$PAIRS"); do DVMP_SESSION=p$p $DVMP up >"$LOG_DIR/up-p$p.log" 2>&1 & done
+  for p in $(seq 1 "$PAIRS"); do DVMP_SESSION=p$p $DVMP up ${UP_ARGS:-} >"$LOG_DIR/up-p$p.log" 2>&1 & done
   wait
   for p in $(seq 1 "$PAIRS"); do
     grep -q '"ok": true' "$LOG_DIR/up-p$p.log" || { echo "pair p$p failed to start (see $LOG_DIR/up-p$p.log)"; exit 2; }

@@ -2,8 +2,10 @@
 # Cab controls from a client (#73). For each loco: every control that feeds a sim port is hooked, so
 # the client can take its lease; every toggle switch flipped with Use() (what a VR hand does, it
 # never grabs) reaches the host, and flipping back does too; on the DE2 a grabbed wipers turn
-# reaches the host. No control lease is left held afterwards.
-#   LOCOS="LocoDE2 LocoDM3" (default)
+# reaches the host. On the S282 and the DE6, valves and windows set with no grab and no Use() (a VR
+# hand turning a valve, a click on a window) reach the host too: they take no lease. No control
+# lease is left held afterwards.
+#   LOCOS="LocoDE2 LocoDM3" (default); "LocoS282A LocoDE6" covers controls set without a grab
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -45,6 +47,18 @@ for type in $LOCOS; do
   compare "toggle switches flipped" "$on" || fail=1
   off=$($D eval -t client -m coroutine --timeout 60 -a loco=$loco -f $P/toggle.cs | result)
   compare "and flipped back" "$off" || fail=1
+
+  # Controls that never ask for a lease; the host refused them all before 2026-10-17.
+  unleased=$(case $type in
+    LocoS282A) echo "compressorControl.EXT_IN,dynamoControl.EXT_IN,cylinderCock.EXT_IN,lubricatorControl.EXT_IN" ;;
+    LocoDE6) echo "windowL1.EXT_IN,windowR1.EXT_IN" ;;
+  esac)
+  if [ -n "$unleased" ]; then
+    s=$($D eval -t client -m coroutine --timeout 30 -a loco=$loco -a ports=$unleased -a value=1 -f $P/set.cs | result)
+    compare "set without a grab" "$s" || fail=1
+    s=$($D eval -t client -m coroutine --timeout 30 -a loco=$loco -a ports=$unleased -a value=0 -f $P/set.cs | result)
+    compare "and set back" "$s" || fail=1
+  fi
 
   if [ "$type" = LocoDE2 ]; then
     w=$($D eval -t client -m coroutine --timeout 30 -a loco=$loco -a control=C_Wipers -a value=0.75 -f $P/grab-turn.cs | result)

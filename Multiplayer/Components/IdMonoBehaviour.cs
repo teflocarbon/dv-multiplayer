@@ -27,17 +27,6 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
         if (indexToObject.TryGetValue(netId, out obj))
             return true;
         obj = null;
-        if ((netId as dynamic).CompareTo(default(T)) != 0)
-            Multiplayer.LogDebug(() => $"Got invalid NetId {netId} for {typeof(I).Name}{(NetworkLifecycle.Instance.IsProcessingPacket ? $" while processing packet\r\n{Environment.StackTrace}" : "")}");
-        return false;
-    }
-
-    protected static bool TryGet(T netId, out IdMonoBehaviour<T, I> obj)
-    {
-        if (indexToObject.TryGetValue(netId, out obj))
-            return true;
-
-        obj = null;
         return false;
     }
 

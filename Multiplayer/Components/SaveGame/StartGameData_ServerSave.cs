@@ -26,9 +26,24 @@ public class StartGameData_ServerSave : AStartGameData
 
     public override bool IsStartingNewSession => false;
 
+    /// <summary>
+    /// What the host says this player already owns, for the starting-item safeguards of this load
+    /// (StartingItemsControllerPatch). Null when the load isn't a join.
+    /// </summary>
+    public static List<StorageItemData> OwnedItems { get; private set; }
+
     public void SetFromPacket(ClientboundSaveGameDataPacket packet)
     {
         this.packet = packet.Clone();
+
+        OwnedItems = new List<StorageItemData>();
+        string[] ownedPrefabs = packet.OwnedItemPrefabs ?? [];
+        for (int i = 0; i < ownedPrefabs.Length; i++)
+        {
+            int slot = packet.OwnedItemSlots != null && i < packet.OwnedItemSlots.Length ? packet.OwnedItemSlots[i] : -1;
+            OwnedItems.Add(new StorageItemData(ownedPrefabs[i], Vector3.zero, Quaternion.identity, belongsToPlayer: true,
+                inventorySlotIndex: slot));
+        }
 
         saveGameData = SaveGameManager.MakeEmptySave();
         saveGameData.SetString(SaveGameKeys.Game_mode, packet.GameMode);

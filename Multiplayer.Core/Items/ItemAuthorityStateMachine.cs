@@ -39,6 +39,14 @@ public sealed class ItemAuthorityState
     public byte InventoryClaimPlayerId { get; set; }
     public int InventoryClaimSlot { get; set; } = -1;
     public AuthorityClaimFlags InventoryClaimFlags { get; set; }
+    /// <summary>
+    /// The revisions from <see cref="ObjectStateRunBase"/> up to <see cref="ObjectStateRunTop"/>
+    /// changed only object state (a lantern's flame), never placement. Means something only
+    /// while <see cref="ObjectStateRunTop"/> equals <see cref="Revision"/>; see
+    /// <see cref="ItemPlacementRevision"/>.
+    /// </summary>
+    public uint ObjectStateRunBase { get; set; }
+    public uint ObjectStateRunTop { get; set; }
 
     public ItemAuthorityState Clone() => new()
     {
@@ -49,7 +57,9 @@ public sealed class ItemAuthorityState
         PersistentOwnerPlayerId = PersistentOwnerPlayerId,
         InventoryClaimPlayerId = InventoryClaimPlayerId,
         InventoryClaimSlot = InventoryClaimSlot,
-        InventoryClaimFlags = InventoryClaimFlags
+        InventoryClaimFlags = InventoryClaimFlags,
+        ObjectStateRunBase = ObjectStateRunBase,
+        ObjectStateRunTop = ObjectStateRunTop
     };
 }
 
@@ -110,7 +120,11 @@ public static class ItemAuthorityStateMachine
             return ItemAuthorityResult.Reject(current, "invalid-transition-input");
         if (!command.Force && current.Placement == AuthorityPlacement.LostAndFound)
             return ItemAuthorityResult.Reject(current, "item-in-lost-and-found");
-        if (!command.Force && command.ExpectedRevision != current.Revision)
+        // A transition made against an older revision still holds if only object state changed
+        // since: the server's copy of a lantern flickering mustn't refuse its holder's drop, nor
+        // the re-grab of an item whose flame changed as it fell.
+        if (!command.Force && !ItemPlacementRevision.UnchangedSince(command.ExpectedRevision,
+                current.Revision, current.ObjectStateRunBase, current.ObjectStateRunTop))
             return ItemAuthorityResult.Reject(current, "stale-authority-revision");
         if (current.Revision == uint.MaxValue)
             return ItemAuthorityResult.Reject(current, "authority-revision-exhausted");
@@ -183,6 +197,9 @@ public static class ItemAuthorityStateMachine
             next.InventoryClaimFlags = AuthorityClaimFlags.None;
         }
 
+        (next.ObjectStateRunBase, next.ObjectStateRunTop) = ItemPlacementRevision.RunAfter(
+            current.Revision, current.ObjectStateRunBase, current.ObjectStateRunTop,
+            command.AppliesPlacement);
         next.Revision++;
         return ItemAuthorityResult.Accept(next);
     }
@@ -212,6 +229,7 @@ public static class ItemAuthorityStateMachine
             next.InventoryClaimSlot = command.RequestedSlot;
         next.InventoryClaimFlags |= AuthorityClaimFlags.Reserved;
         next.InventoryClaimFlags &= ~(AuthorityClaimFlags.Dropped | AuthorityClaimFlags.Stolen);
+        next.ObjectStateRunBase = next.ObjectStateRunTop = 0;
         next.Revision++;
         return ItemAuthorityResult.Accept(next);
     }

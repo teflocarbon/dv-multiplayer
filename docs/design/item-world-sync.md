@@ -221,7 +221,13 @@ are dormant projections:
 The client sends a catalogue version/count/hash after discovery. A mismatch is a visible loading or
 debug error, not permission to bind the next object with a matching prefab name. In the code a
 mismatched player gets no scene-authored items at all (`WorldItemCatalogueAccepted`); dynamic items
-still flow.
+still flow, and the server logs a warning.
+
+Both sides compare the catalogue as built from the scene (`AuthoredWorldItemCatalogue.Baseline*`),
+not the live key map. The live map loses a key while a taken office prop waits to be replenished
+(see "Replenishable authored office stock"), so comparing it rejected anyone who joined in that
+window. On 2026-10-19 a player was rejected although their catalogue matched the host's
+afterwards, and every shop scanner vanished for them for the whole session.
 
 ### Stable scene key
 
@@ -461,6 +467,47 @@ Known stable anchors are:
 
 `Belt` is not a `SnappedAttachment`. It is the physical projection of a player inventory slot and
 its independent reservation state, and remains under inventory authority.
+
+#### VR belt items
+
+In VR, inventory slots 33-35 are the belt (`Inventory.IsValidVRBeltIndex`). An item in one stays in
+the `Inventory` (`Contains` is true), but DV keeps it active and `ItemBeltVR` snaps it, visible, to an
+`ItemSnapPointBelt` on the player's body. Multiplayer syncs it as an ordinary `InInventory`
+placement of its owner (`PlayerInventory` on the host), and `BeltItemPolicy` (Multiplayer.Core)
+covers the two places where the snap got in the way:
+
+- **Release.** Letting go next to the belt is not an inventory operation at first: the item is
+  ungrabbed in `Update`, and `ItemSnapPointInteractionBelt.OnUngrabDelayed` adds it to the belt slot
+  only at the end of that frame. `LateUpdate` in between saw an ungrabbed item outside the
+  inventory and sent `Dropped`, then `InInventory` the next frame. The host gave the item to the
+  world, and the inventory update behind it was either refused (the sender no longer possessed it
+  and had never been sent it as a world item) or accepted out of turn. For the frame of a VR
+  release of a belt-snappable item, `GetItemState` keeps the last state (`HoldVrRelease`); the next
+  frame reports `InInventory` or `Dropped`, whichever it was.
+- **Acknowledgement.** `PrepareForStateChange` unsnaps any snapped item before placing it. The
+  host's echo of the owner's own `InInventory` unsnapped the belt item, which fell to the floor in
+  the owner's game while staying in the inventory slot. A snapshot that puts an item on the local
+  player's belt into the local player's inventory leaves the snap alone (`KeepBeltSnap`); any other
+  placement still unsnaps it (and revokes the inventory membership, which unsnaps it in DV too).
+- **The hold's echo.** Taking an item off the belt equips it and reserves its slot. Letting go
+  clears the reservation (`UnequipItem` purges it), which changed the item's claim, so the release
+  frame sent `InHand` again. That echo came back a frame after the belt had the item, and applying
+  it unsnapped the item: the same fall as above, and DV then refuses every grab
+  (`InventoryViewVR.OnItemGrabbed` ends the interaction on an item `Contains` says is stashed), so it
+  could never be picked up. The held release frame sends nothing at all (the item stays dirty and the
+  next frame sends the outcome), and the owner's own `InHand` echo arriving once the item is
+  ungrabbed and in their inventory is ignored (`IsSupersededOwnHold`). Host corrections carry no
+  originating player, so they are never taken for an echo.
+
+Whether the belt takes a released item is DV's decision alone: the hand has to be inside the slot's
+trigger and properly touching its pointer detector (`ItemSnapPointInteractionBelt.RegularUngrabBehavior`).
+Otherwise the item drops as any released item does.
+
+Other games and the host project the item as an inventory item of its owner
+(`RemoteItemProjectionAction.RemoteInventory`): it is hidden with the avatar's inventory, not shown
+on the avatar's belt. The host saves it as any other possession, by the owner's GUID, and gives it
+back to the owner's inventory on their next join; the belt slot itself is not kept, so it comes back
+in the first free slot.
 
 Coupler validation includes point occupancy, allowed type, actor/item authority, proximity, and the
 chain's parked/coupled state. Coupling or moving the chain out of parked state commits a

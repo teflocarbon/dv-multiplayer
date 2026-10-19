@@ -23,7 +23,7 @@ public static class SimulatedCarDebtTrackerPatch
     private static bool Prefix(SimulatedCarDebtTracker __instance)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsHost() || lifecycle.Server == null || lifecycle.Server.PlayerCount <= 1)
+        if (lifecycle == null || !lifecycle.IsHost() || lifecycle.Server == null || (lifecycle.Server.PlayerCount <= 1 && !lifecycle.IsDedicatedHost))
             return true;
 
         DamageController damage = DamageController(__instance);

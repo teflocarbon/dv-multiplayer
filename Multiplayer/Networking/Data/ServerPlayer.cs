@@ -36,13 +36,25 @@ public class ServerPlayer : IDisposable
 
     public ITransportPeer Peer { get; private set; }
     public byte PlayerId { get; private set; }
+
+    /// <summary>
+    /// The dedicated host's own loopback client: a service identity, not a player. Use
+    /// <see cref="Managers.Server.NetworkServer.GameplayPlayers"/> wherever "the players" are meant.
+    /// </summary>
+    public bool IsServiceHost => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.IsHost(this);
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     public DateTime LastLogin { get; set; }
     private float PreviousPlayTime { get; set; }
     public float TotalPlaytime => PreviousPlayTime + (DateTime.UtcNow - LastLogin).Minutes;
     public string Username { get; set; }
     public string OriginalUsername { get; set; }
+    // The player ID (PlayerIdentity): their Steam account's, once verified.
     public Guid Guid { get; set; }
+    // The GUID of the install they play from, which their data was saved under before player IDs
+    // were Steam accounts.
+    public Guid LegacyGuid { get; set; }
+    // Their verified Steam account, or 0 (the host's own client, or a host with -mp-allow-unverified).
+    public ulong SteamId { get; set; }
     public string CharacterId { get; set; }
     public bool IsVR { get; }
     public uint LastHighPingTickLogged { get; set; }

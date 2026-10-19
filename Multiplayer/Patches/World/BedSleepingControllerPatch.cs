@@ -23,6 +23,6 @@ public static class BedSleepingControllerPatch
 
     private static bool CanRun()
     {
-        return NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server.PlayerCount == 1;
+        return NetworkLifecycle.Instance.IsHostPlayingAlone;
     }
 }

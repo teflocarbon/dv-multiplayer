@@ -27,6 +27,8 @@
         <Reference Include="WorldStreamer" Private="false" />
         <Reference Include="UnityEngine" Private="false" />
         <Reference Include="UnityEngine.CoreModule" Private="false" />
+        <Reference Include="UnityEngine.IMGUIModule" Private="false" />
+        <Reference Include="UnityEngine.TextRenderingModule" Private="false" />
         <Reference Include="UnityEngine.AudioModule" Private="false" />
         <Reference Include="UnityEngine.ImageConversionModule" Private="false" />
         <Reference Include="UnityEngine.ScreenCaptureModule" Private="false" />
@@ -43,5 +45,15 @@
         </PropertyGroup>
         <MakeDir Directories="$(DvmpAgentModDir)" />
         <Copy SourceFiles="$(TargetPath);$(OutDir)info.json" DestinationFolder="$(DvmpAgentModDir)" />
+    </Target>
+    <!-- MultiplayerDevTools.zip: the agent for someone else's PC, for remote debugging over
+         Tailscale (install it with Unity Mod Manager). See DevTools/README.md. -->
+    <Target Name="PackDvmpAgent" AfterTargets="Build">
+        <PropertyGroup>
+            <DvmpAgentStage>$(MSBuildProjectDirectory)\$(IntermediateOutputPath)pack\</DvmpAgentStage>
+        </PropertyGroup>
+        <RemoveDir Directories="$(DvmpAgentStage)" />
+        <Copy SourceFiles="$(TargetPath);$(OutDir)info.json" DestinationFolder="$(DvmpAgentStage)MultiplayerDevTools" />
+        <ZipDirectory SourceDirectory="$(DvmpAgentStage)" DestinationFile="$(OutDir)MultiplayerDevTools.zip" Overwrite="true" />
     </Target>
 </Project>

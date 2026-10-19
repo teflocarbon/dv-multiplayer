@@ -22,9 +22,14 @@
 - **Not implemented:** explicit lease revocation on Lost-and-Found collection or cold deposit
   (collection advances the revision, so later samples and settlements are rejected; a deposit
   needs the item in hand, which already ends the lease).
+- **Fixed (2026-10-19):** in a VR game, an item another player held stayed a live body; see
+  "Observer presentation".
 - **Added:** an item that falls more than 1 m under the terrain has its lease revoked and is moved
   back to its last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
   convergence skips items with a live lease (b601cc6).
+- **Added (playtest 2):** a gentle release is held back 0.3 s so a VR hand swap isn't a drop,
+  only the holder sends object state, and object-state changes no longer void a lease; see
+  "Leaving the hand" below.
 - **Runtime tests:** the old in-game scenario system is gone. The dvmp `train-items` scenario
   covers drops and throws in a moving cab (scenarios 13-15 below), and `dvmp soak` throws and
   drops items at random then runs a desync check; see [`../testing.md`](../testing.md). The other
@@ -213,6 +218,14 @@ parent, or cell. Intermediate motion samples do not.
 While held, the item inherits the player's existing movement replication. It does not require an
 independent world-physics stream.
 
+What another player holds or carries changes only by that player's own packets. The host's copy of
+the item mirrors them, and when the host observes a change in it (taken in a hand, a lantern lit),
+it applies only the object state, never a placement by the host's own player
+(`NetworkedItemManager.TryKeepRemotePossession`). Applying it as the host's change booked the item
+to the host's player, and the next update took it out of the player's hand; on a dedicated server
+that's the parked service body (playtest 2). `AuthoritativeItemRegistry.KeepRemotePossession` is a
+backstop for any other path that records such an item as the host player's.
+
 ### Drop without impulse
 
 1. Holder sends a logical drop intent containing the release pose and current parent candidate.
@@ -233,6 +246,74 @@ independent world-physics stream.
 6. When the Rigidbody sleeps or remains below settlement thresholds for a dwell period, the
    simulator sends a reliable settlement proposal.
 7. Host validates and commits the final pose, rotation, parent, and cell, then closes the epoch.
+
+### Leaving the hand
+
+Playtest 2 (VR players, dedicated server) found the steps above undone in four ways: a hand swap
+dropped the item, a thrown lantern snapped back to where it was let go, other players saw it jitter,
+and one thrown onto a train vanished. What the code does now:
+
+- **A gentle release waits.** A VR hand swap, or grabbing an item again at another spot, lets go
+  for a moment first. A release from the hand under 2 m/s (relative to the car the player is on)
+  is held back for 0.3 s and sent only if no hand has the item by then; a re-grab inside that
+  sends only the hand change (`NetworkedItem.DeferLocalRelease`, `ItemReleaseGrace`). Throws,
+  stowing and anything faster go at once. Other players see the item leave the hand 0.3 s late.
+- **A late acceptance doesn't undo a re-grab.** If the drop did go out, the host's acceptance can
+  arrive after the item is back in a hand. It is taken as a revision only
+  (`ItemSnapshotApplicationPolicy.IsSupersededLocalRelease`); the pickup sent since decides. The
+  lease granted for that drop isn't simulated on a held item. The player who let go counts as
+  having the item in their world, so their pickup of it validates like anyone's.
+- **A late hold doesn't undo a throw.** The reverse race: a VR throw lets go before the host's
+  acceptance of the hold (or of the last in-hand update letting go sends, with the hand cleared)
+  comes back. Applied, that hold became the client's last sent state, so the client sent its drop
+  a second time against the hold's revision; the host had already accepted the first drop, refused
+  the second as stale, and its correction carried the record's pose, the release point. The client
+  applied it, and the item stopped dead mid-flight and fell straight down (playtest, 19 October:
+  17 corrections in 27 throws, 10 of them visibly stopping the item in the air). It is now taken as a revision only
+  (`ItemSnapshotApplicationPolicy.IsSupersededLocalHold`); the drop sent since decides.
+- **Only the holder sends object state.** An item's tracked values (a lantern's flame and wick)
+  change on every game it's in, held or not. A client sends object-state-only changes only for an
+  item in its own hand or inventory, book pages aside (`ItemObjectStateAuthority.ClientMaySend`).
+  The host ignores, without a correction, any it still gets from a non-holder
+  (`ItemObjectStateAuthority.HostIgnores`): such a correction carried the record's position,
+  which put a thrown item back at its release point, and set the sender's copy off again.
+  Placement and position disputes still get a correction.
+- **Working an item where it lies.** A player may still change a set-down item: turn a lantern's
+  knob, light it with their lighter, flip a mounted gadget's switch. A value changing can't tell
+  that from drift (a lantern's knob is a physics body in every game), so the player's own action
+  opens a window: grabbing or using one of the item's controls (`ControlImplBase.FireGrabbed`,
+  `FireUngrabbed`, `Use`), or lighting a lantern with a flame they hold (`IgnitableUse.HandleUse`,
+  `Igniter.IgniteNow`, then `Lantern.Ignite`), all in `ItemInteractionPatch`. It's open while the
+  control is held and 1.5 s after (`ItemInteractionWindow`). Changes inside it go out as
+  object state marked `ItemTransitionReason.ClientInteraction`. The host takes a marked change
+  from a player whose game has the item (it acknowledged it) within 6 m of it, for an item in the
+  world, on a car or attached, as object state only: the record keeps its own pose
+  (`AuthoritativeItemRegistry.KeepRecordedPose`). Unmarked changes, and every change from older
+  builds, are still ignored. A client doesn't re-apply the host's echo of its own object-state
+  change (the knob may still be turning), and a received wick also sets the lantern's knob, which
+  the wick follows, unless the local player is turning it.
+- **Object state doesn't void a lease.** Every accepted change advances the authority revision,
+  object state included, and the host's own copy of a flying lantern changes its flame. The lease,
+  its samples and its settlement were tied to the exact revision, so one flicker on the host
+  refused the landing and the record stayed at the release point; the thrower's copy was later
+  converged back there. The record now keeps the run of revisions at its tip that changed only
+  object state (`ItemAuthorityState.ObjectStateRunBase`/`Top`, `ItemPlacementRevision`). A lease,
+  a pending lease grant, a lease transfer and a spatial commit stay good while the item's
+  placement is unchanged since their revision, and so does a client transition made against a
+  revision inside the run (a pickup that crossed the host's flame change). Any other revision
+  change ends the run. What counts as a placement change is `ItemUpdateData.ChangesPlacement`
+  (create, item state or position). The registry used to test the update type against
+  `FullSync`, which contains `ObjectState`, so every object-state change ended the run and booked
+  the item to the acting player. On the host, that was the host's own player: each battery tick of
+  the server's copy of a carried flashlight logged "recorded as the server's player's", and the
+  holder's next change (their "off", a stash on the belt) arrived stale and was refused
+  (playtest 2026-10-19).
+
+The resting report the tracker asked for ("the thrower's game reports where the item comes to
+rest, car parent included") is the existing settlement: the releaser holds the lease and proposes
+the resting pose with its train or static parent. It was being refused, not missing. The
+`item-release` scenario covers these (`MODE=regrab`, `regrab-late`, `throw-flatcar`,
+`object-state`, `interact`).
 
 ### Lease timeout
 
@@ -404,6 +485,15 @@ For ordinary observers:
 - restore normal local interaction physics only after the host grants pickup or simulation authority.
 
 Visual collision effects may still run locally, but they cannot produce outgoing item movement.
+
+An item another player holds is posed on their avatar every frame, so its body is kinematic with
+no velocity, and its colliders are off, until the avatar lets it go
+(`NetworkedPlayer.SetHeldItemBody`). Its release makes it dynamic again with no velocity, and the
+world state applied with it supplies any throw. Only a desktop game's items have a
+`GrabHandlerItem`; a VR game's items grab through VRTK and have none. Making the body kinematic
+through `GrabHandlerItem.TogglePhysics` alone therefore did nothing in VR: there another player's
+held radio fell under gravity with its colliders off between hand poses, 30 m a frame at
+1840 m/s, and kept that velocity into their inventory (2026-10-19).
 
 ## Host representation and canonical records
 

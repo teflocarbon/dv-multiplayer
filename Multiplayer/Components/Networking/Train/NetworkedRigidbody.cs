@@ -20,6 +20,7 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
     private const float MAX_CORRECTION_SPEED = 1.5f;
     private const float MAX_CORRECTION_DEGREES = 45f;
     private Rigidbody rigidbody;
+    private TrainCar trainCar;
     private RigidbodySnapshot target;
     private float targetReceivedAt;
     private bool hasTarget;
@@ -103,6 +104,18 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
     {
         if (!hasTarget || rigidbody == null || target == null)
             return;
+
+        // The host only sends these for a derailed car. Once ours is back on the rails the target
+        // is the derailed pose it left: still sliding there after a rerail dragged the car off
+        // the host's spot at MAX_CORRECTION_SPEED, against the on-rail follower, for good.
+        if (trainCar == null)
+            trainCar = GetComponent<TrainCar>();
+        if (trainCar != null && !trainCar.derailed)
+        {
+            hasTarget = false;
+            target = null;
+            return;
+        }
 
         RigidbodySnapshot.IncludedData flags =
             (RigidbodySnapshot.IncludedData)target.IncludedDataFlags;

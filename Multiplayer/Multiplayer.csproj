@@ -37,6 +37,8 @@
         <Publicize Include="DV.CharacterController" IncludeCompilerGeneratedMembers="false" />
         <Publicize Include="DV.Interaction" IncludeCompilerGeneratedMembers="false" />
         <Publicize Include="DV.RailTrack" IncludeCompilerGeneratedMembers="false" />
+        <Publicize Include="DV.TerrainSystem" IncludeCompilerGeneratedMembers="false" />
+        <Publicize Include="WorldStreamer" IncludeCompilerGeneratedMembers="false" />
         <Publicize Include="DV.Simulation" IncludeCompilerGeneratedMembers="false" />
         <Publicize Include="DV.Platform.Steam" IncludeCompilerGeneratedMembers="false" />
         <Publicize Include="DV.Utils:DV.Utils.SingletonBehaviour`1._instance" />
@@ -54,6 +56,8 @@
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\Tools\ProtocolManifestGenerator\ProtocolManifestGenerator.csproj" ReferenceOutputAssembly="false" />
+        <!-- The dedicated server app, built first so post-build.ps1 can ship it with the mod. -->
+        <ProjectReference Include="..\Tools\DedicatedHost\ServerApp\ServerApp.csproj" ReferenceOutputAssembly="false" />
         <EmbeddedResource Include="$(ProtocolManifestPath)" LogicalName="Multiplayer.ProtocolManifest.json" Condition="'$(ManifestEmbedPass)' == 'true' AND Exists('$(ProtocolManifestPath)')" />
     </ItemGroup>
     
@@ -118,6 +122,8 @@
     </ItemGroup>
     <!-- Unity References -->
     <ItemGroup>
+        <Reference Include="Unity.Collections" />
+        <Reference Include="Unity.Mathematics" />
         <Reference Include="Unity.TextMeshPro" />
         <Reference Include="UnityEngine" />
         <Reference Include="UnityEngine.AssetBundleModule" />
@@ -128,6 +134,7 @@
         <Reference Include="UnityEngine.JSONSerializeModule" />
         <Reference Include="UnityEngine.PhysicsModule" />
         <Reference Include="UnityEngine.TerrainModule" />
+        <Reference Include="UnityEngine.TerrainPhysicsModule" />
         <Reference Include="UnityEngine.UI" />
         <Reference Include="UnityEngine.UIModule" />
         <Reference Include="UnityEngine.TextRenderingModule" />

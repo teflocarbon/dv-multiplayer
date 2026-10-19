@@ -19,7 +19,7 @@ namespace Multiplayer.Components.Networking.World.WorldItems;
 /// </summary>
 internal static partial class WorldItemPersistenceManager
 {
-    private const string SaveKey = "WorldItemsV1";
+    internal const string SaveKey = "WorldItemsV1";
 
     private static bool importAttempted;
     private static readonly List<JObject> destroyedAuthoredRecords = new();
@@ -114,18 +114,22 @@ internal static partial class WorldItemPersistenceManager
                 ItemPlacementKind.SnappedAttachment or ItemPlacementKind.Destroyed;
 
         return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
-            ItemPlacementKind.StaticParent or ItemPlacementKind.Destroyed || IsRemotePlayerPossession(record);
+            ItemPlacementKind.StaticParent or ItemPlacementKind.Destroyed || IsPlayerPossession(record);
     }
 
-    /// <summary>Remove multiplayer-owned world entries emitted by DV before our save postfix.</summary>
-    public static void RemoveVanillaStorageDuplicates(SaveGameData saveGameData)
+    /// <summary>
+    /// Remove multiplayer-owned world entries emitted by DV before our save postfix.
+    /// keepInventory leaves DV's inventory list alone: in the main save it is the local player's
+    /// copy for vanilla DV (PerPlayerSaveFormat), which the mod doesn't read back.
+    /// </summary>
+    public static void RemoveVanillaStorageDuplicates(SaveGameData saveGameData, bool keepInventory = false)
     {
         if (saveGameData == null)
             return;
 
         int removed = RemoveManagedStorageItems(saveGameData, StorageType.World, SaveGameKeys.Storage_World) +
-                      RemoveManagedStorageItems(saveGameData, StorageType.Inventory,
-                          SaveGameKeys.Storage_Inventory);
+                      (keepInventory ? 0 : RemoveManagedStorageItems(saveGameData, StorageType.Inventory,
+                          SaveGameKeys.Storage_Inventory));
         if (removed == 0)
             return;
 

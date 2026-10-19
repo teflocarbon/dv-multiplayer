@@ -8,6 +8,7 @@ using Multiplayer.Integrations.Inventory;
 using Multiplayer.Integrations.Storage;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Components.Networking.Train;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Newtonsoft.Json.Linq;
 using System;
@@ -26,6 +27,13 @@ public static class NetworkedLostAndFoundManager
     private static readonly Dictionary<ushort, float> eligibleSince = new();
     private static readonly List<LostItemData> clientItems = new();
     private static readonly List<JObject> pendingSaveImports = new();
+
+    /// <summary>Prefab names of saved Lost and Found items, not yet restored, that belong to this owner.</summary>
+    internal static IEnumerable<string> PendingPrefabsOwnedBy(Guid owner) =>
+        pendingSaveImports
+            .Where(value => Guid.TryParse((string)value["ownerIdentity"], out Guid identity) && identity == owner)
+            .Select(value => (string)value["prefabName"] ?? string.Empty)
+            .Where(prefab => prefab.Length > 0);
     private static readonly Dictionary<ushort, Dictionary<string, object>> lastEvaluations = new();
     private static uint generation;
     private static bool saveImportAttempted;
@@ -143,6 +151,8 @@ public static class NetworkedLostAndFoundManager
             $"owner=P{lost.OwnerPlayerId}");
         if (!NetworkedItem.TryGet(itemNetId, out NetworkedItem item) || item == null)
         {
+            // Nothing is left to retrieve: drop the entry so the owner's list stops offering it.
+            RemoveStaleEntry(itemNetId, "canonical-item-destroyed");
             rejectionReason = "missing-canonical-unity-item";
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
@@ -150,7 +160,7 @@ public static class NetworkedLostAndFoundManager
         if (!AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record authority) ||
             authority.Placement != ItemPlacementKind.LostAndFound)
         {
-            RemoveStaleEntry(itemNetId, item, "canonical-item-no-longer-in-lost-and-found");
+            RemoveStaleEntry(itemNetId, "canonical-item-no-longer-in-lost-and-found");
             rejectionReason = "item-not-in-lost-and-found";
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
@@ -248,6 +258,38 @@ public static class NetworkedLostAndFoundManager
             out rejectionReason);
     }
 
+    /// <summary>
+    /// A car is about to be deleted (CarDeletePlayerSafetyPatch): the items lying in it would go to
+    /// the car pool with it, leaving records that point at a car that no longer exists, in nobody's
+    /// reach and out of recall (a player's radio, 2026-10-17). A player's own item goes to their
+    /// Lost and Found; anything else goes with the car, as in single player, but cleanly.
+    /// </summary>
+    public static void CollectFromDeletedCar(TrainCar car)
+    {
+        if (car == null || NetworkLifecycle.Instance?.IsHost() != true)
+            return;
+        NetworkedTrainCar networkedCar = car.GetComponent<NetworkedTrainCar>();
+        if (networkedCar == null || networkedCar.NetId == 0)
+            return;
+        var inCar = AuthoritativeItemRegistry.GetAll()
+            .Where(record => record.Placement == ItemPlacementKind.TrainInterior && record.WorldParentNetId == networkedCar.NetId)
+            .Select(record => record.NetId).ToList();
+        foreach (ushort netId in inCar)
+        {
+            if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null)
+                continue;
+            // Off the car first, so the pool doesn't take it.
+            item.transform.SetParent(WorldMover.OriginShiftParent, true);
+            if (Collect(item, LostItemReason.ContainerCleared))
+            {
+                Multiplayer.Log($"Car {car.ID} deleted: {item.name} ({netId}) went to its owner's Lost and Found");
+                continue;
+            }
+            Multiplayer.Log($"Car {car.ID} deleted: {item.name} ({netId}) went with it");
+            UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
+        }
+    }
+
     public static bool Collect(NetworkedItem item, LostItemReason reason)
     {
         if (!NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0)
@@ -286,7 +328,9 @@ public static class NetworkedLostAndFoundManager
             NetId = item.NetId,
             Revision = authority.Revision,
             OwnerPlayerId = authority.PersistentOwnerPlayerId,
-            OwnerIdentity = OwnerIdentity(authority.PersistentOwnerPlayerId),
+            OwnerIdentity = authority.PersistentOwnerIdentity != Guid.Empty
+                ? authority.PersistentOwnerIdentity.ToString("D")
+                : OwnerIdentity(authority.PersistentOwnerPlayerId),
             PrefabName = authority.PrefabName,
             DisplayName = item.Item?.name ?? authority.PrefabName,
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
@@ -442,6 +486,8 @@ public static class NetworkedLostAndFoundManager
         // loaded semantic array untouched. A later save will replace it from the live registry.
         if (!saveImportAttempted)
             return;
+        // Don't save an entry whose item is gone: with no storage slot it could never bind again.
+        ReconcileCanonicalPlacements();
         JArray values = new();
         foreach (LostItemRecord record in registry.GetAll())
             values.Add(Serialize(record));
@@ -509,17 +555,38 @@ public static class NetworkedLostAndFoundManager
                 Multiplayer.LogWarning($"Ignoring duplicate Lost and Found persistentItemId {persistentItemId:D}");
                 continue;
             }
+            string prefab = (string)value["prefabName"] ?? string.Empty;
+            int storageIndex = (int?)value["storageIndex"] ?? -1;
+            if (storageIndex < 0)
+            {
+                // Saved after its item was destroyed (older builds kept such entries). Nothing of
+                // it is in storage, and the same-prefab fallback below would bind it to another
+                // item, such as a live booklet of another job.
+                pendingSaveImports.Remove(value);
+                Multiplayer.LogWarning($"Dropping Lost and Found save record {persistentItemId:D} " +
+                    $"({prefab}) with no stored item");
+                continue;
+            }
             ServerPlayer owner = NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player =>
                 string.Equals(player.Guid.ToString("D"), ownerIdentity, StringComparison.OrdinalIgnoreCase));
             if (owner == null) continue;
-            string prefab = (string)value["prefabName"] ?? string.Empty;
-            int storageIndex = (int?)value["storageIndex"] ?? -1;
             ItemBase baseItem = storageIndex >= 0 && storageIndex < restoredItems.Count
                 ? restoredItems[storageIndex]
                 : null;
             if (baseItem == null || !available.Contains(baseItem) ||
                 !string.Equals(baseItem.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal))
+                baseItem = available.FirstOrDefault(candidate =>
+                    string.Equals(candidate.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal));
+            if (baseItem == null)
+            {
+                // DV's Lost and Found storage, loaded with the save, has nothing left for this
+                // entry, and it won't gain anything later. Kept, it showed nowhere but still
+                // counted as the owner's item: DV made them no new radio and /give refused one.
+                pendingSaveImports.Remove(value);
+                Multiplayer.LogWarning($"Lost and Found: {owner.Username}'s saved {prefab} ({persistentItemId:D}) " +
+                                       "isn't in the game's Lost and Found storage; dropping the entry");
                 continue;
+            }
             if (baseItem == null || !NetworkedItem.TryGetNetworkedItem(baseItem, out NetworkedItem item) || item.NetId == 0)
                 continue;
             string authoredItemKey = (string)value["authoredItemKey"] ?? string.Empty;
@@ -564,7 +631,7 @@ public static class NetworkedLostAndFoundManager
     {
         bool ownerKnown = NetworkLifecycle.Instance.Server.TryGetServerPlayer(
             authority.PersistentOwnerPlayerId, out ServerPlayer owner);
-        List<ServerPlayer> players = NetworkLifecycle.Instance.Server.ServerPlayers
+        List<ServerPlayer> players = NetworkLifecycle.Instance.Server.GameplayPlayers
             .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems)
             .ToList();
         float nearest = players.Count == 0 ? float.MaxValue :
@@ -635,40 +702,49 @@ public static class NetworkedLostAndFoundManager
             return;
         foreach (LostItemRecord lost in registry.GetAll())
         {
-            if (!AuthoritativeItemRegistry.TryGet(lost.NetId,
-                    out AuthoritativeItemRegistry.Record authority))
-                continue;
-            if (authority.Placement == ItemPlacementKind.LostAndFound)
+            bool itemPresent = NetworkedItem.TryGet(lost.NetId, out NetworkedItem item) && item != null;
+            AuthorityPlacement? placement = AuthoritativeItemRegistry.TryGet(lost.NetId,
+                out AuthoritativeItemRegistry.Record authority)
+                ? (AuthorityPlacement)(byte)authority.Placement : null;
+            switch (LostItemEntryReconciler.Classify(itemPresent, placement))
             {
-                // Entries restored from a save bound to items the load left active where they were
-                // dropped: in Lost and Found and lying in the world at once. Keep them inert.
-                if (NetworkedItem.TryGet(lost.NetId, out NetworkedItem stored) && stored != null &&
-                    stored.gameObject.activeSelf)
-                    ProjectToInertStorage(stored);
-                continue;
+                case LostItemEntryStatus.Stored:
+                    // Entries restored from a save bound to items the load left active where they
+                    // were dropped: in Lost and Found and lying in the world at once. Keep them inert.
+                    if (item.gameObject.activeSelf)
+                        ProjectToInertStorage(item);
+                    break;
+                case LostItemEntryStatus.PlacementChanged:
+                    RemoveStaleEntry(lost.NetId, "canonical-placement-changed");
+                    break;
+                case LostItemEntryStatus.ItemDestroyed:
+                    // The job system destroys every booklet copy when its job completes, expires
+                    // or is abandoned, including one stored here.
+                    RemoveStaleEntry(lost.NetId, "canonical-item-destroyed");
+                    break;
             }
-            NetworkedItem.TryGet(lost.NetId, out NetworkedItem item);
-            RemoveStaleEntry(lost.NetId, item, "canonical-placement-changed");
         }
     }
 
-    private static void RemoveStaleEntry(ushort itemNetId, NetworkedItem item, string reason)
+    private static void RemoveStaleEntry(ushort itemNetId, string reason)
     {
         if (registry.RemoveStale(itemNetId, out LostItemRecord removed) !=
             LostItemRegistryResult.Removed)
             return;
         generation++;
         eligibleSince.Remove(itemNetId);
+        Multiplayer.Log($"[LostAndFound] Removed entry handle={removed.Handle}, netId={itemNetId}, " +
+            $"prefab={removed.PrefabName}, owner=P{removed.OwnerPlayerId}: {reason}");
         if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(removed.OwnerPlayerId,
                 out ServerPlayer owner))
             NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
-        if (item != null)
-            Publish("item.lost-and-found-entry-invalidated", item, new()
-            {
-                ["ownerPlayerId"] = removed.OwnerPlayerId,
-                ["reason"] = reason,
-                ["generation"] = generation
-            }, DebugSeverity.Warning);
+        Publish("item.lost-and-found-entry-invalidated", itemNetId, new()
+        {
+            ["ownerPlayerId"] = removed.OwnerPlayerId,
+            ["prefabName"] = removed.PrefabName,
+            ["reason"] = reason,
+            ["generation"] = generation
+        }, DebugSeverity.Warning);
     }
 
     private static void TraceRecallRejection(ushort itemNetId, string reason, uint lostHandle = 0)
@@ -677,6 +753,9 @@ public static class NetworkedLostAndFoundManager
             $"handle={lostHandle}, netId={itemNetId}, reason={reason ?? string.Empty}");
     }
 
+    public static void SetInventoryClaimSlot(ushort itemNetId, int slot) =>
+        registry.SetInventoryClaimSlot(itemNetId, slot);
+
     public static void OnOwnerConnected(ServerPlayer player)
     {
         if (player == null || player.Guid == Guid.Empty)
@@ -684,6 +763,27 @@ public static class NetworkedLostAndFoundManager
         if (registry.RebindOwner(player.Guid.ToString("D"), player.PlayerId) > 0)
             generation++;
     }
+
+    /// <summary>Whether a Lost and Found entry, restored or not yet, belongs to this player ID.</summary>
+    internal static bool HasOwner(Guid owner) =>
+        registry.HasOwner(owner.ToString("D")) || PendingOwnedBy(owner).Any();
+
+    /// <summary>A player's ID changed (InstallGuidRekey): their entries follow. Returns how many changed.</summary>
+    internal static int RekeyOwner(Guid from, Guid to)
+    {
+        int changed = registry.RekeyOwner(from.ToString("D"), to.ToString("D"));
+        foreach (JObject value in PendingOwnedBy(from).ToArray())
+        {
+            value["ownerIdentity"] = to.ToString("D");
+            changed++;
+        }
+        if (changed > 0)
+            generation++;
+        return changed;
+    }
+
+    private static IEnumerable<JObject> PendingOwnedBy(Guid owner) =>
+        pendingSaveImports.Where(value => Guid.TryParse((string)value["ownerIdentity"], out Guid identity) && identity == owner);
 
     public static void OnOwnerDisconnected(ServerPlayer player)
     {
@@ -815,10 +915,14 @@ public static class NetworkedLostAndFoundManager
     }
 
     private static void Publish(string eventName, NetworkedItem item,
+        Dictionary<string, object> data, DebugSeverity severity = DebugSeverity.Info) =>
+        Publish(eventName, item?.NetId ?? 0, data, severity);
+
+    private static void Publish(string eventName, ushort itemNetId,
         Dictionary<string, object> data, DebugSeverity severity = DebugSeverity.Info)
     {
         if (!DebugRuntime.EnabledFor("inventory")) return;
         DebugRuntime.Publish("inventory", eventName, DebugRuntimeSide.Server, severity,
-            "Item", item?.NetId.ToString() ?? "0", data);
+            "Item", itemNetId.ToString(), data);
     }
 }

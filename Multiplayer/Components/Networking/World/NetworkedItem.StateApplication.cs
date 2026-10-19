@@ -33,7 +33,7 @@ public partial class NetworkedItem
     private void PrepareForStateChange(byte playerId, ItemState targetState)
     {
         // Cleanup from previous state/desyncs
-        if (Item.IsSnapped)
+        if (Item.IsSnapped && !KeepsLocalBeltSnap(playerId, targetState))
             Item.SnappableItem.SnappedTo.UnsnapItem(false); //Todo: should this be forced?
 
         if (playerBelongsTo != null && playerBelongsTo.PlayerId != playerId)
@@ -97,10 +97,16 @@ public partial class NetworkedItem
             if (!NetworkLifecycle.Instance.Client.ClientPlayerManager.TryGetPlayer(playerId, out playerBelongsTo))
             {
                 DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player", $"playerId={playerId}");
-                Multiplayer.LogWarning($"Unable to find player {playerId} for item {NetId}");
+                Multiplayer.LogDebug(() => $"Unable to find player {playerId} for item {NetId}");
             }
             else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "missing-player");
     }
+
+    // An item on the local VR player's belt is in their inventory: the snap only shows the slot.
+    private bool KeepsLocalBeltSnap(byte playerId, ItemState targetState) =>
+        BeltItemPolicy.KeepBeltSnap(ToWireState(targetState), playerId, InventoryIntegration.LocalPlayerId,
+            Item.SnappableItem?.SnappedTo is DV.Items.Snapping.ItemSnapPointBelt,
+            InventoryIntegration.ContainsActive(gameObject));
 
     private void HandleDroppedOrThrownState(ItemUpdateData snapshot)
     {
@@ -643,6 +649,10 @@ public partial class NetworkedItem
 
             if (plan.Action == RemoteItemProjectionAction.LocalInventory)
             {
+                // A VR release that ended on the belt is settled: a later Dropped from the host is
+                // a correction, not the echo of that release.
+                CompleteLocalVrReleaseAcknowledgement();
+
                 // A rejoining player's game spawns fresh starting items that stay unbound until
                 // first used. When the host hands back the originals, the fresh copy must make
                 // way, otherwise essentials are dropped (DV allows one of each) and everything
@@ -698,7 +708,13 @@ public partial class NetworkedItem
         {
             DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player",
                 $"playerId={snapshot.PlayerId} projection={plan.Action}");
-            Multiplayer.LogWarning($"Could not project item {NetId} to player {snapshot.PlayerId}; disabling");
+            // A joining player's saved items are applied before the player exists here, one line
+            // per item on every login, and are sent again once they've loaded: not a fault. An
+            // item in nobody's hand or inventory is.
+            if (snapshot.PlayerId == 0)
+                Multiplayer.LogWarning($"Could not project item {NetId} to player 0 (no player); disabling");
+            else
+                Multiplayer.LogDebug(() => $"Could not project item {NetId} to player {snapshot.PlayerId} (not here yet); disabling");
             if (plan.Deactivate)
                 gameObject.SetActive(false);
         }

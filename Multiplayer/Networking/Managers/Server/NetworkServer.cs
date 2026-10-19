@@ -89,6 +89,15 @@ public class NetworkServer : NetworkManager
     public IReadOnlyCollection<ServerPlayerWrapper> ServerPlayerWrappers => PlayerWrapperCache.Values;
     public int PlayerCount => ServerPlayers.Count;
 
+    /// <summary>
+    /// The players: every <see cref="ServerPlayers"/> entry except a dedicated host's service
+    /// identity. The same as ServerPlayers when the host plays.
+    /// </summary>
+    public IEnumerable<ServerPlayer> GameplayPlayers =>
+        NetworkLifecycle.Instance.IsDedicatedHost ? ServerPlayers.Where(player => !player.IsServiceHost) : ServerPlayers;
+    public int GameplayPlayerCount =>
+        NetworkLifecycle.Instance.IsDedicatedHost ? ServerPlayers.Count(player => !player.IsServiceHost) : ServerPlayers.Count;
+
     private ITransportPeer _selfPeer;
     public ITransportPeer SelfPeer
     {
@@ -108,6 +117,7 @@ public class NetworkServer : NetworkManager
     private bool IsLoaded;
 
     private readonly ChatManager _chatManager = new();
+    private readonly PlayerAuthentication authentication;
     public ChatManager ChatManager => _chatManager;
 
     private uint lastTick;
@@ -135,6 +145,7 @@ public class NetworkServer : NetworkManager
 
         fastTravelAdvancesTime = settings.FastTravelAdvancesTime;
         TimeAdvancePatch.FastTravelAdvancesTime = fastTravelAdvancesTime;
+        authentication = new PlayerAuthentication(this);
     }
 
     public override void OnSettingsUpdated(Settings settings)
@@ -185,6 +196,7 @@ public class NetworkServer : NetworkManager
     {
         Log($"Stopping server...");
         WorldStreamingInit.LoadingFinished -= OnLoaded;
+        DedicatedHostSaveLock.Release();
 
         if (lobbyServerManager != null)
         {
@@ -203,6 +215,7 @@ public class NetworkServer : NetworkManager
         //Reset player ID pool
         foreach (var player in serverPlayers.Values)
             player.Dispose();
+        authentication.Dispose();
 
         NetworkLifecycle.Instance.OnTick -= OnTick;
 
@@ -235,6 +248,7 @@ public class NetworkServer : NetworkManager
         // Player
         netPacketProcessor.SubscribeReusable<ServerboundPlayerPositionPacket, ITransportPeer>(OnServerboundPlayerPositionPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLicensePurchaseRequestPacket, ITransportPeer>(OnServerboundLicensePurchaseRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundPayFeesRequestPacket, ITransportPeer>(OnServerboundPayFeesRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundPlayerPreferenceUpdatePacket, ITransportPeer>(OnServerboundPlayerPreferenceUpdatePacket);
 
 
@@ -326,6 +340,9 @@ public class NetworkServer : NetworkManager
         player.WorldItemCatalogueAccepted = accepted;
         string reason = accepted ? string.Empty :
             $"catalogue-mismatch:host={host.Count}/{host.Digest}/c{host.Collisions},client={packet?.ItemCount ?? 0}/{packet?.Digest ?? string.Empty}/c{packet?.CollisionCount ?? 0}";
+        // A rejected player gets no scene items (shop and office props) for the whole session.
+        if (!accepted)
+            LogWarning($"Scene item catalogue rejected for {player.Username}: {reason}");
         DebugRuntime.Publish("item-world", "world-item.catalogue-negotiated", DebugRuntimeSide.Server,
             accepted ? DebugSeverity.Info : DebugSeverity.Error, "Player", player.PlayerId.ToString(), new()
             {
@@ -348,8 +365,13 @@ public class NetworkServer : NetworkManager
     {
         if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player)) return;
         bool known = NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) && item != null;
+        // An ack names the revision the client applied. Another player's update can move the item
+        // on while it's in flight (everyone near a new job overview sends one as it appears); the
+        // later revisions follow it on the same reliable ordered channel, so an older one still
+        // means the client has the item. Only an ack from beyond the server's revision is wrong.
+        // Requiring an exact match left those items unacknowledged, and their pickups refused.
         bool revisionMatches = known && AuthoritativeItemRegistry.TryGet(packet.ItemNetId, out var record) &&
-                               record.Revision == packet.AuthorityRevision;
+                               packet.AuthorityRevision <= record.Revision;
         if (packet.Projected && (!known || !revisionMatches || !player.KnownItems.ContainsKey(item)))
         {
             DebugRuntime.Publish("item-world", "world-item.projection-ack-rejected", DebugRuntimeSide.Server,
@@ -413,6 +435,14 @@ public class NetworkServer : NetworkManager
 
     private void OnLoaded()
     {
+        // A dedicated host loads its world around a player rather than its parked body.
+        DedicatedHostAnchor.Create();
+        // Any multiplayer server keeps ground under its derailed cars, wherever they are.
+        ServerWorldCoverage.Create();
+        DedicatedHostSaveLock.Take();
+        // ... and with nobody online yet, waits paused.
+        DedicatedHost.OnPlayersChanged(someoneLeft: false);
+
         if (!IsSinglePlayer)
         {
             lobbyServerManager = NetworkLifecycle.Instance.GetOrAddComponent<LobbyServerManager>();
@@ -568,7 +598,9 @@ public class NetworkServer : NetworkManager
             foreach (Action<ServerPlayer> handler in PlayerDisconnected.GetInvocationList())
                 RunDisconnectStep(handler.Method.DeclaringType?.Name ?? "subscriber", () => handler(player));
 
+        RunDisconnectStep("authentication", () => authentication.OnDisconnected(player));
         player.Dispose();
+        RunDisconnectStep("dedicated host", () => DedicatedHost.OnPlayersChanged(someoneLeft: true));
     }
 
     private void RunDisconnectStep(string step, Action action)
@@ -801,6 +833,11 @@ public class NetworkServer : NetworkManager
         packet.FastTravelAdvancesTime = fastTravelAdvancesTime;
         SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForGameData, excludeSelf: true);
     }
+
+    /// <summary>A time skip for every game, this server's own client included (/time).</summary>
+    public void SendTimeAdvance(float seconds) =>
+        SendPacketToAll(new ClientboundTimeAdvancePacket { amountOfTimeToSkipInSeconds = seconds },
+            DeliveryMethod.ReliableUnordered, PlayerLoadingState.ReadyForWorldState);
 
     public void SendWeatherState(ITransportPeer peer = null)
     {
@@ -1243,39 +1280,15 @@ public class NetworkServer : NetworkManager
 
     public void SendItemsBulkUpdatePacket(List<ItemUpdateData> items, ServerPlayer player)
     {
-        DebugRuntime.Publish("item", "item.bulk-send-requested", DebugRuntimeSide.Server, data: new() { ["count"] = items?.Count ?? 0, ["playerId"] = player?.PlayerId ?? 0 });
-        Log($"Sending SendItemsBulkUpdatePacket with {items?.Count()} items to {player?.Username ?? "all players"}");
+        // Item packets go out many times a second: they're traced (the debug system), not logged.
+        DebugRuntime.Publish("item", "item.bulk-send-requested", DebugRuntimeSide.Server, data: new()
+        {
+            ["count"] = items?.Count ?? 0,
+            ["playerId"] = player?.PlayerId ?? 0,
+            ["itemNetIds"] = string.Join(",", items?.Select(item => item?.ItemNetId ?? 0) ?? Enumerable.Empty<ushort>())
+        });
 
         var packet = new CommonItemsBulkUpdatePacket { Items = items };
-
-        LogDebug(() =>
-        {
-            string debug = "Items:\r\n";
-
-            foreach (var item in packet?.Items)
-            {
-                debug += "UpdateType: " + item?.UpdateType + "\r\n";
-                debug += "itemNetId: " + item?.ItemNetId + "\r\n";
-                debug += "PrefabName: " + item?.PrefabName + "\r\n";
-                debug += "Equipped: " + item?.ItemState + "\r\n";
-                debug += "Position: " + item?.ItemPosition + "\r\n";
-                debug += "Rotation: " + item?.ItemRotation + "\r\n";
-                debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
-                debug += "Player: " + item?.PlayerId + "\r\n";
-                debug += "CarNetId: " + item?.CarNetId + "\r\n";
-                debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
-
-                debug += $"States: {item?.States?.Count}\r\n";
-
-                if (item.States != null)
-                    foreach (var state in item?.States)
-                        debug += "\t" + state.Key + ": " + state.Value + "\r\n";
-                else
-                    debug += "\r\n";
-            }
-
-            return debug;
-        });
 
         if (player == null)
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludeSelf: true);
@@ -1290,7 +1303,6 @@ public class NetworkServer : NetworkManager
     {
         DebugRuntime.Publish("item", "item.relay-requested", DebugRuntimeSide.Server, entityType: "Item", entityId: item?.ItemNetId.ToString(),
             data: Merge(DebugTrace.ItemSnapshotData(item), new() { ["sendToPlayer"] = sendToPlayer?.PlayerId ?? 0, ["excludePlayer"] = excludePlayer?.PlayerId ?? 0 }));
-        Log($"Sending CommonItemUpdatePacket to {sendToPlayer?.Username ?? "all players"}");
 
         var packet = new CommonItemUpdatePacket { ItemData = item };
         if (sendToPlayer == null)
@@ -1566,7 +1578,7 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        Log($"Processing login packet for {packet.Username} ({guid}){(Multiplayer.Settings.LogIps ? $" at {request.RemoteEndPoint.Address}" : "")}");
+        Log($"Processing login packet for {packet.Username}{(Multiplayer.Settings.LogIps ? $" at {request.RemoteEndPoint.Address}" : "")}");
 
         if (Multiplayer.Settings.Password != packet.Password)
         {
@@ -1591,11 +1603,30 @@ public class NetworkServer : NetworkManager
             return;
         }
 
+        var validation = ModCompatibilityManager.Instance.ValidateClientMods(packet.Mods);
+        if (!validation.IsValid)
+        {
+            RejectForMods(packet, validation, request);
+            return;
+        }
+
+        if (!authentication.TryResolve(packet, guid, out PlayerAuthentication.Identity identity))
+        {
+            ClientboundLoginResponsePacket denyPacket = new()
+            {
+                ReasonKey = Locale.DISCONN_REASON__AUTH_FAILED_KEY
+            };
+            request.Reject(WritePacket(denyPacket));
+            return;
+        }
+        Guid playerId = identity.PlayerId;
+        Log($"{packet.Username} is player {PlayerIdentity.Describe(playerId)}");
+
         // The same player reconnecting (e.g. after a crash) before their old connection has timed
         // out. Retire the stale session now: left alone it holds their slot, and when it finally
         // times out its cleanup unbinds item ownership by identity - including from the new session.
         ServerPlayer stale = ServerPlayers.FirstOrDefault(player =>
-            guid != Guid.Empty && player.Guid == guid && player.Peer != SelfPeer);
+            playerId != Guid.Empty && player.Guid == playerId && player.Peer != SelfPeer);
         if (stale != null)
         {
             Log($"{packet.Username} reconnected while their previous session (player {stale.PlayerId}) was still open; closing it");
@@ -1609,49 +1640,13 @@ public class NetworkServer : NetworkManager
         if (uniqueName > 0)
             overrideUsername += uniqueName;
 
-        if (PlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
+        if (GameplayPlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
         {
             LogWarning("Denied login due to server being full!");
+            authentication.Abandon(identity);
             ClientboundLoginResponsePacket denyPacket = new()
             {
                 ReasonKey = Locale.DISCONN_REASON__FULL_SERVER_KEY
-            };
-            request.Reject(WritePacket(denyPacket));
-            return;
-        }
-
-        var validation = ModCompatibilityManager.Instance.ValidateClientMods(packet.Mods);
-        if (!validation.IsValid)
-        {
-
-            LogWarning($"Denied login due to mod mismatch! {validation.Missing.Count} missing, {validation.Extra} extra");
-            LogDebug(() =>
-            {
-                StringBuilder sb = new("Mod mis-match:");
-                sb.AppendLine("Server Mods:");
-                foreach (ModInfo mod in ModCompatibilityManager.Instance.GetLocalMods())
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                sb.AppendLine("\r\nClient Mods:");
-                foreach (ModInfo mod in packet.Mods)
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                sb.AppendLine("\r\nMissing Mods:");
-                foreach (ModInfo mod in validation.Missing)
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                sb.AppendLine("\r\nExtra Mods:");
-                foreach (ModInfo mod in validation.Extra)
-                    sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
-
-                return sb.ToString();
-            });
-
-            ClientboundLoginResponsePacket denyPacket = new()
-            {
-                ReasonKey = Locale.DISCONN_REASON__MODS_KEY,
-                Missing = validation.Missing.ToArray(),
-                Extra = validation.Extra.ToArray(),
             };
             request.Reject(WritePacket(denyPacket));
             return;
@@ -1668,16 +1663,23 @@ public class NetworkServer : NetworkManager
             peer,
             overrideUsername,
             packet.Username,
-            guid,
+            playerId,
             packet.CharacterId,
             packet.IsVR
-        );
+        )
+        {
+            LegacyGuid = guid,
+            SteamId = identity.SteamId,
+        };
 
         serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
         peerToPlayer.Add(peer, serverPlayer);
+        authentication.Admit(identity, serverPlayer);
+        Components.SaveGame.InstallGuidRekey.OnLogin(serverPlayer);
         AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
         NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
         WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
+        DedicatedHost.OnPlayersChanged(someoneLeft: false);
 
         ClientboundLoginResponsePacket acceptPacket = new()
         {
@@ -1688,6 +1690,40 @@ public class NetworkServer : NetworkManager
         };
 
         SendPacket(peer, acceptPacket, DeliveryMethod.ReliableUnordered);
+    }
+
+    private void RejectForMods(ServerboundClientLoginPacket packet, ModValidationResult validation, IConnectionRequest request)
+    {
+        LogWarning($"Denied login due to mod mismatch! {validation.Missing.Count} missing, {validation.Extra} extra");
+        LogDebug(() =>
+        {
+            StringBuilder sb = new("Mod mis-match:");
+            sb.AppendLine("Server Mods:");
+            foreach (ModInfo mod in ModCompatibilityManager.Instance.GetLocalMods())
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            sb.AppendLine("\r\nClient Mods:");
+            foreach (ModInfo mod in packet.Mods)
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            sb.AppendLine("\r\nMissing Mods:");
+            foreach (ModInfo mod in validation.Missing)
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status: {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            sb.AppendLine("\r\nExtra Mods:");
+            foreach (ModInfo mod in validation.Extra)
+                sb.AppendLine($"\t{mod.Id} {mod.Version}, Status (if known): {ModCompatibilityManager.Instance.GetCompatibility(mod)}");
+
+            return sb.ToString();
+        });
+
+        ClientboundLoginResponsePacket denyPacket = new()
+        {
+            ReasonKey = Locale.DISCONN_REASON__MODS_KEY,
+            Missing = validation.Missing.ToArray(),
+            Extra = validation.Extra.ToArray(),
+        };
+        request.Reject(WritePacket(denyPacket));
     }
 
     private void OnServerboundLoadStateUpdatePacket(ServerboundLoadStateUpdatePacket packet, ITransportPeer peer)
@@ -1888,6 +1924,9 @@ public class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForItems:
+                // Before the player's items go out: a save may hold two of their essentials on one
+                // slot, which left one with no silhouette and no recall.
+                AuthoritativeItemRegistry.EnsureDistinctClaimSlots(player, "owner-loading");
                 // World items will be spawned when the player is within the culling range
                 // Installed gadgets may be spawnable in the culling range but needs more thought as there are a lot of extra parameters
                 var installedGadgets = StorageController.Instance.StorageInstalledGadgets.GetStorageItemList();
@@ -1936,7 +1975,14 @@ public class NetworkServer : NetworkManager
         if (advanceLoadingState)
             player.LoadingState = packet.LoadState;
 
-        if (packet.LoadState == PlayerLoadingState.Complete)
+        if (packet.LoadState == PlayerLoadingState.Complete && player.IsServiceHost)
+        {
+            // A dedicated host's own client: nobody is told about it and it gets no avatar, but
+            // only this takes its game out of loading mode.
+            Log("Dedicated host loaded");
+            SendPacket(peer, new ClientboundRemoveLoadingScreenPacket(), DeliveryMethod.ReliableOrdered);
+        }
+        else if (packet.LoadState == PlayerLoadingState.Complete)
         {
             Log($"Player {player.Username} has completed loading");
 
@@ -1960,7 +2006,7 @@ public class NetworkServer : NetworkManager
             ChatManager.ServerMessage(player.Username + " joined the game", null, player);
 
             // Send existing players
-            foreach (ServerPlayer otherPlayer in ServerPlayers)
+            foreach (ServerPlayer otherPlayer in GameplayPlayers)
             {
                 if (player.PlayerId == otherPlayer.PlayerId)
                     continue;
@@ -2250,7 +2296,10 @@ public class NetworkServer : NetworkManager
                 packet.OperationId, requireLease: false, null, skipRangeCheck: packet.ViaRemote);
         if (result == TrainControlCommitResult.Accepted &&
             !NetworkLifecycle.Instance.IsHost(player))
+        {
             car.TrainCar.brakeSystem.SetHandbrakePosition(Mathf.Clamp01(packet.Position));
+            car.Common_OnRemoteHandbrakeChange();
+        }
         ClientboundTrainControlCommitPacket commit = ControlCommit(car, packet.OperationId, result,
             includesHandbrake: true);
         SendControlCommit(commit, peer);
@@ -2363,6 +2412,11 @@ public class NetworkServer : NetworkManager
             result = TrainControlCommitResult.UnknownControl;
         ClientboundTrainControlCommitPacket commit = ControlCommit(networkedTrainCar,
             packet.OperationId, result, packet.PortIds, acceptedValues);
+        // The host's own values are from the tick its simulation read them, which its local
+        // client's packet carries: it reaches here a frame or so later, unevenly. A player's are
+        // the host's from now.
+        if (NetworkLifecycle.Instance.IsHost(player) && packet.Tick != 0)
+            commit.Tick = packet.Tick;
         SendControlCommit(commit, peer);
     }
 
@@ -2406,7 +2460,7 @@ public class NetworkServer : NetworkManager
         if (!skipRangeCheck && !NetworkLifecycle.Instance.IsHost(player) &&
             (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
             return TrainControlCommitResult.OutOfRange;
-        if (requireLease && !car.Server_HasPortAuthority(player, portIds))
+        if (requireLease && !car.Server_MayWritePorts(player, portIds))
             return TrainControlCommitResult.AuthorityDenied;
         var key = (player.PlayerId, car.NetId);
         bool orderedOperationStream = operationId != 0 &&
@@ -2437,7 +2491,8 @@ public class NetworkServer : NetworkManager
             FuseValues = fuseValues ?? Array.Empty<bool>(),
             IncludesHandbrake = includesHandbrake,
             HandbrakePosition = car.TrainCar.brakeSystem.handbrakePosition,
-            BrakeCylinderReleased = brakeCylinderReleased
+            BrakeCylinderReleased = brakeCylinderReleased,
+            Tick = NetworkLifecycle.Instance.Tick
         };
     }
 
@@ -2901,6 +2956,14 @@ public class NetworkServer : NetworkManager
         else
             LicenseManager.Instance.AcquireGeneralLicense(generalLicense);
     }
+
+    private void OnServerboundPayFeesRequestPacket(ServerboundPayFeesRequestPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        ChatManager.PayFees(player);
+    }
+
     private void OnServerboundJobValidateRequestPacket(ServerboundJobValidateRequestPacket packet, ITransportPeer peer)
     {
         Log($"OnServerboundJobValidateRequestPacket(): {packet.JobNetId}");

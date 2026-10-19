@@ -44,7 +44,10 @@ public enum ItemTransitionReason : byte
     PersistenceRestore,
     SpatialSettlement,
     // Host re-sending canonical state so client copies that drifted heal (see Convergence).
-    Convergence
+    Convergence,
+    // A client's object-state change to an item it doesn't hold, made by its own player working
+    // the item where it lies (ItemObjectStateAuthority). Without it the host ignores such changes.
+    ClientInteraction
 }
 
 [Flags]

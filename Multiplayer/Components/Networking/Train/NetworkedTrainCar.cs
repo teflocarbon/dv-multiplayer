@@ -105,7 +105,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     internal static bool TryGetQuiet(ushort netId, out NetworkedTrainCar obj)
     {
-        bool found = TryGet(netId, out IdMonoBehaviour<ushort, NetworkedTrainCar> rawObj);
+        bool found = Get(netId, out IdMonoBehaviour<ushort, NetworkedTrainCar> rawObj);
         obj = found ? (NetworkedTrainCar)rawObj : null;
         return found;
     }
@@ -199,6 +199,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     #endregion
     private const int MAX_COUPLER_ITERATIONS = 50;
     private const float MAX_PORT_DELTA = 0.001f;
+    // How far an unleased control's port must be from the host's last value to count as the
+    // player's change rather than simulation feedback (Client_UnleasedChange).
+    private const float UNLEASED_CHANGE_TOLERANCE = 0.02f;
+    // And how long after a host update to a port its control may still be catching up to it.
+    private const float UNLEASED_CHANGE_SETTLE_SECONDS = 1.5f;
     private const uint MIN_KINEMATIC_CYCLES = 10;
     private const float DISTANCE_TOLERANCE = 2f;
     private const float MAX_PAINT_DISTANCE_SQ = (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE) * (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE);
@@ -272,6 +277,16 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private SimulationFlow simulationFlow;
     SimController simController;
     public FireboxSimController firebox;
+    // The compressor's activation signal: typed CONTROL, but the brake system sets it.
+    private readonly HashSet<uint> compressorSignalPorts = new();
+    private Port compressorSignalPort;
+    // Ports vanilla writes every frame on every game from that game's own car: TractionPortsFeeder's
+    // forward speed, wheel rpm and wheel speed, and a steam boiler's tilt (BoilerSimController).
+    // Each game feeds its own, so they aren't synced. Applying the host's too gave them two
+    // writers, and a speedometer flicked between the two values.
+    private readonly HashSet<uint> locallyFedPorts = new();
+    // Which CONTROL ports players drive: the only ones a client sends, or the host takes from one.
+    private ControlPortWriters<uint> portWriters;
     public CoalPileSimController coalPile;
     private readonly Dictionary<TrainDamage, TrainDamage.HealthChanged> trainDamageDelegates = [];
 
@@ -291,9 +306,36 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private readonly Dictionary<uint, uint[]> linkedPortNetIds = [];
     // Controls pressed without a grab (VR buttons and switches) whose lease is handed back shortly.
     private readonly Dictionary<ControlImplBase, Coroutine> usedControlReleases = [];
+    // Vanilla controllers that write a hooked control's port every frame from this game's own
+    // input (LocalInputWriters), by the ports they write: off while another player holds the lease.
+    private readonly Dictionary<uint, Behaviour[]> portNetIdToLocalInputWriters = [];
     private const float USED_CONTROL_LEASE_SECONDS = 0.5f;
 
     private bool handbrakeDirty;
+
+    // A handcar's handbrake springs off unless its own game's player holds it (vanilla
+    // HandcarHandbrakeController, on every game). Handbrakes take no lease, so the handbrake sync
+    // stands in for one: a game that has seen another player's handbrake change recently leaves
+    // the spring-back alone, and a player holding it resends it so that stays true while it's held.
+    private const float REMOTE_HANDBRAKE_HOLD_SECONDS = 1f;
+    private const float HANDBRAKE_HOLD_RESEND_SECONDS = 0.25f;
+    private float remoteHandbrakeChangedAt = float.NegativeInfinity;
+    private float lastHandbrakeSentAt = float.NegativeInfinity;
+
+    /// <summary>Another player changed or is holding this car's handbrake.</summary>
+    internal bool HandbrakeHeldRemotely =>
+        Time.realtimeSinceStartup - remoteHandbrakeChangedAt < REMOTE_HANDBRAKE_HOLD_SECONDS;
+
+    /// <summary>A handbrake change from another player reached this game (the host from a client's
+    /// request, a client from another player's commit).</summary>
+    internal void Common_OnRemoteHandbrakeChange() => remoteHandbrakeChangedAt = Time.realtimeSinceStartup;
+
+    /// <summary>This game's player is holding the handbrake on: keep the other games told.</summary>
+    internal void Common_HoldingHandbrake()
+    {
+        if (Time.realtimeSinceStartup - lastHandbrakeSentAt >= HANDBRAKE_HOLD_RESEND_SECONDS)
+            handbrakeDirty = true;
+    }
 
     // Client: controls this client changed in operations the host hasn't committed back yet.
     // Accepted commits are broadcast to everyone, including the sender, a round trip later; a
@@ -390,6 +432,15 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // Track the leases we requested locally so client simulation feedback cannot be
     // bundled with a control the client does not own.
     private readonly HashSet<uint> locallyOwnedPortAuthorities = [];
+    // Each control port's value as the host last had it, to tell a player's change to a control
+    // that took no lease from the host's own values echoing back (Client_UnleasedChange).
+    private readonly Dictionary<uint, float> client_hostPortValues = [];
+    private readonly Dictionary<uint, float> client_hostPortReceivedAt = [];
+    // How a client shows the simulation's outputs: played out smoothly, or predicted while the
+    // local player drives (TrainPortPresenter).
+    private TrainPortPresenter client_portPresenter;
+    private float client_lastLocalControlAt = float.NegativeInfinity;
+    private static readonly Dictionary<Trainset, (int frame, bool driving)> client_drivingByTrainset = [];
     #endregion
 
     #region Common Variables
@@ -498,21 +549,57 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 }
             }
 
+            if (simulationFlow != null)
+            {
+                foreach (CompressorSimController compressor in TrainCar.GetComponentsInChildren<CompressorSimController>(true))
+                    if (!string.IsNullOrEmpty(compressor.activationSignalExtInPortId) &&
+                        simulationFlow.TryGetPort(compressor.activationSignalExtInPortId, out Port signal))
+                    {
+                        compressorSignalPorts.Add(GetPortNetId(compressor.activationSignalExtInPortId));
+                        compressorSignalPort = signal;
+                    }
+                portWriters = new ControlPortWriters<uint>(
+                    simulationFlow.fullPortIdToPort.Where(kvp => kvp.Value.valueType == PortValueType.CONTROL).Select(kvp => GetPortNetId(kvp.Key)),
+                    InteractablePortScan.PortsOf(TrainCar.carLivery).Select(GetPortNetId),
+                    compressorSignalPorts);
+                Multiplayer.LogDebug(() => $"NetworkedTrainCar.Start({CurrentID}, {NetId}) {portWriters.PlayerPortCount} player-driven control ports");
+                if (!NetworkLifecycle.Instance.IsHost())
+                    client_portPresenter = TrainPortPresenter.Create(this, simulationFlow, portId => portWriters.Classify(GetPortNetId(portId)),
+                        port => Client_HoldsPort(GetPortNetId(port.id)));
+            }
+
             TrainCar.InteriorLoaded += OnTrainCarInteriorLoaded;
             TrainCar.InteriorAboutToBeUnloaded += OnTrainCarInteriorUnloaded;
 
             if (TrainCar.loadedInterior != null)
                 OnTrainCarInteriorLoaded(TrainCar.loadedInterior.gameObject);
 
+            TrainCar.ExternalInteractableLoaded += OnExternalInteractablesLoaded;
+            TrainCar.ExternalInteractableAboutToBeUnloaded += OnExternalInteractablesUnloaded;
+            if (TrainCar.loadedExternalInteractables != null)
+                OnExternalInteractablesLoaded(TrainCar.loadedExternalInteractables);
+
             if (simulationFlow != null)
             {
+                if (simController.tractionPortsFeeder is { } feeder)
+                    foreach (string portId in new[] { feeder.forwardSpeedPortId, feeder.wheelRpmPortId, feeder.wheelSpeedKmhPortId })
+                        if (!string.IsNullOrEmpty(portId))
+                            locallyFedPorts.Add(GetPortNetId(portId));
+                foreach (BoilerSimController boiler in TrainCar.GetComponentsInChildren<BoilerSimController>(true))
+                    if (!string.IsNullOrEmpty(boiler.anglePortId))
+                        locallyFedPorts.Add(GetPortNetId(boiler.anglePortId));
+
                 dirtyPorts = new HashSet<uint>(simulationFlow.fullPortIdToPort.Count);
                 lastSentPortValues = new Dictionary<uint, float>(dirtyPorts.Count);
                 foreach (KeyValuePair<string, Port> kvp in simulationFlow.fullPortIdToPort)
                 {
                     var portNetId = GetPortNetId(kvp.Key);
+                    if (locallyFedPorts.Contains(portNetId))
+                        continue;
                     if (kvp.Value.valueType == PortValueType.CONTROL || NetworkLifecycle.Instance.IsHost())
                     {
+                        if (!NetworkLifecycle.Instance.IsHost())
+                            client_hostPortValues[portNetId] = kvp.Value.Value;
                         if (portToBaseControl.TryGetValue(portNetId, out var control))
                         {
                             Multiplayer.LogDebug(() => $"NetworkedTrainCar.Start({CurrentID}, {NetId}) Subscribing to control {control.ControlType} for {kvp.Key} with netId {portNetId}");
@@ -542,15 +629,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             coalPile = simController.coalPile;
 
             // Ports pulsed on an event (adding coal, igniting firebox, etc)
+            // A player adding coal: FireboxTransferCoalPatch; a player shovelling from the coal pile:
+            // CoalPileTransferCoalPatch (the coal ports are a stoker's too).
             if (firebox != null)
             {
-                firebox.fireboxCoalControlPort.ValueUpdatedInternally += Client_OnFireboxAddCoal;   //Player adding coal
                 firebox.fireboxIgnitionPort.ValueUpdatedInternally += Client_OnIgnite;      //Player igniting firebox
-            }
-
-            if (coalPile != null)
-            {
-                coalPile.coalConsumePort.ValueUpdatedInternally += Client_OnCoalPileInteraction; //Coal being added/removed by shovel or feeder
             }
         }
 
@@ -742,7 +825,36 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         // physical controls exist. Request the authoritative state again now so
         // default-engaged handbrakes and all SimFlow-backed levers are projected onto
         // the newly loaded interior instead of retaining their prefab defaults.
-        NetworkLifecycle.Instance?.Client.SendTrainSyncRequest(NetId);
+        Client_RequestInteriorResync();
+    }
+
+    private const float INTERIOR_RESYNC_INTERVAL = 10f;
+    private float client_nextInteriorResyncAt;
+    private bool client_interiorResyncPending;
+
+    // A player standing at the distance an interior loads at reloads it every few seconds, and
+    // each full resync makes the host send the whole car to everyone (playtest 2: one car every
+    // 5-15 s, two requests a time). One per car per interval; any more in it make one at its end.
+    private void Client_RequestInteriorResync()
+    {
+        if (Time.realtimeSinceStartup >= client_nextInteriorResyncAt)
+        {
+            client_nextInteriorResyncAt = Time.realtimeSinceStartup + INTERIOR_RESYNC_INTERVAL;
+            NetworkLifecycle.Instance?.Client.SendTrainSyncRequest(NetId);
+        }
+        else if (!client_interiorResyncPending)
+        {
+            client_interiorResyncPending = true;
+            CoroutineManager.Instance.StartCoroutine(Client_InteriorResyncLater());
+        }
+    }
+
+    private IEnumerator Client_InteriorResyncLater()
+    {
+        yield return new WaitForSecondsRealtime(client_nextInteriorResyncAt - Time.realtimeSinceStartup);
+        client_interiorResyncPending = false;
+        if (this != null)
+            Client_RequestInteriorResync();
     }
 
     // Most controls name their port through the controls overrider. Some only through the feeder
@@ -766,6 +878,17 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void HookControl(ControlImplBase implementation, uint netId)
     {
+        // Some controls are on the external interactables and in the cab's controls manager both
+        // (a handcar's handle): hook once.
+        if (controlToPortNetId.ContainsKey(implementation))
+            return;
+
+        // Normally in the prefab scan already; a control only the loaded cab has counts too.
+        portWriters?.AddPlayerPort(netId);
+        foreach (InteractablePortFeeder feeder in implementation.GetComponents<InteractablePortFeeder>())
+            if (!string.IsNullOrEmpty(feeder.portId))
+                portWriters?.AddPlayerPort(GetPortNetId(feeder.portId));
+
         // Check for ObiRopeGrabHandler used by steam whistles
         ObiRopeGrabAreaHandler ObiGrabHandler = implementation.transform?.parent?.GetComponentInChildren<ObiRopeGrabAreaHandler>(false);
         if (ObiGrabHandler != null)
@@ -792,9 +915,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             portNetIdToControl[netId] = implementation;
             controlToPortNetId[implementation] = netId;
 
+            // A handcar's handle also writes whether it's held (ENGAGED): without it the host's
+            // simulation treats the handle as let go and it follows the wheels, so nothing moves.
+            string handleEngagedPortId = implementation.GetComponent<HandcarBarController>()?.handleEngagedPortId;
             uint[] linked = implementation.GetComponents<InteractablePortFeeder>()
-                .Where(f => !string.IsNullOrEmpty(f.portId))
-                .Select(f => GetPortNetId(f.portId))
+                .Select(f => f.portId)
+                .Append(handleEngagedPortId)
+                .Where(portId => !string.IsNullOrEmpty(portId))
+                .Select(GetPortNetId)
                 .Where(id => id != netId && !portNetIdToControl.ContainsKey(id))
                 .Distinct().ToArray();
             if (linked.Length > 0)
@@ -804,6 +932,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     portNetIdToControl[id] = implementation;
             }
         }
+
+        Behaviour[] writers = LocalInputWriters(implementation);
+        if (writers.Length > 0)
+            foreach (uint id in PortsOf(netId))
+                portNetIdToLocalInputWriters[id] = writers;
 
         if (portNetIdToBlockState.TryGetValue(netId, out var isBlocked) && isBlocked)
         {
@@ -864,8 +997,130 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         portNetIdToControl.Clear();
         linkedPortNetIds.Clear();
         controlToPortNetId.Clear();
+        portNetIdToLocalInputWriters.Clear();
 
         interiorControlsManager = null;
+
+        // The external interactables outlive the cab.
+        if (TrainCar.loadedExternalInteractables != null)
+            HookExternalControls(TrainCar.loadedExternalInteractables);
+    }
+
+    // Controls on the car body rather than in the cab: doors, windows and hatches, and on steam
+    // locos the compressor, dynamo, lubricator and oiling points, a DE6's starter and primer, a
+    // handcar's handle. They're on the external interactables, which load near the car, while the
+    // cab loads only once a player is on it (and never on a dedicated server). Unhooked, a grab
+    // took no lease: the change went only as an unleased one, after the settle window, and nothing
+    // kept another game's copy from writing the port too (the host's own HandcarBarController
+    // wrote the handle as let go every frame, so a handcar never moved). Loading an exploded loco
+    // swaps in its exploded external interactables, through the same event.
+    private void OnExternalInteractablesLoaded(GameObject externalInteractables)
+    {
+        // Raised with null once they're unloaded.
+        if (externalInteractables != null)
+            StartCoroutine(HookExternalControlsWhenReady(externalInteractables));
+    }
+
+    private IEnumerator HookExternalControlsWhenReady(GameObject externalInteractables)
+    {
+        // Controls are built from their specs over the first frames.
+        float timeOut = Time.time;
+        yield return new WaitUntil(() =>
+            externalInteractables == null ||
+            externalInteractables.GetComponentsInChildren<InteractablePortFeeder>(true).All(f => f.GetComponent<ControlImplBase>() != null) ||
+            Time.time - timeOut > INTERIOR_CONTROLS_TIMEOUT);
+        if (externalInteractables != null && externalInteractables == TrainCar.loadedExternalInteractables)
+            HookExternalControls(externalInteractables);
+    }
+
+    private void HookExternalControls(GameObject externalInteractables)
+    {
+        if (!hasSimFlow)
+            return;
+
+        foreach (InteractablePortFeeder feeder in externalInteractables.GetComponentsInChildren<InteractablePortFeeder>(true))
+        {
+            ControlImplBase implementation = feeder.GetComponent<ControlImplBase>();
+            if (implementation == null || string.IsNullOrEmpty(feeder.portId) || controlToPortNetId.ContainsKey(implementation))
+                continue;
+            // A handbrake's feeder: handbrakes are synced on their own, without a lease.
+            if (feeder.GetComponent<HandbrakeFeeder>() != null)
+                continue;
+
+            Multiplayer.LogDebug(() => $"HookExternalControls() Control [{feeder.portId}] found on car {CurrentID}");
+            HookControl(implementation, GetPortNetId(feeder.portId));
+        }
+    }
+
+    private void OnExternalInteractablesUnloaded(GameObject externalInteractables)
+    {
+        if (externalInteractables == null)
+            return;
+
+        foreach (ControlImplBase control in controlToPortNetId.Keys.ToList())
+            if (control != null && control.transform.IsChildOf(externalInteractables.transform))
+                UnhookControl(control);
+    }
+
+    private void UnhookControl(ControlImplBase control)
+    {
+        if (!controlToPortNetId.TryGetValue(control, out uint portNetId))
+            return;
+
+        if (usedControlReleases.TryGetValue(control, out var pending))
+        {
+            if (pending != null)
+                StopCoroutine(pending);
+            usedControlReleases.Remove(control);
+            Client_ReleasePortAuthority(portNetId);
+        }
+        else if (control.IsGrabbed())
+        {
+            Client_ControlUngrabbed(control);
+        }
+
+        control.Grabbed -= Client_ControlGrabbed;
+        control.Ungrabbed -= Client_ControlUngrabbed;
+        if (usedControlDelegates.TryGetValue(control, out var used))
+        {
+            control.Used -= used;
+            usedControlDelegates.Remove(control);
+        }
+
+        foreach (uint id in PortsOf(portNetId).ToList())
+        {
+            if (portNetIdToControl.TryGetValue(id, out ControlImplBase mapped) && mapped == control)
+                portNetIdToControl.Remove(id);
+            portNetIdToLocalInputWriters.Remove(id);
+        }
+        linkedPortNetIds.Remove(portNetId);
+        controlToPortNetId.Remove(control);
+    }
+
+    /// <summary>
+    /// Vanilla controllers that write a control's port every frame from this game's own input,
+    /// whoever is using the control: the whistle rope's tension, through its dummy lever, and
+    /// whether a handcar's handle is held. Every game runs them, so while a player on another
+    /// game uses the control, this game's would write it back as let go (the host's would win).
+    /// They're turned off while another player holds the control's lease
+    /// (<see cref="Client_ReceiveAuthorityUpdate"/>). Other controls write their port only on
+    /// this game's player's input, which a lease already covers.
+    /// </summary>
+    private static Behaviour[] LocalInputWriters(ControlImplBase control)
+    {
+        List<Behaviour> writers = [];
+        Transform parent = control.transform.parent;
+        // The whistle's control is its rope's dummy lever, hooked with the rope's grab handler
+        // beside it (HookControl).
+        bool ropeControl = parent != null && parent.GetComponentInChildren<ObiRopeGrabAreaHandler>(false) != null;
+        if (parent != null)
+            foreach (WhistleRopeController rope in parent.GetComponentsInChildren<WhistleRopeController>(true))
+                if (rope.dummyLeverGO == control.gameObject || ropeControl)
+                    writers.Add(rope);
+        HandcarBarController bar = control.GetComponent<HandcarBarController>();
+        if (bar != null)
+            writers.Add(bar);
+        return writers.ToArray();
     }
 
     /// <summary>
@@ -884,6 +1139,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         EntityDebugRegistry.Unregister("TrainCar", NetId.ToString());
 
         //Clean dictionaries
+        TrainCar.ExternalInteractableLoaded -= OnExternalInteractablesLoaded;
+        TrainCar.ExternalInteractableAboutToBeUnloaded -= OnExternalInteractablesUnloaded;
+        client_portPresenter?.Destroy();
+        client_portPresenter = null;
         trainCarsToNetworkedTrainCars.Remove(TrainCar);
         trainCarIdToNetworkedTrainCars.Remove(CurrentID);
         trainCarIdToTrainCars.Remove(CurrentID);
@@ -899,13 +1158,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         if (firebox != null)
         {
-            firebox.fireboxCoalControlPort.ValueUpdatedInternally -= Client_OnFireboxAddCoal;   //Player adding coal
             firebox.fireboxIgnitionPort.ValueUpdatedInternally -= Client_OnIgnite;      //Player igniting firebox
-        }
-
-        if (coalPile != null)
-        {
-            coalPile.coalConsumePort.ValueUpdatedInternally -= Client_OnCoalPileInteraction; //Coal being added/removed by shovel or feeder
         }
 
         if (brakeSystem != null)
@@ -1007,10 +1260,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         cargoHealthDirty = true;
         cargoIsLoading = true;
         carHealthDirty = true;
-        BogieTracksDirty = true;
         sendCouplers = true;
         sendCables = true;
-        TicksSinceSync = uint.MaxValue / 2; // full pose on the next tick (a client rerailing to it needs one); not MaxValue, the tick's ++ would wrap it to 0
+        Server_ResyncPose();
 
         if (!hasSimFlow)
             return;
@@ -1027,6 +1279,32 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
     }
 
+    /// <summary>
+    /// Send the car's pose and both bogies' tracks and spans on the next tick, reliably, even if
+    /// it's standing still (a stopped set is otherwise only resent every couple of seconds).
+    /// </summary>
+    public void Server_ResyncPose()
+    {
+        BogieTracksDirty = true; // makes the set's packet reliable
+        TicksSinceSync = uint.MaxValue / 2; // full pose on the next tick (a client rerailing to it needs one); not MaxValue, the tick's ++ would wrap it to 0
+    }
+
+    /// <summary>
+    /// The host is rerailing this car or moving it to another track: once vanilla has (a physics
+    /// step later), send clients where it is now, so their followers aren't left aiming at
+    /// where it was.
+    /// </summary>
+    public void Server_ResyncAfterRelocation() => CoroutineManager.Instance.StartCoroutine(Server_ResyncAfterRelocationCoro());
+
+    private IEnumerator Server_ResyncAfterRelocationCoro()
+    {
+        yield return new WaitForFixedUpdate();
+        for (float t0 = Time.realtimeSinceStartup; TrainCar != null && TrainCar.IsTeleporting && Time.realtimeSinceStartup - t0 < 5f;)
+            yield return null;
+        if (this != null && TrainCar != null)
+            Server_ResyncPose();
+    }
+
     public bool Server_ValidateClientSimFlowPacket(ServerPlayer player, CommonTrainPortsPacket packet)
     {
         // Only allow control ports to be updated by clients
@@ -1035,11 +1313,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             {
 
                 var portId = GetPort(portNetId);
-                if (simulationFlow.TryGetPort(portId, out Port port))
+                if (simulationFlow.TryGetPort(portId, out Port _))
                 {
-                    if (port.valueType != PortValueType.CONTROL)
+                    // Only controls players drive: the others are the host's simulation's to set.
+                    bool holdsLease = portAuthority.TryGetValue(portNetId, out ServerPlayer owner) && owner == player;
+                    if (portWriters == null || !portWriters.HostAccepts(portNetId, holdsLease))
                     {
-                        NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a non-control port! ([{portId}, {portNetId}] on [{CurrentID}, {NetId}])");
+                        NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a port players don't drive ({portWriters?.Classify(portNetId)})! ([{portId}, {portNetId}] on [{CurrentID}, {NetId}])");
                         Common_DirtyPorts(packet.PortIds);
                         return false;
                     }
@@ -1065,14 +1345,20 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return false;
     }
 
-    public bool Server_HasPortAuthority(ServerPlayer player, IEnumerable<uint> portNetIds)
+    /// <summary>
+    /// Whether a player may write these ports: nobody else holds a lease on any of them. A lease
+    /// keeps a lever being held, or the whistle rope, from being fought over. A control that's only
+    /// turned or clicked never asks for one (a VR valve, a cab window): requiring a lease refused
+    /// every change to those, so the player saw it and nobody else did.
+    /// </summary>
+    public bool Server_MayWritePorts(ServerPlayer player, IEnumerable<uint> portNetIds)
     {
         if (player == null)
             return false;
         if (NetworkLifecycle.Instance.IsHost(player))
             return true;
         return portNetIds != null && portNetIds.All(portNetId =>
-            portAuthority.TryGetValue(portNetId, out ServerPlayer owner) && owner == player);
+            !portAuthority.TryGetValue(portNetId, out ServerPlayer owner) || owner == null || owner == player);
     }
 
     public bool TryCapturePortValues(uint[] portNetIds, out float[] values)
@@ -1176,6 +1462,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             if (packet.Result != TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost())
                 client.SendTrainSyncRequest(NetId);
         }
+        // Another player's handbrake operation (a join's state carries no operation).
+        else if (packet.IncludesHandbrake && packet.OperationId != 0 &&
+                 packet.Result == TrainControlCommitResult.Accepted)
+            Common_OnRemoteHandbrakeChange();
+        // Every commit is stamped with the host's tick: their arrivals measure the link's jitter.
+        if (packet.Tick != 0 && !NetworkLifecycle.Instance.IsHost())
+            TrainPortPresenter.Clock.OnArrival(packet.Tick, TrainPortPresenter.Now);
         if (packet.Revision < ControlRevision)
             return;
 
@@ -1189,7 +1482,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     NetId = NetId,
                     PortIds = portIds,
                     PortValues = portValues
-                });
+                }, packet.Tick);
         }
         if (packet.FuseIds?.Length > 0 && packet.FuseValues?.Length == packet.FuseIds.Length)
         {
@@ -1306,11 +1599,27 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void Server_CouplerCoupled(object _, CoupleEventArgs args) => topologyDirty = true;
 
+    /// <summary>
+    /// The compressor's activation signal follows the brake system's decision (main reservoir
+    /// below the threshold), which DV writes to the port only when that decision changes. Once
+    /// the port held anything else (in playtest 2 it was 0 with the reservoir empty and the engine
+    /// running: no air, so no brakes), nothing put it right. The host keeps them matched.
+    /// </summary>
+    private void Server_KeepCompressorSignal()
+    {
+        if (compressorSignalPort == null || TrainCar.brakeSystem == null)
+            return;
+        float wanted = TrainCar.brakeSystem.compressorActivationSignal ? 1f : 0f;
+        if (compressorSignalPort.Value != wanted)
+            compressorSignalPort.ExternalValueUpdate(wanted);
+    }
+
     private void Server_OnTick(uint tick)
     {
         if (UnloadWatcher.isUnloading)
             return;
 
+        Server_KeepCompressorSignal();
         Server_SendBrakeStates(tick);
         Server_SendCouplers();
         Server_SendCables();
@@ -1583,6 +1892,45 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     /// (notably while the world loads); reporting those for distant cars only produced rejected
     /// operations and resync requests. The host always reports.
     /// </summary>
+    /// <summary>
+    /// Whether the local player is driving this car's train: holding one of its controls, or
+    /// having changed one within <paramref name="holdSeconds"/>, on any car of the train (a
+    /// loco's controls drive its tender and multiple-unit followers too). A client shows a
+    /// driven train's outputs undelayed and predicts the ones its controls drive
+    /// (<see cref="TrainPortPresenter"/>).
+    /// </summary>
+    internal bool Client_IsLocalPlayerDrivingTrain(float holdSeconds)
+    {
+        Trainset trainset = TrainCar.trainset;
+        if (trainset == null)
+            return Client_IsLocalPlayerDriving(holdSeconds);
+        int frame = Time.frameCount;
+        if (client_drivingByTrainset.TryGetValue(trainset, out var cached) && cached.frame == frame)
+            return cached.driving;
+
+        bool driving = false;
+        foreach (TrainCar car in trainset.cars)
+            if (car != null && TryGetFromTrainCar(car, out NetworkedTrainCar networkedCar) &&
+                networkedCar.Client_IsLocalPlayerDriving(holdSeconds))
+            {
+                driving = true;
+                break;
+            }
+        // Trainsets are replaced as cars couple and uncouple: don't keep old ones.
+        if (client_drivingByTrainset.Count > 256)
+            client_drivingByTrainset.Clear();
+        client_drivingByTrainset[trainset] = (frame, driving);
+        return driving;
+    }
+
+    // The local player has this control: they hold its lease, or a change of theirs to it hasn't
+    // been committed yet. The host's values for it aren't played out over their hand.
+    private bool Client_HoldsPort(uint portNetId) =>
+        locallyOwnedPortAuthorities.Contains(portNetId) || client_pendingPortOperations.ContainsKey(portNetId);
+
+    private bool Client_IsLocalPlayerDriving(float holdSeconds) =>
+        locallyOwnedPortAuthorities.Count > 0 || Time.realtimeSinceStartup - client_lastLocalControlAt < holdSeconds;
+
     private bool Client_LocalPlayerCanTouch() =>
         NetworkLifecycle.Instance.IsHost() ||
         (PlayerManager.PlayerTransform != null &&
@@ -1605,6 +1953,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!viaRemote && !Client_LocalPlayerCanTouch())
             return; // simulation noise (e.g. set during load), not a player action
         ulong operationId = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
+        lastHandbrakeSentAt = Time.realtimeSinceStartup;
         if (!NetworkLifecycle.Instance.IsHost())
             client_pendingHandbrakeOperation = operationId;
     }
@@ -1650,14 +1999,37 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!hasSimFlow || dirtyPorts.Count == 0)
             return;
 
-        uint[] portIds = NetworkLifecycle.Instance.IsHost()
-            ? dirtyPorts.ToArray()
-            : dirtyPorts.Where(locallyOwnedPortAuthorities.Contains).ToArray();
-        // Unowned dirty controls are native simulation feedback, not client intent.
+        uint[] portIds;
+        List<uint> settling = null;
+        if (NetworkLifecycle.Instance.IsHost())
+            portIds = dirtyPorts.Where(id => !locallyFedPorts.Contains(id)).ToArray(); // a full resync dirties every port
+        else
+        {
+            List<uint> send = new(dirtyPorts.Count);
+            foreach (uint id in dirtyPorts)
+            {
+                UnleasedChange change = locallyOwnedPortAuthorities.Contains(id) ? UnleasedChange.Send : Client_UnleasedChange(id);
+                if (change == UnleasedChange.Send)
+                    send.Add(id);
+                else if (change == UnleasedChange.Settling)
+                    (settling ??= new()).Add(id);
+            }
+            portIds = send.ToArray();
+        }
+        // Other unowned dirty controls are native simulation feedback, not client intent.
         // Retaining them would either spin forever or contaminate a later leased batch.
         dirtyPorts.Clear();
+        // A change made while the host's last value is still settling waits for it to settle,
+        // then goes if it still differs. Dropping it lost a player's change for good whenever it
+        // fell in that window: on a car resynced every few seconds (each game loading its interior
+        // asks for a full resync), closed oiling caps reopened at the next resync (playtest 2).
+        if (settling != null)
+            foreach (uint id in settling)
+                dirtyPorts.Add(id);
         if (portIds.Length == 0)
             return;
+        if (!NetworkLifecycle.Instance.IsHost())
+            client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         int i = 0;
         float[] portValues = new float[portIds.Length];
@@ -1669,6 +2041,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 float value = port.Value;
                 portValues[i] = value;
                 lastSentPortValues[portNetId] = value;
+                if (!NetworkLifecycle.Instance.IsHost())
+                    client_hostPortValues[portNetId] = value;
             }
             else
             {
@@ -1682,6 +2056,25 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!NetworkLifecycle.Instance.IsHost())
             foreach (uint portNetId in portIds)
                 client_pendingPortOperations[portNetId] = operationId;
+    }
+
+    // A control the player changed without anything taking its lease: a valve, lever or cylinder
+    // cock turned in VR (they don't all raise Grabbed), or a control on the car body like a cab
+    // window or an oiling point, which isn't hooked at all. The client dropped these as feedback, so
+    // only the player saw the change (#73 covered buttons and switches, which raise Used). The host
+    // takes a change nobody holds a lease on. Only controls players drive count (ControlPortWriters):
+    // DV and mods set some CONTROL ports from the simulation. Feedback is told apart by its value:
+    // once settled it's what the host last sent.
+    private UnleasedChange Client_UnleasedChange(uint portNetId)
+    {
+        if (!hasSimFlow || portWriters == null || !simulationFlow.TryGetPort(GetPort(portNetId), out Port port))
+            return UnleasedChange.No;
+        bool blocked = portNetIdToBlockState.TryGetValue(portNetId, out bool isBlocked) && isBlocked;
+        float? hostValue = client_hostPortValues.TryGetValue(portNetId, out float value) ? value : null;
+        float? sinceHostValue = client_hostPortReceivedAt.TryGetValue(portNetId, out float receivedAt)
+            ? Time.realtimeSinceStartup - receivedAt : null;
+        return portWriters.Unleased(portNetId, blocked, Client_LocalPlayerCanTouch(), port.Value, hostValue, sinceHostValue,
+            UNLEASED_CHANGE_TOLERANCE, UNLEASED_CHANGE_SETTLE_SECONDS);
     }
 
     private void Common_SendFuses()
@@ -1710,6 +2103,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         dirtyFuses.Clear();
+        if (!NetworkLifecycle.Instance.IsHost())
+            client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         ulong operationId = NetworkLifecycle.Instance.Client.SendFuses(NetId, fuseIds, fuseValues);
         if (!NetworkLifecycle.Instance.IsHost())
@@ -1765,11 +2160,20 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             Multiplayer.LogDebug(() => $"Common_OnPortUpdated() Ignoring non-control port update for [{port.id}] on [{CurrentID}, {NetId}]");
             return;
         }
+        // CONTROL ports simulation code sets (the compressor's signal, a horn fed from its control,
+        // a gearbox's gear input) are the host's: a client sends only the ones players drive.
+        if (!NetworkLifecycle.Instance.IsHost() && portWriters?.ClientReports(portNetId) != true)
+            return;
 
-        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket)
+        // A host value being applied, as it lands or played out (TrainPortPresenter), isn't a change here.
+        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket || TrainPortPresenter.Writing)
             return;
         if (float.IsNaN(port.prevValue) && float.IsNaN(port.Value))
             return;
+        // The local player moved one of the train's controls: predict from this frame on, not
+        // from when the next tick sends it (TrainPortPresenter).
+        if (!NetworkLifecycle.Instance.IsHost() && Client_LocalPlayerCanTouch())
+            client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         bool hasLastSent = lastSentPortValues.TryGetValue(portNetId, out float lastSentValue);
         float delta = Mathf.Abs(lastSentValue - port.Value);
@@ -1819,17 +2223,28 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         dirtyFuses.Add(fuseNetId);
     }
 
-    public void Common_UpdatePorts(CommonTrainPortsPacket packet)
+    /// <param name="hostTick">On a client, the host's tick the values are from (0 for a resync):
+    /// the simulation's outputs are played out on it rather than shown as they land.</param>
+    public void Common_UpdatePorts(CommonTrainPortsPacket packet, uint hostTick = 0)
     {
         if (!hasSimFlow)
             return;
 
         for (int i = 0; i < packet.PortIds.Length; i++)
         {
+            if (locallyFedPorts.Contains(packet.PortIds[i])) // an older host still sends them
+                continue;
             var portId = GetPort(packet.PortIds[i]);
             if (simulationFlow.TryGetPort(portId, out Port port))
             {
                 float value = packet.PortValues[i];
+                if (!NetworkLifecycle.Instance.IsHost())
+                {
+                    client_hostPortValues[packet.PortIds[i]] = value;
+                    client_hostPortReceivedAt[packet.PortIds[i]] = Time.realtimeSinceStartup;
+                    if (client_portPresenter != null && client_portPresenter.TakeHostValue(port, value, hostTick))
+                        continue;
+                }
 
                 if (port.type == PortType.EXTERNAL_IN)
                     port.ExternalValueUpdate(value);
@@ -2284,13 +2699,75 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         Multiplayer.LogWarning($"{CurrentID} derailed here but not on the host; rerailing it to the host's track");
+        Client_BeginRelocation();
         TrainCar.Rerail(track.RailTrack, movementPart.Position + WorldMover.currentMove,
             movementPart.Rotation * Vector3.forward);
-        Client_trainSpeedQueue.Clear();
-        Client_trainRigidbodyQueue.Clear();
-        client_bogie1Queue.Clear();
-        client_bogie2Queue.Clear();
+        Client_FinishRelocationLater();
         CoroutineManager.Instance.StartCoroutine(RestoreTopologyAfterRerail());
+    }
+
+    /// <summary>The host rerailed this car (<see cref="TrainCar.Rerail"/>).</summary>
+    public void Client_RerailFromHost(RailTrack track, Vector3 worldPos, Vector3 forward)
+    {
+        if (!TrainCar.derailed)
+            return;
+        Client_BeginRelocation();
+        TrainCar.Rerail(track, worldPos, forward);
+        Client_FinishRelocationLater();
+    }
+
+    /// <summary>The host moved this car to another track (<see cref="TrainCar.MoveToTrackWithCarUncouple"/>).</summary>
+    public void Client_MoveToTrackFromHost(RailTrack track, Vector3 worldPos, Vector3 forward)
+    {
+        if (TrainCar.derailed)
+            return;
+        Client_BeginRelocation();
+        TrainCar.MoveToTrackWithCarUncouple(track, worldPos, forward);
+        Client_FinishRelocationLater();
+    }
+
+    /// <summary>
+    /// Everything that follows the host's samples still aims at where the car was before a rerail
+    /// or move: the rigidbody queue at its derailed pose, the bogie queues at their old spans (a
+    /// stopped car's sample never goes stale). Left in place, after a rerail the rigidbody queue
+    /// dragged the body off at 1.5 m/s, the speed queue placed it back kinematically towards the
+    /// old sample, and every resync snapped it over 5 m and flung it, forever (playtest 2, FEF-3).
+    /// Vanilla's rerail must also act on a dynamic body: one resting derailed at the host's pose
+    /// is kinematic (see <see cref="UpdateDerailedKinematic"/>).
+    /// </summary>
+    private void Client_BeginRelocation()
+    {
+        Client_ResetFollowers();
+        if (TrainCar.rb != null && TrainCar.rb.isKinematic)
+            TrainCar.rb.isKinematic = false;
+    }
+
+    private void Client_ResetFollowers()
+    {
+        Client_trainSpeedQueue?.Clear();
+        Client_trainRigidbodyQueue?.Clear();
+        client_bogie1Queue?.Clear();
+        client_bogie2Queue?.Clear();
+        kinematicCycles = 0;
+        TrainCar?.stress?.ResetTrainStress();
+    }
+
+    /// <summary>
+    /// Vanilla relocates the car a physics step later (a coroutine); samples arriving meanwhile
+    /// are ignored (see <see cref="Client_ReceiveTrainPhysicsUpdate"/>), so once it's done, reset
+    /// again and ask the host for the car's pose and bogie tracks.
+    /// </summary>
+    private void Client_FinishRelocationLater() => CoroutineManager.Instance.StartCoroutine(Client_FinishRelocation());
+
+    private IEnumerator Client_FinishRelocation()
+    {
+        for (float t0 = Time.realtimeSinceStartup; TrainCar != null && TrainCar.IsTeleporting && Time.realtimeSinceStartup - t0 < 5f;)
+            yield return null;
+        yield return new WaitForFixedUpdate();
+        if (this == null || TrainCar == null)
+            yield break;
+        Client_ResetFollowers();
+        NetworkLifecycle.Instance.Client?.SendTrainSyncRequest(NetId);
     }
 
     private System.Collections.IEnumerator RestoreTopologyAfterRerail()
@@ -2313,6 +2790,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             DebugRuntime.Publish("train", "train.physics-received", DebugRuntimeSide.Client, entityType: "TrainCar", entityId: NetId.ToString(),
                 data: DebugValueSnapshotter.SnapshotObject(movementPart), highFrequency: true, samplingDecided: true);
         if (!Client_Initialized)
+            return false;
+
+        // Mid rerail or move (vanilla takes a physics step): the sample is for the car's new spot,
+        // ours isn't there yet. Client_FinishRelocation asks for a fresh one.
+        if (TrainCar.IsTeleporting)
             return false;
 
         if (tick <= lastTickProcessed)
@@ -2338,8 +2820,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             becameDerailed = !TrainCar.derailed;
             if (becameDerailed)
             {
-                // Vanilla's derail must act on a dynamic body: stop any placement first.
+                // Vanilla's derail must act on a dynamic body: stop any placement first. The bogie
+                // samples are for the rails it just left; a rerail must not find them.
                 Client_trainSpeedQueue.Clear();
+                client_bogie1Queue.Clear();
+                client_bogie2Queue.Clear();
                 if (TrainCar.rb.isKinematic)
                     TrainCar.rb.isKinematic = false;
                 kinematicCycles = 0;
@@ -2442,12 +2927,29 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     /// derailed bogies) is made kinematic at the host's pose once ours has reached it. As a
     /// dynamic body moved there every step it was a bulldozer: after a pile-up that went a little
     /// differently here it kept shoving the cars around it off their places.
+    ///
+    /// With no world loaded here under the car (this player is far from it), there's nothing for a
+    /// dynamic copy to land on: it fell, was snapped back at 20 m and fell again, endlessly. It
+    /// stays kinematic there instead, and the rigidbody queue places it at the host's pose. When
+    /// the world loads, DV's DerailedTrainCarIsKinematicHandler releases it, and the rules above
+    /// apply again.
     /// </summary>
     private void UpdateDerailedKinematic(RigidbodySnapshot snapshot)
     {
         Rigidbody rb = TrainCar.rb;
         if (snapshot == null || rb == null)
             return;
+        if (WorldStreamingInit.Instance != null && !WorldStreamingInit.Instance.IsSceneAndTerrainCellLoaded(rb.position))
+        {
+            kinematicCycles = 0;
+            if (!rb.isKinematic)
+            {
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.isKinematic = true;
+            }
+            return;
+        }
         var flags = (RigidbodySnapshot.IncludedData)snapshot.IncludedDataFlags;
         float hostSpeed = flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) ? snapshot.Velocity.magnitude : 0f;
         if (hostSpeed > DERAILED_DYNAMIC_SPEED)
@@ -2500,21 +3002,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return lineApplied;
     }
 
-    private void Client_OnFireboxAddCoal(float coalMassDelta)
-    {
-        if (NetworkLifecycle.Instance.IsProcessingPacket)
-            return;
-
-        if (coalMassDelta <= 0)
-            return;
-
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"Client_OnFireboxAddCoal({CurrentID}): coalMassDelta: {coalMassDelta}");
-        NetworkLifecycle.Instance.Client.SendAddCoal(NetId, coalMassDelta);
-    }
-
     private void Client_OnIgnite(float ignition)
     {
-        if (NetworkLifecycle.Instance.IsProcessingPacket)
+        if (NetworkLifecycle.Instance.IsProcessingPacket || TrainPortPresenter.Writing)
             return;
 
         if (ignition == 0f)
@@ -2522,15 +3012,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         NetworkLifecycle.Instance.Client.LogDebug(() => $"Common_OnIgnite({CurrentID})");
         NetworkLifecycle.Instance.Client.SendFireboxIgnition(NetId);
-    }
-
-    private void Client_OnCoalPileInteraction(float coalMassDelta)
-    {
-        if (NetworkLifecycle.Instance.IsProcessingPacket)
-            return;
-
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"Client_OnCoalPileInteraction({CurrentID}): coalMassDelta: {coalMassDelta}");
-        NetworkLifecycle.Instance.Client.SendTenderCoalPileInteraction(NetId, coalMassDelta);
     }
 
     public void Client_CouplerStateChange(ChainCouplerInteraction.State state, Coupler coupler)
@@ -2777,36 +3258,38 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         Multiplayer.LogDebug(() => $"Client_ReceiveAuthorityUpdate({portNetId}, {state}) for [{CurrentID}, {NetId}]");
 
-        if (!portNetIdToControl.TryGetValue(portNetId, out var control) || control == null)
-            return;
+        if (portNetIdToLocalInputWriters.TryGetValue(portNetId, out Behaviour[] writers))
+            foreach (Behaviour writer in writers)
+                if (writer != null)
+                    writer.enabled = shouldEnable;
 
-        var whistleRopeController = control?.transform.parent.GetComponentInChildren<WhistleRopeController>();
-        var handCarBarController = control?.transform.parent.GetComponentInChildren<HandcarBarController>();
-        var hinge = control.GetComponent<HingeJoint>();
-        Multiplayer.LogDebug(() => $"Client_ReceiveAuthorityUpdate() Control [{control.name}, {portNetId}] for car [{CurrentID}, {NetId}], shouldBlock: {shouldBlock}, isHinge: {hinge != null}, isWhistle: {whistleRopeController != null}");
+        // Several controls can feed one port (an FEF-3's two lubricator buttons): block them all.
+        List<ControlImplBase> controls = controlToPortNetId.Where(kvp => kvp.Value == portNetId && kvp.Key != null).Select(kvp => kvp.Key).ToList();
+        if (portNetIdToControl.TryGetValue(portNetId, out var mapped) && mapped != null && !controls.Contains(mapped))
+            controls.Add(mapped);
 
-        if (shouldBlock)
+        foreach (ControlImplBase control in controls)
         {
-            control.ForceEndInteraction();
+            var hinge = control.GetComponent<HingeJoint>();
+            Multiplayer.LogDebug(() => $"Client_ReceiveAuthorityUpdate() Control [{control.name}, {portNetId}] for car [{CurrentID}, {NetId}], shouldBlock: {shouldBlock}, isHinge: {hinge != null}, localInputWriters: {writers?.Length ?? 0}");
 
-            if ((control is IScrollable scrollable) && scrollingControls.TryGetValue(scrollable, out var isScrolling) && isScrolling != null)
+            if (shouldBlock)
             {
-                StopCoroutine(isScrolling);
-                scrollingControls.Remove(scrollable);
+                control.ForceEndInteraction();
+
+                if ((control is IScrollable scrollable) && scrollingControls.TryGetValue(scrollable, out var isScrolling) && isScrolling != null)
+                {
+                    StopCoroutine(isScrolling);
+                    scrollingControls.Remove(scrollable);
+                }
             }
+
+            control.BlockControl(shouldBlock);
+            control.InteractionAllowed = shouldEnable;
+
+            if (hinge != null)
+                control.enabled = shouldEnable;
         }
-
-        control.BlockControl(shouldBlock);
-        control.InteractionAllowed = shouldEnable;
-
-        if (hinge != null)
-            control.enabled = shouldEnable;
-
-        if (whistleRopeController != null)
-            whistleRopeController.enabled = shouldEnable;
-
-        if (handCarBarController != null)
-            handCarBarController.enabled = shouldEnable;
     }
     public void Client_ResetRelocationBaseline(float speed, uint tick)
     {

@@ -68,6 +68,19 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
         return Server?.IsRunning == true;
     }
 
+    /// <summary>
+    ///     Whether this game is a dedicated host (<see cref="DedicatedHost"/>): hosting with nobody
+    ///     playing it, so the local player is a parked body and the host's own client is a service
+    ///     identity, not a player.
+    /// </summary>
+    public bool IsDedicatedHost => DedicatedHost.Requested && IsServerRunning;
+
+    /// <summary>
+    ///     Whether the host's own player is the only player, so vanilla code that acts on the local
+    ///     player is right. Never on a dedicated host, whose local player is a parked body.
+    /// </summary>
+    public bool IsHostPlayingAlone => IsServerRunning && !IsDedicatedHost && Server.PlayerCount == 1;
+
     private readonly Queue<Action> mainMenuLoadedQueue = new();
 
     protected override void Awake()
@@ -86,7 +99,15 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
             playerList.UnRegisterListeners();
             TriggerMainMenuEventLater();
+            DedicatedHost.OnMainMenu();
         };
+        if (DedicatedHost.Requested)
+        {
+            gameObject.AddComponent<DedicatedHostMode>();
+            // The mod can load after the menu scene already has.
+            if (SceneManager.GetActiveScene().buildIndex == (int)DVScenes.MainMenu)
+                DedicatedHost.OnMainMenu();
+        }
         StartCoroutine(PollEvents());
     }
 
@@ -128,6 +149,10 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
         if (Server != null)
             throw new InvalidOperationException("NetworkManager already exists!");
+
+        // A dedicated host is never a single-player game, however hosting was started.
+        if (DedicatedHost.Requested)
+            IsSinglePlayer = false;
 
         if (!IsSinglePlayer)
         {

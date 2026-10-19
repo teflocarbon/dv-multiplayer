@@ -19,10 +19,21 @@ both() { # job state on both peers must match: prints "state booklets"
   hs="$(echo "$h" | field state) $(echo "$h" | field booklets)"; cs="$(echo "$c" | field state) $(echo "$c" | field booklets)"
   echo "   host: $hs | client: $cs"
   [ "$(echo "$h" | field state)" = "$(echo "$c" | field state)" ] || fail "job state differs"; }
+# A job left taken at the station (test saves keep them) stops DV generating new jobs there until
+# every player has been more than 2 km from it (StationController.Update), so without a job to
+# take, both players go 2.6 km from FM's office and come back.
+spare=$($D eval -t host -m body -a station=$STATION 'var st = StationController.allStations.First(s => s.stationInfo.YardID == ctx.Args["station"]); return new { n = st.logicStation.availableJobs.Count(j => j.jobType == DV.ThingTypes.JobType.Transport || j.jobType == DV.ThingTypes.JobType.EmptyHaul), taken = st.logicStation.takenJobs.Count };')
+if [ "$(echo "$spare" | field n)" = "0" ]; then
+  echo "== no transport or empty-haul job at $STATION ($(echo "$spare" | field taken) taken): going 2 km away so DV generates new ones"
+  for who in host client; do
+    $D eval -t $who -m coroutine --timeout 90 'yield return LocalPlayer.TeleportToGround(8600f, 6740f); yield return new WaitForSeconds(8);' >/dev/null
+  done
+fi
 # the station office (validator and overviews)
 $D eval -t host -m coroutine --timeout 90 'yield return LocalPlayer.TeleportToGround(5990f, 6740f); yield return new WaitForSeconds(6);' >/dev/null
 $D eval -t client -m coroutine --timeout 90 'yield return LocalPlayer.TeleportToGround(5986f, 6740f); yield return new WaitForSeconds(6);' >/dev/null
-p=$($D eval -t host -m body -u "$U" -a station=$STATION -f $P/pick.cs)
+p=$($D eval -t host -m body -u "$U" -a station=$STATION -f $P/pick.cs) ||
+  fail "no job to take: $(echo "$p" | grep -o '"error": "[^"]*"' | head -1)"
 job=$(echo "$p" | field job); echo "== $job (pays \$$(echo "$p" | field pay)); $ACCEPT takes it"
 a=$($D eval -t $ACCEPT -m coroutine --timeout 60 -u "$U" -a job=$job -f $P/accept.cs)
 [ "$(echo "$a" | field state)" = "InProgress" ] || fail "job not started: $(echo "$a" | field state)"

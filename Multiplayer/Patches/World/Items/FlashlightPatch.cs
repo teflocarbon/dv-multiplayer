@@ -2,6 +2,7 @@ using HarmonyLib;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Utils;
 using System;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Patches.World.Items;
@@ -38,17 +39,11 @@ public static class FlashlightItemPatch
             serverAuthoritative: true                           //This parameter is driven by the server: true
             );
 
-        networkedItem.RegisterTrackedValue(
-            "beamColour",
-            () => __instance.beamController.GetBeamColor().ColorToUInt32(),
-            value =>
-            {
-                Color colour = value.UInt32ToColor();
-                __instance.beamController.SetBeamColor(colour);
-                __instance.spotlight.color = colour;
-            },
-            serverAuthoritative: true                            //This parameter is driven by the server: true
-            );
+        // The beam colour itself isn't synced: DV derives it each frame from originalBeamColor and the
+        // battery (LowPowerFlicker), so every game works it out locally. Synced, a low battery on the
+        // server's copy sent ~700 updates a minute, each a new item revision; the holder's own pickups
+        // and stashes then arrived on a stale revision and were refused, and the corrections pulled
+        // the flashlight off a VR belt (playtest 2026-10-19), and made a healthy light flicker.
 
         networkedItem.RegisterTrackedValue(
             "batteryPower",
@@ -59,7 +54,11 @@ public static class FlashlightItemPatch
                     __instance.battery.UpdatePower(0f);          //process a delta of 0 to force an update
                 },
             (current, last) => (Math.Abs(current - last) >= 1.0f) || (current != last && (current == 0.0f || current == 1.0f)), //Don't communicate updates for changes less than 1.0f, unless hitting upper/lower limits
-            true                                                 //This parameter is driven by the server: true
+            // The holder's: it drains and charges (the solar panel) in their game. The server's copy
+            // of a carried flashlight never sees the sun, and as the authority it ran the holder's
+            // battery down on its own schedule (playtest 2026-10-19). Lying in the world, the
+            // server's copy still reports it.
+            serverAuthoritative: false
             );
 
         networkedItem.RegisterTrackedValue(
@@ -77,5 +76,25 @@ public static class FlashlightItemPatch
             );
 
         networkedItem.FinaliseTrackedValues();
+    }
+}
+
+/// <summary>
+/// A flashlight that has never been active has not run Start, so it has no button yet, and its save
+/// handler threw on it ("World item state save failed ... Object reference not set"). The server
+/// keeps other players' inventory items inactive, so their flashlights never saved. Save the
+/// battery and keep the switch as it was loaded.
+/// </summary>
+[HarmonyPatch(typeof(FlashlightItem), nameof(FlashlightItem.OnItemSaveDataRequested))]
+public static class FlashlightItemSavePatch
+{
+    private static bool Prefix(FlashlightItem __instance, JObject data, ref JObject __result)
+    {
+        if (__instance.button != null)
+            return true;
+        if (__instance.battery != null)
+            __instance.battery.SaveState(data);
+        __result = data;
+        return false;
     }
 }

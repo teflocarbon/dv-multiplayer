@@ -62,6 +62,18 @@ if (!$configuredMatches) {
 #Copy files to Build Dir
 Copy-Item ($Target) -Destination ("$PSScriptRoot/build/")
 Copy-Item ($PSScriptRoot + '/LICENSE') -Destination ("$PSScriptRoot/build/")
+# The dedicated server's watchdog and its double-click launcher ship with the mod.
+Copy-Item ($PSScriptRoot + '/Tools/DedicatedHost/run-dedicated-host.ps1') -Destination ("$PSScriptRoot/build/")
+Copy-Item ($PSScriptRoot + '/Tools/DedicatedHost/Start Dedicated Server.cmd') -Destination ("$PSScriptRoot/build/")
+# So does the server app (Tools/DedicatedHost/ServerApp), which Multiplayer.csproj builds first in the
+# same configuration: -NoArchive is a Debug build.
+$serverAppConfig = if ($NoArchive) { 'Debug' } else { 'Release' }
+$serverApp = "$PSScriptRoot/Tools/DedicatedHost/ServerApp/bin/$serverAppConfig/net48/DV Multiplayer Server.exe"
+if (Test-Path -LiteralPath $serverApp) {
+	Copy-Item -LiteralPath $serverApp -Destination ("$PSScriptRoot/build/")
+} else {
+	Write-Warning "The server app isn't built ($serverApp), so the mod goes without it"
+}
 
 #Copy files to Game Dir
 if (!(Test-Path ($GameDir))) {
