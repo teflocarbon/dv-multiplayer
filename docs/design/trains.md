@@ -635,6 +635,16 @@ As implemented (`NetworkServer.ValidateControlEnvelope` and the `OnCommon*` cont
 The host alone ticks locomotive and pneumatic simulation. Clients display snapshots and never feed
 locally integrated pressure, traction, wheelslip, or resource values back as truth.
 
+The exception is the ports vanilla writes every frame on every game from that game's own car:
+the three `TractionPortsFeeder` writes (forward speed, wheel rpm and wheel speed km/h, which the
+speedometers and steam cylinder-cock and blowback effects read) and a steam boiler's tilt
+(`BoilerSimController`, read only by the boiler simulation). `SimController.Update` runs these on
+clients too; only `SimComponent.Tick` is skipped. The host doesn't send these ports and a client
+drops them if an older host does (`NetworkedTrainCar.locallyFedPorts`). Applying the host's too gave
+the port two writers: the needle showed the host's value on each frame a packet arrived and the
+client's on the next, up to 25 km/h apart at speed. A client's wheel speed doesn't include wheelslip
+the host's simulation produces.
+
 Brake replication has two distinct inputs:
 
 - topology/control: reliable canonical hose, cock, handbrake, brake-valve and release state;

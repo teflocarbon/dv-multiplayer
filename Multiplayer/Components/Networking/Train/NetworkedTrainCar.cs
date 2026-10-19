@@ -280,6 +280,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // The compressor's activation signal: typed CONTROL, but the brake system sets it.
     private readonly HashSet<uint> compressorSignalPorts = new();
     private Port compressorSignalPort;
+    // Ports vanilla writes every frame on every game from that game's own car: TractionPortsFeeder's
+    // forward speed, wheel rpm and wheel speed, and a steam boiler's tilt (BoilerSimController).
+    // Each game feeds its own, so they aren't synced. Applying the host's too gave them two
+    // writers, and a speedometer flicked between the two values.
+    private readonly HashSet<uint> locallyFedPorts = new();
     // Which CONTROL ports players drive: the only ones a client sends, or the host takes from one.
     private ControlPortWriters<uint> portWriters;
     public CoalPileSimController coalPile;
@@ -536,11 +541,21 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
             if (simulationFlow != null)
             {
+                if (simController.tractionPortsFeeder is { } feeder)
+                    foreach (string portId in new[] { feeder.forwardSpeedPortId, feeder.wheelRpmPortId, feeder.wheelSpeedKmhPortId })
+                        if (!string.IsNullOrEmpty(portId))
+                            locallyFedPorts.Add(GetPortNetId(portId));
+                foreach (BoilerSimController boiler in TrainCar.GetComponentsInChildren<BoilerSimController>(true))
+                    if (!string.IsNullOrEmpty(boiler.anglePortId))
+                        locallyFedPorts.Add(GetPortNetId(boiler.anglePortId));
+
                 dirtyPorts = new HashSet<uint>(simulationFlow.fullPortIdToPort.Count);
                 lastSentPortValues = new Dictionary<uint, float>(dirtyPorts.Count);
                 foreach (KeyValuePair<string, Port> kvp in simulationFlow.fullPortIdToPort)
                 {
                     var portNetId = GetPortNetId(kvp.Key);
+                    if (locallyFedPorts.Contains(portNetId))
+                        continue;
                     if (kvp.Value.valueType == PortValueType.CONTROL || NetworkLifecycle.Instance.IsHost())
                     {
                         if (!NetworkLifecycle.Instance.IsHost())
@@ -1759,7 +1774,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         uint[] portIds;
         List<uint> settling = null;
         if (NetworkLifecycle.Instance.IsHost())
-            portIds = dirtyPorts.ToArray();
+            portIds = dirtyPorts.Where(id => !locallyFedPorts.Contains(id)).ToArray(); // a full resync dirties every port
         else
         {
             List<uint> send = new(dirtyPorts.Count);
@@ -1978,6 +1993,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         for (int i = 0; i < packet.PortIds.Length; i++)
         {
+            if (locallyFedPorts.Contains(packet.PortIds[i])) // an older host still sends them
+                continue;
             var portId = GetPort(packet.PortIds[i]);
             if (simulationFlow.TryGetPort(portId, out Port port))
             {
