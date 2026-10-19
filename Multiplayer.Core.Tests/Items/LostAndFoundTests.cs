@@ -385,6 +385,68 @@ public sealed class LostAndFoundTests
         Assert.That(registry.RekeyOwner("owner-a", string.Empty), Is.Zero);
     }
 
+    [TestCase(null)]
+    [TestCase(AuthorityPlacement.LostAndFound)]
+    [TestCase(AuthorityPlacement.World)]
+    public void Reconcile_EntryWhoseItemIsGone_IsDestroyed(AuthorityPlacement? placement)
+    {
+        Assert.That(LostItemEntryReconciler.Classify(itemPresent: false, placement),
+            Is.EqualTo(LostItemEntryStatus.ItemDestroyed));
+    }
+
+    [Test]
+    public void Reconcile_StoredItemIsKept()
+    {
+        Assert.That(LostItemEntryReconciler.Classify(true, AuthorityPlacement.LostAndFound),
+            Is.EqualTo(LostItemEntryStatus.Stored));
+    }
+
+    [Test]
+    public void Reconcile_LiveItemWithoutAuthorityRecordIsLeftAlone()
+    {
+        Assert.That(LostItemEntryReconciler.Classify(true, null),
+            Is.EqualTo(LostItemEntryStatus.AwaitingAuthority));
+    }
+
+    [TestCase(AuthorityPlacement.World)]
+    [TestCase(AuthorityPlacement.PlayerInventory)]
+    [TestCase(AuthorityPlacement.PlayerHand)]
+    [TestCase(AuthorityPlacement.Destroyed)]
+    public void Reconcile_ItemMovedOutByAnotherSystem_PlacementChanged(AuthorityPlacement placement)
+    {
+        Assert.That(LostItemEntryReconciler.Classify(true, placement),
+            Is.EqualTo(LostItemEntryStatus.PlacementChanged));
+    }
+
+    [Test]
+    public void Reconcile_DestroyedJobBookletLeavesOwnersListAndItsHandleStopsResolving()
+    {
+        // A collected job booklet the job system destroyed when its job ended: its item and
+        // authority record are gone, the radio beside it is still stored.
+        LostItemRegistry registry = new();
+        LostItemRecord radio = Record();
+        LostItemRecord booklet = Record();
+        booklet.NetId = 739;
+        booklet.PersistentItemId = Guid.NewGuid();
+        booklet.PrefabName = "JobBooklet";
+        registry.Add(radio);
+        registry.Add(booklet);
+        registry.TryGet(739, out LostItemRecord storedBooklet);
+        Dictionary<ushort, AuthorityPlacement> live = new() { [42] = AuthorityPlacement.LostAndFound };
+
+        foreach (LostItemRecord entry in registry.GetAll())
+        {
+            bool present = live.TryGetValue(entry.NetId, out AuthorityPlacement placement);
+            if (LostItemEntryReconciler.Classify(present, present ? placement : null) ==
+                LostItemEntryStatus.ItemDestroyed)
+                registry.RemoveStale(entry.NetId, out _);
+        }
+
+        Assert.That(registry.GetForOwner(1), Has.Count.EqualTo(1));
+        Assert.That(registry.GetForOwner(1)[0].NetId, Is.EqualTo(42));
+        Assert.That(registry.TryGetByHandle(storedBooklet.Handle, out _), Is.False);
+    }
+
     private static LostItemRecord Record() => new()
     {
         PersistentItemId = Guid.Parse("11111111-1111-1111-1111-111111111111"),

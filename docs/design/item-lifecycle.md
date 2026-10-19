@@ -251,6 +251,27 @@ Retrieval materializes the same durable record into a requested valid inventory 
 runtime binding. A stale revision, full inventory, unknown handle, or failed materialization leaves
 the Lost-and-Found record intact.
 
+An entry only lives as long as its item. Job booklets are personal items and are collected like any
+other (a booklet retrieved from Lost and Found can still be handed in), but the job system owns
+them: when a job completes, expires or is abandoned the host destroys every booklet copy,
+including one stored in Lost and Found, and vanilla's job load destroys stored booklets whose job is
+gone. Destroying the item drops its authority record but not the entry. The host's periodic
+reconcile (`LostItemEntryReconciler.Classify`, unit tested in `Multiplayer.Core`) checks every
+entry against its item:
+
+| Item | Authority placement | Result |
+| --- | --- | --- |
+| present | Lost and Found | kept (re-projected inert if a load left it active) |
+| present | anything else | removed: another system moved it out (validator, booklet reprint) |
+| present | no record | kept until a record exists |
+| gone | any or none | removed: nothing is left to retrieve |
+
+A retrieval that finds the item gone (`missing-canonical-unity-item`) or out of Lost and Found
+removes the entry at once. Each removal pushes a fresh list to the owner and logs the entry. The
+save is written after a reconcile, so destroyed items are not saved, and a save record with no
+storage slot (`storageIndex` -1, written for destroyed items by earlier builds) is dropped at load
+because it can never bind.
+
 ## Cleanup and recovery precedence
 
 Cleanup is host-authoritative and ordered from strongest durable obligation to weakest disposable
