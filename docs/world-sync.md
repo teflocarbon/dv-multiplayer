@@ -273,7 +273,11 @@ Register: every deposit at a service-station register, the host's included, goes
 player within reach plus 1 m. `AddCash` moves what is still owed (or what the wallet has) from the
 wallet into the register and sends `SetFunds`; `Buy` needs units in the basket and enough deposited
 cash; `Cancel` cancels. Results go to players in range; rejections (`RejectFunds`,
-`RejectedNoItems`, `RejectGeneric`) to the sender. Registers' `OnEnable`/`OnDisable` run on the host
+`RejectedNoItems`, `RejectGeneric`) to the sender, carrying the server's deposited cash, which the
+sender keeps (`RejectedNoItems` used to set it to 0 there). The host's own Buy and Cancel run
+vanilla and are then sent to every player (`CashRegisterWithModulesPatch`); a Buy only when
+vanilla's `Buy` succeeded (a refused one used to empty the clients' registers too). Registers'
+`OnEnable`/`OnDisable` run on the host
 only, so a client loading or walking away doesn't cancel and refund the basket. Vanilla's
 walk-away refund check measures distance to the nearest player
 (`CashRegisterBaseReturnMoneyToPlayerCheckPatch`).
