@@ -98,3 +98,21 @@ public static class FlashlightItemSavePatch
         return false;
     }
 }
+
+/// <summary>
+/// Flashlights have unlimited battery: a flashlight's battery doesn't drain, and the first drain
+/// tops it back up, so one loaded from a save flat or low comes back on at full power. DV's
+/// BatteryConsumer drains every 0.1 s while the light is on; other items' batteries drain as usual.
+/// </summary>
+[HarmonyPatch(typeof(Battery), nameof(Battery.Drain))]
+public static class FlashlightBatteryDrainPatch
+{
+    private static bool Prefix(Battery __instance)
+    {
+        if (__instance.GetComponent<FlashlightItem>() == null)
+            return true;
+        if (__instance.CurrentPower < Battery.MAX_POWER)
+            __instance.Charge(Battery.MAX_POWER - __instance.CurrentPower);
+        return false;
+    }
+}

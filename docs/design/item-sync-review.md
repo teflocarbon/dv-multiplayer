@@ -268,7 +268,7 @@ The currently registered values are:
 |---|---|---|
 | Flashlight | `originalLightIntensity` | Server-authoritative. |
 | Flashlight | `originalBeamColour` | Server-authoritative, encoded as `uint`. |
-| Flashlight | `batteryPower` | Holder-reported: the holder's game drains and charges it. Sends at differences of at least 1, and at boundary values. |
+| Flashlight | `batteryPower` | Holder-reported. Sends at differences of at least 1, and at boundary values. The mod gives flashlights unlimited battery (`FlashlightBatteryDrainPatch`): no game drains one, and the first drain tops a flat or low one back to full, so this sends once after that and then stays put. |
 | Flashlight | `buttonState` | Client-changeable. |
 | Lantern | `wickSize` | Client-changeable. |
 | Lantern | `Ignited` | Client-changeable. |
