@@ -16,6 +16,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Protocol.Packets.Common.Train;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Train;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Trains;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Shared.Utils;
@@ -32,7 +33,7 @@ using UnityEngine;
 namespace Multiplayer.Server.Session;
 
 // NetworkServer's trains handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkServer
+public partial class NetworkServer : ITrainServer
 {
     private ulong hostControlOperationId;
 
@@ -144,7 +145,7 @@ public partial class NetworkServer
             DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
     }
 
-    internal void NoteUncouple(Coupler coupler, ChangeCause<UncoupleReason> cause)
+    public void NoteUncouple(Coupler coupler, ChangeCause<UncoupleReason> cause)
     {
         ushort netId = coupler?.train?.GetNetId() ?? 0;
         if (netId == 0 || pendingUncoupleCauses.Count >= MaxPendingUncoupleCauses)
@@ -441,7 +442,7 @@ public partial class NetworkServer
     private void OnServerboundCargoIgnitePacket(ServerboundCargoIgnitePacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player) && NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car))
-            global::Multiplayer.Shared.Trains.CargoFireSync.Server_Ignite(car, packet.Index, packet.Strength, packet.Explode, player.WorldPosition, player.Username);
+            global::Multiplayer.Server.Trains.CargoFireServer.Ignite(car, packet.Index, packet.Strength, packet.Explode, player.WorldPosition, player.Username);
     }
 
     private void OnCommonCouplerInteractionPacket(CommonCouplerInteractionPacket packet, ITransportPeer peer)
@@ -810,7 +811,7 @@ public partial class NetworkServer
             return;
         if (packet.Derail)
         {
-            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(DerailReason.CommsRadio, player)))
+            using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(DerailReason.CommsRadio, player)))
                 car.Derail();
             return;
         }
@@ -924,7 +925,7 @@ public partial class NetworkServer
         }
 
         ClientboundTrainTopologySnapshotPacket snapshot;
-        var uncoupleCause = TrainChangeCauses.Cause(
+        var uncoupleCause = PlayerChangeCauses.Cause(
             packet.ViaRemote ? UncoupleReason.Remote : UncoupleReason.PlayerCommand, player,
             $"{packet.Kind} command");
         using (TrainChangeCauses.Scope(uncoupleCause))
@@ -1039,12 +1040,12 @@ public partial class NetworkServer
         var garageRef = trainCar.GetComponent<HomeGarageReference>();
         if (garageRef != null && garageRef.garageCarSpawner != null)
         {
-            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.ReturnedToGarage, player)))
+            using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(CarRemovalReason.ReturnedToGarage, player)))
                 garageRef.garageCarSpawner.ReturnCarHome(trainCar);
         }
         else
         {
-            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.PlayerDeleted, player)))
+            using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(CarRemovalReason.PlayerDeleted, player)))
                 CarSpawner.Instance.DeleteCar(trainCar);
             UnusedTrainCarDeleter.Instance.ClearInvalidCarReferencesAfterManualDelete();
         }
@@ -1078,7 +1079,7 @@ public partial class NetworkServer
         }
 
         Log($"{player.Username} rerailed {networkedTrainCar.CurrentID}");
-        using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(UncoupleReason.CarRerailed, player)))
+        using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(UncoupleReason.CarRerailed, player)))
             trainCar.Rerail(networkedRailTrack.RailTrack, position, packet.Forward);
     }
 

@@ -254,9 +254,10 @@ decision changes (`Server_KeepCompressorSignal`).
   derailed car. Before, a rerailed car slid off at 1.5 m/s and was snapped back and flung, forever
   (playtest 2; see "What the code does").
 - Explosions are the host's: clients play the host's explosions but never apply explosion forces
-  to trains (`Shared/Trains/ExplosionPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
+  to trains (`Server/Trains/ExplosionServerPatch.cs`, `Client/Trains/ExplosionClientPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
 - Deleting a car steps any player on it off first, so players are no longer destroyed with it
-  (`Shared/Trains/CarDeletePlayerSafetyPatch.cs`).
+  (`Shared/Trains/CarDeletePlayerSafetyPatch.cs`); the items lying in it go to Lost and Found on the
+  host after that (`Server/Trains/CarDeleteLostAndFoundPatch.cs`).
 - Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`),
   a derail, a rerail (host or client-only) and a host move-to-track are the only things that clear
   a client's motion queues. `NetworkServer.SendTrainsetRelocation` has no caller, so the

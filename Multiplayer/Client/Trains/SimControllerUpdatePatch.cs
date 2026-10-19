@@ -2,11 +2,10 @@ using DV;
 using DV.Simulation.Cars;
 using DV.Utils;
 using HarmonyLib;
-using Multiplayer.Client.Trains;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Trains;
+namespace Multiplayer.Client.Trains;
 
 /// <summary>
 /// A client's car shows its simulation's outputs here, once a frame before its simulation

@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using HarmonyLib;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Players;
 using UnityEngine;
 
@@ -12,7 +11,8 @@ namespace Multiplayer.Shared.Trains;
 /// interior is destroyed. In multiplayer, cars are deleted under players by others: the host
 /// deleting or despawning a car a client is standing in left that client with no player object
 /// at all. Detach the local player (the same recovery vanilla uses) and any remote players'
-/// avatars before a car is deleted.
+/// avatars before a car is deleted. The items lying in it go to Lost and Found after that, on the
+/// host (Server/Trains/CarDeleteLostAndFoundPatch.cs).
 /// </summary>
 [HarmonyPatch(typeof(CarSpawner))]
 public static class CarDeletePlayerSafetyPatch
@@ -51,7 +51,5 @@ public static class CarDeletePlayerSafetyPatch
 
         foreach (NetworkedPlayer avatar in car.GetComponentsInChildren<NetworkedPlayer>(true))
             avatar.UpdateCar(0);
-
-        NetworkedLostAndFoundManager.CollectFromDeletedCar(car);
     }
 }

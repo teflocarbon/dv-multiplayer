@@ -317,7 +317,9 @@ at different times on each screen, each pushing and derailing its own copies of 
 Engine-failure explosions come from the loco simulation, which runs only on the host, so clients
 saw none.
 
-`Shared/Trains/ExplosionPatch.cs` makes the host decide. Three kinds (`ExplosionSync.Kind`):
+The host decides (`Server/Trains/ExplosionServerPatch.cs`), clients play it
+(`Client/Trains/ExplosionClientPatch.cs`), and `Shared/Trains/ExplosionPatch.cs` (`ExplosionSync`)
+is how both name an explosion. Three kinds (`ExplosionSync.Kind`):
 
 | Kind | Vanilla trigger |
 | --- | --- |
@@ -325,14 +327,14 @@ saw none.
 | `Resource` | `ResourceExplosionBase.ExplodeResource` |
 | `Signal` | `ExplosionActivationOnSignal.OnExplosionSignalChanged` reaching 1 (only sent once cars and jobs have loaded) |
 
-- Host: postfixes on all three call `ExplosionSync.HostExploded`, which finds the component's index
+- Host: postfixes on all three call `ExplosionServer.Exploded`, which finds the component's index
   among the car's components of that kind and broadcasts `ClientboundExplosionPacket` (car NetId,
   kind, index) to players at `ReadyForTrainSets` or later. The host's physics pushes and derails
   the trains; the result reaches clients through the train sync.
 - Client: all three are blocked unless the client is playing the host's explosion. When a client's
   own cargo countdown runs out it clears `aboutToExplode` and does nothing.
   `TrainCarExplosion.ApplyExplosionForceToTrains` never runs on a client.
-- `ExplosionSync.ClientPlay` runs the same component (index clamped): effects, sound, burnt-out
+- `ExplosionPlayback.Play` runs the same component (index clamped): effects, sound, burnt-out
   model and the push on the client's own player. If the car's interior isn't loaded it still
   switches to the exploded model (`TrainCarExplosion.UpdateModelToExploded`).
 
@@ -355,7 +357,9 @@ or flare, a burning ground tile, a random roll for self-ignition, being put out.
 on its own, so a car could burn on one screen only, and a client's burning car never exploded: its
 countdown is blocked, and the host's car wasn't burning.
 
-`Shared/Trains/CargoFirePatch.cs` (`CargoFireSync`) makes the host decide:
+The host decides: `Server/Trains/CargoFireServerPatch.cs` (`CargoFireServer`) sends and lights,
+`Client/Trains/CargoFireClientPatch.cs` (`CargoFirePlayback`) holds and forwards, and
+`Shared/Trains/CargoFirePatch.cs` (`CargoFireSync`) is how both name a fire:
 
 - Host: after each reaction's `Update`, if its state (burning, about to explode) changed since it
   was last sent, it sends `ClientboundCargoFirePacket` (car NetId, the reaction's index among the
