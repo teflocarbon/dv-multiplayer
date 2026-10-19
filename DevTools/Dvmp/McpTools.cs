@@ -19,7 +19,8 @@ public static class McpTools
     [Description("""
         Lists running Derail Valley processes that have the DVMP dev agent, with their
         multiplayer role (host/client/offline), scene, whether the world is loaded, fps,
-        and the local player's absolute position. Call this first.
+        and the local player's absolute position. Call this first. Also lists paired remote
+        games (target remote:NAME; see `dvmp remote` in DevTools/README.md) without contacting them.
         """)]
     public static async Task<string> Status(CancellationToken ct) =>
         Render(await Operations.StatusAsync(ct));
@@ -155,7 +156,7 @@ public static class McpTools
         """)]
     public static async Task<string> Eval(
         [Description("C# expression, statement body, coroutine body, or Probe class.")] string code,
-        [Description("host, client, all, or a pid. Default all.")] string target = "all",
+        [Description("host, client, all, a pid, or remote:NAME (a paired game on someone else's PC; never included in all). Default all.")] string target = "all",
         [Description("auto (default), expression, body, coroutine, or class.")] string mode = "auto",
         [Description("Extra using directives, e.g. \"using DV.Logic.Job;\".")] string? usings = null,
         [Description("Optional string arguments, available as ctx.Args.")] Dictionary<string, string>? args = null,
@@ -173,7 +174,7 @@ public static class McpTools
         train, is the UI open, did the car derail).
         """)]
     public static async Task<CallToolResult> Screenshot(
-        [Description("host, client, all, or a pid. Default all.")] string target = "all",
+        [Description("host, client, all, a pid, or remote:NAME (a paired game on someone else's PC; never included in all). Default all.")] string target = "all",
         [Description("Downscale to at most this width in pixels. Default 1024.")] int maxWidth = 1024,
         CancellationToken ct = default)
     {
@@ -206,7 +207,7 @@ public static class McpTools
         previous dvmp_logs call for that process.
         """)]
     public static async Task<string> Logs(
-        [Description("host, client, all, or a pid. Default all.")] string target = "all",
+        [Description("host, client, all, a pid, or remote:NAME (a paired game on someone else's PC; never included in all). Default all.")] string target = "all",
         [Description("log, warning, error, or exception. Default warning.")] string minLevel = "warning",
         [Description("Only entries whose message contains this text (case-insensitive).")] string? contains = null,
         [Description("Maximum entries per process (newest kept). Default 100.")] int max = 100,

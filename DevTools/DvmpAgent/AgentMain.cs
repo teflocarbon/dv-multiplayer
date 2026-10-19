@@ -26,12 +26,14 @@ public static class AgentMain
             GameObject host = new("[DvmpDevAgent]");
             UnityEngine.Object.DontDestroyOnLoad(host);
             host.AddComponent<MainThread>();
+            host.AddComponent<RemoteIndicator>();
             HarnessMode.InstallIfRequested(host);
 
             Server = new AgentServer();
             Server.Start();
             Discovery.Write(Server.Port, Server.Token);
             Application.quitting += Shutdown;
+            modEntry.OnGUI = RemoteUi.Draw;
 
             modEntry.Logger.Log($"DVMP dev agent {Version} listening on 127.0.0.1:{Server.Port}");
             return true;
@@ -45,6 +47,7 @@ public static class AgentMain
 
     private static void Shutdown()
     {
+        try { RemoteAccess.Stop("the game closed"); } catch { }
         try { Server?.Stop(); } catch { }
         Discovery.Delete();
     }

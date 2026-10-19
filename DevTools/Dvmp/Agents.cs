@@ -8,9 +8,11 @@ namespace Dvmp;
 
 internal sealed record AgentInfo(int Pid, int Port, string Token, string? AgentVersion, DateTime StartedUtc, string[]? Args);
 
-internal sealed class Agent(AgentInfo info)
+internal sealed class Agent(AgentInfo info, RemoteInfo? remote = null)
 {
     public AgentInfo Info { get; } = info;
+    /// <summary>Set for a game on someone else's PC (see <see cref="Remotes"/>); its pid means nothing here.</summary>
+    public RemoteInfo? Remote { get; } = remote;
     public JsonObject? Status { get; set; }
     public string? StatusError { get; set; }
 
@@ -18,7 +20,8 @@ internal sealed class Agent(AgentInfo info)
     public string Role => Status?["role"]?.GetValue<string>() ?? "unknown";
     /// <summary>The session the game was launched into (see <see cref="Sessions"/>).</summary>
     public string Session => Sessions.Of(Info.Args);
-    public string Label => Session == Sessions.Default ? $"{Role}#{Pid}" : $"{Role}#{Pid}@{Session}";
+    public string Label => Remote != null ? $"{Role}@{Remotes.TargetPrefix}{Remote.Name}"
+        : Session == Sessions.Default ? $"{Role}#{Pid}" : $"{Role}#{Pid}@{Session}";
 }
 
 internal sealed class AgentException(string message) : Exception(message);
@@ -60,10 +63,12 @@ internal static class Agents
         return agents.OrderBy(a => a.Role == "host" ? 0 : a.Role == "client" ? 1 : 2).ThenBy(a => a.Pid).ToList();
     }
 
-    /// <summary>Resolves "host", "client", "all", or a pid into concrete agents.</summary>
+    /// <summary>Resolves "host", "client", "all", a pid, or "remote:NAME" into concrete agents.</summary>
     public static async Task<List<Agent>> ResolveAsync(string? target, CancellationToken ct = default)
     {
         target = string.IsNullOrWhiteSpace(target) ? "all" : target.Trim().ToLowerInvariant();
+        if (target.StartsWith(Remotes.TargetPrefix, StringComparison.Ordinal))
+            return new List<Agent> { await RemoteAsync(target[Remotes.TargetPrefix.Length..], ct) };
         List<Agent> all = await DiscoverAsync(ct);
         if (all.Count == 0)
             throw new AgentException(Sessions.IsDefault
@@ -83,25 +88,38 @@ internal static class Agents
         return selected;
     }
 
+    /// <summary>A paired remote game, with its status (which also checks the session code).</summary>
+    private static async Task<Agent> RemoteAsync(string name, CancellationToken ct)
+    {
+        RemoteInfo remote = Remotes.Load(name);
+        Agent agent = new(new AgentInfo(0, remote.Port, string.Empty, null, remote.PairedUtc, null), remote);
+        agent.Status = await CallAsync(agent, "/v1/status", new JsonObject(), TimeSpan.FromSeconds(10), ct);
+        return agent;
+    }
+
     public static async Task<JsonObject> CallAsync(Agent agent, string path, JsonObject body, TimeSpan timeout, CancellationToken ct = default)
     {
         using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
-        using HttpRequestMessage request = new(HttpMethod.Post, $"http://127.0.0.1:{agent.Info.Port}{path}")
+        string host = agent.Remote?.Address ?? "127.0.0.1";
+        using HttpRequestMessage request = new(HttpMethod.Post, $"http://{host}:{agent.Info.Port}{path}")
         {
             Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json")
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", agent.Info.Token);
+        if (agent.Remote != null) Remotes.Authorize(request, agent.Remote);
+        else request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", agent.Info.Token);
 
         HttpResponseMessage response;
         try { response = await http.SendAsync(request, cts.Token); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new AgentException($"{agent.Label}: no response within {timeout.TotalSeconds:0.#}s");
+            throw new AgentException($"{agent.Label}: no response within {timeout.TotalSeconds:0.#}s" +
+                                     (agent.Remote != null ? "; " + Remotes.Hint(agent.Remote) : string.Empty));
         }
         catch (HttpRequestException e)
         {
-            throw new AgentException($"{agent.Label}: {e.Message}");
+            throw new AgentException($"{agent.Label}: {e.Message}" +
+                                     (agent.Remote != null ? "; " + Remotes.Hint(agent.Remote) : string.Empty));
         }
 
         string text = await response.Content.ReadAsStringAsync(ct);
