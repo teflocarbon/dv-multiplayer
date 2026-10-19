@@ -35,6 +35,8 @@ namespace Multiplayer.Server.Session;
 // NetworkServer's trains handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkServer : ITrainServer
 {
+    // The checks every player's control change passes (Core/Trains/ControlCommitEnvelope.cs).
+    private readonly ControlCommitEnvelope trainControlEnvelope = new();
     private ulong hostControlOperationId;
 
     partial void RegisterLocalTrains()
@@ -735,18 +737,17 @@ public partial class NetworkServer : ITrainServer
     {
         if (player == null || car?.TrainCar == null)
             return TrainControlCommitResult.UnknownControl;
-        if (!skipRangeCheck &&
-            (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
-            return TrainControlCommitResult.OutOfRange;
-        if (requireLease && !car.Server().MayWritePorts(player, portIds))
-            return TrainControlCommitResult.AuthorityDenied;
-        var key = (player.PlayerId, car.NetId);
-        bool orderedOperationStream = operationId != 0 &&
-            (!lastTrainControlOperation.TryGetValue(key, out ulong previous) || operationId > previous);
-        if (expectedRevision != car.ControlRevision && !orderedOperationStream)
-            return TrainControlCommitResult.StaleRevision;
-        lastTrainControlOperation[key] = operationId;
-        return TrainControlCommitResult.Accepted;
+        bool inRange = skipRangeCheck ||
+            (player.WorldPosition - car.transform.position).sqrMagnitude <= car.CarLengthSq;
+        bool mayWrite = !requireLease || car.Server().MayWritePorts(player, portIds);
+        return trainControlEnvelope.Validate(player.PlayerId, car.NetId, inRange, mayWrite,
+                expectedRevision, car.ControlRevision, operationId) switch
+        {
+            ControlEnvelopeResult.OutOfRange => TrainControlCommitResult.OutOfRange,
+            ControlEnvelopeResult.AuthorityDenied => TrainControlCommitResult.AuthorityDenied,
+            ControlEnvelopeResult.StaleRevision => TrainControlCommitResult.StaleRevision,
+            _ => TrainControlCommitResult.Accepted,
+        };
     }
 
     private static ClientboundTrainControlCommitPacket ControlCommit(NetworkedTrainCar car,

@@ -136,8 +136,6 @@ public partial class NetworkServer : NetworkManager
     private uint lastBroadcastTrainTopologyRevision;
     private bool trainTopologyCommitPending;
     private readonly HashSet<ushort> pendingTrainTopologyControlCars = new();
-    private readonly Dictionary<(byte PlayerId, ushort CarNetId), ulong>
-        lastTrainControlOperation = new();
     private uint nextItemRecallOperationId;
     private readonly Dictionary<uint, PendingItemRecall> pendingItemRecalls = new();
     private readonly Dictionary<ushort, uint> pendingItemRecallByItem = new();
@@ -487,9 +485,7 @@ public partial class NetworkServer : NetworkManager
         RunDisconnectStep("held items", () => ServerItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player));
         RunDisconnectStep("train controls", () =>
         {
-            foreach (var key in lastTrainControlOperation.Keys
-                         .Where(value => value.PlayerId == player.PlayerId).ToArray())
-                lastTrainControlOperation.Remove(key);
+            trainControlEnvelope.Forget(player.PlayerId);
         });
 
         if (WorldStreamingInit.isLoaded)

@@ -435,7 +435,10 @@ topology observations). The car makes it from the server (`ITrainServer.CreateCa
 `TrainRoles.Server`) and calls it where that code always ran: the end of `Start`, `OnDisable`, and
 each tick after its own sends (`ITrainCarServerPart`). Server code reaches it as `car.Server()`.
 The trainset motion the host samples is `NetworkTrainsetWatcher` (Server/Trains); clients follow it
-in `TrainsetPhysicsFollower` (Client/Trains).
+in `TrainsetPhysicsFollower` (Client/Trains). The checks a player's control change passes before
+the host applies it (in range, nobody else's lease, not stale unless it's the next of that player's
+ordered operations on the car) are `ControlCommitEnvelope`, in Core, which the server's
+`ValidateControlEnvelope` maps to the commit's result.
 
 The local player's half is `NetworkedTrainCarClient` (Client/Trains), on every game someone plays
 at, the host's too: hooking the cab and external controls for leases, the player's control
