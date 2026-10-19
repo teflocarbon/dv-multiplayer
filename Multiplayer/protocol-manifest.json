@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "0.1.16.14+d3d080259d4b29a2ef65cb302636166ad7dfaabd",
-  "Fingerprint": "246f6b444125a0f0595f9755059becc07b54fce53d4660e23d2f4c99610e7082",
+  "BuildVersion": "2026.10.19.1+50c59af83ae3ed3dd6cb28557ded6c4a5039b7a4",
+  "Fingerprint": "374ba894355d1c9881683ec4e84c189f4bd4df49ebdbf47715d7a79c7dcaef1c",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -265,6 +265,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "3CDBC69A829FB3EE",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundCargoFirePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "3DE0E04500B75F76",
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket",
       "Direction": "Clientbound",
@@ -359,6 +368,15 @@
       "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundTrainControlCommitPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "4BDFFD9DCF1F9C44",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundSandboxCarDamagePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Train",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -976,6 +994,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "E247268AB7438DDC",
+      "TypeName": "Multiplayer.Networking.Packets.Serverbound.Train.ServerboundCargoIgnitePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "E24975144BFB996D",
       "TypeName": "Multiplayer.Networking.Packets.Serverbound.ServerboundMoneyItemDepositPacket",
       "Direction": "Serverbound",
@@ -1292,7 +1319,8 @@
       "AuthoredProjectionBinding": 12,
       "PersistenceRestore": 13,
       "SpatialSettlement": 14,
-      "Convergence": 15
+      "Convergence": 15,
+      "ClientInteraction": 16
     },
     "Multiplayer.Networking.Data.Items.ItemUpdateData+ItemUpdateType": {
       "None": 0,
