@@ -31,6 +31,7 @@ LOG_DIR=${LOG_DIR:-$(mktemp -d)}; mkdir -p "$LOG_DIR"
 runs=( # name | scenario | variables | pair kind it prefers (default player)
   "train-items|train-items|"
   "train-items-host-throw-moving|train-items|WHO=host MODE=throw WHEN=moving"
+  "host-throw-settles|host-throw-settles|"
   "item-release-regrab|item-release|"
   "item-release-regrab-late|item-release|MODE=regrab-late"
   "item-release-throw-flatcar|item-release|MODE=throw-flatcar"
