@@ -429,13 +429,16 @@ radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in i
 The client/server split ([code-layout.md](code-layout.md)) puts each role's train code in its own
 folder. `NetworkedTrainCar` (Shared) is the car: its identity and lookups, the port and fuse map,
 dirty tracking and the tick. On the server it has a server half, `NetworkedTrainCarServer`
-(Server/Trains): control leases, coupler-interaction locks, validating players' changes, the
+(Server/Trains): control leases (the rules are `ControlLeases`, in Core), coupler-interaction locks, validating players' changes, the
 host's own control commits and everything the car sends players (brake state, cargo, health,
 topology observations). The car makes it from the server (`ITrainServer.CreateCarPart`, reached as
 `TrainRoles.Server`) and calls it where that code always ran: the end of `Start`, `OnDisable`, and
 each tick after its own sends (`ITrainCarServerPart`). Server code reaches it as `car.Server()`.
 The trainset motion the host samples is `NetworkTrainsetWatcher` (Server/Trains); clients follow it
-in `TrainsetPhysicsFollower` (Client/Trains).
+in `TrainsetPhysicsFollower` (Client/Trains). The checks a player's control change passes before
+the host applies it (in range, nobody else's lease, not stale unless it's the next of that player's
+ordered operations on the car) are `ControlCommitEnvelope`, in Core, which the server's
+`ValidateControlEnvelope` maps to the commit's result.
 
 The local player's half is `NetworkedTrainCarClient` (Client/Trains), on every game someone plays
 at, the host's too: hooking the cab and external controls for leases, the player's control
