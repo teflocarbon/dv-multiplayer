@@ -51,6 +51,17 @@ doc when you change how a system syncs.
 `beta` is protected: work on a branch off `beta` and merge through a pull request (merge commits
 only, signed commits). See `docs/development.md`.
 
+**Work in your own worktree, never in the main checkout.** The main checkout (the repository folder
+itself, not `.claude/worktrees/...`) is the user's: don't switch its branch, commit, stash, pull or
+build in it unless the user asks you to. Do your work in your session's worktree (or create one with
+`git worktree add`), and leave other sessions' worktrees alone.
+
+**Name your branch for what it does.** A session's worktree branch starts with a generated name
+(`claude/<adjective>-<name>-<hex>`); before your first commit, rename it with
+`git branch -m <area>/<what>`, e.g. `trains/cab-hook-timeout`, `items/fall-rescue`,
+`docs/three-stages`, `fix/derail-judder`. Base it on the branch the work targets (the integration
+branch you were told about, else `beta`).
+
 ## Versions
 
 Calendar versions, `YYYY.M.D.N`: a Release build stamps the version itself and writes it into
