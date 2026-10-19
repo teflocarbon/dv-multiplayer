@@ -4,13 +4,18 @@
 # aimed at where the car had been: the rigidbody queue at its derailed pose, the bogie queues at
 # samples from before the derail. The host derails a car beside the client and shoves it off the
 # track; once it's at rest the car is rerailed SHIFT metres along its track, by the client through
-# the host (as the comms radio does; WHO=client) or by the host itself (WHO=host). For DURATION seconds after
+# the host (as the comms radio does; WHO=client), by the host itself (WHO=host), or by the host's
+# player through the radio's request, handled in-process (WHO=host-radio). For DURATION seconds after
 # that the client's car must stay within MAX_OFF metres of the host's and not move.
 #   LIVERY (default LocoDE2), WHO (client), SHIFT (12), DURATION (8), MAX_OFF (0.5)
 # Exit code 0 = pass. Needs a running pair (dvmp up, or dvmp up --dedicated).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
+# A failed dvmp call prints its output (the eval's compile error or exception) instead of the run
+# stopping silently under set -e with it captured in a variable or sent to /dev/null.
+dvmp_bin=$D; D=dvmp_checked
+dvmp_checked() { local out; if ! out=$("$dvmp_bin" "$@"); then echo "FAIL: dvmp ${*:1:3} failed: ${out:-no output}" >&2; return 1; fi; printf '%s\n' "$out"; }
 P=DevTools/Scenarios/rerail
 LIVERY=${LIVERY:-LocoDE2}; WHO=${WHO:-client}; SHIFT=${SHIFT:-12}; DURATION=${DURATION:-8}; MAX_OFF=${MAX_OFF:-0.5}
 U="using Multiplayer.Client.Session; using Multiplayer.Server.Coverage; using Multiplayer.Server.Dedicated; using Multiplayer.Shared.Session; using Multiplayer.Client.Trains; using Multiplayer.Server.Trains; using Multiplayer.Shared.Trains; using Multiplayer.Server.Items; using Multiplayer.Shared.Items; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World;"
@@ -39,11 +44,12 @@ for t in host client; do
 done
 sleep 0.5
 F='float A(string k) => float.Parse(ctx.Args[k], System.Globalization.CultureInfo.InvariantCulture); var car = Trains.Find(ctx.Args["car"]); var p = new Vector3(A("x"), A("y"), A("z")); var f = new Vector3(A("fx"), A("fy"), A("fz"));'
-if [ "$WHO" = client ]; then
-  # What the comms radio's rerail does on a client (RerailControllerPatch).
-  $D eval -t client -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedTrainCar.TryGetFromTrainCar(car, out var n); NetworkLifecycle.Instance.Client.SendTrainRerailRequest(n.NetId, ushort.Parse(ctx.Args["track"]), p, f); return 0;' >/dev/null
+if [ "$WHO" = client ] || [ "$WHO" = host-radio ]; then
+  # What the comms radio's rerail does (RerailControllerPatch): host-radio is the host's own player,
+  # whose request is handled in-process.
+  $D eval -t $( [ "$WHO" = client ] && echo client || echo host ) -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedTrainCar.TryGetFromTrainCar(car, out var n); NetworkLifecycle.Instance.Client.SendTrainRerailRequest(n.NetId, ushort.Parse(ctx.Args["track"]), p, f); return 0;' >/dev/null
 else
-  $D eval -t host -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedRailTrack.TryGet(ushort.Parse(ctx.Args["track"]), out var t); car.Rerail(t.RailTrack, p + WorldMover.currentMove, f); return 0;' >/dev/null
+  $D eval -t host -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedRailTrack.TryGet(ushort.Parse(ctx.Args["track"]), out NetworkedRailTrack t); car.Rerail(t.RailTrack, p + WorldMover.currentMove, f); return 0;' >/dev/null
 fi
 wait
 

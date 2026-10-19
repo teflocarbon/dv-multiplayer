@@ -416,6 +416,13 @@ range check against the host player's own transform rather than its last positio
 keep their order with the commits: a release flushes the ports, committing them directly, before
 it's queued, and the host's commits take no lease, so a grant needs no order with them.
 
+The comms radio's car delete, rerail and work-train summon are requests too, the host player's
+handled in-process like the lever leases (`HandleTrainDelete`, `HandleTrainRerail`,
+`HandleWorkTrain`), validated like anyone's; the work train's range check reads the host player's
+own position too. Every work-train request is answered (`SpawnResponse`, "in use" for a refusal with
+no reason of its own); the host player's answer goes back through its client, which holds the
+radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in its own world.
+
 ## Stable identities
 
 ### Car identity
