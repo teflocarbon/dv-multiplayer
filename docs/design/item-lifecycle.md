@@ -461,7 +461,7 @@ carries a change, never on interest creates or convergence, and drops any cause 
 its own update. Corrections carry one too: a refused change (`HostCorrection`, "your change was
 refused: stale-authority-revision"), a cancelled recall, a claim slot move and a fall rescue.
 
-The client logs each cause it receives (`ItemChangeLog.OnClientSnapshot`) in the same format and
+The client logs each cause it receives (`ItemChangeCauses.OnClientSnapshot`) in the same format and
 keeps it on the item (`NetworkedItem.LastMoveCause`, `LastRemovalCause`, shown in the entity debug
 state). Changes to the local player's own or held items go to the log; everyone else's, and items
 that only left the player's interest (`LeftInterest`), go to the debug log.

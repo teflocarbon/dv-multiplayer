@@ -1,5 +1,5 @@
 using DV.ServicePenalty.UI;
-using Multiplayer.Server.Items;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Session;
@@ -209,7 +209,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     public override void Activate(IDisplayScreen previousScreen)
     {
         Previous = previousScreen;
-        NetworkedLostAndFoundManager.ClientListChanged += OnListChanged;
+        LostAndFoundList.Changed += OnListChanged;
         if (NetworkLifecycle.Instance.Client != null)
             NetworkLifecycle.Instance.Client.LostItemRetrieveCompleted += OnRetrieveCompleted;
         loading = true;
@@ -220,7 +220,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
 
     public override void Disable()
     {
-        NetworkedLostAndFoundManager.ClientListChanged -= OnListChanged;
+        LostAndFoundList.Changed -= OnListChanged;
         if (NetworkLifecycle.Instance?.Client != null)
             NetworkLifecycle.Instance.Client.LostItemRetrieveCompleted -= OnRetrieveCompleted;
         Clear();
@@ -276,7 +276,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     {
         uint selectedHandle = items.Count > 0 && Selected < items.Count ? items[Selected].Handle : 0;
         items.Clear();
-        items.AddRange(NetworkedLostAndFoundManager.ClientItems.OrderBy(item => item.LostUtcTicks));
+        items.AddRange(LostAndFoundList.Items.OrderBy(item => item.LostUtcTicks));
         int preserved = selectedHandle == 0 ? -1 : items.FindIndex(item => item.Handle == selectedHandle);
         Selected = preserved >= 0 ? preserved : Mathf.Clamp(Selected, 0, Math.Max(0, items.Count - 1));
         EnsureVisible();

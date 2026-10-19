@@ -297,9 +297,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private ChangeCause<ItemRemovalReason> UnexplainedRemoval()
     {
         string parent = transform.parent != null ? transform.parent.name : "none";
-        string callers = ItemChangeLog.Callers(typeof(NetworkedItem));
+        string callers = ItemChangeCauses.Callers(typeof(NetworkedItem));
         AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record record);
-        return ItemChangeLog.Removal(ItemRemovalReason.DestroyedByGame, detail: ItemChangeLog.Detail(
+        return ItemChangeLog.Removal(ItemRemovalReason.DestroyedByGame, detail: ItemChangeCauses.Detail(
             "no cause recorded",
             record != null ? "was " + record.Placement + (record.PlacementPlayerId != 0 ? " of P" + record.PlacementPlayerId : "") : null,
             "parent " + parent,

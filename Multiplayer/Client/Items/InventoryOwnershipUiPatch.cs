@@ -1,6 +1,5 @@
 using DV.UI.Inventory;
 using HarmonyLib;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
 using Multiplayer.Core.Items;
@@ -35,7 +34,7 @@ internal static class InventoryOwnershipUiPatch
             : null;
         ColdContainerItemProxy coldProxy = data?.Spec as ColdContainerItemProxy;
         InventoryItemPresentation presentation = InventoryIntegration.Project(item,
-            item != null && NetworkedLostAndFoundManager.Contains(item.NetId));
+            item != null && ItemServer.Current?.IsInLostAndFound(item.NetId) == true);
         ForeignItemInventoryMarker marker = __instance.itemImage.gameObject.GetComponent<ForeignItemInventoryMarker>() ??
             __instance.itemImage.gameObject.AddComponent<ForeignItemInventoryMarker>();
         bool foreign = coldProxy?.ForeignOwned == true || presentation.ShowForeignStyle;

@@ -1,7 +1,6 @@
 using DV.CabControls;
 using DV.ThingTypes;
 using HarmonyLib;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Shared.Items;
@@ -18,8 +17,8 @@ internal static class MultiplayerStoragePatchGuard
             networked == null || networked.NetId == 0)
             return false;
         if (NetworkLifecycle.Instance.IsHost() &&
-            AuthoritativeItemRegistry.TryGet(networked.NetId, out AuthoritativeItemRegistry.Record authority))
-            return authority.PersistentOwnerPlayerId != 0;
+            ItemServer.Current?.TryGetPersistentOwner(networked.NetId, out byte ownerPlayerId) == true)
+            return ownerPlayerId != 0;
         return networked.PersistentOwnerPlayerId != 0;
     }
 }

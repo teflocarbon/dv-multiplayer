@@ -162,8 +162,17 @@ internal static partial class WorldItemPersistenceManager
             !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
             return;
 
-        ReplaceAuthoredTombstone(WorldItemPersistenceRecord.CreateTombstone(record).ToJson());
+        ReplaceAuthoredTombstone(CreateTombstone(record).ToJson());
     }
+
+    private static WorldItemPersistenceRecord CreateTombstone(AuthoritativeItemRegistry.Record record) =>
+        new()
+        {
+            AuthoredItemKey = record.AuthoredItemKey ?? string.Empty,
+            PrefabName = record.PrefabName ?? string.Empty,
+            Revision = record.Revision == uint.MaxValue ? record.Revision : record.Revision + 1,
+            Placement = ItemPlacementKind.Destroyed
+        };
 
     private static void ReplaceAuthoredTombstone(JObject tombstone)
     {
