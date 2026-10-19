@@ -8,8 +8,9 @@
 #  2. The host uncouples them by hand and couples them again (manual-uncouple's steps), then loosens
 #     and tightens the screw twice, and the mod's screw postfix runs on the other car's chain (the
 #     Start path).
-#  3. On both games: coupled, in one trainset, the chain tight, the same chain states, and every
-#     chain's screw button and knob taking input; on the host, neither car's end marked in use.
+#  3. On both games: coupled, in one trainset, the chain tight, the same chain states, the hooked
+#     chain's screw button taking input and each knob taking input as vanilla has it in its state
+#     (off in Attached_Tight and Other_Attached*); on the host, neither car's end marked in use.
 #   WAGON=livery (default BoxcarBrown)  PAUSE=seconds between hand steps (default 1)
 # A player host only: a dedicated host has no player to work the chain.
 # Exit code 0 = pass. Needs a running pair (dvmp up).
@@ -55,16 +56,16 @@ u=$($D eval -t host -m coroutine --timeout 90 $A -f $P/screw.cs)
 echo "   $(echo "$u" | field chain) chain: $(echo "$u" | field steps)"
 sleep 3
 
-h=$($D eval -t host -m body $A -f $P/state.cs); c=$($D eval -t client -m body $A -f $P/state.cs)
+h=$($D eval -t host -m coroutine --timeout 30 $A -f $P/state.cs); c=$($D eval -t client -m coroutine --timeout 30 $A -f $P/state.cs)
 for who in host client; do
   r=$([ $who = host ] && echo "$h" || echo "$c")
-  echo "   $who: coupled $(echo "$r" | field coupled), one set $(echo "$r" | field sameSet), chain $(echo "$r" | field chain), screw/knob $(echo "$r" | field allowed) (S/K: takes input), $(echo "$r" | field inUse)"
+  echo "   $who: coupled $(echo "$r" | field coupled), one set $(echo "$r" | field sameSet), chain $(echo "$r" | field chain) ($(echo "$r" | field states)), screw/knob $(echo "$r" | field allowed) (S/K: takes input), $(echo "$r" | field inUse)"
 done
 for who in host client; do
   r=$([ $who = host ] && echo "$h" || echo "$c")
   [ "$(echo "$r" | field coupled)" = true ] && [ "$(echo "$r" | field sameSet)" = true ] || fail "the cars aren't coupled on the $who"
   [ "$(echo "$r" | field tight)" = true ] || fail "the chain isn't tight on the $who ($(echo "$r" | field chain))"
-  case "$(echo "$r" | field allowed)" in *s*|*k*) fail "a chain's screw button or knob doesn't take input on the $who ($(echo "$r" | field allowed))";; esac
+  p=$(echo "$r" | field problems); [ -z "$p" ] || fail "on the $who: $p"
 done
 [ "$(echo "$h" | field chain)" = "$(echo "$c" | field chain)" ] || fail "the chain differs: host $(echo "$h" | field chain), client $(echo "$c" | field chain)"
 case "$(echo "$h" | field inUse)" in *"in use"*) fail "the host's server still has a coupler marked in use ($(echo "$h" | field inUse))";; esac
