@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026.10.19.3 (beta)
+
+A playtest build: one fix, unlimited flashlight batteries, and logging to explain the next "train came apart". Every player and the server need this version. None of it has been tested in a game yet.
+
+### VR
+- Telekinesis on levers and dials keeps working after you step from a loco into its tender while holding one. It used to stay broken until a restart.
+
+### Items
+- Flashlights have unlimited battery, and a flat one is topped back up to full. Other items' batteries drain as before.
+
+### Logging
+- The host logs every coupler command it refuses (with the reason, and for "out of range" the distance it measured) and every uncouple.
+- Uncouples, derails, removed cars and every item move, change of hands or removal record why they happened and who did it, on the host and on clients.
+- With the dev tools mod installed, the debug system runs in release builds too.
+
 ## 2026.10.19.2 (beta)
 
 Fixes from the third playtest, the first on a dedicated server with three players. Every player and the server need this version. None of these fixes has been tested in a game yet.

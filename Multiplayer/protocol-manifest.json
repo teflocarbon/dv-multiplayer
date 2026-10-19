@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.19-dev.1936+8b8cedd2e0e2d3891419bfd8e0dcec3ee5aaaa64",
-  "Fingerprint": "3e38f3630a2bc6e747b81fd98c9e459531fec6a363049d05781763f2bacbcc2d",
+  "BuildVersion": "2026.10.19.3+a46e7bac3011fafe3c41692a48c35d2d28dc5844",
+  "Fingerprint": "1700d99443a3a873a59e2c500eb8146852a5e82296f751a38b07ac91598dda75",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -443,6 +443,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "59AE27CF965C9F1A",
+      "TypeName": "Multiplayer.Networking.Packets.Clientbound.Train.ClientboundTrainDerailCausePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "5A8D97DE5CC4AD96",
@@ -1294,6 +1303,26 @@
       "DestroyedFromInventory": 9,
       "LeftInterest": 10
     },
+    "Multiplayer.Core.Trains.CarRemovalReason": {
+      "Unknown": 0,
+      "PlayerDeleted": 1,
+      "ReturnedToGarage": 2,
+      "Despawned": 3,
+      "JobGeneration": 4,
+      "LocoRestoration": 5,
+      "SaveLoad": 6
+    },
+    "Multiplayer.Core.Trains.DerailReason": {
+      "Unknown": 0,
+      "Stress": 1,
+      "Explosion": 2,
+      "EndOfTrack": 3,
+      "MissingTrack": 4,
+      "LoadedDerailed": 5,
+      "SafetyDerailer": 6,
+      "CommsRadio": 7,
+      "FollowingHost": 8
+    },
     "Multiplayer.Core.Trains.TrainChainState": {
       "Parked": 0,
       "Dangling": 1,
@@ -1338,6 +1367,18 @@
       "AuthorityDenied": 11,
       "OutOfRange": 12,
       "BaselineChanged": 13
+    },
+    "Multiplayer.Core.Trains.UncoupleReason": {
+      "Unknown": 0,
+      "PlayerCommand": 1,
+      "Remote": 2,
+      "CarRemoved": 3,
+      "CarRerailed": 4,
+      "JointBroke": 5,
+      "JointBrokeDerailed": 6,
+      "HostRolledBack": 7,
+      "CoupleRefused": 8,
+      "FollowingHost": 9
     },
     "Multiplayer.Networking.Data.Items.ItemInventoryClaimFlags": {
       "None": 0,
