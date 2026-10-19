@@ -76,7 +76,7 @@ public static class NetworkedCarSpawner
 
             // Update speed queue data
             for (int i = 0; i < cars.Length; i++)
-                cars[i].Client_trainSpeedQueue.ReceiveSnapshot(parts[i].Speed, NetworkLifecycle.Instance.Tick);
+                cars[i].Client()?.trainSpeedQueue?.ReceiveSnapshot(parts[i].Speed, NetworkLifecycle.Instance.Tick);
 
             return true;
         }
@@ -206,7 +206,7 @@ public static class NetworkedCarSpawner
             HandleCoupling(parts[index].FrontCoupling, cars[index].TrainCar.frontCoupler);
             HandleCoupling(parts[index].RearCoupling, cars[index].TrainCar.rearCoupler);
             SetBrakeParams(parts[index].BrakeData, cars[index].TrainCar);
-            cars[index].Client_ResetRelocationBaseline(parts[index].Speed, hostTick);
+            cars[index].Client()?.ResetRelocationBaseline(parts[index].Speed, hostTick);
             cars[index].TrainCar.interior?.GetComponent<TrainCarInteriorPhysics>()?.SyncPosition();
         }
         Physics.SyncTransforms();

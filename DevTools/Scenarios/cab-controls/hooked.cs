@@ -6,6 +6,6 @@ var car = Trains.Find(ctx.Args["loco"]);
 var ntc = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>();
 if (car.loadedInterior == null) return new { feeders = 0, unhooked = new List<string> { "no interior loaded" } };
 var feeders = car.loadedInterior.GetComponentsInChildren<DV.Simulation.Ports.InteractablePortFeeder>(true);
-var unhooked = feeders.Where(f => !ntc.portNetIdToControl.ContainsKey(Multiplayer.Shared.Trains.NetworkedTrainCar.GetPortNetId(f.portId)))
+var unhooked = feeders.Where(f => !Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).portNetIdToControl.ContainsKey(Multiplayer.Shared.Trains.NetworkedTrainCar.GetPortNetId(f.portId)))
     .Select(f => f.name + " (" + f.portId + ")").ToList();
 return new { feeders = feeders.Length, unhooked };

@@ -14,6 +14,6 @@ return new
 {
     holder,
     value = ntc.simulationFlow.TryGetPort(port, out var p) ? Math.Round(p.Value, 3) : -1,
-    blocked = ntc.portNetIdToBlockState.TryGetValue(netId, out bool b) && b,
+    blocked = Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).portNetIdToBlockState.TryGetValue(netId, out bool b) && b,
     leases = Multiplayer.Server.Trains.NetworkedTrainCarServer.Of(ntc).LeaseCount
 };

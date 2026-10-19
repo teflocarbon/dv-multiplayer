@@ -19,10 +19,10 @@ float value = ctx.Args.TryGetValue("value", out var v) && !string.IsNullOrEmpty(
     : port.Value < 0.5f ? 1f : 0f;
 float delay = ctx.Args.TryGetValue("delay", out var d) && !string.IsNullOrEmpty(d) ? float.Parse(d, System.Globalization.CultureInfo.InvariantCulture) : 0.3f;
 
-float before = ntc.client_hostPortReceivedAt.TryGetValue(portNetId, out float t) ? t : 0f;
+float before = Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).hostPortReceivedAt.TryGetValue(portNetId, out float t) ? t : 0f;
 NetworkLifecycle.Instance.Client.SendTrainSyncRequest(ntc.NetId);
 float asked = Time.realtimeSinceStartup;
-while ((!ntc.client_hostPortReceivedAt.TryGetValue(portNetId, out t) || t <= before) && Time.realtimeSinceStartup - asked < 10f)
+while ((!Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).hostPortReceivedAt.TryGetValue(portNetId, out t) || t <= before) && Time.realtimeSinceStartup - asked < 10f)
     yield return null;
 if (t <= before) throw new Exception("the resync never arrived");
 yield return new WaitForSecondsRealtime(delay);
