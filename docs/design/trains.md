@@ -429,7 +429,7 @@ radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in i
 The client/server split ([code-layout.md](code-layout.md)) puts each role's train code in its own
 folder. `NetworkedTrainCar` (Shared) is the car: its identity and lookups, the port and fuse map,
 dirty tracking and the tick. On the server it has a server half, `NetworkedTrainCarServer`
-(Server/Trains): control leases, coupler-interaction locks, validating players' changes, the
+(Server/Trains): control leases (the rules are `ControlLeases`, in Core), coupler-interaction locks, validating players' changes, the
 host's own control commits and everything the car sends players (brake state, cargo, health,
 topology observations). The car makes it from the server (`ITrainServer.CreateCarPart`, reached as
 `TrainRoles.Server`) and calls it where that code always ran: the end of `Start`, `OnDisable`, and

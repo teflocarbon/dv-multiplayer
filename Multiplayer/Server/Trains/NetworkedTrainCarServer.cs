@@ -46,7 +46,7 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
     private ServerPlayer frontInteractionPlayer;
     private ServerPlayer rearInteractionPlayer;
 
-    private readonly Dictionary<uint, ServerPlayer> portAuthority = [];
+    private readonly ControlLeases<ServerPlayer> leases = new();
 
     // Other players' handcar handles (HandcarDrivePatch adds their strokes up); the host's own
     // handle is its ports.
@@ -278,7 +278,7 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
                 if (car.simulationFlow.TryGetPort(portId, out Port _))
                 {
                     // Only controls players drive: the others are the host's simulation's to set.
-                    bool holdsLease = portAuthority.TryGetValue(portNetId, out ServerPlayer owner) && owner == player;
+                    bool holdsLease = leases.Holds(player, portNetId);
                     if (car.portWriters == null || !car.portWriters.HostAccepts(portNetId, holdsLease))
                     {
                         NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a port players don't drive ({car.portWriters?.Classify(portNetId)})! ([{portId}, {portNetId}] on [{CurrentID}, {NetId}])");
@@ -313,13 +313,7 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
     /// turned or clicked never asks for one (a VR valve, a cab window): requiring a lease refused
     /// every change to those, so the player saw it and nobody else did.
     /// </summary>
-    public bool MayWritePorts(ServerPlayer player, IEnumerable<uint> portNetIds)
-    {
-        if (player == null)
-            return false;
-        return portNetIds != null && portNetIds.All(portNetId =>
-            !portAuthority.TryGetValue(portNetId, out ServerPlayer owner) || owner == null || owner == player);
-    }
+    public bool MayWritePorts(ServerPlayer player, IEnumerable<uint> portNetIds) => leases.MayWrite(player, portNetIds);
 
     public uint CommitControlRevision()
     {
@@ -612,57 +606,45 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
     {
         using IDisposable debugScope = DebugTrace.BeginApply("train", "train.authority-apply", DebugRuntimeSide.Server, "Control/Port", $"{NetId}:{portNetId}",
             () => DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, playerId = player?.PlayerId, requestAuthority }));
-        portAuthority.TryGetValue(portNetId, out var currentAuth);
-
-        if (requestAuthority)
+        LeaseOutcome outcome = requestAuthority
+            ? leases.Take(portNetId, player, (playerPosition - car.transform.position).sqrMagnitude <= car.CarLengthSq)
+            : leases.Release(portNetId, player);
+        NetworkServer server = NetworkLifecycle.Instance.Server;
+        switch (outcome)
         {
-            if (currentAuth == null)
-            {
-                if ((playerPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
-                {
-                    DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "sender-out-of-range", DebugRuntimeSide.Server);
-                    NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control on car {CurrentID}, but they are too far away!");
-                    NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
-                    NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released, player);
-                    return;
-                }
-
-                // No authority exists (or cleanup failed) - grant authority and communicate to all players
-                NetworkLifecycle.Instance.Server.LogDebug(() => $"Player \"{player.Username}\" granted authority for a control on car {CurrentID}");
-                portAuthority[portNetId] = player;
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Blocked, excludePlayer: player);
-            }
-            else if (currentAuth != player)
-            {
+            case LeaseOutcome.OutOfRange:
+                DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "sender-out-of-range", DebugRuntimeSide.Server);
+                server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control on car {CurrentID}, but they are too far away!");
+                server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
+                server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released, player);
+                break;
+            case LeaseOutcome.Granted:
+                // Communicate to all players
+                server.LogDebug(() => $"Player \"{player.Username}\" granted authority for a control on car {CurrentID}");
+                server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Blocked, excludePlayer: player);
+                break;
+            case LeaseOutcome.HeldByOther:
                 DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "authority-held-by-other-player", DebugRuntimeSide.Server);
-                NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control that's in use on car {CurrentID}");
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
-            }
-        }
-        else
-        {
-            // Release request
-            if (currentAuth == player)
-            {
-                NetworkLifecycle.Instance.Server.LogDebug(() => $"Player \"{player.Username}\" released authority for a control on car {CurrentID}");
-                portAuthority.Remove(portNetId);
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released);
-            }
-            else if (currentAuth != null)
-            {
+                server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control that's in use on car {CurrentID}");
+                server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
+                break;
+            case LeaseOutcome.Released:
+                server.LogDebug(() => $"Player \"{player.Username}\" released authority for a control on car {CurrentID}");
+                server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released);
+                break;
+            case LeaseOutcome.NotOwner:
                 DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "authority-release-not-owner", DebugRuntimeSide.Server);
-                NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to release authority for a control that's not theirs on car {CurrentID}");
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
-            }
+                server.LogWarning($"Player \"{player.Username}\" attempted to release authority for a control that's not theirs on car {CurrentID}");
+                server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
+                break;
         }
     }
 
     /// <summary>Who holds the lease on a control's port, if anyone.</summary>
-    public ServerPlayer LeaseHolder(uint portNetId) =>
-        portAuthority.TryGetValue(portNetId, out ServerPlayer owner) ? owner : null;
+    public ServerPlayer LeaseHolder(uint portNetId) => leases.HolderOf(portNetId);
 
     /// <summary>How many control leases are held on the car.</summary>
-    public int LeaseCount => portAuthority.Count;
+    public int LeaseCount => leases.Count;
 
     public void ValidatePaintThemeChange(TrainCarPaint.Target target, PaintTheme theme, ServerPlayer player)
     {
@@ -721,11 +703,8 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
         }
 
         // Clean up blocked controls
-        foreach (var kvp in portAuthority.Where(kvp => kvp.Value == player).ToArray())
-        {
-            portAuthority.Remove(kvp.Key);
-            NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, kvp.Key, ControlAuthorityState.Released);
-        }
+        foreach (uint portNetId in leases.ReleaseAll(player))
+            NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released);
     }
 }
 
