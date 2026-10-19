@@ -48,6 +48,7 @@ public static class TrainCarPatch
         if (!__instance.derailed || !__instance.TryNetworked(out NetworkedTrainCar networkedTrainCar))
             return;
         NetworkLifecycle.Instance.Server.SendRerailTrainCar(networkedTrainCar.NetId, NetworkedRailTrack.GetFromRailTrack(rerailTrack).NetId, worldPos - WorldMover.currentMove, forward);
+        networkedTrainCar.Server_ResyncAfterRelocation();
     }
 
     [HarmonyPrefix]
@@ -64,6 +65,7 @@ public static class TrainCarPatch
             return;
 
         NetworkLifecycle.Instance.Server.SendMoveTrainCarToTrack(networkedTrainCar.NetId, NetworkedRailTrack.GetFromRailTrack(destinationTrack).NetId, worldPos - WorldMover.currentMove, forward, false);
+        networkedTrainCar.Server_ResyncAfterRelocation();
     }
 
     [HarmonyPrefix]

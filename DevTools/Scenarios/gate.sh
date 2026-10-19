@@ -41,6 +41,8 @@ runs=( # name | scenario | variables
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
+  "rerail|rerail|"
+  "rerail-host|rerail|WHO=host"
   "far-derail|far-derail|"
   "far-derail-embankment|far-derail-embankment|"
   "dedicated-admin|dedicated-admin|"

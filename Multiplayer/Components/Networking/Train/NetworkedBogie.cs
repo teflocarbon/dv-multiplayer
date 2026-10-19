@@ -124,6 +124,7 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
     }
 
     private const float MaxSampleAgeSeconds = 0.5f;
+    private const float MaxHoldSampleAgeSeconds = 10f;
     private bool hasSample;
     private RailTrack sampleTrack;
     private double sampleSpan;
@@ -139,11 +140,14 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
     public bool TryGetAlongTrackError(TrainCar car, out float metres)
     {
         metres = 0f;
-        // A stopped host car is where its last sample says, however old that is: projecting
-        // nothing, it can't go stale. A moving sample can.
+        // A stopped host car is where its last sample says: projecting nothing, it goes stale far
+        // more slowly than a moving one. But the host resyncs every car every 2 s, so one with no
+        // sample for much longer than that is aimed at something the host no longer has (in
+        // playtest 2, a rerailed loco was placed towards a sample from before it derailed).
         bool holding = Mathf.Abs(sampleSpeed) < TrainSpeedQueue.HoldSpeed;
+        float age = Time.time - sampleTime;
         if (!hasSample || Bogie == null || Bogie.HasDerailed || Bogie.track != sampleTrack ||
-            Bogie.traveller == null || (!holding && Time.time - sampleTime > MaxSampleAgeSeconds * 2))
+            Bogie.traveller == null || age > (holding ? MaxHoldSampleAgeSeconds : MaxSampleAgeSeconds * 2))
             return false;
 
         // Span increases along the bogie's forward when its track direction is +1.
