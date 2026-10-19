@@ -146,6 +146,13 @@ Runs start longest first, so a long one never starts last while the other pairs 
 keeps each run's last 5 passing durations in `%LOCALAPPDATA%\dvmp\durations\<run>` (`DURATIONS`
 overrides the folder); runs with none recorded yet start first.
 
+A pair runs nothing until its host and client both answer with a world loaded (`READY_WAIT`
+seconds, then one `dvmp up` and as long again). A run that failed because dvmp couldn't reach its
+games ("no agent matches", "no game is running in session") is reported as `ERROR`, not `FAIL`,
+and retried once on a ready pair. The summary counts labels with a FAIL apart from those with
+only harness ERRORs, and the gate exits non-zero on either. The serial gate marks such runs ERROR
+too, but doesn't retry them.
+
 A run marked `@kind` only goes to that kind of pair, and the gate refuses to start if `PAIRS` has
 none. Other runs go to player-host pairs, or to any pair when there are only dedicated ones. The
 gate's `dedicated-admin` prefers a dedicated pair. The frame-timing runs in `EXCLUSIVE` (`fps-drop`,

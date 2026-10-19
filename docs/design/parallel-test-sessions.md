@@ -233,14 +233,22 @@ The steps:
    runs a worker that claims the next entry that fits its pair with an atomic
    `mkdir "$LOG_DIR/.queue/claim/<entry>"`, resets the player positions, runs the scenario and
    writes `$LOG_DIR/<label>.<session>.log` and a one-line result.
-3. If a pair is unhealthy after a run (no world loaded), its worker runs `dvmp up` (with the
-   pair's kind) to recover it.
+3. Before every run, including the first, a worker waits until its pair is healthy: a host and a
+   client both answering `dvmp status` with a world loaded. `up` can return while an agent still
+   reports role `unknown`, and runs started then failed as if the code were broken. After
+   `READY_WAIT` seconds (default 150) it runs `dvmp up` (with the pair's kind) once and waits as long
+   again. A pair that never gets there runs nothing; its runs go to other pairs of its kind, or are
+   reported as ERROR "not run".
+   A run whose log shows dvmp couldn't reach the games ("no agent matches", "no game is running in
+   session", a refused connection) is an ERROR, not a FAIL: the pair is made ready again and the run
+   retried once, with the first attempt's log kept as `<label>.<session>.error.log`.
 4. A worker with nothing left to claim takes its pair down if exclusive runs follow and it
    isn't the pair that runs them, so the pairs still busy get its CPU and memory.
 5. Exclusive phase: each exclusive run goes to the first pair that fits it, with every other pair
    down; a pair that was taken down comes back up for it.
-6. Summary per run label: passes out of repeats, average and maximum duration, which pair, and
-   the first FAIL line. Exit non-zero on any failure, and print `$LOG_DIR`.
+6. Summary per run label: passes out of repeats, ERRORs and retries, average and maximum
+   duration, which pair, and the first FAIL (or ERROR) line; then totals that keep labels with a
+   FAIL apart from those with only harness ERRORs. Exit non-zero on either, and print `$LOG_DIR`.
 
 `ONLY=x REPEAT=N PAIRS=N` is the "same scenario on every pair at once" mode. A `dvmp gate`
 subcommand in C#, with better timeouts and JSON output, could replace the bash runner later.
