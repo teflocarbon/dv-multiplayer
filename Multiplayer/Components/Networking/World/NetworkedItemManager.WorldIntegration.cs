@@ -61,6 +61,8 @@ public partial class NetworkedItemManager
         if (AuthoredCatalogue.TryGet(key, out NetworkedItem existing) && existing != null && existing != item)
         {
             UnregisterHostWorldItem(existing);
+            existing.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.AuthoredSlotReplaced,
+                detail: $"slot {key} now netId {item?.NetId ?? 0}"));
             existing.BeginColdStorageRetirement();
             AuthoritativeItemRegistry.Remove(existing.NetId);
             UnityEngine.Object.Destroy(existing.gameObject);

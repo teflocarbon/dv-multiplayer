@@ -25,6 +25,18 @@ public static class InventoryMembershipPatch
             .Where(method => method.Name is nameof(Inventory.AddItemToInventory) or nameof(Inventory.DestroyItem) &&
                              method.GetParameters().FirstOrDefault()?.ParameterType == typeof(GameObject));
 
+    // DV destroying an item from the inventory: its callers are on the stack only here.
+    [HarmonyPrefix]
+    private static void NoteDestroy(GameObject item, MethodBase __originalMethod)
+    {
+        if (__originalMethod.Name != nameof(Inventory.DestroyItem) || item == null ||
+            NetworkLifecycle.Instance == null || !NetworkLifecycle.Instance.IsHost() ||
+            !item.TryGetComponent(out NetworkedItem networked) || networked.NetId == 0)
+            return;
+        networked.NoteRemovalCause(ItemChangeLog.Removal(global::Multiplayer.Core.Items.ItemRemovalReason.DestroyedFromInventory,
+            detail: "callers " + ItemChangeLog.Callers(typeof(InventoryMembershipPatch))));
+    }
+
     [HarmonyPostfix]
     private static void ObserveItem(GameObject item, MethodBase __originalMethod)
     {

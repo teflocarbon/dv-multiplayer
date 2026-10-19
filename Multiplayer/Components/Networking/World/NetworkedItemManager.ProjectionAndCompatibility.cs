@@ -482,7 +482,9 @@ public partial class NetworkedItemManager
             snapshot.PlayerHand = PlayerHand.None;
             snapshot.AuthorityRevision = record.Revision;
             if (!AuthoritativeItemRegistry.TryApplyTransition(original, snapshot, player,
-                    ItemTransitionReason.PersistenceRestore, true, out string rejection))
+                    ItemTransitionReason.PersistenceRestore, true, out string rejection,
+                    cause: ItemChangeLog.Move(ItemMoveReason.ReturnedToRejoiningOwner, player,
+                        "their game's fresh copy is not adopted")))
             {
                 Multiplayer.LogWarning($"Could not restore item {record.NetId} ({prefabName}) to returning player {player.Username}: {rejection}");
                 continue;
@@ -568,7 +570,10 @@ public partial class NetworkedItemManager
             snapshot.ItemRotation = item.transform.rotation;
             snapshot.AuthorityRevision = record.Revision;
             if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, player,
-                    ItemTransitionReason.HostLocalState, true, out string rejection))
+                    ItemTransitionReason.HostLocalState, true, out string rejection,
+                    cause: ItemChangeLog.Move(ItemMoveReason.DroppedOnDisconnect, player,
+                        inHand ? "was in their hand" : "borrowed, owner " +
+                            (ItemChangeLog.PlayerName(record.PersistentOwnerPlayerId) ?? "P" + record.PersistentOwnerPlayerId))))
             {
                 Multiplayer.LogWarning($"Could not drop item {record.NetId} held by departing player {player.Username}: {rejection}");
                 continue;
@@ -576,7 +581,6 @@ public partial class NetworkedItemManager
             item.ApplyServerCanonicalSnapshot(snapshot);
             RegisterHostWorldItem(item);
             NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot, excludePlayer: player);
-            Multiplayer.Log($"Dropped {item.name} ({record.NetId}) held by departing player {player.Username}");
         }
     }
 
