@@ -99,15 +99,31 @@ public static class PerPlayerSaveFormat
     // the marker is set after it.
     private static void Convert(SaveGameData data, JObject root, Guid owner)
     {
+        int moved = ConvertSave(root, owner, data.GetVector3(SaveGameKeys.Player_position),
+            data.GetVector3(SaveGameKeys.Player_rotation)?.y ?? 0f,
+            StorageSerializer.LoadStorageData(StorageType.Inventory, data));
+        Multiplayer.Log($"Save format: converted a career saved before per-player state; {moved} inventory item(s) and the position now belong to {owner}");
+    }
+
+    /// <summary>
+    /// Moves the state DV keeps for the local player (its position, rotation and inventory) into
+    /// the save's Multiplayer root, owned by <paramref name="owner"/>. Converting the same root
+    /// twice changes nothing the second time: an existing entry for the owner is kept, and an item
+    /// already recorded isn't recorded again (an item without a persistent ID gets one derived from
+    /// the owner, its place in the inventory and its prefab). Job paperwork is left to DV's job save.
+    /// Returns how many items it recorded.
+    /// </summary>
+    public static int ConvertSave(JObject root, Guid owner, Vector3? position, float rotationY,
+        IEnumerable<StorageItemData> inventory)
+    {
         JObject players = root.GetJObject(PlayersKey) ?? new JObject();
         string key = owner.ToString();
         if (players.GetJObject(key) == null)
         {
             JObject entry = new JObject();
-            Vector3? position = data.GetVector3(SaveGameKeys.Player_position);
             if (position.HasValue)
                 entry.SetVector3(SaveGameKeys.Player_position, position.Value);
-            entry.SetFloat(SaveGameKeys.Player_rotation, data.GetVector3(SaveGameKeys.Player_rotation)?.y ?? 0f);
+            entry.SetFloat(SaveGameKeys.Player_rotation, rotationY);
             players.SetJObject(key, entry);
         }
         root.SetJObject(PlayersKey, players);
@@ -116,12 +132,14 @@ public static class PerPlayerSaveFormat
         HashSet<Guid> known = new(records.OfType<JObject>()
             .Select(value => Guid.TryParse((string)value["persistentItemId"], out Guid id) ? id : Guid.Empty));
         int moved = 0;
-        foreach (StorageItemData item in StorageSerializer.LoadStorageData(StorageType.Inventory, data) ?? new List<StorageItemData>())
+        int index = -1;
+        foreach (StorageItemData item in inventory ?? new List<StorageItemData>())
         {
+            index++;
             if (item == null || string.IsNullOrEmpty(item.itemPrefabName) || WorldItemPersistenceManager.IsJobSystemDocument(item.itemPrefabName))
                 continue;
             Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Shared.Items.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
-                ? saved : Guid.NewGuid();
+                ? saved : ConvertedItemId(owner, index, item);
             if (!known.Add(id))
                 continue;   // already a record: nothing to move
             records.Add(new WorldItemPersistenceRecord
@@ -137,12 +155,23 @@ public static class PerPlayerSaveFormat
             moved++;
         }
         root[WorldItemPersistenceManager.SaveKey] = records;
-        Multiplayer.Log($"Save format: converted a career saved before per-player state; {moved} inventory item(s) and the position now belong to {owner}");
+        return moved;
     }
 
-    // What a player ID owns according to the save: its item records, Lost and Found entries and
-    // cold-container contents, by prefab and inventory slot.
-    private static List<StorageItemData> OwnedInSave(JObject root, Guid owner)
+    // The same for the same item in the same career, so converting twice records it once.
+    private static Guid ConvertedItemId(Guid owner, int index, StorageItemData item)
+    {
+        using var md5 = System.Security.Cryptography.MD5.Create();
+        byte[] hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(
+            $"converted-inventory|{owner:D}|{index}|{item.inventorySlotIndex}|{item.itemPrefabName}"));
+        return new Guid(hash);
+    }
+
+    /// <summary>
+    /// What a player ID owns according to the save: its item records, Lost and Found entries and
+    /// cold-container contents, by prefab and inventory slot.
+    /// </summary>
+    public static List<StorageItemData> OwnedInSave(JObject root, Guid owner)
     {
         List<StorageItemData> owned = new();
         string identity = owner.ToString("D");
