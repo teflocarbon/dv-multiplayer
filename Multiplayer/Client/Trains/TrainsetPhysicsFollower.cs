@@ -66,7 +66,7 @@ public static class TrainsetPhysicsFollower
                 {
                     //Multiplayer.LogDebug(()=>$"Applying TrainPhysicsUpdate to {packet.TrainsetParts[i].NetId}");
                     derailmentTransition |= networkedTrainCar.Client()?.ReceiveTrainPhysicsUpdate(
-                        in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length) == true;
+                        in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length, packet.IntervalTicks) == true;
                 }
                 else
                 {
@@ -90,7 +90,7 @@ public static class TrainsetPhysicsFollower
         {
             if(set.cars[i].TryNetworked(out NetworkedTrainCar networkedTrainCar))
                 derailmentTransition |= networkedTrainCar.Client()?.ReceiveTrainPhysicsUpdate(
-                    in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length) == true;
+                    in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length, packet.IntervalTicks) == true;
             else
                 Multiplayer.LogWarning($"Unable to apply TrainPhysicsUpdate to TrainSet with FirstNetId: {packet.FirstNetId}, NetworkedTrainCar not found!");
         }

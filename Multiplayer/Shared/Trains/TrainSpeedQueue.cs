@@ -20,6 +20,8 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float SlowCorrectionSpeed = 0.5f;     // m/s, plus a larger share: see the limit in FixedUpdate
     private const float SlowCorrectionSpeedFraction = 0.5f;
     private const float StaleSampleSeconds = 0.5f;
+    /// <summary>Sample intervals a car may go without one before it's taken as lost (see <see cref="StaleSeconds"/>).</summary>
+    public const float StaleSampleIntervals = 2.5f;
     private const float MaxSpeedAcceleration = 8f;      // m/s², easing the host's speed between samples
     private const float MaxCorrectionAcceleration = 4f; // m/s², easing the position correction
     private const float ImpactSpeedStep = 1.5f;         // m/s jump in the host's speed: only impacts make one
@@ -80,6 +82,29 @@ public class TrainSpeedQueue : TickedQueue<float>
     /// </summary>
     public bool HostCoupled { get; set; }
 
+    /// <summary>
+    /// Seconds between the host's samples of this car while it moves: a tick close by, up to a
+    /// second for a far train (the host sends a set less often the further the player is from it).
+    /// </summary>
+    public float SampleIntervalSeconds { get; private set; } = 1f / NetworkLifecycle.TICK_RATE;
+    private float receivedIntervalSeconds = 1f / NetworkLifecycle.TICK_RATE;
+
+    /// <param name="intervalSeconds">When the host's next sample is due (the packet's interval).</param>
+    public void ReceiveSnapshot(float speed, float intervalSeconds, uint tick)
+    {
+        // Taken up with the sample (Process), not now: a car coming back into close range would
+        // otherwise judge the last far sample by the close interval for a tick, and go stale.
+        receivedIntervalSeconds = intervalSeconds;
+        ReceiveSnapshot(speed, tick);
+    }
+
+    /// <summary>
+    /// How long a moving car goes without a sample before they're taken as lost: 0.5 s, or two
+    /// and a half sample intervals for a far train, so one lost far sample is ridden out too.
+    /// </summary>
+    public static float StaleSeconds(float sampleIntervalSeconds) =>
+        Mathf.Max(StaleSampleSeconds, StaleSampleIntervals * sampleIntervalSeconds);
+
     /// <summary>Kinematic because of us (placing or parked): nothing else should change it.</summary>
     public bool Kinematic => Placing || Parked;
 
@@ -119,6 +144,7 @@ public class TrainSpeedQueue : TickedQueue<float>
     {
         targetSpeed = snapshot;
         lastSampleTime = Time.time;
+        SampleIntervalSeconds = receivedIntervalSeconds;
     }
 
     private void FixedUpdate()
@@ -145,10 +171,11 @@ public class TrainSpeedQueue : TickedQueue<float>
         Release();
         Following = true;
 
-        // The host sends every tick while a set moves. Samples stopping without the host saying
-        // the car stopped means they were lost: leave the car to local physics at the host's last
-        // speed, not still carrying a correction it no longer needs (it would roll on with it).
-        if (Time.time - lastSampleTime > StaleSampleSeconds)
+        // The host sends a moving set at a steady rate (every tick close by, less often far
+        // away). Samples stopping without the host saying the car stopped means they were lost:
+        // leave the car to local physics at the host's last speed, not still carrying a
+        // correction it no longer needs (it would roll on with it).
+        if (Time.time - lastSampleTime > StaleSeconds(SampleIntervalSeconds))
         {
             if (driving)
                 ApplySpeed(easedSpeed);

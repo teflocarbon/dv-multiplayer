@@ -1,6 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DV.Utils;
+using Multiplayer.Core.Trains;
+using Multiplayer.Server.Session;
 using UnityEngine;
 using JetBrains.Annotations;
 using Multiplayer.Shared.Protocol.Data.Train;
@@ -30,6 +33,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
     {
         base.Awake();
         cachedSendPacket = new ClientboundTrainsetPhysicsPacket();
+        intervalFor = IntervalFor;
         // This component can survive a host -> menu -> remote-client transition.
         // Keep one subscription for its lifetime and decide whether to do server work
         // from the live lifecycle role on each tick.
@@ -91,6 +95,8 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             return;
 
         UpdateSimulationRate();
+        UpdateRecipients();
+        ForgetAnnounced(tick);
         cachedSendPacket.Tick = tick;
         foreach (Trainset set in Trainset.allSets)
         {
@@ -113,6 +119,8 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         bool anyCarTeleporting = false;
         bool maxTicksReached = false;
         bool anyTracksDirty = false;
+        bool anyCarDerailed = false;
+        uint ticksSinceFullSync = 0;
 
         if (UnloadWatcher.isUnloading || UnloadWatcher.isQuitting)
             return;
@@ -161,6 +169,8 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             {
                 maxTicksReached |= netTC.TicksSinceSync >= MAX_UNSYNC_TICKS; //Even if the car is stationary, if the max ticks has been exceeded we will still sync
                 anyTracksDirty |= netTC.BogieTracksDirty;
+                if (trainCar == set.firstCar)
+                    ticksSinceFullSync = netTC.TicksSinceSync;
             }
             else
             {
@@ -170,6 +180,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             
             if (trainCar.derailed)
             {
+                anyCarDerailed = true;
                 if (trainCar?.rb == null)
                 {
                     Multiplayer.LogError($"Rigid body not found for TrainCar {trainCar?.ID} in set {set?.id} ({set.firstCar?.GetNetId()})");
@@ -258,7 +269,100 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         }
 
         cachedSendPacket.TrainsetParts = trainsetParts;
-        NetworkLifecycle.Instance.Server.SendTrainsetPhysicsUpdate(cachedSendPacket, anyTracksDirty || justStopped);
+        bool reliable = anyTracksDirty || justStopped;
+        sendSet = set;
+        // Track changes, stops and full syncs go to everyone; a derailed car's rigidbody is
+        // interpolated between samples, so its set is sent to everyone every tick.
+        sendToAll = reliable || maxTicksReached || anyCarDerailed;
+        sendEveryTick = anyCarDerailed;
+        sendTicksSinceFullSync = ticksSinceFullSync;
+        NetworkLifecycle.Instance.Server.SendTrainsetPhysicsUpdate(cachedSendPacket, reliable, intervalFor);
+        sendSet = null;
+    }
+
+    // Distance-based send rates. Rolling stock stays globally relevant: every player has every
+    // car, and dispatch maps (RemoteDispatch) show distant trains, so a far moving set is still
+    // sent to everyone, only less often (Core/Trains/TrainsetSendRate.cs). The packet tells each
+    // player their interval, so they know how long to wait for the next sample before taking the
+    // car as lost (Shared/Trains/TrainSpeedQueue.cs).
+    private TrainsetSendRate sendRate;
+    private readonly List<(ServerPlayer player, Vector3 position)> recipients = new();
+    private Func<ServerPlayer, byte> intervalFor;
+    private Trainset sendSet;
+    private bool sendToAll;
+    private bool sendEveryTick;
+    private uint sendTicksSinceFullSync;
+
+    private void UpdateRecipients()
+    {
+        Settings settings = Multiplayer.Settings;
+        sendRate = new TrainsetSendRate(settings.TrainFullRateDistance, settings.TrainMidRateDistance,
+            settings.TrainMidRateHz, settings.TrainFarRateHz, (int)NetworkLifecycle.TICK_RATE);
+        recipients.Clear();
+        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        {
+            // A player whose game hasn't sent a position yet has none (NaN counts as close).
+            Vector3 position = player.TrackingData.Position.HasValue ? player.AbsoluteWorldPosition : new Vector3(float.NaN, 0f, 0f);
+            recipients.Add((player, position));
+        }
+    }
+
+    // The interval each player was last told for each set. When it grows (the player moved away,
+    // or teleported far), the set is sent at once with the new one: the last sample announced the
+    // shorter interval, and the client took the car as lost before the next one was due.
+    private readonly Dictionary<(byte player, Trainset set), byte> announced = new();
+    private readonly List<(byte player, Trainset set)> announcedGone = new();
+
+    /// <summary>The interval of <see cref="sendSet"/>'s samples to this player, or 0 if it isn't due one this tick.</summary>
+    private byte IntervalFor(ServerPlayer player)
+    {
+        if (sendSet == null)
+            return 1;
+        byte interval = sendEveryTick ? (byte)1 : sendRate.IntervalTicks(NearestCarDistance(player));
+        var key = (player.PlayerId, sendSet);
+        bool grew = !announced.TryGetValue(key, out byte last) || interval > last;
+        if (!sendToAll && !grew && !TrainsetSendRate.IsDue(sendTicksSinceFullSync, interval))
+            return 0;
+        announced[key] = interval;
+        return interval;
+    }
+
+    // Couplings replace trainsets and players leave: forget them now and then.
+    private void ForgetAnnounced(uint tick)
+    {
+        if (tick % MAX_UNSYNC_TICKS != 0 || announced.Count == 0)
+            return;
+        var sets = new HashSet<Trainset>(Trainset.allSets);
+        announcedGone.Clear();
+        foreach (var key in announced.Keys)
+        {
+            if (!sets.Contains(key.set) || !NetworkLifecycle.Instance.Server.TryGetServerPlayer(key.player, out _))
+                announcedGone.Add(key);
+        }
+        foreach (var key in announcedGone)
+            announced.Remove(key);
+    }
+
+    private float NearestCarDistance(ServerPlayer player)
+    {
+        Vector3 at = new(float.NaN, 0f, 0f);
+        foreach ((ServerPlayer recipient, Vector3 position) in recipients)
+        {
+            if (recipient == player)
+            {
+                at = position;
+                break;
+            }
+        }
+        if (float.IsNaN(at.x))
+            return float.NaN;
+        float nearest = float.PositiveInfinity;
+        foreach (TrainCar car in sendSet.cars)
+        {
+            if (car != null)
+                nearest = Mathf.Min(nearest, (car.transform.position - WorldMover.currentMove - at).sqrMagnitude);
+        }
+        return Mathf.Sqrt(nearest);
     }
     #endregion
 

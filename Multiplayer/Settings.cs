@@ -65,6 +65,14 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public string Details = "";
     [Draw("Admins", Tooltip = "Players (by SteamID64, separated by commas) who may use the admin chat commands: /kick, /server, /save, /stop, /payfees. On a dedicated server the Steam account running it always may.")]
     public string Admins = "";
+    [Draw("Train Full Rate Distance", Tooltip = "Players within this many metres of a moving train get its motion every tick (24 a second).", Min = 0, Max = 50000)]
+    public float TrainFullRateDistance = 1500f;
+    [Draw("Train Mid Rate Distance", Tooltip = "Players within this many metres of a moving train, but further than the full rate distance, get its motion at the mid rate; anyone further away gets it at the far rate.", Min = 0, Max = 50000)]
+    public float TrainMidRateDistance = 4000f;
+    [Draw("Train Mid Rate", Tooltip = "Motion samples a second for a moving train between the full and mid rate distances.", Min = 1, Max = 24)]
+    public float TrainMidRateHz = 4f;
+    [Draw("Train Far Rate", Tooltip = "Motion samples a second for a moving train further than the mid rate distance. Every train still exists for every player.", Min = 0.5f, Max = 24)]
+    public float TrainFarRateHz = 1f;
 
     [Space(10)]
     [Header("Lobby Server")]

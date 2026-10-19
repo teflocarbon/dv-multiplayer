@@ -712,6 +712,11 @@ Rolling stock is normally globally relevant because moving cars and trainsets ca
 player. Interior presentation may stream locally, but car identity, topology, motion, and
 simulation do not disappear when an interior unloads.
 
+Interest changes only how often motion is sent, never whether: every car exists on every client,
+and dispatch-map mods (RemoteDispatch) show distant trains, so a far moving set is still sent to
+everyone, at a lower rate (see "Distance-based rates" under [Motion](#motion)). Topology, controls,
+brakes and every reliable motion sample go to everyone as before.
+
 The initial rolling-stock transaction must contain one topology revision and a self-consistent
 endpoint graph. Client readiness is reported only after:
 
@@ -989,8 +994,9 @@ not accepted as smooth synchronization.
 ### What the code does
 
 Host (`NetworkTrainsetWatcher`): every network tick (24 Hz, advanced by elapsed real time so it
-keeps step below 24 fps) each moving trainset is sent as one `ClientboundTrainsetPhysicsPacket`,
-unreliable unless a bogie changed track. On-rail cars carry speed, slow stress and both bogies'
+keeps step below 24 fps) each moving trainset is sampled as one `ClientboundTrainsetPhysicsPacket`,
+unreliable unless a bogie changed track, and sent to each player as often as their distance from
+it calls for (see "Distance-based rates" below). On-rail cars carry speed, slow stress and both bogies'
 track and span; derailed cars carry a rigidbody snapshot. Every 2 s a car also carries its full
 position and rotation, even when stationary. The speed is `GetForwardSpeed()` multiplied by the
 host's simulation rate (game time per real second, averaged over about a second), so a host that drops
@@ -1008,8 +1014,10 @@ host speed eases at up to 8 m/s² and the correction at up to 4 m/s², except th
 over 1.5 m/s (an impact) is taken at once. A bogie on a different track from the host's is set
 onto the host's track unless it is just crossing to the adjacent one. A car taken over from local
 physics starts at the host's speed with no correction (its local motion never happened on the
-host). If moving samples stop arriving for 0.5 s the car is handed back to local physics at the
-host's last speed, without the correction term.
+host). If moving samples stop arriving for 0.5 s, or 2.5 of the host's announced intervals when
+that is longer (a far train), the car is handed back to local physics at the host's last speed,
+without the correction term. A moving bogie sample is projected for as long (1 s close by, 3 s
+for a train sent once a second) before it's no longer used for the correction.
 
 A sample under 0.01 m/s (vanilla's stationary threshold) means the host's car is stopped, and the
 client holds its car there (`TrainSpeedQueue.Hold`); it is followed again only above 0.05 m/s, so a
@@ -1075,6 +1083,35 @@ Open issues: an intermittent ~5.8 m snap at ~10 m/s on clients (#44). Vanilla ji
 idle yard cars above the 1 cm/s stationary line on the host, so they are sent every tick; clients
 now hold them quietly, but the bandwidth remains. A host-side "settled" rule with hysteresis for
 sync (not physics) would fix that.
+
+### Distance-based rates
+
+A moving set's samples go to each player at a rate set by their distance from its nearest car
+(`Core/Trains/TrainsetSendRate.cs`, host settings in the Server section):
+
+| Distance (setting) | Default | Rate (setting) | Default |
+|---|---|---|---|
+| up to `TrainFullRateDistance` | 1500 m | every tick | 24 Hz |
+| up to `TrainMidRateDistance` | 4000 m | `TrainMidRateHz` | 4 Hz (every 6 ticks) |
+| beyond | | `TrainFarRateHz` | 1 Hz (every 24 ticks) |
+
+A player whose game hasn't sent a position yet counts as close. A set is due a player's sample
+every interval counted from its last full sync (`TicksSinceSync` of its first car), so a far
+player's samples fall on the 2 s full syncs rather than between them, and sets are spread over
+the interval. These always go to everyone, whatever the distance: a reliable sample (a bogie
+changed track, or the set just stopped), a full sync, and a set with a derailed car (its
+rigidbody snapshots are interpolated, so it stays at every tick). When a player's interval for a
+set grows (they moved away, or teleported far), the set is sent to them at once with the new
+interval.
+
+Each packet carries `IntervalTicks`, the player's interval, written once per interval in use
+(`NetworkServer.SendTrainsetPhysicsUpdate`). The client stretches its stale timeout and bogie
+projection to it (above), so a far train keeps moving at the host's last speed between samples
+instead of stopping and snapping, and the correction resumes with the next sample. Coming back
+into range only makes samples more frequent: the position error is what built up over one far
+interval, closed by the ordinary correction. Scenario `train-rate` checks each band's rate, no
+lost-car gaps, snaps or stalls, boarding the train after being far, and that the peers agree;
+it prints the host's packets per second per band (`BEFORE=1` for every tick to everyone).
 
 ## Loading-state delivery
 

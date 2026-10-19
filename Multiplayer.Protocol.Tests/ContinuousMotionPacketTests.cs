@@ -25,6 +25,7 @@ public sealed class ContinuousMotionPacketTests
             FirstNetId = 41,
             LastNetId = 50,
             Tick = 8192,
+            IntervalTicks = 24,
             TrainsetParts = new[]
             {
                 new TrainsetMovementPart(41, 19.444445f, 0.15f, default, default,
@@ -38,6 +39,7 @@ public sealed class ContinuousMotionPacketTests
         Assert.Multiple(() =>
         {
             Assert.That(received.Tick, Is.EqualTo(8192));
+            Assert.That(received.IntervalTicks, Is.EqualTo(24));
             Assert.That(received.TrainsetParts[0], Is.Not.Null);
             Assert.That(received.TrainsetParts[0].NetId, Is.EqualTo(41));
             Assert.That(received.TrainsetParts[0].Speed, Is.EqualTo(19.444445f));

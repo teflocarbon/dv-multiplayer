@@ -389,7 +389,7 @@ What is sent when (host side):
 
 | System | Where | Rate |
 |---|---|---|
-| Train motion | `Shared/Trains/NetworkTrainsetWatcher.cs` | Each tick, one `ClientboundTrainsetPhysicsPacket` per trainset that has a moving car, or whose cars haven't synced for 2 s (a full sync with position and rotation). Skipped while teleporting. Reliable if bogie tracks changed, otherwise unreliable. Speed is scaled by the host's measured simulation rate so clients don't run ahead of a slow host. |
+| Train motion | `Server/Trains/NetworkTrainsetWatcher.cs` | Each tick, one `ClientboundTrainsetPhysicsPacket` per trainset that has a moving car, or whose cars haven't synced for 2 s (a full sync with position and rotation), sent to each player every tick within 1.5 km of the set, 4 Hz to 4 km and 1 Hz beyond (settings; full syncs, track changes and stops go to everyone). Skipped while teleporting. Reliable if bogie tracks changed, otherwise unreliable. Speed is scaled by the host's measured simulation rate so clients don't run ahead of a slow host. |
 | Train topology | `NetworkServer.OnTick` | Observed host-side changes committed once per tick and broadcast if the revision changed. |
 | Brakes | `NetworkedTrainCar` | Thresholded with a heartbeat; see [design/trains.md](design/trains.md). |
 | Items | `NetworkedItemManager` | Per tick, per ready player, for items in interest. |

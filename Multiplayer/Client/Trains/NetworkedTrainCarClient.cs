@@ -972,7 +972,8 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     }
 
     /// <param name="hostSetSize">How many cars the host sent this car with: its trainset there.</param>
-    public bool ReceiveTrainPhysicsUpdate(in TrainsetMovementPart movementPart, uint tick, int hostSetSize = 1)
+    /// <param name="intervalTicks">Ticks until the host's next sample of the car (it sends far trains less often).</param>
+    public bool ReceiveTrainPhysicsUpdate(in TrainsetMovementPart movementPart, uint tick, int hostSetSize = 1, int intervalTicks = 1)
     {
         using IDisposable debugScope = DebugTrace.BeginApply("train", "train.physics-apply", DebugRuntimeSide.Client, "TrainCar", NetId.ToString(), () =>
         {
@@ -1093,12 +1094,17 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                 }
             }
 
+            float intervalSeconds = Mathf.Max(1, intervalTicks) / (float)NetworkLifecycle.TICK_RATE;
             if (trainSpeedQueue is TrainSpeedQueue speedQueue)
+            {
                 speedQueue.HostCoupled = hostSetSize > 1;
-            trainSpeedQueue.ReceiveSnapshot(movementPart.Speed, tick);
+                speedQueue.ReceiveSnapshot(movementPart.Speed, intervalSeconds, tick);
+            }
+            else
+                trainSpeedQueue.ReceiveSnapshot(movementPart.Speed, tick);
             TrainCar.stress.slowBuildUpStress = movementPart.SlowBuildUpStress;
-            bogie1Queue.ReceiveSnapshot(movementPart.Bogie1, movementPart.Speed, tick);
-            bogie2Queue.ReceiveSnapshot(movementPart.Bogie2, movementPart.Speed, tick);
+            bogie1Queue.ReceiveSnapshot(movementPart.Bogie1, movementPart.Speed, intervalSeconds, tick);
+            bogie2Queue.ReceiveSnapshot(movementPart.Bogie2, movementPart.Speed, intervalSeconds, tick);
         }
 
         // Only write isKinematic when it changes: the write itself disturbs the body. On-rail cars

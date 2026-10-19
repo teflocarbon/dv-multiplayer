@@ -12,11 +12,14 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
     {
         public BogieData BogieData { get; }
         public float SpeedMetresPerSecond { get; }
+        /// <summary>When the host's next sample is due: a tick close by, up to a second far away.</summary>
+        public float IntervalSeconds { get; }
 
-        public MovementSnapshot(BogieData bogieData, float speedMetresPerSecond)
+        public MovementSnapshot(BogieData bogieData, float speedMetresPerSecond, float intervalSeconds)
         {
             BogieData = bogieData;
             SpeedMetresPerSecond = speedMetresPerSecond;
+            IntervalSeconds = intervalSeconds;
         }
     }
 
@@ -62,9 +65,9 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         }
     }
 
-    public void ReceiveSnapshot(BogieData bogieData, float speedMetresPerSecond, uint tick)
+    public void ReceiveSnapshot(BogieData bogieData, float speedMetresPerSecond, float intervalSeconds, uint tick)
     {
-        base.ReceiveSnapshot(new MovementSnapshot(bogieData, speedMetresPerSecond), tick);
+        base.ReceiveSnapshot(new MovementSnapshot(bogieData, speedMetresPerSecond, intervalSeconds), tick);
     }
 
     protected override void Process(MovementSnapshot movement, uint snapshotTick)
@@ -113,6 +116,7 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         sampleSpan = snapshot.PositionAlongTrack;
         sampleDirection = snapshot.TrackDirection;
         sampleSpeed = movement.SpeedMetresPerSecond;
+        sampleInterval = movement.IntervalSeconds;
         float ageSeconds = (NetworkLifecycle.Instance.Tick - (float)snapshotTick) / NetworkLifecycle.TICK_RATE;
         sampleTime = Time.time - Mathf.Clamp(ageSeconds, 0f, MaxSampleAgeSeconds);
         hasSample = true;
@@ -131,6 +135,7 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
     private double sampleSpan;
     private int sampleDirection;
     private float sampleSpeed;
+    private float sampleInterval;
     private float sampleTime;
 
     /// <summary>
@@ -145,10 +150,14 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         // more slowly than a moving one. But the host resyncs every car every 2 s, so one with no
         // sample for much longer than that is aimed at something the host no longer has (in
         // playtest 2, a rerailed loco was placed towards a sample from before it derailed).
+        // A moving one is projected until the car would be taken as lost (TrainSpeedQueue): 1 s
+        // close by, longer for a far train, whose samples come up to a second apart.
         bool holding = Mathf.Abs(sampleSpeed) < TrainSpeedQueue.HoldSpeed;
         float age = Time.time - sampleTime;
+        float maxAge = holding ? MaxHoldSampleAgeSeconds
+            : Mathf.Max(MaxSampleAgeSeconds * 2, MaxSampleAgeSeconds + TrainSpeedQueue.StaleSeconds(sampleInterval));
         if (!hasSample || Bogie == null || Bogie.HasDerailed || Bogie.track != sampleTrack ||
-            Bogie.traveller == null || age > (holding ? MaxHoldSampleAgeSeconds : MaxSampleAgeSeconds * 2))
+            Bogie.traveller == null || age > maxAge)
             return false;
 
         // Span increases along the bogie's forward when its track direction is +1.

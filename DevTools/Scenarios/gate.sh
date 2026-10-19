@@ -74,6 +74,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "rerail-host-radio|rerail|WHO=host-radio"
   "far-derail|far-derail|"
   "far-derail-embankment|far-derail-embankment|"
+  "train-rate|train-rate|"
+  "train-rate-dedicated|train-rate||dedicated"
   "dedicated-admin|dedicated-admin||dedicated"
   "explosion|explosion|"
   "car-fire|car-fire|"

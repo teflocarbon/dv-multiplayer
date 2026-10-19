@@ -168,10 +168,59 @@ public partial class NetworkServer : ITrainServer
         pendingUncoupleCauses.Clear();
     }
 
-    public void SendTrainsetPhysicsUpdate(ClientboundTrainsetPhysicsPacket packet, bool reliable)
+    // A trainset sample's recipients this tick, with each one's interval (reused).
+    private readonly List<(ITransportPeer peer, byte interval)> trainsetRecipients = new();
+
+    /// <summary>
+    /// Sends a trainset's motion to the players. <paramref name="intervalFor"/> gives each player's
+    /// interval (ticks until their next sample, written into the packet), or 0 when they aren't
+    /// due one this tick. Reliable samples for a player still taking the train baseline are held,
+    /// as every train broadcast's are.
+    /// </summary>
+    public void SendTrainsetPhysicsUpdate(ClientboundTrainsetPhysicsPacket packet, bool reliable, Func<ServerPlayer, byte> intervalFor)
     {
         //LogDebug(() => $"Sending Physics packet for netId: {packet.FirstNetId}, tick: {packet.Tick}");
-        SendPacketToAll(packet, reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
+        DeliveryMethod deliveryMethod = reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable;
+        trainsetRecipients.Clear();
+        foreach (ITransportPeer peer in peers.Values)
+        {
+            if (peer == null || peer == SelfPeer)
+                continue;
+            byte interval = 1;
+            if (TryGetServerPlayer(peer, out ServerPlayer player))
+            {
+                if (player.LoadingState < PlayerLoadingState.ReadyForTrainSets)
+                {
+                    if (reliable)
+                    {
+                        packet.IntervalTicks = 1;
+                        HoldForTrainBaseline(player, WritePacket(packet), deliveryMethod, PlayerLoadingState.ReadyForTrainSets);
+                    }
+                    continue;
+                }
+                interval = intervalFor(player);
+                if (interval == 0)
+                    continue;
+            }
+            trainsetRecipients.Add((peer, interval));
+        }
+
+        // Written once per interval in use: players at the same distance band share a packet.
+        while (trainsetRecipients.Count > 0)
+        {
+            byte interval = trainsetRecipients[trainsetRecipients.Count - 1].interval;
+            packet.IntervalTicks = interval;
+            NetDataWriter writer = WritePacket(packet);
+            for (int i = trainsetRecipients.Count - 1; i >= 0; i--)
+            {
+                if (trainsetRecipients[i].interval != interval)
+                    continue;
+                ITransportPeer peer = trainsetRecipients[i].peer;
+                DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugRuntimeSide.Server, nameof(ClientboundTrainsetPhysicsPacket));
+                peer.Send(writer, deliveryMethod);
+                trainsetRecipients.RemoveAt(i);
+            }
+        }
     }
 
     public void SendBrakeState(ushort netId, float mainReservoirPressure, float brakePipePressure, float brakeCylinderPressure, float overheatPercent, float overheatReductionFactor, float temperature)
