@@ -226,6 +226,38 @@ in place through stage 2 as the safety net, and goes with the client in stage 3.
   ignores today (control commits, pit stops, plugs, registers, coupler `NoAction`) stop being
   sent.
 
+### What's built for it, and how to move a request
+
+The shared pieces (built, on `split/client-server`):
+
+| Piece | Where | What |
+|---|---|---|
+| `LocalRequestQueue<TPlayer>` | `Multiplayer.Core/Session/` (tested) | Handlers per request type; requests queued in order and handled at the server's poll; a handler that throws doesn't stop the rest; no player, nothing handled |
+| `ILocalServer.Submit(request)` | `Shared/Session/ILocalServer.cs`, reached as `NetworkLifecycle.Instance.LocalServer` | How Shared and Client code hand a request to the server without referencing it. Null when this game isn't the server |
+| `NetworkServer.LocalPlayer`, `HandleLocal<T>`, the drain | `Server/Session/NetworkServer.LocalPlayer.cs` | The host's `ServerPlayer`; registering an in-process handler; draining the queue after each `PollEvents` |
+| `NetworkServer.ApplyingRemoteChange()` | the same file | Scope for the server applying another player's change; `NetworkLifecycle.IsProcessingPacket` is true inside it, so existing echo checks hold |
+| The send hook | `NetworkClient.SendPacketToServer` | Offers every request to `LocalServer.Submit` first: once the server handles a type in-process, every host call site for it goes direct, with no change at the call site |
+
+To move a request in-process, in the area's `NetworkServer.<Area>.cs`:
+
+1. Split the packet handler: `OnXPacket(packet, peer)` looks up the player and calls
+   `HandleX(packet, player)`, which does the work. Check every `IsHost(player)` in it: does it mean
+   the host's simulation (keep, or move to a no-player path like `CommitHostControls`) or the host's
+   player (validate it like anyone's)?
+2. Register it: implement the area's partial method,
+   `partial void RegisterLocalTrains() { HandleLocal<XPacket>(HandleX); }`. Each area has its own
+   (`RegisterLocalTrains`, `Items`, `World`, `Stations`, `Jobs`, `Career`, `Session`), so areas
+   never edit the same lines.
+3. That's all for the call sites: `NetworkClient.SendPacketToServer` now submits it. Requests
+   sent through `SendNetSerializablePacketToServer` (`CommonItemsBulkUpdatePacket`,
+   `CommonPitStopPlugInteractionPacket`, MPAPI's external packets) aren't hooked: submit those at
+   the call site, `NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true`, or add a hook.
+4. Replies: the handler's replies to `player.Peer` still reach the host's own client. Keep the
+   ones that are presentation, stop sending the ones `HostOwnClient` ignores.
+5. Requests that rely on each other's order move together: a request handled in-process can
+   overtake one still on loopback. Control authority, ports, fuses and the handbrake are one set.
+6. Run the area's scenarios on one pair (see [Scenarios](#scenarios)).
+
 ### Each request, today and direct
 
 | Request | Handler | Today, for `IsHost(player)` | Stage 2 |
@@ -380,4 +412,8 @@ The new runs fit one scenario, `host-actions`, with a `MODE` per action.
 ## Implementation status (2026-10-19)
 
 - Stage 1: built and merged (#117), in release 2026.10.19.5.
-- The seam, stage 2 and stage 3: not started.
+- **Stage 2's shared machinery: built** on `split/client-server`, the integration branch for the
+  client/server split (see [What's built for it](#whats-built-for-it-and-how-to-move-a-request)).
+  No request is handled in-process yet, so nothing behaves differently. The areas (trains, items,
+  world and stations, jobs and career) move their requests one PR at a time into that branch.
+- The seam and stage 3: not started.

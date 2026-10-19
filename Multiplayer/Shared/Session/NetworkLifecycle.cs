@@ -43,7 +43,15 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     public bool IsServerRunning => Server?.IsRunning ?? false;
     public bool IsClientRunning => Client?.IsRunning ?? false;
 
-    public bool IsProcessingPacket => Client?.IsProcessingPacket ?? false;
+    /// <summary>
+    ///     True while this game applies another player's change: the client handling a received
+    ///     packet, or the server applying a change to its own world (<see cref="NetworkServer.IsApplyingRemoteChange"/>).
+    ///     Code that would send that change on must not.
+    /// </summary>
+    public bool IsProcessingPacket => (Client?.IsProcessingPacket ?? false) || (Server?.IsApplyingRemoteChange ?? false);
+
+    /// <summary>The server as the host's own player reaches it, in-process; null when this game isn't the server.</summary>
+    public ILocalServer LocalServer => Server;
 
     public bool IsReturningToMenu { get; private set; } = false;
 
