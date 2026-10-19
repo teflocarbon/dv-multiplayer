@@ -22,6 +22,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
+# A failed dvmp call prints its output (the eval's compile error or exception) instead of the run
+# stopping silently under set -e with it captured in a variable or sent to /dev/null.
+dvmp_bin=$D; D=dvmp_checked
+dvmp_checked() { local out; if ! out=$("$dvmp_bin" "$@"); then echo "FAIL: dvmp ${*:1:3} failed: ${out:-no output}" >&2; return 1; fi; printf '%s\n' "$out"; }
 P=DevTools/Scenarios/stoker-coal
 C=DevTools/Scenarios/settle-window/count-sends.cs
 STOKER=${STOKER:-auto}; FEED=${FEED:-10}
