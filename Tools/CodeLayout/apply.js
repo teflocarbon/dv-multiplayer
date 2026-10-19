@@ -119,7 +119,15 @@ const csFiles = dir => !fs.existsSync(dir) ? [] : fs.readdirSync(dir, { withFile
 const roots = ['Multiplayer', 'Multiplayer.Protocol.Tests', 'DevTools', 'Tools', 'MultiplayerAPI Tests'];
 const qualified = /(global::)?\bMultiplayer((?:\.[A-Za-z_]\w*)+)/g;
 
+// Names qualified relative to the root namespace (`Components.Networking.Player.NetworkedPlayer`
+// written inside namespace Multiplayer.*).
+const relative = /(?<![\w.])((?:[A-Z]\w*\.)+)([A-Z]\w*)\b/g;
+
 function rewriteQualified(text) {
+    text = text.replace(relative, (whole, prefix, type) => {
+        const target = typeMap.get(`Multiplayer.${prefix.slice(0, -1)}|${type}`);
+        return target ? `${target}.${type}` : whole;
+    });
     return text.replace(qualified, (whole, global, rest) => {
         const parts = rest.slice(1).split('.');
         // Longest old namespace prefix followed by a type declared in it.
