@@ -161,7 +161,7 @@ public partial class NetworkedItemManager
 
         byte localPlayerId = NetworkLifecycle.Instance.IsHost()
             ? ItemServer.Current?.LocalPlayerId ?? 0
-            : NetworkLifecycle.Instance.Client.PlayerId;
+            : NetworkLifecycle.Instance.LocalSession.PlayerId;
         if (simulator != localPlayerId)
             return;
         Vector3 relativeVelocity = collision.relativeVelocity;
@@ -188,7 +188,7 @@ public partial class NetworkedItemManager
         if (NetworkLifecycle.Instance.IsHost())
             ServerPart?.ReceiveLocalTrainWakeWitness(packet);
         else
-            NetworkLifecycle.Instance.Client.SendItemTrainWakeWitness(packet);
+            ItemClient.Current.SendItemTrainWakeWitness(packet);
     }
 
     internal void OnTrainItemRemoved(ushort itemNetId) => ServerPart?.OnTrainItemRemoved(itemNetId);
@@ -240,7 +240,7 @@ public partial class NetworkedItemManager
                 replacement.AdoptAuthoredItemKey(snapshot.AuthoredItemKey,
                     replenishableOfficeSlot: true);
                 if (acknowledge)
-                    NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+                    ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                         snapshot.AuthorityRevision, true);
                 DebugRuntime.Publish("item-world", "world-item.authored-slot-replacement-projected",
                     DebugRuntimeSide.Client, entityType: "Item",
@@ -271,7 +271,7 @@ public partial class NetworkedItemManager
         authored.gameObject.SetActive(true);
         authored.ReceiveSnapshot(snapshot);
         if (acknowledge)
-            NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+            ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                 snapshot.AuthorityRevision, true);
         DebugRuntime.Publish("item-world", "world-item.authored-projection-bound", DebugRuntimeSide.Client,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: new()

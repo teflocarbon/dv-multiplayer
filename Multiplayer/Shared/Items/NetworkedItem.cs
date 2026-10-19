@@ -290,7 +290,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void OnGrabbed(ControlImplBase obj)
     {
-        playerBelongsToId = NetworkLifecycle.Instance.Client.PlayerId;
+        playerBelongsToId = NetworkLifecycle.Instance.LocalSession.PlayerId;
         RefreshLocalVrHandAfterInteraction();
         releasedAt = -1f;
         MarkLocalStateDirty("grabbed");
@@ -630,7 +630,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         ItemState currentState = GetItemState();
         lastState = currentState;
         playerBelongsToId = currentState is ItemState.InHand or ItemState.InInventory
-            ? NetworkLifecycle.Instance.Client.PlayerId
+            ? NetworkLifecycle.Instance.LocalSession.PlayerId
             : (byte)0;
         ItemUpdateData snapshot = CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
         return new ItemAdoptionRequestData
@@ -735,7 +735,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         if (!processingAsHost)
         {
-            NetworkLifecycle.Instance.Client?.SendItemUpdatePacket(snapshot);
+            ItemClient.Current?.SendItemUpdatePacket(snapshot);
         }
         else
             processingAsHost = false;

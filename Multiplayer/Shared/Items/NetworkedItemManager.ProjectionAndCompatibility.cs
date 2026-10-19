@@ -49,14 +49,14 @@ public partial class NetworkedItemManager
 
         newItem.ReceiveSnapshot(snapshot);
         if (acknowledge)
-            NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+            ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                 snapshot.AuthorityRevision, true);
         return true;
     }
 
     private void BuildPrefabLookup()
     {
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"BuildPrefabLookup()");
+        (NetworkLifecycle.Instance.LocalSession as NetworkManager)?.LogDebug(() => $"BuildPrefabLookup()");
 
         foreach (var item in Globals.G.Items.items)
         {
@@ -110,7 +110,7 @@ public partial class NetworkedItemManager
             }
             catch (Exception ex)
             {
-                NetworkLifecycle.Instance.Client.LogError($"Error quarantining unbound client item: {ex.Message}");
+                (NetworkLifecycle.Instance.LocalSession as NetworkManager)?.LogError($"Error quarantining unbound client item: {ex.Message}");
             }
         }
 
@@ -210,7 +210,7 @@ public partial class NetworkedItemManager
         data["snapshot"] = DebugTrace.ItemSnapshotData(request.Snapshot);
         DebugRuntime.Publish("item", "item.adoption-requested", DebugRuntimeSide.Client, DebugSeverity.Info,
             "Item", "0", data);
-        NetworkLifecycle.Instance.Client?.SendItemAdoption(request);
+        ItemClient.Current?.SendItemAdoption(request);
     }
 
     public void ApplyItemAdoptionResult(ItemAdoptionResultData result)
@@ -261,7 +261,7 @@ public partial class NetworkedItemManager
             return false;
         byte localPlayerId = NetworkLifecycle.Instance.IsHost()
             ? ItemServer.Current?.LocalPlayerId ?? 0
-            : NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+            : NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
         DebugRuntime.Publish("item", "item.recall-requested",
             NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
             entityType: "Item", entityId: item.NetId.ToString(), data: new()
@@ -274,7 +274,7 @@ public partial class NetworkedItemManager
 
         if (!NetworkLifecycle.Instance.IsHost())
         {
-            NetworkLifecycle.Instance.Client?.SendItemRecall(item.NetId, item.AuthorityRevision, requestedSlot);
+            ItemClient.Current?.SendItemRecall(item.NetId, item.AuthorityRevision, requestedSlot);
             return true;
         }
 
