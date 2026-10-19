@@ -1,5 +1,4 @@
 using DV.Interaction;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using System.Collections.Generic;
@@ -71,29 +70,15 @@ public class NetworkedGenericSwitch : MonoBehaviour
         genericSwitchToNetId.Remove(Switch);
     }
 
-    #region server
-    public void Server_ReceiveSwitchState(bool isOn, ServerPlayer player)
-    {
-        if (!transform.PlayerCanReach(player))
-        {
-            Multiplayer.LogWarning($"Player \"{player.Username}\" tried to change switch [\"{Switch.persistenceKey}\", {NetId}] state but is too far away.");
-            NetworkLifecycle.Instance.Server.SendGenericSwitchState(NetId, Switch.IsOn, player);
-            return;
-        }
-
-        if (Switch.IsOn != isOn)
-            Switch.IsOn = isOn;
-    }
-
-    #endregion
-    public void Client_ReceiveSwitchState(bool isOn)
+    /// <summary>
+    /// Sets the switch to a state from the network: a player's on the server (which then tells
+    /// everyone), the server's on a client.
+    /// </summary>
+    public void Apply(bool isOn)
     {
         if (Switch.IsOn != isOn)
             Switch.IsOn = isOn;
     }
-    #region client
-
-    #endregion
 
     #region common
     private void GenerateNetId()
@@ -124,9 +109,9 @@ public class NetworkedGenericSwitch : MonoBehaviour
             return;
 
         if (NetworkLifecycle.Instance.IsHost())
-            NetworkLifecycle.Instance.Server.SendGenericSwitchState(NetId, Switch.IsOn);
+            WorldServer.Current?.BroadcastGenericSwitchState(NetId, Switch.IsOn);
         else
-            NetworkLifecycle.Instance.Client.SendGenericSwitchState(NetId, Switch.IsOn);        
+            WorldClient.Current?.SendGenericSwitchState(NetId, Switch.IsOn);
     }
     #endregion
 }

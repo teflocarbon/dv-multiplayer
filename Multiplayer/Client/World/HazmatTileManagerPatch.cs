@@ -54,9 +54,9 @@ public static class HazmatTileManagerPatch
     [HarmonyPatch(nameof(HazmatTileManager.IgniteTerrainTile))]
     private static bool IgniteTerrainTile(HazmatGridTile tile, float ignitionStrength, ref bool __result)
     {
-        if (!NetworkRole.IsRemoteClient || HazmatSync.ApplyingHostTiles)
+        if (!NetworkRole.IsRemoteClient || HazmatClient.ApplyingHostTiles)
             return true;
-        HazmatSync.Client_ForwardIgnite(tile, ignitionStrength);
+        HazmatClient.ForwardIgnite(tile, ignitionStrength);
         __result = false;
         return false;
     }

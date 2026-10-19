@@ -212,7 +212,7 @@ common shapes:
   locomotive simulation on clients; `HazmatTileManagerPatch` stops tile evolution;
   `TrainCarExplosionForcePatch` stops explosion forces; `SaveGameManager.SaveAllowed` is false.
 - **Apply flags.** While a client applies host state it sets a flag (for example
-  `ExplosionPlayback.ApplyingHostExplosion`, `HazmatSync.ApplyingHostTiles`) so its own patches let
+  `ExplosionPlayback.ApplyingHostExplosion`, `HazmatClient.ApplyingHostTiles`) so its own patches let
   the vanilla code through instead of turning it back into a request.
 
 ## Host authority
@@ -268,7 +268,7 @@ Concrete cases:
   someone else's hands.
 - **Explosions and hazmat.** `Shared/Trains/ExplosionPatch.cs`: clients never start an explosion
   or apply its force; the host sends which car exploded and clients play effects only, while the
-  resulting train motion arrives through train sync. `Shared/World/HazmatSync.cs`:
+  resulting train motion arrives through train sync. `Server/World/HazmatServer.cs`:
   the host sends changed hazmat tiles every half second; a client lighting a tile sends
   `ServerboundHazmatIgnitePacket`, accepted within 40 m of the player.
 
@@ -390,7 +390,7 @@ What is sent when (host side):
 | Train topology | `NetworkServer.OnTick` | Observed host-side changes committed once per tick and broadcast if the revision changed. |
 | Brakes | `NetworkedTrainCar` | Thresholded with a heartbeat; see [design/trains.md](design/trains.md). |
 | Items | `NetworkedItemManager` | Per tick, per ready player, for items in interest. |
-| Hazmat tiles | `HazmatSync.Server_Tick` | Every 12 ticks (0.5 s), changed tiles only. |
+| Hazmat tiles | `HazmatServer.Tick` | Every 12 ticks (0.5 s), changed tiles only. |
 | Weather | `NetworkServer.OnTick` | Every 30 s, plus on join. |
 | Player position | `LocalPlayerTrackerBase` (client) | From `OnTick`, relayed by the host to complete players as `Sequenced`. |
 

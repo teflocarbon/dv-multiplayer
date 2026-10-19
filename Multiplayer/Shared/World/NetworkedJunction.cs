@@ -56,7 +56,7 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         Junction.Switched += Junction_Switched;
         junctionToNetworkedJunction[Junction] = this;
 
-        if (NetworkLifecycle.Instance?.Server?.IsRunning ?? false)
+        if (NetworkLifecycle.Instance?.IsServerRunning ?? false)
             initialised = NetworkLifecycle.Instance.IsHost();
     }
 
@@ -81,7 +81,7 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         if (NetworkLifecycle.Instance.IsProcessingPacket || !initialised)
             return;
 
-        NetworkLifecycle.Instance.Client.SendJunctionSwitched(NetId, (byte)branch, switchMode);
+        WorldClient.Current?.SendJunctionSwitched(NetId, (byte)branch, switchMode);
     }
 
     public void Switch(byte mode, byte selectedBranch, bool initialising = false)
