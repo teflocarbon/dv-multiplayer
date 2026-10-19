@@ -13,11 +13,12 @@ public static class Probe
             return c;
         }
     }
-    public static void Post(NetworkedItem __instance, string rejectionReason)
+    // NetworkedItemServer.SendCanonicalRejectionCorrection(this NetworkedItem item, ServerPlayer, string)
+    public static void Post(NetworkedItem item, string rejectionReason)
     {
         lock (Counts)
         {
-            if (!Counts.TryGetValue(__instance.NetId, out var reasons)) Counts[__instance.NetId] = reasons = new List<string>();
+            if (!Counts.TryGetValue(item.NetId, out var reasons)) Counts[item.NetId] = reasons = new List<string>();
             reasons.Add(rejectionReason ?? string.Empty);
         }
     }
@@ -28,7 +29,7 @@ public static class Probe
         {
             case "install":
                 h.UnpatchAll(Slot);
-                h.Patch(AccessTools.Method(typeof(NetworkedItem), "SendCanonicalRejectionCorrection"),
+                h.Patch(AccessTools.Method(typeof(Multiplayer.Server.Items.NetworkedItemServer), "SendCanonicalRejectionCorrection"),
                     postfix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(Post))));
                 Counts.Clear();
                 return new { installed = true };
