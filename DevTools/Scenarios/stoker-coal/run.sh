@@ -17,6 +17,8 @@
 #     does): exactly one AddCoal is sent, from the client.
 #  3. The client shovels coal out of the tender (CoalPileSimController.TryRemoveCoal, as the shovel
 #     does): exactly one TenderCoal is sent, from the client.
+#  The loco comes with its tender (Trains.SpawnWithTenderNearPlayer): spawning one car never brings
+#  it, and without it there's no coal pile.
 #   STOKER=auto|none|<livery id>  FEED=10 (seconds of stoker feed)
 # Exit code 0 = pass. Needs a running pair; a dedicated host works too.
 set -euo pipefail
@@ -44,7 +46,7 @@ trap cleanup EXIT
 
 livery=$($D eval -t host -m body -a stoker=$STOKER -f $P/pick.cs | field livery)
 real=true; [ "$livery" = "none" ] && { real=false; livery=LocoS282A; }
-s=$($D eval -t host -m coroutine --timeout 60 -u "$U" -a t=$livery 'var car = Trains.SpawnNearPlayer(ctx.Args["t"]); car.brakeSystem.SetHandbrakePosition(1f); for (int i = 0; i < 120; i++) yield return null; ctx.Result = new { id = car.ID, net = (int)car.GetComponent<NetworkedTrainCar>().NetId };')
+s=$($D eval -t host -m coroutine --timeout 60 -u "$U" -a t=$livery 'var car = Trains.SpawnWithTenderNearPlayer(ctx.Args["t"]); car.brakeSystem.SetHandbrakePosition(1f); for (int i = 0; i < 120; i++) yield return null; yield return Trains.CoupleTender(car); ctx.Result = new { id = car.ID, net = (int)car.GetComponent<NetworkedTrainCar>().NetId };')
 loco=$(echo "$s" | field id); id=$(echo "$s" | field net)
 echo "== $livery $loco (a real stoker: $real); the client boards it"
 $D eval -t client -m coroutine --timeout 60 -a loco=$loco 'yield return Trains.Board(Trains.Find(ctx.Args["loco"])); yield return new WaitForSeconds(4);' >/dev/null
