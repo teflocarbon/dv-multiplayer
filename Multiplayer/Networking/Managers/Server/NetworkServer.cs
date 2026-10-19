@@ -2402,6 +2402,11 @@ public class NetworkServer : NetworkManager
             result = TrainControlCommitResult.UnknownControl;
         ClientboundTrainControlCommitPacket commit = ControlCommit(networkedTrainCar,
             packet.OperationId, result, packet.PortIds, acceptedValues);
+        // The host's own values are from the tick its simulation read them, which its local
+        // client's packet carries: it reaches here a frame or so later, unevenly. A player's are
+        // the host's from now.
+        if (NetworkLifecycle.Instance.IsHost(player) && packet.Tick != 0)
+            commit.Tick = packet.Tick;
         SendControlCommit(commit, peer);
     }
 
@@ -2476,7 +2481,8 @@ public class NetworkServer : NetworkManager
             FuseValues = fuseValues ?? Array.Empty<bool>(),
             IncludesHandbrake = includesHandbrake,
             HandbrakePosition = car.TrainCar.brakeSystem.handbrakePosition,
-            BrakeCylinderReleased = brakeCylinderReleased
+            BrakeCylinderReleased = brakeCylinderReleased,
+            Tick = NetworkLifecycle.Instance.Tick
         };
     }
 

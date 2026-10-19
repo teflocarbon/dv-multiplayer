@@ -153,3 +153,13 @@ the next release:
 3. The rerail fix (`fix/rerail-follower`: code, scenario and docs done, not run in a game): merge it,
    and run `rerail` and `rerail-host` on that test pair.
 4. Build Release. Every player installs the new zip.
+
+## Session 3: 2026-10-19, dedicated server
+
+**Setup:** release 2026.10.19.1. The owner in VR on the server's PC (loopback, ping 0); a friend in
+VR over Tailscale at about 110 ms.
+
+| Problem | Cause | Fix | Status |
+|---|---|---|---|
+| The handcar didn't move for a client, then pumping it felt delayed and stuttery | The handle was never hooked, so a grab took no lease; then the crank was drawn at the host's 24 Hz `CURRENT_POSITION` | PR #91 (`fix/handcar-lease`, on `beta`): hook the handle with the external interactables, draw a client's crank every frame (`HandcarCrankSmoothingPatch`) | Fixed live; code in PR #91, untested |
+| The friend's FEF-3 whistle went straight to full with no taper for him, and stuttered for the owner listening | Clients don't run the simulation. The whistle's flow is the host's, back a round trip after the cord moves, in uneven 24 Hz steps that were applied as they landed. The same goes for every sound, gauge and animation the simulation drives | A client works out the whistle, horn, bells, dynamo, sanders and smoothed controls from its own controls while its player is driving that train, and plays every other output the host sends out on the host's tick, a little late, interpolated: two ticks or more, sized from the jitter it measures, up to 300 ms; never delayed for the driver (`TrainPortPresenter`, "Showing the simulation on clients" in `docs/design/trains.md`). The friend's live patch computed the whistle the same way and he said it was much better | Code fixed, untested (core tests only); the whistle's prediction was tried live as a patch |

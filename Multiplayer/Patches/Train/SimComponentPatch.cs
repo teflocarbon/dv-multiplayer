@@ -8,6 +8,11 @@ namespace Multiplayer.Patches.World;
 
 public static class SimComponent_Tick_Patch
 {
+    /// <summary>Set while a client works out a component's outputs itself (TrainPortPresenter's
+    /// prediction), the one time a client's simulation component ticks.</summary>
+    [ThreadStatic]
+    internal static bool LocalTick;
+
     public static void Patch(Harmony harmony)
     {
         HarmonyMethod prefixMethod = new(AccessTools.DeclaredMethod(typeof(SimComponent_Tick_Patch), nameof(Prefix)));
@@ -22,6 +27,6 @@ public static class SimComponent_Tick_Patch
 
     private static bool Prefix()
     {
-        return NetworkLifecycle.Instance.IsHost();
+        return LocalTick || NetworkLifecycle.Instance.IsHost();
     }
 }

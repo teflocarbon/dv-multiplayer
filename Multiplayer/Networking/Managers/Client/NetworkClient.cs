@@ -2454,7 +2454,8 @@ public class NetworkClient : NetworkManager
             ExpectedRevision = revision,
             NetId = netId,
             PortIds = portIds,
-            PortValues = portValues
+            PortValues = portValues,
+            Tick = NetworkLifecycle.Instance.Tick
         }, DeliveryMethod.ReliableOrdered);
 
         /*

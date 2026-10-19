@@ -404,6 +404,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // that took no lease from the host's own values echoing back (Client_UnleasedChange).
     private readonly Dictionary<uint, float> client_hostPortValues = [];
     private readonly Dictionary<uint, float> client_hostPortReceivedAt = [];
+    // How a client shows the simulation's outputs: played out smoothly, or predicted while the
+    // local player drives (TrainPortPresenter).
+    private TrainPortPresenter client_portPresenter;
+    private float client_lastLocalControlAt = float.NegativeInfinity;
+    private static readonly Dictionary<Trainset, (int frame, bool driving)> client_drivingByTrainset = [];
     #endregion
 
     #region Common Variables
@@ -526,6 +531,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     InteractablePortScan.PortsOf(TrainCar.carLivery).Select(GetPortNetId),
                     compressorSignalPorts);
                 Multiplayer.LogDebug(() => $"NetworkedTrainCar.Start({CurrentID}, {NetId}) {portWriters.PlayerPortCount} player-driven control ports");
+                if (!NetworkLifecycle.Instance.IsHost())
+                    client_portPresenter = TrainPortPresenter.Create(this, simulationFlow, portId => portWriters.Classify(GetPortNetId(portId)));
             }
 
             TrainCar.InteriorLoaded += OnTrainCarInteriorLoaded;
@@ -947,6 +954,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         EntityDebugRegistry.Unregister("TrainCar", NetId.ToString());
 
         //Clean dictionaries
+        client_portPresenter?.Destroy();
+        client_portPresenter = null;
         trainCarsToNetworkedTrainCars.Remove(TrainCar);
         trainCarIdToNetworkedTrainCars.Remove(CurrentID);
         trainCarIdToTrainCars.Remove(CurrentID);
@@ -1266,6 +1275,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             if (packet.Result != TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost())
                 client.SendTrainSyncRequest(NetId);
         }
+        // Every commit is stamped with the host's tick: their arrivals measure the link's jitter.
+        if (packet.Tick != 0 && !NetworkLifecycle.Instance.IsHost())
+            TrainPortPresenter.Clock.OnArrival(packet.Tick, TrainPortPresenter.Now);
         if (packet.Revision < ControlRevision)
             return;
 
@@ -1279,7 +1291,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     NetId = NetId,
                     PortIds = portIds,
                     PortValues = portValues
-                });
+                }, packet.Tick);
         }
         if (packet.FuseIds?.Length > 0 && packet.FuseValues?.Length == packet.FuseIds.Length)
         {
@@ -1689,6 +1701,40 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     /// (notably while the world loads); reporting those for distant cars only produced rejected
     /// operations and resync requests. The host always reports.
     /// </summary>
+    /// <summary>
+    /// Whether the local player is driving this car's train: holding one of its controls, or
+    /// having changed one within <paramref name="holdSeconds"/>, on any car of the train (a
+    /// loco's controls drive its tender and multiple-unit followers too). A client shows a
+    /// driven train's outputs undelayed and predicts the ones its controls drive
+    /// (<see cref="TrainPortPresenter"/>).
+    /// </summary>
+    internal bool Client_IsLocalPlayerDrivingTrain(float holdSeconds)
+    {
+        Trainset trainset = TrainCar.trainset;
+        if (trainset == null)
+            return Client_IsLocalPlayerDriving(holdSeconds);
+        int frame = Time.frameCount;
+        if (client_drivingByTrainset.TryGetValue(trainset, out var cached) && cached.frame == frame)
+            return cached.driving;
+
+        bool driving = false;
+        foreach (TrainCar car in trainset.cars)
+            if (car != null && TryGetFromTrainCar(car, out NetworkedTrainCar networkedCar) &&
+                networkedCar.Client_IsLocalPlayerDriving(holdSeconds))
+            {
+                driving = true;
+                break;
+            }
+        // Trainsets are replaced as cars couple and uncouple: don't keep old ones.
+        if (client_drivingByTrainset.Count > 256)
+            client_drivingByTrainset.Clear();
+        client_drivingByTrainset[trainset] = (frame, driving);
+        return driving;
+    }
+
+    private bool Client_IsLocalPlayerDriving(float holdSeconds) =>
+        locallyOwnedPortAuthorities.Count > 0 || Time.realtimeSinceStartup - client_lastLocalControlAt < holdSeconds;
+
     private bool Client_LocalPlayerCanTouch() =>
         NetworkLifecycle.Instance.IsHost() ||
         (PlayerManager.PlayerTransform != null &&
@@ -1785,6 +1831,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 dirtyPorts.Add(id);
         if (portIds.Length == 0)
             return;
+        if (!NetworkLifecycle.Instance.IsHost())
+            client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         int i = 0;
         float[] portValues = new float[portIds.Length];
@@ -1858,6 +1906,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         dirtyFuses.Clear();
+        if (!NetworkLifecycle.Instance.IsHost())
+            client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         ulong operationId = NetworkLifecycle.Instance.Client.SendFuses(NetId, fuseIds, fuseValues);
         if (!NetworkLifecycle.Instance.IsHost())
@@ -1971,7 +2021,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         dirtyFuses.Add(fuseNetId);
     }
 
-    public void Common_UpdatePorts(CommonTrainPortsPacket packet)
+    /// <param name="hostTick">On a client, the host's tick the values are from (0 for a resync):
+    /// the simulation's outputs are played out on it rather than shown as they land.</param>
+    public void Common_UpdatePorts(CommonTrainPortsPacket packet, uint hostTick = 0)
     {
         if (!hasSimFlow)
             return;
@@ -1986,6 +2038,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 {
                     client_hostPortValues[packet.PortIds[i]] = value;
                     client_hostPortReceivedAt[packet.PortIds[i]] = Time.realtimeSinceStartup;
+                    if (client_portPresenter != null && client_portPresenter.TakeHostValue(port, value, hostTick))
+                        continue;
                 }
 
                 if (port.type == PortType.EXTERNAL_IN)

@@ -693,6 +693,91 @@ adapter catches exceptions, then checks reciprocal hose pointers, brake-set memb
 line pressure before deciding whether to commit or repair. A Unity callback is never proof of
 brake-line convergence.
 
+## Showing the simulation on clients
+
+Clients don't tick the simulation: `SimComponent_Tick_Patch` blocks every `SimComponent.Tick`
+off the host. What a client shows of it, its gauges, sounds, particles and animations, is the
+host's port values, read by DV's port readers (`LayeredAudioPortReader`, `IndicatorPortReader`,
+`AnimatorPortReader`, the particle readers) whenever a port's value changes. Those values go out
+at the network tick (24 Hz) in the control commits, land unevenly, and used to be applied as they
+landed. So whatever a player's control drives through the simulation came back a round trip late,
+in steps: at 110 ms a VR player pulling the FEF-3's whistle cord heard it go straight to full with
+no taper, and another player heard that player's whistle stutter. Levers themselves are fine: they
+move locally.
+
+`TrainPortPresenter` (one per car, on clients) shows the outputs two ways instead. Physics stays
+the host's: torque, motion, pressures, resources. This is only what a client shows of them.
+
+**Prediction, for the player driving.** Outputs that are a function of controls and slowly
+changing host state are worked out on the client, every frame, while the local player is driving
+the train: they've changed one of its cars' controls in the last 4 s, or hold a control's lease
+(`NetworkedTrainCar.Client_IsLocalPlayerDrivingTrain`). For vanilla components with no other state,
+their own `Tick` runs (`SimComponent_Tick_Patch.LocalTick` lets it through); the rest are copies
+of the part of `Tick` that sets the output. The host's values for those ports are kept but not
+shown, and take over again, played out, once the player stops driving. The audit (DV.Simulation,
+checked against the live S282, FEF-3/S464, DE2 and DE6 graphs on 2026-10-19):
+
+| Output | Inputs | Predicted |
+|---|---|---|
+| Whistle, `exhaust.WHISTLE_FLOW_NORMALIZED` (`SteamExhaust`) | `whistle.EXT_IN`, `boiler.PRESSURE` | Yes: `Min(InverseLerp(1, 2, pressure), control)`. The rest of `SteamExhaust` (draught, steam use, exhaust flow) is the host's |
+| Horn, `horn.HORN` (`Horn`), and its smoothed control `hornControl.CONTROL` (`GenericControl`) | the horn control, its fuse | Yes, both components' `Tick` |
+| Bells, `bell.BELL_NORMALIZED` (`SteamBell`, `ElectricBell`) | the bell control, boiler pressure or a fuse | Yes, `Tick` (on at once, eased off) |
+| Dynamo, `dynamo.DYNAMO_FLOW_NORMALIZED` (`Dynamo`) | the dynamo control, boiler pressure | Yes, `Tick` |
+| Sanders, `sander.SAND_FLOW`, `SAND_COEF` (`Sander`) | the sander control, sand left, a fuse | Yes, without taking the sand (the host's) |
+| Reverser readout, `reverser.REVERSER` (`Reverser`) | the reverser control | Yes, `Tick` |
+| Smoothed controls: `GenericControl`, `SmoothedOutput` (`cabFan.OUTPUT`, `lubricatorControlSmoothing.OUTPUT`) | their control, a fuse | Yes, `Tick` |
+| Lamps (`LampLogic`) | a control or a readout | Already local: they update on a port change, not on `Tick` |
+| Blowdown, `boiler.BLOWDOWN_FLOW_NORMALIZED` | the blowdown control, the vessel's pressure and water | Could be: `Boiler` reads its vessel, not the `PRESSURE` port. Played out for now |
+| Injector, `boiler.INJECTOR_FLOW_NORMALIZED` | the injector control, gated on tender water, a broken boiler and a full one | Could be, with a gate the client can't fully see. Played out for now |
+| Cylinder cocks, `steamEngine.CYLINDER_COCK_FLOW_NORMALIZED` | the control times the cylinders' admission pressure, internal to the engine | No: the host's |
+| Engine RPM, amps, traction, boiler and brake pressures, temperatures, water level, exhaust and chuffs, crank rotation, safety valve, compressor production, fuel, oil, sand and water levels, damage, the handcar's `CURRENT_POSITION` | the host's simulation | No: played out |
+
+**Playout, for everyone else.** Every other output port the host sends (typed `READONLY_OUT` or
+`OUT`, and not a control a player drives) is stamped with the host's tick and shown a little
+behind the newest value, interpolated between ticks (`PlayoutTrack`, Multiplayer.Core):
+
+- The commit carries the tick (`ClientboundTrainControlCommitPacket.Tick`). The host's own values
+  are stamped with the tick its local client read them at (`CommonTrainPortsPacket.Tick`), since
+  that packet reaches the server a frame or so later; a player's are stamped when the host takes
+  them.
+- `PlayoutClock` measures the link from the commits' arrivals: each gives the offset between the
+  client's clock and the host's ticks; the lowest recent offset is the latency, and how far
+  arrivals run above it is the jitter (a peak that decays by 10 ms a second). An observer's delay
+  is one tick plus the jitter (with 15 % headroom), at least two ticks (83 ms) and at most
+  `Max Readout Delay` (300 ms by default). One tick is so the value after the one shown has
+  arrived by the time it's needed.
+- The delay is per car (`PlayoutDelay`) and zero while the local player drives the train, so the
+  driver sees the host's values as they land, as before. It grows by a quarter of real time (the
+  values play at 75 % speed for a moment) and shrinks at double speed, so time never jumps back.
+- The host sends a port only when it moved by 0.001 (a `STATE` port when it changes at all), so a
+  long gap between samples can be a port that sat still and then moved: past four ticks the older
+  value holds until the tick before the newer one.
+- Being typed `STATE` doesn't make a port discrete: bells, the dynamo, cylinder cocks, the safety
+  valve and the crank's rotation are all `STATE`, next to lamp states and chuff pulses. `GENERIC`,
+  `CONTROL`, `STATE` and `DAMAGE` ports blend, but a change of more than 0.5 in one sample is a
+  step (a crank's wrap from 1 to 0, a lamp switching); physical quantities always blend. A step
+  passed over within one frame (a one-tick chuff pulse on a slow frame) is still written, in order.
+- A port something on the client writes itself (a feeder or a controller, or `LampLogic`) is found
+  by its value differing from what the playout last wrote, and from then on shown as it lands.
+- A resync (a control state without a tick) is shown as it lands and restarts that port's history.
+
+**Not done:**
+- Another player's levers, and controls in general, are still shown as they land: playing them
+  out would trip the unleased-change logic (a control differing from the host's last value reads
+  as the local player's change).
+- The host applies a remote player's control as it arrives, so the uneven arrivals of that
+  player's 24 Hz sends are baked into the host's own outputs (the whistle a friend at 110 ms pulls
+  steps unevenly on the host itself). Playout on observers makes those outputs continuous, not
+  even. Evening them out would need the host to play remote players' continuous controls out on
+  the sender's tick, a delay of a tick or two on that player's physics.
+- The handcar's crank (`HandcarCrankSmoothingPatch`, PR #91, not on this base) eases toward the
+  host's `CURRENT_POSITION` assuming it is about 80 ms old. Played out, an observer's is older by the
+  car's delay: when both are in, the patch should lead by `PlayoutClock` and the car's delay
+  instead of a constant, or that port should be left out of the playout.
+
+Settings (advanced): `Smooth Train Readouts`, `Max Readout Delay (ms)` and `Predict Train Sounds`,
+all read live, for comparing with and without in a game.
+
 ## Motion
 
 Existing on-rail motion remains host-authoritative:
