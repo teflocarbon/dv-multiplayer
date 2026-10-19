@@ -612,12 +612,25 @@ public partial class NetworkServer : IItemServer
         return nextItemRecallOperationId;
     }
 
+    // The Lost and Found screen's and the container UI's requests. The host's own player's are
+    // handled in-process (RegisterLocalItems); the answers go to its client like anyone's, which
+    // shows them (HostOwnClient applies them).
+    partial void RegisterLocalItems()
+    {
+        HandleLocal<ServerboundLostItemsRequestPacket>(HandleLostItemsRequest);
+        HandleLocal<ServerboundLostItemRetrievePacket>(HandleLostItemRetrieve);
+        HandleLocal<ServerboundContainerBrowsePacket>(HandleContainerBrowse);
+        HandleLocal<ServerboundContainerMutationPacket>(HandleContainerMutation);
+    }
+
     private void OnServerboundLostItemsRequestPacket(ServerboundLostItemsRequestPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
-        SendLostItemsSnapshot(player, packet.RequestId);
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleLostItemsRequest(packet, player);
     }
+
+    private void HandleLostItemsRequest(ServerboundLostItemsRequestPacket packet, ServerPlayer player) =>
+        SendLostItemsSnapshot(player, packet.RequestId);
 
     private void OnServerboundLostItemRetrievePacket(ServerboundLostItemRetrievePacket packet, ITransportPeer peer)
     {
@@ -627,6 +640,11 @@ public partial class NetworkServer : IItemServer
                 $"peer={peer?.Id}, request={packet.RequestId}, handle={packet.LostHandle}");
             return;
         }
+        HandleLostItemRetrieve(packet, player);
+    }
+
+    private void HandleLostItemRetrieve(ServerboundLostItemRetrievePacket packet, ServerPlayer player)
+    {
         Log($"[LostAndFound Recall] Retrieval packet received: player=P{player.PlayerId}, " +
             $"request={packet.RequestId}, handle={packet.LostHandle}, revision={packet.ExpectedRevision}, " +
             $"requestedSlot={packet.RequestedSlot}, existingSlot={packet.ExistingItemSlot}, " +
@@ -636,7 +654,7 @@ public partial class NetworkServer : IItemServer
             packet.OccupiedSlots, out ItemUpdateData snapshot, out string rejectionReason);
         if (accepted)
             SendItemUpdatePacket(snapshot);
-        SendPacket(peer, new ClientboundLostItemRetrieveResultPacket
+        SendPacket(player.Peer, new ClientboundLostItemRetrieveResultPacket
         {
             RequestId = packet.RequestId,
             LostHandle = packet.LostHandle,
@@ -656,21 +674,32 @@ public partial class NetworkServer : IItemServer
     private void OnServerboundContainerBrowsePacket(ServerboundContainerBrowsePacket packet,
         ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleContainerBrowse(packet, player);
+    }
+
+    private void HandleContainerBrowse(ServerboundContainerBrowsePacket packet, ServerPlayer player)
+    {
         ColdContainerView view;
         ContainerOperationResult result = packet.ShellNetId != 0
             ? NetworkedColdContainerManager.Browse(player, packet.ShellNetId, packet.Offset,
                 packet.Count, out view)
             : NetworkedColdContainerManager.Browse(player, packet.ContainerHandle, packet.Offset,
                 packet.Count, out view);
-        SendPacket(peer, ProjectContainerView(packet.RequestId, result, view),
+        SendPacket(player.Peer, ProjectContainerView(packet.RequestId, result, view),
             DeliveryMethod.ReliableOrdered);
     }
 
     private void OnServerboundContainerMutationPacket(ServerboundContainerMutationPacket packet,
         ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleContainerMutation(packet, player);
+    }
+
+    private void HandleContainerMutation(ServerboundContainerMutationPacket packet, ServerPlayer player)
+    {
+        ITransportPeer peer = player.Peer;
         Guid operationId = packet.OperationId?.Length == 16
             ? new Guid(packet.OperationId) : Guid.Empty;
         ContainerOperationResult result;
