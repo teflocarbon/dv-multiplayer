@@ -7,12 +7,13 @@ var c = car.loadedInterior.GetComponentsInChildren<DV.CabControls.ControlImplBas
 var port = c.GetComponent<DV.Simulation.Ports.InteractablePortFeeder>().portId;
 uint netId = Multiplayer.Shared.Trains.NetworkedTrainCar.GetPortNetId(port);
 var local = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server.LocalPlayer;
-string holder = !ntc.portAuthority.TryGetValue(netId, out var owner) || owner == null ? "none"
+var owner = Multiplayer.Server.Trains.NetworkedTrainCarServer.Of(ntc).LeaseHolder(netId);
+string holder = owner == null ? "none"
     : owner == local ? "host" : owner.Username;
 return new
 {
     holder,
     value = ntc.simulationFlow.TryGetPort(port, out var p) ? Math.Round(p.Value, 3) : -1,
     blocked = ntc.portNetIdToBlockState.TryGetValue(netId, out bool b) && b,
-    leases = ntc.portAuthority.Count
+    leases = Multiplayer.Server.Trains.NetworkedTrainCarServer.Of(ntc).LeaseCount
 };

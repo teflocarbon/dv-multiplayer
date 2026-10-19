@@ -289,7 +289,7 @@ public partial class NetworkClient
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client);
         //LogDebug(() => $"Received Physics packet for netId: {packet.FirstNetId}, tick: {packet.Tick}");
-        NetworkTrainsetWatcher.Instance.Client_HandleTrainsetPhysicsUpdate(packet);
+        global::Multiplayer.Client.Trains.TrainsetPhysicsFollower.HandleTrainsetPhysicsUpdate(packet);
     }
 
     private void OnCommonCouplerInteractionPacket(CommonCouplerInteractionPacket packet)

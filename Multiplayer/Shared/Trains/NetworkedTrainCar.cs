@@ -14,8 +14,6 @@ using JetBrains.Annotations;
 using LocoSim.Definitions;
 using LocoSim.Implementations;
 using Multiplayer.Client.Trains;
-using Multiplayer.Server.Session;
-using Multiplayer.Server.Trains;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data.Train;
@@ -209,13 +207,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     // And how long after a host update to a port its control may still be catching up to it.
     private const float UNLEASED_CHANGE_SETTLE_SECONDS = 1.5f;
     private const uint MIN_KINEMATIC_CYCLES = 10;
-    private const float DISTANCE_TOLERANCE = 2f;
-    private const float MAX_PAINT_DISTANCE_SQ = (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE) * (CommsRadioPaintjob.SIGNAL_RANGE + DISTANCE_TOLERANCE);
     // Periodic full-sync positions are only a safety net: TrainSpeedQueue steers on-rail cars to
     // the host's bogie positions continuously, and snapping a moving car to a latency-old pose
     // yanks it backwards. Only snap when the car is clearly somewhere else.
     private const float POSITION_UPDATE_THRESHOLD = 5f;
     private const float INTERIOR_CONTROLS_TIMEOUT = 2f;
+    // The speed a client wakes a sleeping car for: the host counts it as moving.
+    private const float MOVING_SPEED = 0.01f;
 
     #region Port and Fuse Map
 
@@ -224,7 +222,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private static readonly Dictionary<uint, string> netIdToFuse = [];
     private static readonly Dictionary<string, uint> fuseToNetId = [];
 
-    static uint GetPortNetId(string portId)
+    internal static uint GetPortNetId(string portId)
     {
         if (portToNetId.TryGetValue(portId, out var netId))
             return netId;
@@ -239,13 +237,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return netId;
     }
 
-    static string GetPort(uint netId)
+    internal static string GetPort(uint netId)
     {
         netIdToPort.TryGetValue(netId, out var portId);
         return portId;
     }
 
-    static uint GetFuseNetId(string fuseId)
+    internal static uint GetFuseNetId(string fuseId)
     {
         if (fuseToNetId.TryGetValue(fuseId, out var netId))
             return netId;
@@ -256,7 +254,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         return netId;
     }
-    static string GetFuse(uint netId)
+    internal static string GetFuse(uint netId)
     {
         netIdToFuse.TryGetValue(netId, out var portId);
         return portId;
@@ -275,20 +273,20 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     public uint TicksSinceSync = uint.MaxValue;
 
     public uint lastTickProcessed = 0;
-    public uint ControlRevision { get; private set; }
+    public uint ControlRevision { get; internal set; }
     public bool HasPlayers => PlayerManager.Car == TrainCar || GetComponentInChildren<NetworkedPlayer>() != null;
 
-    private Bogie bogie1;
-    private Bogie bogie2;
-    private BrakeSystem brakeSystem;
+    internal Bogie bogie1;
+    internal Bogie bogie2;
+    internal BrakeSystem brakeSystem;
 
-    private bool hasSimFlow;
-    private SimulationFlow simulationFlow;
+    internal bool hasSimFlow;
+    internal SimulationFlow simulationFlow;
     SimController simController;
     public FireboxSimController firebox;
     // The compressor's activation signal: typed CONTROL, but the brake system sets it.
     private readonly HashSet<uint> compressorSignalPorts = new();
-    private Port compressorSignalPort;
+    internal Port compressorSignalPort;
     // Ports vanilla writes every frame on every game from that game's own car: TractionPortsFeeder's
     // forward speed, wheel rpm and wheel speed, and a steam boiler's tilt (BoilerSimController).
     // Each game feeds its own, so they aren't synced. Applying the host's too gave them two
@@ -296,24 +294,20 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private readonly HashSet<uint> locallyFedPorts = new();
     // A handcar's handle ports: its position (BAR) and whether it's held (ENGAGED). Each game's are
     // its own player's handle, so they take no lease and any number of players can pump at once.
-    // The host keeps other players' handles in handcarPumpers rather than its ports
-    // (HandcarDrivePatch adds their strokes up), and no game applies another game's.
-    private readonly HashSet<uint> handcarHandlePorts = new();
-    private uint handcarBarPortNetId;
-    private uint handcarEngagedPortNetId;
-    private HandcarDrive handcarDrive;
-    private HandcarPumpers<ServerPlayer> server_handcarPumpers;
-    private Func<ServerPlayer, bool> server_outOfReach;
+    // The host keeps other players' handles apart from its ports (NetworkedTrainCarServer), and no
+    // game applies another game's.
+    internal readonly HashSet<uint> handcarHandlePorts = new();
+    internal uint handcarBarPortNetId;
+    internal uint handcarEngagedPortNetId;
+    internal HandcarDrive handcarDrive;
     // Which CONTROL ports players drive: the only ones a client sends, or the host takes from one.
-    private ControlPortWriters<uint> portWriters;
+    internal ControlPortWriters<uint> portWriters;
     public CoalPileSimController coalPile;
-    private readonly Dictionary<TrainDamage, TrainDamage.HealthChanged> trainDamageDelegates = [];
 
-    private HashSet<uint> dirtyPorts;
+    internal HashSet<uint> dirtyPorts;
     private Dictionary<uint, float> lastSentPortValues;
-    private HashSet<uint> dirtyFuses;
+    internal HashSet<uint> dirtyFuses;
     private readonly HashSet<TrainCarPaint> dirtyPaints = [];
-    private readonly Dictionary<string, float> lastSentTrainDamages = [];
 
     private InteriorControlsManager interiorControlsManager;
     private readonly Dictionary<ControlImplBase, Action<ValueChangedEventArgs>> scrollableControlDelegates = [];
@@ -330,7 +324,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private readonly Dictionary<uint, Behaviour[]> portNetIdToLocalInputWriters = [];
     private const float USED_CONTROL_LEASE_SECONDS = 0.5f;
 
-    private bool handbrakeDirty;
+    internal bool handbrakeDirty;
 
     // A handcar's handbrake springs off unless its own game's player holds it (vanilla
     // HandcarHandbrakeController, on every game). Handbrakes take no lease, so the handbrake sync
@@ -363,36 +357,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     private readonly Dictionary<uint, ulong> client_pendingPortOperations = new();
     private readonly Dictionary<uint, ulong> client_pendingFuseOperations = new();
     private ulong client_pendingHandbrakeOperation;
-    private bool mainResPressureDirty;
-    private bool brakeOverheatDirty;
-    private float lastSentMainReservoirPressure = float.NaN;
-    private float lastSentBrakePipePressure = float.NaN;
-    private float lastSentBrakeCylinderPressure = float.NaN;
-    private uint lastBrakeStateTick;
 
     public bool BogieTracksDirty;
-    private bool cargoStateDirty;
-    private bool cargoHealthDirty;
-    private bool cargoIsLoading;
     public byte CargoModelIndex = byte.MaxValue;
-    private bool carHealthDirty;
-    private bool sendCouplers;
-    private bool sendCables;
-    private bool topologyDirty;
 
     public bool IsDestroying;
-
-    #region Server Variables
-    //Coupler interaction
-    private bool frontInteracting = false;
-    private bool rearInteracting = false;
-
-    private ServerPlayer frontInteractionPlayer;
-    private ServerPlayer rearInteractionPlayer;
-
-    private readonly Dictionary<uint, ServerPlayer> portAuthority = [];
-
-    #endregion
 
     #region Client Variables
 
@@ -425,25 +394,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private uint kinematicCycles = 0;
 
-    // Host: where a derailed car was when it last moved more than DerailedSettleDistance.
-    private const float DerailedSettleDistance = 0.02f;
-    private Vector3 derailedAnchor;
-    private uint derailedAnchorTick;
-    private bool hasDerailedAnchor;
-
-    /// <summary>Host: whether a derailed car has moved less than 2 cm in the last second.</summary>
-    public bool Server_DerailedSettled(Vector3 position, uint tick)
-    {
-        if (!hasDerailedAnchor || (position - derailedAnchor).sqrMagnitude > DerailedSettleDistance * DerailedSettleDistance)
-        {
-            derailedAnchor = position;
-            derailedAnchorTick = tick;
-            hasDerailedAnchor = true;
-            return false;
-        }
-        return tick - derailedAnchorTick >= NetworkLifecycle.TICK_RATE;
-    }
-
     private readonly Dictionary<uint, bool> portNetIdToBlockState = [];
     private readonly Dictionary<uint, ControlImplBase> portNetIdToControl = [];
     private readonly Dictionary<ControlImplBase, uint> controlToPortNetId = [];
@@ -466,6 +416,13 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     #endregion
 
+    /// <summary>
+    /// The server's half of this car (Server/Trains/NetworkedTrainCarServer.cs), on the server.
+    /// This component drives it at the points its code always ran: the end of Start, OnDisable,
+    /// each tick after the car's own work, and the host's own control changes.
+    /// </summary>
+    internal ITrainCarServerPart ServerPart { get; private set; }
+
     protected override bool IsIdServerAuthoritative => true;
 
     protected override void Awake()
@@ -485,7 +442,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         if (NetworkLifecycle.Instance.IsHost())
         {
-            NetworkTrainsetWatcher.Instance.CheckInstance(); // Ensure the NetworkTrainsetWatcher is initialized
+            ServerPart = TrainRoles.Server?.CreateCarPart(this);
             Client_Initialized = true;
         }
         else
@@ -615,12 +572,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     handcarEngagedPortNetId = GetPortNetId(handcarDrive.handleEngagedExtIn.id);
                     handcarHandlePorts.Add(handcarBarPortNetId);
                     handcarHandlePorts.Add(handcarEngagedPortNetId);
-                    if (NetworkLifecycle.Instance.IsHost())
-                    {
-                        server_handcarPumpers = new HandcarPumpers<ServerPlayer>();
-                        server_outOfReach = player => (player.WorldPosition - transform.position).sqrMagnitude > CarLengthSq;
-                        HandcarDrivePatch.Register(handcarDrive, server_handcarPumpers);
-                    }
                 }
 
                 dirtyPorts =new HashSet<uint>(simulationFlow.fullPortIdToPort.Count);
@@ -689,60 +640,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (TrainCar.PaintInterior != null)
             TrainCar.PaintInterior.OnThemeChanged += Common_OnPaintThemeChange;
 
-        NetworkLifecycle.Instance.OnTick += Common_OnTick;
+        NetworkLifecycle.Instance.OnTick += OnTick;
 
         if (NetworkLifecycle.Instance.IsHost())
         {
-            NetworkLifecycle.Instance.OnTick += Server_OnTick;
-            NetworkLifecycle.Instance.Server.PlayerDisconnected += Server_OnPlayerDisconnect;
-
-            bogie1.TrackChanged += Server_BogieTrackChanged;
-            bogie2.TrackChanged += Server_BogieTrackChanged;
-
-            TrainCar.frontCoupler.Uncoupled += Server_CouplerUncoupled;
-            TrainCar.rearCoupler.Uncoupled += Server_CouplerUncoupled;
-            TrainCar.frontCoupler.Coupled += Server_CouplerCoupled;
-            TrainCar.rearCoupler.Coupled += Server_CouplerCoupled;
-
-            TrainCar.CarDamage.CarEffectiveHealthStateUpdate += Server_CarHealthUpdate;
-
-            //find all TrainDamages and subscribe
-            if (TryGetComponent<DamageController>(out DamageController damageController) && damageController != null)
-            {
-                var trainDamageFields = typeof(DamageController)
-                    .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                    .Where(field => field.FieldType == typeof(TrainDamage))
-                    .Select(field => new { Field = field, Damage = (TrainDamage)field.GetValue(damageController) })
-                    .Where(value => value.Damage != null)
-                    .ToArray();
-
-                if (trainDamageFields != null && trainDamageFields.Length > 0)
-                {
-                    for (int i = 0; i < trainDamageFields.Length; i++)
-                    {
-                        var fieldName = trainDamageFields[i].Field.Name;
-                        var fieldValue = trainDamageFields[i].Damage;
-
-                        //create a delegate for each field
-                        void DamagesUpdate(float health) => Server_TrainDamagesHealthUpdate(fieldName, health);
-
-                        //subscribe to the event
-                        trainDamageFields[i].Damage.HealthPercentageChanged += DamagesUpdate;
-
-                        //store delegates and set a last sent value to an impossible value
-                        trainDamageDelegates.Add(fieldValue, DamagesUpdate);
-                        lastSentTrainDamages.Add(fieldName, -1f);
-                    }
-                }
-            }
-
-            if (brakeSystem != null)
-            {
-                brakeSystem.MainResPressureChanged += Server_MainResUpdate;
-                brakeSystem.heatController.OverheatingActiveStateChanged += Server_BrakeHeatUpdate;
-            }
-
-            StartCoroutine(Server_WaitForLogicCar());
+            ServerPart?.Start();
         }
         else
         {
@@ -1163,8 +1065,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     public void OnDisable()
     {
-        if (handcarDrive != null && server_handcarPumpers != null)
-            HandcarDrivePatch.Unregister(handcarDrive);
+        ServerPart?.Unregister();
 
         if (UnloadWatcher.isQuitting || Retired)
             return;
@@ -1185,11 +1086,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         foreach (Coupler coupler in TrainCar.couplers)
             hoseToCoupler.Remove(coupler.hoseAndCock);
 
-        if (NetworkLifecycle.Instance.IsHost() && !UnloadWatcher.isUnloading)
-            NetworkLifecycle.Instance.Server?.CommitObservedTrainTopology();
-
         //stop tracking client events
-        NetworkLifecycle.Instance.OnTick -= Common_OnTick;
+        NetworkLifecycle.Instance.OnTick -= OnTick;
 
         if (firebox != null)
         {
@@ -1209,37 +1107,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         //stop tracking server events
         if (NetworkLifecycle.Instance.IsHost())
-        {
-            NetworkLifecycle.Instance.OnTick -= Server_OnTick;
-            NetworkLifecycle.Instance.Server.PlayerDisconnected -= Server_OnPlayerDisconnect;
-
-            bogie1.TrackChanged -= Server_BogieTrackChanged;
-            bogie2.TrackChanged -= Server_BogieTrackChanged;
-
-            TrainCar.frontCoupler.Uncoupled -= Server_CouplerUncoupled;
-            TrainCar.rearCoupler.Uncoupled -= Server_CouplerUncoupled;
-            TrainCar.frontCoupler.Coupled -= Server_CouplerCoupled;
-            TrainCar.rearCoupler.Coupled -= Server_CouplerCoupled;
-
-            TrainCar.CarDamage.CarEffectiveHealthStateUpdate -= Server_CarHealthUpdate;
-
-            //Unsubscribe from damage updates
-            if (trainDamageDelegates != null && lastSentTrainDamages.Count > 0)
-                foreach (var kvp in trainDamageDelegates)
-                    kvp.Key.HealthPercentageChanged -= kvp.Value;
-
-            if (brakeSystem != null)
-            {
-                brakeSystem.MainResPressureChanged -= Server_MainResUpdate;
-                brakeSystem.heatController.OverheatingActiveStateChanged -= Server_BrakeHeatUpdate;
-            }
-
-            if (TrainCar.logicCar != null)
-            {
-                TrainCar.logicCar.CargoLoaded -= Server_OnCargoLoaded;
-                TrainCar.logicCar.CargoUnloaded -= Server_OnCargoUnloaded;
-            }
-        }
+            ServerPart?.Disable();
 
         CurrentID = string.Empty;
         // Destroy only takes effect at the end of the frame, and DV's car pool can hand this
@@ -1273,127 +1141,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
     }
-    private IEnumerator Server_WaitForLogicCar()
-    {
-        while (TrainCar.logicCar == null)
-            yield return null;
-
-        TrainCar.logicCar.CargoLoaded += Server_OnCargoLoaded;
-        TrainCar.logicCar.CargoUnloaded += Server_OnCargoUnloaded;
-
-        if (TrainCar.CargoDamage)
-            TrainCar.CargoDamage.CargoEffectiveHealthStateUpdate += Server_CargoHealthUpdate;
-
-        Server_DirtyAllState();
-    }
-
-    public void Server_DirtyAllState()
-    {
-        handbrakeDirty = true;
-        mainResPressureDirty = true;
-        cargoStateDirty = true;
-        cargoHealthDirty = true;
-        cargoIsLoading = true;
-        carHealthDirty = true;
-        sendCouplers = true;
-        sendCables = true;
-        Server_ResyncPose();
-
-        if (!hasSimFlow)
-            return;
-        foreach (string portId in simulationFlow.fullPortIdToPort.Keys)
-        {
-            var netId = GetPortNetId(portId);
-            dirtyPorts.Add(netId);
-        }
-
-        foreach (string fuseId in simulationFlow.fullFuseIdToFuse.Keys)
-        {
-            var netId = GetFuseNetId(fuseId);
-            dirtyFuses.Add(netId);
-        }
-    }
-
-    /// <summary>
-    /// Send the car's pose and both bogies' tracks and spans on the next tick, reliably, even if
-    /// it's standing still (a stopped set is otherwise only resent every couple of seconds).
-    /// </summary>
-    public void Server_ResyncPose()
-    {
-        BogieTracksDirty = true; // makes the set's packet reliable
-        TicksSinceSync = uint.MaxValue / 2; // full pose on the next tick (a client rerailing to it needs one); not MaxValue, the tick's ++ would wrap it to 0
-    }
-
-    /// <summary>
-    /// The host is rerailing this car or moving it to another track: once vanilla has (a physics
-    /// step later), send clients where it is now, so their followers aren't left aiming at
-    /// where it was.
-    /// </summary>
-    public void Server_ResyncAfterRelocation() => CoroutineManager.Instance.StartCoroutine(Server_ResyncAfterRelocationCoro());
-
-    private IEnumerator Server_ResyncAfterRelocationCoro()
-    {
-        yield return new WaitForFixedUpdate();
-        for (float t0 = Time.realtimeSinceStartup; TrainCar != null && TrainCar.IsTeleporting && Time.realtimeSinceStartup - t0 < 5f;)
-            yield return null;
-        if (this != null && TrainCar != null)
-            Server_ResyncPose();
-    }
-
-    public bool Server_ValidateClientSimFlowPacket(ServerPlayer player, CommonTrainPortsPacket packet)
-    {
-        // Only allow control ports to be updated by clients
-        if (hasSimFlow)
-            foreach (uint portNetId in packet.PortIds)
-            {
-
-                var portId = GetPort(portNetId);
-                if (simulationFlow.TryGetPort(portId, out Port _))
-                {
-                    // Only controls players drive: the others are the host's simulation's to set.
-                    bool holdsLease = portAuthority.TryGetValue(portNetId, out ServerPlayer owner) && owner == player;
-                    if (portWriters == null || !portWriters.HostAccepts(portNetId, holdsLease))
-                    {
-                        NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a port players don't drive ({portWriters?.Classify(portNetId)})! ([{portId}, {portNetId}] on [{CurrentID}, {NetId}])");
-                        Common_DirtyPorts(packet.PortIds);
-                        return false;
-                    }
-                }
-                else
-                {
-                    NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} sent unknown portId: {portNetId}");
-                    return false;
-                }
-            }
-
-        // Only allow the player to update ports on the car they are in/near
-        if (player.CarId == packet.NetId)
-            return true;
-
-        // Some ports can be updated by the player even if they are not in the car, like doors and windows.
-        // Only deny the request if the player is more than 5 meters away from any point of the car.
-        if ((player.WorldPosition - transform.position).sqrMagnitude <= CarLengthSq)
-            return true;
-
-        NetworkLifecycle.Instance.Server.LogWarning($"Player {player.Username} tried to send a sim flow packet for a car they are not in!");
-        Common_DirtyPorts(packet.PortIds);
-        return false;
-    }
-
-    /// <summary>
-    /// Whether a player may write these ports: nobody else holds a lease on any of them. A lease
-    /// keeps a lever being held, or the whistle rope, from being fought over. A control that's only
-    /// turned or clicked never asks for one (a VR valve, a cab window): requiring a lease refused
-    /// every change to those, so the player saw it and nobody else did.
-    /// </summary>
-    public bool Server_MayWritePorts(ServerPlayer player, IEnumerable<uint> portNetIds)
-    {
-        if (player == null)
-            return false;
-        return portNetIds != null && portNetIds.All(portNetId =>
-            !portAuthority.TryGetValue(portNetId, out ServerPlayer owner) || owner == null || owner == player);
-    }
-
     public bool TryCapturePortValues(uint[] portNetIds, out float[] values)
     {
         values = null;
@@ -1468,13 +1215,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             IncludesHandbrake = state.HasHandbrake,
             HandbrakePosition = state.HandbrakePosition
         });
-    }
-
-    public uint Server_CommitControlRevision()
-    {
-        if (ControlRevision != uint.MaxValue)
-            ControlRevision++;
-        return ControlRevision;
     }
 
     public void Client_SetControlRevision(uint revision)
@@ -1569,350 +1309,16 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
         return (keptIds.ToArray(), keptValues.ToArray());
     }
-
-    private void Server_BogieTrackChanged(RailTrack arg1, Bogie arg2)
-    {
-        BogieTracksDirty = true;
-    }
-
-    private void Server_OnCargoLoaded(CargoType obj)
-    {
-        cargoStateDirty = true;
-        cargoIsLoading = true;
-    }
-
-    private void Server_OnCargoUnloaded()
-    {
-        cargoStateDirty = true;
-        cargoIsLoading = false;
-        CargoModelIndex = byte.MaxValue;
-    }
-
-    private void Server_CargoHealthUpdate(float health)
-    {
-        cargoHealthDirty = true;
-    }
-
-    private void Server_CarHealthUpdate(float health)
-    {
-        //Multiplayer.LogDebug(() => $"Server_CarHealthUpdate({health}) netId: {NetId}");
-        carHealthDirty = true;
-    }
-
-    private void Server_TrainDamagesHealthUpdate(string field, float health)
-    {
-        //Multiplayer.LogDebug(() => $"Server_TrainDamagesHealthUpdate({field}, {health}) netId: {NetId}");
-
-        // Check if value has changed before updating
-        if (!lastSentTrainDamages.TryGetValue(field, out float lastValue)
-            || Mathf.Abs(lastValue - health) > MAX_PORT_DELTA
-            || (health == 0 && lastValue != 0)
-            || (health == 1 && lastValue != 1))
-        {
-            lastSentTrainDamages[field] = health;
-            carHealthDirty = true;
-        }
-    }
-
-    private void Server_MainResUpdate(float normalizedPressure, float pressure)
-    {
-        mainResPressureDirty = true;
-    }
-
-    private void Server_BrakeHeatUpdate(bool overheatActive)
-    {
-        brakeOverheatDirty = true;
-    }
-
-    private void Server_CouplerUncoupled(object _, UncoupleEventArgs args)
-    {
-        sendCouplers |= args.dueToBrokenCouple;
-        topologyDirty = true;
-    }
-
-    private void Server_CouplerCoupled(object _, CoupleEventArgs args) => topologyDirty = true;
-
-    /// <summary>
-    /// The compressor's activation signal follows the brake system's decision (main reservoir
-    /// below the threshold), which DV writes to the port only when that decision changes. Once
-    /// the port held anything else (in playtest 2 it was 0 with the reservoir empty and the engine
-    /// running: no air, so no brakes), nothing put it right. The host keeps them matched.
-    /// </summary>
-    private void Server_KeepCompressorSignal()
-    {
-        if (compressorSignalPort == null || TrainCar.brakeSystem == null)
-            return;
-        float wanted = TrainCar.brakeSystem.compressorActivationSignal ? 1f : 0f;
-        if (compressorSignalPort.Value != wanted)
-            compressorSignalPort.ExternalValueUpdate(wanted);
-    }
-
-    private void Server_OnTick(uint tick)
-    {
-        if (UnloadWatcher.isUnloading)
-            return;
-
-        Server_KeepCompressorSignal();
-        // A pumper who walked off (or fell off) while holding the handle stops pushing.
-        if (server_handcarPumpers?.EngagedCount > 0)
-            server_handcarPumpers.RemoveWhere(server_outOfReach);
-        Server_SendBrakeStates(tick);
-        Server_SendCouplers();
-        Server_SendCables();
-        Server_SendCargoState();
-        Server_SendCargoHealthUpdate();
-        Server_SendCarHealthState();
-
-        // Native Coupler events fire before Trainset.Merge/Split and brake-line work completes.
-        // Commit on the following tick so the snapshot observes the completed transaction.
-        if (topologyDirty)
-        {
-            topologyDirty = false;
-            NetworkLifecycle.Instance.Server?.CommitObservedTrainTopology();
-        }
-
-        TicksSinceSync++; //keep track of last full sync
-    }
-
-    private void Server_SendBrakeStates(uint tick)
-    {
-        float main = brakeSystem.mainReservoirPressure;
-        float pipe = brakeSystem.brakeset?.pipePressure ?? brakeSystem.brakePipePressure;
-        float cylinder = brakeSystem.brakeCylinderPressure;
-        bool pressureChanged = float.IsNaN(lastSentMainReservoirPressure) ||
-            Math.Abs(main - lastSentMainReservoirPressure) >= 0.02f ||
-            Math.Abs(pipe - lastSentBrakePipePressure) >= 0.02f ||
-            Math.Abs(cylinder - lastSentBrakeCylinderPressure) >= 0.02f;
-        bool heartbeat = unchecked(tick - lastBrakeStateTick) >=
-            (uint)(NetworkLifecycle.TICK_RATE * 2);
-        if (!mainResPressureDirty && !brakeOverheatDirty && !pressureChanged && !heartbeat)
-            return;
-
-        mainResPressureDirty = false;
-        brakeOverheatDirty = false;
-        lastSentMainReservoirPressure = main;
-        lastSentBrakePipePressure = pipe;
-        lastSentBrakeCylinderPressure = cylinder;
-        lastBrakeStateTick = tick;
-        var hc = brakeSystem.heatController;
-        NetworkLifecycle.Instance.Server.SendBrakeState
-        (
-            NetId,
-            main, pipe, cylinder,
-            hc.overheatPercentage, hc.overheatReductionFactor, hc.temperature
-        );
-    }
-
-    private void Server_SendCouplers()
-    {
-        if (!sendCouplers)
-            return;
-
-        sendCouplers = false;
-        NetworkLifecycle.Instance.Server?.CommitObservedTrainTopology();
-    }
-
-    private void Server_SendCables()
-    {
-        if (!sendCables)
-            return;
-        sendCables = false;
-        NetworkLifecycle.Instance.Server?.CommitObservedTrainTopology();
-    }
-
-    private void Server_SendCargoState()
-    {
-        if (!cargoStateDirty)
-            return;
-        cargoStateDirty = false;
-        if (cargoIsLoading && TrainCar.logicCar.CurrentCargoTypeInCar == CargoType.None)
-            return;
-
-        NetworkLifecycle.Instance.Server.SendCargoState(this, cargoIsLoading, CargoModelIndex);
-    }
-
-    private void Server_SendCargoHealthUpdate()
-    {
-        if (!cargoHealthDirty)
-            return;
-
-        cargoHealthDirty = false;
-
-        if (TrainCar.logicCar.CurrentCargoTypeInCar == CargoType.None)
-            return;
-
-        NetworkLifecycle.Instance.Server.SendCargoHealthUpdate(NetId, TrainCar.CargoDamage.currentHealth);
-    }
-
-    private void Server_SendCarHealthState()
-    {
-        if (!carHealthDirty)
-            return;
-        carHealthDirty = false;
-        NetworkLifecycle.Instance.Server.SendCarHealthUpdate(NetId, TrainCarHealthData.From(TrainCar));
-    }
-
-    public bool Server_ValidateCouplerInteraction(CommonCouplerInteractionPacket packet, ServerPlayer player)
-    {
-        Multiplayer.LogDebug(() =>
-                $"Server_ValidateCouplerInteraction([[{(CouplerInteractionType)packet.Flags}], {CurrentID}, {packet.NetId}], {player.PlayerId}) " +
-                $"isFront: {packet.IsFrontCoupler}, frontInteracting: {frontInteracting}, frontInteractionPeer: {frontInteractionPlayer}, " +
-                $"rearInteracting: {rearInteracting}, rearInteractionPeer: {rearInteractionPlayer}"
-                );
-
-        //Ensure no one else is interacting
-        if (packet.IsFrontCoupler && frontInteracting && player != frontInteractionPlayer ||
-           packet.IsFrontCoupler == false && rearInteracting && player != rearInteractionPlayer)
-        {
-            Multiplayer.LogDebug(() => $"Server_ValidateCouplerInteraction([{packet.Flags}, {CurrentID}, {packet.NetId}], {player.PlayerId}) Failed to validate!");
-            return false;
-        }
-
-        Multiplayer.LogDebug(() => $"Server_ValidateCouplerInteraction([{packet.Flags}, {CurrentID}, {packet.NetId}], {player.PlayerId}) No one interacting");
-
-        if (((CouplerInteractionType)packet.Flags).HasFlag(CouplerInteractionType.Start))
-        {
-            if (packet.IsFrontCoupler)
-            {
-                frontInteracting = true;
-                frontInteractionPlayer = player;
-            }
-            else
-            {
-                rearInteracting = true;
-                rearInteractionPlayer = player;
-            }
-        }
-        else
-        {
-            if (packet.IsFrontCoupler)
-                frontInteracting = false;
-            else
-                rearInteracting = false;
-        }
-
-        //todo: Additional checks for player location/proximity
-
-        Multiplayer.LogDebug(() => $"Server_ValidateCouplerInteraction([{packet.Flags}, {CurrentID}, {packet.NetId}], {player.PlayerId}) Validation passed!");
-        return true;
-    }
-
-    public void Server_ReceiveAuthorityRequest(uint portNetId, ServerPlayer player, bool requestAuthority,
-        Vector3 playerPosition)
-    {
-        using IDisposable debugScope = DebugTrace.BeginApply("train", "train.authority-apply", DebugRuntimeSide.Server, "Control/Port", $"{NetId}:{portNetId}",
-            () => DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, playerId = player?.PlayerId, requestAuthority }));
-        portAuthority.TryGetValue(portNetId, out var currentAuth);
-
-        if (requestAuthority)
-        {
-            if (currentAuth == null)
-            {
-                if ((playerPosition - transform.position).sqrMagnitude > CarLengthSq)
-                {
-                    DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "sender-out-of-range", DebugRuntimeSide.Server);
-                    NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control on car {CurrentID}, but they are too far away!");
-                    NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
-                    NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released, player);
-                    return;
-                }
-
-                // No authority exists (or cleanup failed) - grant authority and communicate to all players
-                NetworkLifecycle.Instance.Server.LogDebug(() => $"Player \"{player.Username}\" granted authority for a control on car {CurrentID}");
-                portAuthority[portNetId] = player;
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Blocked, excludePlayer: player);
-            }
-            else if (currentAuth != player)
-            {
-                DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "authority-held-by-other-player", DebugRuntimeSide.Server);
-                NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control that's in use on car {CurrentID}");
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
-            }
-        }
-        else
-        {
-            // Release request
-            if (currentAuth == player)
-            {
-                NetworkLifecycle.Instance.Server.LogDebug(() => $"Player \"{player.Username}\" released authority for a control on car {CurrentID}");
-                portAuthority.Remove(portNetId);
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released);
-            }
-            else if (currentAuth != null)
-            {
-                DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "authority-release-not-owner", DebugRuntimeSide.Server);
-                NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to release authority for a control that's not theirs on car {CurrentID}");
-                NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Denied, player);
-            }
-        }
-    }
-
-    public void Server_ValidatePaintThemeChange(TrainCarPaint.Target target, PaintTheme theme, ServerPlayer player)
-    {
-        var playerPos = TrainCar.transform.InverseTransformPoint(player.WorldPosition);
-        Vector3 localClosestPoint = TrainCar.Bounds.ClosestPoint(playerPos);
-        Vector3 worldClosestPoint = TrainCar.transform.TransformPoint(localClosestPoint);
-
-        if ((player.WorldPosition - worldClosestPoint).sqrMagnitude > MAX_PAINT_DISTANCE_SQ)
-        {
-            NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to change the paint theme for car {CurrentID}, but they are too far away!");
-
-            var paintControllers = GetComponents<TrainCarPaint>();
-            int i = 0;
-            while (i < paintControllers.Length)
-            {
-                if (paintControllers[i].TargetArea == target)
-                    break;
-
-                i++;
-            }
-
-            if (i >= paintControllers.Length)
-                return;
-
-            if (!PaintThemeLookup.Instance.TryGetNetId(paintControllers[i].CurrentTheme, out var themeNetId))
-            {
-                Multiplayer.LogWarning($"ValidatePaintThemeChange could not find themeNetId for theme {paintControllers[i].CurrentTheme.AssetName} on [{CurrentID}, {NetId}]");
-                return;
-            }
-
-            NetworkLifecycle.Instance.Server.SendPaintThemeChange(this, target, themeNetId, player);
-
-            return;
-        }
-
-        Common_ReceivePaintThemeUpdate(target, theme);
-    }
-
-    private void Server_OnPlayerDisconnect(ServerPlayer player)
-    {
-        server_handcarPumpers?.Remove(player);
-
-        //todo: resolve player disconnection during chain interaction
-        if (frontInteractionPlayer == player || rearInteractionPlayer == player)
-        {
-            Multiplayer.LogWarning($"Server_OnPlayerDisconnect() Coupler interaction in unknown state [{CurrentID}, {NetId}] isFront: {frontInteractionPlayer == player}");
-            if (frontInteractionPlayer == player)
-            {
-                frontInteracting = false;
-                //NetworkLifecycle.Instance.Client.SendCouplerInteraction(cou, coupler, otherCoupler);
-            }
-            else
-            {
-                rearInteracting = false;
-            }
-        }
-
-        // Clean up blocked controls
-        foreach (var kvp in portAuthority.Where(kvp => kvp.Value == player).ToArray())
-        {
-            portAuthority.Remove(kvp.Key);
-            NetworkLifecycle.Instance.Server.SendTrainControlAuthorityUpdate(NetId, kvp.Key, ControlAuthorityState.Released);
-        }
-    }
     #endregion
 
     #region Common
+
+    // The car's tick: its own sends, then the server's half, as when each was subscribed in turn.
+    private void OnTick(uint tick)
+    {
+        Common_OnTick(tick);
+        ServerPart?.Tick(tick);
+    }
 
     private void Common_OnTick(uint tick)
     {
@@ -1991,7 +1397,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         handbrakeDirty = false;
         if (NetworkLifecycle.Instance.IsHost())
         {
-            NetworkLifecycle.Instance.Server.CommitHostControls(this, handbrake: true);
+            ServerPart?.CommitHandbrake();
             lastHandbrakeSentAt = Time.realtimeSinceStartup;
             return;
         }
@@ -2109,7 +1515,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         // tick's values, as read above.
         if (NetworkLifecycle.Instance.IsHost())
         {
-            NetworkLifecycle.Instance.Server.CommitHostControls(this, portIds, portValues);
+            ServerPart?.CommitPorts(portIds, portValues);
             return;
         }
         ulong operationId = NetworkLifecycle.Instance.Client.SendPorts(NetId, portIds, portValues);
@@ -2146,43 +1552,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return handcarDrive != null && handcarDrive.handleEngagedExtIn.Value > 0f;
     }
 
-    /// <summary>
-    /// A player's accepted control changes. Their handcar handle goes to the pumpers
-    /// (<see cref="HandcarDrivePatch"/>): the host's handle ports are its own player's.
-    /// </summary>
-    public void Server_ApplyPlayerPorts(ServerPlayer player, CommonTrainPortsPacket packet)
-    {
-        if (server_handcarPumpers == null || !packet.PortIds.Any(handcarHandlePorts.Contains))
-        {
-            Common_UpdatePorts(packet);
-            return;
-        }
-
-        List<uint> portIds = new(packet.PortIds.Length);
-        List<float> portValues = new(packet.PortIds.Length);
-        for (int i = 0; i < packet.PortIds.Length; i++)
-        {
-            uint portNetId = packet.PortIds[i];
-            float value = packet.PortValues[i];
-            if (portNetId == handcarBarPortNetId)
-                server_handcarPumpers.SetBar(player, value);
-            else if (portNetId == handcarEngagedPortNetId)
-                server_handcarPumpers.SetEngaged(player, value > 0f);
-            else
-            {
-                portIds.Add(portNetId);
-                portValues.Add(value);
-            }
-        }
-        if (portIds.Count > 0)
-            Common_UpdatePorts(new CommonTrainPortsPacket
-            {
-                NetId = NetId,
-                PortIds = portIds.ToArray(),
-                PortValues = portValues.ToArray()
-            });
-    }
-
     private void Common_SendFuses()
     {
         if (!hasSimFlow || dirtyFuses.Count == 0)
@@ -2211,7 +1580,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         dirtyFuses.Clear();
         if (NetworkLifecycle.Instance.IsHost())
         {
-            NetworkLifecycle.Instance.Server.CommitHostControls(this, fuseIds: fuseIds, fuseValues: fuseValues);
+            ServerPart?.CommitFuses(fuseIds, fuseValues);
             return;
         }
         client_lastLocalControlAt = Time.realtimeSinceStartup;
@@ -2236,7 +1605,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             }
 
             if (NetworkLifecycle.Instance.IsHost())
-                NetworkLifecycle.Instance.Server.SendPaintThemeChange(this, paintController.targetArea, themeNetId);
+                ServerPart?.SendPaintTheme(paintController.targetArea, themeNetId);
             else
                 NetworkLifecycle.Instance.Client.SendPaintThemeChange(this, paintController.targetArea, themeNetId);
         }
@@ -2258,7 +1627,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         // Vanilla raises this before it sets the release, and clears it at the next brake update,
         // so the host commits it now: checked at the server's next poll, it could be gone already.
         if (NetworkLifecycle.Instance.IsHost())
-            NetworkLifecycle.Instance.Server.CommitHostControls(this, brakeCylinderReleased: true);
+            ServerPart?.CommitBrakeCylinderRelease();
         else
             NetworkLifecycle.Instance.Client.SendBrakeCylinderReleased(NetId);
     }
@@ -2968,7 +2337,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             }
 
             // Only force awake if there's movement
-            if (Mathf.Abs(movementPart.Speed) > NetworkTrainsetWatcher.VELOCITY_THRESHOLD && TrainCar.isEligibleForSleep)
+            if (Mathf.Abs(movementPart.Speed) > MOVING_SPEED && TrainCar.isEligibleForSleep)
                 TrainCar.ForceOptimizationState(false);
 
             //move the car to the correct position first - maybe?

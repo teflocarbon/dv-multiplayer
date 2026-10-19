@@ -6,10 +6,15 @@ using JetBrains.Annotations;
 using Multiplayer.Shared.Protocol.Data.Train;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 
-namespace Multiplayer.Shared.Trains;
+namespace Multiplayer.Server.Trains;
 
+/// <summary>
+/// The host's trainsets' motion, sampled every tick and sent to the players. Clients follow it
+/// (Client/Trains/TrainsetPhysicsFollower.cs).
+/// </summary>
 public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 {
     private ClientboundTrainsetPhysicsPacket cachedSendPacket;
@@ -20,7 +25,6 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
 
     const float DESIRED_FULL_SYNC_INTERVAL = 2f; // in seconds
     const int MAX_UNSYNC_TICKS = (int)(NetworkLifecycle.TICK_RATE * DESIRED_FULL_SYNC_INTERVAL);
-    public const float VELOCITY_THRESHOLD = 0.01f;
 
     protected override void Awake()
     {
@@ -175,7 +179,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
                 // A derailed car never quite stops (handbrakes don't act on derailed bogies), so
                 // "moving" is whether it has moved 2 cm in the last second: otherwise its endless
                 // slow slide was streamed forever and clients kept chasing it.
-                if (!netTC.Server_DerailedSettled(trainCar.rb.position, tick))
+                if (!netTC.Server().DerailedSettled(trainCar.rb.position, tick))
                     anyCarMoving = true;
             }
             else if (!trainCar.isStationary)
@@ -256,99 +260,6 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         cachedSendPacket.TrainsetParts = trainsetParts;
         NetworkLifecycle.Instance.Server.SendTrainsetPhysicsUpdate(cachedSendPacket, anyTracksDirty || justStopped);
     }
-    #endregion
-
-    #region Client
-
-    // When the host's packets for a trainset keep disagreeing with ours about how many cars it
-    // has, our couplings have drifted from the host's: two cars coupled here that the host has
-    // apart get pulled apart by their corrections against the joint (#64). Restore the host's
-    // topology. A coupling that's only late (the host's physics arrives before its topology
-    // snapshot) clears up well within the delay.
-    private const float TOPOLOGY_MISMATCH_SECONDS = 1f;
-    private readonly Dictionary<int, (float since, float seen)> client_setMismatches = new();
-    private float client_lastTopologyRestore = -100f;
-
-    private void Client_NoteSetMismatch(int firstNetId, Trainset set, int hostCars)
-    {
-        float now = Time.realtimeSinceStartup;
-        if (!client_setMismatches.TryGetValue(firstNetId, out var mismatch) || now - mismatch.seen > 0.5f)
-            mismatch.since = now;
-        mismatch.seen = now;
-        client_setMismatches[firstNetId] = mismatch;
-
-        var client = NetworkLifecycle.Instance.Client;
-        // A deferred snapshot is already being retried.
-        if (client == null || client.TrainTopologyPending || now - mismatch.since < TOPOLOGY_MISMATCH_SECONDS ||
-            now - client_lastTopologyRestore < TOPOLOGY_MISMATCH_SECONDS)
-            return;
-        client_lastTopologyRestore = now;
-        client_setMismatches.Remove(firstNetId);
-        Multiplayer.LogWarning($"Trainset of {set.firstCar.ID} has {set.cars.Count} cars here but {hostCars} on the host " +
-                               $"for {now - mismatch.since:F1} s; restoring the host's couplings");
-        client.RestoreCanonicalTrainTopology();
-    }
-
-    public void Client_HandleTrainsetPhysicsUpdate(ClientboundTrainsetPhysicsPacket packet)
-    {
-        bool derailmentTransition = false;
-        Trainset set = Trainset.allSets.Find(set => set.firstCar.GetNetId() == packet.FirstNetId || set.lastCar.GetNetId() == packet.FirstNetId ||
-                                                    set.firstCar.GetNetId() == packet.LastNetId || set.lastCar.GetNetId() == packet.LastNetId);
-
-        if (set == null)
-        {
-            Multiplayer.LogWarning($"Received {nameof(ClientboundTrainsetPhysicsPacket)} for unknown trainset with FirstNetId: {packet.FirstNetId} and LastNetId: {packet.LastNetId}");
-            return;
-        }
-
-        if (set.cars.Count != packet.TrainsetParts.Length)
-        {
-            //log the discrepancies
-            //Multiplayer.LogWarning(
-            //    $"Received {nameof(ClientboundTrainsetPhysicsPacket)} for trainset with FirstNetId: {packet.FirstNetId} and LastNetId: {packet.LastNetId} with {packet.TrainsetParts.Length} parts, but trainset has {set.cars.Count} parts");
-
-            for (int i = 0; i < packet.TrainsetParts.Length; i++)
-            {
-                if (NetworkedTrainCar.TryGet(packet.TrainsetParts[i].NetId ,out NetworkedTrainCar networkedTrainCar))
-                {
-                    //Multiplayer.LogDebug(()=>$"Applying TrainPhysicsUpdate to {packet.TrainsetParts[i].NetId}");
-                    derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
-                        in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length);
-                }
-                else
-                {
-                    Multiplayer.LogWarning($"Unable to apply TrainPhysicsUpdate to {packet.TrainsetParts[i].NetId}, NetworkedTrainCar not found!");
-                }
-            }
-            if (derailmentTransition)
-                NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
-            else
-                Client_NoteSetMismatch(packet.FirstNetId, set, packet.TrainsetParts.Length);
-            return;
-        }
-
-        //Check direction of trainset vs packet
-        if(set.firstCar.GetNetId() == packet.LastNetId)
-            packet.TrainsetParts = packet.TrainsetParts.Reverse().ToArray();
-
-        //Multiplayer.Log($"Client_HandleTrainsetPhysicsUpdate({set.firstCar.ID}):, tick: {packet.Tick}");
-
-        for (int i = 0; i < packet.TrainsetParts.Length; i++)
-        {
-            if(set.cars[i].TryNetworked(out NetworkedTrainCar networkedTrainCar))
-                derailmentTransition |= networkedTrainCar.Client_ReceiveTrainPhysicsUpdate(
-                    in packet.TrainsetParts[i], packet.Tick, packet.TrainsetParts.Length);
-            else
-                Multiplayer.LogWarning($"Unable to apply TrainPhysicsUpdate to TrainSet with FirstNetId: {packet.FirstNetId}, NetworkedTrainCar not found!");
-        }
-
-        // Native derailment can alter couplers as a side effect. Consume every car's
-        // transition first, then restore the host's last committed topology once; doing
-        // this per car can create long, explosive joints to cars not processed yet.
-        if (derailmentTransition)
-            NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
-    }
-     
     #endregion
 
     [UsedImplicitly]

@@ -145,6 +145,8 @@ public partial class NetworkServer : ITrainServer
             DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
     }
 
+    public ITrainCarServerPart CreateCarPart(NetworkedTrainCar car) => new NetworkedTrainCarServer(car);
+
     public void NoteUncouple(Coupler coupler, ChangeCause<UncoupleReason> cause)
     {
         ushort netId = coupler?.train?.GetNetId() ?? 0;
@@ -456,7 +458,7 @@ public partial class NetworkServer : ITrainServer
         //todo: add validation that to ensure the client is near the coupler - this packet may also be used for remote operations and may need to factor that in in the future
         if (NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar netTrainCar))
         {
-            if (netTrainCar.Server_ValidateCouplerInteraction(packet, player))
+            if (netTrainCar.Server().ValidateCouplerInteraction(packet, player))
             {
                 // The listen host owns the canonical train topology. Relaying a client-local
                 // coupling without applying it here lets the requesting client join two cars
@@ -575,7 +577,7 @@ public partial class NetworkServer : ITrainServer
 
         LogDebug(() => $"OnCommonPaintThemePacket() [{netTrainCar?.CurrentID}, {packet.NetId}], area: {packet.TargetArea}, paint: [{paint?.AssetName}, {packet.PaintThemeId}]");
 
-        netTrainCar?.Server_ValidatePaintThemeChange(packet.TargetArea, paint, player);
+        netTrainCar?.Server()?.ValidatePaintThemeChange(packet.TargetArea, paint, player);
 
         //SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, peer);
     }
@@ -644,10 +646,10 @@ public partial class NetworkServer : ITrainServer
             : TrainControlCommitResult.InvalidValue;
         if (result == TrainControlCommitResult.Accepted)
         {
-            if (!networkedTrainCar.Server_ValidateClientSimFlowPacket(player, packet))
+            if (!networkedTrainCar.Server().ValidateClientSimFlowPacket(player, packet))
                 result = TrainControlCommitResult.AuthorityDenied;
             else
-                networkedTrainCar.Server_ApplyPlayerPorts(player, packet);
+                networkedTrainCar.Server().ApplyPlayerPorts(player, packet);
         }
         if (!networkedTrainCar.TryCapturePortValues(packet.PortIds ?? Array.Empty<uint>(),
                 out float[] acceptedValues))
@@ -670,7 +672,7 @@ public partial class NetworkServer : ITrainServer
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
-        networkedTrainCar.Server_ReceiveAuthorityRequest(packet.PortNetId, player, packet.RequestAuthority,
+        networkedTrainCar.Server().ReceiveAuthorityRequest(packet.PortNetId, player, packet.RequestAuthority,
             CurrentWorldPosition(player));
     }
 
@@ -736,7 +738,7 @@ public partial class NetworkServer : ITrainServer
         if (!skipRangeCheck &&
             (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
             return TrainControlCommitResult.OutOfRange;
-        if (requireLease && !car.Server_MayWritePorts(player, portIds))
+        if (requireLease && !car.Server().MayWritePorts(player, portIds))
             return TrainControlCommitResult.AuthorityDenied;
         var key = (player.PlayerId, car.NetId);
         bool orderedOperationStream = operationId != 0 &&
@@ -753,7 +755,7 @@ public partial class NetworkServer : ITrainServer
         bool includesHandbrake = false, bool brakeCylinderReleased = false)
     {
         uint revision = result == TrainControlCommitResult.Accepted
-            ? car.Server_CommitControlRevision()
+            ? car.Server().CommitControlRevision()
             : car.ControlRevision;
         return new ClientboundTrainControlCommitPacket
         {
@@ -848,7 +850,7 @@ public partial class NetworkServer : ITrainServer
     {
         if (NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
         {
-            networkedTrainCar.Server_DirtyAllState();
+            networkedTrainCar.Server()?.DirtyAllState();
             // Never to the host's own client: it would apply an old snapshot to the world it owns.
             if (peer != SelfPeer)
                 SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
