@@ -20,7 +20,8 @@
   192 m that has acknowledged the item, else the last accepted pose is committed.
 - **Differs, sampling:** 15 Hz above 1 m/s or 1 rad/s, otherwise 8 Hz; no extra sample on
   collisions or parent changes; one unreliable packet per item per recipient (not batched),
-  sent only to players who know the item.
+  sent only to players who know the item. Leases, samples and commits are never sent to the host's
+  own player: when the host simulates, the server's lease is the lease (its client dropped them).
 - **Not implemented:** explicit lease revocation on Lost-and-Found collection or cold deposit
   (collection advances the revision, so later samples and settlements are rejected; a deposit
   needs the item in hand, which already ends the lease).
@@ -33,7 +34,8 @@
   only the holder sends object state, and object-state changes no longer void a lease; see
   "Leaving the hand" below.
 - **Runtime tests:** the old in-game scenario system is gone. The dvmp `train-items` scenario
-  covers drops and throws in a moving cab (scenarios 13-15 below), and `dvmp soak` throws and
+  covers drops and throws in a moving cab (scenarios 13-15 below), `host-throw-settles` a host's
+  own throw settling with nothing echoed to its client, and `dvmp soak` throws and
   drops items at random then runs a desync check; see [`../testing.md`](../testing.md). The other
   scenarios below are not automated.
 - The "Current behavior and exact failure" section records the bug as it was in July, before
