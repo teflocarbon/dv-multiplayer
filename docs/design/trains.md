@@ -103,7 +103,7 @@ digest; the manifest is counts only.
   coupling leaves the brake lines alone. So a client that keeps receiving physics packets for a
   trainset with a different number of cars than its own has drifted from the host's couplings,
   and after a second it reapplies the host's topology
-  (`NetworkTrainsetWatcher.Client_NoteSetMismatch`).
+  (`TrainsetPhysicsFollower.NoteSetMismatch`).
 - Before this, a chain-only client coupling and a host pulling away at 2 m/s threw the client's
   cars about at up to 140 m/s and 500°/s. Now the client uncouples after 1.4 s, its cars peak at
   3.4 m/s, and the wagon ends within 0.02 m of the host's.
@@ -170,7 +170,7 @@ A handcar's handle takes no lease, so any number of players can pump at once. Va
 which `HandcarBarController` writes every frame), so each game's two handle ports are its own
 player's: no game applies another's, and the host doesn't send its own. A client sends `ENGAGED`
 whenever it changes and `BAR` while it's held (with `ENGAGED`, as taking hold may not move it). The
-host keeps each player's handle (`HandcarPumpers`, filled by `Server_ApplyPlayerPorts`) and a
+host keeps each player's handle (`HandcarPumpers`, filled by `NetworkedTrainCarServer.ApplyPlayerPorts`) and a
 postfix on `HandcarDrive.Tick` (`HandcarDrivePatch`) adds each held handle's stroke, worked out as
 vanilla's, to the torque vanilla made from the host's own player's handle. The total is capped at
 two players' most, so two players pumping in time go faster than one, one pumping against the other
@@ -221,7 +221,7 @@ covers them, and every game, a dedicated server included, gets the same set with
 cab. A client sends only player-driven ports; the host takes only those, or one the sender holds
 the lease on. The compressor's activation signal is host-kept: clients never send it, and the host
 keeps it matched to `brakeSystem.compressorActivationSignal`, since DV writes it only when that
-decision changes (`Server_KeepCompressorSignal`).
+decision changes (`NetworkedTrainCarServer.KeepCompressorSignal`).
 
 **Motion: host-authoritative and steered; stage 5 not started.**
 
@@ -423,6 +423,20 @@ handled in-process like the lever leases (`HandleTrainDelete`, `HandleTrainRerai
 own position too. Every work-train request is answered (`SpawnResponse`, "in use" for a refusal with
 no reason of its own); the host player's answer goes back through its client, which holds the
 radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in its own world.
+
+### Where the code is, by role
+
+The client/server split ([code-layout.md](code-layout.md)) puts each role's train code in its own
+folder. `NetworkedTrainCar` (Shared) is the car: its identity and lookups, the port and fuse map,
+dirty tracking and the tick. On the server it has a server half, `NetworkedTrainCarServer`
+(Server/Trains): control leases, coupler-interaction locks, validating players' changes, the
+host's own control commits and everything the car sends players (brake state, cargo, health,
+topology observations). The car makes it from the server (`ITrainServer.CreateCarPart`, reached as
+`TrainRoles.Server`) and calls it where that code always ran: the end of `Start`, `OnDisable`, and
+each tick after its own sends (`ITrainCarServerPart`). Server code reaches it as `car.Server()`.
+The trainset motion the host samples is `NetworkTrainsetWatcher` (Server/Trains); clients follow it
+in `TrainsetPhysicsFollower` (Client/Trains). The client's half of the car is still inside
+`NetworkedTrainCar` (its `Client_` members).
 
 ## Stable identities
 
@@ -810,7 +824,7 @@ recorded as protocol constants and performance tests rather than scattered magic
 
 Not built as designed. The host sends `ClientboundBrakeStateUpdatePacket` per car (reliable
 ordered) when main reservoir, pipe or cylinder pressure moves by 0.02 or more, when reservoir or
-overheat state is dirty, or every 2 s as a heartbeat (`NetworkedTrainCar.Server_SendBrakeStates`).
+overheat state is dirty, or every 2 s as a heartbeat (`NetworkedTrainCarServer.SendBrakeStates`).
 It carries the host's topology revision, the car's brake-line anchor and member digest, the three
 pressures and the heat state. A client drops it and asks for a topology resync if the revision is
 newer than its own; if the line membership doesn't match it applies the per-car fields, skips the
@@ -1032,7 +1046,7 @@ and vanilla's rerail needs a dynamic one), lets vanilla relocate the car (a coro
 step, `IsTeleporting`), ignores samples meanwhile, clears the queues again and asks the host for a
 full sync (`ServerboundTrainSyncRequestPacket`). The host, once its own relocation is done, sends
 the car's pose and both bogies' tracks and spans reliably on the next tick
-(`Server_ResyncAfterRelocation`, `Server_ResyncPose`; `Server_DirtyAllState` does the same).
+(`NetworkedTrainCarServer.ResyncAfterRelocation`, `ResyncPose`; `DirtyAllState` does the same).
 In playtest 2 none of this was reset: the rigidbody queue kept sliding the rerailed FEF-3 towards
 its derailed pose at its 1.5 m/s limit, the speed queue placed it back towards the host's spans,
 and each 2 s full sync found it over 5 m off and snapped it, flinging the body off its bogies
