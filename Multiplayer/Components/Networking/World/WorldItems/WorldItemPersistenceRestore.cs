@@ -158,6 +158,10 @@ internal static partial class WorldItemPersistenceManager
         record.Position = saved.Position;
         record.Rotation = saved.Rotation;
         record.LastReason = ItemTransitionReason.PersistenceRestore;
+        // Kept, not logged: a load restores every saved item at once. A held item is logged as it
+        // reaches its holder (WorldItemPersistenceManager.BindConnectedOwner).
+        record.LastMove = ItemChangeLog.Move(global::Multiplayer.Core.Items.ItemMoveReason.RestoredFromSave,
+            detail: "saved as " + saved.Placement);
         record.PersistentItemId = saved.PersistentItemId;
         record.AuthoredItemKey = saved.AuthoredItemKey;
         record.WorldParentKind = saved.WorldParentKind;

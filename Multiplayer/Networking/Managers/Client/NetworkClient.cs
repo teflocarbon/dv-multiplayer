@@ -1778,6 +1778,8 @@ public class NetworkClient : NetworkManager
             return;
         }
 
+        if (packet.ItemData.MoveCause.HasValue)
+            ItemChangeLog.OnClientSnapshot(networkedItem, packet.ItemData);
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 

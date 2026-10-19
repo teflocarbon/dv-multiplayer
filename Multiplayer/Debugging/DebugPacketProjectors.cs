@@ -129,6 +129,8 @@ public static class DebugPacketProjectorRegistry
                 ["flags"] = item.InventoryClaimFlags.ToString()
             }
         };
+        if (item.RemovalCause.HasValue) result["removalCause"] = item.RemovalCause.Value.ToString();
+        if (item.MoveCause.HasValue) result["moveCause"] = item.MoveCause.Value.ToString();
         if (item.UpdateType == ItemUpdateData.ItemUpdateType.Destroy) return result;
         result["itemState"] = item.ItemState.ToString();
         if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create)) result["prefabName"] = item.PrefabName;

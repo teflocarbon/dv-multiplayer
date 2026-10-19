@@ -37,6 +37,8 @@ public static class JobOverview_Patch
     [HarmonyPrefix]
     private static void DestroyJobOverview(JobOverview __instance)
     {
+        Components.Networking.World.ItemChangeLog.NoteJobDocumentRemoval(__instance, __instance.job,
+            typeof(JobOverview_Patch));
         if (!NetworkedJob.TryGetFromJob(__instance.job, out NetworkedJob networkedJob))
             Multiplayer.LogError($"JobOverview.DestroyJobOverview() NetworkedJob not found for Job ID: {__instance.job}");
         else

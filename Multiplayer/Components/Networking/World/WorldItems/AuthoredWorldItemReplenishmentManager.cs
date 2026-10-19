@@ -163,6 +163,8 @@ internal sealed class AuthoredWorldItemReplenishmentManager
                     ["positionAbsolute"] = DebugValueSnapshotter.Snapshot(currentPosition),
                     ["emptyAreaSeconds"] = AbandonedForkCleanupSeconds
                 });
+            item.NoteRemovalCause(ItemChangeLog.Removal(global::Multiplayer.Core.Items.ItemRemovalReason.AbandonedStockForkCleared,
+                detail: $"unowned office stock, nobody near for {AbandonedForkCleanupSeconds:F0} s"));
             UnityEngine.Object.Destroy(item.gameObject);
         }
 

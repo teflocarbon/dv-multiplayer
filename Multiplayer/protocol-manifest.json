@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.19.2+fa5d4b7b747a79a81fe56cc6d163d4e048341f11",
-  "Fingerprint": "2147b1d484ccc55b144052ecbf394e16f25c7e4425a90363e0d56efdd532dd9c",
+  "BuildVersion": "2026.10.19-dev.1936+8b8cedd2e0e2d3891419bfd8e0dcec3ee5aaaa64",
+  "Fingerprint": "3e38f3630a2bc6e747b81fd98c9e459531fec6a363049d05781763f2bacbcc2d",
   "Packets": [
     {
       "Hash": "0187F43FA350943B",
@@ -1254,6 +1254,45 @@
       "Private": 0,
       "Friends": 1,
       "Public": 2
+    },
+    "Multiplayer.Core.Items.ItemMoveReason": {
+      "Unknown": 0,
+      "PickedUp": 1,
+      "TakenFromInventory": 2,
+      "StoredInInventory": 3,
+      "TakenFromPlayer": 4,
+      "Dropped": 5,
+      "Thrown": 6,
+      "Attached": 7,
+      "Detached": 8,
+      "Moved": 9,
+      "Settled": 10,
+      "Recalled": 11,
+      "RetrievedFromLostAndFound": 12,
+      "WithdrawnFromContainer": 13,
+      "Purchased": 14,
+      "Granted": 15,
+      "Adopted": 16,
+      "ReturnedToRejoiningOwner": 17,
+      "RestoredFromSave": 18,
+      "DroppedOnDisconnect": 19,
+      "JobBookletSummoned": 20,
+      "ClaimSlotMoved": 21,
+      "RescuedFromBelowMap": 22,
+      "HostCorrection": 23
+    },
+    "Multiplayer.Core.Items.ItemRemovalReason": {
+      "Unknown": 0,
+      "DestroyedByGame": 1,
+      "CollectedToLostAndFound": 2,
+      "DepositedInContainer": 3,
+      "DestroyedWithCar": 4,
+      "MoneyDeposited": 5,
+      "JobDocumentDestroyed": 6,
+      "AbandonedStockForkCleared": 7,
+      "AuthoredSlotReplaced": 8,
+      "DestroyedFromInventory": 9,
+      "LeftInterest": 10
     },
     "Multiplayer.Core.Trains.TrainChainState": {
       "Parked": 0,

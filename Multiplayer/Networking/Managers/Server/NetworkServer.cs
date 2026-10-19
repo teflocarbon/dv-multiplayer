@@ -48,6 +48,8 @@ using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Trains;
+using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
+using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
 using Multiplayer.Patches.MainMenu;
 using Multiplayer.Patches.World;
 using Multiplayer.Utils;
@@ -3281,6 +3283,7 @@ public class NetworkServer : NetworkManager
         Log($"P{player.PlayerId} deposited ${amount:N2} from money item {item.NetId}");
         if (amount > double.Epsilon)
             Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
+        item.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.MoneyDeposited, player, $"${amount:N2}"));
         UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
     }
 
@@ -3403,7 +3406,12 @@ public class NetworkServer : NetworkManager
                 record.PersistentOwnerPlayerId = buyer.PlayerId;
                 record.PersistentOwnerIdentity = buyer.Guid;
                 buyer.AddOwnedItem(networked.NetId);
+                ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Purchased, buyer,
+                    $"at {shop.name}, {i + 1} of {amount}, owner {buyer.Username}, lying in the world"));
             }
+            else if (networked != null && networked.NetId != 0)
+                Multiplayer.LogWarning($"Item {networked.name} (netId {networked.NetId}) bought by " +
+                    $"{buyer?.Username ?? "nobody"} at {shop.name} has no owner: it already had one, or the buyer has no identity");
             yield return WaitFor.Seconds(0.5f);
         }
     }
@@ -3547,7 +3555,8 @@ public class NetworkServer : NetworkManager
         RemovePendingItemRecall(pending);
         uint revision = 0;
         if (NetworkedItem.TryGet(pending.ItemNetId, out NetworkedItem item) && item != null &&
-            AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
+            AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction,
+                ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "recall cancelled: " + reason)))
         {
             revision = correction.AuthorityRevision;
             if (notifyClient)
