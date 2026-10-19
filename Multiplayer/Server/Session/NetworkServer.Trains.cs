@@ -680,6 +680,8 @@ public partial class NetworkServer
 
     // Where a player is now. The host's own player is read from its game: its position packets
     // reach the server a poll or more late, which could put it out of range of a lever it's at.
+    // TODO: remove once LocalPlayer.WorldPosition is current (docs/design/host-local-session.md,
+    // "Position read from the tracker"); use player.WorldPosition then.
     private Vector3 CurrentWorldPosition(ServerPlayer player) =>
         player == LocalPlayer && PlayerManager.PlayerTransform != null
             ? PlayerManager.PlayerTransform.position
