@@ -291,6 +291,7 @@ public partial class NetworkServer : NetworkManager
         // Jobs
         netPacketProcessor.SubscribeReusable<ServerboundJobValidateRequestPacket, ITransportPeer>(OnServerboundJobValidateRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundJobBookletSummonRequestPacket, ITransportPeer>(OnServerboundJobBookletSummonRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundJobRerollRequestPacket, ITransportPeer>(OnServerboundJobRerollRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWarehouseMachineControllerRequestPacket, ITransportPeer>(OnServerboundWarehouseMachineControllerRequestPacket);
 
         // Items

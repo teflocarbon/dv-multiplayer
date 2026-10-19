@@ -91,7 +91,9 @@ public enum ItemMoveReason : byte
     /// The host put the item back where its record says, against a client or its own game's
     /// copy: a refused change, a rolled-back operation, a repaired holder.
     /// </summary>
-    HostCorrection
+    HostCorrection,
+    /// <summary>A job overview thrown back out of the office bin: its job couldn't be re-rolled.</summary>
+    ThrownOutOfBin
 }
 
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>

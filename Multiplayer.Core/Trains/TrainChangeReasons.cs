@@ -65,5 +65,7 @@ public enum CarRemovalReason : byte
     /// <summary>The loco restoration swapped cars.</summary>
     LocoRestoration = 5,
     /// <summary>Removed while loading a save.</summary>
-    SaveLoad = 6
+    SaveLoad = 6,
+    /// <summary>A player binned the overview of the offered job it belonged to, to replace the job.</summary>
+    JobRerolled = 7
 }

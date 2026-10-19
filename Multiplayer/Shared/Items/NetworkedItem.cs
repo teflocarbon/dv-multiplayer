@@ -277,12 +277,19 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     internal void SetLastMoveCause(ChangeCause<ItemMoveReason> cause) => LastMoveCause = cause;
     internal void SetLastRemovalCause(ChangeCause<ItemRemovalReason> cause) => LastRemovalCause = cause;
 
+    /// <summary>
+    /// When the local player last let go of this item (realtime), or -1 if they hold it or never
+    /// did. Unlike the release grace below, it isn't cleared once the drop is sent.
+    /// </summary>
+    internal float LocallyReleasedAt { get; private set; } = -1f;
+
     private void OnUngrabbed(ControlImplBase obj)
     {
         if (VRManager.IsVREnabled() && Item != null && Item.IsBeltSnappable)
             vrBeltReleaseFrame = Time.frameCount;
         RefreshLocalVrHandAfterInteraction();
         releasedAt = Time.realtimeSinceStartup;
+        LocallyReleasedAt = releasedAt;
         releasedFrame = Time.frameCount;
         releaseSpeed = -1f;
         MarkLocalStateDirty("released");
@@ -293,6 +300,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         playerBelongsToId = NetworkLifecycle.Instance.LocalSession.PlayerId;
         RefreshLocalVrHandAfterInteraction();
         releasedAt = -1f;
+        LocallyReleasedAt = -1f;
         MarkLocalStateDirty("grabbed");
     }
 

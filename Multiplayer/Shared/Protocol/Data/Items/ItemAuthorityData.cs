@@ -47,7 +47,9 @@ public enum ItemTransitionReason : byte
     Convergence,
     // A client's object-state change to an item it doesn't hold, made by its own player working
     // the item where it lies (ItemObjectStateAuthority). Without it the host ignores such changes.
-    ClientInteraction
+    ClientInteraction,
+    // The host throwing a job overview back out of the office bin (Server/Jobs/JobReroll).
+    JobRerollRefused
 }
 
 [Flags]

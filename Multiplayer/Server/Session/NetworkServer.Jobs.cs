@@ -21,6 +21,13 @@ public partial class NetworkServer
     partial void RegisterLocalJobs()
     {
         HandleLocal<ServerboundJobBookletSummonRequestPacket>(HandleJobBookletSummon);
+        HandleLocal<ServerboundJobRerollRequestPacket>(JobReroll.Handle);
+    }
+
+    private void OnServerboundJobRerollRequestPacket(ServerboundJobRerollRequestPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            JobReroll.Handle(packet, player);
     }
 
     public void SendWarehouseControllerUpdate(ushort netId, bool isLoading, ushort jobNetId, ushort carNetId, uint cargoTypeNetId, WarehouseMachineController.TextPreset preset)
