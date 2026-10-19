@@ -535,7 +535,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     compressorSignalPorts);
                 Multiplayer.LogDebug(() => $"NetworkedTrainCar.Start({CurrentID}, {NetId}) {portWriters.PlayerPortCount} player-driven control ports");
                 if (!NetworkLifecycle.Instance.IsHost())
-                    client_portPresenter = TrainPortPresenter.Create(this, simulationFlow, portId => portWriters.Classify(GetPortNetId(portId)));
+                    client_portPresenter = TrainPortPresenter.Create(this, simulationFlow, portId => portWriters.Classify(GetPortNetId(portId)),
+                        port => Client_HoldsPort(GetPortNetId(port.id)));
             }
 
             TrainCar.InteriorLoaded += OnTrainCarInteriorLoaded;
@@ -1879,6 +1880,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return driving;
     }
 
+    // The local player has this control: they hold its lease, or a change of theirs to it hasn't
+    // been committed yet. The host's values for it aren't played out over their hand.
+    private bool Client_HoldsPort(uint portNetId) =>
+        locallyOwnedPortAuthorities.Contains(portNetId) || client_pendingPortOperations.ContainsKey(portNetId);
+
     private bool Client_IsLocalPlayerDriving(float holdSeconds) =>
         locallyOwnedPortAuthorities.Count > 0 || Time.realtimeSinceStartup - client_lastLocalControlAt < holdSeconds;
 
@@ -2115,13 +2121,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!NetworkLifecycle.Instance.IsHost() && portWriters?.ClientReports(portNetId) != true)
             return;
 
-        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket)
+        // A host value being applied, as it lands or played out (TrainPortPresenter), isn't a change here.
+        if (UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket || TrainPortPresenter.Writing)
             return;
         if (float.IsNaN(port.prevValue) && float.IsNaN(port.Value))
             return;
         // The local player moved one of the train's controls: predict from this frame on, not
         // from when the next tick sends it (TrainPortPresenter).
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkLifecycle.Instance.IsHost() && Client_LocalPlayerCanTouch())
             client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         bool hasLastSent = lastSentPortValues.TryGetValue(portNetId, out float lastSentValue);
@@ -2951,7 +2958,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void Client_OnIgnite(float ignition)
     {
-        if (NetworkLifecycle.Instance.IsProcessingPacket)
+        if (NetworkLifecycle.Instance.IsProcessingPacket || TrainPortPresenter.Writing)
             return;
 
         if (ignition == 0f)

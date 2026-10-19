@@ -765,8 +765,12 @@ All of it runs once a frame before the car's simulation controllers (`SimControl
 prefix on `SimController.Update`), so a `HandcarController` draws the crank predicted that frame.
 
 **Playout, for everyone else.** Every other output port the host sends (typed `READONLY_OUT` or
-`OUT`, and not a control a player drives) is stamped with the host's tick and shown a little
-behind the newest value, interpolated between ticks (`PlayoutTrack`, Multiplayer.Core):
+`OUT`), and every control a player drives (`EXTERNAL_IN`, player-driven by `ControlPortWriters`:
+another player's doors, windows, levers and valves, the whistle cord), is stamped with the host's
+tick and shown a little behind the newest value, interpolated between ticks (`PlayoutTrack`,
+Multiplayer.Core). A control's port moves the control with it, through its `InteractablePortFeeder`;
+vanilla levers and pullers jump straight to the value they're given (`AcceptSetValue`), so as they
+landed another player's door swung in uneven 24 Hz steps:
 
 - The commit carries the tick (`ClientboundTrainControlCommitPacket.Tick`). The host's own values
   are stamped with the tick its local client read them at (`CommonTrainPortsPacket.Tick`), since
@@ -791,12 +795,16 @@ behind the newest value, interpolated between ticks (`PlayoutTrack`, Multiplayer
   passed over within one frame (a one-tick chuff pulse on a slow frame) is still written, in order.
 - A port something on the client writes itself (a feeder or a controller, or `LampLogic`) is found
   by its value differing from what the playout last wrote, and from then on shown as it lands.
+- A control is the local player's while they hold its lease or have a change to it not yet
+  committed (`Client_HoldsPort`): never played out over their hand; the host's values for it are
+  shown as they land, as before (a pending change's are dropped, `WithoutPending`). One that changes
+  between the playout's writes was moved by the local player: its history restarts at their value.
+- The playout's own writes aren't the local player's: `Common_OnPortUpdated` ignores them
+  (`TrainPortPresenter.Writing`), as it does a packet's, so they're never sent, never read as an
+  unleased change (a control differing from the host's last value), and don't count as driving.
 - A resync (a control state without a tick) is shown as it lands and restarts that port's history.
 
 **Not done:**
-- Another player's levers, and controls in general, are still shown as they land: playing them
-  out would trip the unleased-change logic (a control differing from the host's last value reads
-  as the local player's change).
 - The host applies a remote player's control as it arrives, so the uneven arrivals of that
   player's 24 Hz sends are baked into the host's own outputs (the whistle a friend at 110 ms pulls
   steps unevenly on the host itself). Playout on observers makes those outputs continuous, not

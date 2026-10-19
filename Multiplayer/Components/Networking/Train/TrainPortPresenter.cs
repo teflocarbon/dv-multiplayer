@@ -65,16 +65,20 @@ public sealed class TrainPortPresenter
     {
         public readonly Port Port;
         public readonly PlayoutTrack Values;
+        // A control a player drives (a door, a window, a lever): another player's moves are played
+        // out; a change on this game is the local player's, who takes it over.
+        public readonly bool PlayerControl;
         public float Written = float.NaN;
         // Something on this client writes the port itself (a feeder, a controller): playing the
         // host's values out would fight it, so they're shown as they come, as before.
         public bool LocallyFed;
         public bool Active;
 
-        public Track(Port port, PlayoutBlend blend)
+        public Track(Port port, PlayoutBlend blend, bool playerControl)
         {
             Port = port;
             Values = new PlayoutTrack(blend);
+            PlayerControl = playerControl;
         }
     }
 
@@ -238,6 +242,7 @@ public sealed class TrainPortPresenter
     private double lastPlayoutTime;
     private bool predicting;
     private bool failed;
+    private Func<Port, bool> heldLocally;
 
     private TrainPortPresenter(NetworkedTrainCar car, SimulationFlow flow, Func<string, ControlPortWriter> classify)
     {
@@ -270,15 +275,20 @@ public sealed class TrainPortPresenter
         foreach (KeyValuePair<string, Port> kvp in flow.fullPortIdToPort)
         {
             Port port = kvp.Value;
-            // Outputs of the simulation, which nothing else on a client writes. A control a
-            // player drives is theirs, synced as it is.
-            if (port.type != PortType.READONLY_OUT && port.type != PortType.OUT)
-                continue;
-            if (port.valueType == PortValueType.CONTROL && classify(kvp.Key) != ControlPortWriter.Simulation)
-                continue;
-            tracks[port] = new Track(port, BlendOf(port.valueType));
+            ControlPortWriter writer = port.valueType == PortValueType.CONTROL ? classify(kvp.Key) : ControlPortWriter.NotAControl;
+            // The simulation's outputs, which nothing else on a client writes, and the controls
+            // players drive, which on this game only its own player does.
+            bool output = (port.type == PortType.READONLY_OUT || port.type == PortType.OUT) &&
+                          (writer == ControlPortWriter.NotAControl || writer == ControlPortWriter.Simulation);
+            bool playerControl = port.type == PortType.EXTERNAL_IN && writer == ControlPortWriter.Player;
+            if (output || playerControl)
+                tracks[port] = new Track(port, BlendOf(port.valueType), playerControl);
         }
     }
+
+    /// <summary>Set while the playout writes a port, so the car doesn't take it for its player's
+    /// change: <c>NetworkedTrainCar.Common_OnPortUpdated</c> ignores it, as it does a packet's.</summary>
+    internal static bool Writing { get; private set; }
 
     private static PlayoutBlend BlendOf(PortValueType type) => type switch
     {
@@ -288,9 +298,12 @@ public sealed class TrainPortPresenter
         _ => PlayoutBlend.Continuous,
     };
 
-    public static TrainPortPresenter Create(NetworkedTrainCar car, SimulationFlow flow, Func<string, ControlPortWriter> classify)
+    /// <param name="heldLocally">Whether the local player has a control's port: holds its lease,
+    /// or has a change to it on the way to the host. Never played out over their hand.</param>
+    public static TrainPortPresenter Create(NetworkedTrainCar car, SimulationFlow flow, Func<string, ControlPortWriter> classify,
+        Func<Port, bool> heldLocally)
     {
-        TrainPortPresenter presenter = new(car, flow, classify);
+        TrainPortPresenter presenter = new(car, flow, classify) { heldLocally = heldLocally };
         byFlow[flow] = presenter;
         return presenter;
     }
@@ -318,7 +331,8 @@ public sealed class TrainPortPresenter
             return predictedNow;
         }
 
-        if (track.LocallyFed || (!Multiplayer.Settings.SmoothTrainPorts && !predictedNow))
+        if (track.LocallyFed || (!Multiplayer.Settings.SmoothTrainPorts && !predictedNow) ||
+            (track.PlayerControl && heldLocally(port)))
         {
             track.Values.Reset(hostTick, value);
             track.Written = float.NaN;
@@ -426,6 +440,15 @@ public sealed class TrainPortPresenter
                 Deactivate(i, track);
                 continue;
             }
+            if (track.PlayerControl &&
+                (heldLocally(track.Port) || (!float.IsNaN(track.Written) && track.Port.Value != track.Written)))
+            {
+                // The local player has it, or just moved it: theirs from here, at its value now.
+                track.Values.Reset(shownTick, track.Port.Value);
+                track.Written = float.NaN;
+                Deactivate(i, track);
+                continue;
+            }
             if (!float.IsNaN(track.Written) && track.Port.Value != track.Written)
             {
                 track.LocallyFed = true;
@@ -455,11 +478,21 @@ public sealed class TrainPortPresenter
         track.Written = value;
         if (track.Port.Value == value)
             return;
-        if (track.Port.type == PortType.EXTERNAL_IN)
-            track.Port.ExternalValueUpdate(value);
-        else
-            track.Port.Value = value;
-        // A port connected onward may round the value; compare against what it holds.
+        Writing = true;
+        try
+        {
+            // A control's port moves the control too, through its InteractablePortFeeder.
+            if (track.Port.type == PortType.EXTERNAL_IN)
+                track.Port.ExternalValueUpdate(value);
+            else
+                track.Port.Value = value;
+        }
+        finally
+        {
+            Writing = false;
+        }
+        // A connected port, or a control with notches, may settle on another value: compare
+        // against what it holds.
         track.Written = track.Port.Value;
     }
 }
