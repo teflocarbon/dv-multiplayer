@@ -286,10 +286,26 @@ two players binning it can't race. Otherwise it decides:
   another station's bin re-rolls its own station's job; if no player is in that station's zone,
   nothing is generated there until one arrives (vanilla generates on arrival).
 - **Throw the paper back out** when someone is in or on one of the job's cars (standing on it,
-  riding it, in a cab). That is the only refusal. The host applies an authoritative `Thrown` transition (`ItemTransitionReason.JobRerollRefused`, move cause
-  `ItemMoveReason.ThrownOutOfBin`) from just above the bin, up and towards the requester. The
-  requester is the transition's actor, so their game gets the physics lease and simulates the
-  flight. The paper visibly comes back, which is the player's answer: nothing else is sent.
+  riding it, in a cab). That is the only refusal. The host applies an authoritative `Thrown`
+  transition (`ItemTransitionReason.JobRerollRefused`, move cause `ItemMoveReason.ThrownOutOfBin`)
+  from just above the bin, at 3.5 m/s up and 2.5 m/s towards the requester. The requester is the
+  transition's actor, so their game gets the physics lease and simulates the flight. The paper
+  visibly comes back, which is the player's answer: nothing else is sent. Three things the throw
+  has to get right (each lost it in testing):
+  - `GrabHandlerItem.Throw` applies `ThrowDirection × mass × 140` as a force for one physics
+    step, so the direction is the wanted velocity divided by `140 × Time.fixedDeltaTime`.
+  - A gentle drop is held back for 0.3 s (`ItemReleaseGrace`), and the paper can be in the bin
+    before the drop reaches the host. The host waits (up to 1.5 s) until its record no longer has
+    the paper in a hand or inventory; thrown earlier, the late drop was refused and its correction
+    put the paper back at the throw's start, at rest.
+  - The host registers the paper in its world cell right after the transition
+    (`ServerItemManager.RegisterHostWorldItem`). A paper let go on a car is recorded in the car's
+    interior; moved into the world, it was in no cell until its flight was sampled, so every
+    player's interest retired it and re-created it at rest.
+
+  When the host's own player binned it, the host simulates the flight, and granting that lease
+  ends the one its drop had, which stops the body (`RestoreLocalBodyAfterLease`): the host sets
+  the paper's velocity once the new lease exists.
 
 Every peer sees the result through the usual sync: the `Expired` job update, the item destroy, the
 car deletes, and a `ClientboundJobsCreatePacket` for the replacement. Debug events:

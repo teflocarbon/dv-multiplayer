@@ -39,33 +39,40 @@ pick() { # an offered job at the office that can be re-rolled; DV makes new ones
   $D eval -t host -m body -u "$U" -a station=$STATION -f $P/pick.cs; }
 
 office
-echo "== 1. $WHO bins an offered job's overview, nobody on its cars"
-p=$(pick); job=$(echo "$p" | field job); cars=$(echo "$p" | field cars); offered=$(echo "$p" | field offered)
-echo "   $(echo "$p" | field jobId) (job $job, overview $(echo "$p" | field overview)), cars $cars; $offered of $(echo "$p" | field capacity) jobs offered"
-b=$($D eval -t $WHO -m coroutine --timeout 60 -u "$U" -a job=$job -f $P/bin.cs)
-echo "   bin at $(echo "$b" | field bin) (size $(echo "$b" | field binSize)): went in $(echo "$b" | field wentIn), paper gone $(echo "$b" | field gone)"
-# (the host's own request is handled in-process: its paper can go the frame it reaches the bin)
-[ "$(echo "$b" | field gone)" = true ] || fail "the paper is still there: the job wasn't re-rolled"
-for i in $(seq 1 30); do # the station generates the replacement a job at a time
-  h=$(state host $job $cars)
-  [ "$(echo "$h" | field generating)" = false ] && [ "$(echo "$h" | field offeredCount)" -ge "$offered" ] && break
-  sleep 1
+# Vanilla's generator can fail (30 tries, licences and track space): a job binned without a
+# replacement still has to expire with its cars, and the next one binned must get one (3 tries).
+for attempt in 1 2 3; do
+  echo "== 1. $WHO bins an offered job's overview, nobody on its cars (try $attempt)"
+  p=$(pick); job=$(echo "$p" | field job); cars=$(echo "$p" | field cars); offered=$(echo "$p" | field offered)
+  echo "   $(echo "$p" | field jobId) (job $job, overview $(echo "$p" | field overview)), cars $cars; $offered of $(echo "$p" | field capacity) jobs offered"
+  b=$($D eval -t $WHO -m coroutine --timeout 60 -u "$U" -a job=$job -f $P/bin.cs)
+  echo "   bin at $(echo "$b" | field bin) (size $(echo "$b" | field binSize)): went in $(echo "$b" | field wentIn), paper gone $(echo "$b" | field gone)"
+  # (the host's own request is handled in-process: its paper can go the frame it reaches the bin)
+  [ "$(echo "$b" | field gone)" = true ] || fail "the paper is still there: the job wasn't re-rolled"
+  sleep 2
+  for i in $(seq 1 30); do # the station generates the replacement a job at a time
+    h=$(state host $job $cars)
+    [ "$(echo "$h" | field generating)" = false ] && break
+    sleep 1
+  done
+  for i in $(seq 1 15); do # and its packets reach the client
+    h=$(state host $job $cars); c=$(state client $job $cars)
+    [ "$(echo "$h" | field offered)" = "$(echo "$c" | field offered)" ] && break
+    sleep 1
+  done
+  for who in host client; do
+    s=$([ $who = host ] && echo "$h" || echo "$c")
+    echo "   $who: job $(echo "$s" | field state), overview $(echo "$s" | field overview), cars left: $(echo "$s" | field carsLeft); offered $(echo "$s" | field offered)"
+    case "$(echo "$s" | field state)" in Expired|gone) ;; *) fail "$who: the job is $(echo "$s" | field state), not expired" ;; esac
+    [ "$(echo "$s" | field overview)" = none ] || fail "$who still has the overview"
+    [ "$(echo "$s" | field carsLeft)" = 0 ] || fail "$who still has the job's cars: $(echo "$s" | field cars)"
+  done
+  [ "$(echo "$h" | field offered)" = "$(echo "$c" | field offered)" ] || fail "the peers offer different jobs"
+  n=$(echo "$h" | field offeredCount)
+  [ "$n" -ge "$offered" ] && break
+  echo "   no replacement: the station offers $n jobs, $offered before (the generator found none)"
+  [ "$attempt" = 3 ] && fail "no replacement was generated for three jobs binned in a row"
 done
-for i in $(seq 1 15); do # and its packets reach the client
-  h=$(state host $job $cars); c=$(state client $job $cars)
-  [ "$(echo "$h" | field offered)" = "$(echo "$c" | field offered)" ] && break
-  sleep 1
-done
-for who in host client; do
-  s=$([ $who = host ] && echo "$h" || echo "$c")
-  echo "   $who: job $(echo "$s" | field state), overview $(echo "$s" | field overview), cars left: $(echo "$s" | field carsLeft); offered $(echo "$s" | field offered)"
-  case "$(echo "$s" | field state)" in Expired|gone) ;; *) fail "$who: the job is $(echo "$s" | field state), not expired" ;; esac
-  [ "$(echo "$s" | field overview)" = none ] || fail "$who still has the overview"
-  [ "$(echo "$s" | field carsLeft)" = 0 ] || fail "$who still has the job's cars: $(echo "$s" | field cars)"
-done
-n=$(echo "$h" | field offeredCount)
-[ "$n" -ge "$offered" ] || fail "the station offers $n jobs, $offered before: no replacement was generated"
-[ "$(echo "$h" | field offered)" = "$(echo "$c" | field offered)" ] || fail "the peers offer different jobs"
 
 echo "== 2. the client boards a car of another job; $WHO bins its overview"
 office
