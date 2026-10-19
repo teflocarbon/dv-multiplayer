@@ -39,6 +39,11 @@ public static class HostOwnClient
         typeof(ClientboundLicenseAcquiredPacket),
         typeof(ClientboundGarageUnlockPacket),
         typeof(ClientboundDebtStatusPacket),
+        // Other players' junctions, turntables and time skips: the server applies them to its
+        // world itself (this client used to be what applied them), and doesn't send them here.
+        typeof(ClientboundTimeAdvancePacket),
+        typeof(CommonChangeJunctionPacket),
+        typeof(CommonRotateTurntablePacket),
 
         // Rolling stock
         typeof(ClientboundSpawnTrainSetPacket),
@@ -95,9 +100,7 @@ public static class HostOwnClient
         typeof(CommonGenericSwitchStatePacket),
     };
 
-    // Applied like on any client: the host player's own session, the other players, and other
-    // players' relayed requests that reach the host's world only through this client (the server
-    // relays junction, turntable and time skip packets without applying them itself).
+    // Applied like on any client: the host player's own session and the other players.
     private static readonly HashSet<Type> applied = new()
     {
         typeof(ClientboundLoginResponsePacket),
@@ -111,9 +114,6 @@ public static class HostOwnClient
         typeof(ClientboundPlayerPositionPacket),
         typeof(ClientboundPlayerPreferencesUpdatePacket),
         typeof(CommonChatPacket),
-        typeof(ClientboundTimeAdvancePacket),
-        typeof(CommonChangeJunctionPacket),
-        typeof(CommonRotateTurntablePacket),
         // Blocks the host player's controls while another player holds them.
         typeof(ClientboundTrainControlAuthorityUpdatePacket),
         // Answers to the host player's career screen and container UI: views, not world state.
