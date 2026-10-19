@@ -4,7 +4,7 @@
 // the next tried. Args: cars (the job's car NetIds), loco (livery, default LocoDE2).
 var livery = DV.Globals.G.Types.Liveries.First(l => l.id == (ctx.Args.TryGetValue("loco", out var id) ? id : "LocoDE2"));
 var jobCars = new List<TrainCar>();
-foreach (string s in ctx.Args["cars"].Split(','))
+foreach (string s in ctx.Args["cars"].Split(',').Distinct())
     if (NetworkedTrainCar.TryGet(ushort.Parse(s), out TrainCar c) && c != null)
         jobCars.Add(c);
 var ends = new List<(TrainCar car, Coupler coupler)>();

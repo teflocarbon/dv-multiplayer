@@ -10,7 +10,8 @@ var st = StationController.allStations.First(s => s.stationInfo.YardID == ctx.Ar
 var seen = new HashSet<Job>(st.logicStation.availableJobs.Concat(st.logicStation.takenJobs));
 bool Licensed(Job j) => LicenseManager.Instance.IsLicensedForJob(DV.ThingTypes.JobLicenseType_v2.ToV2List(j.requiredLicenses));
 bool Preferred(Job j) => j.jobType == DV.ThingTypes.JobType.Transport || j.jobType == DV.ThingTypes.JobType.EmptyHaul;
-List<ushort> Cars(Job j) => NetworkedJob.TryGetFromJob(j, out NetworkedJob n) ? JobData.FromJob(n).GetCars() : new List<ushort>();
+// Distinct: a shunting job lists its cars once per task.
+List<ushort> Cars(Job j) => NetworkedJob.TryGetFromJob(j, out NetworkedJob n) ? JobData.FromJob(n).GetCars().Distinct().ToList() : new List<ushort>();
 bool Ready(Job j) => !seen.Contains(j) && Licensed(j) &&
     NetworkedJob.TryGetFromJob(j, out NetworkedJob n) && n.JobOverview != null && n.JobOverview.GetItemState() == ItemState.Dropped &&
     Cars(j).Count > 0;

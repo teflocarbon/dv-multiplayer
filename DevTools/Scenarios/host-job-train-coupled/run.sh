@@ -43,7 +43,9 @@ dropped_train_packets() {
   "$dvmp_bin" logs -t host -c "sent to the host's own client" -n 2000 2>/dev/null |
     grep -o 'Ignored Clientbound[A-Za-z]*' | grep -E 'Train|Topology|Coupl|Car' | sort -u | tr '\n' ' ' || true
 }
-# Prints "host-topology"; fails if the two games disagree or a car is missing.
+# Prints "topology|couplings|trainsets|pairs" from the host; fails if the two games disagree or a
+# car is missing. The cars needn't be one train (a shunting job's may stand apart): the checks are
+# that the coupling stays as it was.
 topo_both() {
   local h c ht ct
   h=$($D eval -t host -m body -u "$U" -a cars=$1 -f $P/topo.cs); c=$($D eval -t client -m body -u "$U" -a cars=$1 -f $P/topo.cs)
@@ -51,7 +53,7 @@ topo_both() {
   [ "$(echo "$h" | field missing)" = "0" ] || fail "the host is missing a car: $ht"
   [ "$(echo "$c" | field missing)" = "0" ] || fail "the client is missing a car: $ct"
   [ "$ht" = "$ct" ] || fail "host and client couple the train differently: host $ht | client $ct"
-  echo "$ht|$(echo "$h" | field couplings)|$(echo "$h" | field sets)"
+  echo "$ht|$(echo "$h" | field couplings)|$(echo "$h" | field sets)|$(echo "$h" | field pairs)"
 }
 
 before=$(dropped_train_packets)
@@ -77,12 +79,18 @@ t2=$(topo_both "$cars")
 
 echo "== a $LOCO couples to the train"
 l=$($D eval -t host -m coroutine --timeout 150 -u "$U" -a cars=$cars -a loco=$LOCO -f $P/couple-loco.cs)
-loco=$(echo "$l" | field loco); all="$cars,$(echo "$l" | field locoNetId)"
+loco=$(echo "$l" | field loco); locoNet=$(echo "$l" | field locoNetId); all="$cars,$locoNet"
 echo "   $loco coupled to $(echo "$l" | field end) ($(echo "$l" | field how))"
 sleep 3
 want=$(topo_both "$all")
-[ "$(echo "$want" | cut -d'|' -f2)" -eq $(( $(echo "$t" | cut -d'|' -f2) + 1 )) ] ||
-  fail "coupling the loco made $(echo "$want" | cut -d'|' -f2) coupling(s) out of $(echo "$t" | cut -d'|' -f2): ${want%%|*}"
+# Exactly one new coupling, the loco's, and every one from before kept.
+pairs_before=$(echo "$t2" | cut -d'|' -f4 | tr ' ' '\n' | sed '/^$/d' | sort -u)
+pairs_after=$(echo "$want" | cut -d'|' -f4 | tr ' ' '\n' | sed '/^$/d' | sort -u)
+lost=$(comm -23 <(echo "$pairs_before") <(echo "$pairs_after") | tr '\n' ' ')
+added=$(comm -13 <(echo "$pairs_before") <(echo "$pairs_after") | tr '\n' ' ')
+[ -z "${lost// /}" ] || fail "coupling the loco lost coupling(s) $lost: ${want%%|*}"
+[ "$(wc -w <<<"$added")" -eq 1 ] && grep -qE "(^|-)$locoNet( |-|$)" <<<"$added" ||
+  fail "coupling the loco added coupling(s) '$added', not one to the loco ($locoNet): ${want%%|*}"
 echo "   ${want%%|*}"
 
 echo "== the host loads $loco's cab $RELOADS times, then boards it"
