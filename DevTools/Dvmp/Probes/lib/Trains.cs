@@ -135,8 +135,12 @@ namespace Dvmp.Lib
         }
 
         /// <summary>A point on the floor inside the car's cab (locos), or on its deck.</summary>
-        public static Vector3 FloorPoint(TrainCar car)
+        public static Vector3 FloorPoint(TrainCar car) => FloorHit(car, out _);
+
+        /// <summary>As <see cref="FloorPoint"/>, and the floor's collider there (null if none was hit).</summary>
+        public static Vector3 FloorHit(TrainCar car, out Collider floor)
         {
+            floor = null;
             Transform root = car.interior != null ? car.interior : car.transform;
             int dampening = LayerMask.NameToLayer("Camera_Dampening");
             var cab = root.GetComponentsInChildren<Collider>(true).Where(c => c.gameObject.layer == dampening).ToList();
@@ -152,7 +156,10 @@ namespace Dvmp.Lib
             // Cast from inside the cab volume (below its roof) down to the floor.
             int walkable = LayerMask.GetMask("Train_Walkable", "Train_Interior");
             if (Physics.Raycast(centre, Vector3.down, out RaycastHit hit, 6f, walkable, QueryTriggerInteraction.Ignore))
+            {
+                floor = hit.collider;
                 return hit.point;
+            }
             return centre;
         }
 
@@ -165,7 +172,8 @@ namespace Dvmp.Lib
         }
 
         /// <summary>Puts the local player on the car's floor and attaches them to the car the way the
-        /// game does when a player steps on (a teleport alone doesn't attach them).</summary>
+        /// game does when a player steps on (a teleport alone doesn't attach them): parented to the
+        /// floor's reparent target, the car's interior.</summary>
         public static IEnumerator Board(TrainCar car)
         {
             // A loco's cab interior only loads with a player nearby; without it the floor search
@@ -184,18 +192,29 @@ namespace Dvmp.Lib
             if (car.IsLoco && car.transform.InverseTransformPoint(floor).y > 2.4f)
                 throw new InvalidOperationException("cab floor of " + car.ID + " not found (would board onto the roof)");
             yield return LocalPlayer.TeleportAbs(Dev.Abs(floor) + Vector3.up * 0.1f, 0.5f);
-            Type reparentType = AppDomain.CurrentDomain.GetAssemblies()
-                .Where(a => a.GetName().Name == "DV.CharacterController")
-                .SelectMany(a => a.GetTypes()).First(t => t.Name == "CharacterReparenting");
+            var characterController = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => a.GetName().Name == "DV.CharacterController").SelectMany(a => a.GetTypes()).ToList();
+            Type reparentType = characterController.First(t => t.Name == "CharacterReparenting");
+            Type targetType = characterController.First(t => t.FullName == "DV.CharacterReparentTarget");
             UnityEngine.Object reparenting = UnityEngine.Object.FindObjectOfType(reparentType);
-            reparentType.GetMethod("ReparentTo").Invoke(reparenting, new object[] { car.transform, false, null });
+            // Where the game puts a player who steps onto this floor (CharacterReparenting.
+            // TryToReparentOnFloorChange): the CharacterReparentTarget above the floor's collider,
+            // its target. That's the car's interior, which TrainCarInteriorPhysics moves after
+            // the car every frame, not the car body: parented to the body, a player on a moving
+            // train slid back through the cab and off it, ~4 m/s at speed (2026-10-20).
+            FloorHit(car, out Collider floorCollider);
+            Component reparentTarget = floorCollider != null ? floorCollider.GetComponentInParent(targetType) : null;
+            Transform parent = reparentTarget != null ? (Transform)targetType.GetField("target").GetValue(reparentTarget) : null;
+            if (parent == null)
+                parent = car.interior != null ? car.interior : car.transform;
+            reparentType.GetMethod("ReparentTo").Invoke(reparenting, new object[] { parent, false, reparentTarget });
             // A moving train travels on while the teleport settles; now that the player rides with
-            // the car (parented to it), put them on its floor in the car's own frame - a world
-            // position is stale by the time physics runs and left players at the cab's edge.
-            Vector3 floorLocal = car.transform.InverseTransformPoint(FloorPoint(car)) + Vector3.up * 0.1f; // fresh: `floor` is stale on a moving train
+            // the car (parented to it), put them on its floor in its own frame - a world position
+            // is stale by the time physics runs and left players at the cab's edge.
+            Vector3 floorLocal = parent.InverseTransformPoint(FloorPoint(car)) + Vector3.up * 0.1f; // fresh: `floor` is stale on a moving train
             for (int i = 0; i < 5; i++)
             {
-                if (PlayerManager.PlayerTransform.parent == car.transform)
+                if (PlayerManager.PlayerTransform.parent == parent)
                     PlayerManager.PlayerTransform.localPosition = floorLocal;
                 Physics.SyncTransforms();
                 yield return null;
@@ -203,7 +222,7 @@ namespace Dvmp.Lib
             for (int i = 0; i < 20; i++) yield return null;
             if (PlayerManager.Car != car)
                 throw new InvalidOperationException("player did not attach to " + car.ID);
-            float off = Vector3.Distance(car.transform.InverseTransformPoint(PlayerManager.PlayerTransform.position), floorLocal);
+            float off = Vector3.Distance(parent.InverseTransformPoint(PlayerManager.PlayerTransform.position), floorLocal);
             if (off > 3f)
                 throw new InvalidOperationException($"player ended {off:F1} m from the floor of {car.ID}");
         }
