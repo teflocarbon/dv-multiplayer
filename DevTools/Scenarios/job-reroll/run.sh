@@ -67,8 +67,8 @@ n=$(echo "$h" | field offeredCount)
 
 echo "== 2. the client boards a car of another job; $WHO bins its overview"
 office
-p=$(pick); job=$(echo "$p" | field job); cars=$(echo "$p" | field cars); car=$(echo "$p" | field firstCar)
-echo "   $(echo "$p" | field jobId) (job $job, overview $(echo "$p" | field overview)), the client boards $car"
+p=$(pick); job=$(echo "$p" | field job); cars=$(echo "$p" | field cars); car=$(echo "$p" | field nearCar)
+echo "   $(echo "$p" | field jobId) (job $job, overview $(echo "$p" | field overview)), the client boards $car ($(echo "$p" | field nearCarMetres) m from the bin)"
 [ "$WHO" = client ] && $D eval -t client -m coroutine --timeout 30 -u "$U" -a item=$(echo "$p" | field overview) 'yield return Hands.Pickup(ushort.Parse(ctx.Args["item"]));' >/dev/null
 $D eval -t client -m coroutine --timeout 60 -a car=$car 'yield return Trains.Board(Trains.Find(ctx.Args["car"]));' >/dev/null || fail "the client couldn't board $car"
 sleep 1

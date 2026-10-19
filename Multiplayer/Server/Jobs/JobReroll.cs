@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using DV.Logic.Job;
@@ -39,6 +40,8 @@ public static class JobReroll
     private const float ThrowForcePerDirection = 140f;
     // One throw at a time: every collider of the paper and every bounce asks again.
     private const float ThrowInterval = 1f;
+    // How long to wait for the paper's drop to arrive before throwing it out of a hand anyway.
+    private const float ReleaseWait = 1.5f;
 
     private static readonly Dictionary<ushort, float> lastThrowAt = [];
 
@@ -68,7 +71,7 @@ public static class JobReroll
         {
             Publish("job.reroll-refused", networkedJob, requester, refusal);
             Multiplayer.Log($"{requester.Username} binned {networkedJob.Job.ID}, not re-rolled: {refusal}");
-            ThrowBack(overview, bin, requester, refusal);
+            CoroutineManager.Instance.StartCoroutine(ThrowBackOnceReleased(overview, bin, requester, refusal));
             return;
         }
 
@@ -126,6 +129,21 @@ public static class JobReroll
     {
         if (station.playerEnteredJobGenerationZone)
             station.ProceduralJobsController.TryToGenerateJobs();
+    }
+
+    // A player's game holds a gentle drop back for a moment (ItemReleaseGrace), and the paper can
+    // be in the bin before its drop reaches the server. Thrown out first, the late drop was refused
+    // and its correction put the paper back where the throw started, at rest: it fell in again.
+    private static IEnumerator ThrowBackOnceReleased(NetworkedItem item, JobAbandoner bin, ServerPlayer requester,
+        string refusal)
+    {
+        for (float t0 = Time.realtimeSinceStartup;
+             item != null && Time.realtimeSinceStartup - t0 < ReleaseWait &&
+             AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
+             record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;)
+            yield return null;
+        if (item != null && bin != null)
+            ThrowBack(item, bin, requester, refusal);
     }
 
     private static void ThrowBack(NetworkedItem item, JobAbandoner bin, ServerPlayer requester, string refusal)
