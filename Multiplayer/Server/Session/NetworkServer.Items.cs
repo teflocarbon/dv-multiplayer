@@ -22,8 +22,21 @@ using UnityEngine;
 namespace Multiplayer.Server.Session;
 
 // NetworkServer's items handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkServer
+public partial class NetworkServer : IItemServer
 {
+    byte IItemServer.LocalPlayerId => SelfId;
+
+    bool IItemServer.IsInLostAndFound(ushort itemNetId) => NetworkedLostAndFoundManager.Contains(itemNetId);
+
+    bool IItemServer.TryGetPersistentOwner(ushort itemNetId, out byte ownerPlayerId)
+    {
+        bool known = AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record);
+        ownerPlayerId = known ? record.PersistentOwnerPlayerId : (byte)0;
+        return known;
+    }
+
+    bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => WorldItemPersistenceManager.OwnsWorldPersistence(item);
+
     private void OnServerboundItemSpatialSamplePacket(ServerboundItemSpatialSamplePacket packet,
         ITransportPeer peer)
     {

@@ -52,7 +52,7 @@ public partial class NetworkedItemManager
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
         {
             NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem described);
-            ItemChangeLog.OnClientSnapshot(described, snapshot);
+            ItemChangeCauses.OnClientSnapshot(described, snapshot, NetworkLifecycle.Instance?.Client?.PlayerId ?? 0);
         }
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create &&
             RequiresLoadedWorldRegion(snapshot) && !IsWorldRegionReady(snapshot))

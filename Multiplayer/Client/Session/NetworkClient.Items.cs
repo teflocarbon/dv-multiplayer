@@ -108,7 +108,7 @@ public partial class NetworkClient
         }
 
         if (packet.ItemData.MoveCause.HasValue)
-            ItemChangeLog.OnClientSnapshot(networkedItem, packet.ItemData);
+            ItemChangeCauses.OnClientSnapshot(networkedItem, packet.ItemData, PlayerId);
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
@@ -176,7 +176,7 @@ public partial class NetworkClient
                 Reason = packet.Reasons[i],
                 LostUtcTicks = packet.LostUtcTicks[i]
             };
-        NetworkedLostAndFoundManager.ApplyClientSnapshot(packet.Generation, items);
+        LostAndFoundList.Apply(items);
     }
 
     private void OnClientboundLostItemRetrieveResultPacket(ClientboundLostItemRetrieveResultPacket packet)

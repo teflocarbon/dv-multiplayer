@@ -1,19 +1,13 @@
 # References across roles that exist today, as <from type> -> <to type> (outermost types).
 # Written by CodeLayoutTests with MULTIPLAYER_WRITE_ROLE_ALLOWLIST=1. It may only shrink:
 # split the code instead of adding a line. See docs/design/code-layout.md.
-Multiplayer.Client.Career.LostItemsCareerManagerScreen -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Client.Items.InventoryOwnershipUiPatch -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
-Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Items.ItemChangeLog
-Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.PlayerAuthentication
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Server.Dedicated.LauncherControllerSaveLockPatch -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
-Multiplayer.Server.Items.ItemChangeLog -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Server.Items.NetworkedColdContainerManager -> Multiplayer.Client.Items.ColdContainerUiIntegration
 Multiplayer.Server.Session.LobbyServerManager -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.World.TimeAdvancePatch
@@ -32,11 +26,7 @@ Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Sessio
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Api.ServerPlayerWrapper
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Items.DerailValleyInventoryRuntimeAdapter -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.DerailValleyInventoryRuntimeAdapter -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Shared.Items.DerailValleyInventoryRuntimeAdapter -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Items.InventoryIntegration -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.InventoryIntegration -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Shared.Items.MultiplayerStoragePatchGuard -> Multiplayer.Server.Items.AuthoritativeItemRegistry
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Players.ClientPlayerManager
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Items.AuthoritativeItemRegistry
@@ -62,8 +52,6 @@ Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Client.Ses
 Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Items.AuthoritativeItemRegistry
 Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Items.PersistentWorldItemIdentityPatch -> Multiplayer.Server.Items.WorldItemPersistenceManager
-Multiplayer.Shared.Items.WorldItemPersistenceRecord -> Multiplayer.Server.Items.AuthoritativeItemRegistry
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.IServerBrowserGameDetails
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.Session.NetworkServer

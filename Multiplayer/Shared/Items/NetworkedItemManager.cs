@@ -215,6 +215,9 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         }
     }
 
+    /// <summary>The session's items are gone (the manager is destroyed): presentation holding onto them lets go.</summary>
+    internal static event Action Cleared;
+
     protected override void OnDestroy()
     {
         base.OnDestroy();
@@ -224,6 +227,8 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         if (NetworkLifecycle.Instance.IsHost())
             NetworkLifecycle.Instance.OnTick -= Common_OnTick;
         NetworkedLostAndFoundManager.Clear();
+        LostAndFoundList.Clear();
+        Cleared?.Invoke();
         NetworkedColdContainerManager.Clear();
         TrainItemWake?.Clear();
         Spatial?.Clear();

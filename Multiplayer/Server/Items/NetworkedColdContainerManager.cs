@@ -10,7 +10,6 @@ using DV.JObjectExtstensions;
 using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
-using Multiplayer.Client.Items;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -48,7 +47,6 @@ public static class NetworkedColdContainerManager
 
     public static void Clear()
     {
-        ColdContainerUiIntegration.Reset();
         compatibility.Clear();
         graph = new ColdContainerGraph(compatibility: compatibility);
         shellByNetId.Clear();
