@@ -25,8 +25,9 @@ push() { step $D eval -t host -m coroutine --timeout 90 -a loco=$loco -a speed=$
 if [ "$WHEN" = moving ]; then push & fi
 mug=$($D eval -t host -m coroutine -u "$U" -a who=$WHO -f $P/spawn-mug.cs | field item)
 echo "== $WHO ${MODE}s a mug in the cab ($WHEN)"
-item=$($D eval -t $WHO -m coroutine --timeout 90 -u "$U" -a loco=$loco -a item=$mug -a mode=$MODE -f $P/carry.cs | field item)
-echo "   mug $item"
+carried=$($D eval -t $WHO -m coroutine --timeout 90 -u "$U" -a loco=$loco -a item=$mug -a mode=$MODE -f $P/carry.cs)
+item=$(echo "$carried" | field item)
+echo "   mug $item (the cab interior was there after $(echo "$carried" | field interiorWait) s)"
 if [ "$WHEN" = moving ]; then wait; else echo "== host pushes the train"; push; fi
 sleep 3
 

@@ -9,10 +9,17 @@ if (Hands.Held != null) yield return Hands.Drop(); // leftovers from an earlier 
 yield return LocalPlayer.GoTo(item);
 yield return Hands.Pickup(id);
 yield return Trains.Board(loco);
+// DV loads the cab's interior once the player is in it, which can take seconds. An item released
+// before it exists has no cab to land in: it settles in the world and stays behind when the train
+// moves (a batch 4 run threw 2.8 s after boarding, with "failed to load an interior" logged).
+float boarded = Time.realtimeSinceStartup;
+while (loco.loadedInterior == null && Time.realtimeSinceStartup - boarded < 20f) yield return null;
+if (loco.loadedInterior == null) throw new Exception("the cab interior never loaded in 20 s: not an item failure");
+float interiorWait = Time.realtimeSinceStartup - boarded;
 for (int i = 0; i < 20; i++) yield return null;
 if (ctx.Args["mode"] == "throw")
     yield return Hands.Throw(loco.transform.forward * 0.6f - Vector3.up * 0.3f); // at the floor: a throw out of the open cab is physics, not sync
 else
     yield return Hands.Drop();
 for (int i = 0; i < 90; i++) yield return null;
-ctx.Result = new { item = id };
+ctx.Result = new { item = id, interiorWait };
