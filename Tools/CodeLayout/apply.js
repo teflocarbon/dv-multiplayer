@@ -126,7 +126,7 @@ const relative = /(?<![\w.])((?:[A-Z]\w*\.)+)([A-Z]\w*)\b/g;
 function rewriteQualified(text) {
     text = text.replace(relative, (whole, prefix, type) => {
         const target = typeMap.get(`Multiplayer.${prefix.slice(0, -1)}|${type}`);
-        return target ? `${target}.${type}` : whole;
+        return target ? `global::${target}.${type}` : whole;
     });
     return text.replace(qualified, (whole, global, rest) => {
         const parts = rest.slice(1).split('.');
