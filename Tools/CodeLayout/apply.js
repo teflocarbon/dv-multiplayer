@@ -50,18 +50,23 @@ function declarations(text) {
         const width = t[1].replace(/\t/g, '    ').length;
         if (width === indent) types.add(t[2]);
     }
-    return { ns, types };
+    // Extension methods: callers name the method, never its static class.
+    const extensions = new Set([...body.matchAll(/static[^(;{}=\n]*?\b([A-Za-z_]\w*)\s*(?:<[^>()]*>)?\s*\(\s*this\s/g)].map(e => e[1]));
+    return { ns, types, extensions };
 }
 
 const typeMap = new Map();      // `${oldNs}|${type}` -> newNs
 const typesByNs = new Map();    // oldNs -> Set(types)
+const extensionsByNs = new Map(); // oldNs -> Map(method -> newNs)
 const oldNamespaces = new Set();
 for (const move of moves) {
     const text = fs.readFileSync(path.join(modDir, move.from), 'utf8');
-    const { ns, types } = declarations(text);
+    const { ns, types, extensions } = declarations(text);
     move.oldNs = ns;
     move.newNs = nsOfFolder(move.to);
     oldNamespaces.add(ns);
+    if (!extensionsByNs.has(ns)) extensionsByNs.set(ns, new Map());
+    for (const method of extensions) extensionsByNs.get(ns).set(method, move.newNs);
     for (const type of types) {
         const key = `${ns}|${type}`;
         if (typeMap.has(key) && typeMap.get(key) !== move.newNs)
@@ -165,6 +170,10 @@ for (const file of roots.flatMap(r => csFiles(path.join(repo, r)))) {
         for (const type of typesByNs.get(ns) || []) {
             if (!new RegExp(`(?<![\\w.])${type}\\b`).test(code)) continue;
             const target = typeMap.get(`${ns}|${type}`);
+            if (!ancestors(ownNew).includes(target)) needed.add(target);
+        }
+        for (const [method, target] of extensionsByNs.get(ns) || []) {
+            if (!new RegExp(`\\.${method}\\s*(?:<[^>()]*>)?\\s*\\(`).test(code)) continue;
             if (!ancestors(ownNew).includes(target)) needed.add(target);
         }
     }
