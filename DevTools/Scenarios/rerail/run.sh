@@ -4,7 +4,8 @@
 # aimed at where the car had been: the rigidbody queue at its derailed pose, the bogie queues at
 # samples from before the derail. The host derails a car beside the client and shoves it off the
 # track; once it's at rest the car is rerailed SHIFT metres along its track, by the client through
-# the host (as the comms radio does; WHO=client) or by the host itself (WHO=host). For DURATION seconds after
+# the host (as the comms radio does; WHO=client), by the host itself (WHO=host), or by the host's
+# player through the radio's request, handled in-process (WHO=host-radio). For DURATION seconds after
 # that the client's car must stay within MAX_OFF metres of the host's and not move.
 #   LIVERY (default LocoDE2), WHO (client), SHIFT (12), DURATION (8), MAX_OFF (0.5)
 # Exit code 0 = pass. Needs a running pair (dvmp up, or dvmp up --dedicated).
@@ -39,9 +40,10 @@ for t in host client; do
 done
 sleep 0.5
 F='float A(string k) => float.Parse(ctx.Args[k], System.Globalization.CultureInfo.InvariantCulture); var car = Trains.Find(ctx.Args["car"]); var p = new Vector3(A("x"), A("y"), A("z")); var f = new Vector3(A("fx"), A("fy"), A("fz"));'
-if [ "$WHO" = client ]; then
-  # What the comms radio's rerail does on a client (RerailControllerPatch).
-  $D eval -t client -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedTrainCar.TryGetFromTrainCar(car, out var n); NetworkLifecycle.Instance.Client.SendTrainRerailRequest(n.NetId, ushort.Parse(ctx.Args["track"]), p, f); return 0;' >/dev/null
+if [ "$WHO" = client ] || [ "$WHO" = host-radio ]; then
+  # What the comms radio's rerail does (RerailControllerPatch): host-radio is the host's own player,
+  # whose request is handled in-process.
+  $D eval -t $( [ "$WHO" = client ] && echo client || echo host ) -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedTrainCar.TryGetFromTrainCar(car, out var n); NetworkLifecycle.Instance.Client.SendTrainRerailRequest(n.NetId, ushort.Parse(ctx.Args["track"]), p, f); return 0;' >/dev/null
 else
   $D eval -t host -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedRailTrack.TryGet(ushort.Parse(ctx.Args["track"]), out var t); car.Rerail(t.RailTrack, p + WorldMover.currentMove, f); return 0;' >/dev/null
 fi

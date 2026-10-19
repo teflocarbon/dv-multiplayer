@@ -3125,7 +3125,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (NetworkLifecycle.Instance.IsProcessingPacket || TrainPortPresenter.Writing)
             return;
 
-        if (ignition == 0f)
+        // The host's fire is lit in the world it already owns.
+        if (ignition == 0f || NetworkLifecycle.Instance.IsHost())
             return;
 
         NetworkLifecycle.Instance.Client.LogDebug(() => $"Common_OnIgnite({CurrentID})");

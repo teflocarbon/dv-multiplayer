@@ -10,7 +10,6 @@ Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Items.NetworkedLo
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.PlayerAuthentication
 Multiplayer.Client.Trains.LocoRestorationControllerStartPostfixPatch -> Multiplayer.Server.Trains.NetworkRestorationWatcher
-Multiplayer.Client.Trains.RerailControllerPatch -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Server.Dedicated.LauncherControllerSaveLockPatch -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
