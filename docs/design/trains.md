@@ -366,6 +366,28 @@ hold narrowly scoped control authority; the resulting mutation still executes in
 In the code, motion is sent unreliably (reliably when a bogie changed track) and has no epochs,
 and simulation is the brake-state packet only; see "Motion" and "Brake and locomotive simulation".
 
+### The host's own client
+
+The host's own client runs in the host's world, so it is never a follower of any layer: what the
+host sends players to follow (spawns, deletes, topology snapshots, physics, brake state, control
+commits, relocations, rerails, cargo, damage, paint, restoration) is dropped by that client
+(`HostOwnClient`, see "The host's own client" in [architecture.md](../architecture.md)). Its
+`TrainTopologyReconciler` stays empty: it never takes a baseline (the host skips the join), and
+`SendTrainSyncRequest`, `RequestTrainTopologySync` and `RestoreCanonicalTrainTopology` do nothing
+on the host. Couplings made in the host's world reach clients by the host observing them
+(`CommitObservedTrainTopology`, which is also what a topology command from the host's client
+turns into), not by a round trip through its client.
+
+This matters because the reconciler makes the world match a snapshot: run on the host against an
+old one, it takes the canonical graph apart. On 2026-10-19 each car the host spawned asked for a
+train sync from the host's client at start-up; the reply was a snapshot from before the spawn's
+auto-couple, which uncoupled every new consist on the host, and every client followed (29 trains
+in one session).
+
+The host player's control writes do go through the server (`CommonTrainPortsPacket` and the
+rest), which broadcasts accepted commits with `excludeSelf`. A refused one comes back to the host's
+client and is dropped: the host's simulation already has the values.
+
 ## Stable identities
 
 ### Car identity
@@ -648,7 +670,8 @@ Implemented: the join baseline described under "Implementation status" (readines
 declared trainset applied and the baseline topology snapshot reconciled, including its brake
 lines; the completion manifest is counts, not a digest); a snapshot after every command; a
 snapshot on the tick after the host observes a native change; a full snapshot on a client's
-`ServerboundTrainTopologySyncRequestPacket` or `ServerboundTrainSyncRequestPacket`. Each of these
+`ServerboundTrainTopologySyncRequestPacket` or `ServerboundTrainSyncRequestPacket` (never to the
+host's own client, which sends neither). Each of these
 is the whole graph, not a targeted closure. Not implemented: the periodic host audit and
 client-reported digests.
 
