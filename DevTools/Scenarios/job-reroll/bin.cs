@@ -20,6 +20,9 @@ if (Hands.Held == null || Hands.Held.NetId != netId)
 for (int i = 0; i < 10; i++) yield return null;
 yield return Hands.Drop();
 Hands.ReleaseControl();
+// Let go on a car, the paper is the car's (DV parents it to the car the player stands on); one
+// that really flew to the bin would have left the car on the way. Put it in the world.
+item.ParentToWorld();
 var body = item.Item.ItemRigidbody;
 body.velocity = Vector3.zero; body.angularVelocity = Vector3.zero;
 body.position = above; item.transform.position = above;
