@@ -14,6 +14,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
+# A failed dvmp call prints its output (the eval's compile error or exception) instead of the run
+# stopping silently under set -e with it captured in a variable or sent to /dev/null.
+dvmp_bin=$D; D=dvmp_checked
+dvmp_checked() { local out; if ! out=$("$dvmp_bin" "$@"); then echo "FAIL: dvmp ${*:1:3} failed: ${out:-no output}" >&2; return 1; fi; printf '%s\n' "$out"; }
 P=DevTools/Scenarios/cab-controls
 LOCOS=${LOCOS:-"LocoDE2 LocoDM3"}
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
