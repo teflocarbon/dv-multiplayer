@@ -19,6 +19,13 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
     private const float ANGULAR_VELOCITY_RESYNC = 0.5f; // rad/s
     private const float POSITION_RESPONSE = 14f;
     private const float ROTATION_RESPONSE = 18f;
+    // A dynamic car is steered by its velocity: the host's, plus this share per second of the way
+    // to the host's pose (then clamped as below). Moving it there with MovePosition every step
+    // was a teleport its coupler joints then answered: dragged between on-rail cars, which are
+    // steered by velocity too (TrainSpeedQueue), it shook against its couplers every step
+    // (derail-drag: the gap at its coupling changed 6x as fast as on the host).
+    private const float POSITION_GAIN = 4f;
+    private const float ROTATION_GAIN = 6f;
     private const float SNAP_DISTANCE = 20f;
     // How much faster than the host's own car a correction may move ours (m/s, degrees/s).
     // MovePosition on a dynamic body is a teleport: after a pile-up that played out a little
@@ -96,10 +103,13 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
             // dynamic car only keeps it awake.
             bool setVelocity = !rigidbody.isKinematic &&
                 (!flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) || snapshot.Velocity.magnitude >= 0.05f);
-            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) &&
+            // Without a pose to steer to, FixedUpdate leaves the velocity alone: set it here.
+            bool steered = flags.HasFlag(RigidbodySnapshot.IncludedData.Position);
+            if (setVelocity && !steered && flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) &&
                 (rigidbody.velocity - snapshot.Velocity).magnitude > VELOCITY_RESYNC)
                 rigidbody.velocity = snapshot.Velocity;
-            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity) &&
+            if (setVelocity && !flags.HasFlag(RigidbodySnapshot.IncludedData.Rotation) &&
+                flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity) &&
                 (rigidbody.angularVelocity - snapshot.AngularVelocity).magnitude > ANGULAR_VELOCITY_RESYNC)
                 rigidbody.angularVelocity = snapshot.AngularVelocity;
 
@@ -135,11 +145,45 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
             (RigidbodySnapshot.IncludedData)target.IncludedDataFlags;
         float age = Mathf.Clamp(Time.time - targetTime, 0f, MAX_EXTRAPOLATION_SECONDS);
 
+        Vector3 hostVelocity = flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) ? target.Velocity : Vector3.zero;
+        Vector3 hostAngular = flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity) ? target.AngularVelocity : Vector3.zero;
+        if (!rigidbody.isKinematic)
+        {
+            // At rest on the host and where the host has it: left alone, so it can sleep (and a
+            // car in a pile-up isn't nudged into its neighbours every step).
+            if (hostVelocity.sqrMagnitude < 0.0025f && hostAngular.sqrMagnitude < 0.0025f &&
+                (!flags.HasFlag(RigidbodySnapshot.IncludedData.Position) ||
+                 (target.Position + WorldMover.currentMove - rigidbody.position).sqrMagnitude < 0.0004f) &&
+                (!flags.HasFlag(RigidbodySnapshot.IncludedData.Rotation) ||
+                 Quaternion.Angle(target.Rotation, rigidbody.rotation) < 0.5f))
+                return;
+            if (flags.HasFlag(RigidbodySnapshot.IncludedData.Position))
+            {
+                Vector3 desired = target.Position + WorldMover.currentMove + hostVelocity * age;
+                rigidbody.velocity = hostVelocity +
+                    Vector3.ClampMagnitude((desired - rigidbody.position) * POSITION_GAIN, MAX_CORRECTION_SPEED);
+            }
+            if (flags.HasFlag(RigidbodySnapshot.IncludedData.Rotation))
+            {
+                Quaternion desired = target.Rotation;
+                if (hostAngular.sqrMagnitude > 0.000001f)
+                    desired = Quaternion.AngleAxis(hostAngular.magnitude * age * Mathf.Rad2Deg, hostAngular.normalized) * desired;
+                (desired * Quaternion.Inverse(rigidbody.rotation)).ToAngleAxis(out float degrees, out Vector3 axis);
+                if (degrees > 180f)
+                    degrees -= 360f;
+                Vector3 correction = float.IsInfinity(axis.x) || float.IsNaN(axis.x)
+                    ? Vector3.zero
+                    : axis * (degrees * Mathf.Deg2Rad * ROTATION_GAIN);
+                rigidbody.angularVelocity = hostAngular +
+                    Vector3.ClampMagnitude(correction, MAX_CORRECTION_DEGREES * Mathf.Deg2Rad);
+            }
+            return;
+        }
+
+        // A kinematic car isn't moved by its velocity: placed instead.
         if (flags.HasFlag(RigidbodySnapshot.IncludedData.Position))
         {
-            Vector3 desired = target.Position + WorldMover.currentMove;
-            if (flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity))
-                desired += target.Velocity * age;
+            Vector3 desired = target.Position + WorldMover.currentMove + hostVelocity * age;
             float blend = 1f - Mathf.Exp(-POSITION_RESPONSE * Time.fixedDeltaTime);
             float hostSpeed = flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) ? target.Velocity.magnitude : 0f;
             float maxStep = (hostSpeed + MAX_CORRECTION_SPEED) * Time.fixedDeltaTime;

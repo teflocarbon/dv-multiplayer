@@ -42,7 +42,7 @@ wait $cw; c=$(cat /tmp/derail-drag-client.$$); rm -f /tmp/derail-drag-client.$$
 wait $drag || fail "the host's drag failed"
 for side in host client; do
   r=$([ $side = host ] && echo "$h" || echo "$c")
-  echo "   $side: gap change RMS $(echo "$r" | field rms) m/s, worst $(echo "$r" | field worst) m/s, gap range $(echo "$r" | field gapRange) m, $(echo "$r" | field speedKmh) km/h, derailed $(echo "$r" | field derailed), coupled $(echo "$r" | field coupled), $(echo "$r" | field samples) samples"
+  echo "   $side: gap change RMS $(echo "$r" | field rms) m/s, worst $(echo "$r" | field worst) m/s, gap range $(echo "$r" | field gapRange) m, velocity change RMS loco $(echo "$r" | field locoAccel) / car $(echo "$r" | field carAccel) m/s2, $(echo "$r" | field speedKmh) km/h, derailed $(echo "$r" | field derailed), coupled $(echo "$r" | field coupled), $(echo "$r" | field samples) samples"
 done
 [ "$(echo "$h" | field coupled)" = "true" ] || fail "the derailed car came off the train on the host"
 [ "$(echo "$c" | field coupled)" = "true" ] || fail "the derailed car came off the train on the client"

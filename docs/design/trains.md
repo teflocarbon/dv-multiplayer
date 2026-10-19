@@ -1049,8 +1049,13 @@ Derailment: a rigidbody snapshot for an on-rail client car clears its bogie samp
 the rails it left), calls `TrainCar.Derail()` once, then interpolates the snapshots
 (`NetworkedRigidbody`, only while the car is derailed); afterwards the client reapplies the host's topology, because native
 derailment changes couplers. The rigidbody target is extrapolated from the host tick of its sample
-(up to 0.5 s), the same time base as the on-rail cars' bogie samples, and the host's velocity is
-only written when ours is more than 1.5 m/s (0.5 rad/s) off it. Before, the target's age was
+(up to 0.5 s), the same time base as the on-rail cars' bogie samples. A dynamic car is steered by
+its velocity, every physics step: the host's velocity plus 4/s of the way to the extrapolated pose
+(6/s for its rotation), clamped to 1.5 m/s (45 degrees/s), as the on-rail cars are steered by
+theirs (`TrainSpeedQueue`). One at rest where the host has it is left alone, so it sleeps. Moving it
+there with `MovePosition` every step was a teleport its coupler joints then answered: derail-drag
+measured the gap at its coupling changing 6 times as fast as on the host (2026-10-20). A
+kinematic car is still placed. Before, the target's age was
 counted from when the sample was processed and the velocity was replaced on every sample: a
 derailed flatbed dragged at 30 km/h between on-rail cars was aimed ~0.3 m behind them and jolted
 24 times a second, carrying ~12 times the host's coupler force and juddering the whole consist
