@@ -92,7 +92,7 @@ if want sleep; then
   echo "== $WHO sleeps (${SKIP}s)"
   if [ "$WHO" = client ]; then
     # the shared cooldown must have run out, or the host refuses the client's sleep
-    cd=$($D eval -t host -m body 'DV.BedSleepingController.Instance.lastWakeTime = DateTime.MinValue; return Globals.G.GameParams.SleepCooldownInHours;' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(Object.values(o.results)[0].result)')
+    cd=$($D eval -t host -m body 'DV.BedSleepingController.Instance.lastWakeTime = DateTime.MinValue; return new { cooldown = DV.Globals.G.GameParams.SleepCooldownInHours };' | field cooldown)
     node -e 'process.exit(+process.argv[1]>=0?0:1)' "$cd" || fail "invalid: sleeping is disabled in this save (SleepCooldownInHours $cd)"
   fi
   h0=$(state host); c0=$(state client)
