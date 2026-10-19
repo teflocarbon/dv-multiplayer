@@ -49,4 +49,28 @@ public sealed class ItemSnapshotApplicationPolicyTests
         Assert.That(ItemSnapshotApplicationPolicy.IsLocalVrReleaseAcknowledgement(
             isHost, (byte)localPlayer, (byte)origin, previous, received, (byte)hand), Is.False);
     }
+
+    // A throw that beat the hold's round trip: the hold's acceptance arrives with the item flying.
+    [TestCase(WireItemState.Dropped)]
+    [TestCase(WireItemState.Thrown)]
+    public void OwnHoldAcceptedAfterLettingGoIsTakenAsRevisionOnly(WireItemState localState)
+    {
+        Assert.That(ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
+            false, 2, 2, WireItemState.InHand, localState, false), Is.True);
+    }
+
+    [TestCase(true, 2, 2, WireItemState.InHand, WireItemState.Dropped, false)]    // host
+    [TestCase(false, 0, 0, WireItemState.InHand, WireItemState.Dropped, false)]   // not joined
+    [TestCase(false, 2, 3, WireItemState.InHand, WireItemState.Dropped, false)]   // another player took it
+    [TestCase(false, 2, 0, WireItemState.InHand, WireItemState.Dropped, false)]   // host correction
+    [TestCase(false, 2, 2, WireItemState.InHand, WireItemState.Dropped, true)]    // re-grabbed since
+    [TestCase(false, 2, 2, WireItemState.InHand, WireItemState.InHand, false)]
+    [TestCase(false, 2, 2, WireItemState.InHand, WireItemState.InInventory, false)]
+    [TestCase(false, 2, 2, WireItemState.Dropped, WireItemState.Dropped, false)]
+    public void HoldIsAppliedUnlessOurOwnAndAlreadyLetGo(bool isHost, int localPlayer, int origin,
+        WireItemState received, WireItemState localState, bool locallyPossessed)
+    {
+        Assert.That(ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
+            isHost, (byte)localPlayer, (byte)origin, received, localState, locallyPossessed), Is.False);
+    }
 }

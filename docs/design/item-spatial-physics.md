@@ -261,6 +261,14 @@ and one thrown onto a train vanished. What the code does now:
   (`ItemSnapshotApplicationPolicy.IsSupersededLocalRelease`); the pickup sent since decides. The
   lease granted for that drop isn't simulated on a held item. The player who let go counts as
   having the item in their world, so their pickup of it validates like anyone's.
+- **A late hold doesn't undo a throw.** The reverse race: a VR throw lets go before the host's
+  acceptance of the hold (or of the last in-hand update letting go sends, with the hand cleared)
+  comes back. Applied, that hold became the client's last sent state, so the client sent its drop
+  a second time against the hold's revision; the host had already accepted the first drop, refused
+  the second as stale, and its correction carried the record's pose, the release point. The client
+  applied it, and the item stopped dead mid-flight and fell straight down (playtest, 19 October:
+  17 corrections in 27 throws, 10 of them visibly stopping the item in the air). It is now taken as a revision only
+  (`ItemSnapshotApplicationPolicy.IsSupersededLocalHold`); the drop sent since decides.
 - **Only the holder sends object state.** An item's tracked values (a lantern's flame and wick)
   change on every game it's in, held or not. A client sends object-state-only changes only for an
   item in its own hand or inventory, book pages aside (`ItemObjectStateAuthority.ClientMaySend`).

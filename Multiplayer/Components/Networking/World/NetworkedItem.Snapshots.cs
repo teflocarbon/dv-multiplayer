@@ -385,6 +385,27 @@ public partial class NetworkedItem
             return;
         }
 
+        // Our own hold, accepted after we let go (a VR throw that beat the round trip). The drop
+        // we sent since follows it; applying the hold made it our last sent state, so the drop
+        // went out again, was refused as stale, and the host's correction stopped the item dead.
+        if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+            ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
+                NetworkLifecycle.Instance.IsHost(),
+                NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+                snapshot.OriginatingPlayerId,
+                ToWireState(snapshot.ItemState),
+                ToWireState(GetItemState()),
+                IsLocallyPossessed()))
+        {
+            DebugRuntime.Publish("item", "item.local-hold-superseded", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: NetId.ToString(), data: new()
+                {
+                    ["authorityRevision"] = snapshot.AuthorityRevision,
+                    ["localState"] = GetItemState().ToString()
+                });
+            return;
+        }
+
         // The host's echo of our own object-state change (a lantern's knob still being turned).
         if (ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(NetworkLifecycle.Instance.IsHost(),
                 NetworkLifecycle.Instance.Client?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
