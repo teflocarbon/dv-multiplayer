@@ -248,6 +248,7 @@ public class NetworkServer : NetworkManager
         // Player
         netPacketProcessor.SubscribeReusable<ServerboundPlayerPositionPacket, ITransportPeer>(OnServerboundPlayerPositionPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLicensePurchaseRequestPacket, ITransportPeer>(OnServerboundLicensePurchaseRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundPayFeesRequestPacket, ITransportPeer>(OnServerboundPayFeesRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundPlayerPreferenceUpdatePacket, ITransportPeer>(OnServerboundPlayerPreferenceUpdatePacket);
 
 
@@ -2943,6 +2944,14 @@ public class NetworkServer : NetworkManager
         else
             LicenseManager.Instance.AcquireGeneralLicense(generalLicense);
     }
+
+    private void OnServerboundPayFeesRequestPacket(ServerboundPayFeesRequestPacket packet, ITransportPeer peer)
+    {
+        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+            return;
+        ChatManager.PayFees(player);
+    }
+
     private void OnServerboundJobValidateRequestPacket(ServerboundJobValidateRequestPacket packet, ITransportPeer peer)
     {
         Log($"OnServerboundJobValidateRequestPacket(): {packet.JobNetId}");

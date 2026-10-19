@@ -260,8 +260,11 @@ public static class Locale
     #endregion
 
     #region Career Manager
-    public static string CAREER_MANAGER__FEES_HOST_ONLY => Get(CAREER_MANAGER__FEES_HOST_ONLY_KEY);
-    private const string CAREER_MANAGER__FEES_HOST_ONLY_KEY = $"{PREFIX_CAREER_MANAGER}/fees_host_only";
+    public static string CAREER_MANAGER__PAY_FEES_TITLE => Get(CAREER_MANAGER__PAY_FEES_TITLE_KEY);
+    private const string CAREER_MANAGER__PAY_FEES_TITLE_KEY = $"{PREFIX_CAREER_MANAGER}/pay_fees_title";
+
+    public static string CAREER_MANAGER__PAY_FEES_INFO => Get(CAREER_MANAGER__PAY_FEES_INFO_KEY);
+    private const string CAREER_MANAGER__PAY_FEES_INFO_KEY = $"{PREFIX_CAREER_MANAGER}/pay_fees_info";
     #endregion
 
     #region Player List
