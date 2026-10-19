@@ -18,6 +18,11 @@
 #   reaches the host again. The client must still be aboard after the steps: a rolling loco left
 #   it behind in #159. A dedicated host works too (only the client boards).
 #   STEPS="external 1;external 0;..." (which copies, value)
+#   MODE=cab-reload: the client in an S282A's cab (LOCO=; it needs a cab with a control that has
+#   no port, the S282's ReleaseCyl: before 2026-10-20 such a cab hooked nothing for 2 s). Its cab
+#   reloads and, half a second later, it grabs a lever: hooked, and the grab takes its lease. The
+#   cab stays unloaded 2.5 s and loads: no "failed to load an interior". It reloads three times in
+#   quick succession, each unloaded mid-hook: no hook pass throws, every control ends up hooked.
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -99,6 +104,40 @@ if [ "${MODE:-}" = no-grab-sequence ]; then
 
   $D eval -t client -m coroutine 'yield return LocalPlayer.TeleportToGround(7190f, 6880f);' >/dev/null
   $D eval -t host -m coroutine 'yield return LocalPlayer.TeleportToGround(7194f, 6873f);' >/dev/null
+  [ $fail = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }
+  exit 0
+fi
+
+if [ "${MODE:-}" = cab-reload ]; then
+  LOCO=${LOCO:-LocoS282A}
+  spawn $LOCO
+  board client 4
+  expect() { node -e 'const o=JSON.parse(process.argv[1]);const ok=eval(process.argv[3]);console.log("   "+(ok?"ok   ":"FAIL ")+process.argv[2]+": "+process.argv[1]);process.exit(ok?0:1)' "$2" "$1" "$3"; }
+  # Exceptions and errors from the cab's hook pass, so far in the client's log.
+  hook_errors() { { $D logs -t client -l exception -n 2000 2>/dev/null | grep -cE "HookControls|HookInteriorControls|WaitForInterior" || true; $D logs -t client -l error -c "failed to load an interior" -n 2000 2>/dev/null | grep -c '"message"' || true; } | node -e 'console.log(require("fs").readFileSync(0,"utf8").trim().split(/s+/).reduce((a,b)=>a+Number(b||0),0))'; }
+  reload() { $D eval -t client -m coroutine --timeout 60 -a loco=$loco -a after=$1 -a quick=$2 -a gap=$3 -f $P/reload.cs | result; }
+  errors0=$(hook_errors)
+
+  echo "== the client's cab reloads; it grabs a lever half a second later"
+  r=$(reload 0.5 0 0)
+  # The case this is about: a cab with a control the old ready check never passed.
+  expect "the cab has a control with no port" "$r" 'o.portless' || fail=1
+  expect "hooked in time and the grab took the lease, given back on release" "$r" 'o.hooked && o.owned && o.released' || fail=1
+  echo "== the cab unloads for 2.5 s, then loads"
+  r=$(reload 2.5 0 2.5)
+  expect "hooked and leased" "$r" 'o.hooked && o.owned && o.released' || fail=1
+  echo "== the cab reloads three times in quick succession, each unloaded mid-hook"
+  r=$(reload 2.5 3 0)
+  expect "the last cab's lever hooked and leased" "$r" 'o.hooked && o.owned && o.released' || fail=1
+  h=$($D eval -t client -m body -a loco=$loco -f $P/hooked.cs)
+  echo "   $(echo "$h" | field feeders) port-fed controls, unhooked: $(echo "$h" | field unhooked)"
+  [ "$(echo "$h" | field unhooked)" = "[]" ] || fail=1
+  sleep 3   # a stale hook pass from the quick reloads throws once its 2 s are up
+  errors=$(( $(hook_errors) - errors0 ))
+  echo "   $errors hook error(s) or exception(s) in the client's log ('failed to load an interior', HookControls)"
+  [ "$errors" = 0 ] || fail=1
+
+  $D eval -t client -m coroutine 'yield return LocalPlayer.TeleportToGround(7190f, 6880f);' >/dev/null
   [ $fail = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }
   exit 0
 fi
