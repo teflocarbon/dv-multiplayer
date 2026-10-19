@@ -109,7 +109,7 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool EnableLogFile;
     [Space(10)]
     [Header("Multiplayer Debug System")]
-    [Draw("Enable Debug System", Tooltip = "Enable structured in-process multiplayer diagnostics.", VisibleOn = "ShowAdvancedSettings|true")]
+    [Draw("Enable Debug System", Tooltip = "Enable structured in-process multiplayer diagnostics. Always on while Multiplayer Dev Tools is installed.", VisibleOn = "ShowAdvancedSettings|true")]
 #if DEBUG
     public bool EnableDebugSystem = true;
 #else

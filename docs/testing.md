@@ -53,6 +53,17 @@ Release also writes a zip to `releases/` (see [development.md](development.md)).
 `Managed` folder defaults to the Steam install path; override it with
 `-p:DerailValleyManagedDir=...` if yours is elsewhere.
 
+To test without deploying (while a release is installed for a playtest), compile only and point
+the tests at the compiled assembly:
+
+```bash
+dotnet build Multiplayer/Multiplayer.csproj -c Debug -t:Compile
+```
+
+```bash
+dotnet test Multiplayer.Protocol.Tests -c Debug -p:MultiplayerAssemblyPath=$PWD/Multiplayer/obj/Debug/net48/Multiplayer.dll
+```
+
 The fixtures cover item updates (`Dropped`, `Thrown`, `InHand`, `InInventory`, `Attached`,
 `Create`, `Destroy`, `ObjectState`, `FullSync`, every tracked-value primitive, complete payload
 consumption, envelope authority fields), item recall, spatial and continuous-motion packets,

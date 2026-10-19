@@ -30,8 +30,49 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
   snapshot.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
+- A client couples (or uncouples) its own cars straight away and sends the command; if the host
+  refuses it, the client puts the host's topology back when the refusal arrives, or once the player
+  lets go of the chain. Over a laggy connection the player can walk off before then, so a refused
+  couple looks like the cars came apart by themselves. A common refusal is `OutOfRange`: the host's
+  copy of the player (more than a car length from the primary car's centre) or of the cars
+  (couplers more than 4 m apart) lags the client's.
+- The host logs every refused command with the player, the cars and ends, and why (for
+  `OutOfRange`, the distance it measured), and every accepted couple
+  (`NetworkServer.LogTopologyCommand`). The refusal sent back carries the same detail
+  (`ClientboundTrainTopologySnapshotPacket.Detail`), so the player's own log says why too.
 - The relay-only MU, hose, cock and couple/uncouple handlers and their `Common*` packets are
   gone (removed in #59).
+
+**Why a train changed: recorded causes.** Uncouples, derails and car removals each record a
+`ChangeCause` (`Multiplayer.Core/Diagnostics/ChangeCause.cs`: a reason, the acting player, the
+tick and free-text detail) with a reason from `Multiplayer.Core/Trains/TrainChangeReasons.cs`
+(`UncoupleReason`, `DerailReason`, `CarRemovalReason`). Each is logged in one form ("Uncoupled
+CFF066 (Rear) from CFF439 (Front) on the host: CarRemoved by Bentgear29 (CFF439 PlayerDeleted)"),
+published as a `train.uncoupled` / `train.derailed` / `train.car-removed` debug event, and kept:
+`NetworkedTrainCar.LastFrontUncouple`, `LastRearUncouple` and `LastDerail`, and
+`TrainChangeCauses.RecentRemovals` for cars that are gone. In a 2026-10-19 playtest a train
+"came apart" because players deleted derailed cars from the middle of it, and the cars had been
+derailed by a player's sandbox comms radio; both took matching log timings to find.
+
+- Code that knows the cause opens a scope (`TrainChangeCauses.Scope`): the server's topology
+  command (`PlayerCommand`, or `Remote` for `ViaRemote`), delete (`PlayerDeleted`,
+  `ReturnedToGarage`), rerail (`CarRerailed`) and sandbox radio (`CommsRadio`) handlers, the
+  authority's rollback (`HostRolledBack`), and on clients the destroy packet and the snapshot-driven
+  derail (`FollowingHost`). Otherwise the patches infer it: joint breaks (`JointBroke`, or
+  `JointBrokeDerailed` where vanilla has weakened the joint to 1.35 MN), vanilla's derail messages
+  (`Stress`, `Explosion`, `EndOfTrack`, `MissingTrack`, `LoadedDerailed`), and the vanilla callers
+  (`SafetyDerailer`, the unused-car deleter, the job generator, loco restoration, save loading, the
+  host player's own chain, radio and remote). Anything else is `Unknown` with the calling methods
+  as its detail, which names the case to add (`Patches/Train/CouplerUncoupleLogPatch.cs`,
+  `DerailCausePatch.cs`, `CarSpawnerPatch.cs`).
+- The host sends its causes: uncouples ride on the next broadcast topology snapshot
+  (`Uncouples`), removals on `ClientboundDestroyTrainCarPacket.Cause`, derails in
+  `ClientboundTrainDerailCausePacket`. A client applying the host's topology records the host's
+  reason for each coupling it takes apart, `FollowingHost` when it has none, and `CoupleRefused`
+  (with the refusal's code and detail) when it is undoing its own refused change.
+- Breaks are also logged as errors by `CouplerBreakPatch`, with the joint force.
+- All of it is in the normal log, so a train that came apart can be traced from the host's log
+  alone, without the debug system (off in Release builds unless the dev tools mod is installed).
 
 **Join baseline: implemented.** The host sends `ClientboundTrainBaselineBeginPacket`, one numbered
 spawn packet per trainset, a topology snapshot tagged with the baseline ID, then

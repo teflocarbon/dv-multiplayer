@@ -25,6 +25,7 @@ using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.Networking.World.Containers;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Core.Containers;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
@@ -51,6 +52,7 @@ using Multiplayer.Core.Trains;
 using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
 using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
 using Multiplayer.Patches.MainMenu;
+using Multiplayer.Patches.Train;
 using Multiplayer.Patches.World;
 using Multiplayer.Utils;
 using System;
@@ -506,6 +508,7 @@ public class NetworkServer : NetworkManager
                 snapshot.TopologyRevision != lastBroadcastTrainTopologyRevision ||
                 controlCars.Length > 0)
             {
+                AttachUncoupleCauses(snapshot);
                 SendPacketToAll(snapshot, DeliveryMethod.ReliableOrdered,
                     PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
                 lastBroadcastTrainTopologyRevision = snapshot.TopologyRevision;
@@ -892,7 +895,8 @@ public class NetworkServer : NetworkManager
             SendPacket(sendTo, topology, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendDestroyTrainCar(NetworkedTrainCar netTrainCar, ITransportPeer peer = null)
+    public void SendDestroyTrainCar(NetworkedTrainCar netTrainCar, ChangeCause<CarRemovalReason> cause,
+        ITransportPeer peer = null)
     {
         //ushort netID = trainCar.GetNetId();
         Log($"Sending DestroyTrainCarPacket for [{netTrainCar.CurrentID} {netTrainCar.NetId}]");
@@ -903,12 +907,43 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        var packet = new ClientboundDestroyTrainCarPacket { NetId = netTrainCar.NetId };
+        var packet = new ClientboundDestroyTrainCarPacket { NetId = netTrainCar.NetId, Cause = cause };
 
         if (peer == null)
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
         else
             SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendDerailCause(NetworkedTrainCar netTrainCar, ChangeCause<DerailReason> cause)
+    {
+        if (netTrainCar == null || netTrainCar.NetId == 0)
+            return;
+        SendPacketToAll(new ClientboundTrainDerailCausePacket { NetId = netTrainCar.NetId, Cause = cause },
+            DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
+    }
+
+    // Why couplings came apart since the last broadcast topology snapshot, sent with the next one.
+    private const int MaxPendingUncoupleCauses = 256;
+    private readonly List<TrainUncoupleCauseData> pendingUncoupleCauses = new();
+
+    internal void NoteUncouple(Coupler coupler, ChangeCause<UncoupleReason> cause)
+    {
+        ushort netId = coupler?.train?.GetNetId() ?? 0;
+        if (netId == 0 || pendingUncoupleCauses.Count >= MaxPendingUncoupleCauses)
+            return;
+        pendingUncoupleCauses.Add(new TrainUncoupleCauseData
+        {
+            CarNetId = netId,
+            End = coupler.isFrontCoupler ? TrainEnd.Front : TrainEnd.Rear,
+            Cause = cause
+        });
+    }
+
+    private void AttachUncoupleCauses(ClientboundTrainTopologySnapshotPacket snapshot)
+    {
+        snapshot.Uncouples = pendingUncoupleCauses.ToArray();
+        pendingUncoupleCauses.Clear();
     }
 
     public void SendTrainsetPhysicsUpdate(ClientboundTrainsetPhysicsPacket packet, bool reliable)
@@ -2536,15 +2571,17 @@ public class NetworkServer : NetworkManager
 
     private void OnServerboundSandboxCarDamagePacket(ServerboundSandboxCarDamagePacket packet, ITransportPeer peer)
     {
-        if (!TrySandboxRadioCar(peer, packet.CarNetId, "radio's damage mode", out _, out TrainCar car))
+        if (!TrySandboxRadioCar(peer, packet.CarNetId, "radio's damage mode", out ServerPlayer player, out TrainCar car))
             return;
         if (packet.Derail)
         {
-            car.Derail();
+            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(DerailReason.CommsRadio, player)))
+                car.Derail();
             return;
         }
         // What vanilla's CommsRadioDamage does, on the host's car.
         float level = Mathf.Clamp(packet.DamageLevel, 1, 10);
+        Log($"{player.Username} damaged {car.ID} to level {level:F0}/10 with the comms radio");
         car.GetComponent<TrainCarCollisions>()?.CarDamaged?.Invoke(car.CarDamage.maxHealth * (level / 10f), Vector3.zero);
     }
 
@@ -2556,13 +2593,17 @@ public class NetworkServer : NetworkManager
         if (car.LoadedCargo != CargoType.None)
             car.logicCar.UnloadCargo(car.LoadedCargoAmount, car.LoadedCargo);
         if (packet.CargoTypeNetId == 0)
+        {
+            Log($"{player.Username} emptied {car.ID} with the comms radio");
             return;
+        }
         if (!CargoTypeLookup.Instance.TryGet(packet.CargoTypeNetId, out CargoType_v2 cargo) || cargo == null ||
             !cargo.IsLoadableOnCarType(car.carLivery.parentType))
         {
             LogWarning($"{player.Username} tried to load cargo {packet.CargoTypeNetId} that {car.ID} can't carry");
             return;
         }
+        Log($"{player.Username} loaded {car.ID} with {cargo.v1} with the comms radio");
         car.logicCar.LoadCargo(car.cargoCapacity, cargo.v1);
     }
 
@@ -2585,17 +2626,26 @@ public class NetworkServer : NetworkManager
         if (!TryGetServerPlayer(peer, out ServerPlayer player) || packet == null)
             return;
 
+        string rangeFailure = null;
         bool IsInRange()
         {
             if (NetworkLifecycle.Instance.IsHost(player))
                 return true;
             if (!NetworkedTrainCar.TryGet(packet.PrimaryCarNetId,
                     out NetworkedTrainCar primary) || primary?.TrainCar == null)
+            {
+                rangeFailure = $"the host has no car {packet.PrimaryCarNetId}";
                 return false;
+            }
             // A remote controller is used from a distance; only the coupler check below applies.
-            if (!packet.ViaRemote &&
-                (player.WorldPosition - primary.transform.position).sqrMagnitude > primary.CarLengthSq)
+            float playerDistanceSq = (player.WorldPosition - primary.transform.position).sqrMagnitude;
+            if (!packet.ViaRemote && playerDistanceSq > primary.CarLengthSq)
+            {
+                rangeFailure = $"the host has the player {Mathf.Sqrt(playerDistanceSq):F1} m from " +
+                    $"{primary.CurrentID}'s centre (limit {Mathf.Sqrt(primary.CarLengthSq):F1} m" +
+                    $"{(player.CarId != 0 ? $", player is on car {player.CarId}" : string.Empty)})";
                 return false;
+            }
             if (!packet.HasSecondary)
                 return true;
             // The player acts from the primary car (often its cab, so the other car's centre can be
@@ -2603,26 +2653,52 @@ public class NetworkServer : NetworkManager
             // actually next to the primary's, which also stops a lagging view coupling across a gap.
             if (!NetworkedTrainCar.TryGet(packet.SecondaryCarNetId, out NetworkedTrainCar secondary) ||
                 secondary?.TrainCar == null)
+            {
+                rangeFailure = $"the host has no car {packet.SecondaryCarNetId}";
                 return false;
+            }
             Coupler primaryCoupler = packet.PrimaryEnd == TrainEnd.Front
                 ? primary.TrainCar.frontCoupler : primary.TrainCar.rearCoupler;
             Coupler secondaryCoupler = packet.SecondaryEnd == TrainEnd.Front
                 ? secondary.TrainCar.frontCoupler : secondary.TrainCar.rearCoupler;
-            return primaryCoupler != null && secondaryCoupler != null &&
-                   (primaryCoupler.transform.position - secondaryCoupler.transform.position).sqrMagnitude <=
-                   MaxTopologyCouplerGap * MaxTopologyCouplerGap;
+            if (primaryCoupler == null || secondaryCoupler == null)
+            {
+                rangeFailure = "a coupler is missing on the host";
+                return false;
+            }
+            float gapSq = (primaryCoupler.transform.position - secondaryCoupler.transform.position).sqrMagnitude;
+            if (gapSq <= MaxTopologyCouplerGap * MaxTopologyCouplerGap)
+                return true;
+            rangeFailure = $"the host has the couplers {Mathf.Sqrt(gapSq):F1} m apart " +
+                $"(limit {MaxTopologyCouplerGap:F0} m), speeds {primary.TrainCar.GetForwardSpeed():F2} and " +
+                $"{secondary.TrainCar.GetForwardSpeed():F2} m/s";
+            return false;
         }
 
-        ClientboundTrainTopologySnapshotPacket snapshot = trainTopologyAuthority.Execute(
-            player.PlayerId, packet, runtimeAuthorized: () => true, runtimeInRange: IsInRange);
+        ClientboundTrainTopologySnapshotPacket snapshot;
+        var uncoupleCause = TrainChangeCauses.Cause(
+            packet.ViaRemote ? UncoupleReason.Remote : UncoupleReason.PlayerCommand, player,
+            $"{packet.Kind} command");
+        using (TrainChangeCauses.Scope(uncoupleCause))
+            snapshot = trainTopologyAuthority.Execute(
+                player.PlayerId, packet, runtimeAuthorized: () => true, runtimeInRange: IsInRange);
+        string detail = snapshot.Result == TrainTopologyResultCode.OutOfRange
+            ? rangeFailure
+            : trainTopologyAuthority.LastRejectionDetail;
+        LogTopologyCommand(player, packet, snapshot, detail);
         if (snapshot.Result == TrainTopologyResultCode.Accepted)
         {
+            AttachUncoupleCauses(snapshot);
             SendPacketToAll(snapshot, DeliveryMethod.ReliableOrdered,
                 PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
             lastBroadcastTrainTopologyRevision = snapshot.TopologyRevision;
         }
         else
+        {
+            // So the player's own log says why, not only the host's.
+            snapshot.Detail = detail ?? string.Empty;
             SendPacket(peer, snapshot, DeliveryMethod.ReliableOrdered);
+        }
 
         DebugRuntime.Publish("train", "train.topology-command-result", DebugRuntimeSide.Server,
             entityType: "Topology", entityId: packet.OperationId.ToString(),
@@ -2641,6 +2717,29 @@ public class NetworkServer : NetworkManager
                 secondaryEnd = packet.SecondaryEnd.ToString()
             }));
     }
+
+    // Couplings come apart in the host's log either as a player's refused command (the client
+    // showed it coupled until the refusal reached it) or as an uncouple, which
+    // CouplerUncoupleLogPatch logs with its cause.
+    private void LogTopologyCommand(ServerPlayer player, ServerboundTrainTopologyCommandPacket packet,
+        ClientboundTrainTopologySnapshotPacket snapshot, string detail)
+    {
+        string what = $"{player.Username}'s {packet.Kind} of {DescribeEndpoint(packet.PrimaryCarNetId, packet.PrimaryEnd)}" +
+            (packet.HasSecondary ? $" and {DescribeEndpoint(packet.SecondaryCarNetId, packet.SecondaryEnd)}" : string.Empty) +
+            (packet.Kind == TrainTopologyCommandKind.SetChainState ? $" to {packet.RequestedChainState}" : string.Empty) +
+            (packet.ViaRemote ? " via remote" : string.Empty);
+        if (snapshot.Result != TrainTopologyResultCode.Accepted)
+            LogWarning($"Refused {what}: {snapshot.Result}" +
+                (string.IsNullOrEmpty(detail) ? string.Empty : $", {detail}") +
+                $" (op {packet.OperationId & 0x00FFFFFFFFFFFFFFUL}, topology r{snapshot.TopologyRevision})");
+        else if (packet.Kind == TrainTopologyCommandKind.Couple)
+            Log($"Accepted {what} (topology r{snapshot.TopologyRevision})");
+    }
+
+    private static string DescribeEndpoint(ushort carNetId, TrainEnd end) =>
+        NetworkedTrainCar.TryGet(carNetId, out NetworkedTrainCar car)
+            ? $"{car.CurrentID} ({end})"
+            : $"car {carNetId} ({end})";
 
     private void OnServerboundTrainTopologySyncRequestPacket(
         ServerboundTrainTopologySyncRequestPacket packet, ITransportPeer peer)
@@ -2682,14 +2781,18 @@ public class NetworkServer : NetworkManager
                 break;
         }
 
+        // Deleting a car from the middle of a train splits it; the removal and its uncouples name
+        // the player (CarSpawnerPatch).
         var garageRef = trainCar.GetComponent<HomeGarageReference>();
         if (garageRef != null && garageRef.garageCarSpawner != null)
         {
-            garageRef.garageCarSpawner.ReturnCarHome(trainCar);
+            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.ReturnedToGarage, player)))
+                garageRef.garageCarSpawner.ReturnCarHome(trainCar);
         }
         else
         {
-            CarSpawner.Instance.DeleteCar(trainCar);
+            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.PlayerDeleted, player)))
+                CarSpawner.Instance.DeleteCar(trainCar);
             UnusedTrainCarDeleter.Instance.ClearInvalidCarReferencesAfterManualDelete();
         }
     }
@@ -2716,7 +2819,9 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        trainCar.Rerail(networkedRailTrack.RailTrack, position, packet.Forward);
+        Log($"{player.Username} rerailed {networkedTrainCar.CurrentID}");
+        using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(UncoupleReason.CarRerailed, player)))
+            trainCar.Rerail(networkedRailTrack.RailTrack, position, packet.Forward);
     }
 
     private void OnServerboundTrainSpawnRequestPacket(ServerboundTrainSpawnRequestPacket packet, ITransportPeer peer)
