@@ -20,6 +20,26 @@ internal sealed class Agent(AgentInfo info, RemoteInfo? remote = null)
     public string Role => Status?["role"]?.GetValue<string>() ?? "unknown";
     /// <summary>The session the game was launched into (see <see cref="Sessions"/>).</summary>
     public string Session => Sessions.Of(Info.Args);
+    /// <summary>Whether dvmp launched this game (its -dvmp-role argument). Only those are the harness's
+    /// to reuse or quit: a game the user started (their own play, a server for something else) shares the
+    /// install and so has the agent too, and must never be taken over or shut down.</summary>
+    public bool LaunchedByDvmp => Info.Args != null && Array.IndexOf(Info.Args, "-dvmp-role") >= 0 && FromThisInstall;
+
+    /// <summary>Whether the game runs from the install dvmp is pointed at (DVMP_DV_DIR, else Steam's). A
+    /// separate copy (a test install, someone's own server folder) is another install's business.</summary>
+    public bool FromThisInstall
+    {
+        get
+        {
+            try
+            {
+                string? exe = System.Diagnostics.Process.GetProcessById(Pid).MainModule?.FileName;
+                return exe == null || string.Equals(System.IO.Path.GetFullPath(System.IO.Path.GetDirectoryName(exe)!).TrimEnd('\\', '/'),
+                    System.IO.Path.GetFullPath(Paths.GameDir).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return true; }
+        }
+    }
     public string Label => Remote != null ? $"{Role}@{Remotes.TargetPrefix}{Remote.Name}"
         : Session == Sessions.Default ? $"{Role}#{Pid}" : $"{Role}#{Pid}@{Session}";
 }

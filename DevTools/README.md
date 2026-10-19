@@ -22,6 +22,25 @@ dotnet build DevTools/Dvmp/Dvmp.csproj
 The MCP server is registered in `.mcp.json` at the repo root. Rebuilding `dvmp.exe` while the
 MCP server is running fails because the file is locked; reconnect the `dvmp` server afterwards.
 
+## Test install
+
+Test builds don't have to go into the game you play. `DevTools/make-test-install.ps1` makes a copy
+of Derail Valley at `%LOCALAPPDATA%\dvmp\test-install` that writes nothing to the real install:
+`DerailValley_Data`, `MonoBleedingEdge` and every other mod are directory junctions to it, the
+launcher and Unity Mod Manager's loader are copied, `Multiplayer` and `MultiplayerDevTools` are
+real copies, and a `steam_appid.txt` lets Steam start it from outside its folder. Run it again to
+pick up mods you add. Then point the harness and the builds at it:
+
+```bash
+export DVMP_DV_DIR="$LOCALAPPDATA/dvmp/test-install"          # dvmp launches and compiles against it
+dotnet build Multiplayer/Multiplayer.csproj -c Debug "-p:DvInstallDir=$DVMP_DV_DIR"
+dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug "-p:DvInstallDir=$DVMP_DV_DIR"
+```
+
+dvmp only reuses and quits games it launched (their `-dvmp-role` argument) from the install it is
+pointed at. A game you start yourself, or one running from another folder (your own play, a
+server for something else), is never taken over or shut down, even by `down --all`.
+
 ## Tools
 
 Every MCP tool that acts on games takes `session` (CLI: `--session NAME` or `DVMP_SESSION`), so one MCP
@@ -32,7 +51,7 @@ server can drive several pairs: p1, p2, d1. Remote games: `dvmp_remote` / `dvmp 
 |---|---|---|
 | `dvmp_status` | `dvmp status [--all]` | Running games: role, scene, world loaded, fps, absolute player position (`all`: every session's); paired remote games. |
 | `dvmp_up` | `dvmp up [--fresh] [--save X]` | Ensure a host + client are running and joined (reuses a healthy pair). A join is done once the client has left loading mode. |
-| `dvmp_down` | `dvmp down [--all]` | Quit this session's games (`all`: every session's). |
+| `dvmp_down` | `dvmp down [--all]` | Quit this session's games (`all`: every session's). Only games dvmp launched (`-dvmp-role`): a game you started yourself is never quit, and `up` never reuses it. |
 | `dvmp_eval` | `dvmp eval [-t host\|client\|all] CODE` | Run C# in the game(s); see the tool description for the probe API. |
 | `dvmp_screenshot` | `dvmp screenshot [-t ...] [-o DIR]` | What each window shows. |
 | `dvmp_logs` | `dvmp logs [-t ...] [-l warning]` | Unity/Multiplayer log lines and exceptions. |

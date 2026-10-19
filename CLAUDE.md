@@ -33,6 +33,12 @@ pair runs from that one install: after building, `dvmp_up` with `fresh: true` lo
 set the environment variable `ConfigurationName=NoDeploy` (not `-p:`). Building `DevTools/DvmpAgent`
 installs the agent regardless. Don't build Release (see Versions).
 
+**Test in the test install, not the user's game.** `DevTools/make-test-install.ps1` makes a copy of the
+game at `%LOCALAPPDATA%\dvmp\test-install` (junctions, so it's small). Set `DVMP_DV_DIR` to it and build
+with `-p:DvInstallDir=<it>`, so test builds and test games never touch the install the user plays from
+(DevTools/README.md, "Test install"). Shut down only the sessions you started (`dvmp down --session
+NAME`): the user may have their own games open.
+
 ## Unit tests
 
 ```bash
