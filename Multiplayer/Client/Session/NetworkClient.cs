@@ -526,10 +526,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         Log($"Quarantining unbound client items...");
         NetworkedItemManager.Instance.QuarantineUnboundClientItems();
         SendWorldItemCatalogue();
-        Log($"Initialising Cash Registers...");
-        NetworkedCashRegisterWithModules.InitialiseCashRegisters();
-        Log($"Initialising Pit Stops...");
-        NetworkedPitStopStation.InitialisePitStops();
+        InitialiseStations();
 
         // Wait for ready blocks to clear
         Log($"Waiting for ready-blocks...");

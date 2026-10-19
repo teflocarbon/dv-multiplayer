@@ -25,7 +25,7 @@ public readonly struct PitStopPlugData(ushort netId, PlugInteractionType state, 
                 (
                     plugData.NetId,
                     interaction,
-                    plugData.HeldBy?.PlayerId ?? 0,
+                    plugData.HeldByPlayerId,
                     plugData.TrainCarNetId,
                     plugData.SocketIndex,
                     plugData.transform.GetWorldAbsolutePosition(),
@@ -105,11 +105,11 @@ public readonly struct PitStopPlugData(ushort netId, PlugInteractionType state, 
 
     private static PlugInteractionType GetInteractionType(NetworkedPluggableObject netPlug, bool bulk)
     {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.GetInteractionType() netId: {netPlug.NetId} bulk: {bulk}, Heldby:{netPlug.HeldBy}, TrainCarNetId: {netPlug.TrainCarNetId} socket not null: {netPlug.PluggableObject.Socket != null}, socket path: {netPlug.PluggableObject.Socket?.GetObjectPath()}, start attached to not null: {netPlug.PluggableObject.startAttachedTo != null}, start attached to path: {netPlug.PluggableObject.startAttachedTo?.GetObjectPath()}");
+        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.GetInteractionType() netId: {netPlug.NetId} bulk: {bulk}, Heldby: P{netPlug.HeldByPlayerId}, TrainCarNetId: {netPlug.TrainCarNetId} socket not null: {netPlug.PluggableObject.Socket != null}, socket path: {netPlug.PluggableObject.Socket?.GetObjectPath()}, start attached to not null: {netPlug.PluggableObject.startAttachedTo != null}, start attached to path: {netPlug.PluggableObject.startAttachedTo?.GetObjectPath()}");
         //if (!bulk)
         //    return plugData.CurrentInteraction;
 
-        if (netPlug.HeldBy != null)
+        if (netPlug.HeldByPlayerId != 0)
             return PlugInteractionType.PickedUp;
 
         if (netPlug.PluggableObject.Socket == null)

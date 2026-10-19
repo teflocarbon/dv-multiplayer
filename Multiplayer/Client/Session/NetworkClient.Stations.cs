@@ -13,8 +13,20 @@ using UnityEngine;
 namespace Multiplayer.Client.Session;
 
 // NetworkClient's stations handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkClient
+public partial class NetworkClient : IStationsClient
 {
+    /// <summary>
+    /// Numbers the service stations and module registers the way the host does, so the ids match.
+    /// A client's stations need no role parts: the shells do what a player's game does.
+    /// </summary>
+    private void InitialiseStations()
+    {
+        Log($"Initialising Cash Registers...");
+        NetworkedCashRegisterWithModules.InitialiseCashRegisters();
+        Log($"Initialising Pit Stops...");
+        NetworkedPitStopStation.InitialisePitStops();
+    }
+
     private void OnClientboundShopStockPacket(ClientboundShopStockPacket packet)
     {
         GlobalShopController shops = GlobalShopController.Instance;
@@ -111,7 +123,7 @@ public partial class NetworkClient
     {
         LogDebug(() => $"SendPitStopPlugInteractionPacket({netId}, {interaction}, pos: {position}, rot: {rotation}, trainNetId: {trainCarNetId}, socketIndex: {socketIndex})");
 
-        SendNetSerializablePacketToServer(new CommonPitStopPlugInteractionPacket
+        var packet = new CommonPitStopPlugInteractionPacket
         {
             NetId = netId,
             InteractionType = interaction,
@@ -119,8 +131,11 @@ public partial class NetworkClient
             SocketIndex = socketIndex,
             Position = position,
             Rotation = rotation,
-
-        }, DeliveryMethod.ReliableOrdered);
+        };
+        // SendNetSerializablePacketToServer has no in-process hook: on the host, hand it over here.
+        if (NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true)
+            return;
+        SendNetSerializablePacketToServer(packet, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendShopPurchase(int shopIndex, string itemPrefabName, int amount)
