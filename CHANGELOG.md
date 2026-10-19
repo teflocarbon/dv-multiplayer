@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026.10.19.2 (beta)
+
+Fixes from the third playtest, the first on a dedicated server with three players. Every player and the server need this version. None of these fixes has been tested in a game yet.
+
+### Trains
+- Train controls respond the moment you move them on a client: the whistle, horn, bells, dynamo and sanders follow your hand instead of waiting a round trip for the host. Other players' controls, doors, windows and levers play out smoothly instead of in steps.
+- A handcar moves when a client pumps it, and its crank turns smoothly. Doors, windows, hatches and the other controls on a car's body take turns between players the same way cab controls do.
+- A handcar's handbrake stays on while someone holds it, instead of the other games springing it off.
+- A speedometer no longer flicks between two needles on clients.
+- A client's train no longer surges 5-15 km/h every second when the host's frame rate hitches.
+
+### Items
+- In VR, an item taken off the belt and clipped straight back stays on the belt instead of falling to the floor and getting stuck.
+- A flashlight no longer falls off the belt or flickers other lights, and its switch and battery belong to whoever carries it.
+- In VR, an item another player is holding no longer falls out of their hand in your game.
+- A VR throw keeps its momentum on a slow connection instead of stopping dead.
+- Each of your radio, maps and other essentials keeps a slot of its own, so a lost one can always be recalled.
+- Lost and Found no longer lists items that were destroyed, such as booklets of finished jobs.
+- Shop scanners and office props no longer vanish for a player who joined while a taken prop was waiting to come back.
+
+### Other
+- On a dedicated server, an admin can pay the fees from the fees screen, and paying them uses insurance as the fees screen does.
+- Cargo explosions get quieter with distance instead of sounding as loud everywhere in the world.
+
 ## 2026.10.19.1 (beta)
 
 Dedicated servers, plus the fixes from the first two playtests on one. Covers everything since 0.1.16.15, including the playtest builds 2026.10.17.1 and 2026.10.17.2. Every player needs this version: a game on a different version won't let you join. Most of these fixes haven't been tested in a game yet.
