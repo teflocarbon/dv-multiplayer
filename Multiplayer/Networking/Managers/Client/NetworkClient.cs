@@ -1142,6 +1142,14 @@ public class NetworkClient : NetworkManager
     private void OnClientboundTrainTopologySnapshotPacket(
         ClientboundTrainTopologySnapshotPacket packet)
     {
+        // The host owns the topology; its own client applying a snapshot (one taken before a spawn's
+        // auto-couple, say) took apart couplings on the host itself, and every client followed. Only
+        // its join baseline's snapshot (current when sent, and needed to finish loading) goes in.
+        if (NetworkLifecycle.Instance.IsHost() && packet?.BaselineId == 0)
+        {
+            LogWarning($"Ignored a train topology snapshot (r{packet?.TopologyRevision}) sent to the host's own client");
+            return;
+        }
         if (packet?.OperationId != 0 && packet.Result != TrainTopologyResultCode.Accepted)
         {
             LogWarning($"Train topology operation {packet.OperationId} was rejected: " +

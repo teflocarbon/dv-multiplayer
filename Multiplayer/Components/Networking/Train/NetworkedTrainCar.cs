@@ -716,8 +716,12 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
             StartCoroutine(Server_WaitForLogicCar());
         }
-
-        NetworkLifecycle.Instance?.Client.SendTrainSyncRequest(NetId);
+        else
+        {
+            // Only a client asks: the host's own reply carried a snapshot from before the spawn's
+            // auto-couple, and applying it uncoupled every freshly spawned consist on the host.
+            NetworkLifecycle.Instance?.Client?.SendTrainSyncRequest(NetId);
+        }
     }
 
     private void OnTrainCarInteriorLoaded(GameObject interior)

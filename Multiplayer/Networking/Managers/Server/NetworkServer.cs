@@ -2613,12 +2613,27 @@ public class NetworkServer : NetworkManager
         if (NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
         {
             networkedTrainCar.Server_DirtyAllState();
-            SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
+            // Never to the host's own client: it would apply an old snapshot to the world it owns.
+            if (peer != SelfPeer)
+                SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
         }
     }
 
     // Couplers this far apart can't be joined (vanilla couples within 1.5 m); slack for latency.
     private const float MaxTopologyCouplerGap = 4f;
+    // How far from a car a player can work its couplers, hoses and cocks; slack for latency.
+    private const float MaxTopologyPlayerDistance = 8f;
+
+    /// <summary>Distance from a point to the car: the closest point on the line between its couplers.</summary>
+    private static float DistanceToCar(Vector3 point, TrainCar car)
+    {
+        if (car.frontCoupler == null || car.rearCoupler == null)
+            return Vector3.Distance(point, car.transform.position);
+        Vector3 front = car.frontCoupler.transform.position, rear = car.rearCoupler.transform.position;
+        Vector3 along = rear - front;
+        float t = along.sqrMagnitude > 0.0001f ? Mathf.Clamp01(Vector3.Dot(point - front, along) / along.sqrMagnitude) : 0f;
+        return Vector3.Distance(point, front + along * t);
+    }
 
     private void OnServerboundTrainTopologyCommandPacket(
         ServerboundTrainTopologyCommandPacket packet, ITransportPeer peer)
@@ -2638,11 +2653,14 @@ public class NetworkServer : NetworkManager
                 return false;
             }
             // A remote controller is used from a distance; only the coupler check below applies.
-            float playerDistanceSq = (player.WorldPosition - primary.transform.position).sqrMagnitude;
-            if (!packet.ViaRemote && playerDistanceSq > primary.CarLengthSq)
+            // Measured to the car itself (the line between its couplers), not its transform: some
+            // cars' origins are far from their middle (an FEF-3 tender's rear coupler is 24 m from
+            // it), which put a player at that coupler out of range of a centre-based check.
+            float playerDistance = DistanceToCar(player.WorldPosition, primary.TrainCar);
+            if (!packet.ViaRemote && playerDistance > MaxTopologyPlayerDistance)
             {
-                rangeFailure = $"the host has the player {Mathf.Sqrt(playerDistanceSq):F1} m from " +
-                    $"{primary.CurrentID}'s centre (limit {Mathf.Sqrt(primary.CarLengthSq):F1} m" +
+                rangeFailure = $"the host has the player {playerDistance:F1} m from " +
+                    $"{primary.CurrentID} (limit {MaxTopologyPlayerDistance:F0} m" +
                     $"{(player.CarId != 0 ? $", player is on car {player.CarId}" : string.Empty)})";
                 return false;
             }
@@ -2744,7 +2762,7 @@ public class NetworkServer : NetworkManager
     private void OnServerboundTrainTopologySyncRequestPacket(
         ServerboundTrainTopologySyncRequestPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out _))
+        if (!TryGetServerPlayer(peer, out _) || peer == SelfPeer)
             return;
         SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
     }
