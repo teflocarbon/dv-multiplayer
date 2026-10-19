@@ -43,8 +43,8 @@ Every build of `Multiplayer`:
   too**, replacing whatever version you play with.
 
 Release additionally signs the DLLs when `Cert-Thumb` is set and zips `build/` to
-`releases/Multiplayer <version>.zip`. Debug builds turn the debug system on by default (see
-[observability.md](observability.md)).
+`releases/Multiplayer <version>.zip`. Debug builds turn the debug system on by default, and any
+build turns it on when the dev tools mod is installed (see [observability.md](observability.md)).
 
 The dvmp harness is built separately. The agent's Debug build deploys it to
 `Mods/MultiplayerDevTools`. It's marked `MultiplayerCompatibility: Client` (no effect on gameplay),

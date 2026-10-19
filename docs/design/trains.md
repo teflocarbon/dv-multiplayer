@@ -42,7 +42,7 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
   whose command did it or the methods that called `Coupler.Uncouple`
   (`Patches/Train/CouplerUncoupleLogPatch.cs`); breaks are logged by `CouplerBreakPatch` instead.
   So a train that came apart can be traced from the host's log alone, without the debug system
-  (off in Release builds).
+  (off in Release builds unless the dev tools mod is installed).
 - The relay-only MU, hose, cock and couple/uncouple handlers and their `Common*` packets are
   gone (removed in #59).
 
