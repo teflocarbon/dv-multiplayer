@@ -341,3 +341,26 @@ longer occupies that hand. It parks the displaced projection in the remote inven
 until that item's own canonical placement snapshot arrives. Every authoritative hand/inventory
 snapshot also clears that item from all remote hand slots before applying its sole destination.
 An explicit later `Dropped` or `Thrown` snapshot still restores the item to the world normally.
+
+## Latent bug: flick reactions stuck after deactivation
+
+VR items that react to a controller flick derive from `ItemAccelerationReaction`, which is
+destroyed in `Awake` outside VR. Its `Update` calls `TryReactToAcceleration` every frame while the
+item is held. Two subclasses rate-limit themselves with a flag that a coroutine started on the
+reaction component clears after a cooldown:
+
+| Reaction | Flag set during cooldown | Coroutine handle | Cooldown |
+| --- | --- | --- | --- |
+| `LighterAccelerationReaction` | `suspendReaction = true` | `SuspendReactionCoro` | `suspendDelay`, 0.1 s |
+| `WalletAccelerationReaction` | `canSpawnCoin = false` | `spawnCoro` | `coinSpawnCooldown`, 0.3 s |
+
+Deactivating the item's GameObject inside the cooldown makes Unity kill the coroutine, so the
+flag is never restored. Nothing in vanilla resets it on enable, and the stale handle stays
+non-null. From then on the lighter ignores every flick (no `ReactToControllerAcceleration`, so no
+`OpenLid` or `CloseLid`) and the wallet never drops another coin. Grabbing the item again does not
+help. Vanilla rarely deactivates a held item that fast, but multiplayer item-state application
+toggles item GameObjects often. A VR player hit it with a lighter during the 2026-10-19 playtest;
+clearing `suspendReaction` remotely fixed it.
+
+The mod clears both flags and handles in an `ItemBase.OnEnable` postfix (`ItemBasePatch`). By then
+the GameObject has just been activated, so no coroutine on the reaction can still be running.
