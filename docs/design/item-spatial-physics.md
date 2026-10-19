@@ -22,6 +22,8 @@
 - **Not implemented:** explicit lease revocation on Lost-and-Found collection or cold deposit
   (collection advances the revision, so later samples and settlements are rejected; a deposit
   needs the item in hand, which already ends the lease).
+- **Fixed (2026-10-19):** in a VR game, an item another player held stayed a live body; see
+  "Observer presentation".
 - **Added:** an item that falls more than 1 m under the terrain has its lease revoked and is moved
   back to its last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
   convergence skips items with a live lease (b601cc6).
@@ -404,6 +406,15 @@ For ordinary observers:
 - restore normal local interaction physics only after the host grants pickup or simulation authority.
 
 Visual collision effects may still run locally, but they cannot produce outgoing item movement.
+
+An item another player holds is posed on their avatar every frame, so its body is kinematic with
+no velocity, and its colliders are off, until the avatar lets it go
+(`NetworkedPlayer.SetHeldItemBody`). Its release makes it dynamic again with no velocity, and the
+world state applied with it supplies any throw. Only a desktop game's items have a
+`GrabHandlerItem`; a VR game's items grab through VRTK and have none. Making the body kinematic
+through `GrabHandlerItem.TogglePhysics` alone therefore did nothing in VR: there another player's
+held radio fell under gravity with its colliders off between hand poses, 30 m a frame at
+1840 m/s, and kept that velocity into their inventory (2026-10-19).
 
 ## Host representation and canonical records
 

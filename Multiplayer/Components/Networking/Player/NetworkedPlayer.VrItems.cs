@@ -79,6 +79,7 @@ public partial class NetworkedPlayer
     private void PrepareHeldItem(GameObject itemGo, List<Collider> disabledColliders)
     {
         itemGo.transform.SetParent(selfTransform, true);
+        SetHeldItemBody(itemGo, held: true);
         GrabHandlerItem itemGrabHandler = itemGo.GetComponentInChildren<GrabHandlerItem>();
         if (itemGrabHandler != null)
         {
@@ -94,6 +95,25 @@ public partial class NetworkedPlayer
                 disabledColliders.Add(collider);
             }
         }
+    }
+
+    // The hand pose moves a held item every frame, so its body must not simulate. The
+    // GrabHandlerItem physics toggle above exists only in a desktop game: a VR game's items grab
+    // through VRTK (ItemVRTK) and have none. There another player's held item stayed a live body
+    // with its colliders off and fell under gravity between hand poses, 30 m a frame at 1840 m/s,
+    // and kept that velocity into the inventory. The velocity is cleared both ways: a projection has
+    // none of its own, and a throw gets its velocity from the world state applied after the release.
+    private static void SetHeldItemBody(GameObject itemGo, bool held)
+    {
+        Rigidbody body = itemGo.GetComponent<ItemBase>()?.ItemRigidbody;
+        if (body == null)
+            return;
+        if (!held)
+            body.isKinematic = false;
+        body.velocity = Vector3.zero;
+        body.angularVelocity = Vector3.zero;
+        if (held)
+            body.isKinematic = true;
     }
 
     private void ApplyVrHeldItemPositions()
@@ -186,6 +206,7 @@ public partial class NetworkedPlayer
             if (collider != null)
                 collider.enabled = true;
         disabledColliders.Clear();
+        SetHeldItemBody(heldItem, held: false);
         GrabHandlerItem itemGrabHandler = heldItem.GetComponentInChildren<GrabHandlerItem>();
         if (itemGrabHandler != null)
         {
