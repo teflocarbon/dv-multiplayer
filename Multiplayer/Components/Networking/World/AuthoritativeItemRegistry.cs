@@ -4,6 +4,7 @@ using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Items;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
+using Multiplayer.Networking.Managers.Server;
 using Multiplayer.Utils;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Components.Networking.Train;
@@ -204,6 +205,7 @@ public static class AuthoritativeItemRegistry
                 _ => requestedPlacement
             };
         byte previousPersistentOwner = record.PersistentOwnerPlayerId;
+        int previousClaimSlot = record.InventoryClaimSlot;
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(currentState, new ItemTransitionCommand
         {
             ActorPlayerId = actor.PlayerId,
@@ -281,6 +283,12 @@ public static class AuthoritativeItemRegistry
         });
         NetworkedItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
+        // The owner's client put the item in this slot, so it keeps the slot if another of their
+        // essentials claims it too (one dropped or stolen leaves its slot looking empty in DV).
+        bool ownerPlacedClaim = appliesPlacement && record.PersistentOwnerPlayerId == actor.PlayerId &&
+            (record.InventoryClaimSlot != previousClaimSlot || record.Placement == ItemPlacementKind.PlayerInventory);
+        if (HasRetrievalClaim(record))
+            EnsureDistinctClaimSlots(record, ownerPlacedClaim ? record.NetId : (ushort)0, reason.ToString());
         return true;
     }
 
@@ -476,6 +484,7 @@ public static class AuthoritativeItemRegistry
             ["requestedSlot"] = requestedSlot,
             ["baseRevision"] = expectedRevision
         });
+        EnsureDistinctClaimSlots(record, record.NetId, nameof(ItemTransitionReason.OwnerRecall));
         return true;
     }
 
@@ -578,6 +587,7 @@ public static class AuthoritativeItemRegistry
             ["requestingPlayerId"] = requester.PlayerId,
             ["targetSlot"] = targetSlot
         });
+        EnsureDistinctClaimSlots(record, record.NetId, nameof(ItemTransitionReason.LostAndFoundRetrieval));
         return true;
     }
 
@@ -842,6 +852,106 @@ public static class AuthoritativeItemRegistry
             if (record.PlacementPlayerIdentity == player.Guid)
                 record.PlacementPlayerId = 0;
     }
+
+    /// <summary>
+    /// Moves the player's essentials apart if any two claim the same slot, as a save or an earlier
+    /// session may have left them (EssentialClaimSlotPolicy). Returns how many claims moved.
+    /// </summary>
+    public static int EnsureDistinctClaimSlots(ServerPlayer owner, string reason)
+    {
+        if (owner == null || owner.Guid == Guid.Empty && owner.PlayerId == 0)
+            return 0;
+        return EnsureDistinctClaimSlots(records.Values.Where(record => HasRetrievalClaim(record) &&
+            (owner.Guid != Guid.Empty && record.PersistentOwnerIdentity == owner.Guid ||
+             owner.PlayerId != 0 && record.PersistentOwnerPlayerId == owner.PlayerId)).ToArray(), 0, reason);
+    }
+
+    // Checks the claims of this record's owner. preferredNetId keeps its slot; 0 lets the policy rank them.
+    private static int EnsureDistinctClaimSlots(Record claimed, ushort preferredNetId, string reason)
+    {
+        if (claimed == null || claimed.PersistentOwnerIdentity == Guid.Empty && claimed.PersistentOwnerPlayerId == 0)
+            return 0;
+        return EnsureDistinctClaimSlots(records.Values.Where(record => HasRetrievalClaim(record) &&
+            (claimed.PersistentOwnerIdentity != Guid.Empty && record.PersistentOwnerIdentity != Guid.Empty
+                ? record.PersistentOwnerIdentity == claimed.PersistentOwnerIdentity
+                : claimed.PersistentOwnerPlayerId != 0 &&
+                  record.PersistentOwnerPlayerId == claimed.PersistentOwnerPlayerId)).ToArray(),
+            preferredNetId, reason);
+    }
+
+    private static int EnsureDistinctClaimSlots(Record[] ownerClaims, ushort preferredNetId, string reason)
+    {
+        if (ownerClaims.Length < 2)
+            return 0;
+        IReadOnlyList<ClaimSlotMove> moves = EssentialClaimSlotPolicy.Resolve(ownerClaims.Select(record =>
+            new EssentialClaim(record.NetId, record.InventoryClaimSlot, InOwnerInventory(record),
+                (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Dropped | ItemInventoryClaimFlags.Stolen)) != 0)),
+            preferredNetId);
+        foreach (ClaimSlotMove move in moves)
+        {
+            if (!records.TryGetValue(move.NetId, out Record record))
+                continue;
+            // The revision stays: only the owner's metadata changes, and a holder's next transition
+            // must not be refused as stale for it.
+            record.InventoryClaimSlot = move.ToSlot;
+            NetworkedItem.TryGet(move.NetId, out NetworkedItem item);
+            Publish("item.essential-claim-slot-collision-repaired", item, record, new()
+            {
+                ["fromSlot"] = move.FromSlot,
+                ["toSlot"] = move.ToSlot,
+                ["keptBy"] = ownerClaims.FirstOrDefault(other => other.NetId != move.NetId &&
+                    other.InventoryClaimSlot == move.FromSlot)?.NetId ?? 0,
+                ["reason"] = reason ?? string.Empty
+            }, DebugSeverity.Warning);
+            Multiplayer.Log($"Item {move.NetId} ({record.PrefabName}): claim slot {move.FromSlot} is another " +
+                $"essential's of the same owner, moved to {move.ToSlot} ({reason})");
+            PushClaimSlotCorrection(item, record);
+        }
+        return moves.Count;
+    }
+
+    // Sends the moved claim to its owner, whose client then puts the silhouette in the new slot.
+    private static void PushClaimSlotCorrection(NetworkedItem item, Record record)
+    {
+        bool lost = record.Placement == ItemPlacementKind.LostAndFound;
+        if (lost)
+            NetworkedLostAndFoundManager.SetInventoryClaimSlot(record.NetId, record.InventoryClaimSlot);
+        if (item == null)
+            return;
+        ItemUpdateData correction = null;
+        bool corrected = lost
+            ? NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out correction)
+            : TryCreateCorrectionSnapshot(item, out correction);
+        NetworkServer server = NetworkLifecycle.Instance?.Server;
+        bool hostOwns = server != null && record.PersistentOwnerPlayerId != 0 &&
+            record.PersistentOwnerPlayerId == server.SelfId;
+        if (corrected && hostOwns && !lost)
+            item.ApplyServerCanonicalSnapshot(correction);
+        else
+            item.ApplyAuthorityMetadata(new ItemUpdateData
+            {
+                ItemNetId = item.NetId,
+                AuthorityRevision = item.AuthorityRevision,
+                PersistentOwnerPlayerId = record.PersistentOwnerPlayerId,
+                InventoryClaimPlayerId = record.InventoryClaimPlayerId,
+                InventoryClaimSlot = record.InventoryClaimSlot,
+                InventoryClaimFlags = record.InventoryClaimFlags,
+                TransitionReason = item.LastTransitionReason
+            });
+        // An owner still loading gets the claim with the rest of their items.
+        if (corrected && server != null && !hostOwns &&
+            server.TryGetServerPlayer(record.PersistentOwnerPlayerId, out ServerPlayer owner) &&
+            owner.LoadingState >= PlayerLoadingState.ReadyForItems)
+            server.SendItemUpdatePacket(correction, owner);
+    }
+
+    private static bool InOwnerInventory(Record record) =>
+        record.Placement == ItemPlacementKind.PlayerInventory &&
+        (record.PlacementPlayerIdentity != Guid.Empty && record.PlacementPlayerIdentity == record.PersistentOwnerIdentity ||
+         record.PlacementPlayerId != 0 && record.PlacementPlayerId == record.PersistentOwnerPlayerId);
+
+    private static bool HasRetrievalClaim(Record record) =>
+        record.InventoryClaimSlot >= 0 && HasRetrievalFlag(record.InventoryClaimFlags);
 
     public static void Remove(ushort netId) => records.Remove(netId);
     public static void Clear() => records.Clear();

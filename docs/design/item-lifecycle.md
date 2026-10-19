@@ -32,6 +32,9 @@
 - **Lost and Found** records follow the owner's identity: unbound on disconnect, rebound on login
   (`LostItemRegistry.UnbindOwner`/`RebindOwner`, e0e9781); collected items stay inert after a
   save is loaded (b217af6).
+- **Claim slots:** no two of a player's essentials claim the same inventory slot; the host moves
+  one apart after a transition, a recall or a retrieval, and when the owner loads. See "Retrieval
+  claim slots" below.
 - **Host saves** keep other players' inventories and the item in their hand (325c2fb, dba0837).
   Unowned dynamic items are not saved (faa42c0), which includes dropped stock forks.
 - **Recovery:** host convergence re-sends resting world items so drifted client copies heal
@@ -250,6 +253,36 @@ On collection:
 Retrieval materializes the same durable record into a requested valid inventory slot with a fresh
 runtime binding. A stale revision, full inventory, unknown handle, or failed materialization leaves
 the Lost-and-Found record intact.
+
+## Retrieval claim slots
+
+An essential's retrieval claim names one slot of its owner's inventory. While the item is elsewhere
+(dropped, held by another player, or in Lost and Found) the owner's client shows a red silhouette
+there, and the silhouette is what the owner clicks to recall it. A Derail Valley slot holds one
+item, so **each of a player's essentials must claim a slot of its own**. When two shared one, the
+client refused the second silhouette (`essential-claim-slot-occupied`), a recall was refused too
+(`recall-claim-slot-occupied`), and the essential could never come back.
+
+`ItemAuthorityStateMachine` sees one item at a time and follows the owner's client when the owner
+places an essential, so it can't notice the clash: putting the map into slot 3 while the stolen
+radio claims slot 3 gave both slot 3 (the radio's slot looks empty in DV, or holds only a
+silhouette DV may have lost). The host checks all of an owner's claims together
+(`AuthoritativeItemRegistry.EnsureDistinctClaimSlots`, policy in
+`Multiplayer.Core/Items/EssentialClaimSlotPolicy.cs`):
+
+- after an accepted transition of an essential, an owner recall, and a Lost-and-Found retrieval;
+  and
+- when the owner reaches `ReadyForItems`, before their items go out, which repairs a clash that
+  a save or an earlier session left (records restored by persistence keep the saved slots).
+
+Of the claims on one slot, the item the owner just put there keeps it, then an item really in the
+owner's inventory, then a claim that isn't a silhouette, then the lowest NetId. The others move to
+the highest slot no claim of that owner holds: DV fills the backpack from the front, and the host
+doesn't know where the owner's unclaimed items sit. The move keeps the item's revision (only the
+owner's metadata changes, so a holder's next transition isn't refused as stale), updates the
+Lost-and-Found record's copy of the slot, and sends the owner a correction, so their client puts
+the silhouette in the new slot. An owner still loading gets it with the rest of their items. With
+every slot claimed the clash stays rather than drop a claim.
 
 ## Cleanup and recovery precedence
 
