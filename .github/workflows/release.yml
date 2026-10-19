@@ -1,0 +1,191 @@
+name: Release
+
+# A release built by GitHub Actions from a known commit, published as a GitHub Release with the
+# zip attached: traceable, unlike a zip built on someone's PC. Run it from the Actions tab ("Run
+# workflow", pick the branch or tag) or `gh workflow run release.yml --ref <branch>`.
+#
+# The version is the repo's calendar version (docs/development.md, "Versions"). Leave it empty for
+# today's date (UTC) and the next number not already tagged; a release built on a PC the same day
+# doesn't know about these tags, so give one explicitly if you also build locally.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, YYYY.M.D.N (empty for today's date and the next free number)
+        required: false
+        default: ''
+      prerelease:
+        description: Mark it as a pre-release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Keep in step with ci.yml: the game build the mod compiles against, a tag in teflocarbon/dv-gamelibs.
+  GAMELIBS_REF: steam-20251481-r2
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Choose the version
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          $version = $env:REQUESTED.Trim()
+          if ($version -eq '') {
+            $date = (Get-Date).ToUniversalTime().ToString('yyyy.M.d')
+            $taken = git tag --list "v$date.*" | ForEach-Object { [int]($_ -replace "^v$([regex]::Escape($date))\.", '') }
+            $next = if ($taken) { ($taken | Measure-Object -Maximum).Maximum + 1 } else { 1 }
+            $version = "$date.$next"
+          }
+          if ($version -notmatch '^\d{4}\.\d{1,2}\.\d{1,2}\.\d+$') {
+            "::error::'$version' isn't a release version (YYYY.M.D.N)."
+            exit 1
+          }
+          if (git tag --list "v$version") {
+            "::error::Tag v$version already exists: pick another version."
+            exit 1
+          }
+          "Version $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check out the game assemblies
+        uses: actions/checkout@v4
+        with:
+          repository: teflocarbon/dv-gamelibs
+          ref: ${{ env.GAMELIBS_REF }}
+          token: ${{ secrets.GAMELIBS_TOKEN }}
+          path: gamelibs
+          persist-credentials: false
+
+      - name: Check and copy the prebuilt Unity files
+        shell: pwsh
+        run: |
+          $lock = Get-Content prebuilt.lock | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $locked = ($lock | Where-Object { $_ -like 'tree *' }) -replace '^tree ', ''
+          $tree = git rev-parse HEAD:MultiplayerAssets
+          if ($tree -ne $locked) {
+            "::error file=prebuilt.lock::MultiplayerAssets has changed since the prebuilt files were built (tree $locked, now $tree). Rebuild them in Unity, push them to dv-gamelibs and update prebuilt.lock."
+            exit 1
+          }
+          New-Item -ItemType Directory -Force build | Out-Null
+          foreach ($line in $lock | Where-Object { $_ -notlike 'tree *' }) {
+            $hash, $name = $line -split '\s+', 2
+            $file = "gamelibs/prebuilt/$name"
+            $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $hash) {
+              "::error file=prebuilt.lock::$file doesn't match prebuilt.lock (sha256 $actual)."
+              exit 1
+            }
+            Copy-Item $file build/
+          }
+
+      # Cert-Thumb stays empty: there's no signing certificate here, so the DLLs go unsigned
+      # (docs/development.md, "Releases").
+      - name: Point the build at the game assemblies
+        shell: pwsh
+        run: |
+          $dv = Join-Path $env:GITHUB_WORKSPACE gamelibs
+          @"
+          <Project>
+              <PropertyGroup>
+                  <DvInstallDir>$dv</DvInstallDir>
+                  <ReferencePath>`$(DvInstallDir)\DerailValley_Data\Managed\;</ReferencePath>
+                  <AssemblySearchPaths>`$(AssemblySearchPaths);`$(ReferencePath);</AssemblySearchPaths>
+                  <Cert-Thumb></Cert-Thumb>
+              </PropertyGroup>
+          </Project>
+          "@ | Set-Content Directory.Build.targets
+
+      # InformationalVersion is only worked out when it's empty, so this sets the release's version;
+      # the manifest pass reads it back from build/release-version.txt. post-build.ps1 also "installs"
+      # the mod into gamelibs/Mods, which is thrown away with the runner.
+      - name: Build the mod (Release)
+        run: dotnet build Multiplayer/Multiplayer.csproj -c Release -warnAsError:MSB3245 "-p:InformationalVersion=${{ steps.version.outputs.version }}"
+
+      - name: Check the version made it into the build
+        shell: pwsh
+        run: |
+          $want = '${{ steps.version.outputs.version }}'
+          $info = (Get-Content build/info.json -Raw | ConvertFrom-Json).Version
+          $dll = (Get-Item build/Multiplayer.dll).VersionInfo.ProductVersion -replace '\+.*$', ''
+          "info.json $info, Multiplayer.dll $dll"
+          if ($info -ne $want -or $dll -ne $want) {
+            "::error::The build's version isn't $want (info.json $info, Multiplayer.dll $dll)."
+            exit 1
+          }
+
+      - name: Core tests
+        run: dotnet test Multiplayer.Core.Tests
+
+      - name: Protocol tests
+        shell: pwsh
+        run: dotnet test Multiplayer.Protocol.Tests -c Release "-p:InformationalVersion=${{ steps.version.outputs.version }}" "-p:DerailValleyManagedDir=$env:GITHUB_WORKSPACE\gamelibs\DerailValley_Data\Managed"
+
+      # The same files as a release zip built on a PC (post-build.ps1 zips build/), picked by name so
+      # nothing else, above all a game DLL, can end up in it: this repo is public.
+      - name: Package the release
+        id: package
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $files = 'info.json', 'locale.csv', 'LICENSE', 'dvmp-build-number.txt',
+            'Multiplayer.dll', 'Multiplayer.Core.dll', 'Multiplayer.DebugProtocol.dll', 'MultiplayerAPI.dll',
+            'Humanizer.dll', 'LiteNetLib.dll', 'MultiplayerEditor.dll', 'UnityChan.dll', 'multiplayer.assetbundle',
+            'DV Multiplayer Server.exe', 'run-dedicated-host.ps1', 'Start Dedicated Server.cmd'
+          New-Item -ItemType Directory -Force package | Out-Null
+          foreach ($f in $files) {
+            if (-not (Test-Path -LiteralPath "build/$f")) { "::error::build/$f is missing."; exit 1 }
+            Copy-Item -LiteralPath "build/$f" package/
+          }
+          $zip = "Multiplayer $version.zip"
+          Compress-Archive -Path package/* -DestinationPath $zip
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload the zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Multiplayer ${{ steps.version.outputs.version }}
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Publish the GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP: ${{ steps.package.outputs.zip }}
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $notes = @"
+          Built by GitHub Actions from ``${{ github.ref_name }}`` at ${{ github.sha }}, run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+          Install: extract the zip into ``Derail Valley/Mods/Multiplayer`` (or install it with Unity Mod Manager). Everyone in a session needs the same build.
+
+          The DLLs aren't signed.
+          "@
+          $flags = @()
+          if ('${{ inputs.prerelease }}' -eq 'true') { $flags += '--prerelease' }
+          gh release create "v$version" "$env:ZIP" --target '${{ github.sha }}' --title "Multiplayer $version" --notes $notes @flags
