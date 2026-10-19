@@ -20,6 +20,10 @@ internal sealed class Agent(AgentInfo info, RemoteInfo? remote = null)
     public string Role => Status?["role"]?.GetValue<string>() ?? "unknown";
     /// <summary>The session the game was launched into (see <see cref="Sessions"/>).</summary>
     public string Session => Sessions.Of(Info.Args);
+    /// <summary>Whether dvmp launched this game (its -dvmp-role argument). Only those are the harness's
+    /// to reuse or quit: a game the user started (their own play, a server for something else) shares the
+    /// install and so has the agent too, and must never be taken over or shut down.</summary>
+    public bool LaunchedByDvmp => Info.Args != null && Array.IndexOf(Info.Args, "-dvmp-role") >= 0;
     public string Label => Remote != null ? $"{Role}@{Remotes.TargetPrefix}{Remote.Name}"
         : Session == Sessions.Default ? $"{Role}#{Pid}" : $"{Role}#{Pid}@{Session}";
 }

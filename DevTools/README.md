@@ -32,7 +32,7 @@ server can drive several pairs: p1, p2, d1. Remote games: `dvmp_remote` / `dvmp 
 |---|---|---|
 | `dvmp_status` | `dvmp status [--all]` | Running games: role, scene, world loaded, fps, absolute player position (`all`: every session's); paired remote games. |
 | `dvmp_up` | `dvmp up [--fresh] [--save X]` | Ensure a host + client are running and joined (reuses a healthy pair). A join is done once the client has left loading mode. |
-| `dvmp_down` | `dvmp down [--all]` | Quit this session's games (`all`: every session's). |
+| `dvmp_down` | `dvmp down [--all]` | Quit this session's games (`all`: every session's). Only games dvmp launched (`-dvmp-role`): a game you started yourself is never quit, and `up` never reuses it. |
 | `dvmp_eval` | `dvmp eval [-t host\|client\|all] CODE` | Run C# in the game(s); see the tool description for the probe API. |
 | `dvmp_screenshot` | `dvmp screenshot [-t ...] [-o DIR]` | What each window shows. |
 | `dvmp_logs` | `dvmp logs [-t ...] [-l warning]` | Unity/Multiplayer log lines and exceptions. |
