@@ -252,6 +252,13 @@ A failure sends `Rejected` back to the sender. The hose's rope physics runs on t
 hand (`YankedByRope`, sent as `Yanked`) or snaps it home (`SnappedByRope`, sent as `DockHome`) on
 the host's say. Clients don't snap plugs home on `Awake`/`OnEnable`.
 
+A client reports a plug's drop or dock only after its own player grabbed it (`grabbedLocally`);
+any state applied from the network ends that. Vanilla fires `PluggedIn` for every snap, including
+the one that replays the host's state when a player comes into a station's range (it finishes
+after the bulk update has marked the plugs ready), and reporting those made the host log "attempted
+to interact with a plug that they are not holding" and refuse each plug, every time a player
+arrived (49 times in one 2026-10-19 session).
+
 Register: every deposit at a service-station register, the host's included, goes through
 `CommonCashRegisterWithModulesActionPacket`. `Server_ProcessCashRegisterAction` requires the
 player within reach plus 1 m. `AddCash` moves what is still owed (or what the wallet has) from the
