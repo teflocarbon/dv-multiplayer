@@ -3,9 +3,9 @@ using System.Linq;
 using DV.Utils;
 using UnityEngine;
 using JetBrains.Annotations;
-using Multiplayer.Server.Items;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -20,9 +20,9 @@ using Multiplayer.Core.Items;
 using Multiplayer.Core.Replication;
 using DV.Booklets;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
-public partial class NetworkedItemManager
+internal sealed partial class ServerItemManager
 {
     // Host recipient interest, known-item lifetimes, and outbound replication.
 
@@ -120,7 +120,7 @@ public partial class NetworkedItemManager
                     }
                 }
                 if (leaving != null)
-                    TraceItem("item.cell-interest-leave", leaving,
+                    NetworkedItemManager.TraceItem("item.cell-interest-leave", leaving,
                         new() { ["playerId"] = player.PlayerId, ["centreCell"] = centre.ToString() });
             }
 
@@ -234,7 +234,7 @@ public partial class NetworkedItemManager
     {
         List<ItemUpdateData> dirtyItems = [];
         float timeStamp = Time.time;
-        NetworkLifecycle.Instance.Server.TryGetServerPlayer(NetworkLifecycle.Instance.Server.SelfId, out ServerPlayer hostPlayer);
+        ServerPlayer hostPlayer = NetworkLifecycle.Instance.Server.LocalPlayer;
 
         foreach (var item in NetworkedItem.GetAll())
         {
@@ -284,7 +284,7 @@ public partial class NetworkedItemManager
                     continue;
                 bool known = player.KnownItems.TryGetValue(nearbyItem, out uint knownTick);
                 var dirtyUpdate = dirtyItems.FirstOrDefault(di => di.ItemNetId == nearbyItem.NetId);
-                bool specialJobItem = !known && DoNotCreateItem(nearbyItem);
+                bool specialJobItem = !known && shell.DoNotCreateItem(nearbyItem);
                 ItemDeliveryDecision delivery = KnownItemDeliveryEvaluator.Evaluate(
                     relevant: true,
                     known,
@@ -314,7 +314,7 @@ public partial class NetworkedItemManager
                             AuthoritativeItemRegistry.Ensure(nearbyItem, hostPlayer, snapshot);
                         if (record != null)
                             AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, record.LastReason);
-                        Spatial?.ApplyLatestAcceptedToSnapshot(snapshot);
+                        shell.Spatial?.ApplyLatestAcceptedToSnapshot(snapshot);
                     }
 
                     // A runtime-rendered report cannot be reconstructed from its prefab name.
@@ -334,7 +334,7 @@ public partial class NetworkedItemManager
                     if (snapshot != null)
                         playerUpdates.Add(snapshot);
                     if (specialJobItem)
-                        TraceItem("item.special-create-metadata-sent", nearbyItem, new()
+                        NetworkedItemManager.TraceItem("item.special-create-metadata-sent", nearbyItem, new()
                         {
                             ["trackedItemType"] = nearbyItem.TrackedItemType?.FullName ?? string.Empty,
                             ["playerId"] = player.PlayerId
@@ -365,7 +365,7 @@ public partial class NetworkedItemManager
             {
                 //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) Sending {playerUpdates.Count()} to player: {player.Username}");
                 NetworkLifecycle.Instance.Server.SendItemsBulkUpdatePacket(playerUpdates, player);
-                Spatial?.SendActiveLeasesTo(player, playerUpdates);
+                shell.Spatial?.SendActiveLeasesTo(player, playerUpdates);
             }
         }
 

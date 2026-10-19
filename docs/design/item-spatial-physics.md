@@ -25,7 +25,7 @@
 - **Fixed (2026-10-19):** in a VR game, an item another player held stayed a live body; see
   "Observer presentation".
 - **Added:** an item that falls more than 1 m under the terrain has its lease revoked and is moved
-  back to its last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
+  back to its last safe pose (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
   convergence skips items with a live lease (b601cc6).
 - **Added (playtest 2):** a gentle release is held back 0.3 s so a VR hand swap isn't a drop,
   only the holder sends object state, and object-state changes no longer void a lease; see

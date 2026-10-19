@@ -36,14 +36,6 @@ Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Items.WorldItemPers
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Items.AuthoredWorldItemReplenishmentManager
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Items.AuthoritativeItemRegistry
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Items.ItemChangeLog
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Items.NetworkedColdContainerManager
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Items.WorldItemPersistenceManager
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Server.Items.AuthoritativeItemRegistry
 Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Server.Session.NetworkServer

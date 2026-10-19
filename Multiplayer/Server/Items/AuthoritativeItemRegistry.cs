@@ -300,7 +300,7 @@ public static class AuthoritativeItemRegistry
             ["actorPlayerId"] = actor.PlayerId,
             ["reason"] = reason.ToString()
         });
-        NetworkedItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
+        ServerItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
         // The owner's client put the item in this slot, so it keeps the slot if another of their
         // essentials claims it too (one dropped or stolen leaves its slot looking empty in DV).

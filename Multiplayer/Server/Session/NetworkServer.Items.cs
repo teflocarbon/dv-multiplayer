@@ -37,12 +37,14 @@ public partial class NetworkServer : IItemServer
 
     bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => WorldItemPersistenceManager.OwnsWorldPersistence(item);
 
+    IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);
+
     private void OnServerboundItemSpatialSamplePacket(ServerboundItemSpatialSamplePacket packet,
         ITransportPeer peer)
     {
         if (packet?.State == null || !TryGetServerPlayer(peer, out ServerPlayer player))
             return;
-        NetworkedItemManager.Instance?.ReceiveItemSpatialSample(packet.State, player);
+        ServerItemManager.Instance?.ReceiveItemSpatialSample(packet.State, player);
     }
 
     private void OnServerboundItemSpatialSettlementPacket(ServerboundItemSpatialSettlementPacket packet,
@@ -50,7 +52,7 @@ public partial class NetworkServer : IItemServer
     {
         if (packet?.State == null || !TryGetServerPlayer(peer, out ServerPlayer player))
             return;
-        NetworkedItemManager.Instance?.ReceiveItemSpatialSettlement(packet.State, player);
+        ServerItemManager.Instance?.ReceiveItemSpatialSettlement(packet.State, player);
     }
 
     private void OnServerboundItemTrainWakeWitnessPacket(
@@ -58,7 +60,7 @@ public partial class NetworkServer : IItemServer
     {
         if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player))
             return;
-        NetworkedItemManager.Instance?.ReceiveItemTrainWakeWitness(packet, player);
+        ServerItemManager.Instance?.ReceiveItemTrainWakeWitness(packet, player);
     }
 
     private void OnServerboundWorldItemCataloguePacket(ServerboundWorldItemCataloguePacket packet, ITransportPeer peer)
@@ -358,7 +360,7 @@ public partial class NetworkServer : IItemServer
             return;
 
         ItemAdoptionRequestData request = packet.Request;
-        bool accepted = NetworkedItemManager.Instance.TryAdoptClientItem(player, request,
+        bool accepted = ServerItemManager.Instance.TryAdoptClientItem(player, request,
             out ushort assignedNetId, out string rejectionReason, out ItemUpdateData restoredOriginal);
         AuthoritativeItemRegistry.TryGet(assignedNetId, out AuthoritativeItemRegistry.Record authorityRecord);
         DebugRuntime.Publish("item", accepted ? "item.adoption-accepted" : "item.adoption-rejected",
@@ -399,7 +401,7 @@ public partial class NetworkServer : IItemServer
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player) &&
             !float.IsNaN(packet.SurfaceHeight) && !float.IsInfinity(packet.SurfaceHeight))
-            NetworkedItemManager.Instance?.Server_HandleBelowMapReport(player, packet.ItemNetId, packet.SurfaceHeight);
+            ServerItemManager.Instance?.HandleBelowMapReport(player, packet.ItemNetId, packet.SurfaceHeight);
     }
 
     private void OnServerboundMoneyItemDepositPacket(ServerboundMoneyItemDepositPacket packet, ITransportPeer peer)

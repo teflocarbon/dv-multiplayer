@@ -1019,7 +1019,7 @@ internal sealed class NetworkedItemSpatialManager
         }
         NetworkLifecycle.Instance.Server.SendItemSpatialCommit(item,
             new ClientboundItemSpatialCommitPacket { State = state });
-        owner.OnTrainItemSpatialSettled(item, state, record);
+        owner.TrainItemWake?.OnSpatialSettled(item, state, record);
         Publish("item.spatial-commit-accepted", item.NetId, new(SpatialDebug(state))
         {
             ["reason"] = reason ?? string.Empty

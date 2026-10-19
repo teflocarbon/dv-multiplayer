@@ -322,7 +322,7 @@ public partial class NetworkedItemManager
             });
     }
 
-    private static bool IsJobDocumentPrefab(string prefabName) =>
+    internal static bool IsJobDocumentPrefab(string prefabName) =>
         string.Equals(prefabName, nameof(JobOverview), StringComparison.Ordinal) ||
         string.Equals(prefabName, nameof(JobBooklet), StringComparison.Ordinal) ||
         string.Equals(prefabName, nameof(JobReport), StringComparison.Ordinal);

@@ -152,7 +152,7 @@ internal static class AdminItemGrants
         }
         AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, ItemTransitionReason.HostLocalState);
         item.ApplyServerCanonicalSnapshot(snapshot);
-        NetworkedItemManager.Instance.RegisterHostWorldItem(item);
+        ServerItemManager.Instance?.RegisterHostWorldItem(item);
         NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
         return true;
     }

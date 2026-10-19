@@ -106,7 +106,7 @@ internal static partial class WorldItemPersistenceManager
             item.ApplyServerCanonicalSnapshot(snapshot);
         }
 
-        NetworkedItemManager.Instance.RegisterHostWorldItem(item);
+        ServerItemManager.Instance?.RegisterHostWorldItem(item);
     }
 
     public static bool OwnsWorldPersistence(NetworkedItem item)
