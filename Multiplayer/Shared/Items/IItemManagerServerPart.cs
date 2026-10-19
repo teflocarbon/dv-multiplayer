@@ -23,9 +23,6 @@ public interface IItemManagerServerPart
     void UnregisterHostWorldItem(NetworkedItem item);
     void RefreshHostSpatialPosition(NetworkedItem item, Vector3 absolutePosition, ItemWorldParentKind parentKind);
 
-    /// <summary>A destroyed item: send its Destroy to the players who know it, at the next tick.</summary>
-    void AddDirtyItemSnapshot(NetworkedItem item, ItemUpdateData destroy);
-
     /// <summary>The host's own player recalls an item to an inventory slot.</summary>
     bool RequestHostRecall(NetworkedItem item, int requestedSlot);
 

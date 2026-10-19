@@ -296,7 +296,7 @@ public static class EntityDebugRegistry
         state["activeInHierarchy"] = item.gameObject.activeInHierarchy;
         state["parent"] = item.transform.parent?.name ?? string.Empty;
         state["holderPlayerId"] = item.playerBelongsToId;
-        state["hostHolder"] = item.BelongsTo?.PlayerId ?? 0;
+        state["hostHolder"] = item.HostPossessorPlayerId;
         state["authorityRevision"] = item.AuthorityRevision;
         state["authoredItemKey"] = item.AuthoredItemKey ?? string.Empty;
         state["sceneAuthored"] = item.IsSceneAuthored;

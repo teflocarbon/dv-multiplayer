@@ -65,7 +65,8 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
 
     public void ForgetRecord(ushort itemNetId) => AuthoritativeItemRegistry.Remove(itemNetId);
 
-    public void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)
+    /// <summary>A destroyed item: send its Destroy to the players who know it, at the next tick.</summary>
+    internal void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)
     {
         DestroyedItems.Add(snapshot);
         HashSet<byte> recipients = new();

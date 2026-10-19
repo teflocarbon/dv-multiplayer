@@ -85,7 +85,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         return false;
     }
 
-    public ServerPlayer BelongsTo { get; private set; }
+    /// <summary>Host: the player the server last put the item with (in a hand or inventory), 0 for nobody.</summary>
+    public byte HostPossessorPlayerId { get; private set; }
+    internal void SetHostPossessor(byte playerId) => HostPossessorPlayerId = playerId;
 
     public ItemBase Item { get; private set; }
     private GrabHandlerItem grabHandler;
@@ -124,6 +126,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private Vector3 throwDirection;
 
     private bool processingAsHost = false;
+    /// <summary>The server is applying its own snapshot to this item: what changes isn't sent on.</summary>
+    internal bool ProcessingAsHost { get => processingAsHost; set => processingAsHost = value; }
     private bool applyingRemoteSnapshot;
     private bool recallPreparationPending;
     private uint recallPreparationOperationId;
@@ -242,29 +246,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         EntityDebugRegistry.Unregister("Item", NetId.ToString());
         DebugDesyncDetector.Forget(NetId);
 
-        // A cold-storage retirement was logged and sent by the code that stored the item.
-        ChangeCause<ItemRemovalReason>? removal = null;
-        if (!suppressNetworkDestroy && NetworkLifecycle.Instance.IsHost() && NetId != 0 &&
-            !coldMaterializationPending && (!coldStorageRetirement || pendingRemovalCause.HasValue))
-        {
-            // Unity destroys at the end of the frame; a note from seconds ago was for a destroy that never came.
-            bool fresh = pendingRemovalCause.HasValue &&
-                unchecked(NetworkLifecycle.Instance.Tick - pendingRemovalCause.Value.Tick) <= NetworkLifecycle.TICK_RATE * 2;
-            removal = fresh ? pendingRemovalCause.Value : UnexplainedRemoval();
-            ItemChangeLog.RecordRemoval(this, removal.Value);
-        }
-
-        if (!suppressNetworkDestroy && NetworkLifecycle.Instance.IsHost() &&
-            !coldStorageRetirement && !coldMaterializationPending)
-        {
-            WorldItemPersistenceManager.RecordDestroyed(this);
-            var updateData = CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
-            if (updateData != null)
-            {
-                updateData.RemovalCause = removal;
-                NetworkedItemManager.Instance.AddDirtyItemSnapshot(this, updateData);
-            }
-        }
+        // The host logs why it went, keeps a tombstone, sends the Destroy and drops its record.
+        ItemServer.Current?.OnItemDestroyed(this, suppressNetworkDestroy);
 
         if (Item != null)
         {
@@ -277,7 +260,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             Multiplayer.LogWarning($"NetworkedItem.OnDestroy({name}, {NetId}) Item is null!");
         }
 
-        AuthoritativeItemRegistry.Remove(NetId);
         if (NetworkLifecycle.Instance.IsHost())
             JobReportArtifactRegistry.Remove(NetId);
         base.OnDestroy();
@@ -288,27 +270,12 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     /// of <see cref="ItemRemovalReason.DestroyedByGame"/>. Call it before Object.Destroy.
     /// </summary>
     internal void NoteRemovalCause(ChangeCause<ItemRemovalReason> cause) => pendingRemovalCause = cause;
+    internal ChangeCause<ItemRemovalReason>? PendingRemovalCause => pendingRemovalCause;
+    internal bool ColdStorageRetirement => coldStorageRetirement;
+    internal bool ColdMaterializationPending => coldMaterializationPending;
 
     internal void SetLastMoveCause(ChangeCause<ItemMoveReason> cause) => LastMoveCause = cause;
     internal void SetLastRemovalCause(ChangeCause<ItemRemovalReason> cause) => LastRemovalCause = cause;
-
-    // Unity runs OnDestroy at the end of the frame, after whatever called Destroy has returned, so
-    // the stack rarely names it: say what else is known (the parent it went with, its last move).
-    private ChangeCause<ItemRemovalReason> UnexplainedRemoval()
-    {
-        string parent = transform.parent != null ? transform.parent.name : "none";
-        string callers = ItemChangeCauses.Callers(typeof(NetworkedItem));
-        AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record record);
-        return ItemChangeLog.Removal(ItemRemovalReason.DestroyedByGame, detail: ItemChangeCauses.Detail(
-            "no cause recorded",
-            record != null ? "was " + record.Placement + (record.PlacementPlayerId != 0 ? " of P" + record.PlacementPlayerId : "") : null,
-            "parent " + parent,
-            gameObject.scene.isLoaded ? null : "scene unloaded",
-            record != null && record.LastMove.Reason != ItemMoveReason.Unknown ? "last move " + record.LastMove : null,
-            string.IsNullOrEmpty(HostObservationTrigger) ? null : "last host trigger " + HostObservationTrigger,
-            pendingRemovalCause.HasValue ? "stale note " + pendingRemovalCause.Value : null,
-            callers == "an unknown caller" ? null : "callers " + callers));
-    }
 
     private void OnUngrabbed(ControlImplBase obj)
     {
@@ -549,7 +516,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             WorldItemStableIdentity.IsLikelyAuthoredAtAwake(Item))
             AuthoredItemKey = WorldItemStableIdentity.Capture(Item);
         if (NetworkLifecycle.Instance.IsHost() && IsSceneAuthored)
-            AuthoritativeItemRegistry.MarkAuthoredIdentity(this);
+            ItemServer.Current?.MarkAuthoredIdentity(this);
     }
 
     internal void AdoptAuthoredItemKey(string key, bool replenishableOfficeSlot = false,
@@ -559,7 +526,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         AuthoredItemKey = key;
         IsReplenishableAuthoredOfficeSlot |= replenishableOfficeSlot;
         IsAuthoredShopSlot |= authoredShopSlot;
-        AuthoritativeItemRegistry.MarkAuthoredIdentity(this);
+        ItemServer.Current?.MarkAuthoredIdentity(this);
         NetworkedItemManager.Instance?.ReplaceAuthoredItemProjection(key, this);
     }
 
@@ -571,7 +538,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         AuthoredItemKey = string.Empty;
         IsReplenishableAuthoredOfficeSlot = false;
         IsAuthoredShopSlot = false;
-        AuthoritativeItemRegistry.PromoteAuthoredToPersistent(this);
+        ItemServer.Current?.PromoteAuthoredToPersistent(this);
         return key;
     }
 
@@ -820,7 +787,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             ["authorityRevision"] = AuthorityRevision,
             ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
             ["placementPlayerId"] = playerBelongsToId,
-            ["hostPossessorPlayerId"] = BelongsTo?.PlayerId ?? 0,
+            ["hostPossessorPlayerId"] = HostPossessorPlayerId,
             ["inventoryClaimPlayerId"] = InventoryClaimPlayerId,
             ["inventoryClaimSlot"] = InventoryClaimSlot,
             ["inventoryClaimFlags"] = InventoryClaimFlags.ToString(),
