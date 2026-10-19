@@ -1,13 +1,8 @@
 # References across roles that exist today, as <from type> -> <to type> (outermost types).
 # Written by CodeLayoutTests with MULTIPLAYER_WRITE_ROLE_ALLOWLIST=1. It may only shrink:
 # split the code instead of adding a line. See docs/design/code-layout.md.
-Multiplayer.Client.Career.CareerManagerDebtControllerPatch -> Multiplayer.Server.Career.NetworkedCareerManagerDebtController
 Multiplayer.Client.Career.LostItemsCareerManagerScreen -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
 Multiplayer.Client.Items.InventoryOwnershipUiPatch -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Client.Jobs.JobValidator_Patch -> Multiplayer.Server.Jobs.JobBookletSummonCoordinator
-Multiplayer.Client.Jobs.JobValidator_Patch -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Client.Jobs.JobValidator_Patch -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Client.Jobs.WarehouseMachineControllerPatch -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Items.ItemChangeLog
@@ -16,7 +11,6 @@ Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.NetworkSe
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.PlayerAuthentication
 Multiplayer.Client.Trains.LocoRestorationControllerStartPostfixPatch -> Multiplayer.Server.Trains.NetworkRestorationWatcher
 Multiplayer.Client.Trains.RerailControllerPatch -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Server.Career.SaveGameManager_FindStartGameData_Patch -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Server.Dedicated.LauncherControllerSaveLockPatch -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
@@ -31,8 +25,6 @@ Multiplayer.Server.Trains.StationLocoSpawner_Start_Patch -> Multiplayer.Client.S
 Multiplayer.Server.World.GlobalShopControllerPatch -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Api.APIProvider -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Api.ModCompatibilityManager -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
-Multiplayer.Shared.Career.StartingItemsControllerPatch -> Multiplayer.Client.Session.StartGameData_ServerSave
-Multiplayer.Shared.Career.StartingItemsControllerPatch -> Multiplayer.Server.Career.PerPlayerSaveFormat
 Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Debugging.DebugOverlayController -> Multiplayer.Server.Items.NetworkedColdContainerManager
@@ -76,12 +68,6 @@ Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Ses
 Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Items.PersistentWorldItemIdentityPatch -> Multiplayer.Server.Items.WorldItemPersistenceManager
 Multiplayer.Shared.Items.WorldItemPersistenceRecord -> Multiplayer.Server.Items.AuthoritativeItemRegistry
-Multiplayer.Shared.Jobs.JobBooklet_Patch -> Multiplayer.Server.Items.ItemChangeLog
-Multiplayer.Shared.Jobs.JobOverview_Patch -> Multiplayer.Server.Items.ItemChangeLog
-Multiplayer.Shared.Jobs.NetworkedJob -> Multiplayer.Server.Items.ItemChangeLog
-Multiplayer.Shared.Jobs.NetworkedStationController -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Jobs.NetworkedStationController -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Jobs.NetworkedTask -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.IServerBrowserGameDetails
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.Session.NetworkServer
