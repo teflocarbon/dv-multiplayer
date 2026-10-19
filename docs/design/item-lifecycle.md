@@ -19,7 +19,7 @@
   with `NetworkServer.StarterKitsGiven`, 2962fa7).
 - **Disconnect:** the departing player's hand item, and any item in their inventory that another
   player owns, is dropped where it is (`DropHeldItemsOfDepartingPlayer` in
-  `NetworkedItemManager.ProjectionAndCompatibility.cs`, 2d52799). Items they own stay keyed to
+  `Server/Items/ServerItemManager.PlayerItems.cs`, 2d52799). Items they own stay keyed to
   their identity. A dropped borrowed item reaches its owner's Lost and Found only through
   ordinary distance collection, which needs the owner connected. If the owner is offline when the
   borrower leaves, the item is not recognised as borrowed and stays with the borrower (see
@@ -38,8 +38,8 @@
 - **Host saves** keep other players' inventories and the item in their hand (325c2fb, dba0837).
   Unowned dynamic items are not saved (faa42c0), which includes dropped stock forks.
 - **Recovery:** host convergence re-sends resting world items so drifted client copies heal
-  (`NetworkedItemManager.Convergence.cs`, b601cc6); items that fall through the terrain are put
-  back at their last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0).
+  (`ServerItemManager.Convergence.cs`, b601cc6); items that fall through the terrain are put
+  back at their last safe pose (`ServerItemManager.FallRescue.cs`, 5cf63a0).
 - **Change causes (2026-10-19):** every change of an item's placement, holder or owner, and every
   removal, has a recorded reason (`ItemMoveReason`, `ItemRemovalReason`), logged in one line on the
   host and sent with the update to clients. See "Why an item changed" below. Not yet checked in

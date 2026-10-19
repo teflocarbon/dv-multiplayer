@@ -1,15 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
-using Multiplayer.Server.Items;
 using Multiplayer.Server.Session;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
-public partial class NetworkedItemManager
+internal sealed partial class ServerItemManager
 {
     // Host convergence ("anti-entropy"). Item replication is event-driven: once a client knows an
     // item, it only hears about it again when the host marks it dirty. In a retrofit of a
@@ -63,7 +63,7 @@ public partial class NetworkedItemManager
         item != null && item.NetId != 0 &&
         AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
         record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent &&
-        !HasActiveSpatialState(item.NetId) &&
+        !shell.HasActiveSpatialState(item.NetId) &&
         !NetworkedLostAndFoundManager.Contains(item.NetId) &&
         !WorldItemPersistenceManager.IsRestorePending(item);
 

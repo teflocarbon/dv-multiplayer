@@ -20,6 +20,9 @@ public interface IItemServer
 
     /// <summary>Whether the server's world-item persistence saves this item, rather than the vanilla save.</summary>
     bool OwnsWorldPersistence(NetworkedItem item);
+
+    /// <summary>The server's part of a new item manager.</summary>
+    IItemManagerServerPart CreateItemManagerPart(NetworkedItemManager manager);
 }
 
 public static class ItemServer

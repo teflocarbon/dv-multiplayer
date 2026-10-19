@@ -41,7 +41,8 @@ public static class Probe
         yield return AccessTools.Method(ncs, "SpawnCars");
         yield return AccessTools.Method(ncs, "SpawnCar");
         yield return AccessTools.Method(T("Multiplayer.Client.Session.NetworkClient"), "OnClientboundSpawnTrainSetPacket");
-        foreach (var m in AccessTools.GetDeclaredMethods(T("Multiplayer.Shared.Items.NetworkedItemManager")).Where(m => m.Name == "OnTick" || m.Name == "UpdatePlayerItemLists" || m.Name == "ProcessChanged")) yield return m;
+        foreach (var m in AccessTools.GetDeclaredMethods(T("Multiplayer.Shared.Items.NetworkedItemManager")).Where(m => m.Name == "OnTick")) yield return m;
+        foreach (var m in AccessTools.GetDeclaredMethods(T("Multiplayer.Server.Items.ServerItemManager")).Where(m => m.Name == "UpdatePlayerItemLists" || m.Name == "ProcessChanged")) yield return m;
     }
     public static object Run(DevContext ctx)
     {
