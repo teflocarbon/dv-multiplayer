@@ -124,6 +124,23 @@ public static class CargoReactionExplodePatch
         ExplosionSync.HostExploded(__instance, ExplosionSync.Kind.Cargo);
 }
 
+[HarmonyPatch(typeof(CargoEffects), nameof(CargoEffects.OnCargoExploded))]
+public static class CargoExplosionAudioPatch
+{
+    // Vanilla's cargo explosion sounds are 2D: the near and far layers' spatial blend curves are flat
+    // at 0, and a 2D source ignores distance, so every player heard each hazmat explosion at full
+    // volume wherever they were. Their distances are set up for 3D, as on the loco explosion prefab.
+    // Setting spatialBlend replaces the curve, making them 3D so they fall off with distance.
+    private static void Prefix(CargoEffects __instance)
+    {
+        if (__instance.explosionAudio == null)
+            return;
+        foreach (AudioSource source in __instance.explosionAudio)
+            if (source != null)
+                source.spatialBlend = 1f;
+    }
+}
+
 [HarmonyPatch(typeof(ResourceExplosionBase), nameof(ResourceExplosionBase.ExplodeResource))]
 public static class ResourceExplosionPatch
 {
