@@ -159,7 +159,11 @@ add_line() { # one line of RUNS
   queue+=("$(echo "${label:-$shown}" | sed 's/[^][A-Za-z0-9_.,=@+-]/_/g')|$d|$v|${k:-player}|$strict")
 }
 if [ -n "${RUNS:-}" ]; then
-  while IFS= read -r line; do add_line "$line" || exit 2; done <<<"${RUNS//;/$'\n'}"
+  # Comment lines go first: a ";" inside one isn't a separator.
+  while IFS= read -r line; do
+    [[ $line =~ ^[[:space:]]*# ]] && continue
+    while IFS= read -r part; do add_line "$part" || exit 2; done <<<"${line//;/$'\n'}"
+  done <<<"$RUNS"
 else
   for e in "${runs[@]}"; do IFS='|' read -r n d v k <<<"$e"; queue+=("$n|$d|$v|${k:-player}|0"); done
 fi
