@@ -22,6 +22,7 @@
 #   %LOCALAPPDATA%\dvmp\durations, a file per run); runs with none yet start first.
 #   UP_ARGS: extra `dvmp up` arguments for every pair it starts. UP_ARGS=--dedicated still
 #   works: it makes a plain PAIRS=N count dedicated pairs (docs/design/dedicated-host.md).
+#   MONEY: the host's wallet is topped up to this before every run (default 100000; 0 leaves it).
 [ -n "${RUNS:-}" ] && [ -f "$RUNS" ] && RUNS=$(cat "$RUNS")   # read before the cd: a path relative to the caller
 cd "$(dirname "$0")/../.."
 export DVMP=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
@@ -87,6 +88,10 @@ teleport_home() { # puts both players back where every run starts (scenarios mov
   # client (a synced drop) and destroy every mug on the host.
   $DVMP eval -t client -m coroutine --timeout 60 'var inv = DV.InventorySystem.Inventory.Instance; foreach (var go in inv.GetItemsArray(false).Where(g => g != null && g.name.StartsWith("Mug")).ToList()) { inv.DropItemFromHandsOrInventory(go); yield return new WaitForSecondsRealtime(0.1f); } yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
   $DVMP eval -t host -m coroutine --timeout 30 'foreach (var m in UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Items.NetworkedItem>().Where(i => i != null && i.name.StartsWith("Mug")).ToList()) UnityEngine.Object.Destroy(m.gameObject); yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
+  # Rerails, car deletes and fees spend the shared wallet, and the save-writing runs keep what's
+  # left: one batch left $1000 and the next rerail failed "not enough money". Top it up on the host
+  # (AddMoney syncs to clients) to $MONEY; MONEY=0 leaves it.
+  [ "${MONEY:-100000}" -gt 0 ] && $DVMP eval -t host -m coroutine --timeout 30 "var inv = DV.InventorySystem.Inventory.Instance; if (inv != null && inv.PlayerMoney < ${MONEY:-100000}) inv.AddMoney(${MONEY:-100000} - inv.PlayerMoney); yield break;" >/dev/null 2>&1
 }
 # Coupler joints break at 300 MN, which normal play never reaches: every break is logged as an
 # error, and a run that logged one is flagged (coupler-desync breaks one on purpose). Counts the

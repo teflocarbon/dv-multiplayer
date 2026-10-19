@@ -102,8 +102,8 @@ script's header lists its variables). They need a running pair (`dvmp up`).
 ### Regression gate
 
 `DevTools/Scenarios/gate.sh` runs every scenario below against a running pair, resetting both
-players to the same spot before each run, and prints PASS/FAIL per run. It exits non-zero if
-anything failed. Run it after any change touching items, joins, ticks or trains.
+players to the same spot and topping the host's wallet up to $100,000 (`MONEY`; 0 leaves it)
+before each run, and prints PASS/FAIL per run. It exits non-zero if anything failed. Run it after any change touching items, joins, ticks or trains.
 
 ```bash
 bash DevTools/Scenarios/gate.sh
