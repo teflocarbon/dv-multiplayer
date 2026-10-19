@@ -385,17 +385,24 @@ public partial class NetworkedItem
             return;
         }
 
-        // Our own hold, accepted after we let go (a VR throw that beat the round trip). The drop
-        // we sent since follows it; applying the hold made it our last sent state, so the drop
+        // Our own hold, accepted after we let go. After a VR throw that beat the round trip, the
+        // drop we sent since follows it; applying the hold made it our last sent state, so the drop
         // went out again, was refused as stale, and the host's correction stopped the item dead.
+        // After a VR belt clip, the InInventory we sent since follows it; applying the hold
+        // unsnapped the belt item.
         if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
-            ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
-                NetworkLifecycle.Instance.IsHost(),
-                NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
-                snapshot.OriginatingPlayerId,
-                ToWireState(snapshot.ItemState),
-                ToWireState(GetItemState()),
-                IsLocallyPossessed()))
+            (ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
+                    NetworkLifecycle.Instance.IsHost(),
+                    NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+                    snapshot.OriginatingPlayerId,
+                    ToWireState(snapshot.ItemState),
+                    ToWireState(GetItemState()),
+                    IsLocallyPossessed()) ||
+                (Item != null &&
+                    BeltItemPolicy.IsSupersededOwnHold(NetworkLifecycle.Instance.IsHost(),
+                        NetworkLifecycle.Instance.Client?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
+                        ToWireState(snapshot.ItemState), Item.IsGrabbed(),
+                        InventoryIntegration.ContainsActive(gameObject)))))
         {
             DebugRuntime.Publish("item", "item.local-hold-superseded", DebugRuntimeSide.Client,
                 entityType: "Item", entityId: NetId.ToString(), data: new()
@@ -887,9 +894,7 @@ public partial class NetworkedItem
 
         // Let go in VR: if that was next to the belt, the belt takes it at the end of this frame.
         // Until then it isn't dropped yet; the next frame tells which it was.
-        if (vrBeltReleaseFrame >= 0 && BeltItemPolicy.HoldVrRelease(Item.IsBeltSnappable,
-                vrBeltReleaseFrame, Time.frameCount, grabbed: false,
-                InventoryIntegration.ContainsActive(gameObject)))
+        if (HoldingVrRelease())
             return lastState;
 
         // Derail Valley exposes only this process's local inventory. Preserve another player's
@@ -923,6 +928,11 @@ public partial class NetworkedItem
         //do we need a condition to check if it's attached to something else (last attach vs current attach)?
         return ItemState.Dropped;
     }
+
+    private bool HoldingVrRelease() =>
+        vrBeltReleaseFrame >= 0 && Item != null && BeltItemPolicy.HoldVrRelease(Item.IsBeltSnappable,
+            vrBeltReleaseFrame, Time.frameCount, Item.IsGrabbed(),
+            InventoryIntegration.ContainsActive(gameObject));
 
     private bool IsRemotePlayerAuthoritative()
     {

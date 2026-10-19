@@ -331,6 +331,13 @@ saw none.
 
 On join a car's exploded state comes with the train baseline (`TrainsetSpawnPart.Exploded`).
 
+Vanilla's cargo explosion sounds (`CargoEffects.explosionAudio`) are 2D (the near and far layers'
+spatial blend curves are flat at 0), so a hazmat car going off anywhere on the map was heard at full
+volume by every player. `CargoExplosionAudioPatch` makes them 3D before they play; their distances
+were already set for it (the far layer still carries a few km, like the loco explosion prefab's).
+Other world sounds were checked in a live game: train, loco and station sounds are already 3D, the
+2D ones are ambience, weather and local UI.
+
 Scenario: `DevTools/Scenarios/explosion` (a client can't set off loco or tank-car explosions; a host
 explosion leaves both peers with the same burnt car, derailments and positions).
 

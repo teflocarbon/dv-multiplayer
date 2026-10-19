@@ -94,4 +94,56 @@ public sealed class BeltItemPolicyTests
         Assert.That(BeltItemPolicy.KeepBeltSnap(WireItemState.InInventory, targetPlayerId: 2,
             localPlayerId: 2, snappedToBelt: true, inLocalInventory: false), Is.False);
     }
+
+    [Test]
+    public void OwnHoldEcho_AfterTheBeltTookTheItem_IsSuperseded()
+    {
+        // Playtest 2026-10-19: taken off the belt and clipped back, the echo of the InHand sent as
+        // the hand let go arrived a frame after the belt had the item, and unsnapped it.
+        Assert.That(BeltItemPolicy.IsSupersededOwnHold(isHost: false, localPlayerId: 2,
+            originatingPlayerId: 2, WireItemState.InHand, grabbed: false, inLocalInventory: true), Is.True);
+    }
+
+    [Test]
+    public void OwnHoldEcho_WhileStillHolding_IsApplied()
+    {
+        Assert.That(BeltItemPolicy.IsSupersededOwnHold(isHost: false, localPlayerId: 2,
+            originatingPlayerId: 2, WireItemState.InHand, grabbed: true, inLocalInventory: false), Is.False);
+    }
+
+    [Test]
+    public void OwnHoldEcho_AfterADrop_IsApplied()
+    {
+        // Out of the inventory: the drop we sent since is in flight and will settle it.
+        Assert.That(BeltItemPolicy.IsSupersededOwnHold(isHost: false, localPlayerId: 2,
+            originatingPlayerId: 2, WireItemState.InHand, grabbed: false, inLocalInventory: false), Is.False);
+    }
+
+    [Test]
+    public void HostCorrection_IsApplied()
+    {
+        Assert.That(BeltItemPolicy.IsSupersededOwnHold(isHost: false, localPlayerId: 2,
+            originatingPlayerId: 0, WireItemState.InHand, grabbed: false, inLocalInventory: true), Is.False);
+    }
+
+    [Test]
+    public void AnotherPlayersHold_IsApplied()
+    {
+        Assert.That(BeltItemPolicy.IsSupersededOwnHold(isHost: false, localPlayerId: 2,
+            originatingPlayerId: 3, WireItemState.InHand, grabbed: false, inLocalInventory: true), Is.False);
+    }
+
+    [Test]
+    public void OwnInventoryEcho_IsApplied()
+    {
+        Assert.That(BeltItemPolicy.IsSupersededOwnHold(isHost: false, localPlayerId: 2,
+            originatingPlayerId: 2, WireItemState.InInventory, grabbed: false, inLocalInventory: true), Is.False);
+    }
+
+    [Test]
+    public void OnTheHost_IsApplied()
+    {
+        Assert.That(BeltItemPolicy.IsSupersededOwnHold(isHost: true, localPlayerId: 1,
+            originatingPlayerId: 1, WireItemState.InHand, grabbed: false, inLocalInventory: true), Is.False);
+    }
 }
