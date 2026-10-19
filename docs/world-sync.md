@@ -18,7 +18,7 @@ own player is also a client and goes through the same request paths unless noted
 | Fast travel time skip | Requesting player | n/a | Relayed, not validated |
 | Difficulty (`GameParams`) | Host | Yes (`ReadyForGameData`) | Synced on every change |
 | Wallet, licences, garages | Host | Yes (save-game packet) | Synced; some client spends not forwarded |
-| Debt | Host | Yes (save-game packet) | Flag only; fees are host-only |
+| Debt | Host | Yes (save-game packet) | Flag only; an admin client pays all fees at once |
 | Shops | Host (stock, payment, spawn) | Stock yes | Synced, escrowed |
 | Service stations | Host | On entering the station's range | Synced; station interactions not validated |
 | Junctions, turntables | Last writer | Yes (`ReadyForWorldState`) | Relayed, not validated |
@@ -163,7 +163,10 @@ from `CareerManagerDebtControllerPatch.HasDebt`, set from the save-game packet o
 NetworkedCareerManagerDebtController.cs` sends that packet when "has debt" changes (it used to go
 out only at exactly 0 or 1 debts, so going from none to two left clients thinking there was none).
 
-Clients can't pay fees: `CareerManagerFeesScreenPatch.cs` shows a "host only" screen.
+A client has no fee list, so `CareerManagerFeesScreenPatch.cs` replaces its fees screen with "Pay
+all fees?". Confirming sends `ServerboundPayFeesRequestPacket`, and the server pays them for an
+admin as `/payfees` does (`ChatManager.PayFees`, `FeePayment`): the cheapest first until the
+insurance quota is reached, then insurance clears the rest. The outcome goes out in chat.
 
 Paying a loco's debt calls `SimulatedCarDebtTracker.TurnOffDebtSources`, which powers the whole
 consist down and sets its handbrake. The host pays for every loco anyone has used, so this stopped
@@ -461,4 +464,5 @@ weather, sleep, difficulty, junctions, switches and service stations have none.
   hazmat cargo alight has no path to the host.
 - **Licence purchase rejections are silent.** The client has already run the register's `Buy`;
   the host logs and sends nothing, and the wallet corrects on the next money update.
-- **Clients can't pay fees or use keys** (`CareerManagerFeesScreenPatch`, `KeyUsePatch`).
+- **Clients can't pay fees one at a time or use keys** (`CareerManagerFeesScreenPatch`,
+  `KeyUsePatch`). An admin client can pay all the fees at once.

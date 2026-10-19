@@ -104,6 +104,7 @@ public class NetworkClient : NetworkManager
         typeof(ServerboundTrainSpawnRequestPacket),
         typeof(ServerboundWorkTrainRequestPacket),
         typeof(ServerboundLicensePurchaseRequestPacket),
+        typeof(ServerboundPayFeesRequestPacket),
         typeof(ServerboundJobValidateRequestPacket),
         typeof(ServerboundWarehouseMachineControllerRequestPacket),
         typeof(CommonPitStopInteractionPacket),
@@ -2571,6 +2572,11 @@ public class NetworkClient : NetworkManager
             Id = id,
             IsJobLicense = isJobLicense
         }, DeliveryMethod.ReliableUnordered);
+    }
+
+    public void SendPayFeesRequest()
+    {
+        SendPacketToServer(new ServerboundPayFeesRequestPacket(), DeliveryMethod.ReliableUnordered);
     }
 
     public void SendJobValidateRequest(NetworkedJob job, NetworkedStationController station,

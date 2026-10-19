@@ -2,7 +2,8 @@
 # A dedicated host run by its players: admin commands and the empty-server pause.
 #  1. A player who isn't an admin can't /save.
 #  2. Made an admin (Settings.Admins, in memory only), /save saves. /payfees is refused while
-#     the wallet can't cover the fees, then pays them all once when it can.
+#     the wallet can't cover the fees; then the fees screen's request pays them once, cheapest
+#     first until the insurance quota is reached, and insurance clears the rest.
 #  3. When the last player leaves, the host saves and pauses; when they come back it unpauses.
 # Needs a dedicated host (dvmp up --dedicated); on an ordinary host it skips.
 # Exit code 0 = pass. Sets the test save's wallet.
@@ -15,7 +16,7 @@ fail() { echo "FAIL: $*"; exit 1; }
 host() { $D eval -t host -m body -u "$U" "$1"; }
 # The command goes without its slash: Git Bash would turn "/save" into a Windows path.
 chat() { $D eval -t client -m body -u "$U" -a cmd="$1" 'NetworkLifecycle.Instance.Client.SendChat("/" + ctx.Args["cmd"]); return 0;' >/dev/null; sleep 3; }
-state='var debts = DV.ServicePenalty.CareerManagerDebtController.Instance; debts.RefreshExistingDebtsState(); var payable = debts.currentNonZeroPricedDebts.Where(d => d.IsPayable).ToList(); return new { saved = (DedicatedHost.LastSave?.ToString("o") ?? "never") + " " + DedicatedHost.LastSaveReason, paused = DV.AppUtil.Instance.IsTimePaused, money = DV.InventorySystem.Inventory.Instance.PlayerMoney, fees = payable.Count, price = payable.Sum(d => (double)d.GetTotalPrice()), players = NetworkLifecycle.Instance.Server.GameplayPlayerCount };'
+state='var debts = DV.ServicePenalty.CareerManagerDebtController.Instance; debts.RefreshExistingDebtsState(); var payable = debts.currentNonZeroPricedDebts.Where(d => d.IsPayable).ToList(); var q = debts.feeQuota; double cost = 0; if (!(q.InsuranceUsed && q.QuotaReached)) foreach (double p in payable.Select(d => (double)d.GetTotalPrice()).OrderBy(p => p)) { if (q.InsuranceUsed && cost >= q.LeftToReachQuota) break; cost += p; } return new { saved = (DedicatedHost.LastSave?.ToString("o") ?? "never") + " " + DedicatedHost.LastSaveReason, paused = DV.AppUtil.Instance.IsTimePaused, money = DV.InventorySystem.Inventory.Instance.PlayerMoney, fees = payable.Count, cost, players = NetworkLifecycle.Instance.Server.GameplayPlayerCount };'
 money() { host "DV.InventorySystem.Inventory.Instance.SetMoney($1); return 0;" >/dev/null; }
 
 [ "$(host 'return new { d = NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = "true" ] ||
@@ -35,21 +36,24 @@ chat "save"; s2=$(host "$state")
 echo "   last save: $(echo "$s2" | field saved)"
 echo "$s2" | field saved | grep -q "/save by" || fail "an admin's /save didn't save"
 
-fees=$(echo "$s2" | field fees); price=$(echo "$s2" | field price)
-echo "== /payfees: $fees payable, \$$price"
+fees=$(echo "$s2" | field fees); cost=$(echo "$s2" | field cost)
+echo "== /payfees: $fees payable, \$$cost to pay with insurance"
 if [ "$fees" != "0" ]; then
-  # Not enough in the wallet: refused, nothing paid.
-  low=$(node -e 'console.log((+process.argv[1] / 2).toFixed(2))' "$price"); money "$low"
-  chat "payfees"; s3=$(host "$state")
-  echo "   with \$$low: fees left $(echo "$s3" | field fees), wallet \$$(echo "$s3" | field money)"
-  [ "$(echo "$s3" | field fees)" = "$fees" ] || fail "fees were paid from a wallet that couldn't cover them"
-  node -e 'process.exit(Math.abs(+process.argv[1] - +process.argv[2]) < 0.01 ? 0 : 1)' "$(echo "$s3" | field money)" "$low" || fail "a refused /payfees took money"
-  # Enough: all paid, once.
-  rich=$(node -e 'console.log((+process.argv[1] + 1000).toFixed(2))' "$price"); money "$rich"
-  chat "payfees"; s4=$(host "$state")
+  # Not enough in the wallet: refused, nothing paid. (Nothing to refuse when insurance covers it all.)
+  if [ "$cost" != "0" ]; then
+    low=$(node -e 'console.log((+process.argv[1] / 2).toFixed(2))' "$cost"); money "$low"
+    chat "payfees"; s3=$(host "$state")
+    echo "   with \$$low: fees left $(echo "$s3" | field fees), wallet \$$(echo "$s3" | field money)"
+    [ "$(echo "$s3" | field fees)" = "$fees" ] || fail "fees were paid from a wallet that couldn't cover them"
+    node -e 'process.exit(Math.abs(+process.argv[1] - +process.argv[2]) < 0.01 ? 0 : 1)' "$(echo "$s3" | field money)" "$low" || fail "a refused /payfees took money"
+  fi
+  # Enough, from the fees screen: paid once, and insurance clears the rest.
+  rich=$(node -e 'console.log((+process.argv[1] + 1000).toFixed(2))' "$cost"); money "$rich"
+  $D eval -t client -m body -u "$U" 'NetworkLifecycle.Instance.Client.SendPayFeesRequest(); return 0;' >/dev/null; sleep 3
+  s4=$(host "$state")
   echo "   with \$$rich: fees left $(echo "$s4" | field fees), wallet \$$(echo "$s4" | field money)"
-  [ "$(echo "$s4" | field fees)" = "0" ] || fail "fees left after /payfees"
-  node -e 'const [a,b,p]=process.argv.slice(1).map(Number);process.exit(Math.abs((a-b)-p)<0.01?0:1)' "$rich" "$(echo "$s4" | field money)" "$price" ||
+  [ "$(echo "$s4" | field fees)" = "0" ] || fail "fees left after the fees screen paid them"
+  node -e 'const [a,b,p]=process.argv.slice(1).map(Number);process.exit(Math.abs((a-b)-p)<0.01?0:1)' "$rich" "$(echo "$s4" | field money)" "$cost" ||
     fail "the wallet didn't go down by the fees exactly once"
 fi
 

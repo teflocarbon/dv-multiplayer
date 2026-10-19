@@ -124,7 +124,7 @@ public class ChatManager
         (
             COMMAND_PAY_FEES,
             null,
-            () => "Pay every payable fee and debt from the shared wallet (admins)" +
+            () => "Pay the fees from the shared wallet, cheapest first, until insurance clears the rest (admins)" +
                     $"\r\n\t\t/{COMMAND_PAY_FEES}",
             PayFeesMessage
         );
@@ -812,36 +812,35 @@ public class ChatManager
         DedicatedHost.Stop($"/{COMMAND_STOP} by {sender.Username}");
     }
 
-    // What the career manager's fees screen does for each debt (its cash register takes the money,
-    // then the debt is paid), for every payable debt at once.
-    private void PayFeesMessage(string _, ServerPlayer sender)
+    private void PayFeesMessage(string _, ServerPlayer sender) => PayFees(sender);
+
+    /// <summary>
+    /// Pays the fees from the shared wallet as the fees screen would (FeePayment), for an admin:
+    /// /payfees, or the fees screen on a client (ServerboundPayFeesRequestPacket).
+    /// </summary>
+    public void PayFees(ServerPlayer sender)
     {
         if (!IsAdmin(sender))
+        {
+            if (sender != null && !sender.IsServiceHost)
+                Reply(sender, "Only the host or an admin can pay the fees.");
             return;
-        var debts = DV.ServicePenalty.CareerManagerDebtController.Instance;
-        debts.RefreshExistingDebtsState();
-        var payable = debts.currentNonZeroPricedDebts.Where(debt => debt.IsPayable).ToList();
-        if (payable.Count == 0)
+        }
+        FeePayment.Result result = FeePayment.PayAll();
+        if (result.Shortfall > 0)
+        {
+            Reply(sender, $"The fees come to ${result.Shortfall:N2}, more than the ${DV.InventorySystem.Inventory.Instance.PlayerMoney:N2} in the wallet.");
+            return;
+        }
+        if (result.NothingToPay)
         {
             Reply(sender, "There are no fees to pay.");
             return;
         }
-        double total = payable.Sum(debt => (double)debt.GetTotalPrice());
-        if (DV.InventorySystem.Inventory.Instance.PlayerMoney < total)
-        {
-            Reply(sender, $"The fees come to ${total:N2}, more than the ${DV.InventorySystem.Inventory.Instance.PlayerMoney:N2} in the wallet.");
-            return;
-        }
-        if (!DV.InventorySystem.Inventory.Instance.RemoveMoney(total))
-        {
-            Reply(sender, "The fees couldn't be paid.");
-            return;
-        }
-        foreach (var debt in payable)
-            debt.Pay();
-        debts.RefreshExistingDebtsState();
-        Multiplayer.Log($"{sender.Username} paid {payable.Count} fee(s), ${total:N2}");
-        ServerMessage($"{sender.Username} paid {payable.Count} fee(s), ${total:N2}.", null);
+        string summary = $"{sender.Username} paid {result.Paid} fee(s), ${result.Cost:N2}" +
+                         (result.Cleared > 0 ? $"; insurance cleared the other {result.Cleared}" : "");
+        Multiplayer.Log(summary);
+        ServerMessage(summary + ".", null);
     }
 
     private void HelpMessage(string _, ServerPlayer player)

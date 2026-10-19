@@ -3,8 +3,8 @@
 > Status:
 > - built: stage 0 (a DevTools host-only harness mode and a perf probe), stage 1 (the
 >   `-mp-dedicated` service-identity host), and stage 3 (a, b) (the world follows a player);
-> - stage 2: built and tested, apart from paying fees through the career manager's screen
->   (`/payfees` covers admins meanwhile);
+> - stage 2: built and tested. An admin client's fees screen pays all the fees at once, not one
+>   by one, since clients have no fee list;
 > - stage 4 isn't built.
 >
 > The work every host needs (per-player state, multi-anchor streaming) is now planned in
@@ -96,8 +96,12 @@ too.
     `-mp-owner`), and the players in the new `Admins` setting (SteamID64s).
   - `/kick`, `/server` and setting others' crew names now take an admin, not only the host.
   - New commands: `/save`; `/stop`, which saves, says so in chat and quits a dedicated host;
-    `/payfees`, which pays every payable fee and debt from the shared wallet the way the career
-    manager's cash register does.
+    `/payfees`, which pays the fees from the shared wallet (`FeePayment`). With insurance it pays
+    the cheapest first, only until the quota is reached, and insurance clears the rest, as the
+    fees screen does; it used to pay every fee in full ($13.7M instead of $1M on 2026-10-19).
+  - On a client, the career manager's fees screen asks "Pay all fees?" and sends
+    `ServerboundPayFeesRequestPacket`; the server does the same as `/payfees`
+    (`ChatManager.PayFees`), and tells a non-admin that only the host or an admin can.
   - Players are their Steam accounts, verified with a Steam auth ticket at login (built, not yet
     tested: [server-player-split.md](server-player-split.md#identity)).
     - `-mp-owner` takes a SteamID64.
@@ -252,8 +256,8 @@ conversion in [server-player-split.md](server-player-split.md#save-format). It i
 dedicated-specific: once the host's own player is stored per GUID like everyone else's, a
 dedicated host just loads the save, and the body stays empty.
 
-**Still to do in stage 2:** paying fees through the career manager's own screen from a client.
-`/payfees` covers admins until then.
+**Still to do in stage 2:** fees one at a time from a client's fees screen. That needs the fee
+list sent to clients; for now the screen pays them all.
 
 ### Stage 3 (a, b): the world follows a player
 
