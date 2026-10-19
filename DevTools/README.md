@@ -115,6 +115,7 @@ and prints PASS/FAIL per run. Run it after any change touching items, joins, tic
 ```bash
 bash DevTools/Scenarios/gate.sh                       # everything
 ONLY="rejoin recall" bash DevTools/Scenarios/gate.sh  # by scenario or run name
+PAIRS="p:2 d:1" RUNS=batch.txt bash DevTools/Scenarios/gate.sh  # pairs by kind, your own run list
 WHO=host MODE=throw WHEN=moving bash DevTools/Scenarios/train-items/run.sh
 ```
 

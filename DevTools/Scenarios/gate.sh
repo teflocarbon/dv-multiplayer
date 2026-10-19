@@ -2,16 +2,30 @@
 # Runs every scenario against a running pair (dvmp up) and summarises. Exit code 0 = all passed.
 #   ONLY="rejoin recall" to run a subset (by scenario or run name). Each run's output is in
 #   $LOG_DIR (default a temp dir).
-#   PAIRS=N: run on N host+client pairs at once (dvmp sessions p1..pN). REPEAT=N: each run N
-#   times (ONLY=host-stall REPEAT=6 PAIRS=3 hunts an intermittent bug). EXCLUSIVE= overrides
-#   which scenarios run alone at the end.
-#   UP_ARGS: extra `dvmp up` arguments for the pairs it starts, e.g. UP_ARGS=--dedicated to run
-#   against a dedicated host (docs/design/dedicated-host.md).
+#   RUNS: the runs to queue instead of the gate's list below, a file or lines separated by
+#   newlines or ";". A line is a run name from the list, or a scenario and its variables, with
+#   an optional pair kind and label:
+#     derail                              the gate's run of that name (its scenario and variables)
+#     jobs ACCEPT=client HANDIN=host      a scenario with exactly these variables
+#     host-actions @dedicated             only on a dedicated host (@player, @dedicated, @any)
+#     jobs-reverse: jobs ACCEPT=client    "label:" names the run (default: the scenario, plus
+#                                         [variables] and @kind when given)
+#     *                                   every run of the gate's list
+#   Values may be quoted (LOCOS="LocoS282A LocoDE6"); "#" starts a comment line.
+#   PAIRS: run on several host+client pairs at once, all taking runs from one queue. A count
+#   (PAIRS=3: player-host pairs p1..p3) or kinds with counts: PAIRS="p:2 d:1" is two player-host
+#   pairs (p1, p2) and one dedicated-host pair (d1, `dvmp up --dedicated`). A run marked @kind
+#   only goes to that kind of pair; other runs prefer player hosts, or take any pair when there
+#   are none. REPEAT=N: each run N times (ONLY=host-stall REPEAT=6 PAIRS=3 hunts an
+#   intermittent bug). EXCLUSIVE= overrides which scenarios run alone at the end.
+#   UP_ARGS: extra `dvmp up` arguments for every pair it starts. UP_ARGS=--dedicated still
+#   works: it makes a plain PAIRS=N count dedicated pairs (docs/design/dedicated-host.md).
+[ -n "${RUNS:-}" ] && [ -f "$RUNS" ] && RUNS=$(cat "$RUNS")   # read before the cd: a path relative to the caller
 cd "$(dirname "$0")/../.."
 export DVMP=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 S=DevTools/Scenarios
 LOG_DIR=${LOG_DIR:-$(mktemp -d)}; mkdir -p "$LOG_DIR"
-runs=( # name | scenario | variables
+runs=( # name | scenario | variables | pair kind it prefers (default player)
   "train-items|train-items|"
   "train-items-host-throw-moving|train-items|WHO=host MODE=throw WHEN=moving"
   "item-release-regrab|item-release|"
@@ -45,7 +59,7 @@ runs=( # name | scenario | variables
   "rerail-host|rerail|WHO=host"
   "far-derail|far-derail|"
   "far-derail-embankment|far-derail-embankment|"
-  "dedicated-admin|dedicated-admin|"
+  "dedicated-admin|dedicated-admin||dedicated"
   "explosion|explosion|"
   "car-fire|car-fire|"
   "hazmat|hazmat|"
@@ -82,29 +96,139 @@ game_logs() { $DVMP status 2>/dev/null | node -e 'try{const o=JSON.parse(require
 note_logs() { echo; echo "game logs at the start: $1"; echo "game logs after: $(game_logs)"; }
 coupler_breaks() { local n=0 t; for t in host client; do n=$(( n + $($DVMP logs -t $t -l error -c "Coupler broke" -n 1000 2>/dev/null | grep -c '"message"') )); done; echo $n; }
 
-# ---- parallel mode: PAIRS=N independent host+client pairs (dvmp sessions p1..pN) share a queue
-# of runs, REPEAT=N runs each one N times. See docs/design/parallel-test-sessions.md.
-if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
-  PAIRS=${PAIRS:-1}; REPEAT=${REPEAT:-1}
+# ---- the queue: the gate's runs, or the lines of RUNS. Each entry is
+# "label|scenario|variables|kind|strict": kind is the pair it needs (player, dedicated or any),
+# strict that the line asked for it (@kind) rather than the gate's list preferring it.
+queue=()
+gate_run() { # name: "scenario|variables|kind" of the gate's run of that name
+  local e n d v k
+  for e in "${runs[@]}"; do IFS='|' read -r n d v k <<<"$e"; [ "$n" = "$1" ] && { echo "$d|$v|$k"; return 0; }; done
+  return 1
+}
+gate_name() { # scenario variables: the name of the gate's run with exactly these
+  local e n d v k
+  for e in "${runs[@]}"; do IFS='|' read -r n d v k <<<"$e"; [ "$d" = "$1" ] && [ "$v" = "$2" ] && { echo "$n"; return 0; }; done
+  return 1
+}
+add_line() { # one line of RUNS
+  local line=${1%$'\r'} toks=() label="" kind="" strict=0 name t q vars="" shown="" e n d v k ok
+  [[ $line =~ ^[[:space:]]*(#.*)?$ ]] && return 0
+  set -f; eval "toks=($line)" 2>/dev/null; ok=$?; set +f
+  [ $ok -eq 0 ] && [ ${#toks[@]} -gt 0 ] || { echo "RUNS: can't read the line: $line" >&2; return 1; }
+  if [[ ${toks[0]} == *: ]]; then label=${toks[0]%:}; toks=("${toks[@]:1}"); fi
+  name=${toks[0]}
+  for t in "${toks[@]:1}"; do
+    case $t in
+      @p|@player) kind=player strict=1 ;;
+      @d|@dedicated) kind=dedicated strict=1 ;;
+      @any) kind=any strict=1 ;;
+      [A-Za-z_]*=*)
+        if [[ $t =~ ^[A-Za-z0-9_=,.:/+@-]*$ ]]; then q=$t; else q=$(printf '%q' "$t"); fi
+        vars+="${vars:+ }$q"; shown+="${shown:+,}$t" ;;
+      *) echo "RUNS: '$t' is neither VAR=value nor @kind (in: $line)" >&2; return 1 ;;
+    esac
+  done
+  if [ "$name" = "*" ]; then
+    [ -z "$vars" ] || { echo "RUNS: '*' takes no variables" >&2; return 1; }
+    for e in "${runs[@]}"; do
+      IFS='|' read -r n d v k <<<"$e"
+      [ $strict = 1 ] && { k=$kind; n+="@$kind"; }
+      queue+=("$n|$d|$v|${k:-player}|$strict")
+    done
+    return 0
+  fi
+  if [ -z "$vars" ] && e=$(gate_run "$name"); then        # a run of the gate's list
+    IFS='|' read -r d v k <<<"$e"; shown=$name
+  elif [ -f "$S/$name/run.sh" ]; then                      # a scenario with these variables
+    d=$name v=$vars k=""
+    shown=$(gate_name "$d" "$v" || echo "$name${vars:+[$shown]}")
+  elif e=$(gate_run "$name"); then                         # a run of the gate's list, more variables
+    IFS='|' read -r d v k <<<"$e"; v+="${v:+ }$vars"; shown="$name[$shown]"
+  else
+    echo "RUNS: no scenario or gate run named '$name'" >&2; return 1
+  fi
+  [ $strict = 1 ] && { k=$kind; [ -z "$label" ] && shown+="@$kind"; }
+  # Labels name log and result files: keep them to characters every file system takes.
+  queue+=("$(echo "${label:-$shown}" | sed 's/[^][A-Za-z0-9_.,=@+-]/_/g')|$d|$v|${k:-player}|$strict")
+}
+if [ -n "${RUNS:-}" ]; then
+  while IFS= read -r line; do add_line "$line" || exit 2; done <<<"${RUNS//;/$'\n'}"
+else
+  for e in "${runs[@]}"; do IFS='|' read -r n d v k <<<"$e"; queue+=("$n|$d|$v|${k:-player}|0"); done
+fi
+if [ -n "${ONLY:-}" ]; then # by label, run or scenario name
+  kept=()
+  for q in "${queue[@]}"; do
+    IFS='|' read -r label d _ <<<"$q"
+    [[ " $ONLY " == *" $label "* || " $ONLY " == *" ${label%%[@[]*} "* || " $ONLY " == *" $d "* ]] && kept+=("$q")
+  done
+  queue=("${kept[@]}")
+fi
+parallel=; [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ] && parallel=1
+REPEAT=${REPEAT:-1}
+# Each run REPEAT times; a label that appears more than once (repeats, or a line given twice)
+# is numbered: name#1, name#2...
+declare -A total=() seen=()
+for q in "${queue[@]}"; do l=${q%%|*}; total[$l]=$(( ${total[$l]:-0} + REPEAT )); done
+all=()
+for q in "${queue[@]}"; do
+  for _ in $(seq 1 "$REPEAT"); do
+    l=${q%%|*}
+    if [ "${total[$l]}" -gt 1 ]; then seen[$l]=$(( ${seen[$l]:-0} + 1 )); l="$l#${seen[$l]}"; fi
+    all+=("$l|${q#*|}")
+  done
+done
+[ ${#all[@]} -gt 0 ] || { echo "nothing to run (check ONLY and RUNS)"; exit 2; }
+
+# ---- parallel mode: PAIRS host+client pairs (dvmp sessions p1.., d1..) take runs from one
+# queue, REPEAT=N runs each one N times. See docs/design/parallel-test-sessions.md.
+if [ -n "$parallel" ]; then
   # Measure frame timing (run alone) or write saves into the shared profile (alone until each
-  # session has its own data folder): these run on p1 after the parallel phase, other pairs down.
+  # session has its own data folder): these run after the parallel phase, every other pair down.
   EXCLUSIVE=${EXCLUSIVE:-"fps-drop host-stall player-soak save-reload inventory-persist host-player-persist"}
   Q="$LOG_DIR/.queue"; mkdir -p "$Q/claim" "$Q/result"
-  items=(); exclusive=()
-  for entry in "${runs[@]}"; do
-    IFS='|' read -r name dir vars <<<"$entry"
-    [ -n "${ONLY:-}" ] && [[ " $ONLY " != *" $dir "* && " $ONLY " != *" $name "* ]] && continue
-    for k in $(seq 1 "$REPEAT"); do
-      label=$name; [ "$REPEAT" -gt 1 ] && label="$name#$k"
-      if [[ " $EXCLUSIVE " == *" $dir "* ]]; then exclusive+=("$label|$dir|$vars"); else items+=("$label|$dir|$vars"); fi
-    done
+
+  # Pairs: "session|kind". A plain count is player hosts (dedicated with UP_ARGS=--dedicated).
+  plain=player
+  if [[ " ${UP_ARGS:-} " == *" --dedicated "* ]]; then plain=dedicated; UP_ARGS=$(echo " $UP_ARGS " | sed 's/ --dedicated / /g'); fi
+  pairs=(); declare -A made=()
+  spec=${PAIRS:-1}
+  for part in ${spec//,/ }; do
+    case $part in
+      p:*|player:*) kind=player n=${part#*:} ;;
+      d:*|dedicated:*) kind=dedicated n=${part#*:} ;;
+      *) kind=$plain n=$part ;;
+    esac
+    [[ $n =~ ^[0-9]+$ ]] || { echo "PAIRS: can't read '$part' (a count, or p:N and d:N)"; exit 2; }
+    for _ in $(seq 1 "$n"); do made[$kind]=$(( ${made[$kind]:-0} + 1 )); pairs+=("${kind:0:1}${made[$kind]}|$kind"); done
   done
+  up_args() { echo "${UP_ARGS:-} $([ "$1" = dedicated ] && echo --dedicated)"; }
+  fits() { [ "$1" = any ] || [ "$1" = "$2" ]; } # run kind, pair kind
+  first_pair() { local p; for p in "${pairs[@]}"; do fits "$1" "${p#*|}" && { echo "${p%%|*}"; return; }; done; }
+  kind_of() { local p; for p in "${pairs[@]}"; do [ "${p%%|*}" = "$1" ] && { echo "${p#*|}"; return; }; done; }
+
+  # A run that asked for a kind of pair (@kind) must get one; the gate's preferences give way.
+  items=(); exclusive=(); missing=()
+  for it in "${all[@]}"; do
+    IFS='|' read -r label dir vars kind strict <<<"$it"
+    if [ "$kind" != any ] && [ -z "${made[$kind]:-}" ]; then
+      [ "$strict" = 1 ] && { missing+=("$label"); continue; }
+      kind=any
+    fi
+    if [[ " $EXCLUSIVE " == *" $dir "* || " $EXCLUSIVE " == *" ${label%%#*} "* ]]; then exclusive+=("$label|$dir|$vars|$kind"); else items+=("$label|$dir|$vars|$kind"); fi
+  done
+  [ ${#missing[@]} -eq 0 ] || { echo "no pair of the kind these runs need: ${missing[*]} (PAIRS=\"$PAIRS\"; e.g. PAIRS=\"p:2 d:1\")"; exit 2; }
+  # The pairs that run the exclusive runs; every other pair goes down once the queue has
+  # nothing left for it, so the pairs still busy get its CPU and memory.
+  keep=" "
+  for e in "${exclusive[@]}"; do IFS='|' read -r _ _ _ kind <<<"$e"; keep+="$(first_pair "$kind") "; done
+
   run_one() { # label dir vars session
     local label=$1 dir=$2 vars=$3 session=$4 start r first breaks logs
     export DVMP_SESSION=$session
     teleport_home
     start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-    if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$label.$session.log" 2>&1; then r=PASS; else r=FAIL; note_logs "$logs" >>"$LOG_DIR/$label.$session.log"; fi
+    if eval "env $vars bash \"$S/$dir/run.sh\"" >"$LOG_DIR/$label.$session.log" 2>&1; then r=PASS; else r=FAIL; note_logs "$logs" >>"$LOG_DIR/$label.$session.log"; fi
     first=$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$label.$session.log" | head -1 | cut -c1-90)
     breaks=$(( $(coupler_breaks) - breaks )); [ $breaks -gt 0 ] && first="$first [$breaks coupler break(s) logged]"
     printf '%s|%s|%s|%s|%s\n' "$label" "$r" "$(( $(date +%s) - start ))" "$session" "$first" >"$Q/result/${label//#/_}.$session"
@@ -114,29 +238,34 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
     local st; st=$(DVMP_SESSION=$1 $DVMP status 2>/dev/null)
     [ "$(echo "$st" | grep -c '"worldLoaded": true')" -ge 2 ] && echo "$st" | grep -q '"role": "client"'
   }
-  worker() { # session: claims items until the queue is empty
-    local session=$1 i
+  worker() { # session kind: claims the runs that fit its pair until none are left
+    local session=$1 kind=$2 i label dir vars need
     for i in "${!items[@]}"; do
+      IFS='|' read -r label dir vars need <<<"${items[$i]}"
+      fits "$need" "$kind" || continue
       mkdir "$Q/claim/$i" 2>/dev/null || continue   # atomic claim
-      IFS='|' read -r label dir vars <<<"${items[$i]}"
       run_one "$label" "$dir" "$vars" "$session"
       # A run that left its pair without a loaded world on both games (a crash, a failed
       # rejoin leaving the client at the menu) gets it back.
-      healthy "$session" || DVMP_SESSION=$session $DVMP up ${UP_ARGS:-} >/dev/null 2>&1
+      healthy "$session" || DVMP_SESSION=$session $DVMP up $(up_args "$kind") >/dev/null 2>&1
     done
+    [ ${#exclusive[@]} -gt 0 ] && [[ $keep != *" $session "* ]] && DVMP_SESSION=$session $DVMP down >/dev/null 2>&1
   }
-  echo "== starting $PAIRS pair(s): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive"
-  for p in $(seq 1 "$PAIRS"); do DVMP_SESSION=p$p $DVMP up ${UP_ARGS:-} >"$LOG_DIR/up-p$p.log" 2>&1 & done
+  echo "== starting ${#pairs[@]} pair(s) (${pairs[*]%%|*}): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive"
+  for p in "${pairs[@]}"; do s=${p%%|*}; DVMP_SESSION=$s $DVMP up $(up_args "${p#*|}") >"$LOG_DIR/up-$s.log" 2>&1 & done
   wait
-  for p in $(seq 1 "$PAIRS"); do
-    grep -q '"ok": true' "$LOG_DIR/up-p$p.log" || { echo "pair p$p failed to start (see $LOG_DIR/up-p$p.log)"; exit 2; }
+  for p in "${pairs[@]}"; do
+    s=${p%%|*}; grep -q '"ok": true' "$LOG_DIR/up-$s.log" || { echo "pair $s failed to start (see $LOG_DIR/up-$s.log)"; exit 2; }
   done
-  for p in $(seq 1 "$PAIRS"); do worker "p$p" & done
+  for p in "${pairs[@]}"; do worker "${p%%|*}" "${p#*|}" & done
   wait
-  if [ ${#exclusive[@]} -gt 0 ]; then
-    for p in $(seq 2 "$PAIRS"); do DVMP_SESSION=p$p $DVMP down >/dev/null 2>&1; done
-    for e in "${exclusive[@]}"; do IFS='|' read -r label dir vars <<<"$e"; run_one "$label" "$dir" "$vars" p1; done
-  fi
+  for e in "${exclusive[@]}"; do # each alone: every other pair down, its own back up if needed
+    IFS='|' read -r label dir vars kind <<<"$e"
+    s=$(first_pair "$kind")
+    for p in "${pairs[@]}"; do [ "${p%%|*}" = "$s" ] || DVMP_SESSION=${p%%|*} $DVMP down >/dev/null 2>&1; done
+    healthy "$s" || DVMP_SESSION=$s $DVMP up $(up_args "$(kind_of "$s")") >/dev/null 2>&1
+    run_one "$label" "$dir" "$vars" "$s"
+  done
   echo; echo "== summary"
   cat "$Q"/result/* 2>/dev/null | node -e '
     const rows=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean).map(l=>l.split("|"));
@@ -151,12 +280,11 @@ if [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ]; then
 fi
 
 failed=0
-for entry in "${runs[@]}"; do
-  IFS='|' read -r name dir vars <<<"$entry"
-  [ -n "${ONLY:-}" ] && [[ " $ONLY " != *" $dir "* && " $ONLY " != *" $name "* ]] && continue
+for it in "${all[@]}"; do
+  IFS='|' read -r name dir vars _ <<<"$it"
   teleport_home
   start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-  if env $vars bash "$S/$dir/run.sh" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; fi
+  if eval "env $vars bash \"$S/$dir/run.sh\"" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; fi
   breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"
   printf '%-32s %s  %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
 done

@@ -119,6 +119,35 @@ A run that logged a coupler break (an error on either peer) is flagged with `[N 
 temp directory, printed at the end). `DVMP` points at the CLI (default
 `DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe`).
 
+**Parallel runs.** `PAIRS` starts several host+client pairs (dvmp sessions) and every pair takes
+runs from one queue until it's empty ([design](design/parallel-test-sessions.md#parallel-gate-runner)).
+`PAIRS=3` is three player-host pairs (`p1`..`p3`); `PAIRS="p:2 d:1"` is two player-host pairs
+and one dedicated-host pair (`d1`, started with `dvmp up --dedicated`). `REPEAT=N` queues every
+run N times.
+
+`RUNS` replaces the gate's list with your own, as a file or as lines separated by `;`, so one
+invocation can mix runs that used to need separate ones:
+
+```bash
+PAIRS="p:2 d:1" RUNS=batch.txt bash DevTools/Scenarios/gate.sh
+```
+
+```text
+# batch.txt: one run per line
+*                                  every run of the gate's list
+derail                             a run of the gate's list, by name
+jobs ACCEPT=client HANDIN=host     a scenario with exactly these variables
+host-actions @dedicated            only on a dedicated-host pair (@player, @dedicated, @any)
+jobs-reverse: jobs ACCEPT=client   "label:" names the run in the logs and summary
+cab-controls LOCOS="LocoS282A LocoDE6"
+```
+
+A run marked `@kind` only goes to that kind of pair, and the gate refuses to start if `PAIRS` has
+none. Other runs go to player-host pairs, or to any pair when there are only dedicated ones. The
+gate's `dedicated-admin` prefers a dedicated pair. The runs in `EXCLUSIVE` (frame timing, and the
+ones that write saves) run alone at the end, each on the first pair that fits it with every other
+pair down.
+
 **Identity by SteamID** ([design/server-player-split.md](design/server-player-split.md#identity)):
 - Hosts verify each player's Steam auth ticket. The harness runs a host player and a client on one
   Steam account, which would give them the same ID.
@@ -129,8 +158,8 @@ temp directory, printed at the end). `DVMP` points at the CLI (default
   client can log in verified as the owner on the one account. A refused ticket needs a second
   account.
 
-`UP_ARGS=--dedicated` (with `PAIRS`) runs the scenarios against dedicated hosts
-([design/dedicated-host.md](design/dedicated-host.md)). Only the client-driven ones mean anything
+Dedicated-host pairs (`PAIRS=d:N`, or the older `UP_ARGS=--dedicated` with `PAIRS=N`) run the
+scenarios against dedicated hosts ([design/dedicated-host.md](design/dedicated-host.md)). Only the client-driven ones mean anything
 there, for example `cab-controls manual-uncouple lost-and-found shop rejoin car-fire`. A dedicated
 host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 `borrowed-disconnect` don't apply.

@@ -180,19 +180,43 @@ default session, and set `SaveGameManager.Instance.disableAutosave = true` on ha
 
 ### Parallel gate runner
 
-`gate.sh` gains `PAIRS=N` (sessions `p1..pN`) and `REPEAT=N`, and keeps `ONLY=`. With `PAIRS`
+`gate.sh` gains `PAIRS`, `REPEAT=N` and `RUNS`, and keeps `ONLY=`. With `PAIRS` and `REPEAT`
 unset, today's serial run is unchanged.
 
-1. Start every pair (`dvmp up --session pK`) in the background, and wait. The launch lock
-   staggers mod loading.
-2. Expand the runs times `REPEAT` into `name#k` items. Each pair runs a worker that claims the
-   next item with an atomic `mkdir "$LOG_DIR/.claim/<item>"` and resets the player positions. It
-   then runs the scenario under `timeout`, and writes `$LOG_DIR/<name>#<k>.<session>.log` and a
-   one-line result.
-3. If a pair is unhealthy after a run (no world loaded), its worker runs `dvmp up` to recover it.
-4. Exclusive phase: run the tagged runs on `p1` after dropping the other pairs to 5 fps
-   (`HarnessMode.FpsCap` and `BackgroundFpsCap` via eval).
-5. Summary per run name: passes out of repeats, average and maximum duration, which pair, and
+**One queue for every kind of run.** A batch used to need separate invocations: the gate's list
+on N pairs, then a scenario with other variables (`jobs ACCEPT=client HANDIN=host`) on one pair,
+then the dedicated-host runs with `UP_ARGS=--dedicated`. Each phase waited for the slowest pair
+of the one before. Now all of it is one queue:
+
+- `PAIRS` declares pairs by kind: `PAIRS="p:2 d:1"` is player-host sessions `p1`, `p2` and a
+  dedicated-host session `d1` (`dvmp up --dedicated`). A plain count (`PAIRS=3`) is player hosts,
+  or dedicated ones with the older `UP_ARGS=--dedicated`.
+- `RUNS` (a file, or lines separated by `;`) lists the runs instead of the gate's own list. Each
+  line is a gate run name, or a scenario with its variables, plus an optional kind and label:
+  `jobs ACCEPT=client HANDIN=host`, `host-actions @dedicated`, `rev: jobs ACCEPT=client`. `*`
+  is the gate's whole list. Every entry carries its own variables, so the same scenario can be
+  queued several ways in one invocation. Labels default to the scenario plus `[VAR=value,...]`
+  and `@kind`, or the gate's run name when the variables match one.
+- A worker only claims entries that fit its pair. `@kind` is a requirement (the gate exits
+  before starting anything if no pair has that kind); otherwise runs go to player hosts, or to
+  any pair when there are none. The gate's own list marks `dedicated-admin` as preferring a
+  dedicated host.
+
+The steps:
+
+1. Start every pair (`dvmp up --session <s>`, plus `--dedicated` for `d` pairs) in the
+   background, and wait. The launch lock staggers mod loading.
+2. Expand the runs times `REPEAT`; labels that appear more than once become `name#k`. Each pair
+   runs a worker that claims the next entry that fits its pair with an atomic
+   `mkdir "$LOG_DIR/.queue/claim/<entry>"`, resets the player positions, runs the scenario and
+   writes `$LOG_DIR/<label>.<session>.log` and a one-line result.
+3. If a pair is unhealthy after a run (no world loaded), its worker runs `dvmp up` (with the
+   pair's kind) to recover it.
+4. A worker with nothing left to claim takes its pair down if exclusive runs follow and it
+   isn't the pair that runs them, so the pairs still busy get its CPU and memory.
+5. Exclusive phase: each exclusive run goes to the first pair that fits it, with every other pair
+   down; a pair that was taken down comes back up for it.
+6. Summary per run label: passes out of repeats, average and maximum duration, which pair, and
    the first FAIL line. Exit non-zero on any failure, and print `$LOG_DIR`.
 
 `ONLY=x REPEAT=N PAIRS=N` is the "same scenario on every pair at once" mode. A `dvmp gate`
