@@ -18,6 +18,8 @@
 #   only goes to that kind of pair; other runs prefer player hosts, or take any pair when there
 #   are none. REPEAT=N: each run N times (ONLY=host-stall REPEAT=6 PAIRS=3 hunts an
 #   intermittent bug). EXCLUSIVE= overrides which scenarios run alone at the end.
+#   Runs start longest first, from their last passing durations in $DURATIONS (default
+#   %LOCALAPPDATA%\dvmp\durations, a file per run); runs with none yet start first.
 #   UP_ARGS: extra `dvmp up` arguments for every pair it starts. UP_ARGS=--dedicated still
 #   works: it makes a plain PAIRS=N count dedicated pairs (docs/design/dedicated-host.md).
 [ -n "${RUNS:-}" ] && [ -f "$RUNS" ] && RUNS=$(cat "$RUNS")   # read before the cd: a path relative to the caller
@@ -219,6 +221,21 @@ if [ -n "$parallel" ]; then
     if [[ " $EXCLUSIVE " == *" $dir "* || " $EXCLUSIVE " == *" ${label%%#*} "* ]]; then exclusive+=("$label|$dir|$vars|$kind"); else items+=("$label|$dir|$vars|$kind"); fi
   done
   [ ${#missing[@]} -eq 0 ] || { echo "no pair of the kind these runs need: ${missing[*]} (PAIRS=\"$PAIRS\"; e.g. PAIRS=\"p:2 d:1\")"; exit 2; }
+  # Longest first, so a long run never starts last while the other pairs sit idle. Each run's
+  # last 5 passing durations are kept in $DURATIONS/<run name>; runs with none yet go first.
+  if [ -z "${DURATIONS:-}" ]; then
+    if [ -n "${LOCALAPPDATA:-}" ] && command -v cygpath >/dev/null; then DURATIONS=$(cygpath -u "$LOCALAPPDATA")/dvmp/durations
+    else DURATIONS=${LOCALAPPDATA:-$HOME/.cache}/dvmp/durations; fi
+  fi
+  estimate() { [ -s "$DURATIONS/${1%%#*}" ] && awk '{ s += $1; n++ } END { if (n) printf "%d", s / n }' "$DURATIONS/${1%%#*}"; }
+  longest_first() { # entries on stdin, the same out in the order to run them
+    local e i=0
+    while IFS= read -r e; do printf '%s\t%s\t%s\n' "$(estimate "${e%%|*}" || echo 999999)" $((i++)) "$e"; done |
+      sort -t$'\t' -k1,1nr -k2,2n | cut -f3-
+  }
+  [ ${#items[@]} -gt 0 ] && mapfile -t items < <(printf '%s\n' "${items[@]}" | longest_first)
+  [ ${#exclusive[@]} -gt 0 ] && mapfile -t exclusive < <(printf '%s\n' "${exclusive[@]}" | longest_first)
+  unknown=0; for e in "${items[@]}" "${exclusive[@]}"; do estimate "${e%%|*}" >/dev/null || unknown=$((unknown + 1)); done
   # The pairs that run the exclusive runs; every other pair goes down once the queue has
   # nothing left for it, so the pairs still busy get its CPU and memory.
   keep=" "
@@ -252,7 +269,7 @@ if [ -n "$parallel" ]; then
     done
     [ ${#exclusive[@]} -gt 0 ] && [[ $keep != *" $session "* ]] && DVMP_SESSION=$session $DVMP down >/dev/null 2>&1
   }
-  echo "== starting ${#pairs[@]} pair(s) (${pairs[*]%%|*}): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive"
+  echo "== starting ${#pairs[@]} pair(s) (${pairs[*]%%|*}): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive, longest first ($unknown with no recorded duration)"
   for p in "${pairs[@]}"; do s=${p%%|*}; DVMP_SESSION=$s $DVMP up $(up_args "${p#*|}") >"$LOG_DIR/up-$s.log" 2>&1 & done
   wait
   for p in "${pairs[@]}"; do
@@ -266,6 +283,12 @@ if [ -n "$parallel" ]; then
     for p in "${pairs[@]}"; do [ "${p%%|*}" = "$s" ] || DVMP_SESSION=${p%%|*} $DVMP down >/dev/null 2>&1; done
     healthy "$s" || DVMP_SESSION=$s $DVMP up $(up_args "$(kind_of "$s")") >/dev/null 2>&1
     run_one "$label" "$dir" "$vars" "$s"
+  done
+  mkdir -p "$DURATIONS"
+  for f in "$Q"/result/*; do
+    [ -f "$f" ] || continue
+    IFS='|' read -r label r secs _ <"$f"; [ "$r" = PASS ] || continue
+    d="$DURATIONS/${label%%#*}"; { [ -f "$d" ] && tail -n 4 "$d"; echo "$secs"; } >"$d.tmp" && mv "$d.tmp" "$d"
   done
   echo; echo "== summary"
   cat "$Q"/result/* 2>/dev/null | node -e '

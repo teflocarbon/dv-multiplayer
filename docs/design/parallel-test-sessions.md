@@ -225,7 +225,11 @@ The steps:
 
 1. Start every pair (`dvmp up --session <s>`, plus `--dedicated` for `d` pairs) in the
    background, and wait. The launch lock staggers mod loading.
-2. Expand the runs times `REPEAT`; labels that appear more than once become `name#k`. Each pair
+2. Expand the runs times `REPEAT`; labels that appear more than once become `name#k`. Order them
+   longest first by the average of each run's last 5 passing durations, which the gate keeps in
+   `%LOCALAPPDATA%\dvmp\durations\<run label>` (written from the `.queue/result` lines at the end
+   of each gate); runs with no duration yet go first. With the longest runs started early, the
+   pairs finish close together instead of one pair running a long scenario alone. Each pair
    runs a worker that claims the next entry that fits its pair with an atomic
    `mkdir "$LOG_DIR/.queue/claim/<entry>"`, resets the player positions, runs the scenario and
    writes `$LOG_DIR/<label>.<session>.log` and a one-line result.

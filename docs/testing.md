@@ -142,6 +142,10 @@ jobs-reverse: jobs ACCEPT=client   "label:" names the run in the logs and summar
 cab-controls LOCOS="LocoS282A LocoDE6"
 ```
 
+Runs start longest first, so a long one never starts last while the other pairs sit idle. The gate
+keeps each run's last 5 passing durations in `%LOCALAPPDATA%\dvmp\durations\<run>` (`DURATIONS`
+overrides the folder); runs with none recorded yet start first.
+
 A run marked `@kind` only goes to that kind of pair, and the gate refuses to start if `PAIRS` has
 none. Other runs go to player-host pairs, or to any pair when there are only dedicated ones. The
 gate's `dedicated-admin` prefers a dedicated pair. The frame-timing runs in `EXCLUSIVE` (`fps-drop`,
