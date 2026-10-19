@@ -291,6 +291,26 @@ public sealed class TrainPortPresenter
     /// change: <c>NetworkedTrainCar.Common_OnPortUpdated</c> ignores it, as it does a packet's.</summary>
     internal static bool Writing { get; private set; }
 
+    /// <summary>Writes the host's value to a port now, as the playout does: not taken for the local
+    /// player's change.</summary>
+    public static void ShowHostValue(Port port, float value)
+    {
+        if (port.Value == value)
+            return;
+        Writing = true;
+        try
+        {
+            if (port.type == PortType.EXTERNAL_IN)
+                port.ExternalValueUpdate(value);
+            else
+                port.Value = value;
+        }
+        finally
+        {
+            Writing = false;
+        }
+    }
+
     private static PlayoutBlend BlendOf(PortValueType type) => type switch
     {
         // Typed STATE are many continuous values too (a bell's, a dynamo's or cylinder cocks'

@@ -26,6 +26,10 @@ public enum UnleasedChange
     /// be catching up. Look again later.</summary>
     Settling,
     Send,
+    /// <summary>Differs from the host's value, but this player can't make the change: out of reach
+    /// of the car, or another player holds the control. Not sent, so the control goes back to the
+    /// host's value: left as it is, it would show only on this game, for good (#159).</summary>
+    PutBack,
 }
 
 /// <summary>
@@ -87,18 +91,20 @@ public sealed class ControlPortWriters<TPort>
 
     /// <summary>
     /// Whether a client sends a change to a control nobody took the lease of (a VR valve, a cab
-    /// window, an oiling point: they don't all raise Grabbed or Used). Feedback is told apart by
-    /// its value: once settled it's what the host last sent.
+    /// window, an oiling point: they don't all raise Grabbed or Used), or puts it back. Feedback
+    /// is told apart by its value: once settled it's what the host last sent.
     /// </summary>
     /// <param name="hostValue">The port's value as the host last had it; null if never heard.</param>
     /// <param name="secondsSinceHostValue">Since the host last updated the port; null if never.</param>
     public UnleasedChange Unleased(TPort port, bool blocked, bool playerCanTouch, float value, float? hostValue,
         float? secondsSinceHostValue, float tolerance, float settleSeconds)
     {
-        if (!ClientReports(port) || blocked || !playerCanTouch || hostValue == null)
+        if (!ClientReports(port) || hostValue == null)
             return UnleasedChange.No;
         if (System.Math.Abs(value - hostValue.Value) <= tolerance)
             return UnleasedChange.No;
+        if (blocked || !playerCanTouch)
+            return UnleasedChange.PutBack;
         if (secondsSinceHostValue != null && secondsSinceHostValue.Value < settleSeconds)
             return UnleasedChange.Settling;
         return UnleasedChange.Send;
