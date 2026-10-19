@@ -5,7 +5,9 @@
 #     place. Both peers end up offering the same jobs.
 #  2. The client boards a car of another offered job and WHO bins that job's overview: the paper
 #     flies back up out of the bin and lands at the same spot on both peers, and the job, its
-#     overview and its cars stay.
+#     overview and its cars stay. With WHO=client the client lets go of the paper on the car and
+#     it's recorded in the car's interior before it lands in the bin (the server takes it out of
+#     the interior first, or the throw was lost).
 #   WHO=client|host  STATION=FM
 # Exit code 0 = pass. Needs a running pair (dvmp up); on a dedicated host only WHO=client applies.
 set -euo pipefail
@@ -72,7 +74,7 @@ echo "   $(echo "$p" | field jobId) (job $job, overview $(echo "$p" | field over
 [ "$WHO" = client ] && $D eval -t client -m coroutine --timeout 30 -u "$U" -a item=$(echo "$p" | field overview) 'yield return Hands.Pickup(ushort.Parse(ctx.Args["item"]));' >/dev/null
 $D eval -t client -m coroutine --timeout 60 -a car=$car 'yield return Trains.Board(Trains.Find(ctx.Args["car"]));' >/dev/null || fail "the client couldn't board $car"
 sleep 1
-b=$($D eval -t $WHO -m coroutine --timeout 60 -u "$U" -a job=$job -f $P/bin.cs)
+b=$($D eval -t $WHO -m coroutine --timeout 60 -u "$U" -a job=$job -a settle=$([ $WHO = client ] && echo 1 || echo 0) -f $P/bin.cs)
 echo "   went in $(echo "$b" | field wentIn), paper gone $(echo "$b" | field gone), flew $(echo "$b" | field flewUp) m up, landed $(echo "$b" | field fromBin) m from the bin"
 # (the host's own request is handled in-process: its paper can be thrown out the frame it reaches the bin)
 [ "$(echo "$b" | field gone)" = false ] || fail "the paper was taken: the job was re-rolled with a player on its car"

@@ -42,8 +42,6 @@ public static class JobReroll
     private const float ThrowInterval = 1f;
     // How long to wait for the paper's drop to arrive before throwing it out of a hand anyway.
     private const float ReleaseWait = 1.5f;
-    // How long a paper taken out of a car's interior lies on the bin before it's thrown.
-    private const float InterestSettleWait = 1f;
 
     private static readonly Dictionary<ushort, float> lastThrowAt = [];
 
@@ -159,19 +157,7 @@ public static class JobReroll
         Vector3 outwards = towardsPlayer.sqrMagnitude > 0.01f ? towardsPlayer.normalized : bin.transform.forward;
         Vector3 velocity = outwards * ThrowOutwards + Vector3.up * ThrowUpwards;
 
-        // Let go on a car, the paper is recorded in the car's interior. Moved from there into the
-        // world, its players' interest drops it and takes it up again, created at rest where it then
-        // is: the flight was lost. Put it in the world first, and throw it once that has settled.
-        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record lying) &&
-            lying.Placement is ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent)
-        {
-            if (!MoveOutOfBin(item, requester, ItemState.Dropped, start, Vector3.zero, refusal))
-                yield break;
-            yield return new WaitForSecondsRealtime(InterestSettleWait);
-            if (item == null)
-                yield break;
-        }
-        if (!MoveOutOfBin(item, requester, ItemState.Thrown, start, velocity, refusal) ||
+        if (!ThrowOutOfBin(item, requester, start, velocity, refusal) ||
             requester != NetworkLifecycle.Instance.Server.LocalPlayer)
             yield break;
 
@@ -196,15 +182,15 @@ public static class JobReroll
         }
     }
 
-    // The server puts the paper in the world just above the bin, dropped or thrown (at velocity).
-    // The player who binned it is the transition's actor, so their game gets its physics lease.
-    private static bool MoveOutOfBin(NetworkedItem item, ServerPlayer requester, ItemState state, Vector3 start,
-        Vector3 velocity, string refusal)
+    // The server throws the paper from just above the bin. The player who binned it is the
+    // transition's actor, so their game gets its physics lease and flies it.
+    private static bool ThrowOutOfBin(NetworkedItem item, ServerPlayer requester, Vector3 start, Vector3 velocity,
+        string refusal)
     {
         ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
         if (snapshot == null)
             return false;
-        snapshot.ItemState = state;
+        snapshot.ItemState = ItemState.Thrown;
         snapshot.PlayerId = 0;
         snapshot.ItemPosition = start - WorldMover.currentMove;
         // GrabHandlerItem.Throw applies this as a force for one physics step.
@@ -224,8 +210,12 @@ public static class JobReroll
             return false;
         }
         AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, ItemTransitionReason.JobRerollRefused);
-        snapshot.ItemState = state;
+        snapshot.ItemState = ItemState.Thrown;
         item.ApplyServerCanonicalSnapshot(snapshot);
+        // Index it in its world cell now. A paper let go on a car was recorded in the car's
+        // interior; moved into the world, it was in no cell until its flight was sampled, so every
+        // player's interest dropped it and took it up again created at rest: the throw was lost.
+        ServerItemManager.Instance?.RegisterHostWorldItem(item);
         NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
         return true;
     }

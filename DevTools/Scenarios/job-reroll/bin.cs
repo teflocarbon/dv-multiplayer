@@ -20,6 +20,10 @@ if (Hands.Held == null || Hands.Held.NetId != netId)
 for (int i = 0; i < 10; i++) yield return null;
 yield return Hands.Drop();
 Hands.ReleaseControl();
+// settle=1: let the drop reach the server first, so a paper let go on a car is recorded in the
+// car's interior when it lands in the bin.
+if (ctx.Args.TryGetValue("settle", out var settle) && settle == "1")
+    yield return new WaitForSeconds(1.5f);
 // Let go on a car, the paper is the car's (DV parents it to the car the player stands on); one
 // that really flew to the bin would have left the car on the way. Put it in the world.
 item.ParentToWorld();
