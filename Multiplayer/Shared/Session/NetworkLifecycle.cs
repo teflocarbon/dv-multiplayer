@@ -53,6 +53,9 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     /// <summary>The server as the host's own player reaches it, in-process; null when this game isn't the server.</summary>
     public ILocalServer LocalServer => Server;
 
+    /// <summary>The player at this keyboard: id and the other players' avatars; null when no client is running.</summary>
+    public ILocalPlayerSession LocalSession => Client;
+
     public bool IsReturningToMenu { get; private set; } = false;
 
     private PlayerListGUI playerList;
