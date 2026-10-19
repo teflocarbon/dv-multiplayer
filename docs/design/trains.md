@@ -107,11 +107,39 @@ A `Used` lease is handed back 0.5 s later, once the change has been sent. Fuses,
 brake-cylinder release have their own packets. #73 was the DE2's wipers, fan and lights never
 syncing from clients, and every button and switch a VR client pressed being dropped.
 
-Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and the car-body
-controls, which aren't hooked at all (cab windows, doors, oiling points). A client sends a change
-to one of those that nobody holds the lease on (`Client_UnleasedChange`): the port differs from the
-host's last value by more than 0.02, and that value isn't still settling (1.5 s after the host set
-it; a change in that window waits and goes if it still differs).
+The controls on the car body are hooked the same way when its external interactables load
+(`HookExternalControls`, from `ExternalInteractableLoaded`; an exploded loco's come through the same
+event), and unhooked when they unload. They load near the car, while the cab loads only once a
+player is on it, and never on a dedicated server. There are more of them than the name suggests
+(the prefabs, 2026-10-19): doors, windows, hatches and curtains on most cars, but also the S282's,
+S060's, FEF-3's, S464's and S484's compressor valve, dynamo, lubricator and oiling-point doors, the
+DE6's starter and primer, the 2901's bell, blowdown, cylinder cocks and dynamo, the S484's mars
+light, and a handcar's handle. Handbrake feeders are left to the handbrake sync. Unhooked, a grab on
+one took no lease, so its change went only as an unleased one (below), after the settle window,
+and nothing stopped another game's copy writing the port: a handcar never moved, since the host's
+own `HandcarBarController` wrote the handle as let go every frame. A control in the cab's controls
+manager as well (a handcar's handle) is hooked once. A handcar handle's lease also covers
+`ENGAGED_EXT_IN`, which its `HandcarBarController` writes. Several controls can feed one port (an
+FEF-3's two lubricator buttons): a lease blocks them all.
+
+A few vanilla controllers write a control's port every frame from their own game's input, whoever
+is using the control: `WhistleRopeController` (the rope's tension, into its dummy lever) and
+`HandcarBarController` (whether the handle is held). Every game runs them, so while a player on
+another game uses the control, this game's write it back as let go. The rule: such a writer is off
+while another player holds the lease on a port it writes (`LocalInputWriters`, toggled in
+`Client_ReceiveAuthorityUpdate`; the host gets the lease updates too). Other controllers write only
+on their own game's input, which a lease covers, or from the car's own state (`TractionPortsFeeder`,
+`BoilerSimController`'s boiler angle, `DamageController`'s health ports), which are local values and
+not a player's. One more of the first kind isn't a port: `HandcarHandbrakeController` springs a
+handcar's handbrake off every frame unless its own game's player holds it, on every game. Handbrakes
+take no lease, so the host's copy undoes a client holding it; it would need the same rule, keyed on
+the handbrake sync.
+
+Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and controls nothing
+hooks (a Custom Car Loader car's, say). A client sends a change to one of those that nobody holds
+the lease on (`Client_UnleasedChange`): the port differs from the host's last value by more than
+0.02, and that value isn't still settling (1.5 s after the host set it; a change in that window
+waits and goes if it still differs).
 
 Only ports a player drives go that way. Being typed CONTROL isn't enough: DV and mods set several
 CONTROL ports from the simulation, usually from a control's own port (`horn.HORN` from the horn
@@ -726,11 +754,15 @@ checked against the live S282, FEF-3/S464, DE2 and DE6 graphs on 2026-10-19):
 | Sanders, `sander.SAND_FLOW`, `SAND_COEF` (`Sander`) | the sander control, sand left, a fuse | Yes, without taking the sand (the host's) |
 | Reverser readout, `reverser.REVERSER` (`Reverser`) | the reverser control | Yes, `Tick` |
 | Smoothed controls: `GenericControl`, `SmoothedOutput` (`cabFan.OUTPUT`, `lubricatorControlSmoothing.OUTPUT`) | their control, a fuse | Yes, `Tick` |
+| A handcar's crank, `handcarDrive.CURRENT_POSITION` and `DIRECTION` (`HandcarDrive`) | the wheel RPM (the client's own traction feeder), the gear ratio, and where the crank was | Moved on from the wheel RPM every frame, turning at the ends, and eased toward the host's position brought forward by its age (its tick's distance behind the clock, plus half the ping). Replaces PR #91's `HandcarCrankSmoothingPatch`. Making the crank follow the player's hand instead was tried: it took away the resistance you pump against and the car stopped |
 | Lamps (`LampLogic`) | a control or a readout | Already local: they update on a port change, not on `Tick` |
 | Blowdown, `boiler.BLOWDOWN_FLOW_NORMALIZED` | the blowdown control, the vessel's pressure and water | Could be: `Boiler` reads its vessel, not the `PRESSURE` port. Played out for now |
 | Injector, `boiler.INJECTOR_FLOW_NORMALIZED` | the injector control, gated on tender water, a broken boiler and a full one | Could be, with a gate the client can't fully see. Played out for now |
 | Cylinder cocks, `steamEngine.CYLINDER_COCK_FLOW_NORMALIZED` | the control times the cylinders' admission pressure, internal to the engine | No: the host's |
-| Engine RPM, amps, traction, boiler and brake pressures, temperatures, water level, exhaust and chuffs, crank rotation, safety valve, compressor production, fuel, oil, sand and water levels, damage, the handcar's `CURRENT_POSITION` | the host's simulation | No: played out |
+| Engine RPM, amps, traction, boiler and brake pressures, temperatures, water level, exhaust and chuffs, crank rotation, safety valve, compressor production, fuel, oil, sand and water levels, damage | the host's simulation | No: played out |
+
+All of it runs once a frame before the car's simulation controllers (`SimControllerUpdatePatch`, a
+prefix on `SimController.Update`), so a `HandcarController` draws the crank predicted that frame.
 
 **Playout, for everyone else.** Every other output port the host sends (typed `READONLY_OUT` or
 `OUT`, and not a control a player drives) is stamped with the host's tick and shown a little
@@ -770,10 +802,9 @@ behind the newest value, interpolated between ticks (`PlayoutTrack`, Multiplayer
   steps unevenly on the host itself). Playout on observers makes those outputs continuous, not
   even. Evening them out would need the host to play remote players' continuous controls out on
   the sender's tick, a delay of a tick or two on that player's physics.
-- The handcar's crank (`HandcarCrankSmoothingPatch`, PR #91, not on this base) eases toward the
-  host's `CURRENT_POSITION` assuming it is about 80 ms old. Played out, an observer's is older by the
-  car's delay: when both are in, the patch should lead by `PlayoutClock` and the car's delay
-  instead of a constant, or that port should be left out of the playout.
+- Ports a client's own game writes every frame (`TractionPortsFeeder`'s speed and wheel RPM,
+  `BoilerSimController`'s boiler angle) are `EXTERNAL_IN`, so the playout leaves them alone, but the
+  host also sends them and the two writers alternate (PR #92 stops that for the traction ports).
 
 Settings (advanced): `Smooth Train Readouts`, `Max Readout Delay (ms)` and `Predict Train Sounds`,
 all read live, for comparing with and without in a game.

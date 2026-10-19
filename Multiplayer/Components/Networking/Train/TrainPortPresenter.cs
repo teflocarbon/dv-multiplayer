@@ -20,9 +20,9 @@ namespace Multiplayer.Components.Networking.Train;
 /// <list type="bullet">
 /// <item>Prediction. While the local player is driving the car's train, the outputs that are a
 /// function of controls and slowly changing host state (whistle, horn, bells, dynamo, sanders,
-/// smoothed controls, the reverser's readout) are worked out here every frame, so a pull on the
-/// whistle cord sounds at once, tapering as it does on the host. The host's values for them are
-/// kept but not shown.</item>
+/// smoothed controls, the reverser's readout, a handcar's crank) are worked out here every frame,
+/// so a pull on the whistle cord sounds at once, tapering as it does on the host. The host's values
+/// for them are kept but not shown.</item>
 /// <item>Playout. Every other output the host sends is stamped with the host's tick and shown a
 /// little behind the newest, interpolated between ticks, so it moves smoothly rather than in
 /// uneven steps. The delay is sized from the jitter measured on arrivals (<see cref="PlayoutClock"/>)
@@ -162,6 +162,69 @@ public sealed class TrainPortPresenter
         }
     }
 
+    /// <summary>
+    /// A handcar's crank, which HandcarDrive.Tick moves on from the wheels' RPM and turns at the
+    /// ends. The host's position arrives 24 times a second, late: a VR player pumping against a
+    /// crank drawn at it fell out of rhythm, each stroke's torque cancelled the last, and the
+    /// handcar barely moved. Here it moves on every frame from the wheel RPM (which the client's own
+    /// traction feeder writes), and eases toward the host's position brought forward by its age.
+    /// The host still decides the torque and the motion. Making the crank follow the player's hand
+    /// instead was tried: it took away the resistance you pump against, and the car stopped moving.
+    /// </summary>
+    private sealed class HandcarCrankPredictor : Predictor
+    {
+        // Per second, toward the host's position.
+        private const float CORRECTION_RATE = 4f;
+        // Further off than this (a resync, a rerail) and the crank jumps to the host's position.
+        private const float SNAP_DISTANCE = 0.6f;
+        // Near the ends the two can be either side of a turn; elsewhere the host's direction stands.
+        private const float DIRECTION_TRUST_LIMIT = 0.7f;
+
+        private readonly TrainPortPresenter presenter;
+        private readonly HandcarDrive drive;
+        private float position;
+        private int direction = 1;
+
+        public HandcarCrankPredictor(TrainPortPresenter presenter, HandcarDrive drive)
+        {
+            this.presenter = presenter;
+            this.drive = drive;
+            Owned.Add(drive.currentPositionOut);
+            Owned.Add(drive.directionOut);
+        }
+
+        public override void Activate()
+        {
+            position = drive.currentPositionOut.Value;
+            direction = drive.directionOut.Value > 0f ? 1 : -1;
+        }
+
+        public override void Tick(float delta)
+        {
+            float rate = drive.wheelRpm.Value / 60f * drive.gearRatio.Value;
+            position += rate * direction * delta;
+            if (position >= 1f || position <= -1f)
+                direction = -direction;
+            position = Mathf.Clamp(position, -1f, 1f);
+
+            if (presenter.TryGetHostLatest(drive.currentPositionOut, out float host, out double age) &&
+                presenter.TryGetHostLatest(drive.directionOut, out float hostDirectionValue, out _))
+            {
+                int hostDirection = hostDirectionValue > 0f ? 1 : -1;
+                if (Mathf.Abs(host) < DIRECTION_TRUST_LIMIT && Mathf.Abs(position) < DIRECTION_TRUST_LIMIT)
+                    direction = hostDirection;
+                float target = Mathf.Clamp(host + rate * hostDirection * (float)age, -1f, 1f);
+                if (Mathf.Abs(target - position) > SNAP_DISTANCE)
+                    position = target;
+                else
+                    position += (target - position) * Mathf.Min(1f, CORRECTION_RATE * delta);
+            }
+
+            drive.directionOut.Value = direction;
+            drive.currentPositionOut.Value = position;
+        }
+    }
+
     private readonly NetworkedTrainCar car;
     private readonly SimulationFlow flow;
     private readonly Dictionary<Port, Track> tracks = [];
@@ -195,6 +258,7 @@ public sealed class TrainPortPresenter
                 }),
                 SteamExhaust exhaust => new WhistlePredictor(exhaust),
                 Sander sander => new SanderPredictor(sander),
+                HandcarDrive drive => new HandcarCrankPredictor(this, drive),
                 _ => null
             };
             if (predictor == null)
@@ -274,8 +338,23 @@ public sealed class TrainPortPresenter
         active.Add(track);
     }
 
-    /// <summary>Called at the start of each of the car's simulation ticks on a client.</summary>
-    public static void OnFlowTick(SimulationFlow flow, float delta)
+    /// <summary>The host's newest value for a port, and how old it is now in seconds: its
+    /// tick's distance behind the host's ticks arriving now, plus half the ping for the trip.</summary>
+    private bool TryGetHostLatest(Port port, out float value, out double ageSeconds)
+    {
+        value = 0f;
+        ageSeconds = 0;
+        if (!tracks.TryGetValue(port, out Track track) || track.Values.IsEmpty || !Clock.Started)
+            return false;
+        value = track.Values.Latest;
+        float pingMs = NetworkLifecycle.Instance?.Client?.Ping ?? 0;
+        ageSeconds = Math.Max(0, (Clock.HostTickAt(Now) - track.Values.LatestTick) * TICK_SECONDS) + pingMs / 2000.0;
+        return true;
+    }
+
+    /// <summary>Called once a frame for each car on a client, before its simulation controllers
+    /// (a handcar's crank drawing) and its simulation's tick.</summary>
+    public static void OnSimUpdate(SimulationFlow flow, float delta)
     {
         if (!byFlow.TryGetValue(flow, out TrainPortPresenter presenter))
             return;
