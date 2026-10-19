@@ -27,8 +27,12 @@ f=$($D eval -t host -m body -u "$U" -a op=find -f $P/station.cs)
 X=$(echo "$f" | field x); Z=$(echo "$f" | field z)
 A="-a station=$(echo "$f" | field station) -a plug=$(echo "$f" | field plug) -a resource=$(echo "$f" | field resource)"
 echo "station $(echo "$f" | field name): plug $(echo "$f" | field plug), lever for resource $(echo "$f" | field resource)"
-$D eval -t host -m coroutine --timeout 60 "yield return LocalPlayer.TeleportToGround(${X}f + 3f, ${Z}f + 3f);" >/dev/null
-$D eval -t client -m coroutine --timeout 60 "yield return LocalPlayer.TeleportToGround(${X}f - 3f, ${Z}f + 3f);" >/dev/null
+# The one who acts stands at the plug: the server only lets a player within reach (4 m) pick it up,
+# measured from where that player last said it was.
+if [ "$WHO" = host ]; then HX=1; HZ=1; CX=-3; CZ=3; else HX=-3; HZ=3; CX=1; CZ=1; fi
+$D eval -t host -m coroutine --timeout 60 "yield return LocalPlayer.TeleportToGround(${X}f + ${HX}f, ${Z}f + ${HZ}f);" >/dev/null
+$D eval -t client -m coroutine --timeout 60 "yield return LocalPlayer.TeleportToGround(${X}f + ${CX}f, ${Z}f + ${CZ}f);" >/dev/null
+sleep 2
 state() { $D eval -t $1 -m body -u "$U" -a op=${2:-state} $A ${3:-} -f $P/station.cs; }
 # the client gets the station's state when it comes into range
 for i in $(seq 1 30); do [ "$(state client | field refreshed)" = true ] && break; sleep 1; done
