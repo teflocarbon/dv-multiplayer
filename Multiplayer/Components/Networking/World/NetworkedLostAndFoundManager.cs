@@ -402,7 +402,9 @@ public static class NetworkedLostAndFoundManager
 
     public static void ApplyClientSnapshot(uint newGeneration, LostItemData[] items)
     {
-        generation = newGeneration;
+        // On the host this counter is the server's own; a snapshot it was sent can be older.
+        if (!NetworkLifecycle.Instance.IsHost())
+            generation = newGeneration;
         clientItems.Clear();
         if (items != null)
             clientItems.AddRange(items.Where(item => item != null));
