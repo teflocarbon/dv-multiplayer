@@ -172,6 +172,8 @@ public class Watchdog
                 ServerMods.Refresh(options.GameDir, options.ServerDir, Say);
                 StartGame();
                 DateTime started = DateTime.Now;
+                // StartGame deleted the old heartbeat, so the first one written is this game's.
+                DateTime lastBeat = started;
                 bool restart = false;
                 bool userStop = false;
                 while (!game.HasExited)
@@ -202,8 +204,13 @@ public class Watchdog
                     Heartbeat beat = Heartbeat.Read(heartbeat);
                     if (beat != null)
                         Beat?.Invoke(beat);
-                    double age = File.Exists(heartbeat) ? (DateTime.Now - File.GetLastWriteTime(heartbeat)).TotalSeconds : double.MaxValue;
-                    bool grace = (DateTime.Now - started).TotalSeconds < options.StartupSeconds && beat == null;
+                    // Aged from the last write seen, not the file now: the mod swaps the file in with
+                    // File.Replace, and mid-swap it can look missing, which is not a hang.
+                    DateTime written = File.GetLastWriteTime(heartbeat);
+                    if (written.Year > 2000 && written > lastBeat)
+                        lastBeat = written;
+                    double age = (DateTime.Now - lastBeat).TotalSeconds;
+                    bool grace = (DateTime.Now - started).TotalSeconds < options.StartupSeconds && lastBeat <= started;
                     if (!grace && age > options.StaleSeconds)
                     {
                         Say($"the heartbeat is {age:N0} s old; the game looks hung, killing it");

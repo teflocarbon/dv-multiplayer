@@ -270,6 +270,8 @@ try {
         if (-not $SharedMods) { Initialize-ServerDir }
         $game = Start-Game
         $started = Get-Date
+        # Start-Game deleted the old heartbeat, so the first one written is this game's.
+        $lastBeat = $started
         $restart = $false
         while (-not $game.HasExited) {
             # Keys and the log every quarter second, the heartbeat every 5.
@@ -280,8 +282,12 @@ try {
             }
             if ($game.HasExited) { break }
             $beat = Read-Heartbeat
-            $age = if (Test-Path $heartbeat) { ((Get-Date) - (Get-Item $heartbeat).LastWriteTime).TotalSeconds } else { [double]::MaxValue }
-            $grace = ((Get-Date) - $started).TotalSeconds -lt $StartupSeconds -and -not $beat
+            # Aged from the last write seen, not the file now: the mod swaps the file in with
+            # File.Replace, and mid-swap it can look missing, which is not a hang.
+            $written = [System.IO.File]::GetLastWriteTime($heartbeat)
+            if ($written.Year -gt 2000 -and $written -gt $lastBeat) { $lastBeat = $written }
+            $age = ((Get-Date) - $lastBeat).TotalSeconds
+            $grace = ((Get-Date) - $started).TotalSeconds -lt $StartupSeconds -and $lastBeat -le $started
             if (-not $grace -and $age -gt $StaleSeconds) {
                 Say ("the heartbeat is {0:N0} s old; the game looks hung, killing it" -f $age)
                 $game.Kill()
