@@ -202,6 +202,23 @@ type-to-type reference. The test fails on a new violation and on an allow-list l
 happens (so the list only shrinks). The list's length is the measure of how far the split has to
 go, and moving to assemblies is mechanical once it's empty.
 
+Built as `Multiplayer.Protocol.Tests/CodeLayoutTests.cs`, two tests:
+
+- **`EveryFileIsInARoleFolderWithItsNamespace`** reads the source: every file under
+  `Multiplayer/` is in `Shared/`, `Server/`, `Client/` or `Menus/` (or is `Multiplayer.cs`,
+  `Settings.cs` or `Locale.cs` at the root) and declares the namespace of its folder.
+- **`RolesOnlyReferenceWhatTheyMay`** reads the built DLL: base types, interfaces, fields,
+  properties, events, method signatures, locals, every type, method and field an instruction
+  names, and `typeof` in attributes, each counted against the outermost type. Server ↛ Client,
+  Client ↛ Server, Shared ↛ either, and nothing but the root and `Menus` ↛ `Menus`. The root
+  namespace may be referenced by anything for now (it moves into Shared when the entry point is
+  split from the logging and settings it holds).
+
+The allow-list is `Multiplayer.Protocol.Tests/CodeLayout/role-references.allowed.txt`. After a
+split removes references, delete their lines, or rewrite the file with
+`MULTIPLAYER_WRITE_ROLE_ALLOWLIST=1 dotnet test Multiplayer.Protocol.Tests` and check the diff
+only removes lines. Both tests run in CI's required "Build and protocol tests" job.
+
 ## Steps
 
 1. **Land what's in flight.** The release branch and the open fix branches; a namespace move
@@ -263,4 +280,9 @@ Steps 2-3 are mechanical and change no behaviour; the regression gate on one pai
     radio) are in `Client/`; [host-local-session](host-local-session.md) stage 2 splits them.
   Two files had no namespace and now do (`PacketCompression`, `ServerBrowserClient`, which is
   entirely commented out), and nine declared one that didn't match their folder.
-- Step 3's second half (the boundary test) and steps 4-5: not started.
+- **Step 3's second half, the checks: built** (see [The boundary test](#the-boundary-test)). The
+  allow-list starts at 146 references: Shared → Server 80, Shared → Client 31, Client → Server
+  13, Server → Client 7, and 15 into `Menus` from elsewhere. The most come from
+  `NetworkLifecycle`, `NetworkedItemManager`, `NetworkedItem`, `NetworkClient` and
+  `NetworkedTrainCar`.
+- Steps 4-5: not started.
