@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.19.4 (beta)
+
+2026.10.19.3 plus one VR fix. Every player and the server need this version.
+
+### VR
+- A lighter can always be flicked open and shut again, and a wallet keeps dropping coins. Putting one away during its short flick cooldown used to jam it for good.
+
 ## 2026.10.19.3 (beta)
 
 A playtest build: one fix, unlimited flashlight batteries, and logging to explain the next "train came apart". Every player and the server need this version. None of it has been tested in a game yet.
