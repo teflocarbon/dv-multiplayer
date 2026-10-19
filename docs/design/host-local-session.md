@@ -234,6 +234,8 @@ The shared pieces (built, on `split/client-server`):
 |---|---|---|
 | `LocalRequestQueue<TPlayer>` | `Multiplayer.Core/Session/` (tested) | Handlers per request type; requests queued in order and handled at the server's poll; a handler that throws doesn't stop the rest; no player, nothing handled |
 | `ILocalServer.Submit(request)` | `Shared/Session/ILocalServer.cs`, reached as `NetworkLifecycle.Instance.LocalServer` | How Shared and Client code hand a request to the server without referencing it. Null when this game isn't the server |
+| `ILocalPlayerSession` | `Shared/Session/ILocalPlayerSession.cs`, reached as `NetworkLifecycle.Instance.LocalSession` | The player at this keyboard for Shared code: its id and the other players' avatars. `NetworkClient` implements it now; the host's local session will in stage 3 |
+| Area interfaces | `Shared/<Area>/I<Area>Server.cs`, `I<Area>Client.cs` | When an area needs more, it declares its own interface, implemented by its partial `NetworkServer.<Area>.cs` / `NetworkClient.<Area>.cs` and read with `LocalServer as I<Area>Server` / `LocalSession as I<Area>Client` |
 | `NetworkServer.LocalPlayer`, `HandleLocal<T>`, the drain | `Server/Session/NetworkServer.LocalPlayer.cs` | The host's `ServerPlayer`; registering an in-process handler; draining the queue after each `PollEvents` |
 | `NetworkServer.ApplyingRemoteChange()` | the same file | Scope for the server applying another player's change; `NetworkLifecycle.IsProcessingPacket` is true inside it, so existing echo checks hold |
 | The send hook | `NetworkClient.SendPacketToServer` | Offers every request to `LocalServer.Submit` first: once the server handles a type in-process, every host call site for it goes direct, with no change at the call site |

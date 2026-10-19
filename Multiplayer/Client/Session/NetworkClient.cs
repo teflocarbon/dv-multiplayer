@@ -69,7 +69,7 @@ using Object = UnityEngine.Object;
 
 namespace Multiplayer.Client.Session;
 
-public partial class NetworkClient : NetworkManager
+public partial class NetworkClient : NetworkManager, ILocalPlayerSession
 {
     public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
     public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
@@ -143,6 +143,8 @@ public partial class NetworkClient : NetworkManager
     public string DisplayName => string.IsNullOrEmpty(CrewName) ? Username : $"[{CrewName}] {Username}";
 
     public readonly ClientPlayerManager ClientPlayerManager;
+    IReadOnlyCollection<NetworkedPlayer> ILocalPlayerSession.RemotePlayers => ClientPlayerManager.Players;
+    bool ILocalPlayerSession.TryGetRemotePlayer(byte playerId, out NetworkedPlayer player) => ClientPlayerManager.TryGetPlayer(playerId, out player);
     public readonly Dictionary<byte, ClientPlayerWrapper> PlayerWrapperCache = [];
     public IReadOnlyCollection<ClientPlayerWrapper> ClientPlayerWrappers => PlayerWrapperCache.Values;
 
