@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.World;
 
 namespace Multiplayer.Patches.World;
@@ -14,13 +15,13 @@ public static class HazmatTileManagerPatch
 {
     [HarmonyPrefix]
     [HarmonyPatch(nameof(HazmatTileManager.EvolveLiquidCellularAutomaton))]
-    private static bool EvolveLiquidCellularAutomaton() => !HazmatSync.IsClient;
+    private static bool EvolveLiquidCellularAutomaton() => !NetworkRole.IsRemoteClient;
 
     [HarmonyPrefix]
     [HarmonyPatch(nameof(HazmatTileManager.UpdateTileLiquidContentExternal))]
     private static bool UpdateTileLiquidContentExternal(HazmatTileManager __instance)
     {
-        if (!HazmatSync.IsClient)
+        if (!NetworkRole.IsRemoteClient)
             return true;
         // Leaks on this game feed the host's tiles there; drop the local copy.
         __instance.tileLiquidAmountToBeAddedDictionary.Clear();
@@ -32,7 +33,7 @@ public static class HazmatTileManagerPatch
     [HarmonyPatch(nameof(HazmatTileManager.PrepareReaction))]
     private static bool PrepareReaction(HazmatTileManager __instance)
     {
-        if (!HazmatSync.IsClient)
+        if (!NetworkRole.IsRemoteClient)
             return true;
         __instance.explosionEpicenters.Clear();
         return false;
@@ -43,7 +44,7 @@ public static class HazmatTileManagerPatch
     [HarmonyPatch(nameof(HazmatTileManager.ProcessReaction))]
     private static bool ProcessReaction(HazmatTileManager __instance)
     {
-        if (!HazmatSync.IsClient)
+        if (!NetworkRole.IsRemoteClient)
             return true;
         __instance.reactionTimer = 0f;
         return false;
@@ -53,7 +54,7 @@ public static class HazmatTileManagerPatch
     [HarmonyPatch(nameof(HazmatTileManager.IgniteTerrainTile))]
     private static bool IgniteTerrainTile(HazmatGridTile tile, float ignitionStrength, ref bool __result)
     {
-        if (!HazmatSync.IsClient || HazmatSync.ApplyingHostTiles)
+        if (!NetworkRole.IsRemoteClient || HazmatSync.ApplyingHostTiles)
             return true;
         HazmatSync.Client_ForwardIgnite(tile, ignitionStrength);
         __result = false;

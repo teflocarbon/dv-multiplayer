@@ -46,9 +46,6 @@ public static class HazmatSync
         }
     }
 
-    public static bool IsClient =>
-        NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsClientRunning && !NetworkLifecycle.Instance.IsHost();
-
     public static void Reset()
     {
         lastSent.Clear();

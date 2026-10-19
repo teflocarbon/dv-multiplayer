@@ -65,8 +65,16 @@ The planned target is to separate the server from its players fully: the host's 
 stored and restored by GUID like everyone else's, and the world kept loaded around every player.
 See [design/server-player-split.md](design/server-player-split.md).
 
-Use `NetworkLifecycle.Instance.IsHost()` for "am I the host" checks. Server-side code must
-validate through `ServerPlayer`, never through the client's own idea of who it is.
+To ask what this game is, use `NetworkRole` (`Components/Networking/NetworkRole.cs`):
+
+- `IsServer`: this game is the authority (a player host, a dedicated host, or single player). The
+  same as `NetworkLifecycle.Instance.IsHost()`, which most code still calls.
+- `IsRemoteClient`: this game plays on another game's server. Never true on a host, even though
+  the host runs a client of its own.
+- `HasLocalPlayer`: someone plays at this keyboard (a client, or a host that isn't dedicated).
+
+Server-side code must validate through `ServerPlayer`, never through the client's own idea of who
+it is.
 
 ### The host's own client
 

@@ -21,9 +21,6 @@ public static class CommsRadioCargoLoaderPatch
     private static readonly AccessTools.FieldRef<CommsRadioCargoLoader, CargoType_v2> SelectedCargoType =
         AccessTools.FieldRefAccess<CommsRadioCargoLoader, CargoType_v2>("selectedCargoType");
 
-    private static bool IsClient =>
-        NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsClientRunning && !NetworkLifecycle.Instance.IsHost();
-
     [HarmonyPrefix]
     [HarmonyPatch("LoadPointedCar")]
     private static bool LoadPointedCar(CommsRadioCargoLoader __instance) => RequestFromHost(__instance, load: true);
@@ -34,7 +31,7 @@ public static class CommsRadioCargoLoaderPatch
 
     private static bool RequestFromHost(CommsRadioCargoLoader loader, bool load)
     {
-        if (!IsClient)
+        if (!NetworkRole.IsRemoteClient)
             return true;
         TrainCar car = PointedCar(loader);
         if (car == null || !car.TryNetworked(out NetworkedTrainCar networkedCar))

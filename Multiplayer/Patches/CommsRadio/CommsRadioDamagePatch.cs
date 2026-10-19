@@ -16,12 +16,9 @@ namespace Multiplayer.Patches.CommsRadio;
 [HarmonyPatch(typeof(CommsRadioDamage), nameof(CommsRadioDamage.OnUse))]
 public static class CommsRadioDamagePatch
 {
-    private static bool IsClient =>
-        NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsClientRunning && !NetworkLifecycle.Instance.IsHost();
-
     private static bool Prefix(CommsRadioDamage __instance)
     {
-        if (!IsClient || __instance.opMode == CommsRadioDamage.OperationMode.Activation)
+        if (!NetworkRole.IsRemoteClient || __instance.opMode == CommsRadioDamage.OperationMode.Activation)
             return true;
         TrainCar car = __instance.pointedCar;
         if (car == null)

@@ -27,9 +27,6 @@ public static class ExplosionSync
     // Set while a client plays an explosion the host sent.
     internal static bool ApplyingHostExplosion;
 
-    internal static bool IsClient =>
-        NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsClientRunning && !NetworkLifecycle.Instance.IsHost();
-
     private static bool IsHostWithPlayers =>
         NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.Server != null;
 
@@ -102,7 +99,7 @@ public static class ExplosionSync
 public static class TrainCarExplosionForcePatch
 {
     // Clients never push, damage or derail trains with an explosion; the host does.
-    private static bool Prefix() => !ExplosionSync.IsClient;
+    private static bool Prefix() => !NetworkRole.IsRemoteClient;
 }
 
 [HarmonyPatch(typeof(CargoReactionBase), nameof(CargoReactionBase.ExplodeCargo))]
@@ -113,7 +110,7 @@ public static class CargoReactionExplodePatch
 
     private static bool Prefix(CargoReactionBase __instance)
     {
-        if (!ExplosionSync.IsClient || ExplosionSync.ApplyingHostExplosion)
+        if (!NetworkRole.IsRemoteClient || ExplosionSync.ApplyingHostExplosion)
             return true;
         // The client's own countdown ran out; the host's decides. Stop counting here.
         AboutToExplode(__instance) = false;
@@ -144,7 +141,7 @@ public static class CargoExplosionAudioPatch
 [HarmonyPatch(typeof(ResourceExplosionBase), nameof(ResourceExplosionBase.ExplodeResource))]
 public static class ResourceExplosionPatch
 {
-    private static bool Prefix() => !ExplosionSync.IsClient || ExplosionSync.ApplyingHostExplosion;
+    private static bool Prefix() => !NetworkRole.IsRemoteClient || ExplosionSync.ApplyingHostExplosion;
 
     private static void Postfix(ResourceExplosionBase __instance) =>
         ExplosionSync.HostExploded(__instance, ExplosionSync.Kind.Resource);
@@ -153,7 +150,7 @@ public static class ResourceExplosionPatch
 [HarmonyPatch(typeof(ExplosionActivationOnSignal), "OnExplosionSignalChanged")]
 public static class ExplosionActivationOnSignalPatch
 {
-    private static bool Prefix() => !ExplosionSync.IsClient || ExplosionSync.ApplyingHostExplosion;
+    private static bool Prefix() => !NetworkRole.IsRemoteClient || ExplosionSync.ApplyingHostExplosion;
 
     private static void Postfix(ExplosionActivationOnSignal __instance, float explosionSignal)
     {
