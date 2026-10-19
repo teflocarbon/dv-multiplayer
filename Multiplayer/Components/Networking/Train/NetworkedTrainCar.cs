@@ -2119,6 +2119,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             return;
         if (float.IsNaN(port.prevValue) && float.IsNaN(port.Value))
             return;
+        // The local player moved one of the train's controls: predict from this frame on, not
+        // from when the next tick sends it (TrainPortPresenter).
+        if (!NetworkLifecycle.Instance.IsHost())
+            client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         bool hasLastSent = lastSentPortValues.TryGetValue(portNetId, out float lastSentValue);
         float delta = Mathf.Abs(lastSentValue - port.Value);
