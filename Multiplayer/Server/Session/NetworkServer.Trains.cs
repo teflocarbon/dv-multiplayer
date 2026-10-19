@@ -34,6 +34,17 @@ namespace Multiplayer.Server.Session;
 // NetworkServer's trains handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkServer
 {
+    private ulong hostControlOperationId;
+
+    partial void RegisterLocalTrains()
+    {
+        // Lever authority is ordered with the control commits it guards (ReliableOrdered on
+        // loopback). The host's commits are made directly (CommitHostControls), so a release,
+        // queued after flushing its last commit, still follows it; and a grant needs no order
+        // with them, since the host's commits take no lease.
+        HandleLocal<ServerboundTrainControlAuthorityPacket>(HandleTrainControlAuthority);
+    }
+
     private void HoldForTrainBaseline(ServerPlayer player, NetDataWriter writer, DeliveryMethod deliveryMethod,
         PlayerLoadingState minimumLoadState)
     {
@@ -506,7 +517,8 @@ public partial class NetworkServer
         {
             try
             {
-                if (!NetworkLifecycle.Instance.IsHost(player))
+                // The commit below carries it: the host's own release event isn't a second one.
+                using (ApplyingRemoteChange())
                     car.TrainCar.brakeSystem.ReleaseBrakeCylinderPressure();
                 if (!car.TrainCar.brakeSystem.controlReservoirPressureReleased)
                     result = TrainControlCommitResult.InvalidValue;
@@ -530,8 +542,7 @@ public partial class NetworkServer
             ? TrainControlCommitResult.InvalidValue
             : ValidateControlEnvelope(player, car, packet.ExpectedRevision,
                 packet.OperationId, requireLease: false, null, skipRangeCheck: packet.ViaRemote);
-        if (result == TrainControlCommitResult.Accepted &&
-            !NetworkLifecycle.Instance.IsHost(player))
+        if (result == TrainControlCommitResult.Accepted)
         {
             car.TrainCar.brakeSystem.SetHandbrakePosition(Mathf.Clamp01(packet.Position));
             car.Common_OnRemoteHandbrakeChange();
@@ -635,8 +646,7 @@ public partial class NetworkServer
             ? ValidateControlEnvelope(player, networkedTrainCar, packet.ExpectedRevision,
                 packet.OperationId, requireLease: true, packet.PortIds)
             : TrainControlCommitResult.InvalidValue;
-        if (result == TrainControlCommitResult.Accepted &&
-            !NetworkLifecycle.Instance.IsHost(player))
+        if (result == TrainControlCommitResult.Accepted)
         {
             if (!networkedTrainCar.Server_ValidateClientSimFlowPacket(player, packet))
                 result = TrainControlCommitResult.AuthorityDenied;
@@ -648,22 +658,54 @@ public partial class NetworkServer
             result = TrainControlCommitResult.UnknownControl;
         ClientboundTrainControlCommitPacket commit = ControlCommit(networkedTrainCar,
             packet.OperationId, result, packet.PortIds, acceptedValues);
-        // The host's own values are from the tick its simulation read them, which its local
-        // client's packet carries: it reaches here a frame or so later, unevenly. A player's are
-        // the host's from now.
-        if (NetworkLifecycle.Instance.IsHost(player) && packet.Tick != 0)
-            commit.Tick = packet.Tick;
         SendControlCommit(commit, peer);
     }
 
     private void OnServerboundTrainControlAuthorityPacket(ServerboundTrainControlAuthorityPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleTrainControlAuthority(packet, player);
+    }
+
+    // Taking or releasing a lever: a player's request, the host's player's too (in-process, see
+    // RegisterLocalTrains), validated the same way.
+    private void HandleTrainControlAuthority(ServerboundTrainControlAuthorityPacket packet, ServerPlayer player)
+    {
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
-        networkedTrainCar.Server_ReceiveAuthorityRequest(packet.PortNetId, player, packet.RequestAuthority);
+        networkedTrainCar.Server_ReceiveAuthorityRequest(packet.PortNetId, player, packet.RequestAuthority,
+            CurrentWorldPosition(player));
+    }
+
+    // Where a player is now. The host's own player is read from its game: its position packets
+    // reach the server a poll or more late, which could put it out of range of a lever it's at.
+    private Vector3 CurrentWorldPosition(ServerPlayer player) =>
+        player == LocalPlayer && PlayerManager.PlayerTransform != null
+            ? PlayerManager.PlayerTransform.position
+            : player.WorldPosition;
+
+    /// <summary>
+    ///     The host's own simulation: its changed ports, fuses and handbrake, or a brake-cylinder
+    ///     release, committed with the values it read this tick and broadcast. Not a player's
+    ///     request, so there's no lease, range or operation check, and nothing to apply: they came
+    ///     from the server's world. The host player's levers are part of that world; what keeps
+    ///     the host off a lever someone else holds is the lease, which blocks it in the host's cab.
+    /// </summary>
+    public void CommitHostControls(NetworkedTrainCar car, uint[] portIds = null, float[] portValues = null,
+        uint[] fuseIds = null, bool[] fuseValues = null, bool handbrake = false,
+        bool brakeCylinderReleased = false)
+    {
+        if (car?.TrainCar == null || car.NetId == 0)
+            return;
+        // No player's operation (player ids start at 1), but not 0 either: clients tell a
+        // committed handbrake change from a join's state by its operation.
+        ulong operationId = ++hostControlOperationId & 0x00FFFFFFFFFFFFFFUL;
+        if (operationId == 0)
+            operationId = ++hostControlOperationId & 0x00FFFFFFFFFFFFFFUL;
+        SendControlCommit(ControlCommit(car, operationId, TrainControlCommitResult.Accepted,
+            portIds, portValues, fuseIds, fuseValues, includesHandbrake: handbrake,
+            brakeCylinderReleased: brakeCylinderReleased), requester: null);
     }
 
     private void OnCommonTrainFusesPacket(CommonTrainFusesPacket packet, ITransportPeer peer)
@@ -678,7 +720,7 @@ public partial class NetworkServer
             ? ValidateControlEnvelope(player, car, packet.ExpectedRevision,
                 packet.OperationId, requireLease: false, null)
             : TrainControlCommitResult.InvalidValue;
-        if (result == TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost(player))
+        if (result == TrainControlCommitResult.Accepted)
             car.Common_UpdateFuses(packet);
         if (!car.TryCaptureFuseValues(packet.FuseIds ?? Array.Empty<uint>(), out bool[] acceptedValues))
             result = TrainControlCommitResult.UnknownControl;
@@ -693,7 +735,7 @@ public partial class NetworkServer
     {
         if (player == null || car?.TrainCar == null)
             return TrainControlCommitResult.UnknownControl;
-        if (!skipRangeCheck && !NetworkLifecycle.Instance.IsHost(player) &&
+        if (!skipRangeCheck &&
             (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
             return TrainControlCommitResult.OutOfRange;
         if (requireLease && !car.Server_MayWritePorts(player, portIds))

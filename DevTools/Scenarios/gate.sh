@@ -35,6 +35,7 @@ runs=( # name | scenario | variables
   "car-pool-reuse|car-pool-reuse|"
   "car-delete|car-delete|"
   "cab-controls|cab-controls|"
+  "cab-controls-authority|cab-controls|MODE=authority"
   "settle-window|settle-window|"
   "compressor-signal|compressor-signal|"
   "stoker-coal|stoker-coal|"

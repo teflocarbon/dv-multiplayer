@@ -1390,8 +1390,6 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     {
         if (player == null)
             return false;
-        if (NetworkLifecycle.Instance.IsHost(player))
-            return true;
         return portNetIds != null && portNetIds.All(portNetId =>
             !portAuthority.TryGetValue(portNetId, out ServerPlayer owner) || owner == null || owner == player);
     }
@@ -1799,7 +1797,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         return true;
     }
 
-    public void Server_ReceiveAuthorityRequest(uint portNetId, ServerPlayer player, bool requestAuthority)
+    public void Server_ReceiveAuthorityRequest(uint portNetId, ServerPlayer player, bool requestAuthority,
+        Vector3 playerPosition)
     {
         using IDisposable debugScope = DebugTrace.BeginApply("train", "train.authority-apply", DebugRuntimeSide.Server, "Control/Port", $"{NetId}:{portNetId}",
             () => DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, playerId = player?.PlayerId, requestAuthority }));
@@ -1809,7 +1808,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         {
             if (currentAuth == null)
             {
-                if ((player.WorldPosition - transform.position).sqrMagnitude > CarLengthSq)
+                if ((playerPosition - transform.position).sqrMagnitude > CarLengthSq)
                 {
                     DebugTrace.Validation("train", "Control/Port", $"{NetId}:{portNetId}", false, "sender-out-of-range", DebugRuntimeSide.Server);
                     NetworkLifecycle.Instance.Server.LogWarning($"Player \"{player.Username}\" attempted to gain authority for a control on car {CurrentID}, but they are too far away!");
@@ -1990,12 +1989,16 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             return;
 
         handbrakeDirty = false;
+        if (NetworkLifecycle.Instance.IsHost())
+        {
+            NetworkLifecycle.Instance.Server.CommitHostControls(this, handbrake: true);
+            lastHandbrakeSentAt = Time.realtimeSinceStartup;
+            return;
+        }
         if (!viaRemote && !Client_LocalPlayerCanTouch())
             return; // simulation noise (e.g. set during load), not a player action
-        ulong operationId = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
+        client_pendingHandbrakeOperation = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
         lastHandbrakeSentAt = Time.realtimeSinceStartup;
-        if (!NetworkLifecycle.Instance.IsHost())
-            client_pendingHandbrakeOperation = operationId;
     }
 
     public void Common_DirtyPorts(uint[] portNetIds)
@@ -2102,10 +2105,16 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             i++;
         }
 
+        // The host's are its simulation's (its player's levers included): committed with this
+        // tick's values, as read above.
+        if (NetworkLifecycle.Instance.IsHost())
+        {
+            NetworkLifecycle.Instance.Server.CommitHostControls(this, portIds, portValues);
+            return;
+        }
         ulong operationId = NetworkLifecycle.Instance.Client.SendPorts(NetId, portIds, portValues);
-        if (!NetworkLifecycle.Instance.IsHost())
-            foreach (uint portNetId in portIds)
-                client_pendingPortOperations[portNetId] = operationId;
+        foreach (uint portNetId in portIds)
+            client_pendingPortOperations[portNetId] = operationId;
     }
 
     // A control the player changed without anything taking its lease: a valve, lever or cylinder
@@ -2200,13 +2209,16 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         dirtyFuses.Clear();
-        if (!NetworkLifecycle.Instance.IsHost())
-            client_lastLocalControlAt = Time.realtimeSinceStartup;
+        if (NetworkLifecycle.Instance.IsHost())
+        {
+            NetworkLifecycle.Instance.Server.CommitHostControls(this, fuseIds: fuseIds, fuseValues: fuseValues);
+            return;
+        }
+        client_lastLocalControlAt = Time.realtimeSinceStartup;
 
         ulong operationId = NetworkLifecycle.Instance.Client.SendFuses(NetId, fuseIds, fuseValues);
-        if (!NetworkLifecycle.Instance.IsHost())
-            foreach (uint fuseNetId in fuseIds)
-                client_pendingFuseOperations[fuseNetId] = operationId;
+        foreach (uint fuseNetId in fuseIds)
+            client_pendingFuseOperations[fuseNetId] = operationId;
     }
 
     private void Common_SendPaintThemes()
@@ -2243,7 +2255,12 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     {
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return;
-        NetworkLifecycle.Instance.Client.SendBrakeCylinderReleased(NetId);
+        // Vanilla raises this before it sets the release, and clears it at the next brake update,
+        // so the host commits it now: checked at the server's next poll, it could be gone already.
+        if (NetworkLifecycle.Instance.IsHost())
+            NetworkLifecycle.Instance.Server.CommitHostControls(this, brakeCylinderReleased: true);
+        else
+            NetworkLifecycle.Instance.Client.SendBrakeCylinderReleased(NetId);
     }
 
     private void Common_OnPortUpdated(Port port, uint portNetId)
