@@ -10,6 +10,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
+# A failed eval says so, rather than ending the run silently under set -e.
+dvmp_bin=$D; D=dvmp_checked
+dvmp_checked() { local out; if ! out=$("$dvmp_bin" "$@"); then echo "FAIL: dvmp ${*:1:3} failed: ${out:-no output}" >&2; return 1; fi; printf '%s\n' "$out"; }
 P=DevTools/Scenarios/pit-stop
 WHO=${WHO:-client}
 [ "$WHO" = host ] && OTHER=client || OTHER=host
@@ -17,21 +20,28 @@ U="using Multiplayer.Shared.Stations;"
 fail() { echo "FAIL: $*"; exit 1; }
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 
-if [ "$WHO" = host ] && [ "$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = true ]; then
+DEDICATED=$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsDedicatedHost };' | field d)
+if [ "$WHO" = host ] && [ "$DEDICATED" = true ]; then
   echo "SKIP: a dedicated host has no player to act"; exit 0
 fi
+# A dedicated host's parked body stays where it is: the station is kept loaded on the host while a
+# player is near it.
+move() { # peer x z (C# float expressions)
+  [ "$1" = host ] && [ "$DEDICATED" = true ] && return 0
+  $D eval -t $1 -m coroutine --timeout 60 "yield return LocalPlayer.TeleportToGround($2, $3);" >/dev/null
+}
 
 # the service station at the shop scenario's station, (13421, 3618)
-$D eval -t host -m coroutine --timeout 60 'yield return LocalPlayer.TeleportToGround(13424f, 3622f);' >/dev/null
-f=$($D eval -t host -m body -u "$U" -a op=find -f $P/station.cs)
+move client 13421f 3618f; move host 13424f 3622f; sleep 3
+f=$($D eval -t host -m body -u "$U" -a op=find -a x=13421 -a z=3618 -f $P/station.cs)
 X=$(echo "$f" | field x); Z=$(echo "$f" | field z)
 A="-a station=$(echo "$f" | field station) -a plug=$(echo "$f" | field plug) -a resource=$(echo "$f" | field resource)"
 echo "station $(echo "$f" | field name): plug $(echo "$f" | field plug), lever for resource $(echo "$f" | field resource)"
 # The one who acts stands at the plug: the server only lets a player within reach (4 m) pick it up,
 # measured from where that player last said it was.
 if [ "$WHO" = host ]; then HX=1; HZ=1; CX=-3; CZ=3; else HX=-3; HZ=3; CX=1; CZ=1; fi
-$D eval -t host -m coroutine --timeout 60 "yield return LocalPlayer.TeleportToGround(${X}f + ${HX}f, ${Z}f + ${HZ}f);" >/dev/null
-$D eval -t client -m coroutine --timeout 60 "yield return LocalPlayer.TeleportToGround(${X}f + ${CX}f, ${Z}f + ${CZ}f);" >/dev/null
+move host "${X}f + ${HX}f" "${Z}f + ${HZ}f"
+move client "${X}f + ${CX}f" "${Z}f + ${CZ}f"
 sleep 2
 state() { $D eval -t $1 -m body -u "$U" -a op=${2:-state} $A ${3:-} -f $P/station.cs; }
 # the client gets the station's state when it comes into range
