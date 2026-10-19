@@ -59,16 +59,24 @@ namespace Dvmp.Lib
                     new List<bool> { false, false }, preventAutoCoupleOnLastCars: true,
                     applyHandbrakeOnLastCars: false, playerSpawnedCars: true);
                 if (cars != null && cars.Count > 0)
+                {
+                    // Both braked: vanilla's spawn couples a consist only if its couplers are still
+                    // touching half a second on, and on a grade the tender rolled away first (13 m in
+                    // a run), out of reach of the auto-couplers too.
+                    foreach (TrainCar car in cars)
+                        if (car.brakeSystem != null && car.brakeSystem.hasHandbrake)
+                            car.brakeSystem.SetHandbrakePosition(1f);
                     return cars.First(c => c.carLivery == livery);
+                }
             }
             throw new InvalidOperationException("no room to spawn " + liveryId + " and its tender near the player");
         }
 
         /// <summary>Host only: waits for a loco from <see cref="SpawnWithTenderNearPlayer"/> to be coupled
-        /// to its tender (its own auto-coupler does it a few seconds after the spawn), coupling the
-        /// nearest pair of their couplers within 3 m itself if it hasn't after
-        /// <paramref name="waitSeconds"/>. Throws, with every coupler gap, if they still aren't.</summary>
-        public static IEnumerator CoupleTender(TrainCar loco, float waitSeconds = 8f)
+        /// to its tender (vanilla couples a spawned consist half a second on), coupling the nearest pair of
+        /// their couplers within 3 m itself if it hasn't after <paramref name="waitSeconds"/>, before
+        /// anything can drift. Throws, with every coupler gap, if they still aren't.</summary>
+        public static IEnumerator CoupleTender(TrainCar loco, float waitSeconds = 1.5f)
         {
             var tender = TenderOf(loco.carLivery);
             if (tender == null)
