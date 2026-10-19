@@ -82,6 +82,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "host-actions-host|host-actions|WHO=host"
   "pit-stop|pit-stop|"
   "pit-stop-host|pit-stop|WHO=host"
+  "host-register-empty-basket|host-register-empty-basket|"
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
   "overview-pickup|overview-pickup|"

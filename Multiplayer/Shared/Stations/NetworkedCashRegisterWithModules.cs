@@ -235,7 +235,9 @@ public class NetworkedCashRegisterWithModules : IdMonoBehaviour<ushort, Networke
 
                 CashRegister?.OnUnitsToBuyChanged();
 
-                CashRegister.DepositedCash = 0;
+                // The server's deposited cash, which a refusal doesn't touch: setting 0 here emptied
+                // this game's register while the server's (and everyone else's) kept the cash.
+                CashRegister.DepositedCash = amount;
                 CashRegister?.OnDepositedUpdated();
 
                 CashRegister?.buyAudio?.Play(CashRegister.transform.position, 1f, 1f, 0f, 1f, 500f, default, null, CashRegister.transform, false, 0f, null);

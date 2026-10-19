@@ -35,7 +35,11 @@ public class CashRegisterWithModulesPatch
         var sqrMag = (player - reg).sqrMagnitude;
         Multiplayer.LogDebug(() => $"CashRegisterWithModules.OnBuyPressed() player pos: {player} register pos: {reg}, sqrMag: {sqrMag}");
         if (NetworkLifecycle.Instance.IsHost())
+        {
+            hostPressedBuy = true;
+            hostBuyHappened = false;
             return true;
+        }
 
         if (!NetworkedCashRegisterWithModules.TryGet(__instance, out var netCashRegister))
         {
@@ -51,11 +55,31 @@ public class CashRegisterWithModulesPatch
         return false;
     }
 
+    // The host's own press of Buy: vanilla refuses an empty basket or too little cash, and only a
+    // buy that happened may go to the clients. Replaying a refused one emptied their register's
+    // basket and deposited cash while the host kept both.
+    private static bool hostPressedBuy;
+    private static bool hostBuyHappened;
+
+    [HarmonyPostfix]
+    [HarmonyPatch(nameof(CashRegisterWithModules.Buy))]
+    private static void Buy_Postfix(bool __result)
+    {
+        if (hostPressedBuy)
+            hostBuyHappened = __result;
+    }
+
     [HarmonyPostfix]
     [HarmonyPatch(nameof(CashRegisterWithModules.OnBuyPressed))]
     private static void OnBuyPressed_Postfix(CashRegisterWithModules __instance)
     {
         if (!NetworkLifecycle.Instance.IsHost())
+            return;
+
+        bool happened = hostBuyHappened;
+        hostPressedBuy = false;
+        hostBuyHappened = false;
+        if (!happened)
             return;
 
         if (!NetworkedCashRegisterWithModules.TryGet(__instance, out var netCashRegister))
