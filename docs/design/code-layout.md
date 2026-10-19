@@ -9,16 +9,16 @@
 > client, which is the biggest thing tying server code to client code today. This doc is about
 > where the code lives.
 >
-> Counts and line numbers are from `beta` at `b2f9a915` (2026-10-19).
+> Counts and line numbers are from `beta` at `6da65843` (2026-10-19).
 
 ## Why
 
-- **Nobody can tell what runs where.** `NetworkedTrainCar` is 3,305 lines with 30 `Server_`, 33
-  `Client_` and 19 `Common_` methods in one class. `IsHost()` is called about 290 times in 101
-  files, 55 of them Harmony patches, and in most of them the role is a branch in the middle of a
+- **Nobody can tell what runs where.** `NetworkedTrainCar` is 3,411 lines with 31 `Server_`, 34
+  `Client_` and 19 `Common_` methods in one class. `IsHost()` is called about 300 times in 107
+  files, 59 of them Harmony patches, and in most of them the role is a branch in the middle of a
   method.
 - **The roles leak into each other.** The server's own identity is the client's player id
-  (`NetworkServer.SelfId`, `Networking/Managers/Server/NetworkServer.cs:114`). "Am I applying a
+  (`NetworkServer.SelfId`, `Networking/Managers/Server/NetworkServer.cs:118`). "Am I applying a
   remote change" is the client's flag even on the server (`NetworkLifecycle.IsProcessingPacket`,
   `Components/Networking/NetworkLifecycle.cs:45`). The bug of 2026-10-19 (the host following its
   own topology snapshot) came from exactly that: server state flowing through client code.
@@ -71,33 +71,32 @@ for no behaviour. Keep it, and say what it is in its own README and in
 
 | Folder | What |
 |---|---|
-| `Items/` (21 files) | Item authority state machine, adoption, Lost and Found rules, essential claim slots, belt items, release sync, inventory claims and presentation, snapshot application and wire projection, spatial stream validation, train-item wake planning, page books, storage transitions |
+| `Items/` (22 files) | Item authority state machine, adoption, change reasons, Lost and Found rules, essential claim slots, belt items, release sync, inventory claims and presentation, snapshot application and wire projection, spatial stream validation, train-item wake planning, page books, storage transitions |
 | `Containers/` | Cold-container graph and its save codec |
 | `Identity/` | NetId allocation |
 | `Replication/` | Interest membership |
-| `Trains/` | Train topology model, baseline receipt, control-port writers, playout clock, delay and track |
+| `Trains/` | Train topology model, baseline receipt, control-port writers, playout clock, delay and track, change reasons, handcar pumpers, the unused-car delete policy |
 | `Jobs/` | Job booklet issuance |
 | `Collections/` | Pending-snapshot queue and its drain planner |
-
-`fix/uncouple-logging` adds `Diagnostics/ChangeCause` and `Trains/TrainChangeReasons`.
+| `Diagnostics/` | `ChangeCause`: why something changed, shared by trains and items |
 
 All of it has tests in `Multiplayer.Core.Tests`. Moving more decisions here, out of the big
 components, is the other half of making them small.
 
 ## What `Multiplayer` holds today
 
-460 files, 65,800 lines. A first pass sorted each file by whether it refers to server things
+471 files, 67,500 lines. A first pass sorted each file by whether it refers to server things
 (`NetworkLifecycle.Instance.Server`, `Server_` methods, `ServerPlayer`, `NetworkServer`) or client
 things (`NetworkLifecycle.Instance.Client`, `Client_` methods, `NetworkClient`,
 `ClientPlayerManager`), and whether it branches on the role:
 
 | Pass | Files | Lines | Meaning |
 |---|---|---|---|
-| Neither, no role branch | 301 | 22,200 | Mostly Shared (122 of them are packets) or the mod's front end |
-| Server only | 52 | 13,200 | Server, give or take a file |
+| Neither, no role branch | 306 | 22,500 | Mostly Shared (124 of them are packets) or the mod's front end |
+| Server only | 56 | 13,900 | Server, give or take a file |
 | Client only | 39 | 6,900 | Client, but many are patches that also run on the host (the host sends through its own client today) |
 | Branches on the role, no references | 45 | 4,200 | Mostly patches: split into a server patch and a client patch |
-| Both | 23 | 19,500 | Has to be split before it can move |
+| Both | 25 | 20,100 | Has to be split before it can move |
 
 This is a keyword count, not a review: it puts files in the right neighbourhood, and the move
 itself checks each one.
@@ -119,7 +118,7 @@ Paths are under `Multiplayer/`.
 | `Components/Networking/{RpcManager,TickedQueue}.cs` | Client (`RpcManager` issues and resolves tickets), Shared | |
 | `Components/Networking/Jobs/` | `JobBookletSummonCoordinator`, `NetworkedTask`: Server. `NetworkedJob`: split. Lookups: Shared | |
 | `Components/Networking/Player/` | Client: trackers, `NetworkedWorldMap`. **`NetworkedPlayer`: see Decisions** | |
-| `Components/Networking/Train/` | `TrainTopologyAuthority`, `NetworkedLocoRestorationController`: Server. `TrainPortPresenter`, `TrainTopologyReconciler`, `NetworkedCarSpawner`: Client. Lookups, `TrainTopologyNativeAdapter`, `NetworkedBogie`, `NetworkedRigidbody`: Shared. **`NetworkedTrainCar`, `NetworkTrainsetWatcher`, `TrainSpeedQueue`: split** | |
+| `Components/Networking/Train/` | `TrainTopologyAuthority`, `NetworkedLocoRestorationController`: Server. `TrainPortPresenter`, `TrainTopologyReconciler`, `NetworkedCarSpawner`: Client. Lookups, `TrainTopologyNativeAdapter`, `NetworkedBogie`, `NetworkedRigidbody`: Shared. **`NetworkedTrainCar`, `NetworkTrainsetWatcher`, `TrainSpeedQueue`, `TrainChangeCauses`: split** | |
 | `Components/Networking/UI/` | Client (`NetworkStatsGui`: Shared) | |
 | `Components/Networking/World/` (items) | `AuthoritativeItemRegistry`, `NetworkedItem.Server`, `NetworkedItemManager.{ServerInterest,Convergence}`, `NetworkedLostAndFoundManager`, `OwnedItemsSummary`, `Containers/NetworkedColdContainerManager`, `WorldItems/{Persistence*,AuthoredWorldItemReplenishmentManager}`: Server. `NetworkedItem.{StateApplication,VrHand}`, `NetworkedItemManager.ClientProjection`: Client. Identities and records: Shared. **`NetworkedItem`, `NetworkedItem.Snapshots`, `NetworkedItemManager.{ProjectionAndCompatibility,WorldIntegration,FallRescue}`, `WorldItems/{NetworkedItemSpatialManager,NetworkedTrainItemWakeManager}`: split** | Items are already split into role partials; the split here is finishing that |
 | `Components/Networking/World/` (stations and world) | `NetworkedJunction`, `NetworkedTurntable`: Client today, Server after [host-local-session](host-local-session.md) stage 2 makes the server apply them. **`NetworkedPitStopStation`, `NetworkedPluggableObject`, `NetworkedCashRegisterWithModules`, `NetworkedGenericSwitch`, `NetworkedStationController`, `HazmatSync`, `NetworkedPageBookState`: split** | Each has its server processing (`ProcessInteractionPacketAsHost`, `Server_Process*`) next to its client side |
@@ -128,14 +127,14 @@ Paths are under `Multiplayer/`.
 | `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons, storage: Shared | |
 | `Networking/Data/`, `Networking/Packets/`, `Networking/Serialization/`, `Networking/TransportLayers/` | Shared, except `ServerPlayer.cs`: Server | `PlayerIdentity` is used by both (login and authentication): Shared, once its server reference goes |
 | `Networking/Managers/NetworkManager.cs` | Shared | |
-| `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,802 lines) could also split by area (trains, items, world, career) while it moves |
-| `Networking/Managers/Client/` | Client | `NetworkClient.cs` (2,985 lines), likewise |
+| `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,934 lines) could also split by area (trains, items, world, career) while it moves |
+| `Networking/Managers/Client/` | Client | `NetworkClient.cs` (3,079 lines), likewise |
 | `Patches/` | Per file: see Patches | |
 | `Utils/` | Shared. `DvExtensions`: split (`AnyPlayerSqrMag` is the server's) | |
 
 ### Patches
 
-The 122 patch files fall into four kinds:
+The 127 patch files fall into four kinds:
 
 - **Server patches.** Vanilla behaviour the authority changes or observes: job generation range,
   car spawning and deleting, save hooks, world coverage, explosions. Gate on `IsServer`.
