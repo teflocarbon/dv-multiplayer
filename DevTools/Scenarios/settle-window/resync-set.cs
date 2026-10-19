@@ -6,7 +6,13 @@
 // the other end from where it is). Returns the port, the value set, and the client's value 3 s on.
 var car = Trains.Find(ctx.Args["loco"]);
 var ntc = car.GetComponent<NetworkedTrainCar>();
-var feeders = car.GetComponentsInChildren<DV.CabControls.ControlImplBase>(true)
+// Car-body controls are on the external interactables, which vanilla instantiates under the car's
+// interior transform, not under the car: wait for them to load (the player is on the car), then look
+// there as well as on the car itself.
+for (float t0 = Time.realtimeSinceStartup; !car.AreExternalInteractablesLoaded && Time.realtimeSinceStartup - t0 < 10f; )
+    yield return null;
+var feeders = new[] { car.transform, car.interior }.Where(root => root != null).Distinct()
+    .SelectMany(root => root.GetComponentsInChildren<DV.CabControls.ControlImplBase>(true)).Distinct()
     .Select(c => new { control = c, port = c.GetComponent<DV.Simulation.Ports.InteractablePortFeeder>()?.portId })
     .Where(x => !string.IsNullOrEmpty(x.port)).ToList();
 var wanted = ctx.Args["port"];

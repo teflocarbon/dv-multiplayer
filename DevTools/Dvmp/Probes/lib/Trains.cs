@@ -36,6 +36,53 @@ namespace Dvmp.Lib
             throw new InvalidOperationException("no room to spawn " + liveryId + " near the player");
         }
 
+        /// <summary>Host only: as <see cref="SpawnNearPlayer"/>, but a steam loco that couples its own
+        /// tender comes with that tender coupled behind it (spawning one car never brings it, and a
+        /// loco without one has no coal pile). Returns the loco; delete its trainset to clean up.</summary>
+        public static TrainCar SpawnWithTenderNearPlayer(string liveryId, float ahead = 25f)
+        {
+            var livery = DV.Globals.G.Types.Liveries.FirstOrDefault(l => l.id == liveryId)
+                ?? throw new InvalidOperationException("no livery " + liveryId);
+            var tender = TenderOf(livery);
+            if (tender == null)
+                return SpawnNearPlayer(liveryId, ahead);
+            Transform player = PlayerManager.PlayerTransform;
+            Vector3 flatForward = Vector3.ProjectOnPlane(player.forward, Vector3.up).normalized;
+            Vector3 right = Vector3.Cross(Vector3.up, flatForward);
+            foreach (float distance in new[] { ahead, ahead * 1.6f, ahead * 2.4f })
+            foreach (Vector3 dir in new[] { flatForward, right, -right, -flatForward })
+            {
+                // Spawned as one consist (loco, then tender), the way a station spawns its locos:
+                // each car couples to the one before it as it lands.
+                List<TrainCar> cars = CarSpawner.Instance.SpawnCarTypesOnClosestTrack(
+                    new List<DV.ThingTypes.TrainCarLivery> { livery, tender }, player.position + dir * distance,
+                    new List<bool> { false, false }, preventAutoCoupleOnLastCars: true,
+                    applyHandbrakeOnLastCars: false, playerSpawnedCars: true);
+                if (cars != null && cars.Count > 0)
+                    return cars.First(c => c.carLivery == livery);
+            }
+            throw new InvalidOperationException("no room to spawn " + liveryId + " and its tender near the player");
+        }
+
+        /// <summary>The tender a steam loco couples itself (vanilla's SteamTenderAutoCoupleMechanism,
+        /// or Custom Car Loader's CarAutoCouplerInternal), or null: the tender livery whose id starts
+        /// most like the loco's (LocoS282A's is LocoS282B).</summary>
+        public static DV.ThingTypes.TrainCarLivery TenderOf(DV.ThingTypes.TrainCarLivery loco)
+        {
+            bool couplesTender = loco.prefab != null && loco.prefab.GetComponentsInChildren<MonoBehaviour>(true)
+                .Any(m => m != null && (m is DV.SteamTenderAutoCoupleMechanism || m.GetType().Name == "CarAutoCouplerInternal"));
+            if (!couplesTender)
+                return null;
+            int Shared(string a, string b) { int n = 0; while (n < a.Length && n < b.Length && a[n] == b[n]) n++; return n; }
+            return DV.Globals.G.Types.Liveries
+                .Where(l => l != loco && l.prefab != null && DV.ThingTypes.CarTypes.IsTender(l))
+                .Select(l => (livery: l, shared: Shared(l.id, loco.id)))
+                .Where(x => x.shared > "Loco".Length)
+                .OrderByDescending(x => x.shared)
+                .Select(x => x.livery)
+                .FirstOrDefault();
+        }
+
         public static void Delete(TrainCar car)
         {
             if (car != null)
