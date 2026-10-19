@@ -1,6 +1,7 @@
 ﻿using DV.Booklets;
 using DV.Logic.Job;
 using LiteNetLib;
+using Multiplayer.Client.Jobs;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
@@ -43,7 +44,7 @@ public partial class NetworkClient
 
         Log($"Received {packet.Jobs.Length} jobs for station {networkedStationController.StationController.logicStation.ID}");
 
-        networkedStationController.AddJobs(packet.Jobs);
+        ClientStationJobs.AddJobs(networkedStationController, packet.Jobs);
         DrainPendingJobReportArtifacts();
     }
 
@@ -57,7 +58,7 @@ public partial class NetworkClient
 
         Log($"Received {packet.JobUpdates.Length} job updates for station {networkedStationController.StationController.logicStation.ID}");
 
-        networkedStationController.UpdateJobs(packet.JobUpdates);
+        ClientStationJobs.UpdateJobs(networkedStationController, packet.JobUpdates);
         DrainPendingJobReportArtifacts();
     }
 
