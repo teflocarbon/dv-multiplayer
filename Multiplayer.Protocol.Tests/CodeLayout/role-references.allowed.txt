@@ -17,9 +17,6 @@ Multiplayer.Shared.Api.APIProvider -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Api.ModCompatibilityManager -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Debugging.DebugOverlayController -> Multiplayer.Server.Items.NetworkedColdContainerManager
-Multiplayer.Shared.Debugging.DebugOverlayController -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Shared.Debugging.EntityDebugRegistry -> Multiplayer.Server.Items.AuthoritativeItemRegistry
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Api.ClientPlayerWrapper
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Api.ServerPlayerWrapper
@@ -30,7 +27,6 @@ Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.S
 Multiplayer.Shared.Protocol.Data.World.PitStopPlugData -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundRpcResponsePacket -> Multiplayer.Client.Session.RpcManager
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Career.NetworkedSaveGameManager
-Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Items.OwnedItemsSummary
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Client.Api.ClientAPIProvider

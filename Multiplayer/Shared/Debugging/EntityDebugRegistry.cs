@@ -1,4 +1,3 @@
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Players;
@@ -304,8 +303,8 @@ public static class EntityDebugRegistry
         state["inventoryClaimPlayerId"] = item.InventoryClaimPlayerId;
         state["inventoryClaimSlot"] = item.InventoryClaimSlot;
         state["inventoryClaimFlags"] = item.InventoryClaimFlags.ToString();
-        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record authorityRecord))
-            state["canonicalAuthority"] = AuthoritativeItemRegistry.Snapshot(authorityRecord);
+        if (ItemServer.Current?.AuthorityDebugState(item.NetId) is { } canonicalAuthority)
+            state["canonicalAuthority"] = canonicalAuthority;
         NetworkedItemManager.Instance?.AppendSpatialDebugState(item.NetId, state);
         state["transitionReason"] = item.LastTransitionReason.ToString();
         if (item.LastMoveCause.HasValue)

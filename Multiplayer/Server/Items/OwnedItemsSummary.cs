@@ -31,12 +31,14 @@ public static class OwnedItemsSummary
         }
     }
 
-    public static List<OwnedItem> For(ServerPlayer player)
+    public static List<OwnedItem> For(ServerPlayer player) =>
+        player == null ? new List<OwnedItem>() : For(player.Guid, player.PlayerId);
+
+    /// <param name="guid">The player's identity.</param>
+    /// <param name="playerId">Their player number this session, for records without an owner identity.</param>
+    public static List<OwnedItem> For(Guid guid, byte playerId)
     {
         List<OwnedItem> owned = new();
-        if (player == null)
-            return owned;
-        Guid guid = player.Guid;
 
         // Live records: hands, inventory, the world, trains, containers' live items and Lost and Found,
         // including saved items still waiting for this owner to connect.
@@ -50,7 +52,7 @@ public static class OwnedItemsSummary
             // number is used only for a record without an owner identity.
             bool mine = record.PersistentOwnerIdentity != Guid.Empty
                 ? record.PersistentOwnerIdentity == guid
-                : record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId == player.PlayerId;
+                : record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId == playerId;
             if (!mine)
                 continue;
             int slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.InventoryClaimSlot : -1;

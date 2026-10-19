@@ -52,6 +52,17 @@ public partial class NetworkServer : IItemServer
 
     IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);
 
+    IReadOnlyList<(string Prefab, int Slot)> IItemServer.OwnedItems(Guid playerIdentity, byte playerId) =>
+        OwnedItemsSummary.For(playerIdentity, playerId).Select(item => (item.Prefab, item.Slot)).ToList();
+
+    Dictionary<string, object> IItemServer.AuthorityDebugState(ushort itemNetId) =>
+        AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record)
+            ? AuthoritativeItemRegistry.Snapshot(record) : null;
+
+    Dictionary<string, object>[] IItemServer.LostAndFoundDebugSnapshot() => NetworkedLostAndFoundManager.DebugSnapshot();
+
+    Dictionary<string, object>[] IItemServer.ColdContainerDebugSnapshot() => NetworkedColdContainerManager.DebugSnapshot();
+
     private void OnServerboundItemSpatialSamplePacket(ServerboundItemSpatialSamplePacket packet,
         ITransportPeer peer)
     {
