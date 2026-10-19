@@ -130,6 +130,11 @@ copies.
 - **When the game updates:** copy the same DLLs from the new install into dv-gamelibs, commit, tag
   it `steam-<buildid>` (the `buildid` in `steamapps/appmanifest_588030.acf`), and bump
   `GAMELIBS_REF` in the workflow.
+- **When the mod references another game DLL:** the build fails with `MSB3245` (a reference not
+  found), which CI treats as an error. Copy that DLL from the same game build into dv-gamelibs,
+  commit, tag it `steam-<buildid>-r<n>` (don't move the existing tag), and bump `GAMELIBS_REF`.
+  On 2026-10-19 every run after the world-coverage work failed this way, until `steam-20251481-r2`
+  added `Unity.Collections`, `Unity.Mathematics` and `UnityEngine.TerrainPhysicsModule`.
 - **When `MultiplayerAssets` changes:** CI fails until the Unity files are rebuilt. Rebuild them,
   copy them to dv-gamelibs' `prebuilt/` (new commit and tag), and update `prebuilt.lock`: their
   SHA-256 hashes and the `MultiplayerAssets` tree they were built from

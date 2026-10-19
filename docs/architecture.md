@@ -117,6 +117,9 @@ When adding a packet: if it carries the host's state, list it as ignored. If the
 seems to need it, check whether it's the host player's own view (fine) or the host's world, which
 the server should change directly instead of through its own client.
 
+This list is the safety net, not the end state. The plan to remove the host's loopback client in
+stages, keeping one process, is [design/host-local-session.md](design/host-local-session.md).
+
 ### Managers
 
 `Multiplayer/Networking/Managers/`:
