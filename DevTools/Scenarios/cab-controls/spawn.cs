@@ -5,18 +5,45 @@
 // S282A and tender still crept 15-18 m in a minute on some grades (batch 5b): each spot is watched
 // for a few seconds, and one the loco moves 0.3 m or more on is given up for one further out. If
 // every spot creeps (batch 7b: a 5 cm bar gave every one up), the one it crept least on is kept.
-// Returns the loco's id, its tender's, where it is (absolute) and the spots it gave up.
+// Why it crept: the S282A loco has no handbrake at all (vanilla logged "hasHandbrake is set to
+// false" for every try), so only the tender's held the pair. A car with no handbrake gets its air
+// brake instead: its main reservoir charged and its independent brake applied, through its port.
+// Returns the loco's id, its tender's, where it is (absolute), the spots it tried and how each car
+// is braked.
 var tried = new List<string>();
+var braked = new List<string>();
+string bestBraked = "";
+void Brake(TrainCar c)
+{
+    if (c.brakeSystem.hasHandbrake)
+    {
+        c.brakeSystem.SetHandbrakePosition(1f);
+        braked.Add(c.ID + ": handbrake");
+        return;
+    }
+    var flow = c.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>()?.simulationFlow;
+    var ind = flow?.fullPortIdToPort.Where(kv => kv.Key.StartsWith("indBrake") && kv.Value.type == LocoSim.Definitions.PortType.EXTERNAL_IN)
+        .Select(kv => kv.Value).FirstOrDefault();
+    if (ind == null)
+    {
+        braked.Add(c.ID + ": no brake to apply");
+        return;
+    }
+    c.brakeSystem.SetMainReservoirPressure(8f);
+    ind.ExternalValueUpdate(1f);
+    braked.Add(c.ID + ": independent brake (" + ind.id + "), main reservoir charged");
+}
 TrainCar best = null, bestTender = null;
 float bestMoved = float.MaxValue;
 foreach (float ahead in new[] { 25f, 45f, 70f, 100f })
 {
+    braked.Clear();
     var car = Trains.SpawnWithTenderNearPlayer(ctx.Args["t"], ahead);
     var tenderLivery = Trains.TenderOf(car.carLivery);
     TrainCar tender = tenderLivery == null ? null : UnityEngine.Object.FindObjectsOfType<TrainCar>()
         .Where(c => c.carLivery == tenderLivery).OrderBy(c => (c.transform.position - car.transform.position).sqrMagnitude).FirstOrDefault();
     foreach (var c in new[] { car, tender }.Where(c => c != null))
-        c.brakeSystem.SetHandbrakePosition(1f);
+        Brake(c);
     yield return Trains.CoupleTender(car, 1.5f);
     for (int i = 0; i < 120; i++) yield return null;
     Vector3 from = Dev.Abs(car.transform.position);
@@ -27,7 +54,7 @@ foreach (float ahead in new[] { 25f, 45f, 70f, 100f })
         if (best != null)
             foreach (var c in new[] { best, bestTender }.Where(c => c != null))
                 Trains.Delete(c);
-        best = car; bestTender = tender; bestMoved = moved;
+        best = car; bestTender = tender; bestMoved = moved; bestBraked = string.Join("; ", braked);
         if (moved < 0.3f)
             break;
     }
@@ -38,4 +65,4 @@ foreach (float ahead in new[] { 25f, 45f, 70f, 100f })
     for (int i = 0; i < 30; i++) yield return null;
 }
 Vector3 at = Dev.Abs(best.transform.position);
-ctx.Result = new { id = best.ID, tender = bestTender?.ID ?? "", x = at.x, y = at.y, z = at.z, tried = string.Join("; ", tried) };
+ctx.Result = new { id = best.ID, tender = bestTender?.ID ?? "", x = at.x, y = at.y, z = at.z, tried = string.Join("; ", tried), braked = bestBraked };

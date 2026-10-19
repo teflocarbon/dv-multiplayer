@@ -59,6 +59,7 @@ if [ "${MODE:-}" = no-grab-sequence ]; then
   STEPS=${STEPS:-"external 1;external 0;external 1;cab 0;cab 1;external 0;cab 1;cab 0;external 1;external 0"}
   spawn LocoS282A
   t=$(echo "$spawned" | field tried); [ -z "$t" ] || echo "   spots tried (the loco crept): $t"
+  echo "   braked: $(echo "$spawned" | field braked)"
   # A dedicated host has no player to board.
   [ "$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = true ] || board host 2
   board client 4
