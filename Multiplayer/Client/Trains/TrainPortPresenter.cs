@@ -393,7 +393,7 @@ public sealed class TrainPortPresenter
         if (Time.frameCount != lastPlayoutFrame)
         {
             lastPlayoutFrame = Time.frameCount;
-            bool driving = car.Client_IsLocalPlayerDrivingTrain(DRIVING_HOLD_SECONDS);
+            bool driving = car.Client()?.IsLocalPlayerDrivingTrain(DRIVING_HOLD_SECONDS) == true;
             UpdatePredicting(driving);
             Play(driving);
         }

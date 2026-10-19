@@ -65,7 +65,7 @@ public static class CouplerUncoupleLogPatch
 
         // A client applying the host's topology: the host's own reason if it sent one.
         if (NetworkedTrainCar.IsApplyingAuthoritativeTopology && !NetworkLifecycle.Instance.IsHost() &&
-            NetworkLifecycle.Instance.Client is { } client)
+            TrainRoles.Client is { } client)
         {
             if (client.RefusalUncoupleCause is ChangeCause<UncoupleReason> refused)
                 return refused;

@@ -120,10 +120,10 @@ internal sealed class TrainTopologyReconciler
         {
             foreach (TrainControlRevisionData control in controlRevisions)
                 if (NetworkedTrainCar.TryGet(control.CarNetId, out NetworkedTrainCar car))
-                    car.Client_SetControlRevision(control.Revision);
+                    car.Client()?.SetControlRevision(control.Revision);
             foreach (TrainControlStateData control in controlStates)
                 if (NetworkedTrainCar.TryGet(control.CarNetId, out NetworkedTrainCar car))
-                    car.Client_ReceiveControlState(control);
+                    car.Client()?.ReceiveControlState(control);
         }
 
         if (!deferred)
