@@ -4,12 +4,13 @@ using DV.Logic.Job;
 using DV.ServicePenalty;
 using DV.UserManagement;
 using Multiplayer.Server.Career;
-using Multiplayer.Server.Items;
+using Multiplayer.Shared.Items;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -96,7 +97,8 @@ public class ClientboundSaveGameDataPacket
             playerItems.Add(starterItem);
         }
 
-        List<OwnedItemsSummary.OwnedItem> owned = OwnedItemsSummary.For(player);
+        IReadOnlyList<(string Prefab, int Slot)> owned =
+            ItemServer.Current?.OwnedItems(player.Guid, player.PlayerId) ?? Array.Empty<(string, int)>();
         Multiplayer.LogDebug(() => $"ClientboundSaveGameDataPacket.CreatePacket() {player.Username} already owns {owned.Count} item(s)");
 
         return new ClientboundSaveGameDataPacket

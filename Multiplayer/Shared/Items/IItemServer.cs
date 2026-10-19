@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 
@@ -39,6 +41,18 @@ public interface IItemServer
 
     /// <summary>The server's part of a new item manager.</summary>
     IItemManagerServerPart CreateItemManagerPart(NetworkedItemManager manager);
+
+    /// <summary>
+    ///     What a player already owns anywhere the server keeps items (prefab, and the inventory
+    ///     slot it holds or -1), sent with their join (OwnedItemsSummary).
+    /// </summary>
+    IReadOnlyList<(string Prefab, int Slot)> OwnedItems(Guid playerIdentity, byte playerId);
+
+    // Debugging: the in-game observability overlay and entity inspector.
+    /// <summary>The server's authority record of an item; null if it has none.</summary>
+    Dictionary<string, object> AuthorityDebugState(ushort itemNetId);
+    Dictionary<string, object>[] LostAndFoundDebugSnapshot();
+    Dictionary<string, object>[] ColdContainerDebugSnapshot();
 }
 
 public static class ItemServer
