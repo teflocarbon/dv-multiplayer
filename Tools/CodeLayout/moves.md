@@ -99,10 +99,12 @@ file that refers to both the server and the client: it goes where it does until 
 - `HazmatTileManagerPatch.cs` from `Patches/World/`
 - `TimeAdvancePatch.cs` from `Patches/World/`
 
-## Menus/Controls (3)
+## Menus/Controls (5)
 
 - `MPGridView.cs` from `Components/UI/GridView/`
 - `MPViewElement.cs` from `Components/UI/GridView/`
+- `KeyBindInterface.cs` from `Components/UI/Settings/`
+- `ModelRotator.cs` from `Components/UI/Settings/`
 - `HyperlinkHandler.cs` from `Components/Util/`
 
 ## Menus/MainMenu (11)
@@ -126,11 +128,6 @@ file that refers to both the server and the client: it goes where it does until 
 - `ServerBrowserGridView.cs` from `Components/UI/ServerBrowser/`
 - `ServerBrowserPlaceholderElement.cs` from `Components/UI/ServerBrowser/`
 - `ServerBrowserClient.cs` from `Networking/Managers/Client/`
-
-## Menus/Settings (2)
-
-- `KeyBindInterface.cs` from `Components/UI/Settings/`
-- `ModelRotator.cs` from `Components/UI/Settings/`
 
 ## Server/Api (2)
 

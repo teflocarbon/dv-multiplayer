@@ -10,6 +10,20 @@ const repo = path.resolve(__dirname, '../..');
 const modDir = path.join(repo, 'Multiplayer');
 const BOM = '﻿';
 
+// Windows can hold a just-moved file open for a moment (indexer, antivirus): retry briefly.
+function retry(action) {
+    for (let attempt = 0; ; attempt++) {
+        try { return action(); }
+        catch (e) {
+            if (attempt >= 50 || !["UNKNOWN", "EBUSY", "EPERM", "EACCES"].includes(e.code) && !String(e.message).includes("Permission denied")) throw e;
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+        }
+    }
+}
+const read = file => retry(() => fs.readFileSync(file, "utf8"));
+const write = (file, text) => retry(() => fs.writeFileSync(file, text));
+
+
 const moves = fs.readFileSync(path.join(__dirname, 'moves.tsv'), 'utf8').split('\n')
     .filter(line => line && !line.startsWith('#')).map(line => {
         const [from, to] = line.split('\t');
@@ -62,7 +76,7 @@ const newNamespaces = new Set(moves.map(m => m.newNs));
 const goneNamespaces = new Set([...oldNamespaces].filter(ns => ns && !newNamespaces.has(ns)));
 
 // --- Move.
-const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+const git = (...args) => retry(() => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }));
 for (const move of moves) {
     if (move.from === move.to) continue;
     fs.mkdirSync(path.dirname(path.join(modDir, move.to)), { recursive: true });
@@ -73,7 +87,7 @@ for (const move of moves) {
 const movedByNewPath = new Map(moves.map(m => [m.to, m]));
 for (const move of moves) {
     const file = path.join(modDir, move.to);
-    let text = fs.readFileSync(file, 'utf8');
+    let text = read(file);
     const bom = text.startsWith(BOM);
     let body = bom ? text.slice(1) : text;
     if (move.oldNs) {
@@ -87,7 +101,7 @@ for (const move of moves) {
         lines.splice(at, 0, ...(at ? [''] : []), `namespace ${move.newNs};`, '');
         body = lines.join('\n');
     }
-    fs.writeFileSync(file, (bom ? BOM : '') + body);
+    write(file, (bom ? BOM : '') + body);
 }
 
 // --- References, in every C# file that can see the mod.
@@ -124,7 +138,7 @@ let changedFiles = 0;
 for (const file of roots.flatMap(r => csFiles(path.join(repo, r)))) {
     const rel = path.relative(modDir, file).split(path.sep).join('/');
     const moved = movedByNewPath.get(rel);
-    let text = fs.readFileSync(file, 'utf8');
+    let text = read(file);
     const original = text;
     const bom = text.startsWith(BOM);
     let body = bom ? text.slice(1) : text;
@@ -165,7 +179,7 @@ for (const file of roots.flatMap(r => csFiles(path.join(repo, r)))) {
     body = rewriteQualified(body);
     text = (bom ? BOM : '') + body;
     if (text !== original) {
-        fs.writeFileSync(file, text);
+        write(file, text);
         changedFiles++;
     }
 }
@@ -187,12 +201,12 @@ const scriptFiles = dir => !fs.existsSync(dir) ? [] : fs.readdirSync(dir, { with
 let usingTextFiles = 0;
 for (const file of ['DevTools', 'docs', 'Tools', 'Multiplayer.Protocol.Tests'].flatMap(r => scriptFiles(path.join(repo, r)))) {
     if (file.startsWith(__dirname)) continue;
-    const original = fs.readFileSync(file, 'utf8');
+    const original = read(file);
     const text = original.replace(usingText, (whole, ns) => {
         if (!goneNamespaces.has(ns)) return whole;
         return [...(nsTargets.get(ns) || [])].sort().map(t => `using ${t};`).join(' ');
     });
-    if (text !== original) { fs.writeFileSync(file, text); usingTextFiles++; }
+    if (text !== original) { write(file, text); usingTextFiles++; }
 }
 console.log(`using-as-text rewritten in ${usingTextFiles} files.`);
 
@@ -217,13 +231,13 @@ const docRoots = ['docs', 'DevTools', 'Multiplayer', 'Tools', 'Multiplayer.Proto
 let pathFiles = 0;
 for (const file of docRoots.flatMap(r => fs.statSync(r).isDirectory() ? textFiles(r) : [r])) {
     if (file.startsWith(__dirname)) continue;
-    const original = fs.readFileSync(file, 'utf8');
+    const original = read(file);
     let text = original;
     for (const [tail, move] of pathPairs) {
         const escaped = tail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         text = text.replace(new RegExp(`(?<![\\w/.-])(Multiplayer/)?${escaped}(?![\\w/])`, 'g'), (m, prefix) => (prefix || '') + move.to);
     }
-    if (text !== original) { fs.writeFileSync(file, text); pathFiles++; }
+    if (text !== original) { write(file, text); pathFiles++; }
 }
 
 console.log(`Moved ${moves.filter(m => m.from !== m.to).length} files; references rewritten in ${changedFiles} C# files; paths in ${pathFiles} files.`);

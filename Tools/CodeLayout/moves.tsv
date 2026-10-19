@@ -113,8 +113,8 @@ Components/UI/ServerBrowser/IServerBrowserGameDetails.cs	Menus/ServerBrowser/ISe
 Components/UI/ServerBrowser/ServerBrowserElement.cs	Menus/ServerBrowser/ServerBrowserElement.cs	Mod	
 Components/UI/ServerBrowser/ServerBrowserGridView.cs	Menus/ServerBrowser/ServerBrowserGridView.cs	Mod	
 Components/UI/ServerBrowser/ServerBrowserPlaceholderElement.cs	Menus/ServerBrowser/ServerBrowserPlaceholderElement.cs	Mod	
-Components/UI/Settings/KeyBindInterface.cs	Menus/Settings/KeyBindInterface.cs	Mod	
-Components/UI/Settings/ModelRotator.cs	Menus/Settings/ModelRotator.cs	Mod	
+Components/UI/Settings/KeyBindInterface.cs	Menus/Controls/KeyBindInterface.cs	Mod	
+Components/UI/Settings/ModelRotator.cs	Menus/Controls/ModelRotator.cs	Mod	
 Components/Util/HyperlinkHandler.cs	Menus/Controls/HyperlinkHandler.cs	Mod	
 Debugging/DebugCommands.cs	Shared/Debugging/DebugCommands.cs	Shared	
 Debugging/DebugComponentHierarchy.cs	Shared/Debugging/DebugComponentHierarchy.cs	Shared	

@@ -15,7 +15,8 @@ const rules = [
     [/^Components\/Util\/HyperlinkHandler\.cs$/, 'Menus/Controls'],
     [/^Components\/UI\/ServerBrowser\//, 'Menus/ServerBrowser'],
     [/^Networking\/Managers\/Client\/ServerBrowserClient\.cs$/, 'Menus/ServerBrowser'],
-    [/^Components\/UI\/Settings\//, 'Menus/Settings'],
+    // Not Menus/Settings: a namespace of that name would hide the Settings class in the menus.
+    [/^Components\/UI\/Settings\//, 'Menus/Controls'],
     [/^Patches\/MainMenu\/LauncherControllerSaveLockPatch\.cs$/, 'Server/Dedicated'],
     [/^Patches\/MainMenu\/SceneSwitcherPatch\.cs$/, 'Shared/Session'],
     [/^Patches\/MainMenu\//, 'Menus/MainMenu'],
