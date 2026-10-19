@@ -127,14 +127,18 @@ const qualified = /(global::)?\bMultiplayer((?:\.[A-Za-z_]\w*)+)/g;
 // Names qualified relative to an enclosing namespace of the file (`Components.Networking.Player.
 // NetworkedPlayer` inside Multiplayer.*, `Train.X` inside Multiplayer.Components.Networking.World),
 // resolved as C# does: the innermost enclosing namespace first.
-const relative = /(?<![\w.:])((?:[A-Z]\w*\.)+)([A-Z]\w*)\b/g;
+const relative = /(?<![\w.:])[A-Z]\w*(?:\.[A-Z]\w*)+/g;
 
 function rewriteQualified(text, ownOld) {
     const enclosing = ancestors(ownOld).filter(Boolean).reverse();
-    text = text.replace(relative, (whole, prefix, type) => {
+    text = text.replace(relative, whole => {
+        const parts = whole.split('.');
         for (const ns of enclosing) {
-            const target = typeMap.get(`${ns}.${prefix.slice(0, -1)}|${type}`);
-            if (target) return `global::${target}.${type}`;
+            // Longest namespace prefix first, then the type right after it.
+            for (let n = parts.length - 1; n >= 1; n--) {
+                const target = typeMap.get(`${ns}.${parts.slice(0, n).join('.')}|${parts[n]}`);
+                if (target) return `global::${[target, ...parts.slice(n)].join('.')}`;
+            }
         }
         return whole;
     });
