@@ -131,13 +131,17 @@ const relative = /(?<![\w.:])[A-Z]\w*(?:\.[A-Z]\w*)+/g;
 
 function rewriteQualified(text, ownOld) {
     const enclosing = ancestors(ownOld).filter(Boolean).reverse();
-    text = text.replace(relative, whole => {
+    text = text.replace(relative, (whole, offset, all) => {
         const parts = whole.split('.');
         for (const ns of enclosing) {
             // Longest namespace prefix first, then the type right after it.
             for (let n = parts.length - 1; n >= 1; n--) {
                 const target = typeMap.get(`${ns}.${parts.slice(0, n).join('.')}|${parts[n]}`);
-                if (target) return `global::${[target, ...parts.slice(n)].join('.')}`;
+                if (!target) continue;
+                const type = `global::${target}.${parts[n]}`;
+                const rest = parts.slice(n + 1).map(p => '.' + p).join('');
+                // In an interpolation hole `{global::...}` reads `::` as a format: parenthesise.
+                return all[offset - 1] === '{' ? `(${type})${rest}` : type + rest;
             }
         }
         return whole;
