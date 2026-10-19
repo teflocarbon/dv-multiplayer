@@ -22,6 +22,25 @@ dotnet build DevTools/Dvmp/Dvmp.csproj
 The MCP server is registered in `.mcp.json` at the repo root. Rebuilding `dvmp.exe` while the
 MCP server is running fails because the file is locked; reconnect the `dvmp` server afterwards.
 
+## Test install
+
+Test builds don't have to go into the game you play. `DevTools/make-test-install.ps1` makes a copy
+of Derail Valley at `%LOCALAPPDATA%\dvmp\test-install` that writes nothing to the real install:
+`DerailValley_Data`, `MonoBleedingEdge` and every other mod are directory junctions to it, the
+launcher and Unity Mod Manager's loader are copied, `Multiplayer` and `MultiplayerDevTools` are
+real copies, and a `steam_appid.txt` lets Steam start it from outside its folder. Run it again to
+pick up mods you add. Then point the harness and the builds at it:
+
+```bash
+export DVMP_DV_DIR="$LOCALAPPDATA/dvmp/test-install"          # dvmp launches and compiles against it
+dotnet build Multiplayer/Multiplayer.csproj -c Debug "-p:DvInstallDir=$DVMP_DV_DIR"
+dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug "-p:DvInstallDir=$DVMP_DV_DIR"
+```
+
+dvmp only reuses and quits games it launched (their `-dvmp-role` argument) from the install it is
+pointed at. A game you start yourself, or one running from another folder (your own play, a
+server for something else), is never taken over or shut down, even by `down --all`.
+
 ## Tools
 
 Every MCP tool that acts on games takes `session` (CLI: `--session NAME` or `DVMP_SESSION`), so one MCP
