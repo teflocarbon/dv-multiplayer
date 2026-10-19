@@ -12,6 +12,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityModManagerNet;
 using Object = UnityEngine.Object;
 
 namespace Multiplayer.Debugging;
@@ -38,11 +39,27 @@ public static class DebugRuntime
     public static DebugRuntimeSettingsDto RuntimeSettings => runtimeSettings;
     internal static bool PreventCursorCapture => preventCursorCapture;
 
+    // The dev tools mod (DevTools/DvmpAgent) is only installed on developers' and testers' games,
+    // so those get the debug system in any build: a Release playtest then keeps the record that
+    // explains a bug afterwards, which the log alone often doesn't.
+    private const string DevToolsModId = "MultiplayerDevTools";
+
+    private static bool DevToolsInstalled => UnityModManager.FindMod(DevToolsModId)?.Enabled == true;
+
     public static void ApplySettings(Settings settings)
     {
-        if (settings?.EnableDebugSystem == true)
+        if (settings == null)
         {
-            if (!Enabled) Start(settings); else UpdateSettings(settings);
+            if (Enabled) Stop();
+            return;
+        }
+        bool devTools = !settings.EnableDebugSystem && DevToolsInstalled;
+        if (settings.EnableDebugSystem || devTools)
+        {
+            if (Enabled) { UpdateSettings(settings); return; }
+            Start(settings);
+            if (devTools)
+                Multiplayer.Log($"Debug system on because {DevToolsModId} is installed");
         }
         else if (Enabled) Stop();
     }

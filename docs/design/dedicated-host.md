@@ -318,6 +318,11 @@ Without the flag nothing changes. With it, the game is a dedicated host:
   - the existing-players list sent to a joiner;
   - the lobby's player count;
   - MPAPI's `PlayerCount`.
+- **A player without a position isn't measured from.** Until a player has finished loading and
+  sent a position, `AnyPlayerSqrMag` puts them at the world origin. The car deleter waits until
+  every player is placed, and deletes nothing with nobody in the game (`UnusedCarDeletePolicy`).
+  On 2026-10-19 it ran the moment a dedicated host unpaused for a player logging in after a
+  restart, and deleted every car in the world.
 
   When it finishes loading, it gets only `RemoveLoadingScreen`: no `PlayerJoined`, no chat line,
   no `PlayerReady` (`NetworkServer.OnServerboundLoadStateUpdatePacket`).
@@ -572,7 +577,7 @@ Then the host's player was teleported 4 km away from a DE2:
 | Station job generation | `PlayerTransform` | Already patched to any player (`StationJobGenerationRangePatch.cs`) | `StationJobGenerationRange.cs:5-57`, `StationController.cs:190` |
 | Loco spawners | Player distance | Already patched (`StationLocoSpawnerPatch.cs`) | `StationLocoSpawner.cs:75-99` |
 | Garage car respawn | Player distance | **Not patched** | `GarageCarSpawner.cs:96-115` |
-| Unused car deleter | `PlayerTransform`, visits | Partly patched (`UnusedTrainCarDeleterPatch.cs`); visits come only from the local `CarChanged` | `UnusedTrainCarDeleter.cs:141`, `:220-232`; `DV/CarVisitChecker.cs:47-82` |
+| Unused car deleter | `PlayerTransform`, visits | Partly patched (`UnusedTrainCarDeleterPatch.cs`): distances are to the nearest player, and nothing is deleted while nobody is in the game or any player is still loading or hasn't sent a position (`UnusedCarDeletePolicy`). Visits come only from the local `CarChanged` | `UnusedTrainCarDeleter.cs:141`, `:220-232`; `DV/CarVisitChecker.cs:47-82` |
 | Warehouse machines | `ActiveCamera`, 600 m | Already patched (`PlayerDistanceGameObjectsDisablerPatch.cs`) | `DV.Optimizers/PlayerDistanceGameObjectsDisabler.cs:39-61` |
 
 **This already affects today's mod, not only a dedicated host.** Whenever the host's player is a

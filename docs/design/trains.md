@@ -27,11 +27,55 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
 - The host's own changes, and native changes nobody commanded (spawn auto-couple, joint breaks,
   derail side effects), are observed and committed on the next tick (`CommitObservedTrainTopology`).
   Clients no longer auto-couple spawned cars themselves (477a94c); they wait for the host's
-  snapshot.
+  snapshot. Nor do they run the steam tender auto-couplers (vanilla's
+  `SteamTenderAutoCoupleMechanism` and Custom Car Loader's `CarAutoCouplerInternal`,
+  `Patches/Train/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
+  after a spawn, rerail or uncouple, which a client sent the host as its player's commands.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
+- A client couples (or uncouples) its own cars straight away and sends the command; if the host
+  refuses it, the client puts the host's topology back when the refusal arrives, or once the player
+  lets go of the chain. Over a laggy connection the player can walk off before then, so a refused
+  couple looks like the cars came apart by themselves. A common refusal is `OutOfRange`: the host's
+  copy of the player (more than a car length from the primary car's centre) or of the cars
+  (couplers more than 4 m apart) lags the client's.
+- The host logs every refused command with the player, the cars and ends, and why (for
+  `OutOfRange`, the distance it measured), and every accepted couple
+  (`NetworkServer.LogTopologyCommand`). The refusal sent back carries the same detail
+  (`ClientboundTrainTopologySnapshotPacket.Detail`), so the player's own log says why too.
 - The relay-only MU, hose, cock and couple/uncouple handlers and their `Common*` packets are
   gone (removed in #59).
+
+**Why a train changed: recorded causes.** Uncouples, derails and car removals each record a
+`ChangeCause` (`Multiplayer.Core/Diagnostics/ChangeCause.cs`: a reason, the acting player, the
+tick and free-text detail) with a reason from `Multiplayer.Core/Trains/TrainChangeReasons.cs`
+(`UncoupleReason`, `DerailReason`, `CarRemovalReason`). Each is logged in one form ("Uncoupled
+CFF066 (Rear) from CFF439 (Front) on the host: CarRemoved by Bentgear29 (CFF439 PlayerDeleted)"),
+published as a `train.uncoupled` / `train.derailed` / `train.car-removed` debug event, and kept:
+`NetworkedTrainCar.LastFrontUncouple`, `LastRearUncouple` and `LastDerail`, and
+`TrainChangeCauses.RecentRemovals` for cars that are gone. In a 2026-10-19 playtest a train
+"came apart" because players deleted derailed cars from the middle of it, and the cars had been
+derailed by a player's sandbox comms radio; both took matching log timings to find.
+
+- Code that knows the cause opens a scope (`TrainChangeCauses.Scope`): the server's topology
+  command (`PlayerCommand`, or `Remote` for `ViaRemote`), delete (`PlayerDeleted`,
+  `ReturnedToGarage`), rerail (`CarRerailed`) and sandbox radio (`CommsRadio`) handlers, the
+  authority's rollback (`HostRolledBack`), and on clients the destroy packet and the snapshot-driven
+  derail (`FollowingHost`). Otherwise the patches infer it: joint breaks (`JointBroke`, or
+  `JointBrokeDerailed` where vanilla has weakened the joint to 1.35 MN), vanilla's derail messages
+  (`Stress`, `Explosion`, `EndOfTrack`, `MissingTrack`, `LoadedDerailed`), and the vanilla callers
+  (`SafetyDerailer`, the unused-car deleter, the job generator, loco restoration, save loading, the
+  host player's own chain, radio and remote). Anything else is `Unknown` with the calling methods
+  as its detail, which names the case to add (`Patches/Train/CouplerUncoupleLogPatch.cs`,
+  `DerailCausePatch.cs`, `CarSpawnerPatch.cs`).
+- The host sends its causes: uncouples ride on the next broadcast topology snapshot
+  (`Uncouples`), removals on `ClientboundDestroyTrainCarPacket.Cause`, derails in
+  `ClientboundTrainDerailCausePacket`. A client applying the host's topology records the host's
+  reason for each coupling it takes apart, `FollowingHost` when it has none, and `CoupleRefused`
+  (with the refusal's code and detail) when it is undoing its own refused change.
+- Breaks are also logged as errors by `CouplerBreakPatch`, with the joint force.
+- All of it is in the normal log, so a train that came apart can be traced from the host's log
+  alone, without the debug system (off in Release builds unless the dev tools mod is installed).
 
 **Join baseline: implemented.** The host sends `ClientboundTrainBaselineBeginPacket`, one numbered
 spawn packet per trainset, a topology snapshot tagged with the baseline ID, then
@@ -118,16 +162,28 @@ light, and a handcar's handle. Handbrake feeders are left to the handbrake sync.
 one took no lease, so its change went only as an unleased one (below), after the settle window,
 and nothing stopped another game's copy writing the port: a handcar never moved, since the host's
 own `HandcarBarController` wrote the handle as let go every frame. A control in the cab's controls
-manager as well (a handcar's handle) is hooked once. A handcar handle's lease also covers
-`ENGAGED_EXT_IN`, which its `HandcarBarController` writes. Several controls can feed one port (an
+manager as well (a handcar's handle) is hooked once. Several controls can feed one port (an
 FEF-3's two lubricator buttons): a lease blocks them all.
 
+A handcar's handle takes no lease, so any number of players can pump at once. Vanilla's
+`HandcarDrive` has one handle, `BAR_EXT_IN` (where it is) and `ENGAGED_EXT_IN` (whether it's held,
+which `HandcarBarController` writes every frame), so each game's two handle ports are its own
+player's: no game applies another's, and the host doesn't send its own. A client sends `ENGAGED`
+whenever it changes and `BAR` while it's held (with `ENGAGED`, as taking hold may not move it). The
+host keeps each player's handle (`HandcarPumpers`, filled by `Server_ApplyPlayerPorts`) and a
+postfix on `HandcarDrive.Tick` (`HandcarDrivePatch`) adds each held handle's stroke, worked out as
+vanilla's, to the torque vanilla made from the host's own player's handle. The total is capped at
+two players' most, so two players pumping in time go faster than one, one pumping against the other
+slows the car, and a third adds nothing. A pumper is dropped when they let go, leave, or get further
+from the car than its length.
+
 A few vanilla controllers write a control's port every frame from their own game's input, whoever
-is using the control: `WhistleRopeController` (the rope's tension, into its dummy lever) and
-`HandcarBarController` (whether the handle is held). Every game runs them, so while a player on
-another game uses the control, this game's write it back as let go. The rule: such a writer is off
-while another player holds the lease on a port it writes (`LocalInputWriters`, toggled in
-`Client_ReceiveAuthorityUpdate`; the host gets the lease updates too). Other controllers write only
+is using the control: `WhistleRopeController` (the rope's tension, into its dummy lever). Every game
+runs them, so while a player on another game uses the control, this game's write it back as let
+go. The rule: such a writer is off while another player holds the lease on a port it writes
+(`LocalInputWriters`, toggled in `Client_ReceiveAuthorityUpdate`; the host gets the lease updates
+too). `HandcarBarController` writes whether the handle is held the same way, but that port is each
+game's own player's (above), so it stays on. Other controllers write only
 on their own game's input, which a lease covers, or from the car's own state (`TractionPortsFeeder`,
 `BoilerSimController`'s boiler angle, `DamageController`'s health ports), which are local values and
 not a player's.
@@ -324,6 +380,28 @@ hold narrowly scoped control authority; the resulting mutation still executes in
 
 In the code, motion is sent unreliably (reliably when a bogie changed track) and has no epochs,
 and simulation is the brake-state packet only; see "Motion" and "Brake and locomotive simulation".
+
+### The host's own client
+
+The host's own client runs in the host's world, so it is never a follower of any layer: what the
+host sends players to follow (spawns, deletes, topology snapshots, physics, brake state, control
+commits, relocations, rerails, cargo, damage, paint, restoration) is dropped by that client
+(`HostOwnClient`, see "The host's own client" in [architecture.md](../architecture.md)). Its
+`TrainTopologyReconciler` stays empty: it never takes a baseline (the host skips the join), and
+`SendTrainSyncRequest`, `RequestTrainTopologySync` and `RestoreCanonicalTrainTopology` do nothing
+on the host. Couplings made in the host's world reach clients by the host observing them
+(`CommitObservedTrainTopology`, which is also what a topology command from the host's client
+turns into), not by a round trip through its client.
+
+This matters because the reconciler makes the world match a snapshot: run on the host against an
+old one, it takes the canonical graph apart. On 2026-10-19 each car the host spawned asked for a
+train sync from the host's client at start-up; the reply was a snapshot from before the spawn's
+auto-couple, which uncoupled every new consist on the host, and every client followed (29 trains
+in one session).
+
+The host player's control writes do go through the server (`CommonTrainPortsPacket` and the
+rest), which broadcasts accepted commits with `excludeSelf`. A refused one comes back to the host's
+client and is dropped: the host's simulation already has the values.
 
 ## Stable identities
 
@@ -607,7 +685,8 @@ Implemented: the join baseline described under "Implementation status" (readines
 declared trainset applied and the baseline topology snapshot reconciled, including its brake
 lines; the completion manifest is counts, not a digest); a snapshot after every command; a
 snapshot on the tick after the host observes a native change; a full snapshot on a client's
-`ServerboundTrainTopologySyncRequestPacket` or `ServerboundTrainSyncRequestPacket`. Each of these
+`ServerboundTrainTopologySyncRequestPacket` or `ServerboundTrainSyncRequestPacket` (never to the
+host's own client, which sends neither). Each of these
 is the whole graph, not a targeted closure. Not implemented: the periodic host audit and
 client-reported digests.
 

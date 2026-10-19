@@ -12,6 +12,7 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using UnityEngine;
+using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
 
 namespace Multiplayer.Networking.Managers.Server;
 
@@ -119,6 +120,9 @@ internal static class AdminItemGrants
                 player.AddOwnedItem(networked.NetId);
             }
             bool inInventory = PutInInventory(player, networked, record);
+            if (!inInventory && record != null)
+                ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Granted, player,
+                    "at their feet, owner " + player.Username));
             Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {networked.NetId}), " +
                             (inInventory ? "in their inventory" : "at their feet"));
             yield return new WaitForSeconds(0.5f);
@@ -139,7 +143,8 @@ internal static class AdminItemGrants
         snapshot.PlayerHand = PlayerHand.None;
         snapshot.AuthorityRevision = record.Revision;
         if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, player,
-                ItemTransitionReason.HostLocalState, true, out string rejection))
+                ItemTransitionReason.HostLocalState, true, out string rejection,
+                cause: ItemChangeLog.Move(ItemMoveReason.Granted, player, "by an admin command")))
         {
             Multiplayer.LogWarning($"Couldn't put {item.name} in {player.Username}'s inventory ({rejection}); leaving it at their feet");
             return false;

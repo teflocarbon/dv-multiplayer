@@ -46,13 +46,15 @@ The system is deliberately additive. It observes the existing transport, packet 
 
 Debug builds enable the system by default. Release builds default to disabled. It can be changed from the advanced multiplayer settings while the game is running.
 
+A game with the Multiplayer Dev Tools mod (`MultiplayerDevTools`, see `DevTools/README.md`) installed and enabled always runs the system, in any build, and logs "Debug system on because MultiplayerDevTools is installed". That mod is only on developers' and testers' games, so a Release playtest keeps the event record that explains a bug afterwards. Unticking Enable Debug System doesn't stop it there; disable the mod in Unity Mod Manager instead.
+
 When the system is disabled, it does not create the runtime GameObject, event store, file worker, discovery file, HTTP listener, entity reconciliation work, overlay, or labels.
 
 The advanced settings are:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| Enable Debug System | On in `DEBUG`; off in release | Starts or stops the entire in-process runtime |
+| Enable Debug System | On in `DEBUG`; off in release (always on with the dev tools mod) | Starts or stops the entire in-process runtime |
 | Enable Debug File Logging | On when debug is enabled | Writes the authoritative JSONL event log |
 | Enable Debug Firehose | On | Starts the random-port loopback HTTP/SSE server |
 | Enable World Labels | Off | Shows labels over supported network entities |

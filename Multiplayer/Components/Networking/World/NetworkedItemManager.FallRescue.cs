@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using Multiplayer.Components.Networking.World.WorldItems;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using UnityEngine;
@@ -171,8 +173,9 @@ public partial class NetworkedItemManager
         record.Position = target;
         record.Rotation = item.transform.rotation;
 
-        Multiplayer.Log($"Rescued item {item.NetId} ({item.name}) from below the map at {fallenAt} " +
-                        $"to {target} ({source})");
+        ChangeCause<ItemMoveReason> rescued = ItemChangeLog.Move(ItemMoveReason.RescuedFromBelowMap,
+            detail: $"from {fallenAt} to {target}, {source}");
+        ItemChangeLog.RecordMove(item, record, rescued);
         RefreshHostWorldItem(item);
 
         // Tell everyone who has it now rather than waiting for the convergence pass.
@@ -181,7 +184,10 @@ public partial class NetworkedItemManager
             if (player.Peer == NetworkLifecycle.Instance.Server.SelfPeer || !player.KnownItems.ContainsKey(item))
                 continue;
             if (TryCreateConvergenceSnapshot(item, out ItemUpdateData snapshot))
+            {
+                snapshot.MoveCause = rescued;
                 NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot, sendToPlayer: player);
+            }
         }
     }
 }

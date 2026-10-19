@@ -56,6 +56,12 @@ public partial class NetworkedItemManager
     {
         if (snapshot == null)
             return;
+        // Before the item applies it, while the item still says whose it was.
+        if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
+        {
+            NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem described);
+            ItemChangeLog.OnClientSnapshot(described, snapshot);
+        }
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create &&
             RequiresLoadedWorldRegion(snapshot) && !IsWorldRegionReady(snapshot))
         {

@@ -1,6 +1,7 @@
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.JObjectExtstensions;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
@@ -60,6 +61,7 @@ public static class NetworkedLostAndFoundManager
         AuthoritativeItemRegistry.WriteToSnapshot(authority, snapshot,
             ItemTransitionReason.LostAndFoundCollection);
         snapshot.AuthorityRevision = lost.Revision;
+        snapshot.RemovalCause = CollectionCause(lost.Reason, lost.OwnerPlayerId, null);
         return true;
     }
 
@@ -280,17 +282,16 @@ public static class NetworkedLostAndFoundManager
                 continue;
             // Off the car first, so the pool doesn't take it.
             item.transform.SetParent(WorldMover.OriginShiftParent, true);
-            if (Collect(item, LostItemReason.ContainerCleared))
-            {
-                Multiplayer.Log($"Car {car.ID} deleted: {item.name} ({netId}) went to its owner's Lost and Found");
+            if (Collect(item, LostItemReason.ContainerCleared, $"car {car.ID} deleted"))
                 continue;
-            }
-            Multiplayer.Log($"Car {car.ID} deleted: {item.name} ({netId}) went with it");
+            item.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.DestroyedWithCar,
+                detail: $"car {car.ID} deleted, not a player's item"));
             UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
         }
     }
 
-    public static bool Collect(NetworkedItem item, LostItemReason reason)
+    /// <param name="detail">What the reason leaves out, for the logged cause (the deleted car).</param>
+    public static bool Collect(NetworkedItem item, LostItemReason reason, string detail = null)
     {
         if (!NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0)
             return false;
@@ -346,10 +347,15 @@ public static class NetworkedLostAndFoundManager
                 previousPlacement, previousPlacementPlayerId, previousReason);
             return false;
         }
+        ChangeCause<ItemRemovalReason> cause = CollectionCause(reason, authority.PersistentOwnerPlayerId,
+            ItemChangeLog.Detail("was " + previousPlacement, detail));
         ItemUpdateData destroy = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
         if (destroy != null)
+        {
             AuthoritativeItemRegistry.WriteToSnapshot(authority, destroy,
                 ItemTransitionReason.LostAndFoundCollection);
+            destroy.RemovalCause = cause;
+        }
         try
         {
             ProjectToInertStorage(item);
@@ -367,6 +373,7 @@ public static class NetworkedLostAndFoundManager
         }
         eligibleSince.Remove(item.NetId);
         generation++;
+        ItemChangeLog.RecordRemoval(item, cause);
         foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
         {
             player.NearbyItems.Remove(item);
@@ -387,9 +394,17 @@ public static class NetworkedLostAndFoundManager
         return true;
     }
 
+    // "CollectedToLostAndFound (OwnerDistance, owner Bentgear29; was World)".
+    private static ChangeCause<ItemRemovalReason> CollectionCause(LostItemReason reason, byte ownerPlayerId,
+        string detail) =>
+        ItemChangeLog.Removal(ItemRemovalReason.CollectedToLostAndFound, detail: ItemChangeLog.Detail(
+            reason + ", owner " + (ItemChangeLog.PlayerName(ownerPlayerId) ?? "P" + ownerPlayerId), detail));
+
     public static void ApplyClientSnapshot(uint newGeneration, LostItemData[] items)
     {
-        generation = newGeneration;
+        // On the host this counter is the server's own; a snapshot it was sent can be older.
+        if (!NetworkLifecycle.Instance.IsHost())
+            generation = newGeneration;
         clientItems.Clear();
         if (items != null)
             clientItems.AddRange(items.Where(item => item != null));
@@ -598,7 +613,7 @@ public static class NetworkedLostAndFoundManager
             int claimSlot = (int?)value["inventoryClaimSlot"] ?? -1;
             ItemInventoryClaimFlags claimFlags = (ItemInventoryClaimFlags)((byte?)value["inventoryClaimFlags"] ?? 0);
             AuthoritativeItemRegistry.RestoreLostRecord(item, owner.PlayerId, revision, prefab,
-                claimPlayerId, claimSlot, claimFlags);
+                claimPlayerId, claimSlot, claimFlags, ItemMoveReason.RestoredFromSave);
             registry.Restore(new LostItemRecord
             {
                 PersistentItemId = persistentItemId,

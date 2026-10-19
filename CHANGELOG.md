@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026.10.19.5 (beta)
+
+Fixes for trains coming apart and cars vanishing on a dedicated server, plus shared handcar pumping. Every player and the server need this version. None of it has been tested in a full game yet.
+
+### Trains
+- Job trains no longer come apart the moment the server spawns them. The server's own client was applying an old copy of the server's train state to the server's own world, which split 29 trains at every joint in one session. That client now ignores every packet carrying the server's own state.
+- Several players can pump a handcar at once, and their pumping adds up.
+- A steam loco's tender couples on the server only, instead of every game coupling it and sending hose and cock changes its player never made.
+- You can work a long car's far coupler from a client. An FEF-3 tender's rear coupler was always refused as out of range.
+
+### Dedicated server
+- Cars are no longer all deleted when a player logs in after a restart. While that player was loading, the game saw them at the world origin and treated every car as abandoned.
+- The watchdog no longer kills a healthy server when its heartbeat file looks missing for a moment.
+
+### Other
+- Arriving at a service station no longer sends the server refused plug moves (49 in one session).
+- No more false "kinematic" warnings in the log when another player drops an item.
+
+## 2026.10.19.4 (beta)
+
+2026.10.19.3 plus one VR fix. Every player and the server need this version.
+
+### VR
+- A lighter can always be flicked open and shut again, and a wallet keeps dropping coins. Putting one away during its short flick cooldown used to jam it for good.
+
+## 2026.10.19.3 (beta)
+
+A playtest build: one fix, unlimited flashlight batteries, and logging to explain the next "train came apart". Every player and the server need this version. None of it has been tested in a game yet.
+
+### VR
+- Telekinesis on levers and dials keeps working after you step from a loco into its tender while holding one. It used to stay broken until a restart.
+
+### Items
+- Flashlights have unlimited battery, and a flat one is topped back up to full. Other items' batteries drain as before.
+
+### Logging
+- The host logs every coupler command it refuses (with the reason, and for "out of range" the distance it measured) and every uncouple.
+- Uncouples, derails, removed cars and every item move, change of hands or removal record why they happened and who did it, on the host and on clients.
+- With the dev tools mod installed, the debug system runs in release builds too.
+
 ## 2026.10.19.2 (beta)
 
 Fixes from the third playtest, the first on a dedicated server with three players. Every player and the server need this version. None of these fixes has been tested in a game yet.

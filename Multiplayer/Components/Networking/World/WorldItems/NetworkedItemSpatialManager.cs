@@ -4,6 +4,7 @@ using Multiplayer.Components.Networking.Train;
 using Multiplayer.Core.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Integrations.Inventory;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Packets.Clientbound;
@@ -444,6 +445,11 @@ internal sealed class NetworkedItemSpatialManager
         state = committed.Clone();
         return true;
     }
+
+    // Another player simulates this item: our copy is a kinematic proxy following their samples.
+    internal bool IsSimulatedRemotely(ushort itemNetId) =>
+        leases.TryGetValue(itemNetId, out Lease lease) &&
+        lease.SimulatorPlayerId != InventoryIntegration.LocalPlayerId;
 
     internal bool TryGetActiveLeaseIdentity(ushort itemNetId, out uint authorityRevision,
         out uint simulationEpoch, out byte simulatorPlayerId, out ItemSpatialStateData state)

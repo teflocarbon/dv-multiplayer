@@ -25,6 +25,7 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.Player;
 using Multiplayer.Components.Networking.Train;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Components.Networking.UI;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.SaveGame;
@@ -75,6 +76,7 @@ public class NetworkClient : NetworkManager
 
     private ITransportPeer selfPeer;
     private readonly HashSet<Type> observerBlockedPacketWarnings = new();
+    private readonly HashSet<Type> hostIgnoredPacketWarnings = new();
     private int lastTrainTopologyCommandFrame = -1;
     private string lastTrainTopologyCommandSignature = string.Empty;
 
@@ -145,6 +147,28 @@ public class NetworkClient : NetworkManager
     private readonly TrainBaselineReceipt trainBaseline = new();
     private readonly TrainTopologyReconciler trainTopology = new();
     private bool trainTopologyRetryRunning;
+
+    // Why the host took couplings apart (sent with its snapshots), for this client's own uncouple
+    // of the same coupling to record; and, while a refusal of this client's own command is being
+    // applied, why it was refused (see CouplerUncoupleLogPatch).
+    private readonly Dictionary<(ushort CarNetId, TrainEnd End), ChangeCause<UncoupleReason>> hostUncoupleCauses = new();
+    internal ChangeCause<UncoupleReason>? RefusalUncoupleCause { get; private set; }
+
+    internal bool TakeHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
+    {
+        foreach (Coupler end in new[] { coupler, other })
+        {
+            ushort netId = end?.train?.GetNetId() ?? 0;
+            var key = (netId, end != null && end.isFrontCoupler ? TrainEnd.Front : TrainEnd.Rear);
+            if (netId != 0 && hostUncoupleCauses.TryGetValue(key, out cause))
+            {
+                hostUncoupleCauses.Remove(key);
+                return true;
+            }
+        }
+        cause = default;
+        return false;
+    }
     private ulong nextTrainTopologyOperationId;
     private float nextTrainTopologySyncRequestAt;
     private const double MaxWeatherClockLeadSeconds = 300; // game time
@@ -280,103 +304,137 @@ public class NetworkClient : NetworkManager
     protected override void Subscribe()
     {
         // Login, Connection & Initial Sync
-        netPacketProcessor.SubscribeReusable<ClientboundServerLoadingPacket>(OnClientboundServerLoadingPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundLoginResponsePacket>(OnClientboundLoginResponsePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundDisconnectPacket>(OnClientboundDisconnectPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundPingUpdatePacket>(OnClientboundPingUpdatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundLoadStateInfoPacket>(OnClientboundLoadStateInfoPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundRemoveLoadingScreenPacket>(OnClientboundRemoveLoadingScreen);
+        Handle<ClientboundServerLoadingPacket>(OnClientboundServerLoadingPacket);
+        Handle<ClientboundLoginResponsePacket>(OnClientboundLoginResponsePacket);
+        Handle<ClientboundDisconnectPacket>(OnClientboundDisconnectPacket);
+        Handle<ClientboundPingUpdatePacket>(OnClientboundPingUpdatePacket);
+        Handle<ClientboundLoadStateInfoPacket>(OnClientboundLoadStateInfoPacket);
+        Handle<ClientboundRemoveLoadingScreenPacket>(OnClientboundRemoveLoadingScreen);
 
-        netPacketProcessor.SubscribeReusable<ClientboundGameParamsPacket>(OnClientboundGameParamsPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundSaveGameDataPacket>(OnClientboundSaveGameDataPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundRailwayStatePacket>(OnClientboundRailwayStatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundSleepStatePacket>(OnClientboundSleepStatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundHazmatTilesPacket>(OnClientboundHazmatTilesPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
+        Handle<ClientboundGameParamsPacket>(OnClientboundGameParamsPacket);
+        Handle<ClientboundSaveGameDataPacket>(OnClientboundSaveGameDataPacket);
+        Handle<ClientboundRailwayStatePacket>(OnClientboundRailwayStatePacket);
+        Handle<ClientboundSleepStatePacket>(OnClientboundSleepStatePacket);
+        Handle<ClientboundHazmatTilesPacket>(OnClientboundHazmatTilesPacket);
+        Handle<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
+        Handle<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
 
 
         // General Sync
-        netPacketProcessor.SubscribeNetSerializable<ClientboundRpcResponsePacket>(OnClientboundRpcResponsePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTickSyncPacket>(OnClientboundTickSyncPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundWeatherPacket>(OnClientboundWeatherPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTimeAdvancePacket>(OnClientboundTimeAdvancePacket);
-        netPacketProcessor.SubscribeReusable<CommonChangeJunctionPacket>(OnCommonChangeJunctionPacket);
-        netPacketProcessor.SubscribeReusable<CommonRotateTurntablePacket>(OnCommonRotateTurntablePacket);
+        HandleNetSerializable<ClientboundRpcResponsePacket>(OnClientboundRpcResponsePacket);
+        Handle<ClientboundTickSyncPacket>(OnClientboundTickSyncPacket);
+        Handle<ClientboundWeatherPacket>(OnClientboundWeatherPacket);
+        Handle<ClientboundTimeAdvancePacket>(OnClientboundTimeAdvancePacket);
+        Handle<CommonChangeJunctionPacket>(OnCommonChangeJunctionPacket);
+        Handle<CommonRotateTurntablePacket>(OnCommonRotateTurntablePacket);
 
 
         // Player Management
-        netPacketProcessor.SubscribeReusable<ClientboundPlayerJoinedPacket>(OnClientboundPlayerJoinedPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundPlayerDisconnectPacket>(OnClientboundPlayerDisconnectPacket);
+        Handle<ClientboundPlayerJoinedPacket>(OnClientboundPlayerJoinedPacket);
+        Handle<ClientboundPlayerDisconnectPacket>(OnClientboundPlayerDisconnectPacket);
 
-        netPacketProcessor.SubscribeReusable<ClientboundPlayerPositionPacket>(OnClientboundPlayerPositionPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundPlayerPreferencesUpdatePacket>(OnClientboundPlayerPreferencesUpdatePacket);
+        Handle<ClientboundPlayerPositionPacket>(OnClientboundPlayerPositionPacket);
+        Handle<ClientboundPlayerPreferencesUpdatePacket>(OnClientboundPlayerPreferencesUpdatePacket);
 
 
         // Train Sync
-        netPacketProcessor.SubscribeReusable<ClientboundSpawnTrainSetPacket>(OnClientboundSpawnTrainSetPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTrainBaselineBeginPacket>(OnClientboundTrainBaselineBeginPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTrainBaselineCompletePacket>(OnClientboundTrainBaselineCompletePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTrainTopologySnapshotPacket>(OnClientboundTrainTopologySnapshotPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundDestroyTrainCarPacket>(OnClientboundDestroyTrainCarPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundRerailTrainPacket>(OnClientboundRerailTrainPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundMoveTrainPacket>(OnClientboundMoveTrainPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTrainsetRelocationPacket>(OnClientboundTrainsetRelocationPacket);
+        Handle<ClientboundSpawnTrainSetPacket>(OnClientboundSpawnTrainSetPacket);
+        Handle<ClientboundTrainBaselineBeginPacket>(OnClientboundTrainBaselineBeginPacket);
+        Handle<ClientboundTrainBaselineCompletePacket>(OnClientboundTrainBaselineCompletePacket);
+        Handle<ClientboundTrainTopologySnapshotPacket>(OnClientboundTrainTopologySnapshotPacket);
+        Handle<ClientboundDestroyTrainCarPacket>(OnClientboundDestroyTrainCarPacket);
+        Handle<ClientboundTrainDerailCausePacket>(OnClientboundTrainDerailCausePacket);
+        Handle<ClientboundRerailTrainPacket>(OnClientboundRerailTrainPacket);
+        Handle<ClientboundMoveTrainPacket>(OnClientboundMoveTrainPacket);
+        Handle<ClientboundTrainsetRelocationPacket>(OnClientboundTrainsetRelocationPacket);
 
-        netPacketProcessor.SubscribeReusable<ClientboundTrainsetPhysicsPacket>(OnClientboundTrainPhysicsPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundBrakeStateUpdatePacket>(OnClientboundBrakeStateUpdatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTrainControlCommitPacket>(OnClientboundTrainControlCommitPacket);
+        Handle<ClientboundTrainsetPhysicsPacket>(OnClientboundTrainPhysicsPacket);
+        Handle<ClientboundBrakeStateUpdatePacket>(OnClientboundBrakeStateUpdatePacket);
+        Handle<ClientboundTrainControlCommitPacket>(OnClientboundTrainControlCommitPacket);
 
-        netPacketProcessor.SubscribeReusable<CommonCouplerInteractionPacket>(OnCommonCouplerInteractionPacket);
+        Handle<CommonCouplerInteractionPacket>(OnCommonCouplerInteractionPacket);
 
 
-        netPacketProcessor.SubscribeReusable<CommonPaintThemePacket>(OnCommonPaintThemePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundRestorationStateChangePacket>(OnClientboundRestorationStateChangePacket);
+        Handle<CommonPaintThemePacket>(OnCommonPaintThemePacket);
+        Handle<ClientboundRestorationStateChangePacket>(OnClientboundRestorationStateChangePacket);
 
-        netPacketProcessor.SubscribeReusable<ClientboundTrainControlAuthorityUpdatePacket>(OnClientboundTrainControlAuthorityUpdatePacket);
+        Handle<ClientboundTrainControlAuthorityUpdatePacket>(OnClientboundTrainControlAuthorityUpdatePacket);
 
-        netPacketProcessor.SubscribeReusable<ClientboundCargoStatePacket>(OnClientboundCargoStatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundExplosionPacket>(OnClientboundExplosionPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundCargoFirePacket>(OnClientboundCargoFirePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundCargoHealthUpdatePacket>(OnClientboundCargoHealthUpdatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundCarHealthUpdatePacket>(OnClientboundCarHealthUpdatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundWarehouseControllerUpdatePacket>(OnClientboundWarehouseControllerUpdatePacket);
+        Handle<ClientboundCargoStatePacket>(OnClientboundCargoStatePacket);
+        Handle<ClientboundExplosionPacket>(OnClientboundExplosionPacket);
+        Handle<ClientboundCargoFirePacket>(OnClientboundCargoFirePacket);
+        Handle<ClientboundCargoHealthUpdatePacket>(OnClientboundCargoHealthUpdatePacket);
+        Handle<ClientboundCarHealthUpdatePacket>(OnClientboundCarHealthUpdatePacket);
+        Handle<ClientboundWarehouseControllerUpdatePacket>(OnClientboundWarehouseControllerUpdatePacket);
 
-        netPacketProcessor.SubscribeReusable<ClientboundWindowsBrokenPacket>(OnClientboundWindowsBrokenPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundWindowsRepairedPacket>(OnClientboundWindowsRepairedPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundMoneyPacket>(OnClientboundMoneyPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundLicenseAcquiredPacket>(OnClientboundLicenseAcquiredPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundGarageUnlockPacket>(OnClientboundGarageUnlockPacket);
+        Handle<ClientboundWindowsBrokenPacket>(OnClientboundWindowsBrokenPacket);
+        Handle<ClientboundWindowsRepairedPacket>(OnClientboundWindowsRepairedPacket);
+        Handle<ClientboundMoneyPacket>(OnClientboundMoneyPacket);
+        Handle<ClientboundLicenseAcquiredPacket>(OnClientboundLicenseAcquiredPacket);
+        Handle<ClientboundGarageUnlockPacket>(OnClientboundGarageUnlockPacket);
 
         // Job Sync
-        netPacketProcessor.SubscribeReusable<ClientboundDebtStatusPacket>(OnClientboundDebtStatusPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundJobsUpdatePacket>(OnClientboundJobsUpdatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundJobsCreatePacket>(OnClientboundJobsCreatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundJobValidateResponsePacket>(OnClientboundJobValidateResponsePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundJobReportArtifactPacket>(OnClientboundJobReportArtifactPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundTaskUpdatePacket>(OnClientboundTaskUpdatePacket);
+        Handle<ClientboundDebtStatusPacket>(OnClientboundDebtStatusPacket);
+        Handle<ClientboundJobsUpdatePacket>(OnClientboundJobsUpdatePacket);
+        Handle<ClientboundJobsCreatePacket>(OnClientboundJobsCreatePacket);
+        Handle<ClientboundJobValidateResponsePacket>(OnClientboundJobValidateResponsePacket);
+        Handle<ClientboundJobReportArtifactPacket>(OnClientboundJobReportArtifactPacket);
+        Handle<ClientboundTaskUpdatePacket>(OnClientboundTaskUpdatePacket);
 
         // World Sync
-        netPacketProcessor.SubscribeReusable<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
-        netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundItemAdoptionPacket>(OnClientboundItemAdoptionPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundItemRecallPreparePacket>(OnClientboundItemRecallPreparePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundWorldItemCataloguePacket>(OnClientboundWorldItemCataloguePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialLeasePacket>(OnClientboundItemSpatialLeasePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialSamplePacket>(OnClientboundItemSpatialSamplePacket);
-        netPacketProcessor.SubscribeReusable<ClientboundItemSpatialCommitPacket>(OnClientboundItemSpatialCommitPacket);
-        netPacketProcessor.SubscribeReusable<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
-        netPacketProcessor.SubscribeNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
-        netPacketProcessor.SubscribeReusable<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
-        netPacketProcessor.SubscribeReusable<CommonCashRegisterWithModulesActionPacket>(OnCommonCashRegisterWithModulesActionPacket);
-        netPacketProcessor.SubscribeReusable<CommonGenericSwitchStatePacket>(OnCommonGenericSwitchStatePacket);
+        Handle<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
+        Handle<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
+        Handle<ClientboundItemAdoptionPacket>(OnClientboundItemAdoptionPacket);
+        Handle<ClientboundItemRecallPreparePacket>(OnClientboundItemRecallPreparePacket);
+        Handle<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
+        Handle<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
+        Handle<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
+        Handle<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
+        Handle<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);
+        Handle<ClientboundWorldItemCataloguePacket>(OnClientboundWorldItemCataloguePacket);
+        Handle<ClientboundItemSpatialLeasePacket>(OnClientboundItemSpatialLeasePacket);
+        Handle<ClientboundItemSpatialSamplePacket>(OnClientboundItemSpatialSamplePacket);
+        Handle<ClientboundItemSpatialCommitPacket>(OnClientboundItemSpatialCommitPacket);
+        Handle<CommonPitStopInteractionPacket>(OnCommonPitStopInteractionPacket);
+        HandleNetSerializable<CommonPitStopPlugInteractionPacket>(OnCommonPitStopPlugInteractionPacket);
+        Handle<ClientboundPitStopBulkUpdatePacket>(OnClientboundPitStopBulkUpdatePacket);
+        Handle<CommonCashRegisterWithModulesActionPacket>(OnCommonCashRegisterWithModulesActionPacket);
+        Handle<CommonGenericSwitchStatePacket>(OnCommonGenericSwitchStatePacket);
 
-        netPacketProcessor.SubscribeReusable<CommonChatPacket>(OnCommonChatPacket);
+        Handle<CommonChatPacket>(OnCommonChatPacket);
+    }
+
+    // Every handler is subscribed through these, so the host's own client drops the packets
+    // HostOwnClient lists however they reach it: a reply, a broadcast or held traffic.
+    private void Handle<T>(Action<T> onReceive) where T : class, new() =>
+        netPacketProcessor.SubscribeReusable(HostGated(onReceive));
+
+    private void HandleNetSerializable<T>(Action<T> onReceive) where T : INetSerializable, new() =>
+        netPacketProcessor.SubscribeNetSerializable(HostGated(onReceive));
+
+    private Action<T> HostGated<T>(Action<T> onReceive)
+    {
+        if (!HostOwnClient.Classifies(typeof(T)))
+            LogError($"{typeof(T).Name} doesn't say whether the host's own client applies it: add it to HostOwnClient");
+        if (!HostOwnClient.Ignores(typeof(T)))
+            return onReceive;
+        return packet =>
+        {
+            if (NetworkLifecycle.Instance.IsHost())
+                IgnoreOnHost(typeof(T));
+            else
+                onReceive(packet);
+        };
+    }
+
+    private void IgnoreOnHost(Type packetType)
+    {
+        // The server leaves its own client out of these, so one arriving is a server bug: say so.
+        if (hostIgnoredPacketWarnings.Add(packetType))
+            LogWarning($"Ignored {packetType.Name} sent to the host's own client (further ones are " +
+                       "dropped silently): the host never follows its own state");
+        DebugRuntime.Publish("host-client", "host-client.packet-ignored", DebugRuntimeSide.Client,
+            DebugSeverity.Warning, "Packet", packetType.Name);
     }
 
     // Allow mods to register their own packets
@@ -1119,11 +1177,27 @@ public class NetworkClient : NetworkManager
         ClientboundTrainTopologySnapshotPacket packet)
     {
         if (packet?.OperationId != 0 && packet.Result != TrainTopologyResultCode.Accepted)
+        {
             LogWarning($"Train topology operation {packet.OperationId} was rejected: " +
-                       $"{packet.Result}; authoritative revision {packet.TopologyRevision}");
+                       $"{packet.Result}{(string.IsNullOrEmpty(packet.Detail) ? string.Empty : $", {packet.Detail}")}; " +
+                       $"authoritative revision {packet.TopologyRevision}");
+            // Undoing our own change: the uncouples it makes are the refusal's.
+            if (packet.OperationId >> 56 == PlayerId)
+                RefusalUncoupleCause = TrainChangeCauses.LocalCause(UncoupleReason.CoupleRefused,
+                    string.IsNullOrEmpty(packet.Detail) ? packet.Result.ToString() : $"{packet.Result}, {packet.Detail}");
+        }
+        if (packet?.Uncouples != null)
+        {
+            if (hostUncoupleCauses.Count > 512)
+                hostUncoupleCauses.Clear(); // causes for couplings this client never had
+            foreach (TrainUncoupleCauseData uncouple in packet.Uncouples)
+                if (uncouple != null)
+                    hostUncoupleCauses[(uncouple.CarNetId, uncouple.End)] = uncouple.Cause;
+        }
 
         if (trainTopology.Receive(packet, out string failure))
         {
+            RefusalUncoupleCause = null;
             DebugRuntime.Publish("train", "train.topology-snapshot-applied",
                 DebugRuntimeSide.Client, entityType: "Topology",
                 entityId: packet.TopologyRevision.ToString(),
@@ -1140,6 +1214,8 @@ public class NetworkClient : NetworkManager
         }
 
         LogWarning($"Deferred/rejected topology snapshot r{packet?.TopologyRevision}: {failure}");
+        if (!trainTopology.HasPending)
+            RefusalUncoupleCause = null;
         if (trainTopology.HasPending)
         {
             StartTrainTopologyRetry();
@@ -1196,6 +1272,7 @@ public class NetworkClient : NetworkManager
         finally
         {
             trainTopologyRetryRunning = false;
+            RefusalUncoupleCause = null;
         }
     }
 
@@ -1234,8 +1311,17 @@ public class NetworkClient : NetworkManager
             }
 
             netTrainCar.TrainCar.UpdateJobIdOnCarPlates(string.Empty);
-            CarSpawner.Instance.DeleteCar(netTrainCar.TrainCar);
+            using (TrainChangeCauses.Scope(packet.Cause))
+                CarSpawner.Instance.DeleteCar(netTrainCar.TrainCar);
         }
+    }
+
+    private void OnClientboundTrainDerailCausePacket(ClientboundTrainDerailCausePacket packet)
+    {
+        if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar car))
+            return;
+        car.LastDerail = packet.Cause;
+        Log($"{car.CurrentID} derailed on the host: {packet.Cause}");
     }
 
     public void OnClientboundTrainPhysicsPacket(ClientboundTrainsetPhysicsPacket packet)
@@ -1516,9 +1602,6 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundJobsCreatePacket(ClientboundJobsCreatePacket packet)
     {
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
-
         if (!NetworkedStationController.Get(packet.StationNetId, out NetworkedStationController networkedStationController))
         {
             LogError($"OnClientboundJobsCreatePacket() {packet.StationNetId} does not exist!");
@@ -1533,9 +1616,6 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundJobsUpdatePacket(ClientboundJobsUpdatePacket packet)
     {
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
-
         if (!NetworkedStationController.Get(packet.StationNetId, out NetworkedStationController networkedStationController))
         {
             LogError($"OnClientboundJobsUpdatePacket() {packet.StationNetId} does not exist!");
@@ -1579,7 +1659,7 @@ public class NetworkClient : NetworkManager
 
     private bool TryMaterializeJobReport(JobReportArtifactData artifact)
     {
-        if (artifact == null || NetworkLifecycle.Instance.IsHost())
+        if (artifact == null)
             return false;
         if (NetworkedItem.TryGet(artifact.ItemNetId, out NetworkedItem existing))
         {
@@ -1618,9 +1698,6 @@ public class NetworkClient : NetworkManager
 
     private void OnClientboundTaskUpdatePacket(ClientboundTaskUpdatePacket packet)
     {
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
-
         if (!NetworkedTask.TryGet(packet.TaskNetId, out Task task) || task == null)
         {
             LogError($"Received task update for taskNetId {packet.TaskNetId}, task was not found");
@@ -1778,6 +1855,8 @@ public class NetworkClient : NetworkManager
             return;
         }
 
+        if (packet.ItemData.MoveCause.HasValue)
+            ItemChangeLog.OnClientSnapshot(networkedItem, packet.ItemData);
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
@@ -2175,6 +2254,12 @@ public class NetworkClient : NetworkManager
             return;
         }
 
+        // The host's chain has already moved in the world it shares with the server. Sending it on
+        // made the server apply it to that coupler a second time: a Start (the screw used in an
+        // unexpected state) locked the host's own screw button and left the coupler marked in use.
+        if (NetworkLifecycle.Instance.IsHost())
+            return;
+
         Log($"Sending coupler interaction [{flags}] for {coupler?.train?.ID}, {(couplerIsFront ? "Front" : "Rear")}");
 
         SendPacketToServer(new CommonCouplerInteractionPacket
@@ -2360,6 +2445,9 @@ public class NetworkClient : NetworkManager
 
     private void RequestTrainTopologySync()
     {
+        // The host's topology is the canonical one: there is nothing to sync it with.
+        if (NetworkLifecycle.Instance.IsHost())
+            return;
         // A single topology failure can defer every car's brake heartbeat. Coalesce their
         // identical repair requests instead of turning one native mismatch into hundreds
         // of reliable packets and repeated snapshots per second.
@@ -2381,6 +2469,9 @@ public class NetworkClient : NetworkManager
 
     internal void RestoreCanonicalTrainTopology()
     {
+        // On the host its own couplings are the canonical ones; this client holds no snapshot of them.
+        if (NetworkLifecycle.Instance.IsHost())
+            return;
         if (trainTopology.ReapplyCurrent(out string failure))
             return;
 
@@ -2518,6 +2609,9 @@ public class NetworkClient : NetworkManager
 
     public void SendTrainSyncRequest(ushort netId)
     {
+        // The host has the car's state already; asking only made it resend the car to everyone.
+        if (NetworkLifecycle.Instance.IsHost())
+            return;
         SendPacketToServer(new ServerboundTrainSyncRequestPacket
         {
             NetId = netId

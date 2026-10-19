@@ -21,6 +21,10 @@ The code is the source of truth. File paths below are relative to the repository
 | `MultiplayerAPI Tests/` | A sample mod that exercises the API. |
 | `DevTools/DvmpAgent/` | In-game agent mod for the dvmp harness (Debug only, never shipped). |
 
+Nothing in `Multiplayer/`'s layout says yet whether code runs on the server, on a player's game or
+both. The planned split into Shared, Server and Client is
+[design/code-layout.md](design/code-layout.md).
+
 Outside the solution:
 
 | Path | Purpose |
@@ -63,6 +67,47 @@ See [design/server-player-split.md](design/server-player-split.md).
 
 Use `NetworkLifecycle.Instance.IsHost()` for "am I the host" checks. Server-side code must
 validate through `ServerPlayer`, never through the client's own idea of who it is.
+
+### The host's own client
+
+The host's own client runs in the server's world, so **it never follows the host's state**.
+A packet that carries the host's state for players to follow (a topology snapshot, a car spawn,
+an item correction) would make the authority apply its own state to itself: a copy at best, an
+old one at worst. On 2026-10-19 that split 29 trains in one session: each car the host spawned
+asked for a train sync from the host's client, the reply was a snapshot from before the spawn's
+auto-couple, and applying it uncoupled the new consist on the host; every client followed.
+
+The rule is kept where state is applied, so it holds whichever way a packet gets there (a reply
+to a request, a broadcast without `excludeSelf`, held traffic):
+
+- `Networking/Managers/Client/HostOwnClient.cs` says, for every packet a client handles, whether
+  the host's own client applies it. `NetworkClient` subscribes every handler through `Handle`,
+  which drops the ignored ones on the host and logs the first of each type (the server shouldn't
+  have sent it). A protocol test fails if a `Clientbound*` packet isn't listed; subscribing a
+  handler for an unlisted packet logs an error.
+- **Ignored on the host:** rolling stock (spawns, deletes, topology snapshots, physics, brake
+  state, control commits, relocations, rerails, cargo, damage, paint), jobs, items (snapshots,
+  corrections, recalls, adoption, spatial leases), money, licences and garages, weather, sleep,
+  hazmat, shop stock, pit stops, registers, switches, and the join steps the host skips.
+- **Applied on the host:** its own session (login, loading screen, RPC answers), the other
+  players (joins, positions, ping, chat), answers to the host player's career and container UI,
+  control-authority updates (another player holding a lever blocks it for the host player too),
+  and the packets the server relays without applying itself: junction, turntable and time skip
+  changes reach the host's world only through its client.
+- **Requests.** The host's own client doesn't ask the server for state it already has:
+  `SendTrainSyncRequest` and the topology sync do nothing on the host, nor does
+  `RestoreCanonicalTrainTopology`, and the coupler-interaction fallback isn't sent. The host
+  player's own actions still go through the server where that's how the host commits and
+  broadcasts them (control writes, topology commands, which become `CommitObservedTrainTopology`).
+  The server also skips `SelfPeer` when answering the two train sync requests, but nothing relies
+  on that.
+- **No join.** The host's client goes straight to `ReadyForWorldState`, which the server treats
+  as `Complete` (see [Loading states](#2-loading-states)), so it never takes the world state or the
+  train baseline.
+
+When adding a packet: if it carries the host's state, list it as ignored. If the host's client
+seems to need it, check whether it's the host player's own view (fine) or the host's world, which
+the server should change directly instead of through its own client.
 
 ### Managers
 
@@ -184,8 +229,9 @@ Concrete cases:
   [design/item-lifecycle.md](design/item-lifecycle.md) and
   [design/item-spatial-physics.md](design/item-spatial-physics.md).
 - **Train topology.** `ServerboundTrainTopologyCommandPacket` (couple, uncouple, hoses, cocks,
-  MU) is checked for range (the player within a car length of the primary car unless using a
-  remote, and the two couplers actually close), executed by `TrainTopologyAuthority`, and the
+  MU) is checked for range (the player within 8 m of the primary car, measured to the line
+  between its couplers, unless using a remote; and the two couplers actually close), executed by
+  `TrainTopologyAuthority`, and the
   resulting `ClientboundTrainTopologySnapshotPacket` with its revision is broadcast; a rejection
   sends the snapshot back to the requester only. See [design/trains.md](design/trains.md).
 - **Shops and money.** Money is the host's wallet; `MoneyChanged` on the host broadcasts the
@@ -242,7 +288,8 @@ is kicked. Broadcasts carry a minimum loading state, so a player only receives l
 system once it has that system's baseline.
 
 The host's own client skips straight to `ReadyForWorldState`, which the server treats as
-`Complete`.
+`Complete`. The plan to remove that loopback client, with the host's player as a local session of
+the server in the same process, is [design/host-local-session.md](design/host-local-session.md).
 
 ```mermaid
 sequenceDiagram

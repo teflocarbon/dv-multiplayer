@@ -1,6 +1,6 @@
 {
     "Id":  "Multiplayer",
-    "Version":  "2026.10.19.2",
+    "Version":  "2026.10.19.5",
     "DisplayName":  "Multiplayer (Teflo)",
     "Author":  "Insprill, Macka, Morm, Teflo",
     "EntryMethod":  "Multiplayer.Multiplayer.Load",

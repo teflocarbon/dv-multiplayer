@@ -20,6 +20,7 @@ using Multiplayer.Debugging.Protocol;
 using Multiplayer.Integrations.Inventory;
 using Multiplayer.Integrations.Storage;
 using Multiplayer.Core.Collections;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.World.WorldItems;
@@ -148,6 +149,14 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     public int InventoryClaimSlot { get; private set; } = -1;
     public ItemInventoryClaimFlags InventoryClaimFlags { get; private set; }
     public ItemTransitionReason LastTransitionReason { get; private set; }
+    /// <summary>Client: why the host last said this item moved or changed hands (ItemChangeLog).</summary>
+    public ChangeCause<ItemMoveReason>? LastMoveCause { get; private set; }
+    /// <summary>Client: why the host last said this item went away; it may since have come back.</summary>
+    public ChangeCause<ItemRemovalReason>? LastRemovalCause { get; private set; }
+    /// <summary>Host: what last changed the host's own copy (a grab, an inventory call), for an unexplained change's cause.</summary>
+    internal string HostObservationTrigger { get; private set; }
+    // Host: why the code destroying this item is doing it, for OnDestroy to log and send.
+    private ChangeCause<ItemRemovalReason>? pendingRemovalCause;
     public bool IsForeignOwned => InventoryIntegration.Project(this).ForeignOwned;
     public string AuthoredItemKey { get; private set; }
     public bool IsSceneAuthored => WorldItemStableIdentity.IsValid(AuthoredItemKey);
@@ -236,13 +245,28 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         EntityDebugRegistry.Unregister("Item", NetId.ToString());
         DebugDesyncDetector.Forget(NetId);
 
+        // A cold-storage retirement was logged and sent by the code that stored the item.
+        ChangeCause<ItemRemovalReason>? removal = null;
+        if (!suppressNetworkDestroy && NetworkLifecycle.Instance.IsHost() && NetId != 0 &&
+            !coldMaterializationPending && (!coldStorageRetirement || pendingRemovalCause.HasValue))
+        {
+            // Unity destroys at the end of the frame; a note from seconds ago was for a destroy that never came.
+            bool fresh = pendingRemovalCause.HasValue &&
+                unchecked(NetworkLifecycle.Instance.Tick - pendingRemovalCause.Value.Tick) <= NetworkLifecycle.TICK_RATE * 2;
+            removal = fresh ? pendingRemovalCause.Value : UnexplainedRemoval();
+            ItemChangeLog.RecordRemoval(this, removal.Value);
+        }
+
         if (!suppressNetworkDestroy && NetworkLifecycle.Instance.IsHost() &&
             !coldStorageRetirement && !coldMaterializationPending)
         {
             WorldItemPersistenceManager.RecordDestroyed(this);
             var updateData = CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
             if (updateData != null)
+            {
+                updateData.RemovalCause = removal;
                 NetworkedItemManager.Instance.AddDirtyItemSnapshot(this, updateData);
+            }
         }
 
         if (Item != null)
@@ -260,6 +284,33 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (NetworkLifecycle.Instance.IsHost())
             JobReportArtifactRegistry.Remove(NetId);
         base.OnDestroy();
+    }
+
+    /// <summary>
+    /// Host: says why the item is about to be destroyed, so OnDestroy logs and sends that instead
+    /// of <see cref="ItemRemovalReason.DestroyedByGame"/>. Call it before Object.Destroy.
+    /// </summary>
+    internal void NoteRemovalCause(ChangeCause<ItemRemovalReason> cause) => pendingRemovalCause = cause;
+
+    internal void SetLastMoveCause(ChangeCause<ItemMoveReason> cause) => LastMoveCause = cause;
+    internal void SetLastRemovalCause(ChangeCause<ItemRemovalReason> cause) => LastRemovalCause = cause;
+
+    // Unity runs OnDestroy at the end of the frame, after whatever called Destroy has returned, so
+    // the stack rarely names it: say what else is known (the parent it went with, its last move).
+    private ChangeCause<ItemRemovalReason> UnexplainedRemoval()
+    {
+        string parent = transform.parent != null ? transform.parent.name : "none";
+        string callers = ItemChangeLog.Callers(typeof(NetworkedItem));
+        AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record record);
+        return ItemChangeLog.Removal(ItemRemovalReason.DestroyedByGame, detail: ItemChangeLog.Detail(
+            "no cause recorded",
+            record != null ? "was " + record.Placement + (record.PlacementPlayerId != 0 ? " of P" + record.PlacementPlayerId : "") : null,
+            "parent " + parent,
+            gameObject.scene.isLoaded ? null : "scene unloaded",
+            record != null && record.LastMove.Reason != ItemMoveReason.Unknown ? "last move " + record.LastMove : null,
+            string.IsNullOrEmpty(HostObservationTrigger) ? null : "last host trigger " + HostObservationTrigger,
+            pendingRemovalCause.HasValue ? "stale note " + pendingRemovalCause.Value : null,
+            callers == "an unknown caller" ? null : "callers " + callers));
     }
 
     private void OnUngrabbed(ControlImplBase obj)
@@ -687,6 +738,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (NetworkLifecycle.Instance.IsHost())
         {
             hostStateObservationPending = true;
+            HostObservationTrigger = reason;
             return;
         }
 
@@ -775,7 +827,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             ["inventoryClaimPlayerId"] = InventoryClaimPlayerId,
             ["inventoryClaimSlot"] = InventoryClaimSlot,
             ["inventoryClaimFlags"] = InventoryClaimFlags.ToString(),
-            ["transitionReason"] = LastTransitionReason.ToString()
+            ["transitionReason"] = LastTransitionReason.ToString(),
+            ["lastMoveCause"] = LastMoveCause?.ToString() ?? string.Empty,
+            ["lastRemovalCause"] = LastRemovalCause?.ToString() ?? string.Empty
         };
     }
 }

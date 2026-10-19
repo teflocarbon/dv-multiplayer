@@ -308,6 +308,10 @@ public static class EntityDebugRegistry
             state["canonicalAuthority"] = AuthoritativeItemRegistry.Snapshot(authorityRecord);
         NetworkedItemManager.Instance?.AppendSpatialDebugState(item.NetId, state);
         state["transitionReason"] = item.LastTransitionReason.ToString();
+        if (item.LastMoveCause.HasValue)
+            state["lastMoveCause"] = item.LastMoveCause.Value.ToString();
+        if (item.LastRemovalCause.HasValue)
+            state["lastRemovalCause"] = item.LastRemovalCause.Value.ToString();
         state["foreignOwned"] = item.IsForeignOwned;
         state["unboundState"] = item.UnboundState.ToString();
         state["velocity"] = DebugValueSnapshotter.Snapshot(item.Item?.ItemRigidbody?.velocity);

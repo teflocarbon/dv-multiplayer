@@ -425,7 +425,9 @@ public partial class NetworkedItem
             violations.Add("inventory-layer");
         else if (worldLayer >= 0 && gameObject.layer != worldLayer)
             violations.Add("not-world-item-layer");
-        if (Item?.ItemRigidbody?.isKinematic == true)
+        // While another player holds the simulation lease our copy is meant to be kinematic.
+        if (Item?.ItemRigidbody?.isKinematic == true &&
+            NetworkedItemManager.Instance?.IsSpatiallySimulatedRemotely(NetId) != true)
             violations.Add("rigidbody-kinematic");
         if (transform.parent != WorldMover.OriginShiftParent)
             violations.Add("wrong-world-parent");

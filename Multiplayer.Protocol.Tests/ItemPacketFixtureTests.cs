@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using LiteNetLib.Utils;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Networking.Data.Items;
@@ -152,6 +154,74 @@ public sealed class ItemPacketFixtureTests
             Assert.That(result.PrefabName, Is.Null);
             Assert.That(result.States, Is.Null);
         });
+    }
+
+    [Test]
+    public void DestroyRoundTripsItsRemovalCause()
+    {
+        ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.Destroy, ItemState.Dropped);
+        source.RemovalCause = new ChangeCause<ItemRemovalReason>(ItemRemovalReason.CollectedToLostAndFound,
+            0, null, 9001, "OwnerDistance, owner Bentgear29");
+        source.MoveCause = new ChangeCause<ItemMoveReason>(ItemMoveReason.Dropped); // not on a Destroy
+
+        ItemUpdateData result = RoundTrip(source);
+
+        Assert.That(result.RemovalCause.HasValue, Is.True);
+        Assert.Multiple(() => {
+            Assert.That(result.RemovalCause.Value.Reason, Is.EqualTo(ItemRemovalReason.CollectedToLostAndFound));
+            Assert.That(result.RemovalCause.Value.Tick, Is.EqualTo(9001));
+            Assert.That(result.RemovalCause.Value.Detail, Is.EqualTo("OwnerDistance, owner Bentgear29"));
+            Assert.That(result.MoveCause, Is.Null);
+        });
+    }
+
+    [TestCase(ItemUpdateData.ItemUpdateType.ItemState)]
+    [TestCase(ItemUpdateData.ItemUpdateType.FullSync)]
+    [TestCase(ItemUpdateData.ItemUpdateType.Create)]
+    public void StateUpdatesRoundTripTheirMoveCause(ItemUpdateData.ItemUpdateType updateType)
+    {
+        ItemUpdateData source = Fixture(updateType, ItemState.InHand);
+        source.MoveCause = new ChangeCause<ItemMoveReason>(ItemMoveReason.TakenFromPlayer, 3, "Bentgear29", 77,
+            "Liam's inventory -> Bentgear29's hand");
+
+        ItemUpdateData result = RoundTrip(source);
+
+        Assert.That(result.MoveCause.HasValue, Is.True);
+        Assert.Multiple(() => {
+            Assert.That(result.MoveCause.Value.ToString(),
+                Is.EqualTo("TakenFromPlayer by Bentgear29 (Liam's inventory -> Bentgear29's hand)"));
+            Assert.That(result.MoveCause.Value.PlayerId, Is.EqualTo(3));
+            Assert.That(result.PlayerId, Is.EqualTo(source.PlayerId));
+            Assert.That(result.RemovalCause, Is.Null);
+        });
+    }
+
+    [TestCase(ItemUpdateData.ItemUpdateType.ItemState)]
+    [TestCase(ItemUpdateData.ItemUpdateType.Destroy)]
+    public void UpdatesWithoutACauseRoundTripWithout(ItemUpdateData.ItemUpdateType updateType)
+    {
+        ItemUpdateData result = RoundTrip(Fixture(updateType, ItemState.Dropped));
+        Assert.Multiple(() => {
+            Assert.That(result.MoveCause, Is.Null);
+            Assert.That(result.RemovalCause, Is.Null);
+        });
+    }
+
+    [Test]
+    public void PositionAndObjectStateUpdatesCarryNoCause()
+    {
+        // Only a placement change carries one: the many pose and object-state updates stay as small.
+        ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.ItemPosition | ItemUpdateData.ItemUpdateType.ObjectState,
+            ItemState.Dropped);
+        source.MoveCause = new ChangeCause<ItemMoveReason>(ItemMoveReason.Moved);
+        var withCause = new NetDataWriter();
+        ItemUpdateData.Serialize(withCause, source);
+        source.MoveCause = null;
+        var without = new NetDataWriter();
+        ItemUpdateData.Serialize(without, source);
+
+        Assert.That(withCause.Length, Is.EqualTo(without.Length));
+        Assert.That(RoundTrip(source).MoveCause, Is.Null);
     }
 
     [Test]

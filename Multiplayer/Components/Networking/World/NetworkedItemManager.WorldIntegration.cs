@@ -61,6 +61,8 @@ public partial class NetworkedItemManager
         if (AuthoredCatalogue.TryGet(key, out NetworkedItem existing) && existing != null && existing != item)
         {
             UnregisterHostWorldItem(existing);
+            existing.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.AuthoredSlotReplaced,
+                detail: $"slot {key} now netId {item?.NetId ?? 0}"));
             existing.BeginColdStorageRetirement();
             AuthoritativeItemRegistry.Remove(existing.NetId);
             UnityEngine.Object.Destroy(existing.gameObject);
@@ -264,6 +266,9 @@ public partial class NetworkedItemManager
 
     internal bool HasActiveSpatialState(ushort itemNetId) =>
         Spatial?.TryGetLatestAccepted(itemNetId, out _) == true;
+
+    internal bool IsSpatiallySimulatedRemotely(ushort itemNetId) =>
+        Spatial?.IsSimulatedRemotely(itemNetId) == true;
 
     internal bool TryGetCommittedSpatialState(ushort itemNetId, out ItemSpatialStateData state)
     {
