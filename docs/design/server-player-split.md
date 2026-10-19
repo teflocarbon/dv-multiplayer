@@ -61,10 +61,10 @@
     records, unrestored Lost and Found entries and cold containers (`OwnedItemsSummary`, two new
     fields in `ClientboundSaveGameDataPacket`).
   - The client counts them as present when DV's starting-item and licence safeguards check what's
-    missing (`StartingItemsControllerPatch`, a postfix on `CombineAndResolveIllegalDuplicates`,
+    missing (`StartingItemsClientPatch`, a postfix on `CombineAndResolveIllegalDuplicates`,
     whose result only those safeguards use).
-  - A player host does the same from its own save. A dedicated host skips both safeguards, so its
-    parked body stays empty.
+  - A player host does the same from its own save (`StartingItemsServerPatch`). A dedicated host
+    skips both safeguards, so its parked body stays empty.
   - `rejoin`, `rejoin-crash` and `inventory-persist` passed. After a restart, the client's inventory
     held each item once.
   - This is narrower than "the server gives starting items": a genuinely missing item is still made

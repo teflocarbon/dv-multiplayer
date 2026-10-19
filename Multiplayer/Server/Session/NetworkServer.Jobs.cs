@@ -18,6 +18,11 @@ namespace Multiplayer.Server.Session;
 // NetworkServer's jobs handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkServer
 {
+    partial void RegisterLocalJobs()
+    {
+        HandleLocal<ServerboundJobBookletSummonRequestPacket>(HandleJobBookletSummon);
+    }
+
     public void SendWarehouseControllerUpdate(ushort netId, bool isLoading, ushort jobNetId, ushort carNetId, uint cargoTypeNetId, WarehouseMachineController.TextPreset preset)
     {
         LogDebug(() => $"SendWarehouseControllerUpdate({netId}, {isLoading}, {jobNetId}, {carNetId}, {cargoTypeNetId}, {preset})");
@@ -181,8 +186,13 @@ public partial class NetworkServer
     private void OnServerboundJobBookletSummonRequestPacket(
         ServerboundJobBookletSummonRequestPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleJobBookletSummon(packet, player);
+    }
+
+    // The validator's reprint button, from any player; the host's own comes in-process.
+    private void HandleJobBookletSummon(ServerboundJobBookletSummonRequestPacket packet, ServerPlayer player)
+    {
         if (!NetworkedStationController.Get(packet.StationNetId,
                 out NetworkedStationController station) || station.JobValidator == null)
         {

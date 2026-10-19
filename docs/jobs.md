@@ -64,6 +64,11 @@ an FNV-1a hash of the station ID, so it's the same on every peer without negotia
 station also finds its `JobValidator` (queued from `JobValidator.Start`) by matching the
 validator's parent name against the station's `<name>_office_anchor`.
 
+`NetworkedStationController` (`Shared/Jobs`) is the part every game has: the lookups, the
+validator and the station's `NetworkedJob`s. The host's part is `ServerStationController`
+(`Server/Jobs`), added beside it, which removes itself on a client; a client's part is
+`ClientStationJobs` (`Client/Jobs`), which builds the client's jobs from the host's packets.
+
 On the host:
 
 - `StationProceduralJobsController.TryToGenerateJobs` and
@@ -71,15 +76,15 @@ On the host:
   `IsHost()` when a session is up, and run normally in single player).
 - `StationJobGenerationRange` distance getters return the distance to the nearest player of any
   peer (`AnyPlayerSqrMag`), so a station generates and keeps jobs when anyone is near it.
-- `Station.AddJobToStation` registers the job (`RegisterOrQueueHostJob`). If the station's
-  networked controller isn't ready yet, the job is queued and drained when it is;
-  `ReconcileExistingHostJobs` also picks up anything already in the station's
+- `Station.AddJobToStation` registers the job (`ServerStationController.RegisterOrQueueJob`). If
+  the station's networked controller isn't ready yet, the job is queued and drained when it is;
+  `ReconcileExistingJobs` also picks up anything already in the station's
   available/taken/abandoned/completed lists (jobs restored from the save).
 - `Task.SetJobBelonging` gives each task a `NetworkedTask` (queued until the job's
   `NetworkedJob` exists).
 - `BookletCreator.CreateJobOverview` gives the overview a host-assigned item NetId and links it to
   the job (`BindExistingJobOverview` does the same for an overview printed before registration).
-- Each tick `Server_OnTick` sends new jobs as one `ClientboundJobsCreatePacket` and dirty jobs as
+- Each tick `ServerStationController` sends new jobs as one `ClientboundJobsCreatePacket` and dirty jobs as
   one `ClientboundJobsUpdatePacket` per station.
 
 `JobData` carries the job ID and type, all tasks (`TaskNetworkData`, including nested tasks, cars,
@@ -87,7 +92,7 @@ tracks and cargo), chain origin/destination, required licences, start/finish tim
 time limit, the overview's NetId and position, and every live booklet copy (NetId, issued player,
 position).
 
-On a client, `NetworkedStationController.AddJobs`:
+On a client, `ClientStationJobs.AddJobs`:
 
 - waits up to 120 frames for every car the job references to exist and be initialised, then
   gives up with a warning;
@@ -106,13 +111,15 @@ sent earlier in the save-game data (`ClientboundSaveGameDataPacket.JobManagerTim
 
 ## Taking a job
 
-`JobValidator_Patch.ProcessJobOverview` (prefix) runs on every peer:
+`JobValidator.ProcessJobOverview` has a prefix per role: `JobValidator_ServerPatch` on the host
+(`Server/Jobs`) and `JobValidator_ClientPatch` on a client (`Client/Jobs`). Both start with the
+same checks (`JobValidator_Patch.TryGetOverviewJob`, `Shared/Jobs`):
 
 - printer on cooldown: error sound, nothing else;
 - no `NetworkedJob` for the overview, or the local job isn't `Available`: error sound and the
   overview is destroyed locally;
-- host: records the validator and the player the booklet will be issued to (the host itself if
-  nobody else set it), then lets vanilla run;
+- host: records the validator and the player the booklet will be issued to (the host's own
+  player, `NetworkServer.LocalPlayer`, if a client's request didn't set it), then lets vanilla run;
 - client: sends `ServerboundJobValidateRequestPacket` with the overview's item NetId, unless a
   request for this job is already in flight, and skips vanilla.
 
@@ -170,7 +177,9 @@ Works:
 - **Booklets**: one job, any number of physical copies, one issued copy per player. A late joiner
   rebuilds every live copy from `JobData.JobBooklets`. Incremental updates add copies by NetId
   without duplicating ones the client has.
-- **Reprint** (`SummonAllActiveJobBooklets`) is replaced: the host's
+- **Reprint** (`SummonAllActiveJobBooklets`) is replaced by `ServerboundJobBookletSummonRequestPacket`
+  from every player; the host's own player's is handled in-process
+  ([host-local-session](design/host-local-session.md), stage 2). The host's
   `JobBookletSummonCoordinator`, for every in-progress job, moves the requester's issued copy to
   the printer through an authoritative item transition (`ItemTransitionReason.JobBookletSummon`,
   clearing any retrieval claim) or prints a new copy if they have none. Other players' copies
@@ -245,7 +254,7 @@ On complete, abandon and expire the host destroys every booklet copy and clears 
 ### Save, load and rejoin
 
 The host's save is the only job save. DV saves and restores the host's jobs; restored jobs are
-registered by `ReconcileExistingHostJobs` and `OnJobTaken` ignores the load-game take, so a load
+registered by `ReconcileExistingJobs` and `OnJobTaken` ignores the load-game take, so a load
 doesn't broadcast spurious state changes. A client keeps nothing between sessions: on every join
 or rejoin it gets the active jobs afresh at `ReadyForJobs`, with all live booklet copies.
 
@@ -253,9 +262,9 @@ or rejoin it gets the active jobs afresh at `ReadyForJobs`, with all live bookle
 
 `Task.SetState` on the host (except to `InProgress`) sends `ClientboundTaskUpdatePacket`, which
 clients apply with `Task.SetState` plus the times. Warehouse Load/Unload buttons on a client send
-`ServerboundWarehouseMachineControllerRequestPacket`; the host runs the sequence and
-`WarehouseMachineController.SetScreen` broadcasts the screen (idle and train-in-range presets are
-left to each peer).
+`ServerboundWarehouseMachineControllerRequestPacket` (`WarehouseMachineControllerClientPatch`); the
+host runs the sequence and its `WarehouseMachineController.SetScreen` broadcasts the screen
+(`WarehouseMachineControllerServerPatch`; idle and train-in-range presets are left to each peer).
 
 ## Career Manager
 
@@ -311,7 +320,7 @@ Also open:
   timeout even when the hand-in worked. Clients also don't play the printer animation for a
   hand-in.
 - `JobMissing` destroys only the `NetworkedJob` GameObject. The local `Job` stays in the station
-  lists and its paperwork stays; `NetworkedStationController.RemoveJob`, which would clean up, is
+  lists and its paperwork stays; `ClientStationJobs.RemoveJob`, which would clean up, is
   never called.
 - When the local job state disagrees, the validator prefixes destroy the offered overview or
   booklet locally on a client, without asking the host.

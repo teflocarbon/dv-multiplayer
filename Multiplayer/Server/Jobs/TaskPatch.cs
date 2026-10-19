@@ -27,7 +27,9 @@ public static class TaskPatch
             return;
         }
 
-        networkedTask.SetState(newState);
+        if (networkedTask.RecordState(newState))
+            NetworkLifecycle.Instance.Server.SendTaskUpdate(networkedTask.NetId, newState,
+                __instance.taskStartTime, __instance.taskFinishTime);
     }
 
     [HarmonyPatch(nameof(Task.SetJobBelonging))]

@@ -1,7 +1,6 @@
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.Logic.Job;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Session;
@@ -375,10 +374,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     public void ClearReports()
     {
         foreach (var report in JobReports)
-        {
-            ItemChangeLog.NoteJobDocumentRemoval(report, Job, typeof(NetworkedJob));
             Destroy(report.gameObject);
-        }
 
         JobReports.Clear();
     }
