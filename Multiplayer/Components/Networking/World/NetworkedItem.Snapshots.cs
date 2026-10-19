@@ -385,6 +385,23 @@ public partial class NetworkedItem
             return;
         }
 
+        // Our own hold, accepted after we let go into the inventory (a VR belt clip). The
+        // InInventory we sent since follows it; applying the hold unsnapped the belt item.
+        if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) && Item != null &&
+            BeltItemPolicy.IsSupersededOwnHold(NetworkLifecycle.Instance.IsHost(),
+                NetworkLifecycle.Instance.Client?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
+                ToWireState(snapshot.ItemState), Item.IsGrabbed(),
+                InventoryIntegration.ContainsActive(gameObject)))
+        {
+            DebugRuntime.Publish("item", "item.local-hold-superseded", DebugRuntimeSide.Client,
+                entityType: "Item", entityId: NetId.ToString(), data: new()
+                {
+                    ["authorityRevision"] = snapshot.AuthorityRevision,
+                    ["localState"] = GetItemState().ToString()
+                });
+            return;
+        }
+
         // The host's echo of our own object-state change (a lantern's knob still being turned).
         if (ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(NetworkLifecycle.Instance.IsHost(),
                 NetworkLifecycle.Instance.Client?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
@@ -866,9 +883,7 @@ public partial class NetworkedItem
 
         // Let go in VR: if that was next to the belt, the belt takes it at the end of this frame.
         // Until then it isn't dropped yet; the next frame tells which it was.
-        if (vrBeltReleaseFrame >= 0 && BeltItemPolicy.HoldVrRelease(Item.IsBeltSnappable,
-                vrBeltReleaseFrame, Time.frameCount, grabbed: false,
-                InventoryIntegration.ContainsActive(gameObject)))
+        if (HoldingVrRelease())
             return lastState;
 
         // Derail Valley exposes only this process's local inventory. Preserve another player's
@@ -902,6 +917,11 @@ public partial class NetworkedItem
         //do we need a condition to check if it's attached to something else (last attach vs current attach)?
         return ItemState.Dropped;
     }
+
+    private bool HoldingVrRelease() =>
+        vrBeltReleaseFrame >= 0 && Item != null && BeltItemPolicy.HoldVrRelease(Item.IsBeltSnappable,
+            vrBeltReleaseFrame, Time.frameCount, Item.IsGrabbed(),
+            InventoryIntegration.ContainsActive(gameObject));
 
     private bool IsRemotePlayerAuthoritative()
     {

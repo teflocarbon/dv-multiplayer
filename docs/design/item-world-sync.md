@@ -483,6 +483,19 @@ covers the two places where the snap got in the way:
   the owner's game while staying in the inventory slot. A snapshot that puts an item on the local
   player's belt into the local player's inventory leaves the snap alone (`KeepBeltSnap`); any other
   placement still unsnaps it (and revokes the inventory membership, which unsnaps it in DV too).
+- **The hold's echo.** Taking an item off the belt equips it and reserves its slot. Letting go
+  clears the reservation (`UnequipItem` purges it), which changed the item's claim, so the release
+  frame sent `InHand` again. That echo came back a frame after the belt had the item, and applying
+  it unsnapped the item: the same fall as above, and DV then refuses every grab
+  (`InventoryViewVR.OnItemGrabbed` ends the interaction on an item `Contains` says is stashed), so it
+  could never be picked up. The held release frame sends nothing at all (the item stays dirty and the
+  next frame sends the outcome), and the owner's own `InHand` echo arriving once the item is
+  ungrabbed and in their inventory is ignored (`IsSupersededOwnHold`). Host corrections carry no
+  originating player, so they are never taken for an echo.
+
+Whether the belt takes a released item is DV's decision alone: the hand has to be inside the slot's
+trigger and properly touching its pointer detector (`ItemSnapPointInteractionBelt.RegularUngrabBehavior`).
+Otherwise the item drops as any released item does.
 
 Other games and the host project the item as an inventory item of its owner
 (`RemoteItemProjectionAction.RemoteInventory`): it is hidden with the avatar's inventory, not shown

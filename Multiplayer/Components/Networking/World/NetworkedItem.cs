@@ -656,6 +656,10 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                 "authoritative-placement-pending");
             return;
         }
+        // A VR release the belt may still take at the end of this frame: send nothing until the
+        // next frame says where the item went (BeltItemPolicy.HoldVrRelease). Stays dirty.
+        if (HoldingVrRelease())
+            return;
         ItemState previousObservedState = lastState;
         ItemState currentState = GetItemState();
         if (recallPreparationPending)
