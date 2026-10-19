@@ -24,20 +24,25 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 
 ## Tools
 
+Every MCP tool that acts on games takes `session` (CLI: `--session NAME` or `DVMP_SESSION`), so one MCP
+server can drive several pairs: p1, p2, d1. Remote games: `dvmp_remote` / `dvmp remote` (see
+[Remote debugging](#remote-debugging)).
+
 | MCP tool | CLI | Purpose |
 |---|---|---|
-| `dvmp_status` | `dvmp status` | Running games: role, scene, world loaded, fps, absolute player position. |
+| `dvmp_status` | `dvmp status [--all]` | Running games: role, scene, world loaded, fps, absolute player position (`all`: every session's); paired remote games. |
 | `dvmp_up` | `dvmp up [--fresh] [--save X]` | Ensure a host + client are running and joined (reuses a healthy pair). A join is done once the client has left loading mode. |
-| `dvmp_down` | `dvmp down` | Quit all agent-enabled games. |
+| `dvmp_down` | `dvmp down [--all]` | Quit this session's games (`all`: every session's). |
 | `dvmp_eval` | `dvmp eval [-t host\|client\|all] CODE` | Run C# in the game(s); see the tool description for the probe API. |
 | `dvmp_screenshot` | `dvmp screenshot [-t ...] [-o DIR]` | What each window shows. |
 | `dvmp_logs` | `dvmp logs [-t ...] [-l warning]` | Unity/Multiplayer log lines and exceptions. |
 | `dvmp_desync` | `dvmp desync [-n 6] [-i 1]` | Snapshot real Unity state on host and client repeatedly and report divergences that persist (items, cars, money, junctions). Full report in `%LOCALAPPDATA%\dvmp\reports`. |
 | `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1] [--filter JobOverview]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
 | `dvmp_trace` | `dvmp trace [--ids 12,34]` | Mutation tracer: which code froze/moved/reparented/hid/destroyed an item, with the calling method. `dvmp up --trace` installs it before the world loads. |
-| – | `dvmp up --host-only --session NAME` | Start (or reuse) only a host; see [Host-only sessions](#host-only-sessions). |
-| – | `dvmp up --reseed --session NAME` | Restart a named session with its user data copied afresh from your profile; see [Session user data](#session-user-data). |
-| – | `dvmp perf [-t ...] [-s 10]` | Frame-time percentiles, tick rate, memory (with the retained Mono heap), awake rigidbodies, cars, items, players, and packets per type per second, over a window. |
+| `dvmp_up` `dedicated` | `dvmp up --dedicated` | The host as a dedicated server: no avatar, no player slot. |
+| `dvmp_up` `hostOnly` | `dvmp up --host-only --session NAME` | Start (or reuse) only a host; see [Host-only sessions](#host-only-sessions). |
+| `dvmp_up` `reseed` | `dvmp up --reseed --session NAME` | Restart a named session with its user data copied afresh from your profile; see [Session user data](#session-user-data). |
+| `dvmp_perf` | `dvmp perf [-t ...] [-s 10]` | Frame-time percentiles, tick rate, memory (with the retained Mono heap), awake rigidbodies, cars, items, players, and packets per type per second, over a window. |
 
 ## Host-only sessions
 

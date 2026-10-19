@@ -39,12 +39,24 @@ internal static class Session
     private const int HostOnlyBackgroundFps = 30;
 
     private static readonly object gate = new();
-    private static Task<JsonObject>? running;
-    private static string stage = "idle";
-    private static readonly List<JsonObject> timeline = new();
-    private static Stopwatch clock = new();
 
-    public static string Stage { get { lock (gate) return stage; } }
+    // One up operation per session, so an MCP server can bring up p1 and d1 side by side; the
+    // session flows into the operation (Sessions.Current is an AsyncLocal, and Task.Run keeps it).
+    private sealed class UpState
+    {
+        public Task<JsonObject>? Running;
+        public string Stage = "idle";
+        public readonly List<JsonObject> Timeline = new();
+        public Stopwatch Clock = new();
+    }
+    private static readonly Dictionary<string, UpState> states = new();
+
+    // The current session's state; call with the gate held.
+    private static UpState State => states.TryGetValue(Sessions.Current, out UpState? state)
+        ? state
+        : states[Sessions.Current] = new UpState();
+
+    public static string Stage { get { lock (gate) return State.Stage; } }
 
     /// <summary>Starts an up operation unless one is already running, then waits up to <paramref name="wait"/>.</summary>
     public static async Task<JsonObject> UpAsync(UpOptions options, TimeSpan wait, CancellationToken ct)
@@ -52,13 +64,14 @@ internal static class Session
         Task<JsonObject> task;
         lock (gate)
         {
-            if (running == null || running.IsCompleted)
+            UpState state = State;
+            if (state.Running == null || state.Running.IsCompleted)
             {
-                timeline.Clear();
-                clock = Stopwatch.StartNew();
-                running = Task.Run(() => RunUpAsync(options));
+                state.Timeline.Clear();
+                state.Clock = Stopwatch.StartNew();
+                state.Running = Task.Run(() => RunUpAsync(options));
             }
-            task = running;
+            task = state.Running;
         }
 
         Task finished = await Task.WhenAny(task, Task.Delay(wait, ct));
@@ -73,9 +86,10 @@ internal static class Session
             return new JsonObject
             {
                 ["done"] = done,
-                ["stage"] = stage,
-                ["elapsedSeconds"] = Math.Round(clock.Elapsed.TotalSeconds, 1),
-                ["timeline"] = new JsonArray(timeline.Select(t => (JsonNode)t.DeepClone()).ToArray()),
+                ["session"] = Sessions.Current,
+                ["stage"] = State.Stage,
+                ["elapsedSeconds"] = Math.Round(State.Clock.Elapsed.TotalSeconds, 1),
+                ["timeline"] = new JsonArray(State.Timeline.Select(t => (JsonNode)t.DeepClone()).ToArray()),
                 ["hint"] = done ? null : "still starting; call dvmp_up again to keep waiting"
             };
         }
@@ -142,8 +156,9 @@ internal static class Session
     {
         lock (gate)
         {
-            stage = next;
-            timeline.Add(new JsonObject { ["t"] = Math.Round(clock.Elapsed.TotalSeconds, 1), ["stage"] = next });
+            UpState state = State;
+            state.Stage = next;
+            state.Timeline.Add(new JsonObject { ["t"] = Math.Round(state.Clock.Elapsed.TotalSeconds, 1), ["stage"] = next });
         }
     }
 

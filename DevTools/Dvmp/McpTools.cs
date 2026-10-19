@@ -15,6 +15,10 @@ public static class McpTools
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
+    private const string Session =
+        "Named session (an independent host + client pair, e.g. p1, d1; docs/design/parallel-test-sessions.md). " +
+        "Default: DVMP_SESSION, else \"default\".";
+
     [McpServerTool(Name = "dvmp_status", ReadOnly = true, Idempotent = true)]
     [Description("""
         Lists running Derail Valley processes that have the DVMP dev agent, with their
@@ -22,8 +26,14 @@ public static class McpTools
         and the local player's absolute position. Call this first. Also lists paired remote
         games (target remote:NAME; see `dvmp remote` in DevTools/README.md) without contacting them.
         """)]
-    public static async Task<string> Status(CancellationToken ct) =>
-        Render(await Operations.StatusAsync(ct));
+    public static async Task<string> Status(
+        [Description(Session)] string? session = null,
+        [Description("Every session's games, not just this session's. Default false.")] bool all = false,
+        CancellationToken ct = default)
+    {
+        using IDisposable scope = Sessions.Use(session);
+        return Render(await Operations.StatusAsync(ct, all));
+    }
 
     [McpServerTool(Name = "dvmp_up")]
     [Description("""
@@ -33,6 +43,9 @@ public static class McpTools
         returns the current stage; call it again to keep waiting on the same launch.
         The host loads the save shown in its launcher unless `save` names one. Test sessions
         are never advertised to the lobby server or Steam lobbies.
+        Pairs run side by side in named sessions (`session`: p1, d1, ...), each with its own user
+        data. `dedicated` makes the host a dedicated server (no player); `hostOnly` starts only a
+        host. All pairs share one game install: a mod build (Debug deploys) changes them all.
         """)]
     public static async Task<string> Up(
         [Description("Restart both games even if a healthy session is running.")] bool fresh = false,
@@ -43,14 +56,30 @@ public static class McpTools
         [Description("Leave game audio on. Default false.")] bool sound = false,
         [Description("Start a brand-new session instead of a save: \"career\" or \"sandbox\" (requires fresh or no running games).")] string? newSession = null,
         [Description("Install the mutation tracer at the main menu, before the world loads, so load-time item changes are recorded (see dvmp_trace).")] bool trace = false,
-        [Description("Restart both games with the session's own user data copied afresh from the real profile (named sessions only; DVMP_SESSION).")] bool reseed = false,
-        CancellationToken ct = default) =>
-        Render(await Session.UpAsync(new UpOptions(fresh, save, 960, 540, Arrange: true, background, Math.Clamp(fpsCap, 5, 240), sound, trace, newSession, Reseed: reseed),
+        [Description("Restart both games with the session's own user data copied afresh from the real profile (named sessions only).")] bool reseed = false,
+        [Description("Launch the host as a dedicated server (-mp-dedicated): no avatar, no player slot.")] bool dedicated = false,
+        [Description("Start or reuse only a host, with its own identity (needs a named session).")] bool hostOnly = false,
+        [Description("Launch the host checking Steam tickets (no -mp-allow-unverified); use with fresh.")] bool verified = false,
+        [Description("Name for a brand-new session started with newSession.")] string? newSessionName = null,
+        [Description(Session)] string? session = null,
+        CancellationToken ct = default)
+    {
+        using IDisposable scope = Sessions.Use(session);
+        return Render(await Dvmp.Session.UpAsync(new UpOptions(fresh, save, 960, 540, Arrange: true, background, Math.Clamp(fpsCap, 5, 240), sound, trace, newSession,
+                NewSessionName: newSessionName, HostOnly: hostOnly, Dedicated: dedicated, Verified: verified, Reseed: reseed),
             TimeSpan.FromSeconds(Math.Clamp(waitSeconds, 1, 600)), ct));
+    }
 
     [McpServerTool(Name = "dvmp_down", Destructive = true)]
-    [Description("Quits every game instance that has the dev agent (kills any that don't exit within 20s).")]
-    public static async Task<string> Down(CancellationToken ct) => Render(await Session.DownAsync(ct));
+    [Description("Quits this session's games (every session's with all), killing any that don't exit within 20s.")]
+    public static async Task<string> Down(
+        [Description(Session)] string? session = null,
+        [Description("Every session's games. Default false.")] bool all = false,
+        CancellationToken ct = default)
+    {
+        using IDisposable scope = Sessions.Use(session);
+        return Render(await Dvmp.Session.DownAsync(ct, all));
+    }
 
     [McpServerTool(Name = "dvmp_desync", ReadOnly = true)]
     [Description("""
@@ -70,8 +99,10 @@ public static class McpTools
         [Description("Number of snapshots. Default 6.")] int samples = 6,
         [Description("Seconds between snapshots. Default 1.")] double intervalSeconds = 1,
         [Description("How many persistent divergences to list. Default 40.")] int top = 40,
+        [Description(Session)] string? session = null,
         CancellationToken ct = default)
     {
+        using IDisposable scope = Sessions.Use(session);
         try { return Render(await Desync.RunAsync(Math.Clamp(samples, 1, 120), Math.Clamp(intervalSeconds, 0.1, 30), Math.Clamp(top, 1, 500), ct)); }
         catch (Exception e) when (e is AgentException or ProbeCompileException)
         {
@@ -96,8 +127,10 @@ public static class McpTools
         [Description("Seconds between actions. Default 1.")] double pause = 1,
         [Description("Desync samples afterwards. Default 6.")] int desyncSamples = 6,
         [Description("Only touch items whose name starts with this, e.g. \"JobOverview\".")] string? filter = null,
+        [Description(Session)] string? session = null,
         CancellationToken ct = default)
     {
+        using IDisposable scope = Sessions.Use(session);
         try { return Render(await Soak.RunAsync(target, Math.Clamp(actions, 1, 500), seed, Math.Clamp(radius, 2, 500), Math.Clamp(pause, 0, 30), Math.Clamp(desyncSamples, 1, 60), ct, filter)); }
         catch (Exception e) when (e is AgentException or ProbeCompileException)
         {
@@ -119,8 +152,10 @@ public static class McpTools
         [Description("host, client, all (default), or a pid.")] string target = "all",
         [Description("Comma-separated item NetIds to show. Default: every item with history.")] string? ids = null,
         [Description("Most recent events per item. Default 20.")] int last = 20,
+        [Description(Session)] string? session = null,
         CancellationToken ct = default)
     {
+        using IDisposable scope = Sessions.Use(session);
         try { return Render(await Tracer.RunAsync(target, ids, Math.Clamp(last, 1, 60), ct)); }
         catch (Exception e) when (e is AgentException or ProbeCompileException)
         {
@@ -162,8 +197,10 @@ public static class McpTools
         [Description("Extra using directives, e.g. \"using DV.Logic.Job;\".")] string? usings = null,
         [Description("Optional string arguments, available as ctx.Args.")] Dictionary<string, string>? args = null,
         [Description("Seconds before the probe is abandoned. Default 30.")] int timeoutSeconds = 30,
+        [Description(Session)] string? session = null,
         CancellationToken ct = default)
     {
+        using IDisposable scope = Sessions.Use(session);
         try { return Render(await Operations.EvalAsync(code, target, mode, usings, args, Math.Clamp(timeoutSeconds, 1, 600), ct)); }
         catch (AgentException e) { return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message }); }
     }
@@ -177,8 +214,10 @@ public static class McpTools
     public static async Task<CallToolResult> Screenshot(
         [Description("host, client, all, a pid, or remote:NAME (a paired game on someone else's PC; never included in all). Default all.")] string target = "all",
         [Description("Downscale to at most this width in pixels. Default 1024.")] int maxWidth = 1024,
+        [Description(Session)] string? session = null,
         CancellationToken ct = default)
     {
+        using IDisposable scope = Sessions.Use(session);
         CallToolResult result = new();
         try
         {
@@ -213,9 +252,80 @@ public static class McpTools
         [Description("Only entries whose message contains this text (case-insensitive).")] string? contains = null,
         [Description("Maximum entries per process (newest kept). Default 100.")] int max = 100,
         [Description("Only entries since the previous call. Default true; false returns the whole buffer.")] bool sinceLast = true,
+        [Description(Session)] string? session = null,
         CancellationToken ct = default)
     {
+        using IDisposable scope = Sessions.Use(session);
         try { return Render(await Operations.LogsAsync(target, minLevel, contains, Math.Clamp(max, 1, 2000), sinceLast, ct)); }
+        catch (AgentException e) { return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message }); }
+    }
+
+    [McpServerTool(Name = "dvmp_perf", ReadOnly = true)]
+    [Description("""
+        Measures each game for a few seconds: frame times, memory, physics, players, and packets
+        sent and received per type. Use it to find what a stall or a busy connection is made of.
+        """)]
+    public static async Task<string> Perf(
+        [Description("host, client, all, a pid, or remote:NAME. Default all.")] string target = "all",
+        [Description("Seconds to measure. Default 10.")] int seconds = 10,
+        [Description(Session)] string? session = null,
+        CancellationToken ct = default)
+    {
+        using IDisposable scope = Sessions.Use(session);
+        seconds = Math.Clamp(seconds, 1, 120);
+        try
+        {
+            return Render(await Operations.EvalAsync(Dvmp.Session.LoadProbe("perf"), target, "class", null,
+                new Dictionary<string, string> { ["seconds"] = seconds.ToString() }, seconds + 30, ct));
+        }
+        catch (Exception e) when (e is AgentException or ProbeCompileException)
+        {
+            return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message });
+        }
+    }
+
+    [McpServerTool(Name = "dvmp_remote")]
+    [Description("""
+        Remote debugging of a game on someone else's PC, over Tailscale (DevTools/README.md, "Remote
+        debugging"). Once paired and connected, every tool that takes a target accepts remote:NAME.
+        - list: the paired games.
+        - pair: name, address (host or host:port) and the pairing code their game shows; once per PC.
+        - connect: name and the session code their game shows (a new one every launch of their game).
+        - forget: drop the pairing on this PC (it stays in their game until they remove it).
+        """)]
+    public static async Task<string> Remote(
+        [Description("list (default), pair, connect, or forget.")] string action = "list",
+        [Description("The name this PC knows the remote game by.")] string? name = null,
+        [Description("pair: their address, host or host:port.")] string? address = null,
+        [Description("pair: the pairing code; connect: the session code.")] string? code = null,
+        [Description("pair: how this PC is labelled in their game.")] string? label = null)
+    {
+        try
+        {
+            switch (action)
+            {
+                case "pair" when name != null && address != null && code != null:
+                    return Render(await Remotes.PairAsync(name, address, code, label));
+                case "connect" when name != null && code != null:
+                    return Render(await Remotes.ConnectAsync(name, code));
+                case "forget" when name != null:
+                    return Render(new JsonObject { ["ok"] = Remotes.Forget(name), ["forgot"] = name,
+                        ["note"] = "the pairing still exists in their game until they remove it there" });
+                case "list":
+                    return Render(new JsonObject
+                    {
+                        ["remotes"] = new JsonArray(Remotes.All().Select(r => (JsonNode)new JsonObject
+                        {
+                            ["target"] = Remotes.TargetPrefix + r.Name,
+                            ["address"] = $"{r.Address}:{r.Port}",
+                            ["pairedUtc"] = r.PairedUtc,
+                            ["hasSessionCode"] = r.SessionCode != null,
+                        }).ToArray())
+                    });
+                default:
+                    return Render(new JsonObject { ["ok"] = false, ["error"] = "action: list | pair (name, address, code) | connect (name, code) | forget (name)" });
+            }
+        }
         catch (AgentException e) { return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message }); }
     }
 
