@@ -310,6 +310,30 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private bool handbrakeDirty;
 
+    // A handcar's handbrake springs off unless its own game's player holds it (vanilla
+    // HandcarHandbrakeController, on every game). Handbrakes take no lease, so the handbrake sync
+    // stands in for one: a game that has seen another player's handbrake change recently leaves
+    // the spring-back alone, and a player holding it resends it so that stays true while it's held.
+    private const float REMOTE_HANDBRAKE_HOLD_SECONDS = 1f;
+    private const float HANDBRAKE_HOLD_RESEND_SECONDS = 0.25f;
+    private float remoteHandbrakeChangedAt = float.NegativeInfinity;
+    private float lastHandbrakeSentAt = float.NegativeInfinity;
+
+    /// <summary>Another player changed or is holding this car's handbrake.</summary>
+    internal bool HandbrakeHeldRemotely =>
+        Time.realtimeSinceStartup - remoteHandbrakeChangedAt < REMOTE_HANDBRAKE_HOLD_SECONDS;
+
+    /// <summary>A handbrake change from another player reached this game (the host from a client's
+    /// request, a client from another player's commit).</summary>
+    internal void Common_OnRemoteHandbrakeChange() => remoteHandbrakeChangedAt = Time.realtimeSinceStartup;
+
+    /// <summary>This game's player is holding the handbrake on: keep the other games told.</summary>
+    internal void Common_HoldingHandbrake()
+    {
+        if (Time.realtimeSinceStartup - lastHandbrakeSentAt >= HANDBRAKE_HOLD_RESEND_SECONDS)
+            handbrakeDirty = true;
+    }
+
     // Client: controls this client changed in operations the host hasn't committed back yet.
     // Accepted commits are broadcast to everyone, including the sender, a round trip later; a
     // commit for an older operation must not drag a lever back from where the player has since
@@ -1281,6 +1305,10 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             if (packet.Result != TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost())
                 client.SendTrainSyncRequest(NetId);
         }
+        // Another player's handbrake operation (a join's state carries no operation).
+        else if (packet.IncludesHandbrake && packet.OperationId != 0 &&
+                 packet.Result == TrainControlCommitResult.Accepted)
+            Common_OnRemoteHandbrakeChange();
         if (packet.Revision < ControlRevision)
             return;
 
@@ -1726,6 +1754,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!viaRemote && !Client_LocalPlayerCanTouch())
             return; // simulation noise (e.g. set during load), not a player action
         ulong operationId = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
+        lastHandbrakeSentAt = Time.realtimeSinceStartup;
         if (!NetworkLifecycle.Instance.IsHost())
             client_pendingHandbrakeOperation = operationId;
     }
