@@ -264,6 +264,9 @@ public partial class NetworkedItemManager
     internal bool HasActiveSpatialState(ushort itemNetId) =>
         Spatial?.TryGetLatestAccepted(itemNetId, out _) == true;
 
+    internal bool IsSpatiallySimulatedRemotely(ushort itemNetId) =>
+        Spatial?.IsSimulatedRemotely(itemNetId) == true;
+
     internal bool TryGetCommittedSpatialState(ushort itemNetId, out ItemSpatialStateData state)
     {
         state = null;
