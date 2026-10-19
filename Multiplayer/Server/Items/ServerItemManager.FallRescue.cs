@@ -90,7 +90,7 @@ internal sealed partial class ServerItemManager
         // An item under the terrain is out of the map whether or not it is mid-flight: a physics
         // lease on it would never settle (it bobs on the water down there), so end it first.
         if (shell.HasActiveSpatialState(item.NetId))
-            shell.Spatial?.RevokeLease(item.NetId, "fell-through-map");
+            HostSpatial.RevokeLease(item.NetId, "fell-through-map");
 
         Vector3 fallenAt = item.transform.position - WorldMover.currentMove;
         Vector3 target;

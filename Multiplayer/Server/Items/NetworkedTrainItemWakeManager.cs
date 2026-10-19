@@ -1,7 +1,7 @@
 using DV;
-using Multiplayer.Server.Items;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
@@ -13,7 +13,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
 internal enum TrainItemWakeReason : byte
 {
@@ -29,14 +29,15 @@ internal enum TrainItemWakeReason : byte
 /// <summary>
 /// Train-only host policy around the existing spatial lease manager. Settled membership and
 /// support evidence are canonical host records; Unity collision evidence may be supplied by the
-/// current simulator, but only the host can turn it into a new spatial epoch.
+/// current simulator, but only the host can turn it into a new spatial epoch. The simulator's side
+/// of a collision is NetworkedItemManager.ObserveTrainItemCollision.
 /// </summary>
 internal sealed class NetworkedTrainItemWakeManager
 {
     internal const int MaximumWakeItems = 32;
     internal const int MaximumWakeDepth = 8;
-    internal const float ImpactRelativeSpeedThreshold = 1.25f;
-    internal const float ImpactImpulseThreshold = 0.5f;
+    internal const float ImpactRelativeSpeedThreshold = NetworkedItemManager.TrainItemImpactRelativeSpeedThreshold;
+    internal const float ImpactImpulseThreshold = NetworkedItemManager.TrainItemImpactImpulseThreshold;
     internal const float HeavyAccelerationThreshold = 3.5f;
     internal const float HeavyBrakingThreshold = 3f;
     internal const float JoltThreshold = 14f;
@@ -80,21 +81,21 @@ internal sealed class NetworkedTrainItemWakeManager
         public float NextAttemptAt;
     }
 
-    private readonly NetworkedItemManager owner;
     private readonly NetworkedItemSpatialManager spatial;
+    private readonly ServerItemSpatial hostSpatial;
     private readonly Dictionary<ushort, SettledRecord> settledByItem = new();
     private readonly Dictionary<ushort, HashSet<ushort>> settledByCar = new();
     private readonly Dictionary<ushort, CarMotion> carMotion = new();
     private readonly Dictionary<ushort, PendingWake> pendingByItem = new();
     private readonly Dictionary<string, float> recentWitnesses = new(StringComparer.Ordinal);
     private readonly Dictionary<byte, uint> lastWitnessIdByPlayer = new();
-    private static uint nextWitnessId;
 
-    internal NetworkedTrainItemWakeManager(NetworkedItemManager owner,
-        NetworkedItemSpatialManager spatial)
+
+    internal NetworkedTrainItemWakeManager(NetworkedItemSpatialManager spatial,
+        ServerItemSpatial hostSpatial)
     {
-        this.owner = owner;
         this.spatial = spatial;
+        this.hostSpatial = hostSpatial;
     }
 
     internal void Clear()
@@ -172,55 +173,6 @@ internal sealed class NetworkedTrainItemWakeManager
         RemoveSettled(itemNetId);
         if (NetworkLifecycle.Instance?.IsHost() == true)
             WakeSupportedItems(record, 0);
-    }
-
-    internal void ObserveCollision(NetworkedItem source, NetworkedItem target, Collision collision)
-    {
-        if (source == null || target == null || source == target || collision == null ||
-            NetworkLifecycle.Instance == null || spatial == null ||
-            !spatial.TryGetActiveLeaseIdentity(source.NetId, out uint sourceRevision,
-                out uint sourceEpoch, out byte simulator, out ItemSpatialStateData sourceState) ||
-            sourceState.WorldParentKind != ItemWorldParentKind.TrainInterior ||
-            sourceState.WorldParentNetId == 0 ||
-            !spatial.TryGetCommitted(target.NetId, out ItemSpatialStateData targetState) ||
-            targetState.WorldParentKind != ItemWorldParentKind.TrainInterior ||
-            targetState.WorldParentNetId != sourceState.WorldParentNetId)
-            return;
-
-        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
-            ? NetworkLifecycle.Instance.Server.SelfId
-            : NetworkLifecycle.Instance.Client.PlayerId;
-        if (simulator != localPlayerId)
-            return;
-        Vector3 relativeVelocity = collision.relativeVelocity;
-        Vector3 impulse = collision.impulse;
-        if (relativeVelocity.magnitude < ImpactRelativeSpeedThreshold &&
-            impulse.magnitude < ImpactImpulseThreshold)
-            return;
-        Vector3 contact = collision.contactCount > 0 ? collision.GetContact(0).point :
-            target.transform.position;
-        ServerboundItemTrainWakeWitnessPacket packet = new()
-        {
-            WitnessId = unchecked(++nextWitnessId),
-            SourceItemNetId = source.NetId,
-            SourceAuthorityRevision = sourceRevision,
-            SourceSimulationEpoch = sourceEpoch,
-            TargetItemNetId = target.NetId,
-            TargetAuthorityRevision = targetState.AuthorityRevision,
-            TrainCarNetId = sourceState.WorldParentNetId,
-            SourceTick = NetworkLifecycle.Instance.Tick,
-            RelativeVelocity = relativeVelocity,
-            Impulse = impulse,
-            AbsoluteContactPoint = contact - WorldMover.currentMove
-        };
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(localPlayerId,
-                    out ServerPlayer hostPlayer))
-                ReceiveImpactWitness(packet, hostPlayer);
-        }
-        else
-            NetworkLifecycle.Instance.Client.SendItemTrainWakeWitness(packet);
     }
 
     internal void ReceiveImpactWitness(ServerboundItemTrainWakeWitnessPacket packet,
@@ -359,7 +311,7 @@ internal sealed class NetworkedTrainItemWakeManager
         {
             if (!settledByItem.ContainsKey(itemNetId))
                 continue;
-            if (spatial.TryBeginTrainWake(itemNetId, selectedSimulator, initialLocalVelocity,
+            if (hostSpatial.TryBeginTrainWake(itemNetId, selectedSimulator, initialLocalVelocity,
                     reason.ToString(), out byte simulator, out string rejection))
             {
                 selectedSimulator = simulator;

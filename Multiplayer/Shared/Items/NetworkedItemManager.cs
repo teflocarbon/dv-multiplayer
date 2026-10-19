@@ -60,7 +60,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     private bool authoredCatalogueBuilt;
     private bool authoredCatalogueAccepted;
     internal NetworkedItemSpatialManager Spatial { get; private set; }
-    internal NetworkedTrainItemWakeManager TrainItemWake { get; private set; }
+
 
     private sealed class PendingWorldProjection
     {
@@ -76,8 +76,8 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     protected override void Awake()
     {
         base.Awake();
-        Spatial = new NetworkedItemSpatialManager(this);
-        TrainItemWake = new NetworkedTrainItemWakeManager(this, Spatial);
+        Spatial = new NetworkedItemSpatialManager();
+
         serverPart = ItemServer.Current?.CreateItemManagerPart(this);
     }
 
@@ -93,9 +93,9 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     {
         ProcessTrackedValueFinalizations();
         ProcessPendingLocalStateObservations();
-        TrainItemWake?.Update();
-        Spatial?.Update();
+        // The server's part first: its train-wake manager, the host's leases, replenishment.
         ServerPart?.Update();
+        Spatial?.Update();
         if (NetworkLifecycle.Instance.IsHost())
             return;
 
@@ -224,7 +224,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         serverPart?.Clear();
         LostAndFoundList.Clear();
         Cleared?.Invoke();
-        TrainItemWake?.Clear();
+
         Spatial?.Clear();
         ClientDetachedAuthoredSlots.Clear();
     }

@@ -30,13 +30,6 @@ Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Players.ClientPlaye
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Server.Items.AuthoritativeItemRegistry
-Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Items.AuthoritativeItemRegistry
-Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Items.NetworkedTrainItemWakeManager -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.IServerBrowserGameDetails
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.Session.NetworkServer

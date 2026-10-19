@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using Multiplayer.Core.Items;
+using Multiplayer.Server.Session;
+using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -32,8 +34,14 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     internal ServerItemManager(NetworkedItemManager shell)
     {
         this.shell = shell;
+        HostSpatial = new ServerItemSpatial(shell.Spatial, this);
+        TrainItemWake = new NetworkedTrainItemWakeManager(shell.Spatial, HostSpatial);
         Replenishment = new AuthoredWorldItemReplenishmentManager(this);
     }
+
+    /// <summary>The host's side of the Shared spatial manager's leases.</summary>
+    internal ServerItemSpatial HostSpatial { get; }
+    internal NetworkedTrainItemWakeManager TrainItemWake { get; }
 
     /// <summary>The server's item manager, while there is one.</summary>
     internal static ServerItemManager Instance => NetworkedItemManager.Instance?.ServerPart as ServerItemManager;
@@ -41,7 +49,12 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     /// <summary>The Shared manager this is the server's part of.</summary>
     internal NetworkedItemManager Shell => shell;
 
-    public void Update() => Replenishment.Update();
+    public void Update()
+    {
+        TrainItemWake.Update();
+        HostSpatial.Update();
+        Replenishment.Update();
+    }
 
     public void Tick(uint tick)
     {
@@ -58,12 +71,29 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     {
         NetworkedLostAndFoundManager.Clear();
         NetworkedColdContainerManager.Clear();
+        TrainItemWake.Clear();
+        HostSpatial.Clear();
         Replenishment.Clear();
         WorldItemPersistenceManager.Clear();
         AuthoritativeItemRegistry.Clear();
     }
 
     public void ForgetRecord(ushort itemNetId) => AuthoritativeItemRegistry.Remove(itemNetId);
+
+    public void OnTrainItemRemoved(ushort itemNetId) => TrainItemWake.OnItemRemoved(itemNetId);
+
+    public void ReceiveLocalTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)
+    {
+        ServerPlayer hostPlayer = NetworkLifecycle.Instance.Server.LocalPlayer;
+        if (hostPlayer != null)
+            TrainItemWake.ReceiveImpactWitness(packet, hostPlayer);
+    }
+
+    public void AppendTrainWakeDebugState(ushort itemNetId, Dictionary<string, object> state) =>
+        TrainItemWake.AppendDebugState(itemNetId, state);
+
+    /// <summary>A player left: the host's leases they were simulating move on or settle.</summary>
+    internal void OnSpatialPlayerDisconnected(byte playerId) => HostSpatial.OnPlayerDisconnected(playerId);
 
     /// <summary>A destroyed item: send its Destroy to the players who know it, at the next tick.</summary>
     internal void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)

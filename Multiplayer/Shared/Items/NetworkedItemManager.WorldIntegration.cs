@@ -126,13 +126,72 @@ public partial class NetworkedItemManager
     private void AppendItemPhysicsDebugState(ushort itemNetId, Dictionary<string, object> state)
     {
         Spatial?.AppendDebugState(itemNetId, state);
-        TrainItemWake?.AppendDebugState(itemNetId, state);
+        if (ServerPart != null)
+            ServerPart.AppendTrainWakeDebugState(itemNetId, state);
+        else if (state != null)
+        {
+            // Train items are woken by the host only: a client's copy is never settled or pending.
+            state["trainWakeSettled"] = false;
+            state["trainWakePending"] = false;
+        }
     }
 
-    internal void ObserveTrainItemCollision(NetworkedItem source, NetworkedItem target,
-        Collision collision) => TrainItemWake?.ObserveCollision(source, target, collision);
+    // The train-wake manager's thresholds for an impact worth waking items for; the simulator
+    // checks them before it reports one, and the host again when it takes the report.
+    internal const float TrainItemImpactRelativeSpeedThreshold = 1.25f;
+    internal const float TrainItemImpactImpulseThreshold = 0.5f;
+    private static uint nextTrainWakeWitnessId;
 
-    internal void OnTrainItemRemoved(ushort itemNetId) => TrainItemWake?.OnItemRemoved(itemNetId);
+    /// <summary>
+    /// The game simulating a train item saw it hit another item settled in the same car: it
+    /// reports the impact to the host, whose train-wake manager decides whether the target wakes.
+    /// </summary>
+    internal void ObserveTrainItemCollision(NetworkedItem source, NetworkedItem target, Collision collision)
+    {
+        if (source == null || target == null || source == target || collision == null ||
+            NetworkLifecycle.Instance == null || Spatial == null ||
+            !Spatial.TryGetActiveLeaseIdentity(source.NetId, out uint sourceRevision,
+                out uint sourceEpoch, out byte simulator, out ItemSpatialStateData sourceState) ||
+            sourceState.WorldParentKind != ItemWorldParentKind.TrainInterior ||
+            sourceState.WorldParentNetId == 0 ||
+            !Spatial.TryGetCommitted(target.NetId, out ItemSpatialStateData targetState) ||
+            targetState.WorldParentKind != ItemWorldParentKind.TrainInterior ||
+            targetState.WorldParentNetId != sourceState.WorldParentNetId)
+            return;
+
+        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
+            ? ItemServer.Current?.LocalPlayerId ?? 0
+            : NetworkLifecycle.Instance.Client.PlayerId;
+        if (simulator != localPlayerId)
+            return;
+        Vector3 relativeVelocity = collision.relativeVelocity;
+        Vector3 impulse = collision.impulse;
+        if (relativeVelocity.magnitude < TrainItemImpactRelativeSpeedThreshold &&
+            impulse.magnitude < TrainItemImpactImpulseThreshold)
+            return;
+        Vector3 contact = collision.contactCount > 0 ? collision.GetContact(0).point :
+            target.transform.position;
+        ServerboundItemTrainWakeWitnessPacket packet = new()
+        {
+            WitnessId = unchecked(++nextTrainWakeWitnessId),
+            SourceItemNetId = source.NetId,
+            SourceAuthorityRevision = sourceRevision,
+            SourceSimulationEpoch = sourceEpoch,
+            TargetItemNetId = target.NetId,
+            TargetAuthorityRevision = targetState.AuthorityRevision,
+            TrainCarNetId = sourceState.WorldParentNetId,
+            SourceTick = NetworkLifecycle.Instance.Tick,
+            RelativeVelocity = relativeVelocity,
+            Impulse = impulse,
+            AbsoluteContactPoint = contact - WorldMover.currentMove
+        };
+        if (NetworkLifecycle.Instance.IsHost())
+            ServerPart?.ReceiveLocalTrainWakeWitness(packet);
+        else
+            NetworkLifecycle.Instance.Client.SendItemTrainWakeWitness(packet);
+    }
+
+    internal void OnTrainItemRemoved(ushort itemNetId) => ServerPart?.OnTrainItemRemoved(itemNetId);
 
     internal bool TryGetLatestSpatialState(ushort itemNetId, out ItemSpatialStateData state)
     {
@@ -151,8 +210,6 @@ public partial class NetworkedItemManager
         state = null;
         return Spatial?.TryGetCommitted(itemNetId, out state) == true;
     }
-
-    internal void OnSpatialPlayerDisconnected(byte playerId) => Spatial?.OnPlayerDisconnected(playerId);
 
     private bool TryBindAuthoredClientProjection(ItemUpdateData snapshot, bool acknowledge = true)
     {

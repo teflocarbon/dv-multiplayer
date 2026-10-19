@@ -365,7 +365,7 @@ internal sealed partial class ServerItemManager
             {
                 //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) Sending {playerUpdates.Count()} to player: {player.Username}");
                 NetworkLifecycle.Instance.Server.SendItemsBulkUpdatePacket(playerUpdates, player);
-                shell.Spatial?.SendActiveLeasesTo(player, playerUpdates);
+                HostSpatial.SendActiveLeasesTo(player, playerUpdates);
             }
         }
 

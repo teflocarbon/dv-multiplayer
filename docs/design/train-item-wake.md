@@ -14,8 +14,8 @@ describes what the code does.
 Implemented:
 
 - **Coordinator:** `NetworkedTrainItemWakeManager`
-  (`Multiplayer/Shared/Items/NetworkedTrainItemWakeManager.cs`), host
-  only, owned by `NetworkedItemManager`. Support propagation is the pure
+  (`Multiplayer/Server/Items/NetworkedTrainItemWakeManager.cs`), host
+  only, owned by the server's part of the item manager (`ServerItemManager`). Support propagation is the pure
   `TrainItemWakePlanner` (`Multiplayer.Core/Items/TrainItemWakePlanner.cs`), unit-tested in
   `Multiplayer.Core.Tests/Items/TrainItemWakePlannerTests.cs`.
 - **Settled records:** registered when a spatial settlement commits in a train
@@ -26,7 +26,8 @@ Implemented:
   only, 0.12 m vertical tolerance). There is no client overlap/sweep witness.
 - **Item impact:** `NetworkedItem.OnCollisionEnter` (`NetworkedItem.TrainWake.cs`) reports a
   collision between an actively leased train item and a settled one on the same car, from the
-  source's current simulator only, as `ServerboundItemTrainWakeWitnessPacket` (reliable). The host
+  source's current simulator only (`NetworkedItemManager.ObserveTrainItemCollision`), as
+  `ServerboundItemTrainWakeWitnessPacket` (reliable; the host hands its own to the manager directly). The host
   validates it and wakes the target plus the items it supports.
 - **Car motion:** the host samples `TrainCar.rb` every 0.1 s for cars that have settled items and
   wakes the whole car on derailment, violent rotation, a jolt, or heavy acceleration/braking, with a
@@ -34,7 +35,7 @@ Implemented:
   A car that no longer exists (deleted with items settled in it; DV pools a deleted car with
   whatever is parented to it, so the items are never removed) drops its settled records the first
   time it is sampled.
-- **Wake grant:** reuses the spatial lease protocol. `NetworkedItemSpatialManager.TryBeginTrainWake`
+- **Wake grant:** reuses the spatial lease protocol. `ServerItemSpatial.TryBeginTrainWake`
   opens a new epoch with reason `train-wake:<reason>` and an initial train-local velocity; one
   simulator is chosen for the first item and preferred for the rest of the set.
 - **Pending wakes:** if no simulator is eligible or the host has no `NetworkedItem` for the item,
@@ -233,7 +234,7 @@ epoch.
 Implementation location:
 
 ```text
-Multiplayer/Shared/Items/NetworkedTrainItemWakeManager.cs
+Multiplayer/Server/Items/NetworkedTrainItemWakeManager.cs
 ```
 
 This manager owns train-specific wake policy and must not be folded into
@@ -246,22 +247,22 @@ This manager owns train-specific wake policy and must not be folded into
 - pending wakes waiting for a simulator; and
 - debug state for the item inspector (`AppendDebugState`).
 
-It is driven by notifications from `NetworkedItemManager` plus one host `Update` (pending retry
-and motion sampling):
+It is driven by notifications from the server's item manager (`ServerItemManager`) plus one host
+`Update` (pending retry and motion sampling):
 
 ```text
 ObserveCanonicalItem       host registered a train-interior item with no open lease
 OnSpatialSettled           spatial settlement committed
 OnAuthoritativeTransition  placement changed (leaving TrainInterior wakes supported items)
 OnItemRemoved              item destroyed (wakes supported items)
-ObserveCollision           local collision between a leased and a settled train item
-ReceiveImpactWitness       client witness packet
+ReceiveImpactWitness       a simulator's witness: a client's packet, or the host's own collision
+                           (NetworkedItemManager.ObserveTrainItemCollision)
 ```
 
 The design's separate derailment, simulator-disconnect and interest notifications were not
 built: derailment is read during motion sampling, and disconnect/timeout recovery is the spatial
-manager's ordinary lease transfer. The only call into the spatial manager is
-`TryBeginTrainWake`, which selects the simulator and opens the lease.
+manager's ordinary lease transfer. The only call into the spatial manager's host side
+(`ServerItemSpatial`) is `TryBeginTrainWake`, which selects the simulator and opens the lease.
 
 ### `NetworkedItemSpatialManager`
 

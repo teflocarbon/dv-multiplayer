@@ -20,7 +20,7 @@ internal sealed partial class ServerItemManager
         if (!NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0)
             return;
         RefreshHostWorldItem(item);
-        shell.TrainItemWake?.ObserveCanonicalItem(item);
+        TrainItemWake.ObserveCanonicalItem(item);
     }
 
     public void UnregisterHostWorldItem(NetworkedItem item)
@@ -139,23 +139,23 @@ internal sealed partial class ServerItemManager
         AuthoritativeItemRegistry.Record record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {
-        shell.TrainItemWake?.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
-        shell.Spatial?.OnAuthoritativeTransitionCommitted(item, snapshot, record, actor, previousPlacement,
+        TrainItemWake.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
+        HostSpatial.OnAuthoritativeTransitionCommitted(item, snapshot, record, actor, previousPlacement,
             appliesPlacement);
         Replenishment?.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
     }
 
     internal void ReceiveItemSpatialSample(ItemSpatialStateData state, ServerPlayer sender) =>
-        shell.Spatial?.ReceiveClientSample(state, sender);
+        HostSpatial.ReceiveClientSample(state, sender);
 
     internal void ReceiveItemSpatialSettlement(ItemSpatialStateData state, ServerPlayer sender) =>
-        shell.Spatial?.ReceiveClientSettlement(state, sender);
+        HostSpatial.ReceiveClientSettlement(state, sender);
 
 
     internal void ReceiveItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet,
-        ServerPlayer sender) => shell.TrainItemWake?.ReceiveImpactWitness(packet, sender);
+        ServerPlayer sender) => TrainItemWake.ReceiveImpactWitness(packet, sender);
 
     internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
         AuthoritativeItemRegistry.Record record) =>
-        shell.Spatial?.ResetAuthoredItemToBaseline(item, record) == true;
+        HostSpatial.ResetAuthoredItemToBaseline(item, record);
 }
