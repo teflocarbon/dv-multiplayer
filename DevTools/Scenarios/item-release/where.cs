@@ -9,5 +9,5 @@ return new
     onCar = TrainCar.Resolve(item.transform) == car,
     local = new[] { local.x, local.y, local.z },
     state = item.GetItemState().ToString(),
-    carNetId = (int)Multiplayer.Utils.DvExtensions.GetNetId(car)
+    carNetId = (int)Multiplayer.Shared.Utils.DvExtensions.GetNetId(car)
 };

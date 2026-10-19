@@ -259,7 +259,7 @@ left to each peer).
 
 ## Career Manager
 
-The Career Manager extension (`Multiplayer/Components/UI/CareerManager/`) adds a `MULTIPLAYER`
+The Career Manager extension (`Multiplayer/Client/Career/`) adds a `MULTIPLAYER`
 hub with a Lost Items screen; it has no job screens. Job-relevant Career Manager state is the debt
 flag above and licences, which are host-owned and broadcast on purchase.
 

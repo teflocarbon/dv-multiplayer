@@ -4,15 +4,15 @@ using HarmonyLib;
 using JetBrains.Annotations;
 using LiteNetLib;
 using MPAPI;
-using Multiplayer.API;
-using Multiplayer.Components.MainMenu;
-using Multiplayer.Components.Networking;
+using Multiplayer.Menus.MainMenu;
+using Multiplayer.Shared.Api;
+using Multiplayer.Shared.Compatibility;
+using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Integrations;
+using Multiplayer.Shared.Players;
+using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Trains;
 using Multiplayer.Editor;
-using Multiplayer.ModCompatibility;
-using Multiplayer.Models;
-using Multiplayer.Debugging;
-using Multiplayer.Patches.Mods;
-using Multiplayer.Patches.World;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -114,7 +114,7 @@ public static class Multiplayer
 #endif
             harmony.PatchAll();
             SimComponent_Tick_Patch.Patch(harmony);
-            Patches.Train.TenderAutoCouplerPatch.Patch(harmony);
+            global::Multiplayer.Shared.Trains.TenderAutoCouplerPatch.Patch(harmony);
 
             UnityModManager.ModEntry remoteDispatch = UnityModManager.FindMod("RemoteDispatch");
             if (remoteDispatch?.Enabled == true)

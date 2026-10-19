@@ -27,7 +27,7 @@ lag $LAG
 hostBreaks=$(breaks host); clientBreaks=$(breaks client)
 $D eval -t host -m body $A -f DevTools/Scenarios/manual-uncouple/state.cs >"$T/host.json"
 [ "$(field coupled <"$T/host.json")" = "false" ] || { echo "FAIL: setup left the cars coupled on the host"; exit 1; }
-d=$($D eval -t client -m coroutine --timeout 30 -u "using Multiplayer.Components.Networking;" $A -f $P/desync.cs)
+d=$($D eval -t client -m coroutine --timeout 30 -u "using Multiplayer.Client.Session; using Multiplayer.Server.Coverage; using Multiplayer.Server.Dedicated; using Multiplayer.Shared.Session;" $A -f $P/desync.cs)
 echo "== client coupled on its own: $(echo "$d" | field coupled) (gap $(field gap <"$T/host.json") m on the host)"
 [ "$(echo "$d" | field coupled)" = "true" ] || { echo "FAIL: couldn't couple on the client"; exit 1; }
 

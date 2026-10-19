@@ -33,15 +33,15 @@ public static class Probe
         yield return AccessTools.Method(typeof(TrainCar), "Awake");
         yield return AccessTools.Method(typeof(TrainCar), "Start");
         yield return AccessTools.EnumeratorMoveNext(AccessTools.Method(typeof(StationProceduralJobsController), "GenerateProceduralJobsCoro"));
-        var ntc = T("Multiplayer.Components.Networking.Train.NetworkedTrainCar");
+        var ntc = T("Multiplayer.Shared.Trains.NetworkedTrainCar");
         yield return AccessTools.Method(ntc, "Awake");
         yield return AccessTools.Method(ntc, "Start");
-        yield return AccessTools.Method(T("Multiplayer.Networking.Managers.Server.NetworkServer"), "SendSpawnTrainset");
-        var ncs = T("Multiplayer.Components.Networking.Train.NetworkedCarSpawner");
+        yield return AccessTools.Method(T("Multiplayer.Server.Session.NetworkServer"), "SendSpawnTrainset");
+        var ncs = T("Multiplayer.Client.Trains.NetworkedCarSpawner");
         yield return AccessTools.Method(ncs, "SpawnCars");
         yield return AccessTools.Method(ncs, "SpawnCar");
-        yield return AccessTools.Method(T("Multiplayer.Networking.Managers.Client.NetworkClient"), "OnClientboundSpawnTrainSetPacket");
-        foreach (var m in AccessTools.GetDeclaredMethods(T("Multiplayer.Components.Networking.World.NetworkedItemManager")).Where(m => m.Name == "OnTick" || m.Name == "UpdatePlayerItemLists" || m.Name == "ProcessChanged")) yield return m;
+        yield return AccessTools.Method(T("Multiplayer.Client.Session.NetworkClient"), "OnClientboundSpawnTrainSetPacket");
+        foreach (var m in AccessTools.GetDeclaredMethods(T("Multiplayer.Shared.Items.NetworkedItemManager")).Where(m => m.Name == "OnTick" || m.Name == "UpdatePlayerItemLists" || m.Name == "ProcessChanged")) yield return m;
     }
     public static object Run(DevContext ctx)
     {

@@ -17,7 +17,7 @@ cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/settle-window
 LOCO=${LOCO:-LocoS282A}; PORT=${PORT:-oil}; RELOADS=${RELOADS:-4}
-U="using Multiplayer.Components.Networking; using Multiplayer.Components.Networking.Train;"
+U="using Multiplayer.Client.Session; using Multiplayer.Server.Coverage; using Multiplayer.Server.Dedicated; using Multiplayer.Shared.Session; using Multiplayer.Client.Trains; using Multiplayer.Server.Trains; using Multiplayer.Shared.Trains;"
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 fail() { echo "FAIL: $*"; exit 1; }
 value() { $D eval -t $1 -m body -u "$U" -a loco=$loco -a port="$2" 'var ntc = Trains.Find(ctx.Args["loco"]).GetComponent<NetworkedTrainCar>(); return new { v = ntc.simulationFlow.TryGetPort(ctx.Args["port"], out var p) ? Math.Round(p.Value, 3) : -1 };' | field v; }

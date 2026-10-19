@@ -69,7 +69,7 @@ The fixtures cover item updates (`Dropped`, `Thrown`, `InHand`, `InInventory`, `
 consumption, envelope authority fields), item recall, spatial and continuous-motion packets,
 world-item authority, Lost and Found, cold-container requests and results, job booklets and report
 artifacts, and train baseline and topology packets. `ItemPacketFixtureTests` also runs the debug
-packet projector self-tests (`Multiplayer/Debugging/DebugPacketProjectorSelfTests.cs`).
+packet projector self-tests (`Multiplayer/Shared/Debugging/DebugPacketProjectorSelfTests.cs`).
 
 ### Protocol manifest and fingerprint
 

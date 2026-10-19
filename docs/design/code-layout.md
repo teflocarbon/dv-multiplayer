@@ -18,9 +18,9 @@
   files, 59 of them Harmony patches, and in most of them the role is a branch in the middle of a
   method.
 - **The roles leak into each other.** The server's own identity is the client's player id
-  (`NetworkServer.SelfId`, `Networking/Managers/Server/NetworkServer.cs:118`). "Am I applying a
+  (`NetworkServer.SelfId`, `Server/Session/NetworkServer.cs:118`). "Am I applying a
   remote change" is the client's flag even on the server (`NetworkLifecycle.IsProcessingPacket`,
-  `Components/Networking/NetworkLifecycle.cs:45`). The bug of 2026-10-19 (the host following its
+  `Shared/Session/NetworkLifecycle.cs:45`). The bug of 2026-10-19 (the host following its
   own topology snapshot) came from exactly that: server state flowing through client code.
 - **The rules that are separate are hard to find.** `Multiplayer.Core` holds the logic that can be
   unit tested without the game, but its name says "shared" and the folder layout of `Multiplayer`
@@ -51,7 +51,7 @@ client.
 A small `NetworkRole` in Shared replaces the role half of today's `IsHost()`: `IsServer` (this
 game is the authority), `HasLocalPlayer` (someone plays here), `IsRemoteClient` (playing on
 someone else's server). `IsHost()` keeps meaning `IsServer` until its callers move. Built:
-`Components/Networking/NetworkRole.cs` (it moves to Shared with the rest).
+`Shared/Session/NetworkRole.cs` (it moves to Shared with the rest).
 
 ### Assemblies
 
@@ -111,10 +111,10 @@ Paths are under `Multiplayer/`.
 | `Multiplayer.cs`, `Settings.cs` | Mod | `Settings` mixes the player's options with the server's (`[Header("Server")]`, `Admins`, `Settings.cs:52-67`); later, a server-settings section the Server reads through an interface |
 | `Locale.cs`, `ModCompatibility/`, `Models/` | Shared (locale, mod lists), Client (player models) | |
 | `API/` | `APIProvider`, `ModCompatibilityManager`: Mod. `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
-| `Components/IdMonoBehaviour.cs`, `TrainComponentLookup.cs` | Shared | |
+| `Shared/Session/IdMonoBehaviour.cs`, `TrainComponentLookup.cs` | Shared | |
 | `Components/MainMenu/`, `Components/UI/{GridView,ServerBrowser,Settings}/`, `Components/Util/` | Mod | The front end: host and join |
 | `Components/UI/CareerManager/` | Client | |
-| `Components/Networking/NetworkLifecycle.cs` | Mod, with the tick clock in Shared | It owns the server and the client; everything reads `Tick` and `OnTick` |
+| `Shared/Session/NetworkLifecycle.cs` | Mod, with the tick clock in Shared | It owns the server and the client; everything reads `Tick` and `OnTick` |
 | `Components/Networking/{DedicatedHost,DedicatedHostAnchor,DedicatedHostSaveLock,Server*Coverage}.cs` | Server | |
 | `Components/Networking/{RpcManager,TickedQueue}.cs` | Client (`RpcManager` issues and resolves tickets), Shared | |
 | `Components/Networking/Jobs/` | `JobBookletSummonCoordinator`, `NetworkedTask`: Server. `NetworkedJob`: split. Lookups: Shared | |
@@ -127,7 +127,7 @@ Paths are under `Multiplayer/`.
 | `Debugging/` | Shared (`DebugDiagnostics`' server half: Server) | |
 | `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons, storage: Shared | |
 | `Networking/Data/`, `Networking/Packets/`, `Networking/Serialization/`, `Networking/TransportLayers/` | Shared, except `ServerPlayer.cs`: Server | `PlayerIdentity` is used by both (login and authentication): Shared, once its server reference goes |
-| `Networking/Managers/NetworkManager.cs` | Shared | |
+| `Shared/Session/NetworkManager.cs` | Shared | |
 | `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,934 lines) could also split by area (trains, items, world, career) while it moves |
 | `Networking/Managers/Client/` | Client | `NetworkClient.cs` (3,079 lines), likewise |
 | `Patches/` | Per file: see Patches | |
@@ -240,11 +240,27 @@ Steps 2-3 are mechanical and change no behaviour; the regression gate on one pai
 
 - **CI is required.** Both jobs ("Core tests", "Build and protocol tests") are required status
   checks on `beta`, so the boundary test, once it exists, blocks a merge.
-- **Step 2, `NetworkRole`: built.** `Components/Networking/NetworkRole.cs`. The four hand-copied
+- **Step 2, `NetworkRole`: built.** `Shared/Session/NetworkRole.cs`. The four hand-copied
   "playing on someone else's server" helpers (`HazmatSync.IsClient`, `ExplosionSync.IsClient` and
   the private ones in `CommsRadioCargoLoaderPatch` and `CommsRadioDamagePatch`) now use
   `NetworkRole.IsRemoteClient`. `CouplerBreakPatch.IsClient` is left: it tests
   `Client != null` rather than a running client, so it isn't quite the same question.
 - **Grouping inside each role: by system** (agreed 2026-10-19): `Server/Trains/`,
   `Client/Items/`, `Shared/Protocol/`..., with patches next to the code they serve.
-- Steps 3-5: not started.
+- **Step 3, the move: done.** `Tools/CodeLayout/layout.js` decides where each file goes (its
+  rules are the record of each decision) and writes `moves.tsv` and a grouped `moves.md`;
+  `apply.js` moved the 469 files, gave each the namespace of its folder and rewrote `using`
+  lines, qualified names, dvmp `--usings` strings and doc paths. The folder table above was the
+  plan; `moves.md` is where things went. Differences from the plan:
+  - Components that exist on every game (junctions, turntables, pit stops, plugs, registers,
+    station controllers, `NetworkedPlayer`) are in Shared, not in one role.
+  - The `NetworkedItem` and `NetworkedItemManager` partials are all in `Shared/Items`, their
+    `.Server` and `.ClientProjection` parts too: partials can't span namespaces. Splitting them
+    into classes moves those parts out.
+  - The root namespace `Multiplayer` keeps `Multiplayer.cs` (UMM's entry point is
+    `Multiplayer.Multiplayer.Load`), `Settings` and `Locale`; the front end is `Menus/`.
+  - Patches that send through the host's own client today (couplers, hoses, MU cables, the comms
+    radio) are in `Client/`; [host-local-session](host-local-session.md) stage 2 splits them.
+  Two files had no namespace and now do (`PacketCompression`, `ServerBrowserClient`, which is
+  entirely commented out), and nine declared one that didn't match their folder.
+- Step 3's second half (the boundary test) and steps 4-5: not started.

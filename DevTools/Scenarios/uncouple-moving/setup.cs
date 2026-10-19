@@ -1,5 +1,5 @@
 // Host: a loco and two wagons near the client, coupled (chain tight, hoses, cocks), handbrakes on.
-var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().First();
+var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 DV.ThingTypes.TrainCarLivery L(string id) => DV.Globals.G.Types.Liveries.First(l => l.id == id);
 foreach (float d in new[] { 20f, 40f, 60f, 80f })
 foreach (var dir in new[] { Vector3.forward, Vector3.right, Vector3.back, Vector3.left })

@@ -10,7 +10,7 @@ cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/lost-and-found
 PREFAB=${PREFAB:-Mug}
-U="using Multiplayer.Components.Networking.World; using Multiplayer.Networking.Data.Items;"
+U="using Multiplayer.Server.Items; using Multiplayer.Shared.Items; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World; using Multiplayer.Shared.Protocol.Data.Items;"
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 record() { $D eval -t host -m body -u "$U" -a item=$1 -f $P/record.cs; }
 fail() { echo "FAIL: $*"; exit 1; }

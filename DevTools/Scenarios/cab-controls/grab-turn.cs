@@ -9,5 +9,5 @@ yield return new WaitForSecondsRealtime(0.5f);
 c.FireUngrabbed();
 yield return new WaitForSecondsRealtime(2.5f);
 var port = c.GetComponent<DV.Simulation.Ports.InteractablePortFeeder>().portId;
-var flow = car.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>().simulationFlow;
+var flow = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>().simulationFlow;
 ctx.Result = new Dictionary<string, double> { [port] = flow.TryGetPort(port, out var p) ? Math.Round(p.Value, 3) : -1 };

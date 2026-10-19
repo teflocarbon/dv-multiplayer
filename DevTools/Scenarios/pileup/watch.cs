@@ -4,7 +4,7 @@ TrainCar Find(string id) { try { return Trains.Find(id); } catch { return null; 
 float seconds = ctx.Args.TryGetValue("seconds", out var s) ? float.Parse(s) : 30f;
 float every = ctx.Args.TryGetValue("every", out var e) ? float.Parse(e) : 1f;
 var cars = ctx.Args["cars"].Split(',').Select(Find).Where(c => c != null).ToList();
-var Q = typeof(Multiplayer.Components.Networking.Train.TrainSpeedQueue);
+var Q = typeof(Multiplayer.Shared.Trains.TrainSpeedQueue);
 var F = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
 bool all = ctx.Args.TryGetValue("all", out var al) && al == "1";
 var tryError = Q.GetMethod("TryGetAlongTrackError", F);
@@ -19,7 +19,7 @@ for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < seco
         if (!all && Mathf.Abs(v) < 0.05f) continue;
         string q = "";
         var queue = car.GetComponent(Q);
-        if (queue != null && !Multiplayer.Components.Networking.NetworkLifecycle.Instance.IsHost())
+        if (queue != null && !Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsHost())
         {
             float last = (float)Field(queue, "lastSampleTime");
             q = $" tgt={(float)Field(queue, "targetSpeed"):F2} drv={Field(queue, "driving")} corr={(float)Field(queue, "easedCorrection"):F2} age={(Time.time - last):F1} place={Q.GetProperty("Placing")?.GetValue(queue)} park={Q.GetProperty("Parked")?.GetValue(queue)} hc={Q.GetProperty("HostCoupled")?.GetValue(queue)} set={car.trainset?.cars.Count} trk={car.Bogies[0].track?.name.Replace("[Y]_[SM]_", "")} kin={car.rb.isKinematic}";

@@ -414,7 +414,7 @@ Both are byte-sized and on the wire: append values, never reorder.
 
 ### On the host
 
-`ItemChangeLog` (`Multiplayer/Components/Networking/World/ItemChangeLog.cs`) writes every change as
+`ItemChangeLog` (`Multiplayer/Server/Items/ItemChangeLog.cs`) writes every change as
 one line:
 
 ```text

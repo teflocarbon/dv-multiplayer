@@ -8,12 +8,12 @@ using System.Reflection;
 using DV.Common;
 using DV.UI;
 using HarmonyLib;
-using Multiplayer.API;
-using Multiplayer.Components.Networking;
-using Multiplayer.Components.UI.ServerBrowser;
-using Multiplayer.Networking.Data;
-using Multiplayer.Networking.Managers.Server;
-using Multiplayer.Patches.MainMenu;
+using Multiplayer.Menus.MainMenu;
+using Multiplayer.Menus.ServerBrowser;
+using Multiplayer.Server.Session;
+using Multiplayer.Shared.Api;
+using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Session;
 using MP = Multiplayer.Multiplayer;
 using MpSettings = Multiplayer.Settings;
 

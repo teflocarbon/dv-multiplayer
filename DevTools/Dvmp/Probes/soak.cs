@@ -2,7 +2,7 @@
 // Args: seed (int), actions (int), radius (metres), pause (seconds between actions),
 // filter (optional: only items whose name starts with it, e.g. "JobOverview").
 // Every action is logged to ctx output so a failing desync can be traced back to it.
-using Multiplayer.Components.Networking.World;
+using Multiplayer.Shared.Items;
 using DV.Interaction;
 
 public static class Probe

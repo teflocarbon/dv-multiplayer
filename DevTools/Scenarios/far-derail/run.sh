@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/far-derail
-U="using Multiplayer.Components.Networking;"
+U="using Multiplayer.Client.Session; using Multiplayer.Server.Coverage; using Multiplayer.Server.Dedicated; using Multiplayer.Shared.Session;"
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 fail() { echo "FAIL: $*"; exit 1; }
 

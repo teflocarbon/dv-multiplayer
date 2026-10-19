@@ -15,6 +15,6 @@ var spawned = new { track = track.name, cars = cars.Select(c => c.ID).ToList(), 
 CarSpawner.Instance.DeleteTrainCarsFromTrack(track);
 foreach (var c in cars) if (c != null && c.gameObject.activeInHierarchy) CarSpawner.Instance.DeleteCar(c);
 yield return new WaitForSecondsRealtime(3f);
-var stale = Trainset.allSets.Where(s => s.cars.Any(c => c == null || !c.gameObject.activeInHierarchy || c.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>() == null))
-    .Select(s => s.id + ": " + string.Join(", ", s.cars.Select(c => c == null ? "null" : c.ID + (c.gameObject.activeInHierarchy ? "" : " inactive") + (c.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>() == null ? " unnetworked" : "")))).ToList();
+var stale = Trainset.allSets.Where(s => s.cars.Any(c => c == null || !c.gameObject.activeInHierarchy || c.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>() == null))
+    .Select(s => s.id + ": " + string.Join(", ", s.cars.Select(c => c == null ? "null" : c.ID + (c.gameObject.activeInHierarchy ? "" : " inactive") + (c.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>() == null ? " unnetworked" : "")))).ToList();
 ctx.Result = new { spawned, staleSets = stale };

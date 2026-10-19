@@ -33,7 +33,7 @@ own player is also a client and goes through the same request paths unless noted
 ## Join order
 
 A joining client walks through `PlayerLoadingState`
-(`Networking/Data/PlayerLoadingState.cs`); `NetworkServer.OnServerboundLoadStateUpdatePacket`
+(`Shared/Protocol/Data/PlayerLoadingState.cs`); `NetworkServer.OnServerboundLoadStateUpdatePacket`
 sends world state at these steps:
 
 | State | Sent by the host |
@@ -70,7 +70,7 @@ differences, such as the host setting the time, are applied.
 
 ### Fast travel time skip
 
-`Patches/World/TimeAdvancePatch.cs` prefixes `TimeAdvance.AdvanceTime`. With other players
+`Client/World/TimeAdvancePatch.cs` prefixes `TimeAdvance.AdvanceTime`. With other players
 connected, fast travel only skips time when the host's `FastTravelAdvancesTime` mod setting is on
 (sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
 player who travelled advances locally and sends `ServerboundTimeAdvancePacket`; the host relays it
@@ -78,7 +78,7 @@ to everyone else as `ClientboundTimeAdvancePacket`. A relayed advance is applied
 on again (`IsProcessingPacket`), so the traveller doesn't skip twice. The host checks only the
 setting, not the amount.
 
-`Patches/Train/FastTravelUIControllerPatch.cs` disables "fast travel with loco" while others are
+`Client/UI/FastTravelUIControllerPatch.cs` disables "fast travel with loco" while others are
 connected.
 
 ### Sleep
@@ -100,19 +100,19 @@ everyone's jobs late. There is now one cooldown, kept by the host.
   the client's and puts it back. An accepted sleep is relayed to everyone else, the host sets
   `lastWakeTime` to now plus the skip, and broadcasts the sleep state.
 
-`Patches/World/BedSleepingControllerPatch.cs` stops sleep from turning off locos and setting
+`Client/World/BedSleepingControllerPatch.cs` stops sleep from turning off locos and setting
 handbrakes (`TurnOffAndEngageHandbrakeOnAllLocos`, `EngageHandbrakesOnCurrentTrain`) unless the
 host is alone, so one player's nap doesn't stop someone else's train.
 
 ### Pause
 
-`Patches/World/AppUtilPatch.cs` blocks `AppUtil.RequestPause` and the time-scale change unless
+`Shared/Session/AppUtilPatch.cs` blocks `AppUtil.RequestPause` and the time-scale change unless
 `DvExtensions.AllowPause()` (single player, or the host alone). `GraphicsOptionsPatch.cs` forces
 `Application.runInBackground` in the same case, so an alt-tabbed host keeps simulating.
 
 ## Difficulty and game parameters
 
-`Patches/World/GameParamsPatch.cs` postfixes `GameParams.OnPropertyChanged` on the host and calls
+`Server/World/GameParamsPatch.cs` postfixes `GameParams.OnPropertyChanged` on the host and calls
 `NetworkServer.SendGameParams`, which broadcasts `ClientboundGameParamsPacket` (the whole
 `GameParams` as `JsonUtility` JSON, plus `FastTravelAdvancesTime`) to players at `ReadyForGameData`
 or later.
@@ -124,19 +124,19 @@ comms radio modes) used to keep the value they had seen. The client applies the 
 `Globals.G.GameParams` and `Globals.G.gameParamsInstance`.
 
 The joiner's difficulty preset (`SerializedDifficulty` in `ClientboundSaveGameDataPacket`) is used
-to build its `StartGameData_ServerSave` (`Components/SaveGame/StartGameData_ServerSave.cs`).
+to build its `StartGameData_ServerSave` (`Client/Session/StartGameData_ServerSave.cs`).
 
 ## Wallet, licences and debt
 
 ### Wallet
 
-There is one wallet, the host's `Inventory.PlayerMoney`. `Components/SaveGame/
+There is one wallet, the host's `Inventory.PlayerMoney`. `Server/Career/
 NetworkedSaveGameManager.cs` listens to `Inventory.MoneyChanged` on the host and broadcasts the new
 balance as `ClientboundMoneyPacket`; clients `SetMoney` it. A client's own balance is a mirror:
 anything it adds or removes locally is overwritten by the host's next update, so every way a client
 spends or earns money has to reach the host:
 
-- Banknotes and coins: `Patches/World/Items/MoneyPatch.cs` replicates a note's value as a
+- Banknotes and coins: `Client/Items/MoneyPatch.cs` replicates a note's value as a
   host-authoritative tracked value, and `Money.TrySpend` on a client (picking it up, stashing it,
   paying a register) first sends `ServerboundMoneyItemDepositPacket`. The host ignores items that
   aren't live money and rejects notes in Lost and Found, in a container, or in another player's
@@ -156,10 +156,10 @@ entitlements, not items).
 
 ### Debt
 
-`Patches/SaveGame/CareerManagerDebtControllerPatch.cs` runs `RegisterDebt` and `UnregisterDebt` on
+`Client/Career/CareerManagerDebtControllerPatch.cs` runs `RegisterDebt` and `UnregisterDebt` on
 the host only. Clients only know whether there is debt: `NumberOfNonZeroPricedDebts` returns 1 or 0
 from `CareerManagerDebtControllerPatch.HasDebt`, set from the save-game packet on join and from
-`ClientboundDebtStatusPacket` afterwards. `Components/SaveGame/
+`ClientboundDebtStatusPacket` afterwards. `Server/Career/
 NetworkedCareerManagerDebtController.cs` sends that packet when "has debt" changes (it used to go
 out only at exactly 0 or 1 debts, so going from none to two left clients thinking there was none).
 
@@ -170,7 +170,7 @@ insurance quota is reached, then insurance clears the rest. The outcome goes out
 
 Paying a loco's debt calls `SimulatedCarDebtTracker.TurnOffDebtSources`, which powers the whole
 consist down and sets its handbrake. The host pays for every loco anyone has used, so this stopped
-other players' trains. `Patches/SaveGame/SimulatedCarDebtTrackerPatch.cs` skips it when other
+other players' trains. `Server/Career/SimulatedCarDebtTrackerPatch.cs` skips it when other
 players are connected and any car of the consist is moving faster than 0.1 m/s or has a player
 aboard; the repair and refill still happen.
 
@@ -181,14 +181,14 @@ bought items through `AddItemToInstantiationQueue`/`InstantiatePurchasedItems` a
 `ShopItemData.purchasedItems`. The register runs on each game; the money, stock and items are the
 host's.
 
-Payment (`Patches/World/CashRegisterBasePatch.cs`): when a client pays cash into a shop register,
+Payment (`Client/Stations/CashRegisterBasePatch.cs`): when a client pays cash into a shop register,
 `AddCash` sends `ServerboundShopPaymentPacket` with a positive amount; change and cancelled baskets
 (`ReturnLeftoverDepositedCash`) send a negative one instead of printing a banknote that would only
 exist on that client. `NetworkServer.OnServerboundShopPaymentPacket` rejects NaN, zero and amounts
 above `MaxShopPayment` (1,000,000). A payment takes what the wallet has, up to the amount, and adds
 it to that player's escrow (`ServerPlayer.ShopCashInRegisters`); a refund is capped by the escrow.
 
-Purchase (`Patches/World/GlobalShopControllerPatch.cs`): a client's `AddItemToInstantiationQueue`
+Purchase (`Server/World/GlobalShopControllerPatch.cs`): a client's `AddItemToInstantiationQueue`
 sends `ServerboundShopPurchasePacket` (shop index, item prefab, amount) instead of spawning, and
 bumps its local stock count so the shelf updates at once. The host rejects an unknown shop or item,
 an escrow short of the price by more than 0.5, too little stock, or a buyer more than 50 m from
@@ -213,8 +213,8 @@ drops; cancelled basket refunds without a banknote).
 
 A service station is a `PitStopStation` (car selector, resource levers, faucet), its plugs
 (`PluggableObject` on a `PropHose`) and a `CashRegisterWithModules`. Code:
-`Components/Networking/World/NetworkedPitStopStation.cs`, `NetworkedPluggableObject.cs`,
-`NetworkedCashRegisterWithModules.cs`, `Patches/World/PluggableObjectPatch.cs`, `PropHosePatch.cs`,
+`Shared/Stations/NetworkedPitStopStation.cs`, `NetworkedPluggableObject.cs`,
+`NetworkedCashRegisterWithModules.cs`, `Shared/Stations/PluggableObjectPatch.cs`, `PropHosePatch.cs`,
 `CashRegisterWithModulesPatch.cs`, `CashRegisterBasePatch.cs`.
 
 Ids: stations and registers are numbered by sorting them by position
@@ -276,7 +276,7 @@ No scenario covers service stations.
 
 ## Junctions and turntables
 
-`Patches/World/JunctionPatch.cs` and `TurntableControllerPatch.cs` add `NetworkedJunction` and
+`Shared/World/JunctionPatch.cs` and `TurntableControllerPatch.cs` add `NetworkedJunction` and
 `NetworkedTurntable`. Ids are assigned locally in `Awake` order (`IsIdServerAuthoritative` is
 false): `ushort` for junctions, `byte` for turntables.
 
@@ -294,7 +294,7 @@ rather than hanging the join.
 
 ## Generic switches
 
-Vanilla `GenericSwitch` is a persisted on/off switch. `Patches/World/GenericSwitchPatch.cs` adds
+Vanilla `GenericSwitch` is a persisted on/off switch. `Shared/World/GenericSwitchPatch.cs` adds
 `NetworkedGenericSwitch` once the switch's `persistenceKey` is set; the NetId is the FNV-1a hash of
 that key, so both games agree without sending ids.
 
@@ -317,7 +317,7 @@ at different times on each screen, each pushing and derailing its own copies of 
 Engine-failure explosions come from the loco simulation, which runs only on the host, so clients
 saw none.
 
-`Patches/Train/ExplosionPatch.cs` makes the host decide. Three kinds (`ExplosionSync.Kind`):
+`Shared/Trains/ExplosionPatch.cs` makes the host decide. Three kinds (`ExplosionSync.Kind`):
 
 | Kind | Vanilla trigger |
 | --- | --- |
@@ -355,7 +355,7 @@ or flare, a burning ground tile, a random roll for self-ignition, being put out.
 on its own, so a car could burn on one screen only, and a client's burning car never exploded: its
 countdown is blocked, and the host's car wasn't burning.
 
-`Patches/Train/CargoFirePatch.cs` (`CargoFireSync`) makes the host decide:
+`Shared/Trains/CargoFirePatch.cs` (`CargoFireSync`) makes the host decide:
 
 - Host: after each reaction's `Update`, if its state (burning, about to explode) changed since it
   was last sent, it sends `ClientboundCargoFirePacket` (car NetId, the reaction's index among the
@@ -379,7 +379,7 @@ biohazard and radiation flags, fed by leaking cars and evolved by a cellular aut
 used to run its own, fed by its own copy of the leaks, so fires and spills were in different places
 on each screen and a late joiner saw none.
 
-`Components/Networking/World/HazmatSync.cs` and `Patches/World/HazmatTileManagerPatch.cs`:
+`Shared/World/HazmatSync.cs` and `Client/World/HazmatTileManagerPatch.cs`:
 
 - Host: `HazmatSync.Server_Tick` runs every 12 ticks (half a second at 24 ticks/s). It compares
   each tile's visible state (the four flags, and each liquid rounded to 20 L) with what it last
@@ -406,7 +406,7 @@ liquid).
 
 The comms radio's cargo loader changed only the client's copy of the car; the host's car stayed
 empty and the client's cargo was overwritten by the next host update.
-`Patches/CommsRadio/CommsRadioCargoLoaderPatch.cs` prefixes `LoadPointedCar`/`UnloadPointedCar` on
+`Client/Trains/CommsRadioCargoLoaderPatch.cs` prefixes `LoadPointedCar`/`UnloadPointedCar` on
 clients and sends `ServerboundSandboxCargoPacket` (car NetId, cargo NetId, 0 to empty).
 
 `NetworkServer.OnServerboundSandboxCargoPacket` requires the loader to be enabled on the host
@@ -414,7 +414,7 @@ clients and sends `ServerboundSandboxCargoPacket` (car NetId, cargo NetId, 0 to 
 the car. It unloads any current cargo, then loads a full car if the cargo type exists and
 `IsLoadableOnCarType` for the car. The cargo sync shows the result to everyone.
 
-The radio's damage mode (`Patches/CommsRadio/CommsRadioDamagePatch.cs`) was local the same way: a
+The radio's damage mode (`Client/Trains/CommsRadioDamagePatch.cs`) was local the same way: a
 client damaged or derailed its copy of the car, and the host, which owns car health and the train
 physics, never knew (#74). On a client it sends `ServerboundSandboxCarDamagePacket` (car NetId,
 damage level 1-10, or derail). The host applies the same checks as the cargo loader, then does what
@@ -430,11 +430,11 @@ time).
 
 Some vanilla systems run only on the host and are made to consider every player:
 
-- `Patches/World/StationLocoSpawnerPatch.cs`: station loco spawners run on the host and spawn when
+- `Server/Trains/StationLocoSpawnerPatch.cs`: station loco spawners run on the host and spawn when
   any player is within range.
 - `PlayerDistanceGameObjectsDisablerPatch.cs`: refill stations and warehouse machines stay active
   near any player (above).
-- `Patches/World/KeyUsePatch.cs`: `KeyUse.HandleUse` runs on the host only; clients have no request
+- `Server/World/KeyUsePatch.cs`: `KeyUse.HandleUse` runs on the host only; clients have no request
   path.
 
 ## Testing

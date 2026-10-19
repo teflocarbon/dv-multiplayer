@@ -25,7 +25,7 @@ D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/stoker-coal
 C=DevTools/Scenarios/settle-window/count-sends.cs
 STOKER=${STOKER:-auto}; FEED=${FEED:-10}
-U="using Multiplayer.Components.Networking.Train;"
+U="using Multiplayer.Client.Trains; using Multiplayer.Server.Trains; using Multiplayer.Shared.Trains;"
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 fail() { echo "FAIL: $*"; exit 1; }
 count() { $D eval -t $1 -m class -a methods=SendAddCoal -a action=read -f $C | field counts | node -e 'const c=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(c["SendAddCoal:"+process.argv[1]]||0)' "$id"; }

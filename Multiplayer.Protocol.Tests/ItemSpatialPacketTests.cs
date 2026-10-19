@@ -1,8 +1,8 @@
 using LiteNetLib.Utils;
-using Multiplayer.Networking.Data.Items;
-using Multiplayer.Networking.Packets.Clientbound;
-using Multiplayer.Networking.Packets.Serverbound;
-using Multiplayer.Networking.Serialization;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Shared.Protocol.Packets.Serverbound;
+using Multiplayer.Shared.Protocol.Serialization;
 using NUnit.Framework;
 using UnityEngine;
 

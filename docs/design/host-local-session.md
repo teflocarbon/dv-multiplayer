@@ -51,7 +51,7 @@ builds.
 ## What the host's own client does today
 
 `NetworkLifecycle.StartServer` starts the server and then a client connected to loopback
-(`Components/Networking/NetworkLifecycle.cs:146-185`, client at `:178`). That client does five
+(`Shared/Session/NetworkLifecycle.cs:146-185`, client at `:178`). That client does five
 different jobs, and each stage has to move each of them somewhere:
 
 1. **The host player's requests**, as any player makes them (chat, pit stops, the comms radio).
@@ -62,14 +62,14 @@ different jobs, and each stage has to move each of them somewhere:
 4. **Presenting other players**: avatars, ping, chat, preferences, the loading screen and RPC
    answers.
 5. **Identity.** `NetworkServer.SelfId` is the client's `PlayerId`
-   (`Networking/Managers/Server/NetworkServer.cs:118`), `SelfPeer` is looked up from it (`:106-114`),
+   (`Server/Session/NetworkServer.cs:118`), `SelfPeer` is looked up from it (`:106-114`),
    `IsHost(player)` compares against it (`NetworkLifecycle.cs:57-60`), and
    `NetworkLifecycle.IsProcessingPacket` is the client's flag (`NetworkLifecycle.cs:45`), which on
    the host also means "applying a relayed change".
 
 ### Packets the host's client applies and ignores (stage 1)
 
-`Networking/Managers/Client/HostOwnClient.cs` lists every
+`Client/Session/HostOwnClient.cs` lists every
 packet a client handles. `NetworkClient.Subscribe` registers each handler through `Handle`, which
 drops the ignored ones when `IsHost()`; a protocol test (`HostOwnClientPacketTests`) fails on an
 unlisted `Clientbound*` packet.
@@ -92,56 +92,56 @@ directly; those are the pattern for stage 2.
 
 | Call site | Sends | On the host |
 |---|---|---|
-| `Components/Networking/Player/LocalPlayerTrackerBase.cs:170` | `ServerboundPlayerPositionPacket`, every tick it moved | Sent (no guard). A dedicated host's parked body has no tracker. |
-| `Networking/Managers/Client/NetworkClient.cs:290-302` | `ServerboundPlayerPreferenceUpdatePacket` when the character model setting changes | Sent |
-| `Components/Networking/UI/ChatGUI.cs:228` | `CommonChatPacket` | Sent |
+| `Client/Players/LocalPlayerTrackerBase.cs:170` | `ServerboundPlayerPositionPacket`, every tick it moved | Sent (no guard). A dedicated host's parked body has no tracker. |
+| `Client/Session/NetworkClient.cs:290-302` | `ServerboundPlayerPreferenceUpdatePacket` when the character model setting changes | Sent |
+| `Client/UI/ChatGUI.cs:228` | `CommonChatPacket` | Sent |
 | `NetworkClient.cs:756-762` | `ServerboundLoadStateUpdatePacket`: the host skips to `ReadyForWorldState` | Sent once at login |
 
 **Train controls**
 
 | Call site | Sends | On the host |
 |---|---|---|
-| `Components/Networking/Train/NetworkedTrainCar.cs:2103` (`Common_SendPorts`, `:2035`) | `CommonTrainPortsPacket` | Sent every tick with dirty ports. The host sends every dirty port that isn't locally fed or a handcar handle (`:2042-2044`), which includes simulation feedback, not just the host player's levers. |
+| `Shared/Trains/NetworkedTrainCar.cs:2103` (`Common_SendPorts`, `:2035`) | `CommonTrainPortsPacket` | Sent every tick with dirty ports. The host sends every dirty port that isn't locally fed or a handcar handle (`:2042-2044`), which includes simulation feedback, not just the host player's levers. |
 | `NetworkedTrainCar.cs:2204` (`Common_SendFuses`) | `CommonTrainFusesPacket` | Sent, same rule |
 | `NetworkedTrainCar.cs:1993` | `CommonHandbrakePositionPacket` | Sent; `Client_LocalPlayerCanTouch` is always true on the host (`:1972-1973`) |
 | `NetworkedTrainCar.cs:2244` | `CommonBrakeCylinderReleasePacket` | Sent |
 | `NetworkedTrainCar.cs:3229`, `:3353` | `ServerboundTrainControlAuthorityPacket` (take and release a lever) | Sent. Releases flush the ports first because both share `ReliableOrdered` (`:3347-3349`). |
 | `NetworkedTrainCar.cs:3113` | `ServerboundFireboxIgnitePacket` (match in a firebox) | Sent; the server ignores it from the host |
 | `NetworkedTrainCar.cs:749`, `:879`, `:2794`, `:2868`, `:3182` | `ServerboundTrainSyncRequestPacket` | **Not sent:** `SendTrainSyncRequest` returns on the host (`NetworkClient.cs:2610-2614`, stage 1) |
-| `NetworkedTrainCar.cs:3158`, `:3167`, `:3194`; `Patches/Train/CouplerChainInteractionPatch.cs:30`; `CouplerPatch.cs:39`, `:67`; `HoseAndCockPatch.cs:30`; `MultipleUnitCablePatch.cs:18`, `:35` | Topology commands (couple, uncouple, chain, hoses, cocks, MU) | **In-process already:** `SendTrainTopologyCommand` calls `Server.CommitObservedTrainTopology()` on the host (`NetworkClient.cs:2394-2398`). Only the coupler-interaction fallback (`Start`) went as `CommonCouplerInteractionPacket` (`NetworkClient.cs:2265-2272`); stage 1 stops that on the host (`:2257-2261`). |
+| `NetworkedTrainCar.cs:3158`, `:3167`, `:3194`; `Client/Trains/CouplerChainInteractionPatch.cs:30`; `CouplerPatch.cs:39`, `:67`; `HoseAndCockPatch.cs:30`; `MultipleUnitCablePatch.cs:18`, `:35` | Topology commands (couple, uncouple, chain, hoses, cocks, MU) | **In-process already:** `SendTrainTopologyCommand` calls `Server.CommitObservedTrainTopology()` on the host (`NetworkClient.cs:2394-2398`). Only the coupler-interaction fallback (`Start`) went as `CommonCouplerInteractionPacket` (`NetworkClient.cs:2265-2272`); stage 1 stops that on the host (`:2257-2261`). |
 | `NetworkedTrainCar.cs:2224-2225` | Paint | **In-process already** (`Server.SendPaintThemeChange`) |
-| `NetworkedTrainCar.cs:2876`, `Components/Networking/Train/NetworkTrainsetWatcher.cs:323`, `:348`, `Patches/Train/CouplerBreakPatch.cs:69` | `RestoreCanonicalTrainTopology` (client topology state, may request a topology sync) | **Not run:** returns on the host (`NetworkClient.cs:2470-2474`, stage 1) |
+| `NetworkedTrainCar.cs:2876`, `Shared/Trains/NetworkTrainsetWatcher.cs:323`, `:348`, `Client/Trains/CouplerBreakPatch.cs:69` | `RestoreCanonicalTrainTopology` (client topology state, may request a topology sync) | **Not run:** returns on the host (`NetworkClient.cs:2470-2474`, stage 1) |
 
 **World**
 
 | Call site | Sends | On the host |
 |---|---|---|
-| `Components/Networking/World/NetworkedJunction.cs:83` | `CommonChangeJunctionPacket` | Sent for every switch on the host's world (`initialised` is true on the host, `:59`, `:65`), whoever or whatever threw it |
-| `Components/Networking/World/NetworkedTurntable.cs:83` | `CommonRotateTurntablePacket` | Sent from the tick whenever the target rotation changed |
-| `Patches/World/TimeAdvancePatch.cs:44` | `ServerboundTimeAdvancePacket` | Sent when the host sleeps or fast-travels with players online; the host advances its own time at once (`:45`) |
-| `Components/Networking/World/NetworkedGenericSwitch.cs:125-128` | Generic switch | **In-process already** (`Server.SendGenericSwitchState`) |
-| `Components/Networking/World/HazmatSync.cs:300`, `Patches/Train/CargoFirePatch.cs:139` | Hazmat and cargo ignite | Clients only (`HazmatTileManagerPatch.cs:56`, `CargoFirePatch.cs:170`, `:185`) |
+| `Shared/World/NetworkedJunction.cs:83` | `CommonChangeJunctionPacket` | Sent for every switch on the host's world (`initialised` is true on the host, `:59`, `:65`), whoever or whatever threw it |
+| `Shared/World/NetworkedTurntable.cs:83` | `CommonRotateTurntablePacket` | Sent from the tick whenever the target rotation changed |
+| `Client/World/TimeAdvancePatch.cs:44` | `ServerboundTimeAdvancePacket` | Sent when the host sleeps or fast-travels with players online; the host advances its own time at once (`:45`) |
+| `Shared/World/NetworkedGenericSwitch.cs:125-128` | Generic switch | **In-process already** (`Server.SendGenericSwitchState`) |
+| `Shared/World/HazmatSync.cs:300`, `Shared/Trains/CargoFirePatch.cs:139` | Hazmat and cargo ignite | Clients only (`HazmatTileManagerPatch.cs:56`, `CargoFirePatch.cs:170`, `:185`) |
 
 **Stations, shops and the career**
 
 | Call site | Sends | On the host |
 |---|---|---|
-| `Components/Networking/World/NetworkedPitStopStation.cs:742`, `:758`, `:777`, `:802`, `:825`, `:846`, `:875` | `CommonPitStopInteractionPacket` | Sent by the host player; the server validates it, then skips re-applying it for `SelfId` (`NetworkedPitStopStation.cs:313`) |
-| `Components/Networking/World/NetworkedPluggableObject.cs:159` | `CommonPitStopPlugInteractionPacket` (every `LateUpdate` while not processing as host) | Sent; the server skips re-applying it for `SelfId` (`NetworkedPluggableObject.cs:232`) |
-| `Components/Networking/World/NetworkedCashRegisterWithModules.cs:401` | `CommonCashRegisterWithModulesActionPacket` (`AddCash`) | Sent: `CashRegisterBasePatch.AddCash` has no host guard (`Patches/World/CashRegisterBasePatch.cs:21-47`), and the coroutine waits `RPC_Timeout`. `Buy` and `Cancel` run vanilla on the host (`CashRegisterWithModulesPatch.cs:37`, `:88`). |
-| `Patches/CommsRadio/CommsRadioCarDeleterPatch.cs:36` | `ServerboundTrainDeleteRequestPacket` | Sent unless the host plays alone (`:21`) |
-| `Patches/CommsRadio/RerailControllerPatch.cs:50` | `ServerboundTrainRerailRequestPacket` | Sent unless the host plays alone (`:32`) |
-| `Patches/CommsRadio/CommsRadioCrewVehiclePatch.cs:47-91` | `ServerboundWorkTrainRequestPacket` with an RPC ticket | Sent unless the host plays alone (`:24`); the answer is a `ClientboundRpcResponsePacket` that `RpcManager.ResolveTicket` resolves (`NetworkClient.cs:836-840`) |
-| `Components/UI/CareerManager/CareerManagerExtensions.cs:217`, `:244` | Lost and Found list and retrieve | Sent; answers come back as events on the client (`LostItemRetrieveCompleted`, `:214`) |
-| `Integrations/Inventory/ColdContainerUiIntegration.cs:127`, `:136`, `:192`, `:231`, `:249`, `:297` | Container view and mutations | Sent; answers come back as `ContainerViewReceived` and `ContainerMutationCompleted` (`:268-269`) |
-| `Patches/Jobs/JobValidatorPatch.cs:75-84` | Booklet summon | **In-process already:** the host calls `JobBookletSummonCoordinator.TryStart` with its own `ServerPlayer` |
-| `JobValidatorPatch.cs:116-121`, `Patches/Jobs/WarehouseMachineControllerPatch.cs:90`, `:101`, `CommsRadioCarSpawnerPatch.cs:30`, `CareerManagerFeesScreenPatch.cs:17`, `CareerManagerLicensePayingScreenPatch.cs:12`, `GlobalShopControllerPatch.cs:18`, `Items/MoneyPatch.cs:48`, `CashRegisterBasePatch.cs:39`, `:56`, `CommsRadioCargoLoaderPatch.cs:25`, `CommsRadioDamagePatch.cs:20` | Validation, warehouse, car spawner, fees, licences, shop | The host runs vanilla (its game is the authority) |
+| `Shared/Stations/NetworkedPitStopStation.cs:742`, `:758`, `:777`, `:802`, `:825`, `:846`, `:875` | `CommonPitStopInteractionPacket` | Sent by the host player; the server validates it, then skips re-applying it for `SelfId` (`NetworkedPitStopStation.cs:313`) |
+| `Shared/Stations/NetworkedPluggableObject.cs:159` | `CommonPitStopPlugInteractionPacket` (every `LateUpdate` while not processing as host) | Sent; the server skips re-applying it for `SelfId` (`NetworkedPluggableObject.cs:232`) |
+| `Shared/Stations/NetworkedCashRegisterWithModules.cs:401` | `CommonCashRegisterWithModulesActionPacket` (`AddCash`) | Sent: `CashRegisterBasePatch.AddCash` has no host guard (`Client/Stations/CashRegisterBasePatch.cs:21-47`), and the coroutine waits `RPC_Timeout`. `Buy` and `Cancel` run vanilla on the host (`CashRegisterWithModulesPatch.cs:37`, `:88`). |
+| `Client/Trains/CommsRadioCarDeleterPatch.cs:36` | `ServerboundTrainDeleteRequestPacket` | Sent unless the host plays alone (`:21`) |
+| `Client/Trains/RerailControllerPatch.cs:50` | `ServerboundTrainRerailRequestPacket` | Sent unless the host plays alone (`:32`) |
+| `Client/Trains/CommsRadioCrewVehiclePatch.cs:47-91` | `ServerboundWorkTrainRequestPacket` with an RPC ticket | Sent unless the host plays alone (`:24`); the answer is a `ClientboundRpcResponsePacket` that `RpcManager.ResolveTicket` resolves (`NetworkClient.cs:836-840`) |
+| `Client/Career/CareerManagerExtensions.cs:217`, `:244` | Lost and Found list and retrieve | Sent; answers come back as events on the client (`LostItemRetrieveCompleted`, `:214`) |
+| `Client/Items/ColdContainerUiIntegration.cs:127`, `:136`, `:192`, `:231`, `:249`, `:297` | Container view and mutations | Sent; answers come back as `ContainerViewReceived` and `ContainerMutationCompleted` (`:268-269`) |
+| `Client/Jobs/JobValidatorPatch.cs:75-84` | Booklet summon | **In-process already:** the host calls `JobBookletSummonCoordinator.TryStart` with its own `ServerPlayer` |
+| `JobValidatorPatch.cs:116-121`, `Client/Jobs/WarehouseMachineControllerPatch.cs:90`, `:101`, `CommsRadioCarSpawnerPatch.cs:30`, `CareerManagerFeesScreenPatch.cs:17`, `CareerManagerLicensePayingScreenPatch.cs:12`, `GlobalShopControllerPatch.cs:18`, `Client/Items/MoneyPatch.cs:48`, `CashRegisterBasePatch.cs:39`, `:56`, `CommsRadioCargoLoaderPatch.cs:25`, `CommsRadioDamagePatch.cs:20` | Validation, warehouse, car spawner, fees, licences, shop | The host runs vanilla (its game is the authority) |
 
 **Items.** The host's item paths are in-process already: `NetworkedItem` sends only when not
-`processingAsHost` (`Components/Networking/World/NetworkedItem.cs:772-774`), the spatial manager
+`processingAsHost` (`Shared/Items/NetworkedItem.cs:772-774`), the spatial manager
 accepts the host's own samples and settlements directly
-(`WorldItems/NetworkedItemSpatialManager.cs:793-830`), the wake witness and recall branch on
-`IsHost()` (`WorldItems/NetworkedTrainItemWakeManager.cs:214`,
+(`Shared/Items/NetworkedItemSpatialManager.cs:793-830`), the wake witness and recall branch on
+`IsHost()` (`Shared/Items/NetworkedTrainItemWakeManager.cs:214`,
 `NetworkedItemManager.ProjectionAndCompatibility.cs:270-283`), and fall rescue has a host scan
 (`NetworkedItemManager.FallRescue.cs:61-64`). They find the host's `ServerPlayer` by `SelfId`.
 
@@ -149,13 +149,13 @@ accepts the host's own samples and settlements directly
 
 | What | Where |
 |---|---|
-| `Client.PlayerId` as "the local player" (items, spatial leases, wake, inventory) | `NetworkedItem.cs:329`, `:669`; `NetworkedItem.Snapshots.cs:379-430`, `:630`, `:861`; `NetworkedItem.VrHand.cs:82`; `NetworkedItemManager.ProjectionAndCompatibility.cs:272`; `NetworkedItemSpatialManager.cs:326`, `:349`, `:400`, `:424`, `:735`; `NetworkedTrainItemWakeManager.cs:190`; `Integrations/Inventory/InventoryIntegration.cs:98` |
-| `ClientPlayerManager` (remote avatars) | Created by the client (`NetworkClient.cs:202`); fed by joined, disconnect, position, preferences and ping packets (`:842-896`). Read by `NetworkedItem.StateApplication.cs:46`, `:97`, `:250`, `:527`, `:643`, `:861` (held items on avatar hands), `NetworkedPluggableObject.cs:598`, `:628` (plugs in a hand), `NetworkedWorldMap.cs:18-36`, `:112`, `PlayerListGUI.cs:75`, `ChatGUI.cs:259`, and MPAPI (`API/ClientAPIProvider.cs:32-33`, `:73-91`) |
+| `Client.PlayerId` as "the local player" (items, spatial leases, wake, inventory) | `NetworkedItem.cs:329`, `:669`; `NetworkedItem.Snapshots.cs:379-430`, `:630`, `:861`; `NetworkedItem.VrHand.cs:82`; `NetworkedItemManager.ProjectionAndCompatibility.cs:272`; `NetworkedItemSpatialManager.cs:326`, `:349`, `:400`, `:424`, `:735`; `NetworkedTrainItemWakeManager.cs:190`; `Shared/Items/InventoryIntegration.cs:98` |
+| `ClientPlayerManager` (remote avatars) | Created by the client (`NetworkClient.cs:202`); fed by joined, disconnect, position, preferences and ping packets (`:842-896`). Read by `NetworkedItem.StateApplication.cs:46`, `:97`, `:250`, `:527`, `:643`, `:861` (held items on avatar hands), `NetworkedPluggableObject.cs:598`, `:628` (plugs in a hand), `NetworkedWorldMap.cs:18-36`, `:112`, `PlayerListGUI.cs:75`, `ChatGUI.cs:259`, and MPAPI (`Client/Api/ClientAPIProvider.cs:32-33`, `:73-91`) |
 | Chat UI | Built by `OnClientboundRemoveLoadingScreen` (`NetworkClient.cs:998-1010`); messages arrive through `OnCommonChatPacket` (`:1598-1601`) |
 | Ping | `Client.Ping` in `PlayerListGUI.cs:85`, `TrainPortPresenter.cs:364`, the radio's sound delays (`CommsRadioCarDeleterPatch.cs:45`, `RerailControllerPatch.cs:64`), and `RPC_Timeout` (`NetworkClient.cs:184`; `NetworkedCashRegisterWithModules.cs:364`, `:384`, `:406`; `CommsRadioCrewVehiclePatch.cs:48`) |
-| RPC | `RpcManager` (`Components/Networking/RpcManager.cs:25-46`) issues tickets; only `OnClientboundRpcResponsePacket` resolves them |
-| Loading | `DisplayLoadingInfo_Start_Patch` unhooks DV's own loading-finished handler (`Patches/World/DisplayLoadingInfoPatch.cs:8-11`), so only `RemoveLoadingScreen` (`NetworkClient.cs:975-1011`) brings the host's loading screen down |
-| Other | `IsProcessingPacket` (`NetworkLifecycle.cs:45`); `DebugRuntime.SetRole` (`NetworkLifecycle.cs:172`, `NetworkClient.cs:756`); network stats (`NetworkLifecycle.cs:124`); MPAPI's NetId lookups (`NetworkManager.cs:67`, only the client's `Start` reaches it); the station loco spawner waits for `Client != null` (`Patches/World/StationLocoSpawnerPatch.cs:28`); `LocoRestorationControllerPatch.cs:58` reads `Client.LoadingState`; `RemoteDispatchPatch.cs:57` reads `ClientPlayerWrappers`; career and container UI events (`CareerManagerExtensions.cs:214`, `ColdContainerUiIntegration.cs:268-269`) |
+| RPC | `RpcManager` (`Client/Session/RpcManager.cs:25-46`) issues tickets; only `OnClientboundRpcResponsePacket` resolves them |
+| Loading | `DisplayLoadingInfo_Start_Patch` unhooks DV's own loading-finished handler (`Client/Session/DisplayLoadingInfoPatch.cs:8-11`), so only `RemoveLoadingScreen` (`NetworkClient.cs:975-1011`) brings the host's loading screen down |
+| Other | `IsProcessingPacket` (`NetworkLifecycle.cs:45`); `DebugRuntime.SetRole` (`NetworkLifecycle.cs:172`, `NetworkClient.cs:756`); network stats (`NetworkLifecycle.cs:124`); MPAPI's NetId lookups (`NetworkManager.cs:67`, only the client's `Start` reaches it); the station loco spawner waits for `Client != null` (`Server/Trains/StationLocoSpawnerPatch.cs:28`); `LocoRestorationControllerPatch.cs:58` reads `Client.LoadingState`; `RemoteDispatchPatch.cs:57` reads `ClientPlayerWrappers`; career and container UI events (`CareerManagerExtensions.cs:214`, `ColdContainerUiIntegration.cs:268-269`) |
 
 ### How the server treats the host's own requests
 
@@ -175,7 +175,7 @@ The server also stops some state from reaching the host's client on its own side
 `SelfPeer` is excluded from most broadcasts (`excludeSelf` in `SendPacketToAll`,
 `NetworkServer.cs:671`, `:691`, `:742`, `:755`, and `SelfPeer` passed as the excluded peer at
 `:885-1203`), and `CullingManager` never lists the host among a station's active players
-(`Networking/Managers/Server/CullingManager.cs:87`). Sends that do reach the host's client today:
+(`Server/Players/CullingManager.cs:87`). Sends that do reach the host's client today:
 player disconnect (`NetworkServer.cs:591-599`), ping (`:635`), the `/time` chat command's time skip (`:843-845`),
 preferences (`:1218`), server chat messages (`:1572`), control-authority updates (`:1275`,
 `:1277`), item spatial leases, samples and commits (`:1382-1433`), and every direct reply to a
@@ -279,7 +279,7 @@ on the host. This changes no behaviour and can land before stage 2.
 |---|---|
 | **Login** (`NetworkClient.Start`, host token, `NetworkClient.cs:223-261`; server: `PlayerAuthentication.cs:63-69`, `NetworkServer.cs:1595-1729`) | `Server.AddLocalPlayer(identity)`: the same steps without a peer. The record binding must run exactly as at login (`InstallGuidRekey.OnLogin`, `AuthoritativeItemRegistry.RebindPersistentOwner`, Lost and Found and world items, `NetworkServer.cs:1715-1718`), or `host-player-persist` regresses. Keep the player-id allocation the same: ids are bytes in item records and in topology operation ids (`NetworkClient.cs:2419`). |
 | **`SelfId`, `SelfPeer`, `IsHost(player)`** (`NetworkServer.cs:105-118`, `NetworkLifecycle.cs:57-60`) | `SelfId` becomes `LocalPlayer?.PlayerId`, `IsHost(player)` becomes `player == LocalPlayer`. `SelfPeer` goes: with no peer for the local player, `peers` never holds it, so every `excludeSelf` and `SelfPeer` exclusion is simply true. The other `SelfPeer` and `SelfId` references (items, spatial leases, pit stops, plugs, containers, culling, the booklet summon) move to `LocalPlayer`. |
-| **Loading flow.** The host's client skips to `ReadyForWorldState` (`NetworkClient.cs:758-763`); the server completes it (`NetworkServer.cs:1835-1842`), announces it (`:2040`, `:2043`), sends it the existing players (`:2046-2063`) and `RemoveLoadingScreen` (`:2065`), which is the only thing that brings the host's loading screen down (`DisplayLoadingInfoPatch.cs:8-11`, `NetworkClient.cs:975-992`). If the save hasn't loaded, the host waits in `joinQueue` (`NetworkServer.cs:1816-1824`). | `LocalPlayerSession.OnServerLoaded()`, called where the server would have answered `ReadyForWorldState`: run the same completion (announce, `PlayerReady`), then call the loading-screen code from `OnClientboundRemoveLoadingScreen` directly. Also fire `PlayerConnected`, which never fires for the host today (`NetworkServer.cs:1801`; MPAPI's `OnPlayerConnected`, `API/ServerAPIProvider.cs:149`): decide whether that's a fix or a change mods notice. |
+| **Loading flow.** The host's client skips to `ReadyForWorldState` (`NetworkClient.cs:758-763`); the server completes it (`NetworkServer.cs:1835-1842`), announces it (`:2040`, `:2043`), sends it the existing players (`:2046-2063`) and `RemoveLoadingScreen` (`:2065`), which is the only thing that brings the host's loading screen down (`DisplayLoadingInfoPatch.cs:8-11`, `NetworkClient.cs:975-992`). If the save hasn't loaded, the host waits in `joinQueue` (`NetworkServer.cs:1816-1824`). | `LocalPlayerSession.OnServerLoaded()`, called where the server would have answered `ReadyForWorldState`: run the same completion (announce, `PlayerReady`), then call the loading-screen code from `OnClientboundRemoveLoadingScreen` directly. Also fire `PlayerConnected`, which never fires for the host today (`NetworkServer.cs:1801`; MPAPI's `OnPlayerConnected`, `Server/Api/ServerAPIProvider.cs:149`): decide whether that's a fix or a change mods notice. |
 | **`ClientPlayerManager`** (`NetworkClient.cs:202`, fed at `:842-896`) | Owned by the session and fed by the server's own events (a player completes loading, moves, changes preferences, leaves) instead of packets. Everything that reads avatars keeps working through the seam. |
 | **Ping list** (`OnClientboundPingUpdatePacket`, `:893-896`; the host's own ping, `PlayerListGUI.cs:85`) | The server already has each peer's latency (`OnNetworkLatencyUpdate`, `NetworkServer.cs:623-635`); the session reads it. The host's own ping is 0, and the server sends clients the host's ping as 0 or not at all. |
 | **Chat** (`ChatGUI` built on `RemoveLoadingScreen`, `NetworkClient.cs:998-1010`; `OnCommonChatPacket`, `:1598-1601`; `ChatGUI.SendChat`, `ChatGUI.cs:228`) | The session builds the chat UI at the end of loading (not on a dedicated host) and receives the server's chat calls directly; sending is `ChatManager.ProcessMessage(text, LocalPlayer)`. |
@@ -289,7 +289,7 @@ on the host. This changes no behaviour and can land before stage 2.
 | **`IsProcessingPacket`** (`NetworkLifecycle.cs:45`) | The apply scope from stage 2. |
 | **Career and container UI events** (`CareerManagerExtensions.cs:214`, `ColdContainerUiIntegration.cs:268-269`) | Raised by the session. |
 | **Odds and ends**: `DebugRuntime.SetRole` (`NetworkClient.cs:756`); network stats (`NetworkLifecycle.cs:124`); MPAPI NetId initialisation, which only the client's `Start` reaches (`NetworkManager.cs:67`); the station loco spawner waiting for `Client != null` (`StationLocoSpawnerPatch.cs:28`); `LocoRestorationControllerPatch.cs:58` (`Client.LoadingState`); `RemoteDispatchPatch.cs:57`; `TrainPortPresenter.cs:364` and the radio's sound delays (`Client.Ping`); `RPC_Timeout` users; `NetworkClient.Stop` restoring the session (`NetworkClient.cs:274-278`, skipped on the host) | Each to the session or the server; the NetId initialisation into `NetworkServer.Start`. |
-| **MPAPI's client API** on the host (`API/ClientAPIProvider.cs`: `PlayerId`, `Players`, `PlayerCount`, `Ping`, `RegisterPacket`, `SendPacketToServer`) | Backed by the session. A mod's clientbound handlers must still run on the host for broadcasts the host's client gets today, and its `SendPacketToServer` from the host must reach its server handler in-process. Deliver external packets to the session by serialising and handling them locally, so mods see the same packets they do now. |
+| **MPAPI's client API** on the host (`Client/Api/ClientAPIProvider.cs`: `PlayerId`, `Players`, `PlayerCount`, `Ping`, `RegisterPacket`, `SendPacketToServer`) | Backed by the session. A mod's clientbound handlers must still run on the host for broadcasts the host's client gets today, and its `SendPacketToServer` from the host must reach its server handler in-process. Deliver external packets to the session by serialising and handling them locally, so mods see the same packets they do now. |
 | **dvmp probes and scenario scripts** that read the host's `Client` (`DevTools/Dvmp/Probes/snapshot.cs`, `DevTools/DvmpAgent/AgentServer.cs`, scripts in `borrowed-disconnect`, `lost-and-found`, `rejoin`, `settle-window`, `station-load`) | Through the seam. |
 
 Single player runs the same way (a one-player server), and gets cheaper: no loopback connection
@@ -298,7 +298,7 @@ at all.
 ## The dedicated host
 
 Today a dedicated host keeps the loopback client as a **service identity**: its `ServerPlayer` is
-`IsServiceHost` (`Networking/Data/ServerPlayer.cs:44`), logs in with `Settings.ServiceGuid`,
+`IsServiceHost` (`Server/Session/ServerPlayer.cs:44`), logs in with `Settings.ServiceGuid`,
 isn't counted in `GameplayPlayers` (`NetworkServer.cs:100-103`) and completes loading silently
 (`:2015-2021`). The reason given in [dedicated-host.md](dedicated-host.md#keep-the-loopback-client-it-isnt-only-a-player)
 is that the loopback carries the host's simulation and applies relayed state. Those are jobs 2 and

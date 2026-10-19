@@ -1,0 +1,39 @@
+using HarmonyLib;
+using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Utils;
+using System;
+
+namespace Multiplayer.Client.Players;
+
+[HarmonyPatch(typeof(CustomFirstPersonController))]
+public static class CustomFirstPersonControllerPatch
+{
+    public static Action OnJump;
+
+    [HarmonyPatch(nameof(CustomFirstPersonController.Awake))]
+    [HarmonyPostfix]
+    private static void Awake(CustomFirstPersonController __instance)
+    {
+        // A dedicated host's local player is a parked body, not a player: it sends no position.
+        if (NetworkLifecycle.Instance?.IsDedicatedHost == true)
+            return;
+
+        LocalPlayerTrackerBase tracker;
+
+        if (VRManager.IsVREnabled())
+            tracker = __instance.GetOrAddComponent<LocalPlayerTrackerVR>();
+        else
+            tracker = __instance.GetOrAddComponent<LocalPlayerTrackerNonVR>();
+
+        if (tracker == null)
+            Multiplayer.LogError("Failed to add LocalPlayerTracker to CustomFirstPersonController");
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(nameof(CustomFirstPersonController.SetJumpParameters))]
+    private static void SetJumpParameters()
+    {
+        OnJump?.Invoke();
+    }
+
+}

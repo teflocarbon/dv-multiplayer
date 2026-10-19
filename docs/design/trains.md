@@ -16,20 +16,20 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
   (endpoints, capabilities, reciprocal/cycle validation, commands, result codes), tested in
   `Multiplayer.Core.Tests/Trains/TrainTopologyStateMachineTests.cs`.
 - The host's canonical record is `TrainTopologyAuthority`, native mutation and read-back are
-  `TrainTopologyNativeAdapter`, and the client side is `TrainTopologyReconciler` (all in
-  `Components/Networking/Train/`).
+  `TrainTopologyNativeAdapter`, and the client side is `TrainTopologyReconciler` (in
+  `Server/Trains/`, `Shared/Trains/` and `Client/Trains/`).
 - Clients send `ServerboundTrainTopologyCommandPacket` for every coupler, hose, cock, MU and chain
   placement change: by hand, from the coupling menu and loco cabs
-  (`Patches/Train/UICouplingHelperPatch.cs`), the remote controller
-  (`Patches/World/Items/RemoteControllerModulePatch.cs`) and the in-cab decoupler
-  (`Patches/Train/DecouplerDeviceLogicPatch.cs`). Remote and decoupler commands set
+  (`Client/Trains/UICouplingHelperPatch.cs`), the remote controller
+  (`Client/Items/RemoteControllerModulePatch.cs`) and the in-cab decoupler
+  (`Client/Trains/DecouplerDeviceLogicPatch.cs`). Remote and decoupler commands set
   `ViaRemote`, which skips the player-distance check but not the 4 m coupler-gap check.
 - The host's own changes, and native changes nobody commanded (spawn auto-couple, joint breaks,
   derail side effects), are observed and committed on the next tick (`CommitObservedTrainTopology`).
   Clients no longer auto-couple spawned cars themselves (477a94c); they wait for the host's
   snapshot. Nor do they run the steam tender auto-couplers (vanilla's
   `SteamTenderAutoCoupleMechanism` and Custom Car Loader's `CarAutoCouplerInternal`,
-  `Patches/Train/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
+  `Shared/Trains/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
   after a spawn, rerail or uncouple, which a client sent the host as its player's commands.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
@@ -66,7 +66,7 @@ derailed by a player's sandbox comms radio; both took matching log timings to fi
   (`Stress`, `Explosion`, `EndOfTrack`, `MissingTrack`, `LoadedDerailed`), and the vanilla callers
   (`SafetyDerailer`, the unused-car deleter, the job generator, loco restoration, save loading, the
   host player's own chain, radio and remote). Anything else is `Unknown` with the calling methods
-  as its detail, which names the case to add (`Patches/Train/CouplerUncoupleLogPatch.cs`,
+  as its detail, which names the case to add (`Shared/Trains/CouplerUncoupleLogPatch.cs`,
   `DerailCausePatch.cs`, `CarSpawnerPatch.cs`).
 - The host sends its causes: uncouples ride on the next broadcast topology snapshot
   (`Uncouples`), removals on `ClientboundDestroyTrainCarPacket.Cause`, derails in
@@ -79,7 +79,7 @@ derailed by a player's sandbox comms radio; both took matching log timings to fi
 
 **Join baseline: implemented.** The host sends `ClientboundTrainBaselineBeginPacket`, one numbered
 spawn packet per trainset, a topology snapshot tagged with the baseline ID, then
-`ClientboundTrainBaselineCompletePacket` (`Networking/Managers/Server/NetworkServer.cs`). The
+`ClientboundTrainBaselineCompletePacket` (`Server/Session/NetworkServer.cs`). The
 client admits them through `Multiplayer.Core/Trains/TrainBaselineReceipt.cs` and only advances to
 `ReadyForItems` once the receipt is complete and the topology applied; otherwise it disconnects
 with an error after 45 s. Reliable train broadcasts during that window are held per player and
@@ -89,7 +89,7 @@ digest; the manifest is counts only.
 **Clients never report a coupling break; they follow the host's topology.**
 
 - Coupler joints break at vanilla's 300 MN / 1e8 N·m on host and client
-  (`Patches/Train/CouplerBreakPatch.cs`). That's about a hundred times a real coupler, so normal
+  (`Client/Trains/CouplerBreakPatch.cs`). That's about a hundred times a real coupler, so normal
   play never breaks one. Every break is logged as an error with the joint force, both cars'
   speeds, the coupler gap, derailment and (on a client) what the host has at that end, plus a
   `train.coupler-broken` debug event. The gate flags any run that logged one.
@@ -235,7 +235,7 @@ decision changes (`Server_KeepCompressorSignal`).
   second. Measured per tick, every ordinary host hitch read as a one-tick dip to ~0.6, and clients
   followed the dipped speed as an impact: their trains' speed swung by 5-15 km/h every second.
 - The network tick advances by elapsed real time, so it keeps step below 24 fps
-  (`Components/Networking/NetworkLifecycle.cs`; 274c250).
+  (`Shared/Session/NetworkLifecycle.cs`; 274c250).
 - Full syncs use the transform instead of the rigidbody while a just-spawned car's body is still
   at its pooled position (c2d0d5f).
 - Stopped cars settle where the host's stopped (#61), including after pile-ups under lag (#63: single
@@ -247,16 +247,16 @@ decision changes (`Server_KeepCompressorSignal`).
   are cleared, and the host topology is reapplied (`NetworkedTrainCar.Client_RerailToHost`;
   0903b06).
 - A car derailed for 30 s can be rerailed even if it never stops moving
-  (`Patches/Train/TrainCarRerailPatch.cs`).
+  (`Shared/Trains/TrainCarRerailPatch.cs`).
 - A host rerail or move-to-track resets everything on the client that follows the host's samples,
   before and after vanilla relocates the car, and the client then asks for a full sync; the host
   sends one reliably anyway once its own relocation is done. The rigidbody queue only steers a
   derailed car. Before, a rerailed car slid off at 1.5 m/s and was snapped back and flung, forever
   (playtest 2; see "What the code does").
 - Explosions are the host's: clients play the host's explosions but never apply explosion forces
-  to trains (`Patches/Train/ExplosionPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
+  to trains (`Shared/Trains/ExplosionPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
 - Deleting a car steps any player on it off first, so players are no longer destroyed with it
-  (`Patches/Train/CarDeletePlayerSafetyPatch.cs`).
+  (`Shared/Trains/CarDeletePlayerSafetyPatch.cs`).
 - Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`),
   a derail, a rerail (host or client-only) and a host move-to-track are the only things that clear
   a client's motion queues. `NetworkServer.SendTrainsetRelocation` has no caller, so the

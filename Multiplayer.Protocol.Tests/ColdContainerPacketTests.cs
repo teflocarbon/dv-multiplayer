@@ -1,7 +1,7 @@
 using System;
 using LiteNetLib.Utils;
-using Multiplayer.Networking.Packets.Clientbound;
-using Multiplayer.Networking.Packets.Serverbound;
+using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using NUnit.Framework;
 
 namespace Multiplayer.Protocol.Tests;

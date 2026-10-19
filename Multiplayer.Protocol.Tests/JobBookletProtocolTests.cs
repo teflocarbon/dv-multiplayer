@@ -1,6 +1,6 @@
 using LiteNetLib.Utils;
-using Multiplayer.Networking.Data.Items;
-using Multiplayer.Networking.Data.Jobs;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Data.Jobs;
 using NUnit.Framework;
 using UnityEngine;
 

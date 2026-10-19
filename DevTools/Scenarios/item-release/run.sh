@@ -19,7 +19,7 @@ cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 P=DevTools/Scenarios/item-release
 MODE=${MODE:-regrab}
-U="using Multiplayer.Components.Networking.World;"
+U="using Multiplayer.Server.Items; using Multiplayer.Shared.Items; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World;"
 step() { local out; out=$("$@" 2>&1) || { echo "$out" | head -20; return 1; }; if echo "$out" | grep -q "\"ok\": false\|compileError"; then echo "$out" | grep -E "error|compileError" | head -5; return 1; fi; }
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 val() { node -e 'console.log(JSON.stringify(Object.values(JSON.parse(require("fs").readFileSync(0,"utf8")).results)[0].result))'; }

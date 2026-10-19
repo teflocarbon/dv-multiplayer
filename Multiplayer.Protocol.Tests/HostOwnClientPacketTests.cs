@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
 using System.Reflection;
-using Multiplayer.Networking.Managers.Client;
-using Multiplayer.Networking.Packets.Clientbound.Train;
-using Multiplayer.Networking.Packets.Common;
+using Multiplayer.Client.Session;
+using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
+using Multiplayer.Shared.Protocol.Packets.Common;
 using NUnit.Framework;
 
 namespace Multiplayer.Protocol.Tests;
@@ -29,7 +29,7 @@ public sealed class HostOwnClientPacketTests
         {
             return type.IsClass && !type.IsAbstract && type.Name.StartsWith("Clientbound") &&
                    type.Name.EndsWith("Packet") &&
-                   type.Namespace?.StartsWith("Multiplayer.Networking.Packets.Clientbound") == true;
+                   type.Namespace?.StartsWith("Multiplayer.Shared.Protocol.Packets.Clientbound") == true;
         }
         catch (Exception)
         {

@@ -1,8 +1,9 @@
 using DV.Logic.Job;
 using DV.ServicePenalty;
 using DV.ThingTypes;
-using Multiplayer.Networking.Data.Jobs;
-using Multiplayer.Networking.Data.Items;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Data.Jobs;
+using Multiplayer.Shared.Utils;
 using NUnit.Framework;
 using System;
 using System.IO;

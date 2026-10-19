@@ -21,9 +21,22 @@ The code is the source of truth. File paths below are relative to the repository
 | `MultiplayerAPI Tests/` | A sample mod that exercises the API. |
 | `DevTools/DvmpAgent/` | In-game agent mod for the dvmp harness (Debug only, never shipped). |
 
-Nothing in `Multiplayer/`'s layout says yet whether code runs on the server, on a player's game or
-both. The planned split into Shared, Server and Client is
-[design/code-layout.md](design/code-layout.md).
+### Inside `Multiplayer/`
+
+The folder (and namespace) says where code runs. See
+[design/code-layout.md](design/code-layout.md):
+
+| Folder | Namespace | What |
+|---|---|---|
+| `Shared/` | `Multiplayer.Shared.*` | What every game needs: the protocol (packets, data, serialisation), the transport, the session base and lifecycle, the networked components and their wiring, debugging, utilities |
+| `Server/` | `Multiplayer.Server.*` | The authority: `NetworkServer` and its handlers, saves and per-player state, chat commands, world coverage, the dedicated host, and patches that run vanilla only on the server |
+| `Client/` | `Multiplayer.Client.*` | A player's game: `NetworkClient`, the join, other players' avatars, UI, followers and presenters, and patches that send intent |
+| `Menus/` | `Multiplayer.Menus.*` | The front end: main menu, hosting and joining, the server browser |
+| root | `Multiplayer` | `Multiplayer.cs` (the UMM entry), `Settings`, `Locale` |
+
+Inside each, folders are by system: `Session`, `Players`, `Trains`, `Items`, `World`, `Stations`,
+`Jobs`, `Career`, and a few more. Server and Client don't reference each other, and Shared
+references neither. A file that still refers to both roles sits in Shared until it's split.
 
 Outside the solution:
 
@@ -46,14 +59,14 @@ two-game testing goes through dvmp.
 runs `harmony.PatchAll()` (plus `SimComponent_Tick_Patch`, which is patched by hand), loads the
 asset bundle, creates the `NetworkLifecycle` object and registers the API provider.
 
-`Multiplayer/Components/Networking/NetworkLifecycle.cs` is a `DontDestroyOnLoad` singleton that
+`Multiplayer/Shared/Session/NetworkLifecycle.cs` is a `DontDestroyOnLoad` singleton that
 owns the current `NetworkServer` and `NetworkClient` and runs the network tick. Hosting calls
 `StartServer`, which starts a `NetworkServer` and then a `NetworkClient` connected to loopback.
 **The host is also a player**: its own client logs in like anyone else, gets a `ServerPlayer` and
 is addressed by the server as `SelfPeer`. Most broadcasts pass `excludeSelf` because the host's
 game already has the state. Single-player games run the same way with a one-player limit.
 
-A **dedicated host** (`-mp-dedicated`, `Components/Networking/DedicatedHost.cs`) keeps that
+A **dedicated host** (`-mp-dedicated`, `Server/Dedicated/DedicatedHost.cs`) keeps that
 loopback client, because it carries the host's own simulation and applies relayed state to its
 world. Its `ServerPlayer` is a service identity (`IsServiceHost`), not a player: it has its own
 GUID, no avatar and no slot. Code that means "the players" uses `NetworkServer.GameplayPlayers`.
@@ -65,7 +78,7 @@ The planned target is to separate the server from its players fully: the host's 
 stored and restored by GUID like everyone else's, and the world kept loaded around every player.
 See [design/server-player-split.md](design/server-player-split.md).
 
-To ask what this game is, use `NetworkRole` (`Components/Networking/NetworkRole.cs`):
+To ask what this game is, use `NetworkRole` (`Shared/Session/NetworkRole.cs`):
 
 - `IsServer`: this game is the authority (a player host, a dedicated host, or single player). The
   same as `NetworkLifecycle.Instance.IsHost()`, which most code still calls.
@@ -88,7 +101,7 @@ auto-couple, and applying it uncoupled the new consist on the host; every client
 The rule is kept where state is applied, so it holds whichever way a packet gets there (a reply
 to a request, a broadcast without `excludeSelf`, held traffic):
 
-- `Networking/Managers/Client/HostOwnClient.cs` says, for every packet a client handles, whether
+- `Client/Session/HostOwnClient.cs` says, for every packet a client handles, whether
   the host's own client applies it. `NetworkClient` subscribes every handler through `Handle`,
   which drops the ignored ones on the host and logs the first of each type (the server shouldn't
   have sent it). A protocol test fails if a `Clientbound*` packet isn't listed; subscribing a
@@ -122,23 +135,21 @@ stages, keeping one process, is [design/host-local-session.md](design/host-local
 
 ### Managers
 
-`Multiplayer/Networking/Managers/`:
-
-- `NetworkManager.cs`: shared base. Owns the LiteNetLib `NetPacketProcessor`, the transport(s),
+- `Shared/Session/NetworkManager.cs`: shared base. Owns the LiteNetLib `NetPacketProcessor`, the transport(s),
   `SendPacket` helpers and the receive path. A handler that throws is logged and swallowed so it
   can't abort the rest of the receive batch.
-- `Server/NetworkServer.cs`: login, loading states, every serverbound handler, broadcasts.
-  `ServerPlayer` (`Networking/Data/ServerPlayer.cs`) holds per-player server state: loading
+- `Server/Session/NetworkServer.cs`: login, loading states, every serverbound handler, broadcasts.
+  `ServerPlayer` (`Server/Session/ServerPlayer.cs`) holds per-player server state: loading
   state, position, known/nearby items, shop escrow, held train traffic, a server-side inventory.
-- `Client/NetworkClient.cs`: login response, the join coroutine (`SyncWorldState`), every
+- `Client/Session/NetworkClient.cs`: login response, the join coroutine (`SyncWorldState`), every
   clientbound handler. Observer mode (`Settings.ObserverMode`) blocks the mutation packets in
   `ObserverMutationPacketTypes` at the send boundary.
-- `Server/ChatManager.cs`, `Server/LobbyServerManager.cs` (public server listing),
-  `Client/ServerBrowserClient.cs`, `Client/ClientPlayerManager.cs`.
+- `Server/Chat/ChatManager.cs`, `Server/Session/LobbyServerManager.cs` (public server listing),
+  `Menus/ServerBrowser/ServerBrowserClient.cs`, `Client/Players/ClientPlayerManager.cs`.
 
 ### Transports
 
-`Multiplayer/Networking/TransportLayers/`. `ITransport` abstracts the socket library.
+`Multiplayer/Shared/Transport/`. `ITransport` abstracts the socket library.
 
 - `SteamworksTransport.cs` is the transport in use (`NetworkManager` constructs it). A server
   opens both a normal UDP socket on the configured port and a Steam relay socket. A client
@@ -153,7 +164,7 @@ stages, keeping one process, is [design/host-local-session.md](design/host-local
 
 ### Packets
 
-Packets live in `Multiplayer/Networking/Packets/` and are named by direction:
+Packets live in `Multiplayer/Shared/Protocol/Packets/` and are named by direction:
 
 | Prefix | Direction |
 |---|---|
@@ -163,15 +174,15 @@ Packets live in `Multiplayer/Networking/Packets/` and are named by direction:
 | `Unconnected*` | server browser pings |
 
 They are plain classes serialized by `NetPacketProcessor`; custom field serializers are
-registered in `Networking/Serialization/PacketSerializationRegistry.cs`. Handlers are subscribed
+registered in `Shared/Protocol/Serialization/PacketSerializationRegistry.cs`. Handlers are subscribed
 in `NetworkServer.Subscribe()` and `NetworkClient.Subscribe()`. Mods add packets through
 `RegisterExternalPacket` via MPAPI.
 
 ### Networked components and NetIds
 
-`Multiplayer/Components/Networking/{Train,World,Jobs,Player}` hold `Networked*` components that
+`Multiplayer/Shared/{Trains,Items,World,Stations,Jobs,Players}` hold the `Networked*` components that
 Harmony patches attach to game objects (for example `Junction_Awake_Patch` adds
-`NetworkedJunction`). Most derive from `Components/IdMonoBehaviour.cs`, which gives each a
+`NetworkedJunction`). Most derive from `Shared/Session/IdMonoBehaviour.cs`, which gives each a
 `NetId` from a per-type `NetIdAllocator` (`Multiplayer.Core/Identity`).
 
 - `IsIdServerAuthoritative => true` (`NetworkedTrainCar`, `NetworkedItem`, `NetworkedJob`,
@@ -180,13 +191,16 @@ Harmony patches attach to game objects (for example `Junction_Awake_Patch` adds
   warehouse controllers): every peer allocates locally as the scene loads, which relies on the
   same objects waking in the same order on every peer.
 
-`Multiplayer/API/NetIdProvider.cs` maps game types (`TrainCar`, `Junction`, `Job`, `ItemBase`, ...)
+`Multiplayer/Shared/Api/NetIdProvider.cs` maps game types (`TrainCar`, `Junction`, `Job`, `ItemBase`, ...)
 to their NetId lookups for MPAPI users.
 
 ### Harmony patches
 
-`Multiplayer/Patches/` is grouped by area (`Train`, `World`, `World/Items`, `Jobs`, `CommsRadio`,
-`SaveGame`, `MainMenu`, ...). The common shapes:
+Patches sit next to the code they serve, in the role they belong to: `Server/` for authority logic
+and "only the server runs this vanilla code", `Client/` for sending intent and holding a client's
+copy, `Shared/` for wiring components and behaviour the same everywhere. Every patch is applied in
+every game and checks its role itself (mostly `IsHost()` today, `NetworkRole` from now on). The
+common shapes:
 
 - **Client prefix sends intent and skips vanilla.** On a client the prefix sends a
   `Serverbound*` request and returns `false`, so the local game doesn't commit the change.
@@ -229,7 +243,7 @@ The host's game is the only place shared state is decided. The rules:
 
 Concrete cases:
 
-- **Items.** `Components/Networking/World/AuthoritativeItemRegistry.cs` holds one host record per
+- **Items.** `Server/Items/AuthoritativeItemRegistry.cs` holds one host record per
   item: placement, holder, persistent owner, inventory claim, revision. A client's
   `CommonItemUpdatePacket` goes through `NetworkedItem.Server_ReceiveItemUpdate` and
   `AuthoritativeItemRegistry.TryApplyTransition`, which runs `ItemAuthorityStateMachine` from
@@ -252,9 +266,9 @@ Concrete cases:
   the escrow is refunded and the stock resent. The host spawns the purchase owned by the buyer.
   Depositing a money item is refused if the note is in a container, the Lost and Found, or
   someone else's hands.
-- **Explosions and hazmat.** `Patches/Train/ExplosionPatch.cs`: clients never start an explosion
+- **Explosions and hazmat.** `Shared/Trains/ExplosionPatch.cs`: clients never start an explosion
   or apply its force; the host sends which car exploded and clients play effects only, while the
-  resulting train motion arrives through train sync. `Components/Networking/World/HazmatSync.cs`:
+  resulting train motion arrives through train sync. `Shared/World/HazmatSync.cs`:
   the host sends changed hazmat tiles every half second; a client lighting a tile sends
   `ServerboundHazmatIgnitePacket`, accepted within 40 m of the player.
 
@@ -292,7 +306,7 @@ and disconnects on any difference, so host and client must run the exact same bu
 
 ### 2. Loading states
 
-After login the client walks `PlayerLoadingState` (`Networking/Data/PlayerLoadingState.cs`) by
+After login the client walks `PlayerLoadingState` (`Shared/Protocol/Data/PlayerLoadingState.cs`) by
 sending `ServerboundLoadStateUpdatePacket`; the server answers each step in
 `OnServerboundLoadStateUpdatePacket`. A client that reports a state at or below its current one
 is kicked. Broadcasts carry a minimum loading state, so a player only receives live traffic for a
@@ -372,7 +386,7 @@ What is sent when (host side):
 
 | System | Where | Rate |
 |---|---|---|
-| Train motion | `Components/Networking/Train/NetworkTrainsetWatcher.cs` | Each tick, one `ClientboundTrainsetPhysicsPacket` per trainset that has a moving car, or whose cars haven't synced for 2 s (a full sync with position and rotation). Skipped while teleporting. Reliable if bogie tracks changed, otherwise unreliable. Speed is scaled by the host's measured simulation rate so clients don't run ahead of a slow host. |
+| Train motion | `Shared/Trains/NetworkTrainsetWatcher.cs` | Each tick, one `ClientboundTrainsetPhysicsPacket` per trainset that has a moving car, or whose cars haven't synced for 2 s (a full sync with position and rotation). Skipped while teleporting. Reliable if bogie tracks changed, otherwise unreliable. Speed is scaled by the host's measured simulation rate so clients don't run ahead of a slow host. |
 | Train topology | `NetworkServer.OnTick` | Observed host-side changes committed once per tick and broadcast if the revision changed. |
 | Brakes | `NetworkedTrainCar` | Thresholded with a heartbeat; see [design/trains.md](design/trains.md). |
 | Items | `NetworkedItemManager` | Per tick, per ready player, for items in interest. |

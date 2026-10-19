@@ -1,7 +1,7 @@
 // Host: spawn a fresh item of the given prefab next to the client.
-Multiplayer.Components.Networking.Player.NetworkedPlayer client = null;
+Multiplayer.Shared.Players.NetworkedPlayer client = null;
 float joinWait = Time.realtimeSinceStartup;
-while ((client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().FirstOrDefault()) == null && Time.realtimeSinceStartup - joinWait < 60f) yield return null; // the client may still be joining
+while ((client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().FirstOrDefault()) == null && Time.realtimeSinceStartup - joinWait < 60f) yield return null; // the client may still be joining
 if (client == null) throw new Exception("no client avatar");
 Vector3 at = client.transform.position;
 var spec = DV.Globals.G.Items.items.First(i => i.ItemPrefabName == ctx.Args["prefab"]);

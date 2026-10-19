@@ -152,7 +152,7 @@ GameObject `[far]` and 7865 on `[near]`):
 - The tracker is DV's `PlayerTracker`. It follows `PlayerManager.ActiveCamera`, then the player
   (`decomp/Assembly-CSharp/PlayerTracker.cs:32-36`, `:38-52`, `:63-74`), and
   `PlayerCameraOverride` wins (`PlayerManager.cs:14-42`). That's what stage 3b's
-  `DedicatedHostAnchor` exploits (`Multiplayer/Components/Networking/DedicatedHostAnchor.cs:40-83`).
+  `DedicatedHostAnchor` exploits (`Multiplayer/Server/Dedicated/DedicatedHostAnchor.cs:40-83`).
 
 ### 1.3 The loading pipeline
 
@@ -550,7 +550,7 @@ terrain, Near and Far.
   - calls **`Physics.SyncTransforms()`**;
   - raises `WorldMoved`. Its subscribers include `Streamer.OnWorldMoved`, `TrainCarInteriorPhysics`,
     `CharacterControllerProvider`, `ExternalCamera`, `WorldStreamingInit` (hole positions) and the
-    mod's `DebugRuntime` (`Multiplayer/Debugging/DebugRuntime.cs:297-298`).
+    mod's `DebugRuntime` (`Multiplayer/Shared/Debugging/DebugRuntime.cs:297-298`).
 - The physics settings (`globalgamemanagers`, PhysicsManager pathID 10):
   - fixed step 1/60 (`FrameLimiter.cs:13`);
   - gravity -10;
@@ -699,10 +699,10 @@ against what's loaded. They have no anchor term.
 | System | Code | Patch |
 |---|---|---|
 | `ItemDisablerGrid` | 3×3 cells of 128 m around `ActiveCamera` (`DV/ItemDisablerGrid.cs:22-43`), driving `ItemDisabler.OnItemDisablePositionUpdated` (`DV/ItemDisabler.cs:156-190`) | Postfix `IsCoordActive` to true near any anchor's cell; postfix `Update` to raise `PositionUpdated` (event field) when any anchor's cell changes |
-| `RespawnOnDrop.CheckDistances` | `farFromPlayer` uses `PlayerTransform`, the parked body; `farFromActiveCamera` makes items kinematic (`RespawnOnDrop.cs:326-355`, `:357-369`; 200 m / 1 km at `:11-13`, `:88`). The mod already suppresses `RespawnOrDestroy` for managed items (`Multiplayer/Patches/World/Items/RespawnOnDropDebugPatch.cs:19-32`), but the kinematic flag isn't suppressed. | Postfix the tuple to use the nearest gameplay player and anchor |
+| `RespawnOnDrop.CheckDistances` | `farFromPlayer` uses `PlayerTransform`, the parked body; `farFromActiveCamera` makes items kinematic (`RespawnOnDrop.cs:326-355`, `:357-369`; 200 m / 1 km at `:11-13`, `:88`). The mod already suppresses `RespawnOrDestroy` for managed items (`Multiplayer/Shared/Items/RespawnOnDropDebugPatch.cs:19-32`), but the kinematic flag isn't suppressed. | Postfix the tuple to use the nearest gameplay player and anchor |
 | `ChainCouplerVisibilityOptimizer.Update` | Disables the chain and the `CouplingScanner` when not visible and more than 50 m from `ActiveCamera` (`ChainCouplerVisibilityOptimizer.cs:80-117`). It's only enabled by renderer visibility (`:101-107`), which no host camera provides for remote cars. The scanner drives buffer pairing (`TrainBufferController.cs:35-63`) and chain interaction. Mostly visual on the host. | Low priority: nearest-anchor distance, plus enabling within 50 m of any player |
 | `PlayerDistanceMultipleGameObjectsOptimizer.CheckDistance` | 500 m from `ActiveCamera` (`DV.Optimizers/PlayerDistanceMultipleGameObjectsOptimizer.cs:15`, `:82-86`) | Not patched by the mod. Nearest anchor |
-| Mod: host as item simulator | Eligible only if the **service host's** position is within 192 m (`Multiplayer/Components/Networking/World/WorldItems/NetworkedItemSpatialManager.cs:39`, `:566-578`, `:656-667`). The service host has no tracked position, so it never qualifies far from the parked body. | Make host eligibility "item active and `IsSceneAndTerrainCellLoaded(item)`" instead of the host's distance, so the host can simulate and validate near any player |
+| Mod: host as item simulator | Eligible only if the **service host's** position is within 192 m (`Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs:39`, `:566-578`, `:656-667`). The service host has no tracked position, so it never qualifies far from the parked body. | Make host eligibility "item active and `IsSceneAndTerrainCellLoaded(item)`" instead of the host's distance, so the host can simulate and validate near any player |
 
 ### (c) Delegating far derailment physics to the nearest client
 
@@ -796,7 +796,7 @@ it hitches, and that slows the host's simulation rate. Measure it (M7).
   client.
 
 `DistanceLodSystemPatch` already adds all players to physics-LOD points
-(`Multiplayer/Patches/Train/DistanceLodSystemPatch.cs:49-61`). Keep it as is.
+(`Multiplayer/Server/Coverage/DistanceLodSystemPatch.cs:49-61`). Keep it as is.
 
 ### 7.2 Exact patch points
 

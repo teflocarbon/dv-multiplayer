@@ -150,7 +150,7 @@ public static class McpTools
 
         All game assemblies (Assembly-CSharp, DV.*) and Multiplayer.dll are referenced with
         private members made public, so private fields/methods can be used directly. Add
-        namespaces with `usings` (e.g. "using DV.CabControls; using Multiplayer.Components.Networking.World;").
+        namespaces with `usings` (e.g. "using DV.CabControls; using Multiplayer.Server.Items; using Multiplayer.Shared.Items; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World;").
         Return small anonymous objects/lists; Unity objects are reduced to {type,name,id,path}
         and Quaternions to Euler angles. Results over 512 KB are truncated.
         """)]

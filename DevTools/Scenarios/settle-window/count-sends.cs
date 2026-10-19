@@ -4,7 +4,7 @@
 // The patch stays for the life of the game; counts live in DevContext.State.
 using System.Reflection;
 using HarmonyLib;
-using Multiplayer.Networking.Managers.Client;
+using Multiplayer.Client.Session;
 
 public static class Probe
 {

@@ -1,6 +1,6 @@
 // Client: wait for the item in the Lost & Found list, retrieve it, check it lands in the inventory.
 ushort id = ushort.Parse(ctx.Args["item"]);
-var client = Multiplayer.Components.Networking.NetworkLifecycle.Instance.Client;
+var client = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Client;
 LostItemData entry = null;
 float t0 = Time.realtimeSinceStartup;
 while (entry == null && Time.realtimeSinceStartup - t0 < 30f)
@@ -10,8 +10,8 @@ while (entry == null && Time.realtimeSinceStartup - t0 < 30f)
     entry = NetworkedLostAndFoundManager.ClientItems.FirstOrDefault(e => e.NetId == id);
 }
 if (entry == null) throw new Exception("item " + id + " never appeared in the client's Lost & Found list");
-Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket result = null;
-Action<Multiplayer.Networking.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket> on = p => { if (p.LostHandle == entry.Handle) result = p; };
+Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket result = null;
+Action<Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundLostItemRetrieveResultPacket> on = p => { if (p.LostHandle == entry.Handle) result = p; };
 client.LostItemRetrieveCompleted += on;
 try
 {

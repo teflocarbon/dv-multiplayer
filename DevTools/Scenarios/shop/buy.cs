@@ -2,7 +2,7 @@
 // buy (or with cancel=1, pay and cancel). Reports money, stock and the new items with their NetIds.
 var reg = UnityEngine.Object.FindObjectsOfType<NetworkedCashRegisterWithModules>().Where(r => r.IsShopRegister).OrderBy(r => Vector3.Distance(r.transform.position, PlayerManager.PlayerTransform.position)).First();
 var mod = reg.CashRegister.registerModules.OfType<ScanItemCashRegisterModule>().First(m => m.name.StartsWith(ctx.Args["item"]));
-var w = Resources.FindObjectsOfTypeAll<Wallet>().First(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Components.Networking.Player.NetworkedPlayer>() == null);
+var w = Resources.FindObjectsOfTypeAll<Wallet>().First(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Shared.Players.NetworkedPlayer>() == null);
 bool cancel = ctx.Args.TryGetValue("cancel", out var c) && c == "1";
 double start = Inventory.Instance.PlayerMoney;
 int stock0 = GlobalShopController.Instance.GetShopItemData(mod.sellingItemSpec).ItemsInStock;

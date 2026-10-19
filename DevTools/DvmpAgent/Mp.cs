@@ -21,7 +21,7 @@ internal static class Mp
     {
         if (resolved) return;
         resolved = true;
-        Type lifecycle = Type.GetType("Multiplayer.Components.Networking.NetworkLifecycle, Multiplayer");
+        Type lifecycle = Type.GetType("Multiplayer.Shared.Session.NetworkLifecycle, Multiplayer");
         if (lifecycle == null) return;
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy;
         instanceProp = lifecycle.GetProperty("Instance", flags);

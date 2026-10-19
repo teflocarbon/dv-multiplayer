@@ -14,7 +14,7 @@ describes what the code does.
 Implemented:
 
 - **Coordinator:** `NetworkedTrainItemWakeManager`
-  (`Multiplayer/Components/Networking/World/WorldItems/NetworkedTrainItemWakeManager.cs`), host
+  (`Multiplayer/Shared/Items/NetworkedTrainItemWakeManager.cs`), host
   only, owned by `NetworkedItemManager`. Support propagation is the pure
   `TrainItemWakePlanner` (`Multiplayer.Core/Items/TrainItemWakePlanner.cs`), unit-tested in
   `Multiplayer.Core.Tests/Items/TrainItemWakePlannerTests.cs`.
@@ -233,7 +233,7 @@ epoch.
 Implementation location:
 
 ```text
-Multiplayer/Components/Networking/World/WorldItems/NetworkedTrainItemWakeManager.cs
+Multiplayer/Shared/Items/NetworkedTrainItemWakeManager.cs
 ```
 
 This manager owns train-specific wake policy and must not be folded into

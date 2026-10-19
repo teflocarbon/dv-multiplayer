@@ -7,7 +7,7 @@ internal static class Tracer
 {
     public static async Task<JsonObject> RunAsync(string? target, string? ids, int last, CancellationToken ct)
     {
-        const string usings = "using Multiplayer.Components.Networking.World;";
+        const string usings = "using Multiplayer.Server.Items; using Multiplayer.Shared.Items; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World;";
         // Install one game at a time: patching both at once collides on Harmony's temp files.
         JsonObject install = new() { ["results"] = new JsonObject() };
         foreach (Agent agent in await Agents.ResolveAsync(target, ct))

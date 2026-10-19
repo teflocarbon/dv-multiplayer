@@ -1,6 +1,6 @@
 // Client: put an item in the inventory, open a container it holds, deposit the item, withdraw it,
 // then close and reopen the container. Args: box (container NetId), item (NetId to store).
-// Needs: -u "using CUI = Multiplayer.Integrations.Inventory.ColdContainerUiIntegration;"
+// Needs: -u "using CUI = Multiplayer.Client.Items.ColdContainerUiIntegration;"
 var inv = DV.InventorySystem.Inventory.Instance;
 var log = new List<string>();
 NetworkedItem Wait(ushort id) { NetworkedItem n; return NetworkedItem.TryGet(id, out n) ? n : null; }
