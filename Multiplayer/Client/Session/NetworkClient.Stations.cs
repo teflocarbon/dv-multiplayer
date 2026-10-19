@@ -15,6 +15,18 @@ namespace Multiplayer.Client.Session;
 // NetworkClient's stations handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkClient : IStationsClient
 {
+    /// <summary>
+    /// Numbers the service stations and module registers the way the host does, so the ids match.
+    /// A client's stations need no role parts: the shells do what a player's game does.
+    /// </summary>
+    private void InitialiseStations()
+    {
+        Log($"Initialising Cash Registers...");
+        NetworkedCashRegisterWithModules.InitialiseCashRegisters();
+        Log($"Initialising Pit Stops...");
+        NetworkedPitStopStation.InitialisePitStops();
+    }
+
     private void OnClientboundShopStockPacket(ClientboundShopStockPacket packet)
     {
         GlobalShopController shops = GlobalShopController.Instance;
