@@ -69,6 +69,11 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     #region Client Variables
     private bool Refreshed = false;
     private byte playerHolding;
+    // Our own player picked this plug up, so its next drop or dock is ours to report. Vanilla's
+    // PluggedIn also fires when we replay the host's state (the snap into the stand after a bulk
+    // update finishes after Refreshed is set), and reporting that made the host refuse a plug
+    // nobody held, every time a player came into a service station's range.
+    private bool grabbedLocally;
     #endregion
 
     #region Unity
@@ -483,6 +488,10 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         bool result;
         Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteraction({interaction}, {playerId}, {trainNetId}, {socketIndex}, {newPosition?.ToString()}, {newRotation?.ToString()}, {yankForce}, {yankMode}) netId: {NetId}");
 
+        // State from the network (another player's action, a yank, a refusal of ours, a bulk
+        // update) supersedes our own grab: what happens to the plug next isn't ours to report.
+        grabbedLocally = false;
+
         switch (interaction)
         {
             case PlugInteractionType.Rejected:
@@ -708,6 +717,7 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         TrainCarNetId = INVALID_NETID;
         SocketIndex = INVALID_SOCKET;
 
+        grabbedLocally = true;
         currentInteraction = PlugInteractionType.PickedUp;
     }
 
@@ -719,18 +729,19 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (!Refreshed || !grabbedLocally)
             return;
 
         //Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnUngrabbed() station: {Station?.StationName}, plugging state: {PluggableObject.State}");
 
-        // If we're snapping to a socket, don't send the Dropped packet
+        // If we're snapping to a socket, don't send the Dropped packet; OnPluggedIn reports the dock
         if (IsConnecting)
             return;
 
         TrainCarNetId = INVALID_NETID;
         SocketIndex = INVALID_SOCKET;
 
+        grabbedLocally = false;
         currentInteraction = PlugInteractionType.Dropped;
     }
 
@@ -744,6 +755,12 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         //Prevent new players/players entering the area from sending packets until initalised
         if (!Refreshed)
             return;
+
+        // Only a plug our player was holding was docked by us; anything else is the host's state
+        // (or another player's action) finishing on our side.
+        if (!grabbedLocally)
+            return;
+        grabbedLocally = false;
 
         Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnPlugged() [{transform.parent.name}, {NetId}] station: {Station?.StationName}");
 
