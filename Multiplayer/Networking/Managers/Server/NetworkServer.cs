@@ -339,6 +339,9 @@ public class NetworkServer : NetworkManager
         player.WorldItemCatalogueAccepted = accepted;
         string reason = accepted ? string.Empty :
             $"catalogue-mismatch:host={host.Count}/{host.Digest}/c{host.Collisions},client={packet?.ItemCount ?? 0}/{packet?.Digest ?? string.Empty}/c{packet?.CollisionCount ?? 0}";
+        // A rejected player gets no scene items (shop and office props) for the whole session.
+        if (!accepted)
+            LogWarning($"Scene item catalogue rejected for {player.Username}: {reason}");
         DebugRuntime.Publish("item-world", "world-item.catalogue-negotiated", DebugRuntimeSide.Server,
             accepted ? DebugSeverity.Info : DebugSeverity.Error, "Player", player.PlayerId.ToString(), new()
             {

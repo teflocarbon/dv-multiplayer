@@ -20,6 +20,13 @@ internal sealed class AuthoredWorldItemCatalogue
     public int CollisionCount => collisions.Count;
     public IEnumerable<NetworkedItem> Items => entries.Values;
 
+    // The scene's catalogue as built, for the join check. The live entries lose a key while a
+    // taken office prop waits to be replenished, so comparing them rejected a client that
+    // joined in that window, and the host then never sent it a scene item.
+    public int BaselineCount { get; private set; }
+    public int BaselineCollisionCount { get; private set; }
+    public string BaselineDigest { get; private set; } = string.Empty;
+
     public bool TryGet(string key, out NetworkedItem item) => entries.TryGetValue(key ?? string.Empty, out item);
 
     public void Remove(string key, NetworkedItem expected)
@@ -59,6 +66,9 @@ internal sealed class AuthoredWorldItemCatalogue
             }
             entries[networked.AuthoredItemKey] = networked;
         }
+        BaselineCount = Count;
+        BaselineCollisionCount = CollisionCount;
+        BaselineDigest = Digest();
 
         DebugRuntime.Publish("item-world", "world-item.catalogue-built",
             NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
@@ -67,7 +77,7 @@ internal sealed class AuthoredWorldItemCatalogue
             {
                 ["count"] = Count,
                 ["collisionCount"] = CollisionCount,
-                ["digest"] = Digest()
+                ["digest"] = BaselineDigest
             });
     }
 
