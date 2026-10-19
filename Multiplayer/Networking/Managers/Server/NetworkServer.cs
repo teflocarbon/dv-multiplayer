@@ -2442,7 +2442,7 @@ public class NetworkServer : NetworkManager
             if (!networkedTrainCar.Server_ValidateClientSimFlowPacket(player, packet))
                 result = TrainControlCommitResult.AuthorityDenied;
             else
-                networkedTrainCar.Common_UpdatePorts(packet);
+                networkedTrainCar.Server_ApplyPlayerPorts(player, packet);
         }
         if (!networkedTrainCar.TryCapturePortValues(packet.PortIds ?? Array.Empty<uint>(),
                 out float[] acceptedValues))
