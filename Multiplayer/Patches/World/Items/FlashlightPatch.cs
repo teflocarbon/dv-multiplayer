@@ -39,17 +39,11 @@ public static class FlashlightItemPatch
             serverAuthoritative: true                           //This parameter is driven by the server: true
             );
 
-        networkedItem.RegisterTrackedValue(
-            "beamColour",
-            () => __instance.beamController.GetBeamColor().ColorToUInt32(),
-            value =>
-            {
-                Color colour = value.UInt32ToColor();
-                __instance.beamController.SetBeamColor(colour);
-                __instance.spotlight.color = colour;
-            },
-            serverAuthoritative: true                            //This parameter is driven by the server: true
-            );
+        // The beam colour itself isn't synced: DV derives it each frame from originalBeamColor and the
+        // battery (LowPowerFlicker), so every game works it out locally. Synced, a low battery on the
+        // server's copy sent ~700 updates a minute, each a new item revision; the holder's own pickups
+        // and stashes then arrived on a stale revision and were refused, and the corrections pulled
+        // the flashlight off a VR belt (playtest 2026-10-19), and made a healthy light flicker.
 
         networkedItem.RegisterTrackedValue(
             "batteryPower",
