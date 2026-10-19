@@ -30,6 +30,19 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
   snapshot.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
+- A client couples (or uncouples) its own cars straight away and sends the command; if the host
+  refuses it, the client puts the host's topology back when the refusal arrives, or once the player
+  lets go of the chain. Over a laggy connection the player can walk off before then, so a refused
+  couple looks like the cars came apart by themselves. A common refusal is `OutOfRange`: the host's
+  copy of the player (more than a car length from the primary car's centre) or of the cars
+  (couplers more than 4 m apart) lags the client's.
+- The host logs every refused command with the player, the cars and ends, and why (for
+  `OutOfRange`, the distance it measured), and every accepted couple
+  (`NetworkServer.LogTopologyCommand`). It logs every coupling it takes apart, with the player
+  whose command did it or the methods that called `Coupler.Uncouple`
+  (`Patches/Train/CouplerUncoupleLogPatch.cs`); breaks are logged by `CouplerBreakPatch` instead.
+  So a train that came apart can be traced from the host's log alone, without the debug system
+  (off in Release builds).
 - The relay-only MU, hose, cock and couple/uncouple handlers and their `Common*` packets are
   gone (removed in #59).
 

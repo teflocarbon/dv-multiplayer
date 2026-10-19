@@ -22,6 +22,9 @@ internal sealed class TrainTopologyAuthority
 
     internal uint Revision => revision;
 
+    /// <summary>Why the last <see cref="Execute"/> refused a command, where the result code doesn't say.</summary>
+    internal string LastRejectionDetail { get; private set; }
+
     internal ClientboundTrainTopologySnapshotPacket Snapshot(uint baselineId = 0,
         ulong operationId = 0, TrainTopologyResultCode result = TrainTopologyResultCode.Accepted)
     {
@@ -34,9 +37,13 @@ internal sealed class TrainTopologyAuthority
         ServerboundTrainTopologyCommandPacket packet, Func<bool> runtimeAuthorized,
         Func<bool> runtimeInRange)
     {
+        LastRejectionDetail = null;
         var key = (playerId, packet.OperationId);
         if (packet.OperationId != 0 && completedOperations.TryGetValue(key, out var completed))
+        {
+            LastRejectionDetail = "a repeat of an operation already answered";
             return completed;
+        }
 
         RefreshObservedNative();
         TrainTopologyCommand command = packet.ToCore();
@@ -44,8 +51,12 @@ internal sealed class TrainTopologyAuthority
         {
             if (lastOperationByPlayer.TryGetValue(playerId, out ulong lastOperation) &&
                 packet.OperationId <= lastOperation)
+            {
+                LastRejectionDetail = $"operation {packet.OperationId & 0x00FFFFFFFFFFFFFFUL} isn't " +
+                    $"after this player id's last, {lastOperation & 0x00FFFFFFFFFFFFFFUL}";
                 return BuildSnapshot(0, packet.OperationId,
                     TrainTopologyResultCode.StaleRevision, Array.Empty<ushort>());
+            }
 
             lastOperationByPlayer[playerId] = packet.OperationId;
             // Commands are delivered reliably and ordered per player. Unrelated native
@@ -79,6 +90,7 @@ internal sealed class TrainTopologyAuthority
                 TrainTopologyNativeAdapter.TryReconcile(before, beforeLines, out string rollbackFailure);
                 Multiplayer.LogWarning($"Train topology operation {packet.OperationId} failed: " +
                     $"{nativeFailure}; rollback: {rollbackFailure}");
+                LastRejectionDetail = $"the host couldn't apply it ({nativeFailure}) and rolled back";
                 canonical = TrainTopologyNativeAdapter.Capture(revision);
                 fingerprint = TrainTopologyNativeAdapter.Fingerprint(canonical);
                 result = TrainTopologyResultCode.NativeMutationFailed;
