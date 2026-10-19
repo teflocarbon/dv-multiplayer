@@ -229,8 +229,8 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
 
             packet.PlayerId = senderPlayer.PlayerId;
 
-            //Allow host to process packet if not from a local client
-            if (!NetworkLifecycle.Instance.IsClientRunning || (NetworkLifecycle.Instance.IsClientRunning && senderPlayer.PlayerId != NetworkLifecycle.Instance.Server.SelfId))
+            //Apply it here unless it's the host player's own: that has happened in this world already
+            if (senderPlayer != NetworkLifecycle.Instance.Server.LocalPlayer)
             {
                 processingAsHost = true;
                 ProcessPacket(packet);
@@ -252,12 +252,13 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         }
         else
         {
-            //Failed to validate, player needs to rollback interaction
-            NetworkLifecycle.Instance.Server.SendPitStopPlugInteractionPacket(senderPlayer, new CommonPitStopPlugInteractionPacket
-            {
-                NetId = NetId,
-                InteractionType = PlugInteractionType.Rejected,
-            });
+            //Failed to validate, player needs to rollback interaction (the host's own client ignores it)
+            if (senderPlayer != NetworkLifecycle.Instance.Server.LocalPlayer)
+                NetworkLifecycle.Instance.Server.SendPitStopPlugInteractionPacket(senderPlayer, new CommonPitStopPlugInteractionPacket
+                {
+                    NetId = NetId,
+                    InteractionType = PlugInteractionType.Rejected,
+                });
         }
     }
 

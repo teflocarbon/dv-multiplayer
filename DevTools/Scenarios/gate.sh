@@ -55,6 +55,8 @@ runs=( # name | scenario | variables
   "inventory-persist|inventory-persist|"
   "host-player-persist|host-player-persist|"
   "borrowed-disconnect|borrowed-disconnect|"
+  "pit-stop|pit-stop|"
+  "pit-stop-host|pit-stop|WHO=host"
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
   "overview-pickup|overview-pickup|"

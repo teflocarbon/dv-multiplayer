@@ -111,7 +111,7 @@ public partial class NetworkClient
     {
         LogDebug(() => $"SendPitStopPlugInteractionPacket({netId}, {interaction}, pos: {position}, rot: {rotation}, trainNetId: {trainCarNetId}, socketIndex: {socketIndex})");
 
-        SendNetSerializablePacketToServer(new CommonPitStopPlugInteractionPacket
+        var packet = new CommonPitStopPlugInteractionPacket
         {
             NetId = netId,
             InteractionType = interaction,
@@ -119,8 +119,11 @@ public partial class NetworkClient
             SocketIndex = socketIndex,
             Position = position,
             Rotation = rotation,
-
-        }, DeliveryMethod.ReliableOrdered);
+        };
+        // SendNetSerializablePacketToServer has no in-process hook: on the host, hand it over here.
+        if (NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true)
+            return;
+        SendNetSerializablePacketToServer(packet, DeliveryMethod.ReliableOrdered);
     }
 
     public void SendShopPurchase(int shopIndex, string itemPrefabName, int amount)

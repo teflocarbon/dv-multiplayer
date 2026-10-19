@@ -312,7 +312,8 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             OnCarPitStopEntered();
 
             processingAsHost = true;
-            if (senderPlayer.PlayerId != NetworkLifecycle.Instance.Server.SelfId)
+            // The host player's own interaction has happened in this world already.
+            if (senderPlayer != NetworkLifecycle.Instance.Server.LocalPlayer)
             {
                 Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessInteractionPacketAsHost() ProcessPacketAsClient()");
                 ProcessInteractionPacketAsClient(packet);
@@ -332,15 +333,17 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
         else
         {
             Multiplayer.LogDebug(() => $"NetworkedPitStopStationProcessInteractionPacketAsHost() failed validation");
-            // Failed to validate, player needs to rollback interaction
-            NetworkLifecycle.Instance.Server.SendPitStopInteractionPacket(
-                senderPlayer,
-                new CommonPitStopInteractionPacket
-                {
-                    NetId = packet.NetId,
-                    InteractionType = PitStopStationInteractionType.Reject
-                }
-            );
+            // Failed to validate, player needs to rollback interaction (not the host's player: its
+            // world is this one)
+            if (senderPlayer != NetworkLifecycle.Instance.Server.LocalPlayer)
+                NetworkLifecycle.Instance.Server.SendPitStopInteractionPacket(
+                    senderPlayer,
+                    new CommonPitStopInteractionPacket
+                    {
+                        NetId = packet.NetId,
+                        InteractionType = PitStopStationInteractionType.Reject
+                    }
+                );
         }
     }
 

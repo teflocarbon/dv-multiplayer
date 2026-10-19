@@ -272,7 +272,14 @@ walk-away refund check measures distance to the nearest player
 `PlayerDistanceGameObjectsDisablerPatch.cs` keeps refill stations and warehouse machines active on
 the host while any player is near them, not only the host.
 
-No scenario covers service stations.
+The host player's own station and plug interactions reach the server in-process (`RegisterLocalStations`;
+the plug's at `NetworkClient.SendPitStopPlugInteractionPacket`, since
+`SendNetSerializablePacketToServer` has no hook). The server validates and relays them like
+anyone's, doesn't apply them again (the host's world has them), and sends the host no
+rejection.
+
+`pit-stop` (`WHO=client`, `WHO=host`) covers a lever and a plug; nothing covers refuelling a car
+or the register yet.
 
 ## Junctions and turntables
 
