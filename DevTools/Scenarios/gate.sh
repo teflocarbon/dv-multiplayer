@@ -23,6 +23,9 @@
 #   UP_ARGS: extra `dvmp up` arguments for every pair it starts. UP_ARGS=--dedicated still
 #   works: it makes a plain PAIRS=N count dedicated pairs (docs/design/dedicated-host.md).
 #   MONEY: the host's wallet is topped up to this before every run (default 100000; 0 leaves it).
+#   A pair runs nothing until its host and client both answer with a world loaded (READY_WAIT s,
+#   default 150, then one `dvmp up` and as long again). A run that failed because dvmp couldn't
+#   reach its games is an ERROR, not a FAIL: it's counted apart, and retried once with PAIRS.
 [ -n "${RUNS:-}" ] && [ -f "$RUNS" ] && RUNS=$(cat "$RUNS")   # read before the cd: a path relative to the caller
 cd "$(dirname "$0")/../.."
 export DVMP=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
@@ -116,6 +119,9 @@ teleport_home() { # puts both players back where every run starts (scenarios mov
 game_logs() { $DVMP status 2>/dev/null | node -e 'try{const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log((o.agents||[]).map(a=>a.role+" "+(a.logFile||"?")).join("; "))}catch(e){}'; }
 note_logs() { echo; echo "game logs at the start: $1"; echo "game logs after: $(game_logs)"; }
 coupler_breaks() { local n=0 t; for t in host client; do n=$(( n + $($DVMP logs -t $t -l error -c "Coupler broke" -n 1000 2>/dev/null | grep -c '"message"') )); done; echo $n; }
+# A run that failed because dvmp couldn't reach its pair (games not answering yet, or gone) says
+# nothing about the code: it's an ERROR, reported apart from FAILs (and retried once with PAIRS).
+harness_error() { grep -qE "no agent matches|no game is running|no (host|client) running|No connection could be made|actively refused|Connection refused" "$1"; }
 
 # ---- the queue: the gate's runs, or the lines of RUNS. Each entry is
 # "label|scenario|variables|kind|strict": kind is the pair it needs (player, dedicated or any),
@@ -264,31 +270,55 @@ if [ -n "$parallel" ]; then
   keep=" "
   for e in "${exclusive[@]}"; do IFS='|' read -r _ _ _ kind <<<"$e"; keep+="$(first_pair "$kind") "; done
 
-  run_one() { # label dir vars session
-    local label=$1 dir=$2 vars=$3 session=$4 start r first breaks logs
+  run_one() { # label dir vars session; sets r to PASS, FAIL or ERROR
+    local label=$1 dir=$2 vars=$3 session=$4 start first breaks logs log="$LOG_DIR/$1.$4.log"
     export DVMP_SESSION=$session
     teleport_home
     start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-    if eval "env $vars bash \"$S/$dir/run.sh\"" >"$LOG_DIR/$label.$session.log" 2>&1; then r=PASS; else r=FAIL; note_logs "$logs" >>"$LOG_DIR/$label.$session.log"; fi
-    first=$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$label.$session.log" | head -1 | cut -c1-90)
+    if eval "env $vars bash \"$S/$dir/run.sh\"" >"$log" 2>&1; then r=PASS; else r=FAIL; note_logs "$logs" >>"$log"; fi
+    [ $r = FAIL ] && harness_error "$log" && r=ERROR
+    first=$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game' "$log" | head -1 | cut -c1-90)
     breaks=$(( $(coupler_breaks) - breaks )); [ $breaks -gt 0 ] && first="$first [$breaks coupler break(s) logged]"
-    printf '%s|%s|%s|%s|%s\n' "$label" "$r" "$(( $(date +%s) - start ))" "$session" "$first" >"$Q/result/${label//#/_}.$session"
-    printf '%-34s %s  %3ss  %-4s %s\n' "$label" "$r" "$(( $(date +%s) - start ))" "$session" "$first"
+    first+=${retry:-}
+    result "$label" $r "$(( $(date +%s) - start ))" "$session" "$first"
   }
-  healthy() { # session: both the host and the client have a world loaded
+  result() { # label PASS|FAIL|ERROR secs session first-line
+    printf '%s|%s|%s|%s|%s\n' "$@" >"$Q/result/${1//#/_}"
+    printf '%-34s %-5s %3ss  %-4s %s\n' "$@"
+  }
+  healthy() { # session: a host and a client answering, both with a world loaded
     local st; st=$(DVMP_SESSION=$1 $DVMP status 2>/dev/null)
-    [ "$(echo "$st" | grep -c '"worldLoaded": true')" -ge 2 ] && echo "$st" | grep -q '"role": "client"'
+    [ "$(echo "$st" | grep -c '"worldLoaded": true')" -ge 2 ] && echo "$st" | grep -q '"role": "host"' && echo "$st" | grep -q '"role": "client"'
+  }
+  ready() { # session kind: waits for the pair to be healthy, with one `dvmp up` after READY_WAIT s
+    local s=$1 k=$2 try until
+    for try in 1 2; do
+      until=$(( $(date +%s) + ${READY_WAIT:-150} ))
+      while [ "$(date +%s)" -lt $until ]; do healthy "$s" && return 0; sleep 5; done
+      [ $try = 1 ] && DVMP_SESSION=$s $DVMP up $(up_args "$k") >/dev/null 2>&1
+    done
+    return 1
+  }
+  run_ready() { # label dir vars session kind: runs on a ready pair, once more after a harness error
+    if ! ready "$4" "$5"; then r=ERROR; result "$1" ERROR 0 "$4" "pair $4 never became ready"; return; fi
+    run_one "$@"
+    [ $r = ERROR ] || return
+    mv "$LOG_DIR/$1.$4.log" "$LOG_DIR/$1.$4.error.log"
+    ready "$4" "$5" || { result "$1" ERROR 0 "$4" "pair $4 not ready again after a harness error"; return; }
+    retry=" [retried after a harness error]" run_one "$@"
   }
   worker() { # session kind: claims the runs that fit its pair until none are left
     local session=$1 kind=$2 i label dir vars need
+    # `up` can return before both games answer status: claim nothing until the pair is ready, and
+    # leave the queue to the other pairs if it never is.
+    ready "$session" "$kind" || { echo "pair $session never became ready: it runs nothing"; return; }
     for i in "${!items[@]}"; do
       IFS='|' read -r label dir vars need <<<"${items[$i]}"
       fits "$need" "$kind" || continue
       mkdir "$Q/claim/$i" 2>/dev/null || continue   # atomic claim
-      run_one "$label" "$dir" "$vars" "$session"
-      # A run that left its pair without a loaded world on both games (a crash, a failed
-      # rejoin leaving the client at the menu) gets it back.
-      healthy "$session" || DVMP_SESSION=$session $DVMP up $(up_args "$kind") >/dev/null 2>&1
+      # Checked before every run: one that left its pair without a loaded world on both games (a
+      # crash, a failed rejoin leaving the client at the menu) gets it back.
+      run_ready "$label" "$dir" "$vars" "$session" "$kind"
     done
     [ ${#exclusive[@]} -gt 0 ] && [[ $keep != *" $session "* ]] && DVMP_SESSION=$session $DVMP down >/dev/null 2>&1
   }
@@ -300,12 +330,14 @@ if [ -n "$parallel" ]; then
   done
   for p in "${pairs[@]}"; do worker "${p%%|*}" "${p#*|}" & done
   wait
+  for i in "${!items[@]}"; do # runs no ready pair took
+    [ -d "$Q/claim/$i" ] || result "${items[$i]%%|*}" ERROR 0 - "not run: no ready pair of its kind"
+  done
   for e in "${exclusive[@]}"; do # each alone: every other pair down, its own back up if needed
     IFS='|' read -r label dir vars kind <<<"$e"
     s=$(first_pair "$kind")
     for p in "${pairs[@]}"; do [ "${p%%|*}" = "$s" ] || DVMP_SESSION=${p%%|*} $DVMP down >/dev/null 2>&1; done
-    healthy "$s" || DVMP_SESSION=$s $DVMP up $(up_args "$(kind_of "$s")") >/dev/null 2>&1
-    run_one "$label" "$dir" "$vars" "$s"
+    run_ready "$label" "$dir" "$vars" "$s" "$(kind_of "$s")"
   done
   mkdir -p "$DURATIONS"
   for f in "$Q"/result/*; do
@@ -317,10 +349,12 @@ if [ -n "$parallel" ]; then
   cat "$Q"/result/* 2>/dev/null | node -e '
     const rows=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean).map(l=>l.split("|"));
     const by={};for(const [label,r,secs,session,first] of rows){const n=label.replace(/#\d+$/,"");(by[n]||=[]).push({r,secs:+secs,session,first});}
-    let bad=0;for(const n of Object.keys(by).sort()){const g=by[n],p=g.filter(x=>x.r==="PASS").length;if(p<g.length)bad++;
-      const avg=Math.round(g.reduce((a,x)=>a+x.secs,0)/g.length),max=Math.max(...g.map(x=>x.secs));
-      const f=g.find(x=>x.r==="FAIL");console.log(`${n.padEnd(34)} ${p}/${g.length}  avg ${avg}s max ${max}s${f?"  first FAIL on "+f.session+": "+f.first:""}`);}
-    process.exit(bad?1:0);'
+    let fails=0,errors=0,passed=0;for(const n of Object.keys(by).sort()){const g=by[n],p=g.filter(x=>x.r==="PASS").length;passed+=p;
+      const f=g.find(x=>x.r==="FAIL"),e=g.find(x=>x.r==="ERROR"),ne=g.filter(x=>x.r==="ERROR").length;if(f)fails++;else if(e)errors++;
+      const rt=g.filter(x=>/retried after a harness error/.test(x.first)).length,ran=g.filter(x=>x.r!=="ERROR"),avg=ran.length?Math.round(ran.reduce((a,x)=>a+x.secs,0)/ran.length)+"s":"-",max=ran.length?Math.max(...ran.map(x=>x.secs))+"s":"-";
+      console.log(`${n.padEnd(34)} ${p}/${g.length}${ne?` (${ne} ERROR)`:""}${rt?` (${rt} retried)`:""}  avg ${avg} max ${max}${f?"  first FAIL on "+f.session+": "+f.first:e?"  ERROR on "+e.session+": "+e.first:""}`);}
+    console.log(`\n${passed} run(s) passed; ${fails} name(s) with a FAIL; ${errors} more with only harness ERRORs (dvmp couldn\x27t reach the pair: not a test result)`);
+    process.exit(fails||errors?1:0);'
   status=$?
   echo "logs: $LOG_DIR"
   exit $status
@@ -331,9 +365,9 @@ for it in "${all[@]}"; do
   IFS='|' read -r name dir vars _ <<<"$it"
   teleport_home
   start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-  if eval "env $vars bash \"$S/$dir/run.sh\"" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; fi
+  if eval "env $vars bash \"$S/$dir/run.sh\"" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; harness_error "$LOG_DIR/$name.log" && r=ERROR; fi
   breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"
-  printf '%-32s %s  %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r = FAIL ] && grep -E 'FAIL|rror' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
+  printf '%-32s %-5s %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
 done
 echo "logs: $LOG_DIR"
 exit $failed
