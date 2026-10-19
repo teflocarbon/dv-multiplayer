@@ -144,9 +144,11 @@ cab-controls LOCOS="LocoS282A LocoDE6"
 
 A run marked `@kind` only goes to that kind of pair, and the gate refuses to start if `PAIRS` has
 none. Other runs go to player-host pairs, or to any pair when there are only dedicated ones. The
-gate's `dedicated-admin` prefers a dedicated pair. The runs in `EXCLUSIVE` (frame timing, and the
-ones that write saves) run alone at the end, each on the first pair that fits it with every other
-pair down.
+gate's `dedicated-admin` prefers a dedicated pair. The frame-timing runs in `EXCLUSIVE` (`fps-drop`,
+`host-stall`, `player-soak`) run alone at the end, each on the first pair that fits it with every
+other pair down. Runs that write saves run in parallel: each pair's games keep their own copy of
+DV's user data ([DevTools/README.md](../DevTools/README.md#session-user-data)), so they never
+write each other's saves or your profile.
 
 **Identity by SteamID** ([design/server-player-split.md](design/server-player-split.md#identity)):
 - Hosts verify each player's Steam auth ticket. The harness runs a host player and a client on one

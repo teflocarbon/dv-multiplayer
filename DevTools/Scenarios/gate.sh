@@ -183,9 +183,10 @@ done
 # ---- parallel mode: PAIRS host+client pairs (dvmp sessions p1.., d1..) take runs from one
 # queue, REPEAT=N runs each one N times. See docs/design/parallel-test-sessions.md.
 if [ -n "$parallel" ]; then
-  # Measure frame timing (run alone) or write saves into the shared profile (alone until each
-  # session has its own data folder): these run after the parallel phase, every other pair down.
-  EXCLUSIVE=${EXCLUSIVE:-"fps-drop host-stall player-soak save-reload inventory-persist host-player-persist"}
+  # These measure frame timing, so they run alone after the parallel phase, every other pair down.
+  # Runs that write saves run in parallel: each session's games keep their own user data (dvmp
+  # seeds it from your profile; `dvmp up --reseed` copies it again).
+  EXCLUSIVE=${EXCLUSIVE:-"fps-drop host-stall player-soak"}
   Q="$LOG_DIR/.queue"; mkdir -p "$Q/claim" "$Q/result"
 
   # Pairs: "session|kind". A plain count is player hosts (dedicated with UP_ARGS=--dedicated).

@@ -1,9 +1,10 @@
 # Parallel dvmp test sessions
 
-> Status: steps 1-3, 6 and 7 are built (sessions, ports, launch lock, the parallel gate runner,
-> lean harness games); see [Results](#results). Three pairs fit on the reference machine. Steps 4
-> (MCP), 5 (separate user data) and 8 (docs) are still to do. Findings below were checked against
-> the code on 2026-10-14.
+> Status: steps 1-3, 5, 6 and 7 are built (sessions, ports, launch lock, separate user data, the
+> parallel gate runner with one queue for every kind of run, lean harness games); see
+> [Results](#results). Step 5 is built but not yet run in game (2026-10-20). Three pairs fit on
+> the reference machine. Steps 4 (MCP) and 8 (docs) are still to do. Findings below were checked
+> against the code on 2026-10-14.
 
 ## Purpose
 
@@ -141,35 +142,53 @@ games one after the other.
 
 ### Separate user data per harness game
 
-DV's `DV.UserManagement.Storage.Implementation.FileSystemStorage` has a `basePath` field and a
-`(string basePathOverride)` constructor. The dev agent loads before DV creates its
-`UserManager`. So when the game is launched with `-dvmp-userdata DIR`, a Harmony postfix on the
-parameterless constructor, installed in `AgentMain.Load`, points the game at `DIR`. Use
-`AccessTools.TypeByName`, so the agent needs no new reference. Fallbacks:
-`UserManager.inMemoryTestingMode` or `UserManager.StaticReload()`.
+Built in step 5; checked against the decompiled game (2026-10-20), not yet in game.
 
-**Check first, on an idle pair**, what `basePath` points at and whether `Preferences` lives
-under it:
+**The hook.** DV reads and writes all user data through one
+`DV.UserManagement.Storage.Implementation.FileSystemStorage`, which `UserManager.Initialize`
+creates with its parameterless constructor (`basePath = Application.persistentDataPath`).
+`UserManager` lives in a scene, and Unity Mod Manager loads mods at `DV.Globals.AssignSelfToHelpers`,
+a `BeforeSceneLoad` method, so the dev agent always loads first. A game launched with
+`-dvmp-userdata DIR` gets a Harmony postfix on that constructor (`UserDataRedirect`, installed
+first thing in `AgentMain.Load`, the type found with `AccessTools.TypeByName` so the agent needs no
+new reference) that sets `basePath` to `DIR`. Through it go `Users\global.json`, each user's
+`userData.json`, careers and saves, `Preferences\<user>.ini` (`User.GetPreferencesPath` is relative
+to the storage) and `ControlBindings.json` (`UserDataStore_DV` writes through the user's storage).
 
-```bash
-dvmp eval -t host -u "using DV.UserManagement;" 'return new { b = (UserManager.Instance.storage as DV.UserManagement.Storage.Implementation.FileSystemStorage)?.basePath, u = UserManager.Instance.CurrentUser.UserBasePath, p = DV.UserManagement.Data.User.GetPreferencesPath(UserManager.Instance.CurrentUser), g = UserManager.Instance.CurrentUser.GameDataPath };'
-```
+What doesn't use the storage, and so still lands in the real profile folder: Unity's analytics
+cache (`Unity\`), and DV's bug reports, telemetry exports and dev-console marks, none of which a
+harness game makes. Unity's `Player.log` doesn't: harness games get `-logFile`. The mod's dedicated
+host built its backup folder and its career lock from `Application.persistentDataPath`; both now
+go through `UserManager.Instance.Storage.GetFilesystemPath`, the same path for a normal game.
 
-dvmp seeds `sessions\<s>\data\{host,client}` from the real profile, reading it only:
-- **host:** `global.json`, the user's `userData.json` and `ControlBindings.json`, the
-  preferences file if it falls under the base path, and every session folder named "DVMP Test…"
-  (optionally only the newest saves plus `lastLoaded_0.bak`);
-- **client:** the same profile files without session folders.
+**Seeding.** dvmp seeds `sessions\<s>\data\host` and `\client` from the real profile
+(`UserData.cs`), reading it only, into a staging folder that is moved into place when complete:
+`Users\global.json`, each user's `userData.json`, `ControlBindings.json` and `GameData\`, every
+`Preferences\*.ini`, and the careers and sandboxes named "DVMP…" plus each mode's selected one (the
+save the launcher shows), each with its `sessionData.json`, newest 5 saves by time (DV's save
+numbers rotate) and `lastLoaded_*.bak`. Dedicated-host backups and locks are left out. About 6 MB
+and 150 ms for the reference profile. The client gets the same as the host: its launcher's
+selected career then exists, so DV never creates a fallback career for it.
 
-Seeding happens only when the folder is missing, or with `up --reseed`, because `save-reload`
-and `inventory-persist` rely on saves surviving `down` and `up`. A bonus: every pair starts from
-the same world, which is what repeat runs need.
+Seeding happens only when the folder is missing, or with `up --reseed` (which restarts the
+session's games), because `save-reload` and `inventory-persist` rely on saves surviving `down`
+and `up`. A bonus: every pair starts from the same world, which is what repeat runs need. The
+default session keeps the real profile.
 
-When harness mode is active, clear UMM's `OnSaveGUI` for loaded mods, so harness games never
+**The check.** At the main menu, before anything is saved, `up` asks each game where its storage
+points (`GetFilesystemPath("")`) and fails if it isn't the session's folder: an agent too old for
+`-dvmp-userdata`, or a hook that missed. The game log says `dvmp: user data in DIR`, or an error
+if DV made its storage before the agent loaded. A running game is only reused if it passes the
+same check, so pairs an older dvmp started are restarted rather than left writing the real profile.
+
+When harness mode is active, the agent clears UMM's `OnSaveGUI` for every loaded mod at the first
+frame and again as the game quits (UMM saves settings in its `OnDestroy`), so harness games never
 write `Settings.xml` at quit.
 
-If the storage hook doesn't work, keep `save-reload` and `inventory-persist` exclusive on the
-default session, and set `SaveGameManager.Instance.disableAutosave = true` on harness hosts.
+With that, `save-reload`, `inventory-persist` and `host-player-persist` run in parallel. If the
+storage hook doesn't work, `DVMP_SHARED_PROFILE=1` puts every session back on the real profile
+(no `-dvmp-userdata`, no check); then put them back in `EXCLUSIVE` and set
+`SaveGameManager.Instance.disableAutosave = true` on harness hosts.
 
 ### MCP
 
@@ -228,7 +247,7 @@ subcommand in C#, with better timeouts and JSON output, could replace the bash r
 |---|---|
 | `fps-drop`, `host-stall`, `player-soak` (and `station-load` if gated) | Always alone: they measure frame timing |
 | `manual-recouple-lag`, `uncouple-moving-loco-lag`, `couple-impact` | Parallel, rerun alone on failure: lag is per process, but physics timing matters |
-| `save-reload`, `inventory-persist` | Alone until separate user data lands |
+| `save-reload`, `inventory-persist`, `host-player-persist` | Parallel: each session has its own user data |
 | `rejoin`, `rejoin-crash`, `borrowed-disconnect` | Parallel once sessions exist |
 | Everything else | Parallel |
 

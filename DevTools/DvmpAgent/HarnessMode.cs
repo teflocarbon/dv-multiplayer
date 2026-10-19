@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using HarmonyLib;
 using UnityEngine;
+using UnityModManagerNet;
 
 namespace Dvmp.Agent;
 
@@ -84,6 +85,21 @@ public sealed class HarnessMode : MonoBehaviour
         // Before the world loads, so textures are read at the reduced size in the first place.
         if (LowGraphics) ApplyTextureSettings();
         host.AddComponent<HarnessMode>();
+    }
+
+    private void Start()
+    {
+        // Unity Mod Manager saves every mod's settings (OnSaveGUI) when the game quits, into files
+        // all games share, such as Multiplayer's Settings.xml. Probes change settings in memory
+        // only, so a harness game has nothing to save. Every mod has loaded by the first frame.
+        KeepModSettings();
+        Application.quitting += KeepModSettings;
+    }
+
+    private static void KeepModSettings()
+    {
+        foreach (UnityModManager.ModEntry mod in UnityModManager.modEntries)
+            mod.OnSaveGUI = null;
     }
 
     private void LateUpdate()
@@ -185,7 +201,8 @@ public sealed class HarnessMode : MonoBehaviour
             textureBudgetMb = QualitySettings.streamingMipmapsMemoryBudget,
             textureMemoryMb = Texture.currentTextureMemory / (1024 * 1024),
             nearStreamer = streamingInit == null ? null : StreamerSnapshot(nearStreamer(streamingInit)),
-            farStreamer = streamingInit == null ? null : StreamerSnapshot(farStreamer(streamingInit))
+            farStreamer = streamingInit == null ? null : StreamerSnapshot(farStreamer(streamingInit)),
+            userData = UserDataRedirect.Dir
         }
         : (object)new { active = false };
 
