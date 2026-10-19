@@ -194,13 +194,17 @@ public partial class NetworkServer : IItemServer
         }
     }
 
+    // The spatial stream is for the players following an item. The host's own player is the
+    // server's own world: when it simulates, the server's lease is the lease, and its client
+    // would only drop these (HostOwnClient), so it isn't sent them.
     public void SendItemSpatialLease(NetworkedItem item, ClientboundItemSpatialLeasePacket packet)
     {
         if (item == null || packet?.State == null)
             return;
+        ServerPlayer local = LocalPlayer;
         foreach (ServerPlayer player in ServerPlayers)
         {
-            if (player?.Peer == null || player.LoadingState < PlayerLoadingState.ReadyForItems)
+            if (player?.Peer == null || player == local || player.LoadingState < PlayerLoadingState.ReadyForItems)
                 continue;
             bool simulator = player.PlayerId == packet.State.SimulatorPlayerId;
             if (!simulator && !player.KnownItems.ContainsKey(item))
@@ -211,7 +215,7 @@ public partial class NetworkServer : IItemServer
 
     public void SendItemSpatialLease(ServerPlayer player, ClientboundItemSpatialLeasePacket packet)
     {
-        if (player?.Peer == null || packet?.State == null ||
+        if (player?.Peer == null || packet?.State == null || player == LocalPlayer ||
             player.LoadingState < PlayerLoadingState.ReadyForItems)
             return;
         SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
@@ -222,9 +226,10 @@ public partial class NetworkServer : IItemServer
     {
         if (item == null || packet?.State == null)
             return;
+        ServerPlayer local = LocalPlayer;
         foreach (ServerPlayer player in ServerPlayers)
         {
-            if (player?.Peer == null || player.PlayerId == simulatorPlayerId ||
+            if (player?.Peer == null || player == local || player.PlayerId == simulatorPlayerId ||
                 player.LoadingState < PlayerLoadingState.ReadyForItems || !player.KnownItems.ContainsKey(item))
                 continue;
             // Ordering is per item via simulationEpoch/sampleSequence. LiteNetLib's Sequenced
@@ -238,9 +243,10 @@ public partial class NetworkServer : IItemServer
     {
         if (item == null || packet?.State == null)
             return;
+        ServerPlayer local = LocalPlayer;
         foreach (ServerPlayer player in ServerPlayers)
         {
-            if (player?.Peer == null || player.LoadingState < PlayerLoadingState.ReadyForItems ||
+            if (player?.Peer == null || player == local || player.LoadingState < PlayerLoadingState.ReadyForItems ||
                 player.PlayerId != packet.State.SimulatorPlayerId && !player.KnownItems.ContainsKey(item))
                 continue;
             SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
