@@ -153,3 +153,12 @@ the next release:
 3. The rerail fix (`fix/rerail-follower`: code, scenario and docs done, not run in a game): merge it,
    and run `rerail` and `rerail-host` on that test pair.
 4. Build Release. Every player installs the new zip.
+
+## Session 3: 2026-10-19, dedicated server
+
+**Setup:** release 2026.10.19.1. The owner in VR on the server's PC (loopback, ping 0); a friend in
+VR over Tailscale at about 110 ms.
+
+| Problem | Cause | Fix | Status |
+|---|---|---|---|
+| A player holding a handcar's handbrake on had it sprung off by the other games (found in the code, not reported) | Vanilla `HandcarHandbrakeController` springs the handbrake off every frame unless its own game's player holds it, on every game, so the host's copy (or another client's) undid the holder's. Handbrakes take no lease, so the rule for the other per-frame input writers didn't reach it | A game leaves the spring-back off for a second after another player's handbrake change reaches it, and a player holding it on resends it every 0.25 s. Whoever lets go springs it back (`HandcarHandbrakeControllerPatch`, `fix/handcar-handbrake-hold`) | Fixed, untested |

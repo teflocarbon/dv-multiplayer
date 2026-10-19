@@ -107,6 +107,18 @@ A `Used` lease is handed back 0.5 s later, once the change has been sent. Fuses,
 brake-cylinder release have their own packets. #73 was the DE2's wipers, fan and lights never
 syncing from clients, and every button and switch a VR client pressed being dropped.
 
+A handcar's handbrake springs off by itself: vanilla `HandcarHandbrakeController` lowers it every
+frame unless its own game's player is holding it (grabbed, or hover- or keyboard-scrolled), and
+every game with the handcar's handbrake loaded runs it. So the host's copy, or another client's,
+undid a player holding it on. The rule for such per-frame local-input writers is that they're off
+while another player is using the control. Handbrakes take no lease, so the handbrake sync stands
+in for one (`HandcarHandbrakeControllerPatch`). A game leaves its spring-back off for a second
+after another player's handbrake change reaches it: the host on a client's request, a client on a
+commit for another player's operation (its own commits don't count). A player holding the handbrake
+on resends its position every 0.25 s, so that stays true while they hold it. Once they let go, their
+own game springs it back and sends the changes, which keep the others off until it's down. If they
+drop out while holding it, the others spring it back a second later.
+
 Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and the car-body
 controls, which aren't hooked at all (cab windows, doors, oiling points). A client sends a change
 to one of those that nobody holds the lease on (`Client_UnleasedChange`): the port differs from the

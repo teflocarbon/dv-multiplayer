@@ -2289,7 +2289,10 @@ public class NetworkServer : NetworkManager
                 packet.OperationId, requireLease: false, null, skipRangeCheck: packet.ViaRemote);
         if (result == TrainControlCommitResult.Accepted &&
             !NetworkLifecycle.Instance.IsHost(player))
+        {
             car.TrainCar.brakeSystem.SetHandbrakePosition(Mathf.Clamp01(packet.Position));
+            car.Common_OnRemoteHandbrakeChange();
+        }
         ClientboundTrainControlCommitPacket commit = ControlCommit(car, packet.OperationId, result,
             includesHandbrake: true);
         SendControlCommit(commit, peer);
