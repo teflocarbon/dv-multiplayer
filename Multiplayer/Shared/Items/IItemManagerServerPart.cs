@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using UnityEngine;
 
 namespace Multiplayer.Shared.Items;
@@ -10,7 +12,7 @@ namespace Multiplayer.Shared.Items;
 /// </summary>
 public interface IItemManagerServerPart
 {
-    /// <summary>Every frame, after the spatial and train-wake managers.</summary>
+    /// <summary>Every frame, before the Shared spatial manager: train wake, the host's leases, replenishment.</summary>
     void Update();
 
     /// <summary>Every tick on the host, after the authored catalogue is built.</summary>
@@ -28,4 +30,12 @@ public interface IItemManagerServerPart
 
     /// <summary>Drops the server's authority record of an item that's being destroyed.</summary>
     void ForgetRecord(ushort itemNetId);
+
+    /// <summary>An item is going: the train-wake manager wakes what it was holding up.</summary>
+    void OnTrainItemRemoved(ushort itemNetId);
+
+    /// <summary>The host's own game saw a train item it simulates hit another.</summary>
+    void ReceiveLocalTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet);
+
+    void AppendTrainWakeDebugState(ushort itemNetId, Dictionary<string, object> state);
 }

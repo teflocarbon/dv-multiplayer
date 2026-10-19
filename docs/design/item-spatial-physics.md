@@ -7,7 +7,9 @@
 ## Implementation status (audited 2026-10-14)
 
 - **Implemented:** phases 1-3 below, in
-  `Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs`, with the
+  `Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs` (the leases every game holds, its own
+  simulation and a client's side of the stream) and `Multiplayer/Server/Items/ServerItemSpatial.cs`
+  (the host granting, validating, transferring and committing leases), with the
   epoch/sequence checks in `Multiplayer.Core/Items/ItemSpatialStreamValidator.cs` and the
   save checkpoint in `Server/Items/WorldItemPersistenceSave.cs`. Loose items on trains (train-local
   samples, settlement and the kinematic freeze) are implemented, and
