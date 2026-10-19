@@ -42,6 +42,8 @@ public static class JobReroll
     private const float ThrowInterval = 1f;
     // How long to wait for the paper's drop to arrive before throwing it out of a hand anyway.
     private const float ReleaseWait = 1.5f;
+    // How long a paper taken out of a car's interior lies on the bin before it's thrown.
+    private const float InterestSettleWait = 1f;
 
     private static readonly Dictionary<ushort, float> lastThrowAt = [];
 
@@ -131,18 +133,45 @@ public static class JobReroll
             station.ProceduralJobsController.TryToGenerateJobs();
     }
 
-    // A player's game holds a gentle drop back for a moment (ItemReleaseGrace), and the paper can
-    // be in the bin before its drop reaches the server. Thrown out first, the late drop was refused
-    // and its correction put the paper back where the throw started, at rest: it fell in again.
     private static IEnumerator ThrowBackOnceReleased(NetworkedItem item, JobAbandoner bin, ServerPlayer requester,
         string refusal)
     {
+        // A player's game holds a gentle drop back for a moment (ItemReleaseGrace), and the paper
+        // can be in the bin before its drop reaches the server. Thrown out first, the late drop was
+        // refused and its correction put the paper back where the throw started, at rest.
         for (float t0 = Time.realtimeSinceStartup;
              item != null && Time.realtimeSinceStartup - t0 < ReleaseWait &&
-             AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
-             record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;)
+             AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record held) &&
+             held.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;)
             yield return null;
-        if (item == null || bin == null || ThrowBack(item, bin, requester, refusal) is not { } velocity ||
+        if (item == null || bin == null)
+            yield break;
+        float now = Time.realtimeSinceStartup;
+        if (lastThrowAt.TryGetValue(item.NetId, out float last) && now - last < ThrowInterval)
+            yield break;
+        lastThrowAt[item.NetId] = now;
+
+        Collider trigger = bin.GetComponent<Collider>();
+        Bounds bounds = trigger != null ? trigger.bounds : new Bounds(bin.transform.position, Vector3.zero);
+        Vector3 start = bounds.center + Vector3.up * (bounds.extents.y + ThrowClearance);
+        Vector3 towardsPlayer = requester.WorldPosition - start;
+        towardsPlayer.y = 0f;
+        Vector3 outwards = towardsPlayer.sqrMagnitude > 0.01f ? towardsPlayer.normalized : bin.transform.forward;
+        Vector3 velocity = outwards * ThrowOutwards + Vector3.up * ThrowUpwards;
+
+        // Let go on a car, the paper is recorded in the car's interior. Moved from there into the
+        // world, its players' interest drops it and takes it up again, created at rest where it then
+        // is: the flight was lost. Put it in the world first, and throw it once that has settled.
+        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record lying) &&
+            lying.Placement is ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent)
+        {
+            if (!MoveOutOfBin(item, requester, ItemState.Dropped, start, Vector3.zero, refusal))
+                yield break;
+            yield return new WaitForSecondsRealtime(InterestSettleWait);
+            if (item == null)
+                yield break;
+        }
+        if (!MoveOutOfBin(item, requester, ItemState.Thrown, start, velocity, refusal) ||
             requester != NetworkLifecycle.Instance.Server.LocalPlayer)
             yield break;
 
@@ -167,28 +196,18 @@ public static class JobReroll
         }
     }
 
-    // Returns the paper's velocity out of the bin, or null if it wasn't thrown.
-    private static Vector3? ThrowBack(NetworkedItem item, JobAbandoner bin, ServerPlayer requester, string refusal)
+    // The server puts the paper in the world just above the bin, dropped or thrown (at velocity).
+    // The player who binned it is the transition's actor, so their game gets its physics lease.
+    private static bool MoveOutOfBin(NetworkedItem item, ServerPlayer requester, ItemState state, Vector3 start,
+        Vector3 velocity, string refusal)
     {
-        float now = Time.realtimeSinceStartup;
-        if (lastThrowAt.TryGetValue(item.NetId, out float last) && now - last < ThrowInterval)
-            return null;
-        lastThrowAt[item.NetId] = now;
-
-        Collider trigger = bin.GetComponent<Collider>();
-        Bounds bounds = trigger != null ? trigger.bounds : new Bounds(bin.transform.position, Vector3.zero);
-        Vector3 start = bounds.center + Vector3.up * (bounds.extents.y + ThrowClearance);
-        Vector3 towardsPlayer = requester.WorldPosition - start;
-        towardsPlayer.y = 0f;
-        Vector3 outwards = towardsPlayer.sqrMagnitude > 0.01f ? towardsPlayer.normalized : bin.transform.forward;
-
-        Vector3 velocity = outwards * ThrowOutwards + Vector3.up * ThrowUpwards;
         ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
         if (snapshot == null)
-            return null;
-        snapshot.ItemState = ItemState.Thrown;
+            return false;
+        snapshot.ItemState = state;
         snapshot.PlayerId = 0;
         snapshot.ItemPosition = start - WorldMover.currentMove;
+        // GrabHandlerItem.Throw applies this as a force for one physics step.
         snapshot.ThrowDirection = velocity / (ThrowForcePerDirection * Time.fixedDeltaTime);
         snapshot.WorldParentKind = ItemWorldParentKind.World;
         snapshot.WorldParentNetId = 0;
@@ -196,21 +215,21 @@ public static class JobReroll
         snapshot.InventoryClaimPlayerId = 0;
         snapshot.InventoryClaimSlot = -1;
         snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
-        // The player who binned it simulates the flight (the lease goes to the transition's actor).
         if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, requester,
                 ItemTransitionReason.JobRerollRefused, true, out string rejection,
                 cause: ItemChangeLog.Move(ItemMoveReason.ThrownOutOfBin, requester, refusal)) ||
             !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
         {
             Multiplayer.LogWarning($"Couldn't throw job overview {item.NetId} out of the bin: {rejection}");
-            return null;
+            return false;
         }
         AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, ItemTransitionReason.JobRerollRefused);
-        snapshot.ItemState = ItemState.Thrown;
+        snapshot.ItemState = state;
         item.ApplyServerCanonicalSnapshot(snapshot);
         NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
-        return velocity;
+        return true;
     }
+
 
     private static List<TrainCar> JobCars(Job job)
     {
