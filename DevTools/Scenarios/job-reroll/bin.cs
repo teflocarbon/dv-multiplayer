@@ -25,15 +25,16 @@ body.velocity = Vector3.zero; body.angularVelocity = Vector3.zero;
 body.position = above; item.transform.position = above;
 
 // It drops in; then it's either destroyed with its job or thrown up and out.
+// (Applying the throw deactivates the paper for a frame: only a destroyed one is gone.)
 float highest = 0f; bool wentIn = false;
 for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 8f;)
 {
-    if (item == null || !item.gameObject.activeInHierarchy) break;
+    if (item == null) break;
     if (bounds.Contains(item.transform.position)) wentIn = true;
     if (wentIn) highest = Mathf.Max(highest, item.transform.position.y - (bounds.center.y + bounds.extents.y));
     yield return null;
 }
-bool gone = item == null || !item.gameObject.activeInHierarchy;
+bool gone = item == null;
 Vector3 binTop = bounds.center + Vector3.up * bounds.extents.y;
 ctx.Result = new
 {

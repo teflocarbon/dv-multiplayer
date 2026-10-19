@@ -32,9 +32,11 @@ public static class JobReroll
     private const float BinMatchDistance = 3f;
     // The paper flies out from this far above the top of the bin's trigger, so it doesn't touch it.
     private const float ThrowClearance = 0.3f;
-    // GrabHandlerItem.Throw gives the paper 2.8 m/s per unit of direction.
-    private const float ThrowOutwards = 0.9f;
-    private const float ThrowUpwards = 1.2f;
+    // The paper's speed out of the bin (m/s): about 2 m out and half a metre up.
+    private const float ThrowOutwards = 2.5f;
+    private const float ThrowUpwards = 3.5f;
+    // GrabHandlerItem.Throw adds direction * mass * 140 as a force for one physics step.
+    private const float ThrowForcePerDirection = 140f;
     // One throw at a time: every collider of the paper and every bounce asks again.
     private const float ThrowInterval = 1f;
 
@@ -146,7 +148,8 @@ public static class JobReroll
         snapshot.ItemState = ItemState.Thrown;
         snapshot.PlayerId = 0;
         snapshot.ItemPosition = start - WorldMover.currentMove;
-        snapshot.ThrowDirection = outwards * ThrowOutwards + Vector3.up * ThrowUpwards;
+        snapshot.ThrowDirection = (outwards * ThrowOutwards + Vector3.up * ThrowUpwards) /
+                                  (ThrowForcePerDirection * Time.fixedDeltaTime);
         snapshot.WorldParentKind = ItemWorldParentKind.World;
         snapshot.WorldParentNetId = 0;
         snapshot.WorldParentKey = string.Empty;
