@@ -1,17 +1,37 @@
 # Host local session: the host's player without a loopback client
 
-> Status: proposed (2026-10-19), not built. One process stays: the host's game runs the server and
-> its own player. This plans removing the host's loopback `NetworkClient` in stages, so that the
-> host's player stops being a network client of its own server.
-> - **Stage 1, the gate:** built and merged (#117, release 2026.10.19.5).
->   `HostOwnClient` drops every packet that carries the host's state before the host's client
->   applies it.
-> - **Stage 2, direct requests:** not built. The host player's requests call the server's handlers
->   in-process, and the server stops sending to `SelfPeer` except to present other players.
-> - **Stage 3, no client on the host:** not built. A local player session replaces the loopback
->   client.
+> Status (2026-10-20): stage 1 built and released, stage 2 mostly built on `split/client-server`,
+> stage 3 not started. See [Implementation status](#implementation-status).
 >
-> Line numbers are from `beta` at `6da65843` (2026-10-19).
+> Line numbers in the sections below are from `beta` at `6da65843` (2026-10-19).
+
+## The three stages
+
+This is the core of the client/server split. One process stays: the host's game runs the server
+and its own player. Today that player is a **loopback `NetworkClient`**, a client of its own
+server sharing the server's world. That one fact causes a whole class of bugs, from two directions:
+
+- **The host follows itself.** Anything the server sends "to a client" can reach the host's own
+  client, and client code then applies the server's view onto the world the server owns. The
+  cargo containers that uncoupled at random were this: the host's client asked for a train sync
+  when a car's interior loaded, the server answered with a snapshot to the host's own peer, and the
+  host rolled its own consist back. A coupler fallback that rolled the host's chain back, a register
+  rejection that emptied a shared register and item lease echoes that replaced the server's own
+  lease were the same shape.
+- **The host is checked like a stranger.** The host's own requests go out as packets and come back
+  through the server's handlers, validated like a remote player's, for example a lever grab
+  refused because the server's copy of the host's position was a packet late.
+
+The stages remove that class step by step:
+
+| Stage | What it does | What it fixes | Status |
+|---|---|---|---|
+| **1. The gate** | `HostOwnClient` classifies every packet a client handles. On the host, the ones that carry the host's own state are dropped before its client applies them. A protocol test fails on any packet that isn't classified. | The host following itself, for every packet known today. It's a gate, so it has to be kept up as packets are added. | **Built**, #117, in release 2026.10.19.5 |
+| **2. Direct requests** | The host player's requests call the server's handlers in-process, with the host's own `ServerPlayer` (`HandleLocal`, `LocalRequestQueue`), instead of going out through its client. The server stops sending the host's client anything but other players' presentation. | The host checked like a stranger: no stale positions, no round trips, no refusals meant for remote players. | **Mostly built** on `split/client-server` (below) |
+| **3. No client on the host** | `StartServer` no longer starts a `NetworkClient` on the host. A local player session, the host's player as a session of the server in the same process, takes its place behind the seams stage 2 added (`ILocalPlayerSession`, the `I<Area>Client` interfaces). A client game keeps `NetworkClient` as it is. | The whole class, structurally: with no client on the host there is nothing to follow the host's state and nothing to gate. Stage 1's gate is removed with it. | **Not started** |
+
+The dedicated host is the same server with no local player session at all (see
+[The dedicated host](#the-dedicated-host)).
 
 ## Why
 
@@ -411,11 +431,32 @@ Run each change on a player host and on a dedicated host (`UP_ARGS=--dedicated`)
 
 The new runs fit one scenario, `host-actions`, with a `MODE` per action.
 
-## Implementation status (2026-10-19)
+## Implementation status
 
-- Stage 1: built and merged (#117), in release 2026.10.19.5.
-- **Stage 2's shared machinery: built** on `split/client-server`, the integration branch for the
-  client/server split (see [What's built for it](#whats-built-for-it-and-how-to-move-a-request)).
-  No request is handled in-process yet, so nothing behaves differently. The areas (trains, items,
-  world and stations, jobs and career) move their requests one PR at a time into that branch.
-- The seam and stage 3: not started.
+As of 2026-10-20, on `split/client-server` (not yet in `beta`):
+
+- **Stage 1: built and released** (#117, release 2026.10.19.5). Its in-game checks (the host's job
+  trains stay coupled, the host's throw settles with no echo, an empty-basket register keeps its
+  contents, the host's chain screw, other players' junction and time changes reach the host) are
+  being written as scenarios, so they guard stage 2 now and prove stage 3 later.
+- **Stage 2: mostly built.** The shared machinery (#123, #124) and, per area, the host's requests
+  now handled in-process:
+  - **Trains:** the host's own controls committed directly, lever authority (#125); the radio's car
+    delete, rerail and work-train requests, every work-train request answered (#129).
+  - **Items:** Lost and Found and container requests (#139); the server's side of the item
+    managers in `Server/Items` (#133, #135, #137).
+  - **World:** junctions, turntables, fast travel and sleep: the server applies other players'
+    changes itself and the host's own go in-process (#126).
+  - **Stations:** pit stops and plugs (#130); the host's module register answered in-process (#138).
+  - **Jobs and career:** the host's booklet summon (#127).
+
+  Left for stage 2: chat and commands, player position from the local tracker
+  (`LocalPlayer.UpdateFromTracker()`, until then `NetworkServer.Trains.cs` reads the host's position
+  from its game: `CurrentWorldPosition`), preferences, and the `TimeAdvancePatch`
+  reference from `NetworkServer` (session area).
+- **Stage 3: not started.** It needs the rest of stage 2, then a local player session implementing
+  `ILocalPlayerSession` and each area's `I<Area>Client` (for trains, the host's cars must get their
+  local-player half, lever leases and chain reports, from it, as `TrainRoles.Client` does for a
+  client), and `HostOwnClient` removed. An audit of Shared for code that's one role's but sits
+  there behind `IsHost` checks (started 2026-10-20) comes first: those checks are where the host
+  still behaves like a client.

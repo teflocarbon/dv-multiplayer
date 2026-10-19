@@ -131,7 +131,10 @@ seems to need it, check whether it's the host player's own view (fine) or the ho
 the server should change directly instead of through its own client.
 
 This list is the safety net, not the end state. The plan to remove the host's loopback client in
-stages, keeping one process, is [design/host-local-session.md](design/host-local-session.md).
+stages, keeping one process, is [design/host-local-session.md](design/host-local-session.md):
+[the three stages](design/host-local-session.md#the-three-stages) are (1) this gate, (2) the host
+player's requests handled by the server in-process, and (3) no client on the host at all, which
+removes the class of bug this gate guards against.
 
 ### Managers
 
