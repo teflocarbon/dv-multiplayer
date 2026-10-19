@@ -25,7 +25,7 @@ public static class StationLocoSpawner_Start_Patch
     {
         if (!AStartGameData.carsAndJobsLoadingFinished || CarSpawner.Instance.PoolSetupInProgress)
             yield return null;
-        while (NetworkLifecycle.Instance.Client == null)
+        while (!NetworkLifecycle.Instance.IsServerRunning && !NetworkLifecycle.Instance.IsClientRunning)
             yield return null;
         if (!NetworkLifecycle.Instance.IsHost())
             yield break;

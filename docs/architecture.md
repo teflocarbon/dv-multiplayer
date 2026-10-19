@@ -212,7 +212,7 @@ common shapes:
   locomotive simulation on clients; `HazmatTileManagerPatch` stops tile evolution;
   `TrainCarExplosionForcePatch` stops explosion forces; `SaveGameManager.SaveAllowed` is false.
 - **Apply flags.** While a client applies host state it sets a flag (for example
-  `ExplosionSync.ApplyingHostExplosion`, `HazmatSync.ApplyingHostTiles`) so its own patches let
+  `ExplosionPlayback.ApplyingHostExplosion`, `HazmatSync.ApplyingHostTiles`) so its own patches let
   the vanilla code through instead of turning it back into a request.
 
 ## Host authority

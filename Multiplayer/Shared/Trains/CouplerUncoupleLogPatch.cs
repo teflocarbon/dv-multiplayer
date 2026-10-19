@@ -24,7 +24,7 @@ public static class CouplerUncoupleLogPatch
         if (calledOnOtherCoupler || __instance == null || !__instance.IsCoupled())
             return;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || (lifecycle.Server == null && lifecycle.Client == null))
+        if (lifecycle == null || (!lifecycle.IsServerRunning && !lifecycle.IsClientRunning))
             return;
 
         try
@@ -37,7 +37,7 @@ public static class CouplerUncoupleLogPatch
 
             bool host = lifecycle.IsHost();
             if (host)
-                lifecycle.Server.NoteUncouple(__instance, cause);
+                TrainRoles.Server?.NoteUncouple(__instance, cause);
             Multiplayer.Log($"Uncoupled {car?.ID} ({End(__instance)}) from {otherCar?.ID} ({End(other)}) " +
                 $"on the {(host ? "host" : "client")}: {cause}");
             DebugRuntime.Publish("train", "train.uncoupled", TrainChangeCauses.Side, entityType: "TrainCar",

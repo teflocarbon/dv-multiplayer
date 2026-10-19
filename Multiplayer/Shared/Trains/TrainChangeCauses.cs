@@ -6,7 +6,6 @@ using System.Reflection;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
 using Multiplayer.Client.Session;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;
@@ -30,9 +29,11 @@ internal static class TrainChangeCauses
     /// <summary>The last cars removed on this peer and why, newest last (cars keep no record once gone).</summary>
     internal static IEnumerable<(string CarId, ushort NetId, ChangeCause<CarRemovalReason> Cause)> RecentRemovals => recentRemovals;
 
-    internal static ChangeCause<TReason> Cause<TReason>(TReason reason, ServerPlayer player = null,
+    /// <summary>A cause, acted by the player with this id and name if there is one (the server names its
+    /// players with PlayerChangeCauses).</summary>
+    internal static ChangeCause<TReason> Cause<TReason>(TReason reason, byte playerId = 0, string playerName = null,
         string detail = null) where TReason : struct, Enum =>
-        new(reason, player?.PlayerId ?? 0, player?.Username, Tick, detail);
+        new(reason, playerId, playerName, Tick, detail);
 
     /// <summary>A cause acted by this peer's own player (a host playing, or vanilla code on a client).</summary>
     internal static ChangeCause<TReason> LocalCause<TReason>(TReason reason, string detail = null)
@@ -59,7 +60,8 @@ internal static class TrainChangeCauses
         {
             // A patched method's frame is Harmony's replacement; map it back to the original.
             MethodBase method = HarmonyLib.Harmony.GetMethodFromStackframe(frame) ?? frame.GetMethod();
-            if (method == null || method.DeclaringType?.Namespace?.StartsWith("Multiplayer.Patches") == true ||
+            // The mod's own patches aren't callers (they were all under Multiplayer.Patches until 2026-10-19).
+            if (method == null || method.DeclaringType?.IsDefined(typeof(HarmonyLib.HarmonyPatch), false) == true ||
                 method.DeclaringType == typeof(TrainChangeCauses))
                 continue;
             methods.Add(method);

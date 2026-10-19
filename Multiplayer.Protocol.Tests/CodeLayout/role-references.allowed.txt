@@ -9,7 +9,6 @@ Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Items.ItemChangeL
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.PlayerAuthentication
-Multiplayer.Client.Trains.LocoRestorationControllerStartPostfixPatch -> Multiplayer.Server.Trains.NetworkRestorationWatcher
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Server.Dedicated.LauncherControllerSaveLockPatch -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
@@ -19,8 +18,6 @@ Multiplayer.Server.Session.LobbyServerManager -> Multiplayer.Menus.ServerBrowser
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.World.TimeAdvancePatch
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
-Multiplayer.Server.Trains.DerailCausePatch -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Server.Trains.StationLocoSpawner_Start_Patch -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Server.World.GlobalShopControllerPatch -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Api.APIProvider -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Api.ModCompatibilityManager -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
@@ -99,13 +96,7 @@ Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Client.Sessi
 Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Server.Players.CullingManager
 Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Trains.CarDeletePlayerSafetyPatch -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Shared.Trains.CargoFireSync -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Trains.CargoFireSync -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Trains.CouplerUncoupleLogPatch -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Trains.CouplerUncoupleLogPatch -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Trains.CouplerUncoupleLogPatch -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Trains.ExplosionSync -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Trains.NetworkTrainsetWatcher -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Trains.NetworkTrainsetWatcher -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Trains.NetworkedTrainCar -> Multiplayer.Client.Session.NetworkClient
@@ -113,9 +104,7 @@ Multiplayer.Shared.Trains.NetworkedTrainCar -> Multiplayer.Client.Trains.TrainPo
 Multiplayer.Shared.Trains.NetworkedTrainCar -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Trains.NetworkedTrainCar -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Trains.NetworkedTrainCar -> Multiplayer.Server.Trains.HandcarDrivePatch
-Multiplayer.Shared.Trains.SimControllerUpdatePatch -> Multiplayer.Client.Trains.TrainPortPresenter
 Multiplayer.Shared.Trains.TrainChangeCauses -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Trains.TrainChangeCauses -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Dedicated.DedicatedHost
 Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Session.ServerPlayer
