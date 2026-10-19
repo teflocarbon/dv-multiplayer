@@ -162,16 +162,28 @@ light, and a handcar's handle. Handbrake feeders are left to the handbrake sync.
 one took no lease, so its change went only as an unleased one (below), after the settle window,
 and nothing stopped another game's copy writing the port: a handcar never moved, since the host's
 own `HandcarBarController` wrote the handle as let go every frame. A control in the cab's controls
-manager as well (a handcar's handle) is hooked once. A handcar handle's lease also covers
-`ENGAGED_EXT_IN`, which its `HandcarBarController` writes. Several controls can feed one port (an
+manager as well (a handcar's handle) is hooked once. Several controls can feed one port (an
 FEF-3's two lubricator buttons): a lease blocks them all.
 
+A handcar's handle takes no lease, so any number of players can pump at once. Vanilla's
+`HandcarDrive` has one handle, `BAR_EXT_IN` (where it is) and `ENGAGED_EXT_IN` (whether it's held,
+which `HandcarBarController` writes every frame), so each game's two handle ports are its own
+player's: no game applies another's, and the host doesn't send its own. A client sends `ENGAGED`
+whenever it changes and `BAR` while it's held (with `ENGAGED`, as taking hold may not move it). The
+host keeps each player's handle (`HandcarPumpers`, filled by `Server_ApplyPlayerPorts`) and a
+postfix on `HandcarDrive.Tick` (`HandcarDrivePatch`) adds each held handle's stroke, worked out as
+vanilla's, to the torque vanilla made from the host's own player's handle. The total is capped at
+two players' most, so two players pumping in time go faster than one, one pumping against the other
+slows the car, and a third adds nothing. A pumper is dropped when they let go, leave, or get further
+from the car than its length.
+
 A few vanilla controllers write a control's port every frame from their own game's input, whoever
-is using the control: `WhistleRopeController` (the rope's tension, into its dummy lever) and
-`HandcarBarController` (whether the handle is held). Every game runs them, so while a player on
-another game uses the control, this game's write it back as let go. The rule: such a writer is off
-while another player holds the lease on a port it writes (`LocalInputWriters`, toggled in
-`Client_ReceiveAuthorityUpdate`; the host gets the lease updates too). Other controllers write only
+is using the control: `WhistleRopeController` (the rope's tension, into its dummy lever). Every game
+runs them, so while a player on another game uses the control, this game's write it back as let
+go. The rule: such a writer is off while another player holds the lease on a port it writes
+(`LocalInputWriters`, toggled in `Client_ReceiveAuthorityUpdate`; the host gets the lease updates
+too). `HandcarBarController` writes whether the handle is held the same way, but that port is each
+game's own player's (above), so it stays on. Other controllers write only
 on their own game's input, which a lease covers, or from the car's own state (`TractionPortsFeeder`,
 `BoilerSimController`'s boiler angle, `DamageController`'s health ports), which are local values and
 not a player's.
