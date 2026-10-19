@@ -27,7 +27,10 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
 - The host's own changes, and native changes nobody commanded (spawn auto-couple, joint breaks,
   derail side effects), are observed and committed on the next tick (`CommitObservedTrainTopology`).
   Clients no longer auto-couple spawned cars themselves (477a94c); they wait for the host's
-  snapshot.
+  snapshot. Nor do they run the steam tender auto-couplers (vanilla's
+  `SteamTenderAutoCoupleMechanism` and Custom Car Loader's `CarAutoCouplerInternal`,
+  `Patches/Train/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
+  after a spawn, rerail or uncouple, which a client sent the host as its player's commands.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
 - A client couples (or uncouples) its own cars straight away and sends the command; if the host
