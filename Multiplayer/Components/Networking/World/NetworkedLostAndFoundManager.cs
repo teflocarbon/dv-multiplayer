@@ -753,6 +753,9 @@ public static class NetworkedLostAndFoundManager
             $"handle={lostHandle}, netId={itemNetId}, reason={reason ?? string.Empty}");
     }
 
+    public static void SetInventoryClaimSlot(ushort itemNetId, int slot) =>
+        registry.SetInventoryClaimSlot(itemNetId, slot);
+
     public static void OnOwnerConnected(ServerPlayer player)
     {
         if (player == null || player.Guid == Guid.Empty)

@@ -296,6 +296,15 @@ public sealed class LostItemRegistry
         return changed;
     }
 
+    /// <summary>The host moved the item's retrieval claim (EssentialClaimSlotPolicy): keep the saved copy in step.</summary>
+    public bool SetInventoryClaimSlot(ushort netId, int slot)
+    {
+        if (!records.TryGetValue(netId, out LostItemRecord record))
+            return false;
+        record.InventoryClaimSlot = slot;
+        return true;
+    }
+
     public LostItemRegistryResult Restore(LostItemRecord record)
     {
         if (record == null || record.PersistentItemId == Guid.Empty || record.NetId == 0 ||
