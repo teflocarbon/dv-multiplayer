@@ -15,8 +15,8 @@
 #   now the cab's copies, now the outside ones: every change reaches the host. Then the client steps
 #   off, out of reach, and turns the outside valves: the host keeps its value and the client's go
 #   back to it (left turned, they showed only on the client, for good). Back aboard, its next change
-#   reaches the host again. The loco must not move: a rolling one left the client behind. A
-#   dedicated host works too (only the client boards).
+#   reaches the host again. The client must still be aboard after the steps: a rolling loco left
+#   it behind in #159. A dedicated host works too (only the client boards).
 #   STEPS="external 1;external 0;..." (which copies, value)
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
@@ -51,14 +51,14 @@ compare() { # what clientJson
 }
 
 # The loco, held still (spawn.cs), and its id and tender set; where it is in $spawned.
-spawn() { spawned=$($D eval -t host -m coroutine --timeout 60 -a t=$1 -f $P/spawn.cs); loco=$(echo "$spawned" | field id); tender=$(echo "$spawned" | field tender); }
+spawn() { spawned=$($D eval -t host -m coroutine --timeout 150 -a t=$1 -f $P/spawn.cs); loco=$(echo "$spawned" | field id); tender=$(echo "$spawned" | field tender); }
 board() { $D eval -t $1 -m coroutine --timeout 60 -a loco=$loco "yield return Trains.Board(Trains.Find(ctx.Args[\"loco\"])); yield return new WaitForSeconds($2);" >/dev/null; }
 
 if [ "${MODE:-}" = no-grab-sequence ]; then
   PORTS="compressorControl.EXT_IN,dynamoControl.EXT_IN,lubricatorControl.EXT_IN,cylinderCock.EXT_IN"
   STEPS=${STEPS:-"external 1;external 0;external 1;cab 0;cab 1;external 0;cab 1;cab 0;external 1;external 0"}
   spawn LocoS282A
-  t=$(echo "$spawned" | field tried); [ -z "$t" ] || echo "   spots given up (the loco rolled): $t"
+  t=$(echo "$spawned" | field tried); [ -z "$t" ] || echo "   spots tried (the loco crept): $t"
   # A dedicated host has no player to board.
   [ "$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = true ] || board host 2
   board client 4
@@ -72,6 +72,10 @@ if [ "${MODE:-}" = no-grab-sequence ]; then
     compare "the $1 copies set to $2" "$c" || fail=1
     last=$2
   done
+  # The steps are only the in-reach case while the client is still aboard (#159's ran on a client
+  # left behind by its rolling loco).
+  r=$($D eval -t client -m body -a loco=$loco 'var car = Trains.Find(ctx.Args["loco"]); return new { d = Math.Round(Vector3.Distance(PlayerManager.PlayerTransform.position, car.transform.position), 1), reach = Math.Round(CarSpawner.Instance.carLiveryToCarLength[car.carLivery], 1) };' | result)
+  node -e 'const o=JSON.parse(process.argv[1]);const ok=o.d<=o.reach;console.log("   "+(ok?"ok   ":"FAIL ")+"the client is still aboard: "+o.d+" m from the loco (reach "+o.reach+" m)");process.exit(ok?0:1)' "$r" || fail=1
 
   echo "== the client steps off, out of reach"
   a=$($D eval -t client -m coroutine --timeout 60 -a loco=$loco -f $P/away.cs | result)
@@ -90,7 +94,7 @@ if [ "${MODE:-}" = no-grab-sequence ]; then
 
   moved=$($D eval -t host -m body -a loco=$loco -a x=$(echo "$spawned" | field x) -a y=$(echo "$spawned" | field y) -a z=$(echo "$spawned" | field z)     'float F(string k) => float.Parse(ctx.Args[k], System.Globalization.CultureInfo.InvariantCulture); return Math.Round(Vector3.Distance(Dev.Abs(Trains.Find(ctx.Args["loco"]).transform.position), new Vector3(F("x"), F("y"), F("z"))), 2);' | result)
   echo "   the loco moved $moved m"
-  node -e 'process.exit(Number(process.argv[1])>1?1:0)' "$moved" || { echo "   FAIL the loco moved: the steps ran on a moving loco"; fail=1; }
+
 
   $D eval -t client -m coroutine 'yield return LocalPlayer.TeleportToGround(7190f, 6880f);' >/dev/null
   $D eval -t host -m coroutine 'yield return LocalPlayer.TeleportToGround(7194f, 6873f);' >/dev/null

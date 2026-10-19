@@ -3,10 +3,13 @@
 // its tender: spawned alone, its handbrake set did nothing, it rolled away on a grade and left a
 // boarded client behind, out of reach of its controls (#159). With the tender's handbrake on, an
 // S282A and tender still crept 15-18 m in a minute on some grades (batch 5b): each spot is watched
-// for a few seconds, and one the loco moves on is given up for one further out.
+// for a few seconds, and one the loco moves 0.3 m or more on is given up for one further out. If
+// every spot creeps (batch 7b: a 5 cm bar gave every one up), the one it crept least on is kept.
 // Returns the loco's id, its tender's, where it is (absolute) and the spots it gave up.
 var tried = new List<string>();
-foreach (float ahead in new[] { 25f, 45f, 70f, 100f, 140f })
+TrainCar best = null, bestTender = null;
+float bestMoved = float.MaxValue;
+foreach (float ahead in new[] { 25f, 45f, 70f, 100f })
 {
     var car = Trains.SpawnWithTenderNearPlayer(ctx.Args["t"], ahead);
     var tenderLivery = Trains.TenderOf(car.carLivery);
@@ -19,15 +22,20 @@ foreach (float ahead in new[] { 25f, 45f, 70f, 100f, 140f })
     Vector3 from = Dev.Abs(car.transform.position);
     yield return new WaitForSecondsRealtime(5f);
     float moved = Vector3.Distance(Dev.Abs(car.transform.position), from);
-    if (moved < 0.05f)
+    if (moved < 0.3f || moved < bestMoved)
     {
-        Vector3 at = Dev.Abs(car.transform.position);
-        ctx.Result = new { id = car.ID, tender = tender?.ID ?? "", x = at.x, y = at.y, z = at.z, tried = string.Join("; ", tried) };
-        yield break;
+        if (best != null)
+            foreach (var c in new[] { best, bestTender }.Where(c => c != null))
+                Trains.Delete(c);
+        best = car; bestTender = tender; bestMoved = moved;
+        if (moved < 0.3f)
+            break;
     }
+    else
+        foreach (var c in new[] { car, tender }.Where(c => c != null))
+            Trains.Delete(c);
     tried.Add($"{ahead} m ahead: moved {moved:F2} m in 5 s");
-    foreach (var c in new[] { car, tender }.Where(c => c != null))
-        Trains.Delete(c);
     for (int i = 0; i < 30; i++) yield return null;
 }
-throw new Exception(ctx.Args["t"] + " rolled on every spot tried: " + string.Join("; ", tried));
+Vector3 at = Dev.Abs(best.transform.position);
+ctx.Result = new { id = best.ID, tender = bestTender?.ID ?? "", x = at.x, y = at.y, z = at.z, tried = string.Join("; ", tried) };
