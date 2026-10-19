@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using LiteNetLib.Utils;
-using Multiplayer.Components.Networking.World;
+using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
-using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
-using Multiplayer.Networking.Data.Items;
-using Multiplayer.Networking.Packets.Common;
 using NUnit.Framework;
 using UnityEngine;
 

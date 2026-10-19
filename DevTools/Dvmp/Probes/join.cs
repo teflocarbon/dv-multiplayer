@@ -5,7 +5,7 @@
 // the mod writes it back to disk.
 using System.Reflection;
 using HarmonyLib;
-using Multiplayer.Components.Networking;
+using Multiplayer.Shared.Session;
 using MpSettings = Multiplayer.Settings;
 
 public static class Probe

@@ -1,0 +1,305 @@
+using DV.Customization.Paint;
+using DV.LocoRestoration;
+using LiteNetLib.Utils;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Serialization;
+using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Trains;
+using Multiplayer.Shared.Utils;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Multiplayer.Shared.Protocol.Data.Train;
+
+public sealed class TrainsetSpawnPart
+{
+    private static readonly byte[] EMPTY_GUID = new Guid().ToByteArray(); // Empty GUID as bytes
+
+    public readonly ushort NetId;
+
+    // Car details
+    public readonly string LiveryId;
+    public readonly string CarId;
+    public readonly string CarGuid;
+    public readonly bool Exploded;
+    public readonly TrainCarHealthData CarHealthData;
+
+    // Customisation details
+    public readonly bool PlayerSpawnedCar;
+
+    public readonly RestorationType RestorationType;
+    public readonly LocoRestorationController.RestorationState RestorationState;
+    public readonly ushort SecondCarNetId;
+    public readonly ushort[] TransportingCarNetIds;
+
+    public readonly PaintTheme PaintExterior;
+    public readonly PaintTheme PaintInterior;
+
+    public readonly CustomizationHoleData[] CustomizationHoles;
+
+    // Coupling data
+    public readonly CouplingData FrontCoupling;
+    public readonly CouplingData RearCoupling;
+
+    // Positional details
+    // TrainCar.GetForwardSpeed() wire value, expressed in metres per second.
+    public readonly float Speed;
+    public readonly Vector3 Position;
+    public readonly Quaternion Rotation;
+
+    // Bogie data
+    public readonly BogieData Bogie1;
+    public readonly BogieData Bogie2;
+
+    // Brake initial states
+    public readonly BrakeSystemData BrakeData;
+
+    public TrainsetSpawnPart(
+          ushort netId, string liveryId, string carId, string carGuid, bool exploded, TrainCarHealthData carHealthData,
+          bool playerSpawnedCar, RestorationType restorationType, LocoRestorationController.RestorationState restorationState, ushort secondCarNetId, ushort[] transportingCarNetIds,
+          PaintTheme paintExterior, PaintTheme paintInterior, CustomizationHoleData[] customizationHoles,
+          CouplingData frontCoupling, CouplingData rearCoupling,
+          float speed, Vector3 position, Quaternion rotation,
+          BogieData bogie1, BogieData bogie2, BrakeSystemData brakeData)
+    {
+        NetId = netId;
+        LiveryId = liveryId;
+        CarId = carId;
+        CarGuid = carGuid;
+        Exploded = exploded;
+        CarHealthData = carHealthData;
+
+        PlayerSpawnedCar = playerSpawnedCar;
+        RestorationType = restorationType;
+        RestorationState = restorationState;
+        SecondCarNetId = secondCarNetId;
+        TransportingCarNetIds = transportingCarNetIds;
+
+        PaintExterior = paintExterior;
+        PaintInterior = paintInterior;
+        CustomizationHoles = customizationHoles;
+
+        FrontCoupling = frontCoupling;
+        RearCoupling = rearCoupling;
+
+        Speed = speed;
+        Position = position;
+        Rotation = rotation;
+        Bogie1 = bogie1;
+        Bogie2 = bogie2;
+        BrakeData = brakeData;
+    }
+
+    public static void Serialize(NetDataWriter writer, TrainsetSpawnPart data)
+    {
+        writer.Put(data.NetId);
+        writer.Put(data.LiveryId);
+        writer.Put(data.CarId);
+
+        if (Guid.TryParse(data.CarGuid, out Guid guid))
+        {
+            writer.PutBytesWithLength(guid.ToByteArray());
+        }
+        else
+        {
+            Multiplayer.LogError($"TrainsetSpawnPart.Serialize() failed to parse carGuid: {data.CarGuid}");
+            writer.PutBytesWithLength(EMPTY_GUID);
+        }
+
+        writer.Put(data.Exploded);
+        TrainCarHealthData.Serialize(writer, data.CarHealthData);
+
+        writer.Put(data.PlayerSpawnedCar);
+        writer.Put((byte)data.RestorationType);
+
+        if (data.RestorationType != RestorationType.None)
+        {
+            writer.Put((byte)data.RestorationState);
+
+            if (data.RestorationType == RestorationType.Double)
+                writer.Put(data.SecondCarNetId);
+
+            writer.PutArray(data.TransportingCarNetIds);
+        }
+
+        uint extPaintNetId = 0;
+        if (data.PaintExterior != null)
+            PaintThemeLookup.Instance.TryGetNetId(data.PaintExterior, out extPaintNetId);
+        writer.Put(extPaintNetId);
+
+        uint intPaintNetId = 0;
+        if (data.PaintInterior != null)
+            PaintThemeLookup.Instance.TryGetNetId(data.PaintInterior, out intPaintNetId);
+        writer.Put(intPaintNetId);
+
+        // Holes with no gadgets
+        writer.Put(data.CustomizationHoles != null ? data.CustomizationHoles.Length : 0);
+        foreach (var hole in data.CustomizationHoles)
+            CustomizationHoleData.Serialize(writer, hole);
+
+        CouplingData.Serialize(writer, data.FrontCoupling);
+        CouplingData.Serialize(writer, data.RearCoupling);
+
+        writer.Put(data.Speed);
+        Vector3Serializer.Serialize(writer, data.Position);
+        QuaternionSerializer.Serialize(writer, data.Rotation);
+
+        BogieData.Serialize(writer, data.Bogie1);
+        BogieData.Serialize(writer, data.Bogie2);
+        BrakeSystemData.Serialize(writer, data.BrakeData);
+    }
+
+    public static TrainsetSpawnPart Deserialize(NetDataReader reader)
+    {
+        ushort netId = reader.GetUShort();
+        string liveryId = reader.GetString();
+        string carId = reader.GetString();
+        string carGuid = new Guid(reader.GetBytesWithLength()).ToString();
+        bool exploded = reader.GetBool();
+        TrainCarHealthData healthData = TrainCarHealthData.Deserialize(reader);
+
+        bool playerSpawnedCar = reader.GetBool();
+        RestorationType restorationType = (RestorationType)reader.GetByte();
+
+        LocoRestorationController.RestorationState restorationState = default;
+        ushort secondCarNetId = 0;
+        ushort[] transportationCarNetIds = null;
+
+        if (restorationType != RestorationType.None)
+        {
+            restorationState = (LocoRestorationController.RestorationState)reader.GetByte();
+
+            if (restorationType == RestorationType.Double)
+                secondCarNetId = reader.GetUShort();
+
+            transportationCarNetIds = reader.GetUShortArray();
+
+        }
+
+        uint extThemeId = reader.GetUInt();
+        uint intThemeId = reader.GetUInt();
+
+        PaintTheme exteriorPaint = null;
+        PaintTheme interiorPaint = null;
+        if (extThemeId != 0)
+            PaintThemeLookup.Instance.TryGet(extThemeId, out exteriorPaint);
+        if (intThemeId != 0)
+            PaintThemeLookup.Instance.TryGet(intThemeId, out interiorPaint);
+
+        // Holes with no gadgets
+        int holeCount = reader.GetInt();
+
+        CustomizationHoleData[] customizationHoles = new CustomizationHoleData[holeCount];
+        for (int i = 0; i < holeCount; i++)
+            customizationHoles[i] = CustomizationHoleData.Deserialize(reader);
+
+        var frontCoupling = CouplingData.Deserialize(reader);
+        var rearCoupling = CouplingData.Deserialize(reader);
+
+        float speed = reader.GetFloat();
+        Vector3 position = Vector3Serializer.Deserialize(reader);
+        Quaternion rotation = QuaternionSerializer.Deserialize(reader);
+
+        var bogie1 = BogieData.Deserialize(reader);
+        var bogie2 = BogieData.Deserialize(reader);
+        var brakeSet = BrakeSystemData.Deserialize(reader);
+
+        return new TrainsetSpawnPart(
+            netId, liveryId, carId, carGuid, exploded, healthData,
+            playerSpawnedCar,
+            restorationType, restorationState, secondCarNetId, transportationCarNetIds,
+			exteriorPaint, interiorPaint, customizationHoles,
+            frontCoupling, rearCoupling,
+            speed, position, rotation,
+            bogie1, bogie2, brakeSet);
+    }
+
+    public static TrainsetSpawnPart FromTrainCar(NetworkedTrainCar networkedTrainCar)
+    {
+        TrainCar trainCar = networkedTrainCar.TrainCar;
+        Transform transform = networkedTrainCar.transform;
+
+        RestorationType restorationType = RestorationType.None;
+        LocoRestorationController.RestorationState restorationState = default;
+        ushort secondCarNetId = 0;
+        ushort[] transportingCarNetIds = null;
+
+        LocoRestorationController restorationController = LocoRestorationController.GetForTrainCar(trainCar);
+        if (restorationController != null)
+        {
+            restorationState = restorationController?.State ?? default;
+            secondCarNetId = restorationController?.secondCar.GetNetId() ?? default;
+
+            if (secondCarNetId == 0)
+                restorationType = RestorationType.Single;
+            else
+                restorationType = RestorationType.Double;
+
+            if (restorationController.transportingCars != null && restorationController.transportingCars.Count > 0)
+            {
+                transportingCarNetIds = new ushort[restorationController.transportingCars.Count];
+                for (int i = 0; i < restorationController.transportingCars.Count; i++)
+                    transportingCarNetIds[i] = restorationController.transportingCars[i].GetNetId();
+            }
+        }
+
+        CustomizationHoleData[] customizationHoleData = [];
+        if (trainCar?.Customization?.Holes.Count > 0)
+            customizationHoleData = CustomizationHoleData.FromHoles(trainCar.Customization.Holes);
+
+        return new TrainsetSpawnPart(
+                networkedTrainCar.NetId,
+                trainCar.carLivery.id,
+                trainCar.ID,
+                trainCar.CarGUID,
+                trainCar.isExploded,
+                TrainCarHealthData.From(trainCar),
+
+                trainCar.playerSpawnedCar,
+                restorationType,
+                restorationState,
+                secondCarNetId,
+                transportingCarNetIds,
+
+                trainCar?.PaintExterior?.currentTheme,
+                trainCar?.PaintInterior?.currentTheme,
+                customizationHoleData,
+
+                frontCoupling: CouplingData.From(trainCar.frontCoupler),
+                rearCoupling: CouplingData.From(trainCar.rearCoupler),
+                trainCar.GetForwardSpeed(),
+                transform.position - WorldMover.currentMove,
+                transform.rotation,
+                BogieData.FromBogie(trainCar.Bogies[0]),
+                BogieData.FromBogie(trainCar.Bogies[1]),
+                BrakeSystemData.From(trainCar.brakeSystem)
+            );
+    }
+
+    public static TrainsetSpawnPart[] FromTrainSet(List<TrainCar> trainset/*, bool resolveCoupling = false*/)
+    {
+        if (trainset == null)
+        {
+            NetworkLifecycle.Instance.Server.LogWarning("TrainsetSpawnPart.FromTrainSet() trainset list is null!");
+            return null;
+        }
+
+        TrainsetSpawnPart[] parts = new TrainsetSpawnPart[trainset.Count];
+        for (int i = 0; i < trainset.Count; i++)
+        {
+            NetworkedTrainCar networkedTrainCar;
+
+            if (!trainset[i].TryNetworked(out networkedTrainCar))
+            {
+                NetworkLifecycle.Instance.Server.LogWarning($"TrainsetSpawnPart.FromTrainSet() Failed to find NetworkedTrainCar for: {trainset[i]?.ID}");
+                networkedTrainCar = trainset[i].GetOrAddComponent<NetworkedTrainCar>();
+            }
+
+            parts[i] = FromTrainCar(networkedTrainCar);
+        }
+
+        return parts;
+    }
+
+}

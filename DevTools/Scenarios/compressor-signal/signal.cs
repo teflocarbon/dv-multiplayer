@@ -2,7 +2,7 @@
 // be, and the main reservoir pressure. With a value arg, first writes the port (as anything that
 // isn't the brake system would: an echo of a control change).
 var car = Trains.Find(ctx.Args["loco"]);
-var flow = car.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>().simulationFlow;
+var flow = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>().simulationFlow;
 var compressor = car.GetComponentsInChildren<DV.Simulation.Brake.CompressorSimController>(true).FirstOrDefault()
     ?? throw new Exception(car.ID + " has no compressor");
 if (!flow.TryGetPort(compressor.activationSignalExtInPortId, out var port))

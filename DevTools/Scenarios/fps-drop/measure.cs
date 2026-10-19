@@ -2,7 +2,7 @@
 // the client's speed, at normal frame rate, during a frame-rate drop, and after it.
 // Args: loco, fps (the dropped frame rate), seconds (per phase).
 var loco = Trains.Find(ctx.Args["loco"]);
-var nb = loco.Bogies[0].GetComponent<Multiplayer.Components.Networking.Train.NetworkedBogie>()
+var nb = loco.Bogies[0].GetComponent<Multiplayer.Shared.Trains.NetworkedBogie>()
          ?? throw new Exception("no NetworkedBogie on " + loco.ID);
 int normal = Application.targetFrameRate;
 float phase = float.Parse(ctx.Args["seconds"]);

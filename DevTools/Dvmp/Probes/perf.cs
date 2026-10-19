@@ -9,9 +9,9 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using HarmonyLib;
 using LiteNetLib.Utils;
-using Multiplayer.Components.Networking;
-using Multiplayer.Components.Networking.World;
-using Multiplayer.Debugging;
+using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;
 
 public static class Probe
@@ -111,7 +111,7 @@ public static class Probe
             players = new
             {
                 server = lifecycle?.IsServerRunning == true ? lifecycle.Server.ServerPlayers.Select(p => p.Username).ToArray() : null,
-                remoteAvatars = Dev.All<Multiplayer.Components.Networking.Player.NetworkedPlayer>().Count,
+                remoteAvatars = Dev.All<Multiplayer.Shared.Players.NetworkedPlayer>().Count,
             },
             packets = new
             {

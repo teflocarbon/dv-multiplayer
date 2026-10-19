@@ -1,0 +1,22 @@
+using DV.UI;
+using HarmonyLib;
+using Multiplayer.Shared.Session;
+
+namespace Multiplayer.Client.UI;
+
+[HarmonyPatch(typeof(FastTravelUIController))]
+public static class FastTravelUIControllerPatch
+{
+    [HarmonyPatch(typeof(FastTravelUIController), nameof(FastTravelUIController.RefreshInterface))]
+    private static void Postfix(FastTravelUIController __instance)
+    {
+        // If the host is playing alone, don't disable the fast travel with loco button
+        if (NetworkLifecycle.Instance.IsHostPlayingAlone)
+            return;
+
+        if (__instance?.fastTravelWithLocoButton != null)
+        {
+            __instance.fastTravelWithLocoButton.ToggleInteractable(false);
+        }
+    }
+}

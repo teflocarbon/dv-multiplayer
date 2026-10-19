@@ -69,7 +69,13 @@ The fixtures cover item updates (`Dropped`, `Thrown`, `InHand`, `InInventory`, `
 consumption, envelope authority fields), item recall, spatial and continuous-motion packets,
 world-item authority, Lost and Found, cold-container requests and results, job booklets and report
 artifacts, and train baseline and topology packets. `ItemPacketFixtureTests` also runs the debug
-packet projector self-tests (`Multiplayer/Debugging/DebugPacketProjectorSelfTests.cs`).
+packet projector self-tests (`Multiplayer/Shared/Debugging/DebugPacketProjectorSelfTests.cs`).
+
+`CodeLayoutTests` keeps the code split by role: every file under `Multiplayer/` sits in `Shared/`,
+`Server/`, `Client/` or `Menus/` with its folder's namespace, and in the built DLL Server and Client
+don't reference each other and Shared references neither, apart from the references listed in
+`CodeLayout/role-references.allowed.txt`, which may only shrink. See
+[design/code-layout.md](design/code-layout.md#the-boundary-test).
 
 ### Protocol manifest and fingerprint
 

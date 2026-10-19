@@ -360,7 +360,7 @@ The following findings are grouped by likely impact. Severity describes the pote
 
 #### A. Network ID lookup entries are not removed when an ID changes or an object is normally destroyed
 
-Status (2026-10-14): Fixed. `IdMonoBehaviour` removes the old entry on an ID change and on destroy, and rejects duplicate IDs (`Multiplayer/Components/IdMonoBehaviour.cs`).
+Status (2026-10-14): Fixed. `IdMonoBehaviour` removes the old entry on an ID change and on destroy, and rejects duplicate IDs (`Multiplayer/Shared/Session/IdMonoBehaviour.cs`).
 
 `IdMonoBehaviour.NetId` releases the old ID and registers the new one, but it does not remove the old key from the static ID-to-object dictionary. Normal `OnDestroy()` also does not remove the individual entry; the dictionary is cleared only during a particular unload path.
 
@@ -621,17 +621,17 @@ Useful stress cases include hundreds of nearby items, repeated enter/leave cycle
 
 | Area | Primary files |
 |---|---|
-| Item identity, state, snapshots, validation | `Multiplayer/Components/Networking/World/NetworkedItem*.cs` (partials: `.Server`, `.Snapshots`, `.StateApplication`, `.VrHand`, ...) |
-| Interest management, bulk sync, convergence, fall rescue | `Multiplayer/Components/Networking/World/NetworkedItemManager*.cs` (partials: `.ServerInterest`, `.ClientProjection`, `.Convergence`, `.FallRescue`, ...) |
+| Item identity, state, snapshots, validation | `Multiplayer/Shared/Items/NetworkedItem*.cs` (partials: `.Server`, `.Snapshots`, `.StateApplication`, `.VrHand`, ...) |
+| Interest management, bulk sync, convergence, fall rescue | `Multiplayer/Shared/Items/NetworkedItemManager*.cs` (partials: `.ServerInterest`, `.ClientProjection`, `.Convergence`, `.FallRescue`, ...) |
 | Canonical authority | `AuthoritativeItemRegistry.cs`, `Multiplayer.Core/Items/ItemAuthorityStateMachine.cs` |
-| Base network-ID implementation | `Multiplayer/Components/IdMonoBehaviour.cs` |
-| Per-player known/nearby/owned state | `Multiplayer/Networking/Data/ServerPlayer.cs` |
-| Item snapshot flags and serialization | `Multiplayer/Networking/Data/Items/ItemUpdateData.cs` |
-| Dirty-value abstraction | `Multiplayer/Networking/Data/Items/TrackedValue.cs` |
-| Bulk and single packets | `Multiplayer/Networking/Packets/Common/CommonItemsBulkUpdatePacket.cs`, `CommonItemUpdatePacket.cs` |
-| Client receive/send and load order | `Multiplayer/Networking/Managers/Client/NetworkClient.cs` |
-| Server receive/relay and loading state | `Multiplayer/Networking/Managers/Server/NetworkServer.cs` |
-| Automatic item registration | `Multiplayer/Patches/World/Items/ItemBasePatch.cs` |
+| Base network-ID implementation | `Multiplayer/Shared/Session/IdMonoBehaviour.cs` |
+| Per-player known/nearby/owned state | `Multiplayer/Server/Session/ServerPlayer.cs` |
+| Item snapshot flags and serialization | `Multiplayer/Shared/Protocol/Data/Items/ItemUpdateData.cs` |
+| Dirty-value abstraction | `Multiplayer/Shared/Protocol/Data/Items/TrackedValue.cs` |
+| Bulk and single packets | `Multiplayer/Shared/Protocol/Packets/Common/CommonItemsBulkUpdatePacket.cs`, `CommonItemUpdatePacket.cs` |
+| Client receive/send and load order | `Multiplayer/Client/Session/NetworkClient.cs` |
+| Server receive/relay and loading state | `Multiplayer/Server/Session/NetworkServer.cs` |
+| Automatic item registration | `Multiplayer/Shared/Items/ItemBasePatch.cs` |
 | Useful-item tracked fields | `FlashlightPatch.cs`, `LanternPatch.cs`, `LighterPatch.cs`, `ShovelPatch.cs`, `GadgetSwitchPatch.cs`, `MoneyPatch.cs` (banknote amount, since July), `PageBookPatch.cs` |
 | Throw/removal hooks | `GrabHandlerItem.cs`, `GadgetRemoverPatch.cs` |
 | Client starting inventory data | `ClientboundSaveGameDataPacket.cs`, `StartGameData_ServerSave.cs`, `PlayerItemSaveData.cs` |

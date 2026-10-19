@@ -277,11 +277,11 @@ These are needed on a player host as much as on a dedicated one:
 - **Physics LOD (built):** every multiplayer server adds every player's position to DV's
   physics-LOD reference points (`DistanceLodSystemPatch`).
 - **Track ballast everywhere (built):** every multiplayer server loads every Near scenery tile
-  (`Components/Networking/ServerWorldCoverage.cs`): the ballast along all the track, bridge decks
+  (`Server/Coverage/ServerWorldCoverage.cs`): the ballast along all the track, bridge decks
   and tunnel portals. Measured: 36 s in the background after a load, about +76 MB, no frame cost.
 - **The derail freeze (built):** DV keeps a derailed car kinematic until its Near and Far tiles and
   terrain cell are all loaded. On a server it may also move where there's static ground under both
-  bogies (`ServerWorldCoverage.MayMove`, `Patches/Train/DerailedTrainCarIsKinematicHandlerPatch.cs`).
+  bogies (`ServerWorldCoverage.MayMove`, `Server/Coverage/DerailedTrainCarIsKinematicHandlerPatch.cs`).
   DV only re-checks on streaming changes, so the server also re-checks every derailed car four
   times a second: a car that slides off the ballast where no terrain is loaded is frozen where it
   is rather than falling through the map. With terrain around derailed cars (below), that's only
@@ -297,13 +297,13 @@ These are needed on a player host as much as on a dedicated one:
     - platforms, buildings, roads and tunnel walls are in the Far tiles.
   - **Scenery (built):** every Near tile is loaded (above). Far tiles are loaded around every
     remote player (3×3 tiles of 1024 m) and every derailed car (the tiles within 64 m of it), at
-    most 40 extra: `Components/Networking/ServerSceneryCoverage.cs` and
-    `Patches/World/StreamerPatch.cs`, see
+    most 40 extra: `Server/Coverage/ServerSceneryCoverage.cs` and
+    `Server/Coverage/StreamerPatch.cs`, see
     [multi-anchor-streaming.md §1.4](multi-anchor-streaming.md#14-one-streamer-loading-the-union-of-boxes-feasible-two-patches).
     They render like any tile; whether that costs a player host anything is still to measure.
   - **Terrain (built):** every multiplayer server also loads terrain colliders around every remote
     player (DV's 5×5 box of 512 m cells) and every derailed car (the cells within 64 m of it):
-    `Components/Networking/ServerTerrainCoverage.cs`, `Patches/World/TerrainGridPatch.cs`, and
+    `Server/Coverage/ServerTerrainCoverage.cs`, `Server/Coverage/TerrainGridPatch.cs`, and
     [multi-anchor-streaming.md §2.3](multi-anchor-streaming.md#23-the-multi-anchor-change). At
     most 100 extra cells, about 1.6 MB each; the memory per extra player is still to measure.
   - **Cost:** about 60-200 MB per extra player all told.

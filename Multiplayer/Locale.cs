@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using I2.Loc;
-using Multiplayer.Utils;
+using Multiplayer.Shared.Utils;
 
 
 namespace Multiplayer;

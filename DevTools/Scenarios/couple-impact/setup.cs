@@ -1,6 +1,6 @@
 // Host: a loco and a wagon near the client, uncoupled, the loco backed off GAP metres from the
 // wagon. Handbrakes on. Args: gap (default 12).
-var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().First();
+var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 DV.ThingTypes.TrainCarLivery L(string id) => DV.Globals.G.Types.Liveries.First(l => l.id == id);
 float gap = ctx.Args.TryGetValue("gap", out var g) ? float.Parse(g) : 12f;
 foreach (float d in new[] { 20f, 40f, 60f, 80f })

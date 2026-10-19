@@ -7,7 +7,7 @@ float seconds = float.Parse(ctx.Args["seconds"]);
 var rnd = new System.Random(int.Parse(ctx.Args["seed"]));
 var loco = Trains.Find(ctx.Args["loco"]);
 var home = new Vector2(float.Parse(ctx.Args["homeX"]), float.Parse(ctx.Args["homeZ"]));
-bool host = Multiplayer.Components.Networking.NetworkLifecycle.Instance.IsHost();
+bool host = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsHost();
 var own = new List<float[]>(); var seen = new List<float[]>(); var log = new List<string>();
 bool running = true;
 long T() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -17,7 +17,7 @@ IEnumerator Sample()
     {
         var me = Dev.Abs(PlayerManager.PlayerTransform.position);
         own.Add(new float[] { T() % 10000000, me.x, me.y, me.z });
-        var other = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().FirstOrDefault();
+        var other = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().FirstOrDefault();
         if (other != null) { var p = Dev.Abs(other.transform.position); seen.Add(new float[] { T() % 10000000, p.x, p.y, p.z }); }
         yield return new WaitForSecondsRealtime(0.25f);
     }

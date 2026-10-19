@@ -2,12 +2,12 @@
 // Runs identically on host and client. Positions are absolute (origin shift removed) or
 // local to the car an item rides in, so they are comparable across peers.
 using DV.InventorySystem;
-using Multiplayer.Networking.Data.Items;
+using Multiplayer.Server.Items;
+using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Players;
+using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Trains;
 using DV.ThingTypes;
-using Multiplayer.Components.Networking;
-using Multiplayer.Components.Networking.Player;
-using Multiplayer.Components.Networking.Train;
-using Multiplayer.Components.Networking.World;
 
 public static class Probe
 {

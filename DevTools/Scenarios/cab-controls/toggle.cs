@@ -11,5 +11,5 @@ foreach (var s in switches)
     yield return new WaitForSecondsRealtime(0.1f);
 }
 yield return new WaitForSecondsRealtime(2f);
-var flow = car.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>().simulationFlow;
+var flow = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>().simulationFlow;
 ctx.Result = switches.SelectMany(s => s.ports).Distinct().ToDictionary(id => id, id => flow.TryGetPort(id, out var p) ? Math.Round(p.Value, 3) : -1);

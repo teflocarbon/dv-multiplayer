@@ -33,7 +33,7 @@ for speed in ${SPEEDS//,/ }; do
   L=$(echo "$s" | field loco); W=$(echo "$s" | field wagon); cars="$L $W"
   A="-a loco=$L -a wagon=$W -a locoFront=$(echo "$s" | field locoFront) -a wagonFront=$(echo "$s" | field wagonFront)"
   sleep 2
-  $D eval -t $WHO -m coroutine -u "using Multiplayer.Components.Networking;" --timeout 60 $A -a chain=$CHAIN -a hitch=$HITCH -f $P/couple.cs >"$T/couple.json" &
+  $D eval -t $WHO -m coroutine -u "using Multiplayer.Client.Session; using Multiplayer.Server.Coverage; using Multiplayer.Server.Dedicated; using Multiplayer.Shared.Session;" --timeout 60 $A -a chain=$CHAIN -a hitch=$HITCH -f $P/couple.cs >"$T/couple.json" &
   r=$($D eval -t host -m coroutine --timeout 60 $A -a speed=$speed -a wagonBrake=$WAGON_BRAKE -f $P/ram.cs)
   wait
   echo "== $speed m/s: hit at $(echo "$r" | field hitSpeed) m/s, buffers closed to $(echo "$r" | field minGap) m; $WHO coupled at gap $(field gapAt <"$T/couple.json") via $(field how <"$T/couple.json"), chain $(field fsm <"$T/couple.json") (now $(field coupledNow <"$T/couple.json"))"

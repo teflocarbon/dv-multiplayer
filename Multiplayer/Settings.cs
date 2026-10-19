@@ -1,10 +1,10 @@
 using Humanizer;
-using Multiplayer.Components.UI.ServerBrowser;
-using Multiplayer.Utils;
+using Multiplayer.Menus.ServerBrowser;
+using Multiplayer.Shared.Utils;
 using System;
 using UnityEngine;
 using UnityModManagerNet;
-using static Multiplayer.Components.Networking.UI.PlayerListGUI;
+using static Multiplayer.Client.UI.PlayerListGUI;
 using Console = DV.Console;
 
 namespace Multiplayer;
@@ -233,7 +233,7 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool IsListedAdmin(Guid playerId) =>
         playerId != System.Guid.Empty && !string.IsNullOrWhiteSpace(Admins) &&
         System.Linq.Enumerable.Any(Admins.Split(','),
-            entry => Networking.Data.PlayerIdentity.TryParse(entry, out Guid admin) && admin == playerId);
+            entry => global::Multiplayer.Shared.Session.PlayerIdentity.TryParse(entry, out Guid admin) && admin == playerId);
 
     public Guid GetServiceGuid()
     {

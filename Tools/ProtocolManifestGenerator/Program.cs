@@ -60,7 +60,7 @@ internal static class Program
         }
     }
 
-    private static bool IsPacket(Type type) => type.IsClass && !type.IsAbstract && type.FullName?.Contains("Multiplayer.Networking.Packets.") == true && type.Name.EndsWith("Packet", StringComparison.Ordinal);
+    private static bool IsPacket(Type type) => type.IsClass && !type.IsAbstract && type.FullName?.Contains("Multiplayer.Shared.Protocol.Packets.") == true && type.Name.EndsWith("Packet", StringComparison.Ordinal);
 
     private static IEnumerable<Type> GetReachableProtocolEnums(IEnumerable<Type> packetTypes)
     {
@@ -115,9 +115,9 @@ internal static class Program
     // with its optional debug decoder/formatter.
     private static string GetSemanticDecoderId(string typeName) => typeName switch
     {
-        "Multiplayer.Networking.Packets.Common.CommonItemChangePacket" => "CommonItemChangeV1",
-        "Multiplayer.Networking.Packets.Common.CommonItemUpdatePacket" => "CommonItemUpdateV1",
-        "Multiplayer.Networking.Packets.Common.CommonItemsBulkUpdatePacket" => "CommonItemsBulkUpdateV1",
+        "Multiplayer.Shared.Protocol.Packets.Common.CommonItemChangePacket" => "CommonItemChangeV1",
+        "Multiplayer.Shared.Protocol.Packets.Common.CommonItemUpdatePacket" => "CommonItemUpdateV1",
+        "Multiplayer.Shared.Protocol.Packets.Common.CommonItemsBulkUpdatePacket" => "CommonItemsBulkUpdateV1",
         _ => null
     };
     private static Dictionary<string, long> CreateEnum(Type type) => Enum.GetValues(type).Cast<object>().ToDictionary(value => value.ToString(), value => Convert.ToInt64(value));

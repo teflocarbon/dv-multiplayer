@@ -18,8 +18,8 @@
 - Fixed since: a container opened before the host's once-a-second shell scan is bound on demand
   (427f9e8); a withdrawn item is re-indexed as held, so it reaches its holder after a rejoin
   (d6ec519).
-- **UI bridge:** `Multiplayer/Integrations/Inventory/ColdContainerUiIntegration.cs` and
-  `Multiplayer/Patches/World/Items/ColdContainerUiPatch.cs` project browse rows into the existing
+- **UI bridge:** `Multiplayer/Client/Items/ColdContainerUiIntegration.cs` and
+  `Multiplayer/Client/Items/ColdContainerUiPatch.cs` project browse rows into the existing
   grid through lightweight `ColdContainerItemProxy` objects (hidden `GameObject`s implementing
   `IInventoryItemSpec`, not item prefabs) and route moves, adds and nested access to host requests.
 - **Ownership:** a deposit needs the depositor to possess and own the item
@@ -386,7 +386,7 @@ Nested access uses the child's persistent handle from its slot DTO. Inventory-to
 
 Container storage must consume a general internal inventory API rather than patching Derail Valley's UI and `Inventory` class directly throughout the feature. This is the inventory equivalent of the Career Manager extension boundary: game-version-specific knowledge stays in one adapter while replication, Lost and Found, ownership, recall, and container storage use stable multiplayer contracts.
 
-Initial extraction is implemented in `Multiplayer/Integrations/Inventory/InventoryIntegration.cs` and `Multiplayer/Integrations/Storage/StorageIntegration.cs`. Ownership presentation and recall routing use the pure `InventoryPresentationPlanner`; `NetworkedItem` claim restoration/removal and world-storage transitions, the ownership UI patch, and Lost-and-Found inert projection now consume the adapters. Container browse rows and command interception are implemented in `ColdContainerUiIntegration.cs` and `ColdContainerUiPatch.cs`; the general command/result surface below is not.
+Initial extraction is implemented in `Multiplayer/Shared/Items/InventoryIntegration.cs` and `Multiplayer/Shared/Items/StorageIntegration.cs`. Ownership presentation and recall routing use the pure `InventoryPresentationPlanner`; `NetworkedItem` claim restoration/removal and world-storage transitions, the ownership UI patch, and Lost-and-Found inert projection now consume the adapters. Container browse rows and command interception are implemented in `ColdContainerUiIntegration.cs` and `ColdContainerUiPatch.cs`; the general command/result surface below is not.
 
 Keep the first version deliberately narrow. It is an internal compatibility boundary, not a public mod SDK and not a second inventory implementation.
 

@@ -4,7 +4,7 @@
 // stop or end of the line: the push used to run the train into whatever was ahead, and the wreck
 // failed the run. Args: wagons (default 4), room (metres, default 300).
 // Result: dir = 1 to push the loco forward, -1 to push it backward.
-var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().First();
+var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 DV.ThingTypes.TrainCarLivery L(string id) => DV.Globals.G.Types.Liveries.First(l => l.id == id);
 int n = ctx.Args.TryGetValue("wagons", out var w) ? int.Parse(w) : 4;
 float room = ctx.Args.TryGetValue("room", out var r) ? float.Parse(r) : 300f;

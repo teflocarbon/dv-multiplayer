@@ -2,7 +2,7 @@
 // it: `shift` metres along that track from where it stands (or the other way, or where it stands,
 // whichever is on the track). Coroutine; result: car ID, the track's net ID, the rerail point
 // (absolute) and forward.
-var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().First();
+var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 var livery = DV.Globals.G.Types.Liveries.First(l => l.id == ctx.Args["livery"]);
 float shift = float.Parse(ctx.Args["shift"], System.Globalization.CultureInfo.InvariantCulture);
 TrainCar car = null;
@@ -27,7 +27,7 @@ var at = Dev.Abs(target);
 ctx.Result = new
 {
     id = car.ID,
-    track = Multiplayer.Components.Networking.World.NetworkedRailTrack.GetFromRailTrack(track).NetId,
+    track = Multiplayer.Shared.World.NetworkedRailTrack.GetFromRailTrack(track).NetId,
     x = at.x, y = at.y, z = at.z, fx = fwd.x, fy = fwd.y, fz = fwd.z,
     shift,
 };

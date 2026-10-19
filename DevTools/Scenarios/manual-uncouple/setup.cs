@@ -1,6 +1,6 @@
 // Host: spawn a loco and a wagon on the track near the client, coupled the way a player leaves
 // them (chain tight, hoses connected, cocks open). Returns their ids and the coupling side.
-var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().First();
+var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 DV.ThingTypes.TrainCarLivery L(string id) => DV.Globals.G.Types.Liveries.First(l => l.id == id);
 RailTrack track = null;
 foreach (float d in new[] { 15f, 30f, 45f, 60f, 80f })

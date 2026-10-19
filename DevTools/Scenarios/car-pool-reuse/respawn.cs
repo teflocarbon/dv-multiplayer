@@ -4,11 +4,11 @@
 // each other: overlapping cars couple into loops that DV's trainset code can't split when they
 // break apart, which leaves an empty trainset behind. Args: n.
 int n = int.Parse(ctx.Args["n"]);
-var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Components.Networking.Player.NetworkedPlayer>().First();
+var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 var livery = DV.Globals.G.Types.Liveries.First(l => l.id == "BoxcarBrown");
 var liveries = Enumerable.Repeat(livery, n).ToList();
 var flips = liveries.Select(_ => false).ToList();
-ushort NetId(TrainCar c) => c.GetComponent<Multiplayer.Components.Networking.Train.NetworkedTrainCar>()?.NetId ?? 0;
+ushort NetId(TrainCar c) => c.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>()?.NetId ?? 0;
 
 RailTrack track = null;
 foreach (float d in new[] { 30f, 60f, 90f, 120f, 160f, 200f })

@@ -9,7 +9,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
-using Multiplayer.Components.Networking.World;
+using Multiplayer.Shared.Items;
 
 public static class Probe
 {

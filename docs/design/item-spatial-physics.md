@@ -7,9 +7,9 @@
 ## Implementation status (audited 2026-10-14)
 
 - **Implemented:** phases 1-3 below, in
-  `Multiplayer/Components/Networking/World/WorldItems/NetworkedItemSpatialManager.cs`, with the
+  `Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs`, with the
   epoch/sequence checks in `Multiplayer.Core/Items/ItemSpatialStreamValidator.cs` and the
-  save checkpoint in `WorldItems/WorldItemPersistenceSave.cs`. Loose items on trains (train-local
+  save checkpoint in `Server/Items/WorldItemPersistenceSave.cs`. Loose items on trains (train-local
   samples, settlement and the kinematic freeze) are implemented, and
   [`train-item-wake.md`](train-item-wake.md) covers waking them.
 - **Differs, simulator choice:** the player who releases the item (the host included) always gets

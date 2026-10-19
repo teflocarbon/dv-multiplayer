@@ -1,9 +1,9 @@
 using LiteNetLib.Utils;
 using Multiplayer.Core.Trains;
-using Multiplayer.Networking.Data.Train;
-using Multiplayer.Networking.Packets.Clientbound.Train;
-using Multiplayer.Networking.Packets.Serverbound.Train;
-using Multiplayer.Networking.Serialization;
+using Multiplayer.Shared.Protocol.Data.Train;
+using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
+using Multiplayer.Shared.Protocol.Packets.Serverbound.Train;
+using Multiplayer.Shared.Protocol.Serialization;
 using NUnit.Framework;
 
 namespace Multiplayer.Protocol.Tests;

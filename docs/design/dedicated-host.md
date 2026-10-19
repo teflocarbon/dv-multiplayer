@@ -263,7 +263,7 @@ list sent to clients; for now the screen pays them all.
 
 Only on a dedicated host; an ordinary host loads its world around its own player as before.
 
-- **Streaming anchor** (`Components/Networking/DedicatedHostAnchor.cs`, created from
+- **Streaming anchor** (`Server/Dedicated/DedicatedHostAnchor.cs`, created from
   `NetworkServer.OnLoaded`):
   - DV's `PlayerTracker` follows `PlayerManager.ActiveCamera`, which is `PlayerCameraOverride`
     when that's set (`Assembly-CSharp/PlayerTracker.cs`, `PlayerManager.cs:14-42`).
@@ -273,7 +273,7 @@ Only on a dedicated host; an ordinary host loads its world around its own player
     and the other camera-distance checks follow it. The body stays parked, and vanilla still saves
     its position.
   - With nobody connected the anchor stays where it was. It takes the override back if DV clears it.
-- **Physics LOD** (`Patches/Train/DistanceLodSystemPatch.cs`):
+- **Physics LOD** (`Server/Coverage/DistanceLodSystemPatch.cs`):
   - `DistanceLodSystem` measures from a `NativeList` of reference points (the local player, plus
     the external camera) and hands it to a scheduled job in the same `OnUpdate`, so a postfix
     would race the job.
@@ -303,7 +303,7 @@ Still open:
 Without the flag nothing changes. With it, the game is a dedicated host:
 
 - **The loopback client stays.** Its `ServerPlayer` is a service identity,
-  `ServerPlayer.IsServiceHost` (`Networking/Data/ServerPlayer.cs`), which is computed from
+  `ServerPlayer.IsServiceHost` (`Server/Session/ServerPlayer.cs`), which is computed from
   `NetworkLifecycle.IsDedicatedHost` and `IsHost(player)`, so a client can't claim it. It logs in
   as "Dedicated host" with `Settings.ServiceGuid`, so the player's own game on the same install
   joins as itself (`NetworkClient`).
@@ -437,7 +437,7 @@ DerailValley.exe -nonvr -batchmode -nographics -logFile ... -dvmp-role host -dvm
 ### What breaks
 
 **Any camera render with effects crashes the process.** The first run crashed natively right after
-the join. `ChatGUI.BuildUI` (`Multiplayer/Components/Networking/UI/ChatGUI.cs:486`) briefly
+the join. `ChatGUI.BuildUI` (`Multiplayer/Client/UI/ChatGUI.cs:486`) briefly
 pauses the game to find the save/load prefab. Pausing raises `SaveGameManager.OnGamePausing`
 (`Assembly-CSharp/SaveGameManager.cs:186`), which stashes a screenshot through
 `ScreenshotTaker.TakeScreenshotWithoutUI` (`ScreenshotTaker.cs:59-86`). That calls
@@ -623,20 +623,20 @@ Paths are under `Multiplayer/`. Line numbers are from the working tree on 2026-1
 ### Keep the loopback client: it isn't only a player
 
 The obvious design, starting the server without `NetworkLifecycle.StartServer`'s loopback client
-(`Components/Networking/NetworkLifecycle.cs:125-160`, client at `:153`), breaks the host itself.
+(`Shared/Session/NetworkLifecycle.cs:125-160`, client at `:153`), breaks the host itself.
 That client is how the host **applies relayed state to its own world** and **sends its own
 simulation**:
 
 | Breaks without the loopback client | Where |
 |---|---|
-| **Loco state never reaches clients.** The host subscribes to every sim port, not only controls, and sends them through `Client.SendPorts`. The server takes the host's own packet and broadcasts the commit. The same route carries fuses, handbrake and brake-cylinder release. Most calls are `Client.` without `?.`, so they throw. | `Components/Networking/Train/NetworkedTrainCar.cs:514`, `:1681`, `:1607`, `:1714`, `:1754`; `Networking/Managers/Server/NetworkServer.cs:2353`, `:2444-2451` |
-| **Client junction and turntable changes never reach the host's world.** The server relays them to every peer except the sender, and the host's own client is what applies them. Host trains would run the old route. | `NetworkServer.cs:2140-2148`; `Networking/Managers/Client/NetworkClient.cs:986-998` |
-| **Time skips from client sleep or fast travel don't happen on the host.** They are applied by the host's client, and the 30 s weather sync then pulls clients back. | `NetworkServer.cs:2050-2059`, `:2095-2096`; `NetworkClient.cs:922-925`; `Patches/World/TimeAdvancePatch.cs:33` |
-| **Host-side item changes aren't committed.** Interest, wake and job code look up `hostPlayer` by `Server.SelfId` and need it. | `Components/Networking/World/NetworkedItemManager.ServerInterest.cs:219-243`, `:291-294`; `Patches/Jobs/JobValidatorPatch.cs:72-79`; `NetworkedTrainItemWakeManager.cs:188-218` |
-| **No remote avatars on the host.** `ClientPlayerManager` creates `NetworkedPlayer`s from relayed packets. Server logic relies on them: `HasPlayers` for delete and work-train occupancy, held items attached to avatar hands, plugs following a hand. | `Networking/Managers/Client/ClientPlayerManager.cs:34-65`; `NetworkedTrainCar.cs:265`; `NetworkServer.cs:2603`, `:2852`; `NetworkedItem.StateApplication.cs:45-103`; `NetworkedPluggableObject.cs:584-625` |
-| **The host's loading screen never comes down.** `DisplayLoadingInfoPatch` unhooks it, and only `RemoveLoadingScreen` to the host's own client removes it. | `Patches/World/DisplayLoadingInfoPatch.cs:8-11`; `NetworkClient.cs:889-920` |
-| **Station loco spawning never starts.** The spawner waits for `Client != null`. | `Patches/World/StationLocoSpawnerPatch.cs:30-31` |
-| MPAPI NetId lookups aren't initialised (only the client's `Start()` calls `CheckInitialization`), and `RegisterPaintTheme` refuses. | `Networking/Managers/NetworkManager.cs:65-69`; `API/APIProvider.cs:68`, `:85` |
+| **Loco state never reaches clients.** The host subscribes to every sim port, not only controls, and sends them through `Client.SendPorts`. The server takes the host's own packet and broadcasts the commit. The same route carries fuses, handbrake and brake-cylinder release. Most calls are `Client.` without `?.`, so they throw. | `Shared/Trains/NetworkedTrainCar.cs:514`, `:1681`, `:1607`, `:1714`, `:1754`; `Server/Session/NetworkServer.cs:2353`, `:2444-2451` |
+| **Client junction and turntable changes never reach the host's world.** The server relays them to every peer except the sender, and the host's own client is what applies them. Host trains would run the old route. | `NetworkServer.cs:2140-2148`; `Client/Session/NetworkClient.cs:986-998` |
+| **Time skips from client sleep or fast travel don't happen on the host.** They are applied by the host's client, and the 30 s weather sync then pulls clients back. | `NetworkServer.cs:2050-2059`, `:2095-2096`; `NetworkClient.cs:922-925`; `Client/World/TimeAdvancePatch.cs:33` |
+| **Host-side item changes aren't committed.** Interest, wake and job code look up `hostPlayer` by `Server.SelfId` and need it. | `Shared/Items/NetworkedItemManager.ServerInterest.cs:219-243`, `:291-294`; `Client/Jobs/JobValidatorPatch.cs:72-79`; `NetworkedTrainItemWakeManager.cs:188-218` |
+| **No remote avatars on the host.** `ClientPlayerManager` creates `NetworkedPlayer`s from relayed packets. Server logic relies on them: `HasPlayers` for delete and work-train occupancy, held items attached to avatar hands, plugs following a hand. | `Client/Players/ClientPlayerManager.cs:34-65`; `NetworkedTrainCar.cs:265`; `NetworkServer.cs:2603`, `:2852`; `NetworkedItem.StateApplication.cs:45-103`; `NetworkedPluggableObject.cs:584-625` |
+| **The host's loading screen never comes down.** `DisplayLoadingInfoPatch` unhooks it, and only `RemoveLoadingScreen` to the host's own client removes it. | `Client/Session/DisplayLoadingInfoPatch.cs:8-11`; `NetworkClient.cs:889-920` |
+| **Station loco spawning never starts.** The spawner waits for `Client != null`. | `Server/Trains/StationLocoSpawnerPatch.cs:30-31` |
+| MPAPI NetId lookups aren't initialised (only the client's `Start()` calls `CheckInitialization`), and `RegisterPaintTheme` refuses. | `Shared/Session/NetworkManager.cs:65-69`; `Shared/Api/APIProvider.cs:68`, `:85` |
 
 `IsHost()` alone is used about 300 times. Removing the client is a rewrite. **Keep it, and make it a
 service identity**: the host's `ServerPlayer` exists for transport and `excludeSelf`, but isn't a
@@ -650,21 +650,21 @@ stop doing.
 | `NetworkServer.cs:92-105` | `SelfPeer`/`SelfId` come from the loopback client | Keep, plus an explicit `IsServiceHost` flag on that `ServerPlayer` |
 | `NetworkServer.cs:1612` | `MaxPlayers` counts the host | Count remote players only |
 | `NetworkServer.cs:1764-1769`, `:1957-1983` | The host's player completes loading, is announced (`PlayerJoined`, "joined the game" chat, `PlayerReady`) | Complete it silently: no announcement, no avatar, not in player lists |
-| `Utils/DvExtensions.cs:122-137` (`AnyPlayerSqrMag`) | Every `ServerPlayer` is a player, the host included | Skip the service identity. Otherwise the parked body keeps its own station's jobs, spawners and registers alive (users: `StationJobGenerationRangePatch.cs`, `StationLocoSpawnerPatch.cs:41`, `PlayerDistanceGameObjectsDisablerPatch.cs:128`, `UnusedTrainCarDeleterPatch.cs:46`, `CashRegisterBasePatch.cs:128`) |
+| `Shared/Utils/DvExtensions.cs:122-137` (`AnyPlayerSqrMag`) | Every `ServerPlayer` is a player, the host included | Skip the service identity. Otherwise the parked body keeps its own station's jobs, spawners and registers alive (users: `StationJobGenerationRangePatch.cs`, `StationLocoSpawnerPatch.cs:41`, `PlayerDistanceGameObjectsDisablerPatch.cs:128`, `UnusedTrainCarDeleterPatch.cs:46`, `CashRegisterBasePatch.cs:128`) |
 | Item interest, Lost and Found, cold containers, culling (`NetworkedItemManager.ServerInterest.cs:68`, `:113`, `:255`; `NetworkedLostAndFoundManager.cs:326`, `:512`, `:567`; `NetworkedColdContainerManager.cs:405`; `CullingManager.cs:85`) | Some skip `SelfPeer`, some don't | One `GameplayPlayers` view used everywhere |
-| `Components/Networking/Player/LocalPlayerTrackerBase.cs:170`, `Patches/Player/CustomFirstPersonControllerPatch.cs:15-23` | The host's body sends its position every tick | Don't attach the tracker to the parked body |
-| `WorldItems/NetworkedItemSpatialManager.cs:243`, `:537-541`, `:620-628`, `:660-663` | The host's player can simulate a released item and is the fallback simulator | The host can still simulate under the service identity, but only where it has the world loaded (section 2) |
+| `Client/Players/LocalPlayerTrackerBase.cs:170`, `Client/Players/CustomFirstPersonControllerPatch.cs:15-23` | The host's body sends its position every tick | Don't attach the tracker to the parked body |
+| `Shared/Items/NetworkedItemSpatialManager.cs:243`, `:537-541`, `:620-628`, `:660-663` | The host's player can simulate a released item and is the fallback simulator | The host can still simulate under the service identity, but only where it has the world loaded (section 2) |
 | `NetworkServer.cs:2406`, `:2533`; `NetworkedTrainCar.cs:1072` | The host's own control and topology commands skip range checks | Fine: only the host's own simulation goes through them |
-| `Patches/Train/CarVisitCheckerPatch.cs:16-17`, `UnusedTrainCarDeleterPatch.cs:70-73`, `SimulatedCarDebtTrackerPatch.cs:26`, `QuickTutorialInitiatorPatch.cs:34`, `FastTravelUIControllerPatch.cs:14`, `World/BedSleepingControllerPatch.cs:24-27`, `World/TimeAdvancePatch.cs:28` | `PlayerCount == 1` means "the host is alone, vanilla is right" | Use the remote player count. With one remote player these currently run vanilla against the parked body |
-| `Utils/DvExtensions.cs:170-175` (`AllowPause`), `Patches/World/AppUtilPatch.cs:12-22` | Pausing is allowed when the host is alone | Decide the empty-server policy (section 4) instead |
-| `Components/Networking/UI/ChatGUI.cs:486` | Chat UI is built on every host | Skip it. It also pauses the game, which crashed `-nographics` |
+| `Server/Trains/CarVisitCheckerPatch.cs:16-17`, `UnusedTrainCarDeleterPatch.cs:70-73`, `SimulatedCarDebtTrackerPatch.cs:26`, `QuickTutorialInitiatorPatch.cs:34`, `FastTravelUIControllerPatch.cs:14`, `Client/World/BedSleepingControllerPatch.cs:24-27`, `Client/World/TimeAdvancePatch.cs:28` | `PlayerCount == 1` means "the host is alone, vanilla is right" | Use the remote player count. With one remote player these currently run vanilla against the parked body |
+| `Shared/Utils/DvExtensions.cs:170-175` (`AllowPause`), `Shared/Session/AppUtilPatch.cs:12-22` | Pausing is allowed when the host is alone | Decide the empty-server policy (section 4) instead |
+| `Client/UI/ChatGUI.cs:486` | Chat UI is built on every host | Skip it. It also pauses the game, which crashed `-nographics` |
 
 ### The host player's own state
 
 | Where | Assumes | A no-player host needs |
 |---|---|---|
-| `Components/SaveGame/NetworkedSaveGameManager.cs:73-76` | `Players.<guid>` is written for remote players; vanilla saves the host's own position and inventory (`Player_position`, `Storage_Inventory`) | Vanilla now saves the parked body: pin it at a fixed spot and keep its inventory empty |
-| `WorldItems/WorldItemPersistenceSave.cs:115-123`; `Integrations/Inventory/InventoryIntegration.cs:95-98`; `NetworkedItem.Snapshots.cs:833-834` | The host's possessions live in vanilla's save and inventory | Nothing owned by the service identity |
+| `Server/Career/NetworkedSaveGameManager.cs:73-76` | `Players.<guid>` is written for remote players; vanilla saves the host's own position and inventory (`Player_position`, `Storage_Inventory`) | Vanilla now saves the parked body: pin it at a fixed spot and keep its inventory empty |
+| `Server/Items/WorldItemPersistenceSave.cs:115-123`; `Shared/Items/InventoryIntegration.cs:95-98`; `NetworkedItem.Snapshots.cs:833-834` | The host's possessions live in vanilla's save and inventory | Nothing owned by the service identity |
 | `Settings.cs:30`, `:212`; `NetworkServer.cs:1598` | One GUID per install. The stale-session check skips `SelfPeer`, so a client with the host's GUID is admitted | A distinct GUID for the service identity. The user's own client on the same install keeps the install GUID |
 | Save opened for the first time as a dedicated host | The career's player was the host | A one-off migration of the old host body's inventory and position into `Players.<user guid>` (earlier report, 2.5) |
 | `NetworkServer.cs:3225`, `ClientboundSaveGameDataPacket.cs:65-101` | Starter kits go to GUIDs with no saved data | Fine: the service identity never logs in through game data |
@@ -676,28 +676,28 @@ There is one wallet: the host's vanilla `Inventory.PlayerMoney`. Every spend com
 from vanilla events (`NetworkedSaveGameManager.cs:25-66`). That works as well with no player.
 
 **Paying fees and debt only works at the host's own career manager.** Clients are shown "host only"
-(`Patches/SaveGame/CareerManagerFeesScreenPatch.cs:8-17`). With nobody at the host, debt can never
+(`Client/Career/CareerManagerFeesScreenPatch.cs:8-17`). With nobody at the host, debt can never
 be cleared. Licence purchases are refused while there is debt (`NetworkServer.cs:2886-2891`), so
 they're blocked for good. A dedicated host needs a serverbound fee-payment request.
 `RerailControllerPatch.cs:19-25` takes the newbie rerail price from the host's own flag.
 
 ### Host-only UI and input
 
-- **Hosting is interactive.** The Host button and pane (`Patches/MainMenu/LauncherControllerPatch.cs:29-67`,
-  `Components/MainMenu/HostGamePane.cs:357-440`) fill `serverData` and press Run. The dvmp `host`
+- **Hosting is interactive.** The Host button and pane (`Menus/MainMenu/LauncherControllerPatch.cs:29-67`,
+  `Menus/MainMenu/HostGamePane.cs:357-440`) fill `serverData` and press Run. The dvmp `host`
   probe (`DevTools/Dvmp/Probes/host.cs`) already does this from code; ship it behind command-line
   arguments.
-- **Chat commands** (`Networking/Managers/Server/ChatManager.cs:16-104`): `/server`, `/whisper`,
+- **Chat commands** (`Server/Chat/ChatManager.cs:16-104`): `/server`, `/whisper`,
   `/help`, `/kick` (host only, `:250-278`), `/crew` and `/log` (Debug only). There's no ban, no
   admin role and no console, and "host only" means `IsHost(sender)`, the loopback client (`:191-199`;
   the comments at `:193` and `:256` already note it). `ServerAPIProvider.SendServerChatMessage`
-  only sends when `excludePlayer` is set (`API/ServerAPIProvider.cs:107-112`).
-- **Other host-local powers:** key use (`Patches/World/KeyUsePatch.cs:10-13`), the weather editor
+  only sends when `excludePlayer` is set (`Server/Api/ServerAPIProvider.cs:107-112`).
+- **Other host-local powers:** key use (`Server/World/KeyUsePatch.cs:10-13`), the weather editor
   and game parameters (broadcast by `GameParamsPatch`), and the host's mod settings (`Settings.cs:38-62`).
 - **MPAPI:** `IsDedicatedServer` is hard-coded `false //feature not implemented`
-  (`API/APIProvider.cs:27`). `ClientPlayerWrapper` never sets `isHost`, and `ClientAPIProvider.PlayerCount`
+  (`Shared/Api/APIProvider.cs:27`). `ClientPlayerWrapper` never sets `isHost`, and `ClientAPIProvider.PlayerCount`
   adds one for the local player. Other mods need these defined.
-- `Patches/Mods/RemoteDispatchPatch.cs:49-57` shows players only while a client runs; with the
+- `Shared/Integrations/RemoteDispatchPatch.cs:49-57` shows players only while a client runs; with the
   loopback client kept, that's fine.
 
 ## 4. Operations
@@ -705,10 +705,10 @@ they're blocked for good. A dedicated host needs a serverbound fee-payment reque
 ### Steam
 
 - **The game doesn't need Steam** (section 1). **The mod does.** The only transport is
-  `SteamWorksTransport` (`Networking/Managers/NetworkManager.cs:41`; `LiteNetLibTransport` is
+  `SteamWorksTransport` (`Shared/Session/NetworkManager.cs:41`; `LiteNetLibTransport` is
   commented out). Its "normal" UDP socket is Steam's networking-sockets library on DV's
-  `SteamClient` (`Networking/TransportLayers/SteamworksTransport.cs:59-85`), and relay access starts
-  only if `DVSteamworks.Success` (`Patches/Util/DVSteamworksPatch.cs:13-17`). `HostGamePane` refuses
+  `SteamClient` (`Shared/Transport/SteamworksTransport.cs:59-85`), and relay access starts
+  only if `DVSteamworks.Success` (`Shared/Transport/DVSteamworksPatch.cs:13-17`). `HostGamePane` refuses
   to host without Steam (`HostGamePane.cs:71-77`). There's no `SteamGameServer` path.
 - So a dedicated host needs **a Steam client logged in to an account that owns DV**. On the user's
   PC that's their own account, shared with their client. The harness proves loopback joins work
@@ -717,7 +717,7 @@ they're blocked for good. A dedicated host needs a serverbound fee-payment reque
 - Ways out later: a Steam game-server login (DV has no dedicated-server app ID, so this needs
   checking), or reviving `LiteNetLibTransport` for direct UDP (no relay or NAT traversal, so port
   forwarding).
-- Public listing creates a Steam lobby owned by the host's account (`Networking/Managers/Server/LobbyServerManager.cs:88-93`,
+- Public listing creates a Steam lobby owned by the host's account (`Server/Session/LobbyServerManager.cs:88-93`,
   `:188-217`), and its `CurrentPlayers` counts the host (`:159-183`).
 
 ### Memory and CPU per instance
@@ -783,7 +783,7 @@ renderer. The windowed game logs far less, but the mod's own debug log should be
 ### Time and pause when nobody is online
 
 - Nothing pauses by itself. With only the host connected, `AllowPause` is true
-  (`Utils/DvExtensions.cs:170-175`), but nobody presses pause. The world keeps running:
+  (`Shared/Utils/DvExtensions.cs:170-175`), but nobody presses pause. The world keeps running:
   - time and weather advance;
   - jobs age and expire;
   - an unattended train keeps rolling;

@@ -7,7 +7,7 @@
 var a = Trains.Find(ctx.Args["loco"]); var b = Trains.Find(ctx.Args["wagon"]);
 Coupler ca = bool.Parse(ctx.Args["locoFront"]) ? a.frontCoupler : a.rearCoupler;
 Coupler cb = bool.Parse(ctx.Args["wagonFront"]) ? b.frontCoupler : b.rearCoupler;
-using (Multiplayer.Components.Networking.Train.NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
+using (Multiplayer.Shared.Trains.NetworkedTrainCar.BeginAuthoritativeTopologyApplication())
     ca.CoupleTo(cb, false, true);
 for (int i = 0; i < 30; i++) yield return new WaitForFixedUpdate();
 ctx.Result = new { coupled = ca.coupledTo == cb, sameSet = a.trainset == b.trainset, joint = ca.rigidCJ != null || cb.rigidCJ != null, hose = ca.GetAirHoseConnectedTo() == cb };
