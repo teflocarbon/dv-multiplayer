@@ -285,4 +285,13 @@ Steps 2-3 are mechanical and change no behaviour; the regression gate on one pai
   13, Server → Client 7, and 15 into `Menus` from elsewhere. The most come from
   `NetworkLifecycle`, `NetworkedItemManager`, `NetworkedItem`, `NetworkClient` and
   `NetworkedTrainCar`.
-- Steps 4-5: not started.
+- **Step 4 has started** on `split/client-server`, the integration branch for the splits
+  (protected like `beta`, built by CI on every push). Done there first:
+  - `NetworkServer` and `NetworkClient` are split into partial files by area
+    (`NetworkServer.Trains.cs`, `.Items.cs`, `.World.cs`, `.Stations.cs`, `.Jobs.cs`, `.Career.cs`,
+    and the same for `NetworkClient`), so each area's work touches its own files;
+  - the machinery for [host-local-session](host-local-session.md) stage 2.
+
+  Each area then shrinks its own lines of the allow-list, one PR at a time into that branch, which
+  merges into `beta` when a full gate run and a playtest look good.
+- Step 5: not started.

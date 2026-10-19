@@ -50,7 +50,7 @@ public abstract class NetworkManager
         transport?.UpdateSettings(settings);
     }
 
-    public void PollEvents()
+    public virtual void PollEvents()
     {
         //netManager.PollEvents();
         transport?.PollEvents();

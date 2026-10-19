@@ -314,6 +314,9 @@ public partial class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemSpatialSamplePacket, ITransportPeer>(OnServerboundItemSpatialSamplePacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemSpatialSettlementPacket, ITransportPeer>(OnServerboundItemSpatialSettlementPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemTrainWakeWitnessPacket, ITransportPeer>(OnServerboundItemTrainWakeWitnessPacket);
+
+        // The host's own player's requests, handled in-process (NetworkServer.LocalPlayer.cs).
+        RegisterLocalHandlers();
     }
 
     private const float ProjectionRetryDelaySeconds = 5f;

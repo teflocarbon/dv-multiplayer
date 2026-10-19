@@ -976,6 +976,10 @@ public partial class NetworkClient : NetworkManager
     {
         if (ShouldBlockObserverMutation(packet))
             return;
+        // On the host, a request the server handles in-process goes straight to it instead of over
+        // loopback (docs/design/host-local-session.md, stage 2). Elsewhere LocalServer is null.
+        if (NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true)
+            return;
         SendPacket(serverPeer, packet, deliveryMethod);
     }
 
