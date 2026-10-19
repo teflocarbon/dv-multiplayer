@@ -22,9 +22,13 @@
 - **Added since the design:** host convergence re-sends one resting world item per player every
   0.1 s so drifted client copies heal (`ServerItemManager.Convergence.cs`, b601cc6); items more
   than 1 m under the terrain are moved back to their last safe pose
-  (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). Only the host's scan runs: the
-  client-side below-map report is called from the item tick, which is subscribed on the host
-  only, so items under a distant client's terrain are not reported. Banknote amounts sync as a
+  (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). The host scans where it has terrain;
+  a remote client reports its own items under its terrain (`NetworkedItemManager.FallRescue.cs`,
+  from the item tick, which until #37 was subscribed on the host only), and the server rescues
+  one only if its copy is under that ground too. Refactor note: the client's scan is client code in
+  the Shared manager; it, and the tick that runs it, move to the manager's client part
+  (`IItemManagerClientPart` beside `ServerItemManager`) with the rest of the client side.
+  Banknote amounts sync as a
   host-authoritative tracked value and a client's spent note is deposited with the host
   (`MoneyPatch`, 89c68e6, 99a8f5c).
 - **Persistence:** saves keep other players' inventory and hand items (325c2fb, dba0837) and skip

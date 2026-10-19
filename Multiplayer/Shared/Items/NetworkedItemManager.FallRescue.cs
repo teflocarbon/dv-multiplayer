@@ -50,7 +50,9 @@ public partial class NetworkedItemManager
         return null;
     }
 
-    // The client's scan; the host's is the server's (ServerItemManager.FallRescue.cs).
+    // The client's scan, from a remote client's item tick; the host's is the server's
+    // (ServerItemManager.FallRescue.cs). Client code: it moves to the manager's client part with
+    // the rest of the client side (see Start).
     private void RunFallRescue()
     {
         if (Time.unscaledTime < nextRescueScanAt)

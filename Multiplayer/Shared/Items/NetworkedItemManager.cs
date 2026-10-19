@@ -83,8 +83,11 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
 
     protected void Start()
     {
-        if (NetworkLifecycle.Instance.IsHost())
-            NetworkLifecycle.Instance.OnTick += Common_OnTick;
+        // The host's tick runs the server's part; a remote client's runs its fall-rescue scan,
+        // which reports its items under the map (#37: it was subscribed on the host only). When
+        // the client's code moves into a client part of the manager (an IItemManagerClientPart
+        // beside ServerItemManager), this tick goes with it.
+        NetworkLifecycle.Instance.OnTick += Common_OnTick;
 
         BuildPrefabLookup();
     }
@@ -218,8 +221,8 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         if (UnloadWatcher.isQuitting)
             return;
 
-        if (NetworkLifecycle.Instance.IsHost())
-            NetworkLifecycle.Instance.OnTick -= Common_OnTick;
+        // Whatever this game was: the server may be gone already (NetworkLifecycle.Stop).
+        NetworkLifecycle.Instance.OnTick -= Common_OnTick;
         // Only a part made this session: the server may be gone already.
         serverPart?.Clear();
         LostAndFoundList.Clear();
