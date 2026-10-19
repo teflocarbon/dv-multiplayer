@@ -92,6 +92,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
   "overview-pickup|overview-pickup|"
+  "job-reroll|job-reroll|"
+  "job-reroll-host|job-reroll|WHO=host|player"
   "remote-held-item|remote-held-item|"
   "owned-items|owned-items|"
   "sandbox-cargo|sandbox-cargo|"

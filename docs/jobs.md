@@ -50,6 +50,7 @@ it. See [architecture.md](architecture.md) for the host/client model in general.
 | `ServerboundJobValidateRequestPacket` | client → host | An overview or booklet put in a validator: job, station, item NetId, `ValidationType`. |
 | `ClientboundJobValidateResponsePacket` | host → requester | Rejections only: `Invalid`, and `JobMissing` when the host has no such job. |
 | `ServerboundJobBookletSummonRequestPacket` | client → host | The validator's reprint button. |
+| `ServerboundJobRerollRequestPacket` | client → host | An offered job's overview dropped in the office bin: job, overview NetId, bin position. See [Re-rolling an offered job](#re-rolling-an-offered-job). |
 | `ClientboundJobReportArtifactPacket` | host → one client | Compressed render recipe for one `JobReport`, sent just before its item Create. |
 | `ServerboundWarehouseMachineControllerRequestPacket` | client → host | Warehouse Load / Unload button. |
 | `ClientboundWarehouseControllerUpdatePacket` | host → clients | Warehouse screen text, job, car and cargo. |
@@ -251,6 +252,51 @@ broadcast; the real check runs in the host's vanilla validator.
 On complete, abandon and expire the host destroys every booklet copy and clears the issuance index
 (`DestroyJobBooklets`); the item destroys replicate. Reports are kept.
 
+### Re-rolling an offered job
+
+Vanilla has no way to swap an offered job you don't want: a station generates jobs only when a
+player enters its zone, up to its `jobsCapacity`, and expires them all when every player has left.
+In multiplayer a player can drop an offered job's **overview** in the station office bin to replace
+the job. A taken job's booklet in the bin still abandons the job (vanilla's path).
+
+The bin is vanilla's `JobAbandoner`: its `OnTriggerEnter` abandons a `JobBooklet` and ignores
+everything else. `JobAbandoner_ClientPatch` (`Client/Jobs`) adds overviews: when an `Available`
+job's overview enters the trigger, the game whose player let go of it sends
+`ServerboundJobRerollRequestPacket` (job NetId, overview NetId, bin position). Every peer's copy of
+the paper falls into the bin, so only one game may ask: the paper is this player's if it is in their
+hand or inventory, if this game simulates it (its physics lease), or if they let go of it in the
+last 5 s, before the lease arrives (`NetworkedItem.LocallyReleasedAt`). A game asks once per job
+every 2 s, since the paper has several colliders and can bounce. The host's own player's request is
+handled in-process ([host-local-session](design/host-local-session.md), stage 2).
+
+The host (`Server/Jobs/JobReroll`) ignores a request for a job that is no longer `Available` or an
+item that isn't the job's overview: a second request for the same paper finds the job expired, so
+two players binning it can't race. Otherwise it decides:
+
+- **Re-roll** when nobody is in or on any of the job's cars (`NetworkedTrainCar.HasPlayers`, or a
+  player's `CarId`) and none of them is in a trainset with a locomotive or tender. The host removes
+  and destroys the overview, expires the job (`Job.ExpireJob`: the chain controller releases its
+  track reservations and marks the cars for vanilla's `UnusedTrainCarDeleter`), deletes the cars
+  at once (`CarSpawner.DeleteTrainCars(..., forceInstantDestroy: true)`, removal cause
+  `CarRemovalReason.JobRerolled`) instead of leaving them for the deleter, which waits until every
+  player is far away, and calls `StationProceduralJobsController.TryToGenerateJobs`
+  (`JobReroll.GenerateReplacement`). That refills the station to `jobsCapacity`; vanilla forces the
+  first job it generates to be one the players are licensed for. Track space
+  (`YardTracksOrganizer`) is the real limit, and the freed cars give it back.
+- **Throw the paper back out** when someone is on a car, a car is coupled to a locomotive, or the
+  bin is at another station's office (the nearest validator isn't the job's station's). The host
+  applies an authoritative `Thrown` transition (`ItemTransitionReason.JobRerollRefused`, move cause
+  `ItemMoveReason.ThrownOutOfBin`) from just above the bin, up and towards the requester. The
+  requester is the transition's actor, so their game gets the physics lease and simulates the
+  flight. The paper visibly comes back, which is the player's answer: nothing else is sent.
+
+Every peer sees the result through the usual sync: the `Expired` job update, the item destroy, the
+car deletes, and a `ClientboundJobsCreatePacket` for the replacement. Debug events:
+`job.reroll-accepted`, `job.reroll-refused` (with the reason).
+
+Generation goes through `GenerateReplacement` and vanilla's generator, so a later add-on that wants
+to claim some generated jobs before their overviews print hooks the generator, not the re-roll.
+
 ### Save, load and rejoin
 
 The host's save is the only job save. DV saves and restores the host's jobs; restored jobs are
@@ -293,7 +339,19 @@ ACCEPT=host HANDIN=client DevTools/Scenarios/jobs/run.sh   # what gate.sh runs
 ACCEPT=client HANDIN=client STATION=FM DevTools/Scenarios/jobs/run.sh   # the defaults
 ```
 
-`ACCEPT` and `HANDIN` take `host` or `client`. Unit tests: `JobBookletIssuanceIndexTests`
+`ACCEPT` and `HANDIN` take `host` or `client`.
+
+The `job-reroll` scenario bins an offered job's overview with nobody on its cars (the job and cars
+go and a replacement is offered, the same on both peers), then has the client board a car of
+another job and bins that one (the paper comes back out and lands at the same spot on both peers).
+`WHO=client` (the default, also on a dedicated host) or `WHO=host` bins the paper.
+
+```bash
+DevTools/Scenarios/job-reroll/run.sh            # WHO=client
+WHO=host DevTools/Scenarios/job-reroll/run.sh   # a player host
+```
+
+Unit tests: `JobBookletIssuanceIndexTests`
 (`Multiplayer.Core.Tests`), `JobBookletProtocolTests` and `JobReportArtifactTests`
 (`Multiplayer.Protocol.Tests`). See [testing.md](testing.md).
 
