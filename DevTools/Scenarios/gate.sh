@@ -70,6 +70,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "fps-drop|fps-drop|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
+  "derail-drag|derail-drag|"
   "rerail|rerail|"
   "rerail-host|rerail|WHO=host"
   "rerail-host-radio|rerail|WHO=host-radio"

@@ -1053,7 +1053,22 @@ changes.
 Derailment: a rigidbody snapshot for an on-rail client car clears its bogie samples (they are for
 the rails it left), calls `TrainCar.Derail()` once, then interpolates the snapshots
 (`NetworkedRigidbody`, only while the car is derailed); afterwards the client reapplies the host's topology, because native
-derailment changes couplers. A car derailed on a client but on the rails on the host is rerailed
+derailment changes couplers. The rigidbody target is extrapolated from the host tick of its sample
+(up to 0.5 s), the same time base as the on-rail cars' bogie samples. A dynamic car is steered by
+its velocity, every physics step: the host's velocity plus 4/s of the way to the extrapolated pose
+(6/s for its rotation), clamped to 1.5 m/s (45 degrees/s), as the on-rail cars are steered by
+theirs (`TrainSpeedQueue`). One at rest where the host has it is left alone, so it sleeps. Moving it
+there with `MovePosition` every step was a teleport its coupler joints then answered: derail-drag
+measured the gap at its coupling changing 6 times as fast as on the host (2026-10-20). A
+kinematic car is still placed. Before, the target's age was
+counted from when the sample was processed and the velocity was replaced on every sample: a
+derailed flatbed dragged at 30 km/h between on-rail cars was aimed ~0.3 m behind them and jolted
+24 times a second, carrying ~12 times the host's coupler force and juddering the whole consist
+(playtest, 2026-10-19). A derail also softens the car's couplings, as in vanilla
+(`TrainCar.UpdateCouplerJoints`): they stretch on a 1 MN/m spring and break at 1.35 MN, on host
+and client. Clients used to skip this (4997bb3, from before client breaks were undone), so a
+derailed car's couplings were stiff here but stretched on the host, and our coupler fought the
+host's pose. A car derailed on a client but on the rails on the host is rerailed
 onto the host's track at the host's pose (asking for a full sync if the sample lacks one), its
 queues are cleared, and the topology is reapplied once the rerail finishes
 (`NetworkedTrainCarClient.RerailToHost`). `TrainCarRerailPatch` lets any derailed car be rerailed after 30 s even if
