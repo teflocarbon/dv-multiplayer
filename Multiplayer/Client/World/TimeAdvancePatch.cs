@@ -28,8 +28,8 @@ public static class TimeAdvancePatch
         if (NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
 
-        // Applying a relayed advance (on the host too: its local client receives the relay of a
-        // client's request) - advance, but don't send it on again or the requester skips twice.
+        // Applying another player's advance (a client applying the relay, or the server applying a
+        // client's request or /time) - advance, but don't send it on again or the requester skips twice.
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return true;
 

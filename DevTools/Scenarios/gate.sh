@@ -78,6 +78,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "inventory-persist|inventory-persist|"
   "host-player-persist|host-player-persist|"
   "borrowed-disconnect|borrowed-disconnect|"
+  "host-actions|host-actions|"
+  "host-actions-host|host-actions|WHO=host"
   "pit-stop|pit-stop|"
   "pit-stop-host|pit-stop|WHO=host"
   "shop|shop|"

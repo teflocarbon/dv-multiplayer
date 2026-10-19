@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Multiplayer.Client.Session;
+using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using NUnit.Framework;
@@ -70,7 +71,11 @@ public sealed class HostOwnClientPacketTests
     }
 
     [Test]
-    public void TheHostsOwnClientStillTakesRelayedJunctionChanges() =>
-        // The server relays them without switching its own junctions; this client does that.
-        Assert.That(HostOwnClient.Ignores(typeof(CommonChangeJunctionPacket)), Is.False);
+    public void TheHostsOwnClientLeavesRelayedWorldChangesToTheServer()
+    {
+        // The server applies other players' junctions, turntables and time skips to its own world.
+        Assert.That(HostOwnClient.Ignores(typeof(CommonChangeJunctionPacket)), Is.True);
+        Assert.That(HostOwnClient.Ignores(typeof(CommonRotateTurntablePacket)), Is.True);
+        Assert.That(HostOwnClient.Ignores(typeof(ClientboundTimeAdvancePacket)), Is.True);
+    }
 }

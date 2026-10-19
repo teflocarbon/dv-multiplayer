@@ -73,10 +73,13 @@ differences, such as the host setting the time, are applied.
 `Client/World/TimeAdvancePatch.cs` prefixes `TimeAdvance.AdvanceTime`. With other players
 connected, fast travel only skips time when the host's `FastTravelAdvancesTime` mod setting is on
 (sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
-player who travelled advances locally and sends `ServerboundTimeAdvancePacket`; the host relays it
-to everyone else as `ClientboundTimeAdvancePacket`. A relayed advance is applied without being sent
-on again (`IsProcessingPacket`), so the traveller doesn't skip twice. The host checks only the
-setting, not the amount.
+player who travelled advances locally and sends `ServerboundTimeAdvancePacket`. The server advances
+its own world's clock for a client's request (the host's own has already advanced), then relays it
+to everyone else as `ClientboundTimeAdvancePacket`, never to the host's own client
+(`NetworkServer.HandleTimeAdvance`). An advance applied for another player is not sent on again
+(`IsProcessingPacket`, which includes the server's `ApplyingRemoteChange` scope), so the traveller
+doesn't skip twice. The host checks only the setting, not the amount. The `/time` chat command
+advances the server's clock the same way and sends the skip to every player.
 
 `Client/UI/FastTravelUIControllerPatch.cs` disables "fast travel with loco" while others are
 connected.
@@ -93,12 +96,13 @@ everyone's jobs late. There is now one cooldown, kept by the host.
   after every accepted sleep. A client's bed menu therefore shows the shared cooldown.
 - A sleeping player skips time locally and sends `ServerboundTimeAdvancePacket` with `IsSleep`
   set (`TimeAdvancePatch` tells sleep from fast travel by `BedSleepingController.IsSleeping`).
-- `NetworkServer.OnSleepRequest` ignores amounts outside (0, 24 h]. The host's own sleep has
-  already passed vanilla's check, so it is relayed and the new sleep state broadcast. A client's
-  sleep is rejected when `GameParams.SleepCooldownInHours < 0` or the shared cooldown hasn't run
-  out; the host then sends that client the sleep state and the weather, whose clock is far behind
-  the client's and puts it back. An accepted sleep is relayed to everyone else, the host sets
-  `lastWakeTime` to now plus the skip, and broadcasts the sleep state.
+- `NetworkServer.HandleSleep` ignores amounts outside (0, 24 h]. The host's own sleep has
+  already passed vanilla's check and advanced the host's clock, so it is relayed and the new sleep
+  state broadcast. A client's sleep is rejected when `GameParams.SleepCooldownInHours < 0` or the
+  shared cooldown hasn't run out; the host then sends that client the sleep state and the weather,
+  whose clock is far behind the client's and puts it back. An accepted sleep advances the server's
+  clock (in `ApplyingRemoteChange`), is relayed to everyone else, the host sets `lastWakeTime` to
+  now plus the skip, and broadcasts the sleep state.
 
 `Client/World/BedSleepingControllerPatch.cs` stops sleep from turning off locos and setting
 handbrakes (`TurnOffAndEngageHandbrakeOnAllLocos`, `EngageHandbrakesOnCurrentTrain`) unless the
@@ -297,9 +301,13 @@ false): `ushort` for junctions, `byte` for turntables.
 - A junction switched locally sends `CommonChangeJunctionPacket` (id, branch, switch mode).
 - A turntable sends `CommonRotateTurntablePacket` from `OnTick` whenever its `targetYRotation`
   changes, so every tick while someone turns it.
-- The host relays both to every other player at `ReadyForWorldState` or later
-  (`OnCommonChangeJunctionPacket`, `OnCommonRotateTurntablePacket`). Nothing is checked: not the
-  player, distance, or whether a train is on the junction. The last packet wins.
+- The server switches the junction or turns the turntable in its own world for another player's
+  change, inside `ApplyingRemoteChange` so the host doesn't send it back, then relays it to every
+  other player at `ReadyForWorldState` or later (`HandleJunction`, `HandleTurntable`). The host's
+  own changes reach the server in-process (`RegisterLocalWorld`) and are only relayed. Neither goes
+  to the host's own client, which shares the server's world. Nothing is checked: not the player,
+  distance, or whether a train is on the junction. The last packet wins; a junction or turntable
+  the server doesn't have is dropped with a warning.
 
 On join, `ClientboundRailwayStatePacket` carries every junction's selected branch and every
 turntable's rotation, by index. The client waits up to 30 s for it

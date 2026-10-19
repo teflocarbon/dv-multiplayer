@@ -109,12 +109,12 @@ to a request, a broadcast without `excludeSelf`, held traffic):
 - **Ignored on the host:** rolling stock (spawns, deletes, topology snapshots, physics, brake
   state, control commits, relocations, rerails, cargo, damage, paint), jobs, items (snapshots,
   corrections, recalls, adoption, spatial leases), money, licences and garages, weather, sleep,
-  hazmat, shop stock, pit stops, registers, switches, and the join steps the host skips.
+  hazmat, shop stock, pit stops, registers, switches, junctions, turntables and time skips (the
+  server applies other players' to its own world), and the join steps the host skips.
 - **Applied on the host:** its own session (login, loading screen, RPC answers), the other
   players (joins, positions, ping, chat), answers to the host player's career and container UI,
-  control-authority updates (another player holding a lever blocks it for the host player too),
-  and the packets the server relays without applying itself: junction, turntable and time skip
-  changes reach the host's world only through its client.
+  and control-authority updates (another player holding a lever blocks it for the host player
+  too).
 - **Requests.** The host's own client doesn't ask the server for state it already has:
   `SendTrainSyncRequest` and the topology sync do nothing on the host, nor does
   `RestoreCanonicalTrainTopology`, and the coupler-interaction fallback isn't sent. The host
@@ -273,7 +273,7 @@ Concrete cases:
   `ServerboundHazmatIgnitePacket`, accepted within 40 m of the player.
 
 Not everything is validated yet. Some `Common*` packets are still relayed as received; for
-example `OnCommonChangeJunctionPacket` rebroadcasts junction changes without checks. Check the
+example `HandleJunction` applies and rebroadcasts junction changes without checks. Check the
 handler before assuming a path is authoritative.
 
 ## Join flow

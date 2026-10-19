@@ -514,7 +514,7 @@ public class ChatManager
             Reply(sender, "Time skips forward by at least a minute and at most a day.");
             return;
         }
-        // To every game, the server's own client included: that one advances the server's world.
+        // Advances the server's world, then every other game.
         NetworkLifecycle.Instance.Server.SendTimeAdvance((float)seconds);
         string said = $"{sender.Username} skipped the time to {now.AddSeconds(seconds):HH:mm} ({seconds / 3600:0.#} h on).";
         Multiplayer.Log(said);
