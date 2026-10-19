@@ -163,7 +163,7 @@ host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 | `dedicated-admin` | default (skips unless the host is dedicated) | A non-admin's `/save` does nothing; made an admin, `/save` saves, and `/payfees` is refused when the wallet is short; then the client's fees-screen request pays them once, cheapest first until the insurance quota, and insurance clears the rest. The host saves and pauses when the last player leaves, and unpauses when they rejoin. Sets the test save's wallet. |
 | `explosion` | default | A client can't set off loco or tank-car explosions; a host explosion leaves both peers with the same burnt car, derailments and positions. |
 | `car-fire` | default | A client's comms radio damages a gasoline tank until it leaks on both peers, its lighter lights the leak, and the tank burns and explodes on both. A tank the host lights burns for the client too (#74). |
-| `hazmat` | default | Spilled and burning hazmat tiles match on both peers; a client's own spill does nothing. |
+| `hazmat` | default | Spilled and burning hazmat tiles match on both peers; a client's own spill does nothing. The games are read one after the other while a fire spreads, so a mismatch is read again for up to 4 s before it fails. |
 | `rejoin` | default; `CRASH=1` | A client quits (or is killed) holding an item; the host keeps its items and drops the held one, and the client gets exactly one of each back on rejoin. |
 | `save-reload` | `CYCLES=2` | Repeated host save and reload: items don't multiply, fall from the sky or drift into Lost and Found. |
 | `inventory-persist` | default | A client's inventory item survives a host save and restart of both games, bound to the host, once. |
