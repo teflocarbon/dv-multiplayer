@@ -9,7 +9,14 @@ namespace Multiplayer.Shared.Trains;
 public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
 {
     private const int MAX_FRAMES = 60;
-    private const float MAX_EXTRAPOLATION_SECONDS = 0.15f;
+    // The same limit as the on-rail cars' bogie samples (NetworkedBogie): a derailed car coupled
+    // to on-rail ones must be aimed at the same moment as them, or the couplers fight.
+    private const float MAX_EXTRAPOLATION_SECONDS = 0.5f;
+    // Our velocity is only replaced by the host's when it is this far off (m/s): a car that just
+    // derailed, or was thrown differently here. Replacing it every sample jolted a derailed car
+    // being dragged in a moving consist against its couplers 24 times a second.
+    private const float VELOCITY_RESYNC = 1.5f;
+    private const float ANGULAR_VELOCITY_RESYNC = 0.5f; // rad/s
     private const float POSITION_RESPONSE = 14f;
     private const float ROTATION_RESPONSE = 18f;
     private const float SNAP_DISTANCE = 20f;
@@ -23,7 +30,10 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
     private Rigidbody rigidbody;
     private TrainCar trainCar;
     private RigidbodySnapshot target;
-    private float targetReceivedAt;
+    // When the host took the sample, in our Time.time, from the host tick: the time it was
+    // received left out its trip and its wait for our tick, aiming the car ~0.3 m behind its
+    // on-rail neighbours at 30 km/h.
+    private float targetTime;
     private bool hasTarget;
 
     protected override void OnEnable()
@@ -76,7 +86,8 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
             // continuously in FixedUpdate. Applying every network sample as a MovePosition
             // here makes derailed cars visibly stop-and-jump between network ticks.
             target = snapshot;
-            targetReceivedAt = Time.realtimeSinceStartup;
+            float ageSeconds = (NetworkLifecycle.Instance.Tick - (float)snapshotTick) / NetworkLifecycle.TICK_RATE;
+            targetTime = Time.time - Mathf.Clamp(ageSeconds, 0f, MAX_EXTRAPOLATION_SECONDS);
             hasTarget = true;
 
             RigidbodySnapshot.IncludedData flags =
@@ -85,9 +96,11 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
             // dynamic car only keeps it awake.
             bool setVelocity = !rigidbody.isKinematic &&
                 (!flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) || snapshot.Velocity.magnitude >= 0.05f);
-            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity))
+            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.Velocity) &&
+                (rigidbody.velocity - snapshot.Velocity).magnitude > VELOCITY_RESYNC)
                 rigidbody.velocity = snapshot.Velocity;
-            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity))
+            if (setVelocity && flags.HasFlag(RigidbodySnapshot.IncludedData.AngularVelocity) &&
+                (rigidbody.angularVelocity - snapshot.AngularVelocity).magnitude > ANGULAR_VELOCITY_RESYNC)
                 rigidbody.angularVelocity = snapshot.AngularVelocity;
 
             if (flags.HasFlag(RigidbodySnapshot.IncludedData.Position) &&
@@ -120,8 +133,7 @@ public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
 
         RigidbodySnapshot.IncludedData flags =
             (RigidbodySnapshot.IncludedData)target.IncludedDataFlags;
-        float age = Mathf.Clamp(Time.realtimeSinceStartup - targetReceivedAt,
-            0f, MAX_EXTRAPOLATION_SECONDS);
+        float age = Mathf.Clamp(Time.time - targetTime, 0f, MAX_EXTRAPOLATION_SECONDS);
 
         if (flags.HasFlag(RigidbodySnapshot.IncludedData.Position))
         {
