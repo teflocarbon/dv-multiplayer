@@ -1,5 +1,7 @@
 using HarmonyLib;
 using Multiplayer.Components.Networking;
+using Multiplayer.Core.Trains;
+using Multiplayer.Networking.Data;
 using Multiplayer.Utils;
 using System.Collections.Generic;
 using System.Reflection.Emit;
@@ -70,6 +72,44 @@ public static class UnusedTrainCarDeleterPatch
         if(NetworkLifecycle.Instance.IsHostPlayingAlone)
             return true;
 
+        return false;
+    }
+
+    private static bool holdingBack;
+
+    // Distances are to the nearest player (the transpiler above), so they mean nothing while a
+    // player has no position yet or nobody is in the game (UnusedCarDeletePolicy).
+    [HarmonyPatch("AreDeleteConditionsFulfilled")]
+    [HarmonyPrefix]
+    public static bool AreDeleteConditionsFulfilled_Prefix(ref bool __result)
+    {
+        if (!NetworkLifecycle.Instance.IsHost())
+            return true;
+
+        int players = 0;
+        int placed = 0;
+        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        {
+            if (player.IsServiceHost)
+                continue;
+            players++;
+            if (player.LoadingState == PlayerLoadingState.Complete && player.TrackingData.Position.HasValue)
+                placed++;
+        }
+
+        bool mayDelete = UnusedCarDeletePolicy.MayDelete(players, placed);
+        if (holdingBack == mayDelete)
+        {
+            holdingBack = !mayDelete;
+            Multiplayer.Log(mayDelete
+                ? $"Unused cars: deleting again, all {players} player(s) are placed"
+                : players == 0
+                    ? "Unused cars: not deleting with nobody in the game"
+                    : $"Unused cars: not deleting while {players - placed} of {players} player(s) have no position yet");
+        }
+        if (mayDelete)
+            return true;
+        __result = false;
         return false;
     }
 /*
