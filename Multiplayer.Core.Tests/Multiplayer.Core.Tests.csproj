@@ -13,5 +13,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="..\Multiplayer.Core\Multiplayer.Core.csproj" />
+    <!-- The role analyzer's tests (Layout/RoleAnalyzerTests.cs) run it as the compiler does. -->
+    <ProjectReference Include="..\Tools\RoleAnalyzer\RoleAnalyzer.csproj" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
   </ItemGroup>
 </Project>

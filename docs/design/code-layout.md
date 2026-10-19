@@ -219,6 +219,31 @@ split removes references, delete their lines, or rewrite the file with
 `MULTIPLAYER_WRITE_ROLE_ALLOWLIST=1 dotnet test Multiplayer.Protocol.Tests` and check the diff
 only removes lines. Both tests run in CI's required "Build and protocol tests" job.
 
+### The compile-time check
+
+The same rules are a compile error. `Tools/RoleAnalyzer` is a Roslyn analyzer the Multiplayer
+project loads (`OutputItemType="Analyzer"`, with the allow-list as an `AdditionalFiles` item), so
+the build fails at the line that crosses the split, in the IDE as you type, locally and in CI:
+
+- **DVMP0001:** a reference across roles that isn't in the allow-list. The message names the type
+  and what to do instead (a Shared interface such as `I<Area>Server` / `I<Area>Client`, or moving
+  the code).
+- **DVMP0002:** a file outside `Shared/`, `Server/`, `Client/` and `Menus/`, or whose namespace
+  isn't its folder's.
+
+The analyzer counts what the DLL test counts: every name that binds to a type, member or method in
+`Multiplayer.dll`, with a member's declaring type and the types of its signature, against the
+outermost type on both sides. It skips what the compiled code doesn't keep (`using` directives,
+`nameof`, doc comments, generic constraints, and the type in `Type.SOME_CONSTANT`, since a constant
+is compiled to its value), so it never flags a reference the DLL test would let through. The DLL
+test stays as the backstop: it sees what only the compiled code has (implicit conversions,
+inferred lambda types) and it fails on stale allow-list lines, which the analyzer can't see.
+Its own tests are `Multiplayer.Core.Tests/Layout/RoleAnalyzerTests.cs`.
+
+Constants still cross the split without either check noticing: `Client/Session/NetworkClient`
+uses `DedicatedHost.ServiceName` and `Client/UI/ChatGUI` uses `ChatManager`'s command names.
+Those constants belong in Shared.
+
 ## Steps
 
 1. **Land what's in flight.** The release branch and the open fix branches; a namespace move

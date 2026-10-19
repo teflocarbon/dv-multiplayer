@@ -60,6 +60,14 @@
         <ProjectReference Include="..\Tools\DedicatedHost\ServerApp\ServerApp.csproj" ReferenceOutputAssembly="false" />
         <EmbeddedResource Include="$(ProtocolManifestPath)" LogicalName="Multiplayer.ProtocolManifest.json" Condition="'$(ManifestEmbedPass)' == 'true' AND Exists('$(ProtocolManifestPath)')" />
     </ItemGroup>
+    <!-- The client/server split is a compile error to cross (docs/design/code-layout.md): the role
+         analyzer fails the build on a reference across roles not in the allow-list (DVMP0001), or a
+         file whose namespace isn't its folder's (DVMP0002). -->
+    <ItemGroup>
+        <ProjectReference Include="..\Tools\RoleAnalyzer\RoleAnalyzer.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+        <AdditionalFiles Include="..\Multiplayer.Protocol.Tests\CodeLayout\role-references.allowed.txt" />
+        <CompilerVisibleProperty Include="MSBuildProjectDirectory" />
+    </ItemGroup>
     
     <!-- Derail Valley References -->
     <ItemGroup>
