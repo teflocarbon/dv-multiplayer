@@ -1,8 +1,12 @@
 using HarmonyLib;
 using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Train;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Trains;
 using Multiplayer.Utils;
+using System;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace Multiplayer.Patches.Train;
 
@@ -16,10 +20,56 @@ public static class CarSpawner_Patch
     // (#84). A deleted car has no logic car until DV's pool hands it out again; skip it.
     private static bool AlreadyDeleted(TrainCar trainCar) => trainCar != null && trainCar.logicCar == null;
 
+    // Why each car is being removed, worked out when DeleteCar or DeleteTrainCars is called: a bulk
+    // delete prepares its cars later from a coroutine, where the caller is gone from the stack.
+    private static readonly Dictionary<TrainCar, ChangeCause<CarRemovalReason>> removalCauses = new();
+
+    [HarmonyPatch(nameof(CarSpawner.DeleteCar))]
+    [HarmonyPrefix]
+    private static void DeleteCar(TrainCar trainCar) => NoteRemovalCause(new List<TrainCar> { trainCar });
+
+    [HarmonyPatch(nameof(CarSpawner.DeleteTrainCars))]
+    [HarmonyPrefix]
+    private static void DeleteTrainCars(List<TrainCar> trainCarsToDelete) => NoteRemovalCause(trainCarsToDelete);
+
+    private static void NoteRemovalCause(List<TrainCar> trainCars)
+    {
+        if (trainCars == null || trainCars.Count == 0 || UnloadWatcher.isUnloading || NetworkLifecycle.Instance == null)
+            return;
+        if (removalCauses.Count > 512)
+            removalCauses.Clear(); // causes for cars a delete skipped
+        ChangeCause<CarRemovalReason> cause = RemovalCause();
+        foreach (TrainCar trainCar in trainCars)
+            if (trainCar != null)
+                removalCauses[trainCar] = cause;
+    }
+
+    private static ChangeCause<CarRemovalReason> RemovalCause()
+    {
+        if (TrainChangeCauses.CurrentCause<CarRemovalReason>() is ChangeCause<CarRemovalReason> scoped)
+            return scoped;
+        List<MethodBase> callers = TrainChangeCauses.Callers(2);
+        if (TrainChangeCauses.Called(callers, nameof(UnusedTrainCarDeleter)))
+            return TrainChangeCauses.Cause(CarRemovalReason.Despawned);
+        if (TrainChangeCauses.Called(callers, "StationProceduralJobGenerator"))
+            return TrainChangeCauses.Cause(CarRemovalReason.JobGeneration);
+        if (TrainChangeCauses.Called(callers, "LocoRestorationController"))
+            return TrainChangeCauses.Cause(CarRemovalReason.LocoRestoration);
+        if (TrainChangeCauses.Called(callers, "CarsSaveManager"))
+            return TrainChangeCauses.Cause(CarRemovalReason.SaveLoad);
+        // This peer's own player, through vanilla's deleter (a host playing).
+        if (TrainChangeCauses.Called(callers, "CommsRadioCarDeleter"))
+            return TrainChangeCauses.LocalCause(CarRemovalReason.PlayerDeleted);
+        if (TrainChangeCauses.Called(callers, "GarageCarSpawner", "ReturnCarHome"))
+            return TrainChangeCauses.Cause(CarRemovalReason.ReturnedToGarage);
+        return TrainChangeCauses.Cause(CarRemovalReason.Unknown, detail: TrainChangeCauses.Describe(callers));
+    }
+
     [HarmonyPatch(nameof(CarSpawner.PrepareTrainCarForDeleting))]
     [HarmonyPrefix]
-    private static bool PrepareTrainCarForDeleting(TrainCar trainCar)
+    private static bool PrepareTrainCarForDeleting(TrainCar trainCar, out IDisposable __state)
     {
+        __state = null;
         if (AlreadyDeleted(trainCar))
         {
             Multiplayer.LogWarning($"{trainCar.name} is already deleted, not deleting it again");
@@ -34,8 +84,25 @@ public static class CarSpawner_Patch
 
         networkedTrainCar.IsDestroying = true;
 
-        NetworkLifecycle.Instance.Server?.SendDestroyTrainCar(networkedTrainCar);
+        if (!removalCauses.TryGetValue(trainCar, out ChangeCause<CarRemovalReason> cause))
+            cause = RemovalCause();
+        removalCauses.Remove(trainCar);
+        TrainChangeCauses.RecordRemoval(networkedTrainCar, cause);
+        NetworkLifecycle.Instance.Server?.SendDestroyTrainCar(networkedTrainCar, cause);
+
+        // Vanilla uncouples the car here; those uncouples are this removal's.
+        __state = TrainChangeCauses.Scope(new ChangeCause<UncoupleReason>(UncoupleReason.CarRemoved,
+            cause.PlayerId, cause.PlayerName, cause.Tick,
+            $"{networkedTrainCar.CurrentID} {cause.Reason}" + (cause.Detail.Length > 0 ? $": {cause.Detail}" : string.Empty)));
         return true;
+    }
+
+    [HarmonyPatch(nameof(CarSpawner.PrepareTrainCarForDeleting))]
+    [HarmonyFinalizer]
+    private static Exception PrepareTrainCarForDeletingFinalizer(Exception __exception, IDisposable __state)
+    {
+        __state?.Dispose();
+        return __exception;
     }
 
     [HarmonyPatch(nameof(CarSpawner.ActuallyDeletingTrainCar))]

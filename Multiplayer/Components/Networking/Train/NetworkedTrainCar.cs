@@ -14,6 +14,7 @@ using JetBrains.Annotations;
 using LocoSim.Definitions;
 using LocoSim.Implementations;
 using Multiplayer.Components.Networking.Player;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Train;
@@ -263,6 +264,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     public string CurrentID { get; private set; }
     public TrainCar TrainCar;
+
+    // Why each end last came uncoupled and why the car last derailed (see TrainChangeCauses).
+    public ChangeCause<UncoupleReason>? LastFrontUncouple { get; internal set; }
+    public ChangeCause<UncoupleReason>? LastRearUncouple { get; internal set; }
+    public ChangeCause<DerailReason>? LastDerail { get; internal set; }
     public uint TicksSinceSync = uint.MaxValue;
 
     public uint lastTickProcessed = 0;
@@ -2828,7 +2834,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 if (TrainCar.rb.isKinematic)
                     TrainCar.rb.isKinematic = false;
                 kinematicCycles = 0;
-                TrainCar.Derail();
+                using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(DerailReason.FollowingHost)))
+                    TrainCar.Derail();
             }
             Client_trainRigidbodyQueue.ReceiveSnapshot(movementPart.RigidbodySnapshot, tick);
 

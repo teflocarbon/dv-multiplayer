@@ -25,6 +25,7 @@ using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.Networking.World.Containers;
 using Multiplayer.Components.Networking.World.WorldItems;
 using Multiplayer.Core.Containers;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
@@ -505,6 +506,7 @@ public class NetworkServer : NetworkManager
                 snapshot.TopologyRevision != lastBroadcastTrainTopologyRevision ||
                 controlCars.Length > 0)
             {
+                AttachUncoupleCauses(snapshot);
                 SendPacketToAll(snapshot, DeliveryMethod.ReliableOrdered,
                     PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
                 lastBroadcastTrainTopologyRevision = snapshot.TopologyRevision;
@@ -891,7 +893,8 @@ public class NetworkServer : NetworkManager
             SendPacket(sendTo, topology, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendDestroyTrainCar(NetworkedTrainCar netTrainCar, ITransportPeer peer = null)
+    public void SendDestroyTrainCar(NetworkedTrainCar netTrainCar, ChangeCause<CarRemovalReason> cause,
+        ITransportPeer peer = null)
     {
         //ushort netID = trainCar.GetNetId();
         Log($"Sending DestroyTrainCarPacket for [{netTrainCar.CurrentID} {netTrainCar.NetId}]");
@@ -902,12 +905,43 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        var packet = new ClientboundDestroyTrainCarPacket { NetId = netTrainCar.NetId };
+        var packet = new ClientboundDestroyTrainCarPacket { NetId = netTrainCar.NetId, Cause = cause };
 
         if (peer == null)
             SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
         else
             SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    public void SendDerailCause(NetworkedTrainCar netTrainCar, ChangeCause<DerailReason> cause)
+    {
+        if (netTrainCar == null || netTrainCar.NetId == 0)
+            return;
+        SendPacketToAll(new ClientboundTrainDerailCausePacket { NetId = netTrainCar.NetId, Cause = cause },
+            DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
+    }
+
+    // Why couplings came apart since the last broadcast topology snapshot, sent with the next one.
+    private const int MaxPendingUncoupleCauses = 256;
+    private readonly List<TrainUncoupleCauseData> pendingUncoupleCauses = new();
+
+    internal void NoteUncouple(Coupler coupler, ChangeCause<UncoupleReason> cause)
+    {
+        ushort netId = coupler?.train?.GetNetId() ?? 0;
+        if (netId == 0 || pendingUncoupleCauses.Count >= MaxPendingUncoupleCauses)
+            return;
+        pendingUncoupleCauses.Add(new TrainUncoupleCauseData
+        {
+            CarNetId = netId,
+            End = coupler.isFrontCoupler ? TrainEnd.Front : TrainEnd.Rear,
+            Cause = cause
+        });
+    }
+
+    private void AttachUncoupleCauses(ClientboundTrainTopologySnapshotPacket snapshot)
+    {
+        snapshot.Uncouples = pendingUncoupleCauses.ToArray();
+        pendingUncoupleCauses.Clear();
     }
 
     public void SendTrainsetPhysicsUpdate(ClientboundTrainsetPhysicsPacket packet, bool reliable)
@@ -2535,15 +2569,17 @@ public class NetworkServer : NetworkManager
 
     private void OnServerboundSandboxCarDamagePacket(ServerboundSandboxCarDamagePacket packet, ITransportPeer peer)
     {
-        if (!TrySandboxRadioCar(peer, packet.CarNetId, "radio's damage mode", out _, out TrainCar car))
+        if (!TrySandboxRadioCar(peer, packet.CarNetId, "radio's damage mode", out ServerPlayer player, out TrainCar car))
             return;
         if (packet.Derail)
         {
-            car.Derail();
+            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(DerailReason.CommsRadio, player)))
+                car.Derail();
             return;
         }
         // What vanilla's CommsRadioDamage does, on the host's car.
         float level = Mathf.Clamp(packet.DamageLevel, 1, 10);
+        Log($"{player.Username} damaged {car.ID} to level {level:F0}/10 with the comms radio");
         car.GetComponent<TrainCarCollisions>()?.CarDamaged?.Invoke(car.CarDamage.maxHealth * (level / 10f), Vector3.zero);
     }
 
@@ -2555,13 +2591,17 @@ public class NetworkServer : NetworkManager
         if (car.LoadedCargo != CargoType.None)
             car.logicCar.UnloadCargo(car.LoadedCargoAmount, car.LoadedCargo);
         if (packet.CargoTypeNetId == 0)
+        {
+            Log($"{player.Username} emptied {car.ID} with the comms radio");
             return;
+        }
         if (!CargoTypeLookup.Instance.TryGet(packet.CargoTypeNetId, out CargoType_v2 cargo) || cargo == null ||
             !cargo.IsLoadableOnCarType(car.carLivery.parentType))
         {
             LogWarning($"{player.Username} tried to load cargo {packet.CargoTypeNetId} that {car.ID} can't carry");
             return;
         }
+        Log($"{player.Username} loaded {car.ID} with {cargo.v1} with the comms radio");
         car.logicCar.LoadCargo(car.cargoCapacity, cargo.v1);
     }
 
@@ -2634,21 +2674,29 @@ public class NetworkServer : NetworkManager
         }
 
         ClientboundTrainTopologySnapshotPacket snapshot;
-        using (CouplerUncoupleLogPatch.Cause($"{player.Username}'s {packet.Kind} command"))
+        var uncoupleCause = TrainChangeCauses.Cause(
+            packet.ViaRemote ? UncoupleReason.Remote : UncoupleReason.PlayerCommand, player,
+            $"{packet.Kind} command");
+        using (TrainChangeCauses.Scope(uncoupleCause))
             snapshot = trainTopologyAuthority.Execute(
                 player.PlayerId, packet, runtimeAuthorized: () => true, runtimeInRange: IsInRange);
-        LogTopologyCommand(player, packet, snapshot,
-            snapshot.Result == TrainTopologyResultCode.OutOfRange
-                ? rangeFailure
-                : trainTopologyAuthority.LastRejectionDetail);
+        string detail = snapshot.Result == TrainTopologyResultCode.OutOfRange
+            ? rangeFailure
+            : trainTopologyAuthority.LastRejectionDetail;
+        LogTopologyCommand(player, packet, snapshot, detail);
         if (snapshot.Result == TrainTopologyResultCode.Accepted)
         {
+            AttachUncoupleCauses(snapshot);
             SendPacketToAll(snapshot, DeliveryMethod.ReliableOrdered,
                 PlayerLoadingState.ReadyForTrainSets, excludeSelf: true);
             lastBroadcastTrainTopologyRevision = snapshot.TopologyRevision;
         }
         else
+        {
+            // So the player's own log says why, not only the host's.
+            snapshot.Detail = detail ?? string.Empty;
             SendPacket(peer, snapshot, DeliveryMethod.ReliableOrdered);
+        }
 
         DebugRuntime.Publish("train", "train.topology-command-result", DebugRuntimeSide.Server,
             entityType: "Topology", entityId: packet.OperationId.ToString(),
@@ -2731,14 +2779,18 @@ public class NetworkServer : NetworkManager
                 break;
         }
 
+        // Deleting a car from the middle of a train splits it; the removal and its uncouples name
+        // the player (CarSpawnerPatch).
         var garageRef = trainCar.GetComponent<HomeGarageReference>();
         if (garageRef != null && garageRef.garageCarSpawner != null)
         {
-            garageRef.garageCarSpawner.ReturnCarHome(trainCar);
+            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.ReturnedToGarage, player)))
+                garageRef.garageCarSpawner.ReturnCarHome(trainCar);
         }
         else
         {
-            CarSpawner.Instance.DeleteCar(trainCar);
+            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.PlayerDeleted, player)))
+                CarSpawner.Instance.DeleteCar(trainCar);
             UnusedTrainCarDeleter.Instance.ClearInvalidCarReferencesAfterManualDelete();
         }
     }
@@ -2765,7 +2817,9 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        trainCar.Rerail(networkedRailTrack.RailTrack, position, packet.Forward);
+        Log($"{player.Username} rerailed {networkedTrainCar.CurrentID}");
+        using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(UncoupleReason.CarRerailed, player)))
+            trainCar.Rerail(networkedRailTrack.RailTrack, position, packet.Forward);
     }
 
     private void OnServerboundTrainSpawnRequestPacket(ServerboundTrainSpawnRequestPacket packet, ITransportPeer peer)

@@ -87,7 +87,10 @@ internal sealed class TrainTopologyAuthority
             TrainTopologyState actual = TrainTopologyNativeAdapter.Capture(revision + 1);
             if (!applied || !TrainTopologyStateMachine.Validate(actual, out _))
             {
-                TrainTopologyNativeAdapter.TryReconcile(before, beforeLines, out string rollbackFailure);
+                string rollbackFailure;
+                using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(UncoupleReason.HostRolledBack,
+                           detail: $"{packet.Kind} command couldn't be applied: {nativeFailure}")))
+                    TrainTopologyNativeAdapter.TryReconcile(before, beforeLines, out rollbackFailure);
                 Multiplayer.LogWarning($"Train topology operation {packet.OperationId} failed: " +
                     $"{nativeFailure}; rollback: {rollbackFailure}");
                 LastRejectionDetail = $"the host couldn't apply it ({nativeFailure}) and rolled back";

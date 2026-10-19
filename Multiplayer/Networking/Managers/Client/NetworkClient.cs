@@ -25,6 +25,7 @@ using Multiplayer.Components.Networking;
 using Multiplayer.Components.Networking.Jobs;
 using Multiplayer.Components.Networking.Player;
 using Multiplayer.Components.Networking.Train;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Components.Networking.UI;
 using Multiplayer.Components.Networking.World;
 using Multiplayer.Components.SaveGame;
@@ -145,6 +146,28 @@ public class NetworkClient : NetworkManager
     private readonly TrainBaselineReceipt trainBaseline = new();
     private readonly TrainTopologyReconciler trainTopology = new();
     private bool trainTopologyRetryRunning;
+
+    // Why the host took couplings apart (sent with its snapshots), for this client's own uncouple
+    // of the same coupling to record; and, while a refusal of this client's own command is being
+    // applied, why it was refused (see CouplerUncoupleLogPatch).
+    private readonly Dictionary<(ushort CarNetId, TrainEnd End), ChangeCause<UncoupleReason>> hostUncoupleCauses = new();
+    internal ChangeCause<UncoupleReason>? RefusalUncoupleCause { get; private set; }
+
+    internal bool TakeHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
+    {
+        foreach (Coupler end in new[] { coupler, other })
+        {
+            ushort netId = end?.train?.GetNetId() ?? 0;
+            var key = (netId, end != null && end.isFrontCoupler ? TrainEnd.Front : TrainEnd.Rear);
+            if (netId != 0 && hostUncoupleCauses.TryGetValue(key, out cause))
+            {
+                hostUncoupleCauses.Remove(key);
+                return true;
+            }
+        }
+        cause = default;
+        return false;
+    }
     private ulong nextTrainTopologyOperationId;
     private float nextTrainTopologySyncRequestAt;
     private const double MaxWeatherClockLeadSeconds = 300; // game time
@@ -319,6 +342,7 @@ public class NetworkClient : NetworkManager
         netPacketProcessor.SubscribeReusable<ClientboundTrainBaselineCompletePacket>(OnClientboundTrainBaselineCompletePacket);
         netPacketProcessor.SubscribeReusable<ClientboundTrainTopologySnapshotPacket>(OnClientboundTrainTopologySnapshotPacket);
         netPacketProcessor.SubscribeReusable<ClientboundDestroyTrainCarPacket>(OnClientboundDestroyTrainCarPacket);
+        netPacketProcessor.SubscribeReusable<ClientboundTrainDerailCausePacket>(OnClientboundTrainDerailCausePacket);
         netPacketProcessor.SubscribeReusable<ClientboundRerailTrainPacket>(OnClientboundRerailTrainPacket);
         netPacketProcessor.SubscribeReusable<ClientboundMoveTrainPacket>(OnClientboundMoveTrainPacket);
         netPacketProcessor.SubscribeReusable<ClientboundTrainsetRelocationPacket>(OnClientboundTrainsetRelocationPacket);
@@ -1119,11 +1143,27 @@ public class NetworkClient : NetworkManager
         ClientboundTrainTopologySnapshotPacket packet)
     {
         if (packet?.OperationId != 0 && packet.Result != TrainTopologyResultCode.Accepted)
+        {
             LogWarning($"Train topology operation {packet.OperationId} was rejected: " +
-                       $"{packet.Result}; authoritative revision {packet.TopologyRevision}");
+                       $"{packet.Result}{(string.IsNullOrEmpty(packet.Detail) ? string.Empty : $", {packet.Detail}")}; " +
+                       $"authoritative revision {packet.TopologyRevision}");
+            // Undoing our own change: the uncouples it makes are the refusal's.
+            if (packet.OperationId >> 56 == PlayerId)
+                RefusalUncoupleCause = TrainChangeCauses.LocalCause(UncoupleReason.CoupleRefused,
+                    string.IsNullOrEmpty(packet.Detail) ? packet.Result.ToString() : $"{packet.Result}, {packet.Detail}");
+        }
+        if (packet?.Uncouples != null)
+        {
+            if (hostUncoupleCauses.Count > 512)
+                hostUncoupleCauses.Clear(); // causes for couplings this client never had
+            foreach (TrainUncoupleCauseData uncouple in packet.Uncouples)
+                if (uncouple != null)
+                    hostUncoupleCauses[(uncouple.CarNetId, uncouple.End)] = uncouple.Cause;
+        }
 
         if (trainTopology.Receive(packet, out string failure))
         {
+            RefusalUncoupleCause = null;
             DebugRuntime.Publish("train", "train.topology-snapshot-applied",
                 DebugRuntimeSide.Client, entityType: "Topology",
                 entityId: packet.TopologyRevision.ToString(),
@@ -1140,6 +1180,8 @@ public class NetworkClient : NetworkManager
         }
 
         LogWarning($"Deferred/rejected topology snapshot r{packet?.TopologyRevision}: {failure}");
+        if (!trainTopology.HasPending)
+            RefusalUncoupleCause = null;
         if (trainTopology.HasPending)
         {
             StartTrainTopologyRetry();
@@ -1196,6 +1238,7 @@ public class NetworkClient : NetworkManager
         finally
         {
             trainTopologyRetryRunning = false;
+            RefusalUncoupleCause = null;
         }
     }
 
@@ -1234,8 +1277,17 @@ public class NetworkClient : NetworkManager
             }
 
             netTrainCar.TrainCar.UpdateJobIdOnCarPlates(string.Empty);
-            CarSpawner.Instance.DeleteCar(netTrainCar.TrainCar);
+            using (TrainChangeCauses.Scope(packet.Cause))
+                CarSpawner.Instance.DeleteCar(netTrainCar.TrainCar);
         }
+    }
+
+    private void OnClientboundTrainDerailCausePacket(ClientboundTrainDerailCausePacket packet)
+    {
+        if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar car))
+            return;
+        car.LastDerail = packet.Cause;
+        Log($"{car.CurrentID} derailed on the host: {packet.Cause}");
     }
 
     public void OnClientboundTrainPhysicsPacket(ClientboundTrainsetPhysicsPacket packet)

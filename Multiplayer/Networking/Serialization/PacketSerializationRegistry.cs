@@ -1,4 +1,6 @@
 using LiteNetLib.Utils;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Trains;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
@@ -44,5 +46,10 @@ public static class PacketSerializationRegistry
         packetProcessor.RegisterNestedType(Vector3Serializer.Serialize, Vector3Serializer.Deserialize);
         packetProcessor.RegisterNestedType(QuaternionSerializer.Serialize, QuaternionSerializer.Deserialize);
         packetProcessor.RegisterNestedType(ColorSerializer.Serialize, ColorSerializer.Deserialize);
+        packetProcessor.RegisterNestedType(TrainUncoupleCauseData.Serialize, TrainUncoupleCauseData.Deserialize);
+        packetProcessor.RegisterNestedType<ChangeCause<DerailReason>>(ChangeCauseData.Serialize,
+            ChangeCauseData.Deserialize<DerailReason>);
+        packetProcessor.RegisterNestedType<ChangeCause<CarRemovalReason>>(ChangeCauseData.Serialize,
+            ChangeCauseData.Deserialize<CarRemovalReason>);
     }
 }
