@@ -103,7 +103,7 @@ internal static class Session
     private static async Task CheckUserDataAsync(Agent agent)
     {
         if (await WrongUserDataAsync(agent) is { } actual)
-            throw new Exception($"{agent.Label} keeps its user data in '{actual}', not the session's own '{UserData.Dir(agent.Role)}'. " +
+            throw new Exception($"{agent.Label} keeps its user data in '{actual}', not the session's own '{UserData.Dir(LaunchRole(agent))}'. " +
                                 "Its saves would land in the real profile: is the installed dev agent older than -dvmp-userdata " +
                                 "(rebuild DevTools/DvmpAgent)? See the game log for 'dvmp: user data'.");
     }
@@ -112,13 +112,22 @@ internal static class Session
     /// folder (a game launched by an older dvmp, say); null when it is, or for the default session.</summary>
     private static async Task<string?> WrongUserDataAsync(Agent agent)
     {
-        if (UserData.Dir(agent.Role) is not { } expected) return null;
+        if (UserData.Dir(LaunchRole(agent)) is not { } expected) return null;
         JsonObject r = await Operations.EvalAsync(
             "(DV.UserManagement.UserManager.Instance?.Storage as DV.UserManagement.Storage.Implementation.FileSystemStorage)?.GetFilesystemPath(\"\")",
             agent.Pid.ToString(), "expression", null, null, 10);
         JsonNode? value = r["results"]?.AsObject().FirstOrDefault().Value?["result"];
         string? actual = value is JsonValue v && v.TryGetValue(out string? s) ? s : null;
         return actual != null && UserData.Same(actual, expected) ? null : actual ?? "?";
+    }
+
+    // The role a harness game was launched as (-dvmp-role), which names its user data folder: at the
+    // main menu, before it hosts or joins, a game reports its role as "offline".
+    private static string LaunchRole(Agent agent)
+    {
+        string[]? args = agent.Info.Args;
+        int i = args == null ? -1 : Array.IndexOf(args, "-dvmp-role");
+        return i >= 0 && i + 1 < args!.Length ? args[i + 1] : agent.Role;
     }
 
     // A running game is only reused if it keeps the session's own user data.
