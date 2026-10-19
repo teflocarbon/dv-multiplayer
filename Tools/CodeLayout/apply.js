@@ -124,14 +124,19 @@ const csFiles = dir => !fs.existsSync(dir) ? [] : fs.readdirSync(dir, { withFile
 const roots = ['Multiplayer', 'Multiplayer.Protocol.Tests', 'DevTools', 'Tools', 'MultiplayerAPI Tests'];
 const qualified = /(global::)?\bMultiplayer((?:\.[A-Za-z_]\w*)+)/g;
 
-// Names qualified relative to the root namespace (`Components.Networking.Player.NetworkedPlayer`
-// written inside namespace Multiplayer.*).
-const relative = /(?<![\w.])((?:[A-Z]\w*\.)+)([A-Z]\w*)\b/g;
+// Names qualified relative to an enclosing namespace of the file (`Components.Networking.Player.
+// NetworkedPlayer` inside Multiplayer.*, `Train.X` inside Multiplayer.Components.Networking.World),
+// resolved as C# does: the innermost enclosing namespace first.
+const relative = /(?<![\w.:])((?:[A-Z]\w*\.)+)([A-Z]\w*)\b/g;
 
-function rewriteQualified(text) {
+function rewriteQualified(text, ownOld) {
+    const enclosing = ancestors(ownOld).filter(Boolean).reverse();
     text = text.replace(relative, (whole, prefix, type) => {
-        const target = typeMap.get(`Multiplayer.${prefix.slice(0, -1)}|${type}`);
-        return target ? `global::${target}.${type}` : whole;
+        for (const ns of enclosing) {
+            const target = typeMap.get(`${ns}.${prefix.slice(0, -1)}|${type}`);
+            if (target) return `global::${target}.${type}`;
+        }
+        return whole;
     });
     return text.replace(qualified, (whole, global, rest) => {
         const parts = rest.slice(1).split('.');
@@ -193,7 +198,7 @@ for (const file of roots.flatMap(r => csFiles(path.join(repo, r)))) {
         if (!explicit.length && added.length) out.splice(added.length, 0, '');
         body = out.join('\n');
     }
-    body = rewriteQualified(body);
+    body = rewriteQualified(body, ownOld);
     text = (bom ? BOM : '') + body;
     if (text !== original) {
         write(file, text);
