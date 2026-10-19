@@ -151,6 +151,12 @@ public class Settings : UnityModManager.ModSettings, IDrawable
     public bool UseNativeSockets = true;
     [Draw("Log Full IPs", Tooltip = "Whether to log the full IP address of clients. This is useful for debugging, but should otherwise be kept off.", VisibleOn = "ShowAdvancedSettings|true")]
     public bool LogIps;
+    [Draw("Smooth Train Readouts", Tooltip = "As a client, show the host's train gauges, sounds and animations a moment late so they move smoothly instead of in network steps. Never delayed on a train you're driving.", VisibleOn = "ShowAdvancedSettings|true")]
+    public bool SmoothTrainPorts = true;
+    [Draw("Max Readout Delay (ms)", Tooltip = "The most the smoothing may delay them on a jittery connection.", Min = 84, Max = 500, VisibleOn = "SmoothTrainPorts|true")]
+    public int MaxPortPlayoutDelayMs = 300;
+    [Draw("Predict Train Sounds", Tooltip = "As a client, work out the whistle, horn, bell, sanders and similar on a train you're driving from your own controls, instead of waiting for the host's.", VisibleOn = "ShowAdvancedSettings|true")]
+    public bool PredictTrainPorts = true;
     [Draw("Simulate Packet Loss", VisibleOn = "ShowAdvancedSettings|true")]
     public bool SimulatePacketLoss;
     [Draw("Packet Loss Chance", VisibleOn = "SimulatePacketLoss|true")]
