@@ -116,7 +116,9 @@ public static class JobBookletSummonCoordinator
         snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
         if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, requester,
                 ItemTransitionReason.JobBookletSummon, true, out string rejectionReason,
-                clearRetrievalClaim: true))
+                clearRetrievalClaim: true,
+                cause: ItemChangeLog.Move(global::Multiplayer.Core.Items.ItemMoveReason.JobBookletSummoned, requester,
+                    "to where " + requester.Username + " summoned it")))
         {
             Multiplayer.LogWarning($"Unable to summon job booklet {item.NetId}: {rejectionReason}");
             return;

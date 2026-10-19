@@ -1,5 +1,7 @@
 using LiteNetLib.Utils;
 using Multiplayer.Components.Networking.World;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items;
 using Multiplayer.Networking.Serialization;
 using System;
 using System.Collections.Generic;
@@ -56,6 +58,16 @@ public class ItemUpdateData
     public ItemInventoryClaimFlags InventoryClaimFlags { get; set; }
     public ItemTransitionReason TransitionReason { get; set; }
     public byte OriginatingPlayerId { get; set; }
+    /// <summary>
+    /// Why the item went away. On a Destroy only, and only when the host knows why: not for a
+    /// recipient it merely left the interest of.
+    /// </summary>
+    public ChangeCause<ItemRemovalReason>? RemovalCause { get; set; }
+    /// <summary>
+    /// Why its placement, holder or owner changed. Host to client only, on the update that carries
+    /// the change (one with item state), so updates that only move or restate an item stay small.
+    /// </summary>
+    public ChangeCause<ItemMoveReason>? MoveCause { get; set; }
     /// <summary>Stable identity of a scene-authored representation. Present only on Create.</summary>
     public string AuthoredItemKey { get; set; }
     /// <summary>
@@ -85,7 +97,12 @@ public class ItemUpdateData
         writer.Put(data.OriginatingPlayerId);
 
         if (data.UpdateType == ItemUpdateType.Destroy)
+        {
+            SerializeCause(writer, data.RemovalCause);
             return;
+        }
+        if (IncludesItemState(data.UpdateType))
+            SerializeCause(writer, data.MoveCause);
 
         writer.Put((byte)data.ItemState);
 
@@ -160,7 +177,12 @@ public class ItemUpdateData
         data.OriginatingPlayerId = reader.GetByte();
 
         if (data.UpdateType == ItemUpdateType.Destroy)
+        {
+            data.RemovalCause = DeserializeCause<ItemRemovalReason>(reader);
             return data;
+        }
+        if (IncludesItemState(data.UpdateType))
+            data.MoveCause = DeserializeCause<ItemMoveReason>(reader);
         data.ItemState = (ItemState)reader.GetByte();
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create))
@@ -221,6 +243,18 @@ public class ItemUpdateData
 
         return data;
     }
+
+    private static void SerializeCause<TReason>(NetDataWriter writer, ChangeCause<TReason>? cause)
+        where TReason : struct, Enum
+    {
+        writer.Put(cause.HasValue);
+        if (cause.HasValue)
+            ChangeCauseData.Serialize(writer, cause.Value);
+    }
+
+    private static ChangeCause<TReason>? DeserializeCause<TReason>(NetDataReader reader)
+        where TReason : struct, Enum =>
+        reader.GetBool() ? ChangeCauseData.Deserialize<TReason>(reader) : null;
 
     private void SerializeTrackedValue(NetDataWriter writer, object value)
     {

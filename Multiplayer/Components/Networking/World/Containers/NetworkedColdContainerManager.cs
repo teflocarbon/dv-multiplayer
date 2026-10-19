@@ -8,6 +8,7 @@ using DV;
 using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using Multiplayer.Core.Containers;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
@@ -127,7 +128,9 @@ public static class NetworkedColdContainerManager
                 reconciliation.PlayerId = actor.PlayerId;
                 reconciliation.AuthorityRevision = authority?.Revision ?? 0;
                 possessed = AuthoritativeItemRegistry.TryApplyTransition(item, reconciliation,
-                    actor, ItemTransitionReason.HostLocalState, true, out _);
+                    actor, ItemTransitionReason.HostLocalState, true, out _,
+                    cause: ItemChangeLog.Move(ItemMoveReason.HostCorrection, actor,
+                        "in the host's inventory, though recorded elsewhere; reconciled to deposit it"));
                 if (possessed)
                 {
                     item.ApplyAuthorityMetadata(reconciliation);
@@ -207,6 +210,11 @@ public static class NetworkedColdContainerManager
                 throw new InvalidOperationException("deposit-destroy-projection-failed");
             AuthoritativeItemRegistry.WriteToSnapshot(authority, destroy,
                 ItemTransitionReason.ContainerDeposit);
+            ChangeCause<ItemRemovalReason> deposited = ItemChangeLog.Removal(ItemRemovalReason.DepositedInContainer,
+                actor, $"{destination.PrefabName} slot {slot}, now cold record {record.PersistentItemId:D}");
+            destroy.RemovalCause = deposited;
+            // OnDestroy logs it: a retirement isn't sent again from there.
+            item.NoteRemovalCause(deposited);
             item.BeginColdStorageRetirement();
             // Retirement is a transactional boundary, not an ordinary dirty-state update.
             // Publish it immediately on the reliable ordered channel before the Unity object
@@ -419,7 +427,7 @@ public static class NetworkedColdContainerManager
             !graph.TryGetContainer(destinationHandle, out ColdContainerRecord destination))
             return Failure(ContainerOperationKind.Move, ContainerOperationStatus.NotFound,
                 "container-handle-not-found", operationId);
-        return graph.Move(new MoveCommand
+        ContainerOperationResult moved = graph.Move(new MoveCommand
         {
             OperationId = operationId,
             ActorIdentity = actor.Guid.ToString("D"),
@@ -430,6 +438,11 @@ public static class NetworkedColdContainerManager
             ExpectedDestinationRevision = expectedDestinationRevision,
             DestinationSlot = destinationSlot
         });
+        // Cold records have no netId; the line says which containers and slots instead.
+        if (moved.Accepted)
+            Multiplayer.Log("Cold item moved: " + ItemChangeLog.Move(ItemMoveReason.Moved, actor,
+                $"{source.PrefabName} slot {sourceSlot} -> {destination.PrefabName} slot {destinationSlot}"));
+        return moved;
     }
 
     public static Dictionary<string, object>[] DebugSnapshot()

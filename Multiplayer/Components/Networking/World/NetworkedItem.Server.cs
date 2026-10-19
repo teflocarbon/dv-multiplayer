@@ -37,8 +37,11 @@ public partial class NetworkedItem
         snapshot.ItemNetId = NetId;
         snapshot.UpdateType = ItemUpdateData.ItemUpdateType.FullSync;
         snapshot.PersistentOwnerPlayerId = owner.PlayerId;
+        // Registered already in the state it arrives in, so name the adoption: nothing else would.
         if (!AuthoritativeItemRegistry.TryApplyTransition(this, snapshot, owner,
-                ItemTransitionReason.ClientAdoption, true, out string rejectionReason))
+                ItemTransitionReason.ClientAdoption, true, out string rejectionReason,
+                cause: ItemChangeLog.Move(ItemMoveReason.Adopted, owner,
+                    $"made by their game as {snapshot.ItemState}, owner {owner.Username}")))
         {
             Multiplayer.LogWarning($"Unable to initialize adopted item {NetId}: {rejectionReason}");
             return;
@@ -144,8 +147,10 @@ public partial class NetworkedItem
         bool lostAndFoundProjection = NetworkedLostAndFoundManager.TryCreateCollectionProjection(
             this, out ItemUpdateData correction);
         if (!lostAndFoundProjection &&
-            !AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(this, out correction))
+            !AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(this, out correction,
+                ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "your change was refused: " + rejectionReason)))
             return;
+        Multiplayer.LogDebug(() => $"Item {name} (netId {NetId}): refused {senderPlayer.Username}'s change ({rejectionReason}), sent a correction");
 
         DebugRuntime.Publish("item", "item.rejection-correction-sent", DebugRuntimeSide.Server,
             DebugSeverity.Warning, "Item", NetId.ToString(), new()

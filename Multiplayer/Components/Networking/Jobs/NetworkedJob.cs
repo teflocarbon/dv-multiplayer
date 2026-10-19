@@ -375,6 +375,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     {
         foreach (var report in JobReports)
         {
+            ItemChangeLog.NoteJobDocumentRemoval(report, Job, typeof(NetworkedJob));
             Destroy(report.gameObject);
         }
 

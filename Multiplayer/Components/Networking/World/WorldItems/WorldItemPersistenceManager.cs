@@ -1,6 +1,8 @@
 using DV;
 using DV.InventorySystem;
 using DV.ThingTypes;
+using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Networking.Data;
@@ -92,7 +94,12 @@ internal static partial class WorldItemPersistenceManager
                 record.InventoryClaimPlayerId = player.PlayerId;
         }
 
-        if (AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData snapshot))
+        // The saved holder is back: what was held for them goes into their inventory.
+        ChangeCause<ItemMoveReason> restored =
+            ItemChangeLog.Move(ItemMoveReason.RestoredFromSave, player,
+                "kept for them since the save, now in their " + record.Placement);
+        ItemChangeLog.RecordMove(item, record, restored);
+        if (AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData snapshot, restored))
         {
             item.gameObject.SetActive(true);
             item.ApplyServerCanonicalSnapshot(snapshot);

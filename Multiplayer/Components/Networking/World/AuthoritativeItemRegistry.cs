@@ -1,6 +1,7 @@
 using DV.InventorySystem;
 using Multiplayer.Debugging;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
 using Multiplayer.Networking.Data;
 using Multiplayer.Networking.Data.Items;
@@ -38,6 +39,8 @@ public static class AuthoritativeItemRegistry
         public Vector3 Position;
         public Quaternion Rotation;
         public ItemTransitionReason LastReason;
+        // Why its placement, holder or owner last changed (ItemChangeLog).
+        public ChangeCause<ItemMoveReason> LastMove;
         public Guid PersistentItemId;
         public string AuthoredItemKey = string.Empty;
         public ItemPlacementKind BaselinePlacement;
@@ -159,9 +162,13 @@ public static class AuthoritativeItemRegistry
         return record;
     }
 
+    /// <param name="cause">
+    /// Why, when the caller knows (a disconnect, a restore). Without it a change of placement,
+    /// holder or owner is named from what changed (<see cref="ItemMoveClassifier"/>).
+    /// </param>
     public static bool TryApplyTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
         ItemTransitionReason reason, bool force, out string rejectionReason,
-        bool clearRetrievalClaim = false)
+        bool clearRetrievalClaim = false, ChangeCause<ItemMoveReason>? cause = null)
     {
         rejectionReason = string.Empty;
         if (item == null || snapshot == null || actor == null || item.NetId == 0)
@@ -170,7 +177,10 @@ public static class AuthoritativeItemRegistry
             return false;
         }
 
+        // A cause a client put in its own update is never passed on: only the host's goes out.
+        snapshot.MoveCause = null;
         Record record = Ensure(item, actor, snapshot);
+        ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
         bool retrievalEligible = item.Item?.InventorySpecs?.IsEssential == true;
         ItemPlacementKind previousPlacement = record.Placement;
         PlayerHand previousPlacementHand = record.PlacementHand;
@@ -276,6 +286,15 @@ public static class AuthoritativeItemRegistry
             record.HasPersistentOverride = true;
         record.LastReason = reason;
         WriteToSnapshot(record, snapshot, reason);
+        ItemWhereabouts after = ItemChangeLog.Whereabouts(record);
+        // A caller that names a cause moved it on purpose, if only to another spot in the world.
+        if (cause.HasValue || ItemMoveClassifier.Changed(before, after))
+        {
+            ChangeCause<ItemMoveReason> move = TransitionCause(item, reason, actor, before, after,
+                snapshot.ItemState == ItemState.Thrown, cause);
+            snapshot.MoveCause = move;
+            ItemChangeLog.RecordMove(item, record, move);
+        }
         Publish("item.transition-accepted", item, record, new()
         {
             ["actorPlayerId"] = actor.PlayerId,
@@ -290,6 +309,32 @@ public static class AuthoritativeItemRegistry
         if (HasRetrievalClaim(record))
             EnsureDistinctClaimSlots(record, ownerPlacedClaim ? record.NetId : (ushort)0, reason.ToString());
         return true;
+    }
+
+    private static ChangeCause<ItemMoveReason> TransitionCause(NetworkedItem item, ItemTransitionReason reason,
+        ServerPlayer actor, ItemWhereabouts before, ItemWhereabouts after, bool thrown,
+        ChangeCause<ItemMoveReason>? given)
+    {
+        string change = ItemChangeLog.Describe(before, after);
+        if (given is { } known)
+            return known.WithDetail(ItemChangeLog.Detail(change, known.Detail));
+        ItemMoveReason classified = reason switch
+        {
+            ItemTransitionReason.ClientAdoption => ItemMoveReason.Adopted,
+            ItemTransitionReason.PersistenceRestore => ItemMoveReason.RestoredFromSave,
+            ItemTransitionReason.JobBookletSummon => ItemMoveReason.JobBookletSummoned,
+            _ => ItemMoveClassifier.Classify(before, after, thrown)
+        };
+        string source = reason switch
+        {
+            ItemTransitionReason.ClientState => null,
+            // The host's own copy changed: on a dedicated host that is the game, not a player.
+            ItemTransitionReason.HostLocalState => string.IsNullOrEmpty(item.HostObservationTrigger)
+                ? "host's game" : "host's game, " + item.HostObservationTrigger,
+            _ => reason.ToString()
+        };
+        return ItemChangeLog.Move(classified, actor, ItemChangeLog.Detail(change, source,
+            classified == ItemMoveReason.Unknown ? "callers " + ItemChangeLog.Callers(typeof(AuthoritativeItemRegistry)) : null));
     }
 
     /// <summary>
@@ -347,6 +392,7 @@ public static class AuthoritativeItemRegistry
             return false;
         }
 
+        ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
         record.Revision++;
         record.ObjectStateRunBase = record.ObjectStateRunTop = 0;
         record.Placement = state.WorldParentKind switch
@@ -372,6 +418,12 @@ public static class AuthoritativeItemRegistry
             record.WorldParentPersistentId = string.Empty;
         record.HasPersistentOverride = true;
         record.LastReason = ItemTransitionReason.SpatialSettlement;
+        // Coming to rest where it was thrown isn't news, and would hide who threw it: only a
+        // settlement that lands it somewhere else (into a car) is recorded.
+        ItemWhereabouts after = ItemChangeLog.Whereabouts(record);
+        if (ItemMoveClassifier.Changed(before, after))
+            ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(ItemMoveReason.Settled,
+                detail: ItemChangeLog.Describe(before, after)));
         item.ApplyAuthorityMetadata(new ItemUpdateData
         {
             ItemNetId = item.NetId,
@@ -468,6 +520,7 @@ public static class AuthoritativeItemRegistry
         }
 
         byte previousPossessor = record.PlacementPlayerId;
+        ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
         ApplyCore(record, result.State);
         // The identity rebinds the placement when the player rejoins; left as the previous
         // holder's, a recalled item was handed back to that player's old session, and the
@@ -477,6 +530,11 @@ public static class AuthoritativeItemRegistry
         record.LastReason = ItemTransitionReason.OwnerRecall;
         snapshot = prepared;
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
+        ChangeCause<ItemMoveReason> recalled = ItemChangeLog.Move(ItemMoveReason.Recalled, requester,
+            ItemChangeLog.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
+                "slot " + record.InventoryClaimSlot));
+        snapshot.MoveCause = recalled;
+        ItemChangeLog.RecordMove(item, record, recalled);
         Publish("item.recall-accepted", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,
@@ -568,6 +626,7 @@ public static class AuthoritativeItemRegistry
             rejectionReason = "snapshot-creation-failed";
             return false;
         }
+        ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
         record.Revision++;
         record.Placement = ItemPlacementKind.PlayerInventory;
         record.PlacementPlayerId = requester.PlayerId;
@@ -581,6 +640,11 @@ public static class AuthoritativeItemRegistry
         created.ItemState = ItemState.InInventory;
         created.PlayerId = requester.PlayerId;
         WriteToSnapshot(record, created, ItemTransitionReason.LostAndFoundRetrieval);
+        ChangeCause<ItemMoveReason> retrieved = ItemChangeLog.Move(ItemMoveReason.RetrievedFromLostAndFound,
+            requester, ItemChangeLog.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
+                "slot " + targetSlot));
+        created.MoveCause = retrieved;
+        ItemChangeLog.RecordMove(item, record, retrieved);
         snapshot = created;
         Publish("item.lost-and-found-retrieval-authority-applied", item, record, new()
         {
@@ -593,7 +657,8 @@ public static class AuthoritativeItemRegistry
 
     public static Record RestoreLostRecord(NetworkedItem item, byte ownerPlayerId, uint revision,
         string prefabName, byte inventoryClaimPlayerId = 0, int inventoryClaimSlot = -1,
-        ItemInventoryClaimFlags inventoryClaimFlags = ItemInventoryClaimFlags.None)
+        ItemInventoryClaimFlags inventoryClaimFlags = ItemInventoryClaimFlags.None,
+        ItemMoveReason reason = ItemMoveReason.HostCorrection)
     {
         if (item == null || item.NetId == 0 || ownerPlayerId == 0)
             return null;
@@ -610,6 +675,9 @@ public static class AuthoritativeItemRegistry
         record.InventoryClaimFlags = inventoryClaimFlags;
         record.PrefabName = string.IsNullOrWhiteSpace(prefabName) ? record.PrefabName : prefabName;
         record.LastReason = ItemTransitionReason.LostAndFoundCollection;
+        ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(reason,
+            detail: "in Lost and Found, owner " + (ItemChangeLog.PlayerName(ownerPlayerId) ?? "P" + ownerPlayerId) +
+                    (reason == ItemMoveReason.HostCorrection ? ", retrieval rolled back" : null)));
         if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(ownerPlayerId, out ServerPlayer owner))
         {
             record.PersistentOwnerIdentity = owner.Guid;
@@ -666,6 +734,13 @@ public static class AuthoritativeItemRegistry
             owner.AddOwnedItem(item.NetId);
         }
         WriteToSnapshot(record, snapshot, record.LastReason);
+        ChangeCause<ItemMoveReason> withdrawn = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
+            ItemChangeLog.Detail(ItemChangeLog.Describe(
+                    new ItemWhereabouts(AuthorityPlacement.Container, 0, persistentOwnerPlayerId),
+                    ItemChangeLog.Whereabouts(record)),
+                "slot " + record.InventoryClaimSlot));
+        snapshot.MoveCause = withdrawn;
+        ItemChangeLog.RecordMove(item, record, withdrawn);
         item.ApplyAuthorityMetadata(snapshot);
         Publish("item.cold-materialization-registered", item, record, new()
         {
@@ -687,6 +762,8 @@ public static class AuthoritativeItemRegistry
         record.PlacementPlayerId = previousPlacementPlayerId;
         record.PlacementHand = PlayerHand.None;
         record.LastReason = previousReason;
+        ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(ItemMoveReason.HostCorrection,
+            detail: "Lost and Found collection rolled back to " + previousPlacement));
     }
 
     public static void ApplyReplicaMetadata(NetworkedItem item, ItemUpdateData snapshot)
@@ -736,7 +813,9 @@ public static class AuthoritativeItemRegistry
     /// The registry supplies identity and placement; the Unity item supplies any state-specific
     /// attachment/transform fields needed by the normal snapshot application path.
     /// </summary>
-    public static bool TryCreateCorrectionSnapshot(NetworkedItem item, out ItemUpdateData snapshot)
+    /// <param name="cause">Why the recipient is being corrected, logged on their side (a refusal's reason).</param>
+    public static bool TryCreateCorrectionSnapshot(NetworkedItem item, out ItemUpdateData snapshot,
+        ChangeCause<ItemMoveReason>? cause = null)
     {
         snapshot = null;
         if (item == null || item.NetId == 0 || !records.TryGetValue(item.NetId, out Record record))
@@ -757,6 +836,7 @@ public static class AuthoritativeItemRegistry
         snapshot.ItemRotation = record.Rotation;
         snapshot.OriginatingPlayerId = 0;
         WriteToSnapshot(record, snapshot, record.LastReason);
+        snapshot.MoveCause = cause;
         return true;
     }
 
@@ -779,6 +859,8 @@ public static class AuthoritativeItemRegistry
             ["inventoryClaimFlags"] = record.InventoryClaimFlags.ToString(),
             ["prefabName"] = record.PrefabName,
             ["lastReason"] = record.LastReason.ToString(),
+            ["lastMove"] = record.LastMove.Reason == ItemMoveReason.Unknown && record.LastMove.Detail.Length == 0
+                ? string.Empty : record.LastMove.ToString(),
             ["persistentItemId"] = record.PersistentItemId == Guid.Empty ? string.Empty : record.PersistentItemId.ToString("D"),
             ["authoredItemKey"] = record.AuthoredItemKey ?? string.Empty,
             ["worldParentKind"] = record.WorldParentKind.ToString(),
@@ -903,8 +985,10 @@ public static class AuthoritativeItemRegistry
                     other.InventoryClaimSlot == move.FromSlot)?.NetId ?? 0,
                 ["reason"] = reason ?? string.Empty
             }, DebugSeverity.Warning);
-            Multiplayer.Log($"Item {move.NetId} ({record.PrefabName}): claim slot {move.FromSlot} is another " +
-                $"essential's of the same owner, moved to {move.ToSlot} ({reason})");
+            ushort keptBy = ownerClaims.FirstOrDefault(other => other.NetId != move.NetId &&
+                other.InventoryClaimSlot == move.FromSlot)?.NetId ?? 0;
+            ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(ItemMoveReason.ClaimSlotMoved,
+                detail: $"claim slot {move.FromSlot} -> {move.ToSlot}, slot {move.FromSlot} kept by netId {keptBy}, after {reason}"));
             PushClaimSlotCorrection(item, record);
         }
         return moves.Count;
@@ -921,7 +1005,7 @@ public static class AuthoritativeItemRegistry
         ItemUpdateData correction = null;
         bool corrected = lost
             ? NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out correction)
-            : TryCreateCorrectionSnapshot(item, out correction);
+            : TryCreateCorrectionSnapshot(item, out correction, record.LastMove);
         NetworkServer server = NetworkLifecycle.Instance?.Server;
         bool hostOwns = server != null && record.PersistentOwnerPlayerId != 0 &&
             record.PersistentOwnerPlayerId == server.SelfId;
@@ -954,7 +1038,11 @@ public static class AuthoritativeItemRegistry
         record.InventoryClaimSlot >= 0 && HasRetrievalFlag(record.InventoryClaimFlags);
 
     public static void Remove(ushort netId) => records.Remove(netId);
-    public static void Clear() => records.Clear();
+    public static void Clear()
+    {
+        records.Clear();
+        ItemChangeLog.RecentRemovals.Clear();
+    }
     public static IEnumerable<Record> Records => records.Values;
 
     /// <summary>
