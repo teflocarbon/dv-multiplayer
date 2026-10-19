@@ -504,6 +504,12 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             if (TrainCar.loadedInterior != null)
                 OnTrainCarInteriorLoaded(TrainCar.loadedInterior.gameObject);
 
+            TrainCar.ExternalInteractableLoaded += OnExternalInteractablesLoaded;
+            TrainCar.ExternalInteractableAboutToBeUnloaded += OnExternalInteractablesUnloaded;
+
+            if (TrainCar.loadedExternalInteractables != null)
+                OnExternalInteractablesLoaded(TrainCar.loadedExternalInteractables);
+
             if (simulationFlow != null)
             {
                 dirtyPorts = new HashSet<uint>(simulationFlow.fullPortIdToPort.Count);
@@ -766,6 +772,11 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void HookControl(ControlImplBase implementation, uint netId)
     {
+        // A handcar's handle is hooked from the external interactables, and again by its cab's
+        // controls manager if the cab loads too.
+        if (controlToPortNetId.ContainsKey(implementation))
+            return;
+
         // Check for ObiRopeGrabHandler used by steam whistles
         ObiRopeGrabAreaHandler ObiGrabHandler = implementation.transform?.parent?.GetComponentInChildren<ObiRopeGrabAreaHandler>(false);
         if (ObiGrabHandler != null)
@@ -792,9 +803,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             portNetIdToControl[netId] = implementation;
             controlToPortNetId[implementation] = netId;
 
+            // A handcar's handle also writes whether it's held (ENGAGED): without it the host's
+            // simulation treats the handle as let go and it follows the wheels, so nothing moves.
+            string handleEngagedPortId = implementation.GetComponent<HandcarBarController>()?.handleEngagedPortId;
             uint[] linked = implementation.GetComponents<InteractablePortFeeder>()
-                .Where(f => !string.IsNullOrEmpty(f.portId))
-                .Select(f => GetPortNetId(f.portId))
+                .Select(f => f.portId)
+                .Append(handleEngagedPortId)
+                .Where(portId => !string.IsNullOrEmpty(portId))
+                .Select(GetPortNetId)
                 .Where(id => id != netId && !portNetIdToControl.ContainsKey(id))
                 .Distinct().ToArray();
             if (linked.Length > 0)
@@ -866,6 +882,86 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         controlToPortNetId.Clear();
 
         interiorControlsManager = null;
+
+        // The external interactables outlive the cab.
+        if (TrainCar.loadedExternalInteractables != null)
+            HookExternalControls(TrainCar.loadedExternalInteractables);
+    }
+
+    // A handcar's handle is on its external interactables, which load near the car, not in the cab,
+    // which loads only once the player is on it (and never on a dedicated server). Unhooked, a grab
+    // took no lease: a client's pumping was never taken, and the host's own HandcarBarController,
+    // never disabled for want of a lease, wrote the handle as let go every frame. The handcar
+    // didn't move and the crank felt glued.
+    private void OnExternalInteractablesLoaded(GameObject externalInteractables)
+    {
+        if (externalInteractables != null)
+            StartCoroutine(HookExternalControlsNextFrame(externalInteractables));
+    }
+
+    private IEnumerator HookExternalControlsNextFrame(GameObject externalInteractables)
+    {
+        yield return null;
+        if (externalInteractables != null && externalInteractables == TrainCar.loadedExternalInteractables)
+            HookExternalControls(externalInteractables);
+    }
+
+    private void HookExternalControls(GameObject externalInteractables)
+    {
+        if (!hasSimFlow)
+            return;
+
+        foreach (HandcarBarController bar in externalInteractables.GetComponentsInChildren<HandcarBarController>(true))
+        {
+            ControlImplBase implementation = bar.GetComponent<ControlImplBase>();
+            string portId = bar.GetComponent<InteractablePortFeeder>()?.portId;
+            if (implementation == null || string.IsNullOrEmpty(portId) || controlToPortNetId.ContainsKey(implementation))
+                continue;
+
+            Multiplayer.LogDebug(() => $"HookExternalControls() Handcar handle [{portId}] found on car {CurrentID}");
+            HookControl(implementation, GetPortNetId(portId));
+        }
+    }
+
+    private void OnExternalInteractablesUnloaded(GameObject externalInteractables)
+    {
+        if (externalInteractables == null)
+            return;
+
+        foreach (ControlImplBase control in controlToPortNetId.Keys.ToList())
+            if (control != null && control.transform.IsChildOf(externalInteractables.transform))
+                UnhookControl(control);
+    }
+
+    private void UnhookControl(ControlImplBase control)
+    {
+        if (!controlToPortNetId.TryGetValue(control, out uint portNetId))
+            return;
+
+        if (usedControlReleases.TryGetValue(control, out var pending))
+        {
+            if (pending != null)
+                StopCoroutine(pending);
+            usedControlReleases.Remove(control);
+            Client_ReleasePortAuthority(portNetId);
+        }
+        else if (control.IsGrabbed())
+        {
+            Client_ControlUngrabbed(control);
+        }
+
+        control.Grabbed -= Client_ControlGrabbed;
+        control.Ungrabbed -= Client_ControlUngrabbed;
+        if (usedControlDelegates.TryGetValue(control, out var used))
+        {
+            control.Used -= used;
+            usedControlDelegates.Remove(control);
+        }
+
+        foreach (uint id in PortsOf(portNetId).ToList())
+            portNetIdToControl.Remove(id);
+        linkedPortNetIds.Remove(portNetId);
+        controlToPortNetId.Remove(control);
     }
 
     /// <summary>

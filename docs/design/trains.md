@@ -100,7 +100,15 @@ overrider or, failing that, the control's `InteractablePortFeeder`, and a second
 feeder-driven controls the `InteriorControlsManager` doesn't list (the DE2's cab fan). A control
 that feeds several ports (the CCL C Class's bright switch feeds the front and rear headlights)
 leases and releases them together. The controls are hooked once they're all set up, a few frames
-after the cab loads, with one shared timeout rather than one per control. The lease is
+after the cab loads, with one shared timeout rather than one per control. A handcar's handle is
+on its external interactables, not in the cab, which loads only once a player is on the car (and
+never on a dedicated server), so it's hooked when those load (`HookExternalControls`), and its
+lease covers `ENGAGED_EXT_IN` as well as the handle's port. Unhooked, the host's own
+`HandcarBarController`, which the lease disables, wrote the handle as let go every frame, and a
+client's pumping, sent without a lease, wasn't taken: the handcar never moved. Since clients
+don't run the simulation, a client draws the crank from its own wheel RPM every frame, eased
+toward the host's `CURRENT_POSITION` (`HandcarCrankSmoothingPatch`): drawn at the 24 Hz host value
+it stepped, and a player pumping against it fell out of rhythm. The lease is
 taken on `Grabbed` (levers, knobs, flat-screen buttons), on hover-scrolling, and on `Used`: VR
 buttons and toggle switches, and keyboard presses, work through `Use()` and never raise `Grabbed`.
 A `Used` lease is handed back 0.5 s later, once the change has been sent. Fuses, the handbrake and
