@@ -14,7 +14,7 @@ if (action == "junction")
 else if (action == "turntable")
 {
     NetworkedTurntable.Get(byte.Parse(ctx.Args["turntable"]), out NetworkedTurntable t);
-    var controller = UnityEngine.Object.FindObjectsOfType<TurntableController>().First(c => c.turntable == t.TurntableRailTrack);
+    var controller = Resources.FindObjectsOfTypeAll<TurntableController>().First(c => c.turntable == t.TurntableRailTrack);
     float before = t.TurntableRailTrack.targetYRotation;
     controller.pushingPositiveDirectionValue = 1f;
     yield return new WaitForSecondsRealtime(2f);

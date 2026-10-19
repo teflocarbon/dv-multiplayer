@@ -2,9 +2,9 @@
 # The host's own world takes other players' actions, and the host's actions reach the others, each
 # applied once (docs/design/host-local-session.md, stage 2: the server applies junctions,
 # turntables and time skips itself, not the host's own client). One player throws the junction
-# nearest it, pushes the nearest turntable round, fast-travels and sleeps; after each, both games
-# must agree: the same branch (switched exactly once on each game), the same turntable rotation,
-# each clock skipped forward once, and the same shared sleep cooldown.
+# nearest it, pushes the nearest turntable round (both players go to it), fast-travels and sleeps;
+# after each, both games must agree: the same branch (switched exactly once on each game), the same
+# turntable rotation, each clock skipped forward once, and the same shared sleep cooldown.
 #   WHO=client (default) or host: who acts. MODE=all (default), or one of junction, turntable,
 #   fast-travel, sleep. SKIP=3600: the time skip in game seconds.
 # Exit code 0 = pass. Needs a running pair (dvmp up).
@@ -58,7 +58,12 @@ fi
 
 if want turntable; then
   [ "$T" != 0 ] || fail "no turntable found"
-  echo "== $WHO turns turntable $T"
+  # A turntable only turns where the world is loaded: both players go to its controls.
+  TX=$(echo "$pick" | field tx); TZ=$(echo "$pick" | field tz)
+  $D eval -t $WHO -m coroutine --timeout 90 "yield return LocalPlayer.TeleportToGround(${TX}f + 2f, ${TZ}f + 2f);" >/dev/null
+  $D eval -t $OTHER -m coroutine --timeout 90 "yield return LocalPlayer.TeleportToGround(${TX}f - 6f, ${TZ}f + 6f);" >/dev/null
+  sleep 3
+  echo "== $WHO turns turntable $T (players at its controls, ($TX, $TZ))"
   a=$($D eval -t $WHO -m coroutine --timeout 60 -u "$U" -a action=turntable -a junction=$J -a turntable=$T -f $P/act.cs)
   echo "   $WHO turned it $(echo "$a" | field before) -> $(echo "$a" | field rotation) degrees"
   node -e 'const d=Math.abs(+process.argv[1]-(+process.argv[2]))%360;process.exit(Math.min(d,360-d)>1?0:1)' "$(echo "$a" | field before)" "$(echo "$a" | field rotation)" || fail "the turntable didn't turn"
