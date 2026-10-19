@@ -6,7 +6,7 @@ if (liveryId == "auto")
 {
     var present = new HashSet<string>(UnityEngine.Object.FindObjectsOfType<TrainCar>().Select(c => c.carLivery.id));
     liveryId = new[] { "LocoDE2", "LocoDM3", "LocoDH4", "LocoS060", "LocoDE6" }
-        .First(id => !present.Contains(id) && !DV.Garages.GarageCarSpawner.Spawners.Keys.Any(l => l.id == id));
+        .First(id => !present.Contains(id) && !global::GarageCarSpawner.Spawners.Keys.Any(l => l.id == id));
 }
 string response = null;
 float t0 = Time.realtimeSinceStartup;

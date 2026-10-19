@@ -12,6 +12,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
+# A failed dvmp call prints its output (the eval's compile error or exception) instead of the run
+# stopping silently under set -e with it captured in a variable or sent to /dev/null.
+dvmp_bin=$D; D=dvmp_checked
+dvmp_checked() { local out; if ! out=$("$dvmp_bin" "$@"); then echo "FAIL: dvmp ${*:1:3} failed: ${out:-no output}" >&2; return 1; fi; printf '%s\n' "$out"; }
 P=DevTools/Scenarios/rerail
 LIVERY=${LIVERY:-LocoDE2}; WHO=${WHO:-client}; SHIFT=${SHIFT:-12}; DURATION=${DURATION:-8}; MAX_OFF=${MAX_OFF:-0.5}
 U="using Multiplayer.Client.Session; using Multiplayer.Server.Coverage; using Multiplayer.Server.Dedicated; using Multiplayer.Shared.Session; using Multiplayer.Client.Trains; using Multiplayer.Server.Trains; using Multiplayer.Shared.Trains; using Multiplayer.Server.Items; using Multiplayer.Shared.Items; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World;"
@@ -45,7 +49,7 @@ if [ "$WHO" = client ] || [ "$WHO" = host-radio ]; then
   # whose request is handled in-process.
   $D eval -t $( [ "$WHO" = client ] && echo client || echo host ) -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedTrainCar.TryGetFromTrainCar(car, out var n); NetworkLifecycle.Instance.Client.SendTrainRerailRequest(n.NetId, ushort.Parse(ctx.Args["track"]), p, f); return 0;' >/dev/null
 else
-  $D eval -t host -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedRailTrack.TryGet(ushort.Parse(ctx.Args["track"]), out var t); car.Rerail(t.RailTrack, p + WorldMover.currentMove, f); return 0;' >/dev/null
+  $D eval -t host -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedRailTrack.TryGet(ushort.Parse(ctx.Args["track"]), out NetworkedRailTrack t); car.Rerail(t.RailTrack, p + WorldMover.currentMove, f); return 0;' >/dev/null
 fi
 wait
 
