@@ -3,9 +3,9 @@
 # (WHO=host: its requests are handled in-process, docs/design/host-local-session.md). A car spawned
 # near the host is deleted with the radio's request: it's gone on both games. Then a work train is
 # summoned where it stood: an invalid request (no such track) is answered, not left to time out,
-# and a valid one is answered Success and the loco is there on both games.
-#   WHO (client), LIVERY (LocoDM3, the car deleted), WORK_LIVERY (auto: a loco with no car in the
-#   world and no garage, so the summon spawns one for free)
+# and a valid one is answered Success and the car is there on both games.
+#   WHO (client), LIVERY (LocoDM3, the car deleted), WORK_LIVERY (auto: a livery with no car in the
+#   world and no garage, locos first, no longer than LIVERY: the summon spawns one, for free)
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -41,12 +41,12 @@ for t in host client; do
 done
 
 echo "== $WHO summons a work train on a track that doesn't exist"
-r=$($D eval -t $WHO -m coroutine --timeout 30 -a livery=$WORK_LIVERY -a track=0 -a index=0 -a timeout=10 -f $P/work-train.cs | result)
+r=$($D eval -t $WHO -m coroutine --timeout 30 -a livery=$WORK_LIVERY -a fits=$LIVERY -a track=0 -a index=0 -a timeout=10 -f $P/work-train.cs | result)
 echo "   answer: $(val "$r" response) after $(val "$r" seconds) s"
 [ "$(val "$r" response)" != timeout ] || fail=1
 
 echo "== $WHO summons a work train where $id stood"
-r=$($D eval -t $WHO -m coroutine --timeout 30 -a livery=$WORK_LIVERY -a track=$track -a index=$index -a timeout=10 -f $P/work-train.cs | result)
+r=$($D eval -t $WHO -m coroutine --timeout 30 -a livery=$WORK_LIVERY -a fits=$LIVERY -a track=$track -a index=$index -a timeout=10 -f $P/work-train.cs | result)
 work=$(val "$r" livery)
 echo "   $work: $(val "$r" response) after $(val "$r" seconds) s"
 [ "$(val "$r" response)" = Success ] || fail=1
