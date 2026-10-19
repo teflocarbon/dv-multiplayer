@@ -482,8 +482,8 @@ public partial class NetworkServer : NetworkManager
                          .Where(value => value.Player == player).ToArray())
                 CancelPendingItemRecall(pending, "requesting-player-disconnected", false);
         });
-        RunDisconnectStep("spatial items", () => NetworkedItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId));
-        RunDisconnectStep("held items", () => NetworkedItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player));
+        RunDisconnectStep("spatial items", () => ServerItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId));
+        RunDisconnectStep("held items", () => ServerItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player));
         RunDisconnectStep("train controls", () =>
         {
             foreach (var key in lastTrainControlOperation.Keys

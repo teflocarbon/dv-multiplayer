@@ -1,4 +1,3 @@
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Newtonsoft.Json.Linq;
 using System;
@@ -105,14 +104,6 @@ internal sealed class WorldItemPersistenceRecord
         };
     }
 
-    public static WorldItemPersistenceRecord CreateTombstone(AuthoritativeItemRegistry.Record record) =>
-        new()
-        {
-            AuthoredItemKey = record.AuthoredItemKey ?? string.Empty,
-            PrefabName = record.PrefabName ?? string.Empty,
-            Revision = record.Revision == uint.MaxValue ? record.Revision : record.Revision + 1,
-            Placement = ItemPlacementKind.Destroyed
-        };
 
     private static string FormatGuid(Guid value) => value == Guid.Empty ? string.Empty : value.ToString("D");
 

@@ -1,5 +1,4 @@
 using HarmonyLib;
-using Multiplayer.Server.Items;
 using Newtonsoft.Json.Linq;
 using System;
 
@@ -18,7 +17,7 @@ internal static class PersistentWorldItemIdentityPatch
     {
         PersistentWorldItemIdentity identity = __instance?.GetComponent<PersistentWorldItemIdentity>();
         NetworkedItem networked = __instance?.GetComponent<NetworkedItem>();
-        bool managedWorldItem = networked != null && WorldItemPersistenceManager.OwnsWorldPersistence(networked);
+        bool managedWorldItem = networked != null && ItemServer.Current?.OwnsWorldPersistence(networked) == true;
         if (!managedWorldItem && (identity == null || identity.Value == Guid.Empty))
             return;
         __result ??= new JObject();

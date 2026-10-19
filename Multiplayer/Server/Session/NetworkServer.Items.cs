@@ -22,14 +22,53 @@ using UnityEngine;
 namespace Multiplayer.Server.Session;
 
 // NetworkServer's items handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkServer
+public partial class NetworkServer : IItemServer
 {
+    byte IItemServer.LocalPlayerId => SelfId;
+
+    bool IItemServer.IsInLostAndFound(ushort itemNetId) => NetworkedLostAndFoundManager.Contains(itemNetId);
+
+    bool IItemServer.TryGetPersistentOwner(ushort itemNetId, out byte ownerPlayerId)
+    {
+        bool known = AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record);
+        ownerPlayerId = known ? record.PersistentOwnerPlayerId : (byte)0;
+        return known;
+    }
+
+    bool IItemServer.TryGetPlacement(ushort itemNetId, out ItemPlacementKind placement)
+    {
+        bool known = AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record);
+        placement = known ? record.Placement : default;
+        return known;
+    }
+
+    void IItemServer.MarkAuthoredIdentity(NetworkedItem item) => AuthoritativeItemRegistry.MarkAuthoredIdentity(item);
+
+    void IItemServer.PromoteAuthoredToPersistent(NetworkedItem item) => AuthoritativeItemRegistry.PromoteAuthoredToPersistent(item);
+
+    void IItemServer.OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy) => item.OnDestroyed(suppressNetworkDestroy);
+
+    bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => WorldItemPersistenceManager.OwnsWorldPersistence(item);
+
+    IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);
+
+    IReadOnlyList<(string Prefab, int Slot)> IItemServer.OwnedItems(Guid playerIdentity, byte playerId) =>
+        OwnedItemsSummary.For(playerIdentity, playerId).Select(item => (item.Prefab, item.Slot)).ToList();
+
+    Dictionary<string, object> IItemServer.AuthorityDebugState(ushort itemNetId) =>
+        AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record)
+            ? AuthoritativeItemRegistry.Snapshot(record) : null;
+
+    Dictionary<string, object>[] IItemServer.LostAndFoundDebugSnapshot() => NetworkedLostAndFoundManager.DebugSnapshot();
+
+    Dictionary<string, object>[] IItemServer.ColdContainerDebugSnapshot() => NetworkedColdContainerManager.DebugSnapshot();
+
     private void OnServerboundItemSpatialSamplePacket(ServerboundItemSpatialSamplePacket packet,
         ITransportPeer peer)
     {
         if (packet?.State == null || !TryGetServerPlayer(peer, out ServerPlayer player))
             return;
-        NetworkedItemManager.Instance?.ReceiveItemSpatialSample(packet.State, player);
+        ServerItemManager.Instance?.ReceiveItemSpatialSample(packet.State, player);
     }
 
     private void OnServerboundItemSpatialSettlementPacket(ServerboundItemSpatialSettlementPacket packet,
@@ -37,7 +76,7 @@ public partial class NetworkServer
     {
         if (packet?.State == null || !TryGetServerPlayer(peer, out ServerPlayer player))
             return;
-        NetworkedItemManager.Instance?.ReceiveItemSpatialSettlement(packet.State, player);
+        ServerItemManager.Instance?.ReceiveItemSpatialSettlement(packet.State, player);
     }
 
     private void OnServerboundItemTrainWakeWitnessPacket(
@@ -45,7 +84,7 @@ public partial class NetworkServer
     {
         if (packet == null || !TryGetServerPlayer(peer, out ServerPlayer player))
             return;
-        NetworkedItemManager.Instance?.ReceiveItemTrainWakeWitness(packet, player);
+        ServerItemManager.Instance?.ReceiveItemTrainWakeWitness(packet, player);
     }
 
     private void OnServerboundWorldItemCataloguePacket(ServerboundWorldItemCataloguePacket packet, ITransportPeer peer)
@@ -345,7 +384,7 @@ public partial class NetworkServer
             return;
 
         ItemAdoptionRequestData request = packet.Request;
-        bool accepted = NetworkedItemManager.Instance.TryAdoptClientItem(player, request,
+        bool accepted = ServerItemManager.Instance.TryAdoptClientItem(player, request,
             out ushort assignedNetId, out string rejectionReason, out ItemUpdateData restoredOriginal);
         AuthoritativeItemRegistry.TryGet(assignedNetId, out AuthoritativeItemRegistry.Record authorityRecord);
         DebugRuntime.Publish("item", accepted ? "item.adoption-accepted" : "item.adoption-rejected",
@@ -386,7 +425,7 @@ public partial class NetworkServer
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player) &&
             !float.IsNaN(packet.SurfaceHeight) && !float.IsInfinity(packet.SurfaceHeight))
-            NetworkedItemManager.Instance?.Server_HandleBelowMapReport(player, packet.ItemNetId, packet.SurfaceHeight);
+            ServerItemManager.Instance?.HandleBelowMapReport(player, packet.ItemNetId, packet.SurfaceHeight);
     }
 
     private void OnServerboundMoneyItemDepositPacket(ServerboundMoneyItemDepositPacket packet, ITransportPeer peer)
@@ -584,12 +623,25 @@ public partial class NetworkServer
         return nextItemRecallOperationId;
     }
 
+    // The Lost and Found screen's and the container UI's requests. The host's own player's are
+    // handled in-process (RegisterLocalItems); the answers go to its client like anyone's, which
+    // shows them (HostOwnClient applies them).
+    partial void RegisterLocalItems()
+    {
+        HandleLocal<ServerboundLostItemsRequestPacket>(HandleLostItemsRequest);
+        HandleLocal<ServerboundLostItemRetrievePacket>(HandleLostItemRetrieve);
+        HandleLocal<ServerboundContainerBrowsePacket>(HandleContainerBrowse);
+        HandleLocal<ServerboundContainerMutationPacket>(HandleContainerMutation);
+    }
+
     private void OnServerboundLostItemsRequestPacket(ServerboundLostItemsRequestPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
-        SendLostItemsSnapshot(player, packet.RequestId);
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleLostItemsRequest(packet, player);
     }
+
+    private void HandleLostItemsRequest(ServerboundLostItemsRequestPacket packet, ServerPlayer player) =>
+        SendLostItemsSnapshot(player, packet.RequestId);
 
     private void OnServerboundLostItemRetrievePacket(ServerboundLostItemRetrievePacket packet, ITransportPeer peer)
     {
@@ -599,6 +651,11 @@ public partial class NetworkServer
                 $"peer={peer?.Id}, request={packet.RequestId}, handle={packet.LostHandle}");
             return;
         }
+        HandleLostItemRetrieve(packet, player);
+    }
+
+    private void HandleLostItemRetrieve(ServerboundLostItemRetrievePacket packet, ServerPlayer player)
+    {
         Log($"[LostAndFound Recall] Retrieval packet received: player=P{player.PlayerId}, " +
             $"request={packet.RequestId}, handle={packet.LostHandle}, revision={packet.ExpectedRevision}, " +
             $"requestedSlot={packet.RequestedSlot}, existingSlot={packet.ExistingItemSlot}, " +
@@ -608,7 +665,7 @@ public partial class NetworkServer
             packet.OccupiedSlots, out ItemUpdateData snapshot, out string rejectionReason);
         if (accepted)
             SendItemUpdatePacket(snapshot);
-        SendPacket(peer, new ClientboundLostItemRetrieveResultPacket
+        SendPacket(player.Peer, new ClientboundLostItemRetrieveResultPacket
         {
             RequestId = packet.RequestId,
             LostHandle = packet.LostHandle,
@@ -628,21 +685,32 @@ public partial class NetworkServer
     private void OnServerboundContainerBrowsePacket(ServerboundContainerBrowsePacket packet,
         ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleContainerBrowse(packet, player);
+    }
+
+    private void HandleContainerBrowse(ServerboundContainerBrowsePacket packet, ServerPlayer player)
+    {
         ColdContainerView view;
         ContainerOperationResult result = packet.ShellNetId != 0
             ? NetworkedColdContainerManager.Browse(player, packet.ShellNetId, packet.Offset,
                 packet.Count, out view)
             : NetworkedColdContainerManager.Browse(player, packet.ContainerHandle, packet.Offset,
                 packet.Count, out view);
-        SendPacket(peer, ProjectContainerView(packet.RequestId, result, view),
+        SendPacket(player.Peer, ProjectContainerView(packet.RequestId, result, view),
             DeliveryMethod.ReliableOrdered);
     }
 
     private void OnServerboundContainerMutationPacket(ServerboundContainerMutationPacket packet,
         ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player)) return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleContainerMutation(packet, player);
+    }
+
+    private void HandleContainerMutation(ServerboundContainerMutationPacket packet, ServerPlayer player)
+    {
+        ITransportPeer peer = player.Peer;
         Guid operationId = packet.OperationId?.Length == 16
             ? new Guid(packet.OperationId) : Guid.Empty;
         ContainerOperationResult result;

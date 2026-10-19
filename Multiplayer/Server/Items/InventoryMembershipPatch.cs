@@ -34,7 +34,7 @@ public static class InventoryMembershipPatch
             !item.TryGetComponent(out NetworkedItem networked) || networked.NetId == 0)
             return;
         networked.NoteRemovalCause(ItemChangeLog.Removal(global::Multiplayer.Core.Items.ItemRemovalReason.DestroyedFromInventory,
-            detail: "callers " + ItemChangeLog.Callers(typeof(InventoryMembershipPatch))));
+            detail: "callers " + ItemChangeCauses.Callers(typeof(InventoryMembershipPatch))));
     }
 
     [HarmonyPostfix]

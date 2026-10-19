@@ -36,6 +36,7 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 | `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1] [--filter JobOverview]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
 | `dvmp_trace` | `dvmp trace [--ids 12,34]` | Mutation tracer: which code froze/moved/reparented/hid/destroyed an item, with the calling method. `dvmp up --trace` installs it before the world loads. |
 | – | `dvmp up --host-only --session NAME` | Start (or reuse) only a host; see [Host-only sessions](#host-only-sessions). |
+| – | `dvmp up --reseed --session NAME` | Restart a named session with its user data copied afresh from your profile; see [Session user data](#session-user-data). |
 | – | `dvmp perf [-t ...] [-s 10]` | Frame-time percentiles, tick rate, memory (with the retained Mono heap), awake rigidbodies, cars, items, players, and packets per type per second, over a window. |
 
 ## Host-only sessions
@@ -59,7 +60,8 @@ dvmp down --session light
   it can join with its normal identity, to `127.0.0.1:<port>`, without colliding with the host.
 - **30 fps in the background** (`--bg-fps`, default 20 for pairs), so it stays above the mod's
   24 Hz network tick.
-- Pass `--save`: the launcher's default save may be your real career.
+- Pass `--save`: the launcher's default save is your selected career (a copy: see
+  [Session user data](#session-user-data)).
 - `dvmp perf` hooks the mod's per-packet debug calls with Harmony prefixes on its first run. They
   count every send and receive whether or not the debug system is on, and stay installed until the
   game quits. The forced GC behind `monoRetained` costs one frame hitch; skip it with
@@ -68,6 +70,29 @@ dvmp down --session light
   service identity, not a player: no avatar for the client to see, no slot, not a nearby player.
   A plain `dvmp up` reuses either kind of host; `--dedicated` only reuses a dedicated one.
 - Not in the MCP tools yet: they have no `session` argument, so use the CLI.
+
+## Session user data
+
+A named session's games (`--session NAME`, `DVMP_SESSION`, the gate's `p1`, `d1`...) keep DV's user
+data in `%LOCALAPPDATA%\dvmp\sessions\NAME\data\host` and `\client` instead of your profile in
+`%USERPROFILE%\AppData\LocalLow\Altfuture\Derail Valley`: careers, saves, `userData.json`,
+preferences and control bindings. Parallel pairs then never write each other's saves or yours.
+
+- dvmp copies the folders from your profile, which it only reads, the first time a session
+  launches: the profile files, the "DVMP..." careers and each mode's selected one, with their
+  newest 5 saves. They're kept across `down` and `up`, since `save-reload` and `inventory-persist`
+  restart the games and load what they saved. `dvmp up --reseed` copies them again (and restarts
+  the games).
+- The dev agent points DV's storage at the folder (`-dvmp-userdata`). `up` checks it at the main
+  menu, before anything is saved, and fails if a game still uses your profile: an agent older than
+  this needs a rebuild. A running game that doesn't use the session's folder (one an older dvmp
+  started) is restarted rather than reused.
+- Harness games never save mod settings at quit (Unity Mod Manager's `OnSaveGUI` is cleared), so
+  `Settings.xml` keeps what you set.
+- The default session still uses your profile, as before. `DVMP_SHARED_PROFILE=1` puts named
+  sessions back on it too; then give the gate
+  `EXCLUSIVE="fps-drop host-stall player-soak save-reload inventory-persist host-player-persist"`. Unity's own analytics cache under the
+  profile folder (`Unity\`) isn't DV's storage and still changes.
 
 ## Remote debugging
 
@@ -115,6 +140,7 @@ and prints PASS/FAIL per run. Run it after any change touching items, joins, tic
 ```bash
 bash DevTools/Scenarios/gate.sh                       # everything
 ONLY="rejoin recall" bash DevTools/Scenarios/gate.sh  # by scenario or run name
+PAIRS="p:2 d:1" RUNS=batch.txt bash DevTools/Scenarios/gate.sh  # pairs by kind, your own run list
 WHO=host MODE=throw WHEN=moving bash DevTools/Scenarios/train-items/run.sh
 ```
 

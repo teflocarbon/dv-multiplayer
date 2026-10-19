@@ -10,7 +10,6 @@ using DV.JObjectExtstensions;
 using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
-using Multiplayer.Client.Items;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -48,7 +47,6 @@ public static class NetworkedColdContainerManager
 
     public static void Clear()
     {
-        ColdContainerUiIntegration.Reset();
         compatibility.Clear();
         graph = new ColdContainerGraph(compatibility: compatibility);
         shellByNetId.Clear();
@@ -373,7 +371,7 @@ public static class NetworkedColdContainerManager
             // The item was indexed by its spawn position when it woke, before it had a record;
             // re-index it as held. Left in that cell, it was never sent to the holder again
             // (after a rejoin, the withdrawn item was missing from their inventory).
-            NetworkedItemManager.Instance?.RegisterHostWorldItem(item);
+            ServerItemManager.Instance?.RegisterHostWorldItem(item);
             if (actor.PlayerId == InventoryIntegration.LocalPlayerId &&
                 !InventoryIntegration.ContainsActive(instance))
                 throw new InvalidOperationException("withdraw-local-inventory-projection-failed");

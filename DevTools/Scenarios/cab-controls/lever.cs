@@ -28,6 +28,6 @@ ctx.Result = new
 {
     port,
     value = ntc.simulationFlow.TryGetPort(port, out var p) ? Math.Round(p.Value, 3) : -1,
-    owned = ntc.locallyOwnedPortAuthorities.Contains(netId),
-    blocked = ntc.portNetIdToBlockState.TryGetValue(netId, out bool b) && b
+    owned = Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).locallyOwnedPortAuthorities.Contains(netId),
+    blocked = Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).portNetIdToBlockState.TryGetValue(netId, out bool b) && b
 };

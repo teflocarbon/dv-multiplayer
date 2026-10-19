@@ -3,8 +3,7 @@ using System.Linq;
 using DV.Utils;
 using UnityEngine;
 using JetBrains.Annotations;
-using Multiplayer.Server.Items;
-using Multiplayer.Server.Session;
+
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using System;
@@ -22,7 +21,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
 {
     public const float TrackedValueFinalizationGraceSeconds = 0.75f;
     /*
-     * Server 
+     * Server: the server's part is ServerItemManager (Server/Items), created on the server only.
      */
 
     //Culling distance for items
@@ -30,9 +29,10 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     public const float MAX_DISTANCE_TO_ITEM_SQR = MAX_DISTANCE_TO_ITEM * MAX_DISTANCE_TO_ITEM;
     public const float NEARBY_REMOVAL_DELAY = 3f; // 3 seconds delay
 
-    //caches for item snapshots
-    private readonly List<ItemUpdateData> DestroyedItems = new(64);
-    private readonly Dictionary<ItemUpdateData, HashSet<byte>> DestroyRecipients = new();
+    private IItemManagerServerPart serverPart;
+
+    /// <summary>The server's part of the manager; null on a client.</summary>
+    public IItemManagerServerPart ServerPart => serverPart ??= ItemServer.Current?.CreateItemManagerPart(this);
 
     /*
      * Client
@@ -50,7 +50,6 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     // TEMPORARY: delete these coordinators with TemporaryClientAdoptionCompatibility after all DV
     // runtime item producers have explicit host-authoritative operations.
     private readonly AdoptionCoordinator<NetworkedItem> TemporaryClientAdoptions = new();
-    private readonly HostAdoptionRegistry TemporaryHostAdoptions = new();
     private readonly Dictionary<NetworkedItem, float> PendingTrackedValueFinalizations = new();
     private readonly Dictionary<ushort, ItemUpdateData> PendingSpecialItemSnapshots = new();
     private readonly Dictionary<ushort, PendingWorldProjection> PendingWorldProjections = new();
@@ -59,14 +58,9 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     private bool ClientInitialised = false;
     private readonly AuthoredWorldItemCatalogue AuthoredCatalogue = new();
     private bool authoredCatalogueBuilt;
-    private readonly Dictionary<WorldItemCellCoord, HashSet<NetworkedItem>> HostItemsByCell = new();
-    private readonly Dictionary<NetworkedItem, WorldItemCellCoord> HostCellByItem = new();
-    private readonly HashSet<NetworkedItem> HostNonSpatialItems = new();
-    private readonly Dictionary<byte, HashSet<WorldItemCellCoord>> HostPlayerCells = new();
     private bool authoredCatalogueAccepted;
-    private NetworkedItemSpatialManager Spatial;
-    private NetworkedTrainItemWakeManager TrainItemWake;
-    private AuthoredWorldItemReplenishmentManager Replenishment;
+    internal NetworkedItemSpatialManager Spatial { get; private set; }
+
 
     private sealed class PendingWorldProjection
     {
@@ -82,9 +76,9 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     protected override void Awake()
     {
         base.Awake();
-        Spatial = new NetworkedItemSpatialManager(this);
-        TrainItemWake = new NetworkedTrainItemWakeManager(this, Spatial);
-        Replenishment = new AuthoredWorldItemReplenishmentManager(this);
+        Spatial = new NetworkedItemSpatialManager();
+
+        serverPart = ItemServer.Current?.CreateItemManagerPart(this);
     }
 
     protected void Start()
@@ -99,9 +93,9 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     {
         ProcessTrackedValueFinalizations();
         ProcessPendingLocalStateObservations();
-        TrainItemWake?.Update();
+        // The server's part first: its train-wake manager, the host's leases, replenishment.
+        ServerPart?.Update();
         Spatial?.Update();
-        Replenishment?.Update();
         if (NetworkLifecycle.Instance.IsHost())
             return;
 
@@ -215,6 +209,9 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         }
     }
 
+    /// <summary>The session's items are gone (the manager is destroyed): presentation holding onto them lets go.</summary>
+    internal static event Action Cleared;
+
     protected override void OnDestroy()
     {
         base.OnDestroy();
@@ -223,37 +220,15 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
 
         if (NetworkLifecycle.Instance.IsHost())
             NetworkLifecycle.Instance.OnTick -= Common_OnTick;
-        NetworkedLostAndFoundManager.Clear();
-        NetworkedColdContainerManager.Clear();
-        TrainItemWake?.Clear();
+        // Only a part made this session: the server may be gone already.
+        serverPart?.Clear();
+        LostAndFoundList.Clear();
+        Cleared?.Invoke();
+
         Spatial?.Clear();
-        Replenishment?.Clear();
         ClientDetachedAuthoredSlots.Clear();
-        WorldItemPersistenceManager.Clear();
-        AuthoritativeItemRegistry.Clear();
     }
 
-    public void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)
-    {
-        DestroyedItems.Add(snapshot);
-        HashSet<byte> recipients = new();
-        DestroyRecipients[snapshot] = recipients;
-        UnregisterHostWorldItem(netItem);
-
-        foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
-        {
-            if (player.KnownItems.ContainsKey(netItem))
-            {
-                recipients.Add(player.PlayerId);
-                player.KnownItems.Remove(netItem);
-            }
-
-            player.AcknowledgedWorldItems.Remove(netItem.NetId);
-
-            if (player.NearbyItems.ContainsKey(netItem))
-                player.NearbyItems.Remove(netItem);
-        }
-    }
 
     //public void ReceiveSnapshots(List<ItemUpdateData> snapshots)
     //{
@@ -274,13 +249,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         if (NetworkLifecycle.Instance.IsHost())
         {
             EnsureAuthoredCatalogue();
-            NetworkedLostAndFoundManager.HostTick(tick);
-            NetworkedColdContainerManager.HostTick(tick);
-            WorldItemPersistenceManager.HostTick();
-            UpdatePlayerItemLists();
-            ProcessChanged(tick);
-            RunConvergence();
-            RunFallRescue();
+            ServerPart?.Tick(tick);
         }
         else
         {

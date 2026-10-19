@@ -1,10 +1,11 @@
 using System.Collections.Generic;
 using System.Linq;
+using DV.CabControls;
+using DV.Customization.Gadgets;
+using DV.Items;
 using DV.Utils;
 using UnityEngine;
 using JetBrains.Annotations;
-using Multiplayer.Server.Items;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
@@ -14,6 +15,7 @@ using System;
 using DV;
 using DV.InventorySystem;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
 using Multiplayer.Core.Replication;
 using DV.Booklets;
@@ -22,17 +24,18 @@ namespace Multiplayer.Shared.Items;
 
 public partial class NetworkedItemManager
 {
-    // Authored catalogue binding, host cell indexes, spatial delegation, and replenishment hooks.
+    // Authored catalogue binding and spatial delegation. The host's cell index and the
+    // replenishment hooks are the server's (ServerItemManager.WorldIndex.cs).
     private void EnsureAuthoredCatalogue()
     {
         if (authoredCatalogueBuilt)
             return;
         AuthoredCatalogue.Rebuild();
         authoredCatalogueBuilt = true;
-        if (NetworkLifecycle.Instance.IsHost())
+        if (NetworkLifecycle.Instance.IsHost() && ServerPart is { } server)
         {
             foreach (NetworkedItem item in NetworkedItem.GetAll().Where(value => value != null).Distinct().ToArray())
-                RegisterHostWorldItem(item);
+                server.RegisterHostWorldItem(item);
         }
     }
 
@@ -54,11 +57,11 @@ public partial class NetworkedItemManager
         EnsureAuthoredCatalogue();
         if (AuthoredCatalogue.TryGet(key, out NetworkedItem existing) && existing != null && existing != item)
         {
-            UnregisterHostWorldItem(existing);
-            existing.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.AuthoredSlotReplaced,
-                detail: $"slot {key} now netId {item?.NetId ?? 0}"));
+            ServerPart?.UnregisterHostWorldItem(existing);
+            existing.NoteRemovalCause(new ChangeCause<ItemRemovalReason>(ItemRemovalReason.AuthoredSlotReplaced,
+                tick: NetworkLifecycle.Instance?.Tick ?? 0, detail: $"slot {key} now netId {item?.NetId ?? 0}"));
             existing.BeginColdStorageRetirement();
-            AuthoritativeItemRegistry.Remove(existing.NetId);
+            ServerPart?.ForgetRecord(existing.NetId);
             UnityEngine.Object.Destroy(existing.gameObject);
         }
         AuthoredCatalogue.Replace(key, item);
@@ -67,146 +70,23 @@ public partial class NetworkedItemManager
     internal void RemoveAuthoredItemProjection(string key, NetworkedItem expected) =>
         AuthoredCatalogue.Remove(key, expected);
 
-    internal void RegisterHostWorldItem(NetworkedItem item)
-    {
-        if (!NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0)
-            return;
-        RefreshHostWorldItem(item);
-        TrainItemWake?.ObserveCanonicalItem(item);
-    }
+    // The host's cell index is the server's (ServerItemManager.WorldIndex.cs); these are for the
+    // Shared code that changes where an item is.
+    internal void RegisterHostWorldItem(NetworkedItem item) => ServerPart?.RegisterHostWorldItem(item);
 
-    internal void UnregisterHostWorldItem(NetworkedItem item)
-    {
-        if (item == null)
-            return;
-        if (HostCellByItem.TryGetValue(item, out WorldItemCellCoord cell) &&
-            HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> items))
-        {
-            items.Remove(item);
-            if (items.Count == 0)
-                HostItemsByCell.Remove(cell);
-        }
-        HostCellByItem.Remove(item);
-        HostNonSpatialItems.Remove(item);
-        HostPlayerCells.Clear();
-    }
+    internal void RefreshHostSpatialPosition(NetworkedItem item, Vector3 absolutePosition,
+        ItemWorldParentKind parentKind) => ServerPart?.RefreshHostSpatialPosition(item, absolutePosition, parentKind);
 
     internal void SetAuthoredCatalogueNegotiationResult(bool accepted)
     {
         authoredCatalogueAccepted = accepted;
     }
 
-    private void RefreshHostWorldItem(NetworkedItem item)
-    {
-        if (item == null)
-            return;
-        if (HostCellByItem.TryGetValue(item, out WorldItemCellCoord oldCell) &&
-            HostItemsByCell.TryGetValue(oldCell, out HashSet<NetworkedItem> oldItems))
-        {
-            oldItems.Remove(item);
-            if (oldItems.Count == 0)
-                HostItemsByCell.Remove(oldCell);
-        }
-        HostCellByItem.Remove(item);
-        HostNonSpatialItems.Remove(item);
-
-        if (WorldItemPersistenceManager.IsRestorePending(item))
-            return;
-
-        if (NetworkedLostAndFoundManager.Contains(item.NetId))
-            return;
-        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
-        {
-            if (record.Placement == ItemPlacementKind.Destroyed)
-                return;
-            if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory or
-                ItemPlacementKind.Container or ItemPlacementKind.Installed or
-                ItemPlacementKind.TrainInterior or ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment)
-            {
-                HostNonSpatialItems.Add(item);
-                HostPlayerCells.Clear();
-                return;
-            }
-            if (HasOwnerRecallClaim(record))
-                HostNonSpatialItems.Add(item);
-        }
-
-        WorldItemCellCoord cell = WorldItemCellCoord.FromAbsolute(item.transform.position - WorldMover.currentMove);
-        if (!HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> items))
-            HostItemsByCell[cell] = items = new HashSet<NetworkedItem>();
-        items.Add(item);
-        HostCellByItem[item] = cell;
-        // Re-evaluate the small per-player 3x3 union on the next tick. This is O(players), not a
-        // rescan of the world catalogue, and handles a thrown item crossing a cell boundary.
-        HostPlayerCells.Clear();
-    }
-
-    internal void RefreshHostSpatialPosition(NetworkedItem item, Vector3 absolutePosition,
-        ItemWorldParentKind parentKind)
-    {
-        if (!NetworkLifecycle.Instance.IsHost() || item == null)
-            return;
-        bool hadPreviousCell = HostCellByItem.TryGetValue(item, out WorldItemCellCoord previous);
-        if (parentKind == ItemWorldParentKind.World)
-        {
-            WorldItemCellCoord unchanged = WorldItemCellCoord.FromAbsolute(absolutePosition);
-            if (hadPreviousCell && previous.Equals(unchanged))
-                return;
-        }
-        else if (!hadPreviousCell && HostNonSpatialItems.Contains(item))
-            return;
-
-        if (hadPreviousCell &&
-            HostItemsByCell.TryGetValue(previous, out HashSet<NetworkedItem> previousItems))
-        {
-            previousItems.Remove(item);
-            if (previousItems.Count == 0) HostItemsByCell.Remove(previous);
-        }
-        HostCellByItem.Remove(item);
-        HostNonSpatialItems.Remove(item);
-        if (parentKind != ItemWorldParentKind.World)
-        {
-            HostNonSpatialItems.Add(item);
-            HostPlayerCells.Clear();
-            DebugRuntime.Publish("item-spatial", "item.spatial-cell-changed", DebugRuntimeSide.Server,
-                entityType: "Item", entityId: item.NetId.ToString(), data: new()
-                {
-                    ["previousCell"] = hadPreviousCell ? previous.ToString() : string.Empty,
-                    ["currentCell"] = string.Empty,
-                    ["worldParentKind"] = parentKind.ToString()
-                });
-            return;
-        }
-        WorldItemCellCoord cell = WorldItemCellCoord.FromAbsolute(absolutePosition);
-        HostCellByItem[item] = cell;
-        if (!HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> items))
-            HostItemsByCell[cell] = items = new HashSet<NetworkedItem>();
-        items.Add(item);
-        HostPlayerCells.Clear();
-        DebugRuntime.Publish("item-spatial", "item.spatial-cell-changed", DebugRuntimeSide.Server,
-            entityType: "Item", entityId: item.NetId.ToString(), data: new()
-            {
-                ["previousCell"] = hadPreviousCell ? previous.ToString() : string.Empty,
-                ["currentCell"] = cell.ToString(),
-                ["worldParentKind"] = parentKind.ToString()
-            });
-    }
-
-    internal void OnAuthoritativeItemTransition(NetworkedItem item, ItemUpdateData snapshot,
-        AuthoritativeItemRegistry.Record record, ServerPlayer actor, ItemPlacementKind previousPlacement,
-        bool appliesPlacement)
-    {
-        TrainItemWake?.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
-        Spatial?.OnAuthoritativeTransitionCommitted(item, snapshot, record, actor, previousPlacement,
-            appliesPlacement);
-        Replenishment?.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
-    }
-
     internal void DetachClientAuthoredProjectionForPossession(NetworkedItem item, ItemUpdateData snapshot)
     {
         if (item == null || snapshot == null ||
             snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
-            !AuthoredWorldItemReplenishmentManager.IsEligibleAuthoredOfficeProp(item))
+            !IsEligibleAuthoredOfficeProp(item))
             return;
         string key = item.DetachAuthoredItemKey();
         if (WorldItemStableIdentity.IsValid(key))
@@ -216,11 +96,20 @@ public partial class NetworkedItemManager
         }
     }
 
-    internal void ReceiveItemSpatialSample(ItemSpatialStateData state, ServerPlayer sender) =>
-        Spatial?.ReceiveClientSample(state, sender);
-
-    internal void ReceiveItemSpatialSettlement(ItemSpatialStateData state, ServerPlayer sender) =>
-        Spatial?.ReceiveClientSettlement(state, sender);
+    /// <summary>
+    /// A scene-authored office prop whose slot the host refills once it's taken away
+    /// (AuthoredWorldItemReplenishmentManager); a client lets go of the slot when it takes one.
+    /// </summary>
+    internal static bool IsEligibleAuthoredOfficeProp(NetworkedItem item)
+    {
+        if (item?.Item?.InventorySpecs == null || !item.IsSceneAuthored ||
+            item.Item.InventorySpecs.BelongsToPlayer || item.Item.InventorySpecs.IsEssential || item.Item.IsSnapped ||
+            item.GetComponent<ItemContainer>() != null || item.GetComponent<GadgetItem>() != null ||
+            item.GetComponent<JobBooklet>() != null || item.GetComponent<JobOverview>() != null ||
+            item.GetComponent<JobReport>() != null)
+            return false;
+        return item.IsReplenishableAuthoredOfficeSlot && !item.IsAuthoredShopSlot;
+    }
 
     internal void ReceiveItemSpatialLease(ClientboundItemSpatialLeasePacket packet) =>
         Spatial?.ReceiveClientLease(packet);
@@ -237,20 +126,72 @@ public partial class NetworkedItemManager
     private void AppendItemPhysicsDebugState(ushort itemNetId, Dictionary<string, object> state)
     {
         Spatial?.AppendDebugState(itemNetId, state);
-        TrainItemWake?.AppendDebugState(itemNetId, state);
+        if (ServerPart != null)
+            ServerPart.AppendTrainWakeDebugState(itemNetId, state);
+        else if (state != null)
+        {
+            // Train items are woken by the host only: a client's copy is never settled or pending.
+            state["trainWakeSettled"] = false;
+            state["trainWakePending"] = false;
+        }
     }
 
-    internal void OnTrainItemSpatialSettled(NetworkedItem item, ItemSpatialStateData state,
-        AuthoritativeItemRegistry.Record record) =>
-        TrainItemWake?.OnSpatialSettled(item, state, record);
+    // The train-wake manager's thresholds for an impact worth waking items for; the simulator
+    // checks them before it reports one, and the host again when it takes the report.
+    internal const float TrainItemImpactRelativeSpeedThreshold = 1.25f;
+    internal const float TrainItemImpactImpulseThreshold = 0.5f;
+    private static uint nextTrainWakeWitnessId;
 
-    internal void ObserveTrainItemCollision(NetworkedItem source, NetworkedItem target,
-        Collision collision) => TrainItemWake?.ObserveCollision(source, target, collision);
+    /// <summary>
+    /// The game simulating a train item saw it hit another item settled in the same car: it
+    /// reports the impact to the host, whose train-wake manager decides whether the target wakes.
+    /// </summary>
+    internal void ObserveTrainItemCollision(NetworkedItem source, NetworkedItem target, Collision collision)
+    {
+        if (source == null || target == null || source == target || collision == null ||
+            NetworkLifecycle.Instance == null || Spatial == null ||
+            !Spatial.TryGetActiveLeaseIdentity(source.NetId, out uint sourceRevision,
+                out uint sourceEpoch, out byte simulator, out ItemSpatialStateData sourceState) ||
+            sourceState.WorldParentKind != ItemWorldParentKind.TrainInterior ||
+            sourceState.WorldParentNetId == 0 ||
+            !Spatial.TryGetCommitted(target.NetId, out ItemSpatialStateData targetState) ||
+            targetState.WorldParentKind != ItemWorldParentKind.TrainInterior ||
+            targetState.WorldParentNetId != sourceState.WorldParentNetId)
+            return;
 
-    internal void ReceiveItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet,
-        ServerPlayer sender) => TrainItemWake?.ReceiveImpactWitness(packet, sender);
+        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
+            ? ItemServer.Current?.LocalPlayerId ?? 0
+            : NetworkLifecycle.Instance.LocalSession.PlayerId;
+        if (simulator != localPlayerId)
+            return;
+        Vector3 relativeVelocity = collision.relativeVelocity;
+        Vector3 impulse = collision.impulse;
+        if (relativeVelocity.magnitude < TrainItemImpactRelativeSpeedThreshold &&
+            impulse.magnitude < TrainItemImpactImpulseThreshold)
+            return;
+        Vector3 contact = collision.contactCount > 0 ? collision.GetContact(0).point :
+            target.transform.position;
+        ServerboundItemTrainWakeWitnessPacket packet = new()
+        {
+            WitnessId = unchecked(++nextTrainWakeWitnessId),
+            SourceItemNetId = source.NetId,
+            SourceAuthorityRevision = sourceRevision,
+            SourceSimulationEpoch = sourceEpoch,
+            TargetItemNetId = target.NetId,
+            TargetAuthorityRevision = targetState.AuthorityRevision,
+            TrainCarNetId = sourceState.WorldParentNetId,
+            SourceTick = NetworkLifecycle.Instance.Tick,
+            RelativeVelocity = relativeVelocity,
+            Impulse = impulse,
+            AbsoluteContactPoint = contact - WorldMover.currentMove
+        };
+        if (NetworkLifecycle.Instance.IsHost())
+            ServerPart?.ReceiveLocalTrainWakeWitness(packet);
+        else
+            ItemClient.Current.SendItemTrainWakeWitness(packet);
+    }
 
-    internal void OnTrainItemRemoved(ushort itemNetId) => TrainItemWake?.OnItemRemoved(itemNetId);
+    internal void OnTrainItemRemoved(ushort itemNetId) => ServerPart?.OnTrainItemRemoved(itemNetId);
 
     internal bool TryGetLatestSpatialState(ushort itemNetId, out ItemSpatialStateData state)
     {
@@ -269,12 +210,6 @@ public partial class NetworkedItemManager
         state = null;
         return Spatial?.TryGetCommitted(itemNetId, out state) == true;
     }
-
-    internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
-        AuthoritativeItemRegistry.Record record) =>
-        Spatial?.ResetAuthoredItemToBaseline(item, record) == true;
-
-    internal void OnSpatialPlayerDisconnected(byte playerId) => Spatial?.OnPlayerDisconnected(playerId);
 
     private bool TryBindAuthoredClientProjection(ItemUpdateData snapshot, bool acknowledge = true)
     {
@@ -305,7 +240,7 @@ public partial class NetworkedItemManager
                 replacement.AdoptAuthoredItemKey(snapshot.AuthoredItemKey,
                     replenishableOfficeSlot: true);
                 if (acknowledge)
-                    NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+                    ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                         snapshot.AuthorityRevision, true);
                 DebugRuntime.Publish("item-world", "world-item.authored-slot-replacement-projected",
                     DebugRuntimeSide.Client, entityType: "Item",
@@ -336,7 +271,7 @@ public partial class NetworkedItemManager
         authored.gameObject.SetActive(true);
         authored.ReceiveSnapshot(snapshot);
         if (acknowledge)
-            NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+            ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                 snapshot.AuthorityRevision, true);
         DebugRuntime.Publish("item-world", "world-item.authored-projection-bound", DebugRuntimeSide.Client,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: new()
@@ -368,14 +303,14 @@ public partial class NetworkedItemManager
     }
 #endif
 
-    private static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
+    internal static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
     {
         if (!DebugRuntime.EnabledFor("item") || snapshot == null) return;
         DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
     }
 
-    private static void TraceItem(string eventName, NetworkedItem item, Dictionary<string, object> data)
+    internal static void TraceItem(string eventName, NetworkedItem item, Dictionary<string, object> data)
     {
         if (!DebugRuntime.EnabledFor("item") || item == null) return;
         DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,

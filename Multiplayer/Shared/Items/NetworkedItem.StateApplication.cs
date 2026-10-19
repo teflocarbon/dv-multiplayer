@@ -39,7 +39,7 @@ public partial class NetworkedItem
 
         // Recover from stale ownership bookkeeping by checking the actual remote hand objects.
         if (playerId == 0 && NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Client.ClientPlayerManager.Players)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
                 player?.DropItem(gameObject);
 
         // find new player reference
@@ -90,7 +90,7 @@ public partial class NetworkedItem
             }
         }
         if (playerId != 0 && playerId != localPlayerId && NetworkLifecycle.Instance.IsClientRunning)
-            if (!NetworkLifecycle.Instance.Client.ClientPlayerManager.TryGetPlayer(playerId, out playerBelongsTo))
+            if (!NetworkLifecycle.Instance.LocalSession.TryGetRemotePlayer(playerId, out playerBelongsTo))
             {
                 DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player", $"playerId={playerId}");
                 Multiplayer.LogDebug(() => $"Unable to find player {playerId} for item {NetId}");
@@ -243,7 +243,7 @@ public partial class NetworkedItem
         if (playerBelongsTo != null)
             playerBelongsTo.DropItem(gameObject);
         if (NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Client.ClientPlayerManager.Players)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
                 player?.DropItem(gameObject);
 
         try
@@ -474,7 +474,7 @@ public partial class NetworkedItem
         });
     }
 
-    private void PublishUnityState(string eventName, Dictionary<string, object> additional)
+    internal void PublishUnityState(string eventName, Dictionary<string, object> additional)
     {
         if (!DebugRuntime.EnabledFor("item"))
             return;
@@ -502,7 +502,7 @@ public partial class NetworkedItem
             ["remoteHolderPlayerId"] = playerBelongsTo?.PlayerId ?? 0,
             ["remoteHandMember"] = playerBelongsTo?.HoldsItem(gameObject) == true,
             ["placementPlayerId"] = playerBelongsToId,
-            ["hostPossessorPlayerId"] = BelongsTo?.PlayerId ?? 0,
+            ["hostPossessorPlayerId"] = HostPossessorPlayerId,
             ["authorityRevision"] = AuthorityRevision,
             ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
             ["inventoryClaimPlayerId"] = InventoryClaimPlayerId,
@@ -520,7 +520,7 @@ public partial class NetworkedItem
         try
         {
             NetworkedPlayer actualRemoteHolder = NetworkLifecycle.Instance.IsClientRunning
-                ? NetworkLifecycle.Instance.Client.ClientPlayerManager.Players.FirstOrDefault(player => player?.HoldsItem(gameObject) == true)
+                ? NetworkLifecycle.Instance.LocalSession.RemotePlayers.FirstOrDefault(player => player?.HoldsItem(gameObject) == true)
                 : null;
             state["actualRemoteHandMember"] = actualRemoteHolder != null;
             state["actualRemoteHolderPlayerId"] = actualRemoteHolder?.PlayerId ?? 0;
@@ -636,7 +636,7 @@ public partial class NetworkedItem
         RemoteItemProjectionPlan plan = RemoteItemProjectionPlanner.Plan(
             ToWireState(snapshot.ItemState), snapshot.PlayerId, localPlayerId, playerBelongsTo != null);
         if (plan.ClearExistingRemoteHands && NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Client.ClientPlayerManager.Players)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
                 player?.DropItem(gameObject);
 
         if (plan.Action is RemoteItemProjectionAction.LocalHand or
@@ -854,7 +854,7 @@ public partial class NetworkedItem
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         NetworkedPlayer actualRemoteHolder = null;
         if (NetworkLifecycle.Instance.IsClientRunning)
-            actualRemoteHolder = NetworkLifecycle.Instance.Client.ClientPlayerManager.Players
+            actualRemoteHolder = NetworkLifecycle.Instance.LocalSession.RemotePlayers
                 .FirstOrDefault(player => player?.HoldsItem(gameObject) == true);
         List<string> violations = new();
         if (snapshot.ItemState == ItemState.InHand && snapshot.PlayerId != localPlayerId &&
@@ -862,7 +862,7 @@ public partial class NetworkedItem
             violations.Add("expected-remote-hand-missing");
         if (snapshot.ItemState != ItemState.InHand && actualRemoteHolder != null)
             violations.Add("stale-remote-hand-membership");
-        if (NetworkLifecycle.Instance.IsHost() && (BelongsTo?.PlayerId ?? 0) != snapshot.PlayerId)
+        if (NetworkLifecycle.Instance.IsHost() && HostPossessorPlayerId != snapshot.PlayerId)
             violations.Add("host-possessor-mismatch");
         if (violations.Count == 0)
             return;
@@ -874,7 +874,7 @@ public partial class NetworkedItem
                 ["expectedPlayerId"] = snapshot.PlayerId,
                 ["localPlayerId"] = localPlayerId,
                 ["actualRemoteHolderPlayerId"] = actualRemoteHolder?.PlayerId ?? 0,
-                ["hostPossessorPlayerId"] = BelongsTo?.PlayerId ?? 0,
+                ["hostPossessorPlayerId"] = HostPossessorPlayerId,
                 ["violations"] = violations
             });
     }

@@ -40,7 +40,7 @@ public partial class NetworkedItemManager
 
     //    if (changedItems.Count > 0)
     //    {
-    //        NetworkLifecycle.Instance.Client.SendItemsBulkUpdatePacket(changedItems);
+    //        ItemClient.Current.SendItemsBulkUpdatePacket(changedItems);
     //    }
     //}
 
@@ -52,7 +52,7 @@ public partial class NetworkedItemManager
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
         {
             NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem described);
-            ItemChangeLog.OnClientSnapshot(described, snapshot);
+            ItemChangeCauses.OnClientSnapshot(described, snapshot, NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0);
         }
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create &&
             RequiresLoadedWorldRegion(snapshot) && !IsWorldRegionReady(snapshot))
@@ -73,7 +73,7 @@ public partial class NetworkedItemManager
             if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy)
             {
                 PendingWorldProjections.Remove(snapshot.ItemNetId);
-                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+                ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                     snapshot.AuthorityRevision, false);
                 DebugRuntime.Publish("item-world", "world-item.deferred-projection-retired",
                     DebugRuntimeSide.Client, entityType: "Item", entityId: snapshot.ItemNetId.ToString(),
@@ -93,7 +93,7 @@ public partial class NetworkedItemManager
         NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem netItem);
         TraceSnapshot("item.snapshot-dispatch", snapshot);
 
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"NetworkedItemManager.ProcessReceivedAsClient() Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
+        (NetworkLifecycle.Instance.LocalSession as NetworkManager)?.LogDebug(() => $"NetworkedItemManager.ProcessReceivedAsClient() Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create)
         {
             if (WorldItemStableIdentity.IsValid(snapshot.AuthoredItemKey))
@@ -127,7 +127,7 @@ public partial class NetworkedItemManager
                 netItem.SetClientNetworkBinding(true);
                 netItem.gameObject.SetActive(true);
                 netItem.ReceiveSnapshot(snapshot);
-                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+                ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                     snapshot.AuthorityRevision, true);
                 return;
             }
@@ -206,7 +206,7 @@ public partial class NetworkedItemManager
             DebugRuntime.Publish("item", "item.snapshot-apply.after", DebugRuntimeSide.Client,
                 entityType: "Item", entityId: entityId, data: destroyData);
             if (snapshot.TransitionReason == ItemTransitionReason.InterestRetirement)
-                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+                ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
                     snapshot.AuthorityRevision, false);
         }
         else if (netItem != null)
@@ -215,7 +215,7 @@ public partial class NetworkedItemManager
         }
         else
         {
-            NetworkLifecycle.Instance.Client.LogError($"NetworkedItemManager.ProcessReceivedAsClient() NetworkedItem not found on client! Update Type: {snapshot.UpdateType}, ItemNetId: {snapshot.ItemNetId}, prefabName: {snapshot.PrefabName}");
+            (NetworkLifecycle.Instance.LocalSession as NetworkManager)?.LogError($"NetworkedItemManager.ProcessReceivedAsClient() NetworkedItem not found on client! Update Type: {snapshot.UpdateType}, ItemNetId: {snapshot.ItemNetId}, prefabName: {snapshot.PrefabName}");
             DebugRuntime.Publish("item", "item.missing-local-representation", DebugRuntimeSide.Client, DebugSeverity.Error,
                 "Item", snapshot.ItemNetId.ToString(), DebugValueSnapshotter.SnapshotObject(snapshot));
         }
@@ -242,7 +242,7 @@ public partial class NetworkedItemManager
             if (!projected)
             {
                 // Tell the host, or it believes we have the item and only ever sends updates.
-                NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(pair.Key,
+                ItemClient.Current.SendWorldItemProjectionAck(pair.Key,
                     pending.Create.AuthorityRevision, false);
                 continue;
             }
@@ -253,7 +253,7 @@ public partial class NetworkedItemManager
                 ProcessReceivedAsClient(update);
                 appliedRevision = update.AuthorityRevision;
             }
-            NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(pair.Key, appliedRevision, true);
+            ItemClient.Current.SendWorldItemProjectionAck(pair.Key, appliedRevision, true);
             DebugRuntime.Publish("item-world", "world-item.deferred-projection-bound",
                 DebugRuntimeSide.Client, entityType: "Item", entityId: pair.Key.ToString(), data: new()
                 {
@@ -304,7 +304,7 @@ public partial class NetworkedItemManager
         item.SetClientNetworkBinding(true);
         item.gameObject.SetActive(true);
         item.ReceiveSnapshot(snapshot);
-        NetworkLifecycle.Instance.Client.SendWorldItemProjectionAck(snapshot.ItemNetId,
+        ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
             snapshot.AuthorityRevision, true);
     }
 
@@ -322,7 +322,7 @@ public partial class NetworkedItemManager
             });
     }
 
-    private static bool IsJobDocumentPrefab(string prefabName) =>
+    internal static bool IsJobDocumentPrefab(string prefabName) =>
         string.Equals(prefabName, nameof(JobOverview), StringComparison.Ordinal) ||
         string.Equals(prefabName, nameof(JobBooklet), StringComparison.Ordinal) ||
         string.Equals(prefabName, nameof(JobReport), StringComparison.Ordinal);

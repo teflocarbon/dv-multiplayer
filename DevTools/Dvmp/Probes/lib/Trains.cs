@@ -36,6 +36,90 @@ namespace Dvmp.Lib
             throw new InvalidOperationException("no room to spawn " + liveryId + " near the player");
         }
 
+        /// <summary>Host only: as <see cref="SpawnNearPlayer"/>, but a steam loco that couples its own
+        /// tender comes with that tender coupled behind it (spawning one car never brings it, and a
+        /// loco without one has no coal pile). Returns the loco; delete its trainset to clean up.</summary>
+        public static TrainCar SpawnWithTenderNearPlayer(string liveryId, float ahead = 25f)
+        {
+            var livery = DV.Globals.G.Types.Liveries.FirstOrDefault(l => l.id == liveryId)
+                ?? throw new InvalidOperationException("no livery " + liveryId);
+            var tender = TenderOf(livery);
+            if (tender == null)
+                return SpawnNearPlayer(liveryId, ahead);
+            Transform player = PlayerManager.PlayerTransform;
+            Vector3 flatForward = Vector3.ProjectOnPlane(player.forward, Vector3.up).normalized;
+            Vector3 right = Vector3.Cross(Vector3.up, flatForward);
+            foreach (float distance in new[] { ahead, ahead * 1.6f, ahead * 2.4f })
+            foreach (Vector3 dir in new[] { flatForward, right, -right, -flatForward })
+            {
+                // Spawned as one consist (loco, then tender), the way a station spawns its locos:
+                // each car couples to the one before it as it lands.
+                List<TrainCar> cars = CarSpawner.Instance.SpawnCarTypesOnClosestTrack(
+                    new List<DV.ThingTypes.TrainCarLivery> { livery, tender }, player.position + dir * distance,
+                    new List<bool> { false, false }, preventAutoCoupleOnLastCars: true,
+                    applyHandbrakeOnLastCars: false, playerSpawnedCars: true);
+                if (cars != null && cars.Count > 0)
+                    return cars.First(c => c.carLivery == livery);
+            }
+            throw new InvalidOperationException("no room to spawn " + liveryId + " and its tender near the player");
+        }
+
+        /// <summary>Host only: waits for a loco from <see cref="SpawnWithTenderNearPlayer"/> to be coupled
+        /// to its tender (its own auto-coupler does it a few seconds after the spawn), coupling the
+        /// nearest pair of their couplers within 3 m itself if it hasn't after
+        /// <paramref name="waitSeconds"/>. Throws, with every coupler gap, if they still aren't.</summary>
+        public static IEnumerator CoupleTender(TrainCar loco, float waitSeconds = 8f)
+        {
+            var tender = TenderOf(loco.carLivery);
+            if (tender == null)
+                yield break;
+            bool Coupled() => loco.trainset != null && loco.trainset.cars.Any(c => c.carLivery == tender);
+            for (float t0 = Time.realtimeSinceStartup; !Coupled() && Time.realtimeSinceStartup - t0 < waitSeconds; )
+                yield return null;
+            if (Coupled())
+                yield break;
+            TrainCar car = UnityEngine.Object.FindObjectsOfType<TrainCar>().Where(c => c.carLivery == tender)
+                .OrderBy(c => (c.transform.position - loco.transform.position).sqrMagnitude).FirstOrDefault()
+                ?? throw new InvalidOperationException(loco.ID + "'s tender " + tender.id + " wasn't spawned");
+            var pairs = (from a in new[] { loco.frontCoupler, loco.rearCoupler }
+                         from b in new[] { car.frontCoupler, car.rearCoupler }
+                         select (a, b, gap: Vector3.Distance(a.transform.position, b.transform.position)))
+                .OrderBy(p => p.gap).ToList();
+            if (pairs[0].gap <= 3f && !pairs[0].a.IsCoupled() && !pairs[0].b.IsCoupled())
+                pairs[0].a.CoupleTo(pairs[0].b, playAudio: false);
+            for (int i = 0; i < 10 && !Coupled(); i++)
+                yield return null;
+            if (!Coupled())
+                throw new InvalidOperationException($"{loco.ID} and its tender {car.ID} didn't couple; coupler gaps: " +
+                    string.Join(", ", pairs.Select(p => $"{(p.a.isFrontCoupler ? "front" : "rear")}-{(p.b.isFrontCoupler ? "front" : "rear")} {p.gap:F2} m")) +
+                    $"; loco on {loco.Bogies[0].track?.name}, tender on {car.Bogies[0].track?.name}");
+        }
+
+        /// <summary>The tender a steam loco couples itself (vanilla's SteamTenderAutoCoupleMechanism,
+        /// or Custom Car Loader's CarAutoCouplerInternal), or null: the tender livery whose id starts
+        /// most like the loco's (LocoS282A's is LocoS282B).</summary>
+        public static DV.ThingTypes.TrainCarLivery TenderOf(DV.ThingTypes.TrainCarLivery loco)
+        {
+            bool couplesTender = loco.prefab != null && loco.prefab.GetComponentsInChildren<MonoBehaviour>(true)
+                .Any(m => m != null && (m is DV.SteamTenderAutoCoupleMechanism || m.GetType().Name == "CarAutoCouplerInternal"));
+            if (!couplesTender)
+                return null;
+            // Characters the two ids start with in common, past a "Loco" both have.
+            int Shared(string a, string b)
+            {
+                int skip = a.StartsWith("Loco") && b.StartsWith("Loco") ? 4 : 0, n = skip;
+                while (n < a.Length && n < b.Length && a[n] == b[n]) n++;
+                return n - skip;
+            }
+            return DV.Globals.G.Types.Liveries
+                .Where(l => l != loco && l.prefab != null && DV.ThingTypes.CarTypes.IsTender(l))
+                .Select(l => (livery: l, shared: Shared(l.id, loco.id)))
+                .Where(x => x.shared >= 3)
+                .OrderByDescending(x => x.shared)
+                .Select(x => x.livery)
+                .FirstOrDefault();
+        }
+
         public static void Delete(TrainCar car)
         {
             if (car != null)

@@ -7,7 +7,9 @@
 ## Implementation status (audited 2026-10-14)
 
 - **Implemented:** phases 1-3 below, in
-  `Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs`, with the
+  `Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs` (the leases every game holds, its own
+  simulation and a client's side of the stream) and `Multiplayer/Server/Items/ServerItemSpatial.cs`
+  (the host granting, validating, transferring and committing leases), with the
   epoch/sequence checks in `Multiplayer.Core/Items/ItemSpatialStreamValidator.cs` and the
   save checkpoint in `Server/Items/WorldItemPersistenceSave.cs`. Loose items on trains (train-local
   samples, settlement and the kinematic freeze) are implemented, and
@@ -25,7 +27,7 @@
 - **Fixed (2026-10-19):** in a VR game, an item another player held stayed a live body; see
   "Observer presentation".
 - **Added:** an item that falls more than 1 m under the terrain has its lease revoked and is moved
-  back to its last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
+  back to its last safe pose (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
   convergence skips items with a live lease (b601cc6).
 - **Added (playtest 2):** a gentle release is held back 0.3 s so a VR hand swap isn't a drop,
   only the holder sends object state, and object-state changes no longer void a lease; see

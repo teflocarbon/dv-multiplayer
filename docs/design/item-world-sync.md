@@ -13,16 +13,16 @@
   stale-revision correction, two clients, office replenishment, missing-train recovery.
 - **Superseded:** cell baseline/delta packets with cell revisions. Items use per-item Create and
   Destroy in the bulk packet.
-- **Differs:** interest (`NetworkedItemManager.ServerInterest.cs`) enters at the 3 by 3
+- **Differs:** interest (`ServerItemManager.Interest.cs`) enters at the 3 by 3
   neighbourhood but only leaves outside 5 by 5 (87018fd). A player's set is rebuilt when they change
   cell or the host item index changes, otherwise four times a second; membership is only rewritten
   when it changed (fe11afa: ~4 ms to ~0.1 ms a tick near a yard; the station-arrival hitch went from
   ~605 ms to 150-260 ms). A projection is marked known when sent, not when acknowledged; a negative
   acknowledgement makes the host forget it and re-send the Create after 5 s (49d915d).
 - **Added since the design:** host convergence re-sends one resting world item per player every
-  0.1 s so drifted client copies heal (`NetworkedItemManager.Convergence.cs`, b601cc6); items more
+  0.1 s so drifted client copies heal (`ServerItemManager.Convergence.cs`, b601cc6); items more
   than 1 m under the terrain are moved back to their last safe pose
-  (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Only the host's scan runs: the
+  (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). Only the host's scan runs: the
   client-side below-map report is called from the item tick, which is subscribed on the host
   only, so items under a distant client's terrain are not reported. Banknote amounts sync as a
   host-authoritative tracked value and a client's spent note is deposited with the host

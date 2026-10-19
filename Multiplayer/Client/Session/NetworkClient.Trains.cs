@@ -31,9 +31,13 @@ using UnityEngine;
 namespace Multiplayer.Client.Session;
 
 // NetworkClient's trains handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkClient
+public partial class NetworkClient : ITrainClient
 {
-    internal bool TakeHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
+    public ITrainCarClientPart CreateCarPart(NetworkedTrainCar car) => new global::Multiplayer.Client.Trains.NetworkedTrainCarClient(car);
+
+    ChangeCause<UncoupleReason>? ITrainClient.RefusalUncoupleCause => RefusalUncoupleCause;
+
+    public bool TakeHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
     {
         foreach (Coupler end in new[] { coupler, other })
         {
@@ -289,7 +293,7 @@ public partial class NetworkClient
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client);
         //LogDebug(() => $"Received Physics packet for netId: {packet.FirstNetId}, tick: {packet.Tick}");
-        NetworkTrainsetWatcher.Instance.Client_HandleTrainsetPhysicsUpdate(packet);
+        global::Multiplayer.Client.Trains.TrainsetPhysicsFollower.HandleTrainsetPhysicsUpdate(packet);
     }
 
     private void OnCommonCouplerInteractionPacket(CommonCouplerInteractionPacket packet)
@@ -308,7 +312,7 @@ public partial class NetworkClient
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
-        networkedTrainCar.Client_ReceiveAuthorityUpdate(packet.PortNetId, packet.State);
+        networkedTrainCar.Client()?.ReceiveAuthorityUpdate(packet.PortNetId, packet.State);
     }
 
     private void OnClientboundBrakeStateUpdatePacket(ClientboundBrakeStateUpdatePacket packet)
@@ -328,7 +332,7 @@ public partial class NetworkClient
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
-        if (!networkedTrainCar.Client_ReceiveBrakeStateUpdate(packet))
+        if (networkedTrainCar.Client()?.ReceiveBrakeStateUpdate(packet) == false)
         {
             LogWarning($"Brake line membership mismatch for car {packet.NetId}; requesting topology resync");
             RequestTrainTopologySync();
@@ -467,7 +471,7 @@ public partial class NetworkClient
 
         Log($"Rerailing [{trainCar?.ID}, {packet.NetId}] to track {networkedRailTrack?.RailTrack?.LogicTrack()?.ID}");
         LogDebug(() => $"Rerailing [{trainCar?.ID}, {packet.NetId}] track: [{networkedRailTrack?.RailTrack?.LogicTrack()?.ID}, {packet.TrackId}], raw position: {packet.Position}, adjusted position: {packet.Position + WorldMover.currentMove}, forward: {packet.Forward}");
-        networkedTrainCar.Client_RerailFromHost(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
+        networkedTrainCar.Client()?.RerailFromHost(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
     }
 
     private void OnClientboundMoveTrainPacket(ClientboundMoveTrainPacket packet)
@@ -483,7 +487,7 @@ public partial class NetworkClient
         LogDebug(() => $"Moving [{trainCar?.ID}, {packet.NetId}] track: [{networkedRailTrack?.RailTrack?.LogicTrack()?.ID}, {packet.TrackId}], raw position: {packet.Position}, adjusted position: {packet.Position + WorldMover.currentMove}, forward: {packet.Forward}, front coupled: {trainCar.frontCoupler.coupledTo != null}, rear coupled:{trainCar.rearCoupler.coupledTo != null}, derailed: {trainCar.derailed}");
 
         if (!packet.IsTeleporting)
-            networkedTrainCar.Client_MoveToTrackFromHost(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
+            networkedTrainCar.Client()?.MoveToTrackFromHost(networkedRailTrack.RailTrack, packet.Position + WorldMover.currentMove, packet.Forward);
         else
             LogDebug(() => $"OnClientboundMoveTrainPacket() netId: {packet.NetId} Attempting to move train, teleport not implemented");
     }
@@ -751,7 +755,7 @@ public partial class NetworkClient
         if (packet.Result != TrainControlCommitResult.Accepted)
             LogWarning($"Train control operation {packet.OperationId} for car {packet.NetId} " +
                        $"was rejected: {packet.Result}; authoritative revision {packet.Revision}");
-        networkedTrainCar.Client_ReceiveControlCommit(packet);
+        networkedTrainCar.Client()?.ReceiveControlCommit(packet);
         DebugRuntime.Publish("train", "train.control-commit-applied", DebugRuntimeSide.Client,
             entityType: "TrainCar", entityId: packet.NetId.ToString(),
             data: DebugValueSnapshotter.SnapshotObject(new

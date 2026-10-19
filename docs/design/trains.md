@@ -103,7 +103,7 @@ digest; the manifest is counts only.
   coupling leaves the brake lines alone. So a client that keeps receiving physics packets for a
   trainset with a different number of cars than its own has drifted from the host's couplings,
   and after a second it reapplies the host's topology
-  (`NetworkTrainsetWatcher.Client_NoteSetMismatch`).
+  (`TrainsetPhysicsFollower.NoteSetMismatch`).
 - Before this, a chain-only client coupling and a host pulling away at 2 m/s threw the client's
   cars about at up to 140 m/s and 500°/s. Now the client uncouples after 1.4 s, its cars peak at
   3.4 m/s, and the wagon ends within 0.02 m of the host's.
@@ -170,7 +170,7 @@ A handcar's handle takes no lease, so any number of players can pump at once. Va
 which `HandcarBarController` writes every frame), so each game's two handle ports are its own
 player's: no game applies another's, and the host doesn't send its own. A client sends `ENGAGED`
 whenever it changes and `BAR` while it's held (with `ENGAGED`, as taking hold may not move it). The
-host keeps each player's handle (`HandcarPumpers`, filled by `Server_ApplyPlayerPorts`) and a
+host keeps each player's handle (`HandcarPumpers`, filled by `NetworkedTrainCarServer.ApplyPlayerPorts`) and a
 postfix on `HandcarDrive.Tick` (`HandcarDrivePatch`) adds each held handle's stroke, worked out as
 vanilla's, to the torque vanilla made from the host's own player's handle. The total is capped at
 two players' most, so two players pumping in time go faster than one, one pumping against the other
@@ -181,7 +181,7 @@ A few vanilla controllers write a control's port every frame from their own game
 is using the control: `WhistleRopeController` (the rope's tension, into its dummy lever). Every game
 runs them, so while a player on another game uses the control, this game's write it back as let
 go. The rule: such a writer is off while another player holds the lease on a port it writes
-(`LocalInputWriters`, toggled in `Client_ReceiveAuthorityUpdate`; the host gets the lease updates
+(`LocalInputWriters`, toggled in `NetworkedTrainCarClient.ReceiveAuthorityUpdate`; the host gets the lease updates
 too). `HandcarBarController` writes whether the handle is held the same way, but that port is each
 game's own player's (above), so it stays on. Other controllers write only
 on their own game's input, which a lease covers, or from the car's own state (`TractionPortsFeeder`,
@@ -202,7 +202,7 @@ second later.
 
 Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and controls nothing
 hooks (a Custom Car Loader car's, say). A client sends a change to one of those that nobody holds
-the lease on (`Client_UnleasedChange`): the port differs from the host's last value by more than
+the lease on (`NetworkedTrainCarClient.GetUnleasedChange`): the port differs from the host's last value by more than
 0.02, and that value isn't still settling (1.5 s after the host set it; a change in that window
 waits and goes if it still differs).
 
@@ -221,7 +221,7 @@ covers them, and every game, a dedicated server included, gets the same set with
 cab. A client sends only player-driven ports; the host takes only those, or one the sender holds
 the lease on. The compressor's activation signal is host-kept: clients never send it, and the host
 keeps it matched to `brakeSystem.compressorActivationSignal`, since DV writes it only when that
-decision changes (`Server_KeepCompressorSignal`).
+decision changes (`NetworkedTrainCarServer.KeepCompressorSignal`).
 
 **Motion: host-authoritative and steered; stage 5 not started.**
 
@@ -244,7 +244,7 @@ decision changes (`Server_KeepCompressorSignal`).
   its rigidbody unless it is more than 5 cm off, so idle cars sleep like the host's instead of
   being woken and nudged by every resync.
 - A car derailed on a client only is rerailed onto the host's track and pose, its motion queues
-  are cleared, and the host topology is reapplied (`NetworkedTrainCar.Client_RerailToHost`;
+  are cleared, and the host topology is reapplied (`NetworkedTrainCarClient.RerailToHost`;
   0903b06).
 - A car derailed for 30 s can be rerailed even if it never stops moving
   (`Shared/Trains/TrainCarRerailPatch.cs`).
@@ -423,6 +423,33 @@ handled in-process like the lever leases (`HandleTrainDelete`, `HandleTrainRerai
 own position too. Every work-train request is answered (`SpawnResponse`, "in use" for a refusal with
 no reason of its own); the host player's answer goes back through its client, which holds the
 radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in its own world.
+
+### Where the code is, by role
+
+The client/server split ([code-layout.md](code-layout.md)) puts each role's train code in its own
+folder. `NetworkedTrainCar` (Shared) is the car: its identity and lookups, the port and fuse map,
+dirty tracking and the tick. On the server it has a server half, `NetworkedTrainCarServer`
+(Server/Trains): control leases, coupler-interaction locks, validating players' changes, the
+host's own control commits and everything the car sends players (brake state, cargo, health,
+topology observations). The car makes it from the server (`ITrainServer.CreateCarPart`, reached as
+`TrainRoles.Server`) and calls it where that code always ran: the end of `Start`, `OnDisable`, and
+each tick after its own sends (`ITrainCarServerPart`). Server code reaches it as `car.Server()`.
+The trainset motion the host samples is `NetworkTrainsetWatcher` (Server/Trains); clients follow it
+in `TrainsetPhysicsFollower` (Client/Trains).
+
+The local player's half is `NetworkedTrainCarClient` (Client/Trains), on every game someone plays
+at, the host's too: hooking the cab and external controls for leases, the player's control
+changes and chain interactions, and on a client, following the host (played-out and predicted
+port values, motion, derail and rerail, brake state, commits). The car makes it from the local
+session (`ITrainClient.CreateCarPart`, `TrainRoles.Client` = `LocalSession as ITrainClient`) and
+calls it through `ITrainCarClientPart` at the end of `Start`, in `OnDisable`, from its sends, and
+when the host's port values land. Client code reaches it as `car.Client()`. In host-local-session
+stage 3 the host's session has to implement `ITrainClient` too, or the host's cars get no
+local-player half (no lever leases, no chain interactions reported).
+
+What stays in the car is what both roles run: dirty tracking and the sends' common part, applying
+a coupler interaction (`Common_ReceiveCouplerInteraction`, the host for a player's request and a
+client for another player's), paint, and the handbrake-held-remotely window.
 
 ## Stable identities
 
@@ -810,7 +837,7 @@ recorded as protocol constants and performance tests rather than scattered magic
 
 Not built as designed. The host sends `ClientboundBrakeStateUpdatePacket` per car (reliable
 ordered) when main reservoir, pipe or cylinder pressure moves by 0.02 or more, when reservoir or
-overheat state is dirty, or every 2 s as a heartbeat (`NetworkedTrainCar.Server_SendBrakeStates`).
+overheat state is dirty, or every 2 s as a heartbeat (`NetworkedTrainCarServer.SendBrakeStates`).
 It carries the host's topology revision, the car's brake-line anchor and member digest, the three
 pressures and the heat state. A client drops it and asks for a topology resync if the revision is
 newer than its own; if the line membership doesn't match it applies the per-car fields, skips the
@@ -861,7 +888,7 @@ the host's: torque, motion, pressures, resources. This is only what a client sho
 **Prediction, for the player driving.** Outputs that are a function of controls and slowly
 changing host state are worked out on the client, every frame, while the local player is driving
 the train: they've changed one of its cars' controls in the last 4 s, or hold a control's lease
-(`NetworkedTrainCar.Client_IsLocalPlayerDrivingTrain`). For vanilla components with no other state,
+(`NetworkedTrainCarClient.IsLocalPlayerDrivingTrain`). For vanilla components with no other state,
 their own `Tick` runs (`SimComponent_Tick_Patch.LocalTick` lets it through); the rest are copies
 of the part of `Tick` that sets the output. The host's values for those ports are kept but not
 shown, and take over again, played out, once the player stops driving. The audit (DV.Simulation,
@@ -918,7 +945,7 @@ landed another player's door swung in uneven 24 Hz steps:
 - A port something on the client writes itself (a feeder or a controller, or `LampLogic`) is found
   by its value differing from what the playout last wrote, and from then on shown as it lands.
 - A control is the local player's while they hold its lease or have a change to it not yet
-  committed (`Client_HoldsPort`): never played out over their hand; the host's values for it are
+  committed (`NetworkedTrainCarClient.HoldsPort`): never played out over their hand; the host's values for it are
   shown as they land, as before (a pending change's are dropped, `WithoutPending`). One that changes
   between the playout's writes was moved by the local player: its history restarts at their value.
 - The playout's own writes aren't the local player's: `Common_OnPortUpdated` ignores them
@@ -1021,18 +1048,18 @@ the rails it left), calls `TrainCar.Derail()` once, then interpolates the snapsh
 derailment changes couplers. A car derailed on a client but on the rails on the host is rerailed
 onto the host's track at the host's pose (asking for a full sync if the sample lacks one), its
 queues are cleared, and the topology is reapplied once the rerail finishes
-(`Client_RerailToHost`). `TrainCarRerailPatch` lets any derailed car be rerailed after 30 s even if
+(`NetworkedTrainCarClient.RerailToHost`). `TrainCarRerailPatch` lets any derailed car be rerailed after 30 s even if
 it never drops below vanilla's 1 m/s limit. Explosions never push client trains; the host's
 result arrives through this sync (see [`../world-sync.md`](../world-sync.md)).
 
 Host rerail and move-to-track (`ClientboundRerailTrainPacket`, `ClientboundMoveTrainPacket`;
-`NetworkedTrainCar.Client_RerailFromHost`, `Client_MoveToTrackFromHost`): the client clears the
+`NetworkedTrainCarClient.RerailFromHost`, `MoveToTrackFromHost`): the client clears the
 speed, rigidbody and bogie queues and makes the body dynamic (a derailed car at rest is kinematic,
 and vanilla's rerail needs a dynamic one), lets vanilla relocate the car (a coroutine: one physics
 step, `IsTeleporting`), ignores samples meanwhile, clears the queues again and asks the host for a
 full sync (`ServerboundTrainSyncRequestPacket`). The host, once its own relocation is done, sends
 the car's pose and both bogies' tracks and spans reliably on the next tick
-(`Server_ResyncAfterRelocation`, `Server_ResyncPose`; `Server_DirtyAllState` does the same).
+(`NetworkedTrainCarServer.ResyncAfterRelocation`, `ResyncPose`; `DirtyAllState` does the same).
 In playtest 2 none of this was reset: the rigidbody queue kept sliding the rerailed FEF-3 towards
 its derailed pose at its 1.5 m/s limit, the speed queue placed it back towards the host's spans,
 and each 2 s full sync found it over 5 m off and snapped it, flinging the body off its bogies

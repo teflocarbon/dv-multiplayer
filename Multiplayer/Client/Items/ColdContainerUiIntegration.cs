@@ -265,6 +265,7 @@ internal static class ColdContainerUiIntegration
     {
         if (initialized || NetworkLifecycle.Instance?.Client == null) return;
         initialized = true;
+        NetworkedItemManager.Cleared += Reset;
         NetworkLifecycle.Instance.Client.ContainerViewReceived += OnView;
         NetworkLifecycle.Instance.Client.ContainerMutationCompleted += OnMutation;
     }
@@ -377,8 +378,9 @@ internal static class ColdContainerUiIntegration
         proxies.Clear();
     }
 
-    public static void Reset()
+    private static void Reset()
     {
+        NetworkedItemManager.Cleared -= Reset;
         if (initialized && NetworkLifecycle.Instance?.Client != null)
         {
             NetworkLifecycle.Instance.Client.ContainerViewReceived -= OnView;

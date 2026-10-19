@@ -300,7 +300,7 @@ public static class AuthoritativeItemRegistry
             ["actorPlayerId"] = actor.PlayerId,
             ["reason"] = reason.ToString()
         });
-        NetworkedItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
+        ServerItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
         // The owner's client put the item in this slot, so it keeps the slot if another of their
         // essentials claims it too (one dropped or stolen leaves its slot looking empty in DV).
@@ -317,7 +317,7 @@ public static class AuthoritativeItemRegistry
     {
         string change = ItemChangeLog.Describe(before, after);
         if (given is { } known)
-            return known.WithDetail(ItemChangeLog.Detail(change, known.Detail));
+            return known.WithDetail(ItemChangeCauses.Detail(change, known.Detail));
         ItemMoveReason classified = reason switch
         {
             ItemTransitionReason.ClientAdoption => ItemMoveReason.Adopted,
@@ -333,8 +333,8 @@ public static class AuthoritativeItemRegistry
                 ? "host's game" : "host's game, " + item.HostObservationTrigger,
             _ => reason.ToString()
         };
-        return ItemChangeLog.Move(classified, actor, ItemChangeLog.Detail(change, source,
-            classified == ItemMoveReason.Unknown ? "callers " + ItemChangeLog.Callers(typeof(AuthoritativeItemRegistry)) : null));
+        return ItemChangeLog.Move(classified, actor, ItemChangeCauses.Detail(change, source,
+            classified == ItemMoveReason.Unknown ? "callers " + ItemChangeCauses.Callers(typeof(AuthoritativeItemRegistry)) : null));
     }
 
     /// <summary>
@@ -531,7 +531,7 @@ public static class AuthoritativeItemRegistry
         snapshot = prepared;
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         ChangeCause<ItemMoveReason> recalled = ItemChangeLog.Move(ItemMoveReason.Recalled, requester,
-            ItemChangeLog.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
+            ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
                 "slot " + record.InventoryClaimSlot));
         snapshot.MoveCause = recalled;
         ItemChangeLog.RecordMove(item, record, recalled);
@@ -641,7 +641,7 @@ public static class AuthoritativeItemRegistry
         created.PlayerId = requester.PlayerId;
         WriteToSnapshot(record, created, ItemTransitionReason.LostAndFoundRetrieval);
         ChangeCause<ItemMoveReason> retrieved = ItemChangeLog.Move(ItemMoveReason.RetrievedFromLostAndFound,
-            requester, ItemChangeLog.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
+            requester, ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
                 "slot " + targetSlot));
         created.MoveCause = retrieved;
         ItemChangeLog.RecordMove(item, record, retrieved);
@@ -735,7 +735,7 @@ public static class AuthoritativeItemRegistry
         }
         WriteToSnapshot(record, snapshot, record.LastReason);
         ChangeCause<ItemMoveReason> withdrawn = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
-            ItemChangeLog.Detail(ItemChangeLog.Describe(
+            ItemChangeCauses.Detail(ItemChangeLog.Describe(
                     new ItemWhereabouts(AuthorityPlacement.Container, 0, persistentOwnerPlayerId),
                     ItemChangeLog.Whereabouts(record)),
                 "slot " + record.InventoryClaimSlot));

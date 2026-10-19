@@ -94,8 +94,8 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
 
     public byte LocalPlayerId => NetworkLifecycle.Instance == null ? (byte)0 :
         NetworkLifecycle.Instance.IsHost()
-            ? NetworkLifecycle.Instance.Server?.SelfId ?? 0
-            : NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+            ? ItemServer.Current?.LocalPlayerId ?? 0
+            : NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
 
     public bool RuntimeActive => NetworkLifecycle.Instance != null &&
         (NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsHost());
@@ -302,7 +302,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                         new InventoryPresentationInput(networkedItem.NetId,
                             networkedItem.PersistentOwnerPlayerId, localPlayerId,
                             networkedItem.Item?.InventorySpecs?.IsEssential == true,
-                            retrievalClaim, NetworkedLostAndFoundManager.Contains(networkedItem.NetId)),
+                            retrievalClaim, ItemServer.Current?.IsInLostAndFound(networkedItem.NetId) == true),
                         localSlotDropped: true, localSlotReservedOrLocked: true,
                         localPossessionActive: localPossessionActive))
                     continue;
@@ -444,7 +444,7 @@ internal static class InventoryIntegration
             return true;
 
         NetworkedItem item = slot.NetworkedItem;
-        LostItemData lost = item == null ? null : NetworkedLostAndFoundManager.ClientItems
+        LostItemData lost = item == null ? null : LostAndFoundList.Items
             .FirstOrDefault(entry => entry?.NetId == item.NetId);
         InventoryItemPresentation presentation = Project(item, lost != null);
 
@@ -484,7 +484,7 @@ internal static class InventoryIntegration
             !NetworkLifecycle.Instance.IsHost())
         {
             uint requestId = unchecked(++lostItemRequestId);
-            NetworkLifecycle.Instance.Client?.RequestLostItemRetrieval(requestId, lost.Handle,
+            ItemClient.Current?.RequestLostItemRetrieval(requestId, lost.Handle,
                 item.NetId, lost.Revision, slot.AbsoluteSlot);
             return false;
         }

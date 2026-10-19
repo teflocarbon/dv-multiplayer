@@ -16,7 +16,7 @@ using System.Linq;
 namespace Multiplayer.Client.Session;
 
 // NetworkClient's items handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkClient
+public partial class NetworkClient : IItemClient
 {
     private void OnCommonItemsBulkUpdatePacket(CommonItemsBulkUpdatePacket packet)
     {
@@ -108,7 +108,7 @@ public partial class NetworkClient
         }
 
         if (packet.ItemData.MoveCause.HasValue)
-            ItemChangeLog.OnClientSnapshot(networkedItem, packet.ItemData);
+            ItemChangeCauses.OnClientSnapshot(networkedItem, packet.ItemData, PlayerId);
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
@@ -176,7 +176,7 @@ public partial class NetworkClient
                 Reason = packet.Reasons[i],
                 LostUtcTicks = packet.LostUtcTicks[i]
             };
-        NetworkedLostAndFoundManager.ApplyClientSnapshot(packet.Generation, items);
+        LostAndFoundList.Apply(items);
     }
 
     private void OnClientboundLostItemRetrieveResultPacket(ClientboundLostItemRetrieveResultPacket packet)
@@ -242,7 +242,7 @@ public partial class NetworkClient
                 DeliveryMethod.ReliableOrdered);
     }
 
-    internal void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)
+    public void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)
     {
         SendPacketToServer(new ServerboundWorldItemProjectionAckPacket
         {
@@ -351,21 +351,21 @@ public partial class NetworkClient
     private void OnClientboundItemSpatialCommitPacket(ClientboundItemSpatialCommitPacket packet) =>
         NetworkedItemManager.Instance?.ReceiveItemSpatialCommit(packet);
 
-    internal void SendItemSpatialSample(ItemSpatialStateData state)
+    public void SendItemSpatialSample(ItemSpatialStateData state)
     {
         if (state == null) return;
         SendPacketToServer(new ServerboundItemSpatialSamplePacket { State = state },
             DeliveryMethod.Unreliable);
     }
 
-    internal void SendItemSpatialSettlement(ItemSpatialStateData state)
+    public void SendItemSpatialSettlement(ItemSpatialStateData state)
     {
         if (state == null) return;
         SendPacketToServer(new ServerboundItemSpatialSettlementPacket { State = state },
             DeliveryMethod.ReliableOrdered);
     }
 
-    internal void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)
+    public void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)
     {
         if (packet == null) return;
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);

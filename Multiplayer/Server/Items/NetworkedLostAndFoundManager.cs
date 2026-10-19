@@ -26,7 +26,6 @@ public static class NetworkedLostAndFoundManager
     private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly LostItemRegistry registry = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
-    private static readonly List<LostItemData> clientItems = new();
     private static readonly List<JObject> pendingSaveImports = new();
 
     /// <summary>Prefab names of saved Lost and Found items, not yet restored, that belong to this owner.</summary>
@@ -39,8 +38,6 @@ public static class NetworkedLostAndFoundManager
     private static uint generation;
     private static bool saveImportAttempted;
 
-    public static event Action ClientListChanged;
-    public static IReadOnlyList<LostItemData> ClientItems => clientItems;
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
     public static int Count => registry.Count;
@@ -348,7 +345,7 @@ public static class NetworkedLostAndFoundManager
             return false;
         }
         ChangeCause<ItemRemovalReason> cause = CollectionCause(reason, authority.PersistentOwnerPlayerId,
-            ItemChangeLog.Detail("was " + previousPlacement, detail));
+            ItemChangeCauses.Detail("was " + previousPlacement, detail));
         ItemUpdateData destroy = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
         if (destroy != null)
         {
@@ -397,30 +394,18 @@ public static class NetworkedLostAndFoundManager
     // "CollectedToLostAndFound (OwnerDistance, owner Bentgear29; was World)".
     private static ChangeCause<ItemRemovalReason> CollectionCause(LostItemReason reason, byte ownerPlayerId,
         string detail) =>
-        ItemChangeLog.Removal(ItemRemovalReason.CollectedToLostAndFound, detail: ItemChangeLog.Detail(
+        ItemChangeLog.Removal(ItemRemovalReason.CollectedToLostAndFound, detail: ItemChangeCauses.Detail(
             reason + ", owner " + (ItemChangeLog.PlayerName(ownerPlayerId) ?? "P" + ownerPlayerId), detail));
 
-    public static void ApplyClientSnapshot(uint newGeneration, LostItemData[] items)
-    {
-        // On the host this counter is the server's own; a snapshot it was sent can be older.
-        if (!NetworkLifecycle.Instance.IsHost())
-            generation = newGeneration;
-        clientItems.Clear();
-        if (items != null)
-            clientItems.AddRange(items.Where(item => item != null));
-        ClientListChanged?.Invoke();
-    }
 
     public static void Clear()
     {
         registry.Clear();
         eligibleSince.Clear();
-        clientItems.Clear();
         pendingSaveImports.Clear();
         lastEvaluations.Clear();
         generation = 0;
         saveImportAttempted = false;
-        ClientListChanged?.Invoke();
     }
 
     /// <summary>Detached main-thread diagnostics used by the in-game observability overlay.</summary>
@@ -469,26 +454,7 @@ public static class NetworkedLostAndFoundManager
                 });
             }
         }
-        if (NetworkLifecycle.Instance?.IsClientRunning == true)
-        {
-            foreach (LostItemData item in clientItems)
-            {
-                result.Add(new Dictionary<string, object>
-                {
-                    ["debugKey"] = $"client-handle:{item.Handle}",
-                    ["source"] = "client-authoritative-list",
-                    ["status"] = "ListedByHost",
-                    ["lostHandle"] = item.Handle,
-                    ["netId"] = item.NetId,
-                    ["revision"] = item.Revision,
-                    ["prefabName"] = item.PrefabName ?? string.Empty,
-                    ["displayName"] = item.DisplayName ?? string.Empty,
-                    ["ownerPlayerId"] = DebugRuntime.Session?.PlayerId ?? 0,
-                    ["reason"] = ((LostItemReason)item.Reason).ToString(),
-                    ["lostUtc"] = FormatUtc(item.LostUtcTicks)
-                });
-            }
-        }
+        result.AddRange(LostAndFoundList.DebugSnapshot());
         return result.ToArray();
     }
 
