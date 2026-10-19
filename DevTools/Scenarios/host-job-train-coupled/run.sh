@@ -5,7 +5,8 @@
 # loco's cab asked for such a snapshot, so the host stepping into the cab of a loco on a job train
 # uncoupled that train (docs/design/host-local-session.md, stage 1).
 #  1. The station's job generator spawns fresh jobs, as when a player arrives (its available jobs
-#     are expired, then it generates new ones); the host takes a transport or empty-haul one.
+#     are expired, then it generates new ones, up to three rounds); the host takes a new job it is
+#     licensed for: transport or empty haul if there is one, else any with cars (shunting jobs too).
 #  2. A shunter rolls onto the job's train and the host couples it, as a player does.
 #  3. The host loads the loco's cab RELOADS times from beside it, then boards it.
 #  4. For HOLD seconds, the host's and the client's coupling of the train (and the loco) must stay
@@ -60,10 +61,11 @@ $D eval -t host -m coroutine --timeout 90 'yield return LocalPlayer.TeleportToGr
 $D eval -t client -m coroutine --timeout 90 'yield return LocalPlayer.TeleportToGround(5986f, 6740f); yield return new WaitForSeconds(6);' >/dev/null
 
 echo "== $STATION generates fresh jobs"
-g=$($D eval -t host -m coroutine --timeout 90 -u "$U" -a station=$STATION -f $P/generate.cs)
+g=$($D eval -t host -m coroutine --timeout 240 -u "$U" -a station=$STATION -f $P/generate.cs)
 job=$(echo "$g" | field job); cars=$(echo "$g" | field cars)
 [ -n "$cars" ] || fail "$job has no cars"
 t=$(topo_both "$cars")
+echo "   generated: $(echo "$g" | field rounds)"
 echo "   $job ($(echo "$g" | field type)), cars $cars: ${t%%|*} ($(echo "$t" | cut -d'|' -f2) coupling(s))"
 
 echo "== the host takes $job"
