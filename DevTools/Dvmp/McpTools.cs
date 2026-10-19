@@ -71,7 +71,7 @@ public static class McpTools
     }
 
     [McpServerTool(Name = "dvmp_down", Destructive = true)]
-    [Description("Quits this session's games (every session's with all), killing any that don't exit within 20s.")]
+    [Description("Quits this session's games (every session's with all), killing any that don't exit within 20s. Only games dvmp launched: one the user started themselves (it has the agent too) is never touched, and is listed as leftRunning.")]
     public static async Task<string> Down(
         [Description(Session)] string? session = null,
         [Description("Every session's games. Default false.")] bool all = false,

@@ -190,7 +190,7 @@ internal static class Session
         try
         {
             Mark("checking existing games");
-            List<Agent> agents = await Agents.DiscoverAsync();
+            List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
             // --dedicated only reuses a dedicated host; without it, either kind is reused (a client joining
             // a dedicated host-only host goes through here).
             Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
@@ -269,7 +269,7 @@ internal static class Session
                 throw new Exception("--host-only needs a named session (--session NAME), so it never touches the default session's games");
 
             Mark("checking existing games");
-            List<Agent> agents = await Agents.DiscoverAsync();
+            List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
             Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
             if (!o.Fresh) host = await ReusableAsync(host);
             if (!o.Fresh && host != null)
@@ -414,7 +414,9 @@ internal static class Session
     /// <summary>Quits the current session's games, or every session's with <paramref name="all"/>.</summary>
     public static async Task<JsonObject> DownAsync(CancellationToken ct, bool all = false)
     {
-        List<Agent> agents = await Agents.DiscoverAsync(ct, all);
+        // Only games dvmp launched: never one the user started (see Agent.LaunchedByDvmp).
+        List<Agent> found = await Agents.DiscoverAsync(ct, all);
+        List<Agent> agents = found.Where(a => a.LaunchedByDvmp).ToList();
         JsonArray stopped = new();
         await Task.WhenAll(agents.Select(async agent =>
         {
@@ -427,7 +429,8 @@ internal static class Session
             }
             lock (stopped) stopped.Add(new JsonObject { ["pid"] = agent.Pid, ["role"] = agent.Role, ["session"] = agent.Session, ["killed"] = !exited });
         }));
-        return new JsonObject { ["stopped"] = stopped };
+        JsonArray left = new(found.Where(a => !a.LaunchedByDvmp).Select(a => (JsonNode)new JsonObject { ["pid"] = a.Pid, ["role"] = a.Role }).ToArray());
+        return new JsonObject { ["stopped"] = stopped, ["leftRunning"] = left, ["note"] = left.Count > 0 ? "games not launched by dvmp were left running" : null };
     }
 
     // ------------------------------------------------------------------ helpers

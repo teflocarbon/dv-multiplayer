@@ -181,6 +181,8 @@
     <Target Name="GenerateProtocolManifest" AfterTargets="Build" Condition="'$(ManifestEmbedPass)' != 'true'">
         <Exec Command="&quot;$(MSBuildProjectDirectory)\..\Tools\ProtocolManifestGenerator\bin\$(Configuration)\net48\ProtocolManifestGenerator.exe&quot; &quot;$(TargetPath)&quot; &quot;$(DvInstallDir)\DerailValley_Data\Managed&quot; &quot;$(ProtocolManifestPath)&quot;" />
         <Copy SourceFiles="$(ProtocolManifestPath)" DestinationFolder="$(OutDir)" />
-        <Exec Command="dotnet build &quot;$(MSBuildProjectFullPath)&quot; --no-restore -p:ManifestEmbedPass=true -p:Configuration=$(Configuration)" />
+        <!-- The second pass is its own process: pass the install on, or it installs into the default
+             one (Directory.Build.targets) even when this build was pointed elsewhere (-p:DvInstallDir). -->
+        <Exec Command="dotnet build &quot;$(MSBuildProjectFullPath)&quot; --no-restore -p:ManifestEmbedPass=true -p:Configuration=$(Configuration) &quot;-p:DvInstallDir=$(DvInstallDir)&quot;" />
     </Target>
 </Project>
