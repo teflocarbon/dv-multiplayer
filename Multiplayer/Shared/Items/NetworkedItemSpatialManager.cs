@@ -137,7 +137,7 @@ internal sealed class NetworkedItemSpatialManager
             return;
         // A lease for our own release, arriving once we have the item back (a quick re-grab):
         // the pickup we sent ends it at the host. Simulating it would loosen the held body.
-        if (state.SimulatorPlayerId == NetworkLifecycle.Instance.Client.PlayerId && item.IsLocallyPossessed())
+        if (state.SimulatorPlayerId == NetworkLifecycle.Instance.LocalSession.PlayerId && item.IsLocallyPossessed())
         {
             Publish("item.spatial-lease-skipped", item.NetId, new()
             {
@@ -160,7 +160,7 @@ internal sealed class NetworkedItemSpatialManager
             Target = state.Clone()
         };
         leases[item.NetId] = lease;
-        bool localSimulator = state.SimulatorPlayerId == NetworkLifecycle.Instance.Client.PlayerId;
+        bool localSimulator = state.SimulatorPlayerId == NetworkLifecycle.Instance.LocalSession.PlayerId;
         ConfigureLeasePresentation(item, localSimulator, state);
         if (localSimulator && (packet.Reason?.StartsWith("lease-transfer:", StringComparison.Ordinal) == true ||
                                packet.Reason?.StartsWith("train-wake:", StringComparison.Ordinal) == true))
@@ -183,7 +183,7 @@ internal sealed class NetworkedItemSpatialManager
         lease.LastAccepted = state.Clone();
         lease.Target = state.Clone();
         if (NetworkedItem.TryGet(state.ItemNetId, out NetworkedItem item) && item != null &&
-            state.SimulatorPlayerId != NetworkLifecycle.Instance.Client.PlayerId)
+            state.SimulatorPlayerId != NetworkLifecycle.Instance.LocalSession.PlayerId)
             SetProxyKinematic(item, true);
     }
 
@@ -207,7 +207,7 @@ internal sealed class NetworkedItemSpatialManager
             body.angularVelocity = Vector3.zero;
             body.Sleep();
             if (state.WorldParentKind == ItemWorldParentKind.TrainInterior ||
-                state.SimulatorPlayerId != NetworkLifecycle.Instance.Client.PlayerId)
+                state.SimulatorPlayerId != NetworkLifecycle.Instance.LocalSession.PlayerId)
                 body.isKinematic = true;
         }
         Publish("item.spatial-commit-applied", item.NetId, SpatialDebug(state), DebugRuntimeSide.Client);
@@ -268,7 +268,7 @@ internal sealed class NetworkedItemSpatialManager
 
     private void UpdateClientLeases()
     {
-        byte localId = NetworkLifecycle.Instance.Client.PlayerId;
+        byte localId = NetworkLifecycle.Instance.LocalSession.PlayerId;
         foreach (Lease lease in leases.Values.ToArray())
         {
             if (!NetworkedItem.TryGet(lease.ItemNetId, out NetworkedItem item) || item?.Item == null)
@@ -278,9 +278,9 @@ internal sealed class NetworkedItemSpatialManager
                 if (!TrySampleLocalLease(item, lease, host: false, out ItemSpatialStateData state, out bool settled))
                     continue;
                 if (settled)
-                    NetworkLifecycle.Instance.Client.SendItemSpatialSettlement(state);
+                    ItemClient.Current.SendItemSpatialSettlement(state);
                 else
-                    NetworkLifecycle.Instance.Client.SendItemSpatialSample(state);
+                    ItemClient.Current.SendItemSpatialSample(state);
             }
             else if (lease.Target != null)
                 ApplyObservedPose(item, lease, Time.realtimeSinceStartup);

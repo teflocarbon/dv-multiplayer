@@ -80,7 +80,7 @@ public partial class NetworkedItemManager
                 Time.unscaledTime - reportedAt < ClientReportCooldown)
                 continue;
             clientRescueReportedAt[item.NetId] = Time.unscaledTime;
-            NetworkLifecycle.Instance.Client.SendItemBelowMapReport(item.NetId, surfaceY);
+            ItemClient.Current.SendItemBelowMapReport(item.NetId, surfaceY);
         }
     }
 }

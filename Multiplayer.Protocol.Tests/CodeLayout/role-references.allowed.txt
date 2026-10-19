@@ -24,12 +24,6 @@ Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Api.Cl
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Api.ServerPlayerWrapper
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Items.DerailValleyInventoryRuntimeAdapter -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.InventoryIntegration -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Players.ClientPlayerManager
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.IServerBrowserGameDetails
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.Session.NetworkServer

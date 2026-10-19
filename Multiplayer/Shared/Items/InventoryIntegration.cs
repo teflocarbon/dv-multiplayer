@@ -95,7 +95,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
     public byte LocalPlayerId => NetworkLifecycle.Instance == null ? (byte)0 :
         NetworkLifecycle.Instance.IsHost()
             ? ItemServer.Current?.LocalPlayerId ?? 0
-            : NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+            : NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
 
     public bool RuntimeActive => NetworkLifecycle.Instance != null &&
         (NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsHost());
@@ -484,7 +484,7 @@ internal static class InventoryIntegration
             !NetworkLifecycle.Instance.IsHost())
         {
             uint requestId = unchecked(++lostItemRequestId);
-            NetworkLifecycle.Instance.Client?.RequestLostItemRetrieval(requestId, lost.Handle,
+            ItemClient.Current?.RequestLostItemRetrieval(requestId, lost.Handle,
                 item.NetId, lost.Revision, slot.AbsoluteSlot);
             return false;
         }

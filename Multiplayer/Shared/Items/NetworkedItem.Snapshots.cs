@@ -371,7 +371,7 @@ public partial class NetworkedItem
         if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
             ItemSnapshotApplicationPolicy.IsSupersededLocalRelease(
                 NetworkLifecycle.Instance.IsHost(),
-                NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+                NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
                 snapshot.OriginatingPlayerId,
                 ToWireState(snapshot.ItemState),
                 IsLocallyPossessed()))
@@ -394,14 +394,14 @@ public partial class NetworkedItem
         if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
             (ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
                     NetworkLifecycle.Instance.IsHost(),
-                    NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+                    NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
                     snapshot.OriginatingPlayerId,
                     ToWireState(snapshot.ItemState),
                     ToWireState(GetItemState()),
                     IsLocallyPossessed()) ||
                 (Item != null &&
                     BeltItemPolicy.IsSupersededOwnHold(NetworkLifecycle.Instance.IsHost(),
-                        NetworkLifecycle.Instance.Client?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
+                        NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
                         ToWireState(snapshot.ItemState), Item.IsGrabbed(),
                         InventoryIntegration.ContainsActive(gameObject)))))
         {
@@ -416,13 +416,13 @@ public partial class NetworkedItem
 
         // The host's echo of our own object-state change (a lantern's knob still being turned).
         if (ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(NetworkLifecycle.Instance.IsHost(),
-                NetworkLifecycle.Instance.Client?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
+                NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
                 snapshot.UpdateType == ItemUpdateData.ItemUpdateType.ObjectState))
             return;
 
         if (ItemSnapshotApplicationPolicy.IsLocalThrowAcknowledgement(
                 NetworkLifecycle.Instance.IsHost(),
-                NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+                NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
                 snapshot.OriginatingPlayerId,
                 ToWireState(snapshot.ItemState)))
         {
@@ -622,7 +622,7 @@ public partial class NetworkedItem
         snapshot.TransitionReason == ItemTransitionReason.ClientState &&
         snapshot.ItemState == ItemState.Dropped &&
         snapshot.OriginatingPlayerId != 0 &&
-        snapshot.OriginatingPlayerId == NetworkLifecycle.Instance.Client?.PlayerId &&
+        snapshot.OriginatingPlayerId == NetworkLifecycle.Instance.LocalSession?.PlayerId &&
         Item != null && !Item.IsGrabbed() &&
         GetItemState() == ItemState.Dropped;
 
@@ -853,7 +853,7 @@ public partial class NetworkedItem
             InventoryClaimSlot = InventoryClaimSlot,
             InventoryClaimFlags = InventoryClaimFlags,
             TransitionReason = LastTransitionReason,
-            OriginatingPlayerId = NetworkLifecycle.Instance.Client?.PlayerId ?? 0,
+            OriginatingPlayerId = NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
             AuthoredItemKey = updateType.HasFlag(ItemUpdateData.ItemUpdateType.Create)
                 ? AuthoredItemKey ?? string.Empty
                 : string.Empty,
