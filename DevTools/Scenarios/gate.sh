@@ -50,6 +50,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "client-fall-rescue|client-fall-rescue|"
   "manual-uncouple|manual-uncouple|N=3"
   "manual-recouple-lag|manual-uncouple|MODE=recouple N=3 LAG=150"
+  "host-chain-screw|host-chain-screw||player"
   "uncouple-moving|uncouple-moving|"
   "uncouple-moving-loco-lag|uncouple-moving|LAST=LocoDE2 LAG=150 SPEED=10"
   "couple-impact|couple-impact|WAGON_BRAKE=0 LAG=150 SPEEDS=3,5"
