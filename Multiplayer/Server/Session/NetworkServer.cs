@@ -370,8 +370,7 @@ public partial class NetworkServer : NetworkManager
         IsLoaded = true;
 
         //We should initialise object here for dedicated servers, rather than relying on the existance of a client
-        NetworkedPitStopStation.InitialisePitStops();
-        NetworkedCashRegisterWithModules.InitialiseCashRegisters();
+        InitialiseStations();
 
         while (gameDataQueue.Count > 0)
         {

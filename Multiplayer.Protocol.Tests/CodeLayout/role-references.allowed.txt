@@ -85,7 +85,6 @@ Multiplayer.Shared.Jobs.NetworkedTask -> Multiplayer.Server.Session.NetworkServe
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.IServerBrowserGameDetails
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Protocol.Data.World.PitStopPlugData -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundRpcResponsePacket -> Multiplayer.Client.Session.RpcManager
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Career.NetworkedSaveGameManager
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Items.OwnedItemsSummary
@@ -101,19 +100,6 @@ Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Dedicated.Dedi
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Session.PlayerIdentity -> Multiplayer.Server.Dedicated.DedicatedHost
-Multiplayer.Shared.Stations.NetworkedCashRegisterWithModules -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Stations.NetworkedCashRegisterWithModules -> Multiplayer.Server.Players.CullingManager
-Multiplayer.Shared.Stations.NetworkedCashRegisterWithModules -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Stations.NetworkedCashRegisterWithModules -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Stations.NetworkedPitStopStation -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Stations.NetworkedPitStopStation -> Multiplayer.Server.Players.CullingManager
-Multiplayer.Shared.Stations.NetworkedPitStopStation -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Stations.NetworkedPitStopStation -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Client.Players.ClientPlayerManager
-Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Server.Players.CullingManager
-Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Stations.NetworkedPluggableObject -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Trains.CarDeletePlayerSafetyPatch -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
 Multiplayer.Shared.Trains.CargoFireSync -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Trains.CargoFireSync -> Multiplayer.Server.Session.NetworkServer

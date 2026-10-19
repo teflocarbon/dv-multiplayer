@@ -214,12 +214,17 @@ drops; cancelled basket refunds without a banknote).
 A service station is a `PitStopStation` (car selector, resource levers, faucet), its plugs
 (`PluggableObject` on a `PropHose`) and a `CashRegisterWithModules`. Code:
 `Shared/Stations/NetworkedPitStopStation.cs`, `NetworkedPluggableObject.cs`,
-`NetworkedCashRegisterWithModules.cs`, `Shared/Stations/PluggableObjectPatch.cs`, `PropHosePatch.cs`,
-`CashRegisterWithModulesPatch.cs`, `CashRegisterBasePatch.cs`.
+`NetworkedCashRegisterWithModules.cs` (what both games run: ids, controls, applying a change,
+sending the local player's requests through `IStationsClient`), their server parts in
+`Server/Stations/` (`ServerPitStopStation`, `ServerPluggableObject`, `ServerCashRegister`: range,
+validation, relays, the bulk update, the register's requests),
+`Shared/Stations/PluggableObjectPatch.cs`, `PropHosePatch.cs`, `CashRegisterWithModulesPatch.cs`,
+`CashRegisterBasePatch.cs`.
 
 Ids: stations and registers are numbered by sorting them by position
-(`InitialisePitStops`, `InitialiseCashRegisters`, both run on the host in `OnLoaded` and on the
-client in `SyncWorldState`). Ids are not sent; both games must have the same objects.
+(`InitialisePitStops`, `InitialiseCashRegisters`, run on the host in `OnLoaded` through
+`NetworkServer.InitialiseStations`, which also adds the server parts, and on the client in
+`SyncWorldState`). Ids are not sent; both games must have the same objects.
 
 Range: the host gives each station a `CullingManager` sized from the station's
 `PlayerDistanceGameObjectsDisabler` (500 m by default), with the activation region at half the
@@ -260,7 +265,7 @@ to interact with a plug that they are not holding" and refuse each plug, every t
 arrived (49 times in one 2026-10-19 session).
 
 Register: every deposit at a service-station register, the host's included, goes through
-`CommonCashRegisterWithModulesActionPacket`. `Server_ProcessCashRegisterAction` requires the
+`CommonCashRegisterWithModulesActionPacket`. `ServerCashRegister.ProcessAction` requires the
 player within reach plus 1 m. `AddCash` moves what is still owed (or what the wallet has) from the
 wallet into the register and sends `SetFunds`; `Buy` needs units in the basket and enough deposited
 cash; `Cancel` cancels. Results go to players in range; rejections (`RejectFunds`,
@@ -276,7 +281,9 @@ The host player's own station and plug interactions reach the server in-process 
 the plug's at `NetworkClient.SendPitStopPlugInteractionPacket`, since
 `SendNetSerializablePacketToServer` has no hook). The server validates and relays them like
 anyone's, doesn't apply them again (the host's world has them), and sends the host no
-rejection.
+rejection. The host's register deposit (`AddCash`) is answered in-process on every path
+(`NetworkedCashRegisterWithModules.AnswerLocalRequest`), so its coroutine finishes on the answer
+instead of a loopback `RPC_Timeout` of about 0 s.
 
 `pit-stop` (`WHO=client`, `WHO=host`) covers a lever and a plug; nothing covers refuelling a car
 or the register yet.

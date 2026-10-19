@@ -3,6 +3,7 @@ using DV.Shops;
 using DV.CabControls;
 using LiteNetLib;
 using Multiplayer.Server.Items;
+using Multiplayer.Server.Stations;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.World;
@@ -62,13 +63,31 @@ public partial class NetworkServer
                 SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
     }
 
-    // The host player's pit stop and plug interactions reach the server in-process (the plug's
-    // through NetworkClient.SendPitStopPlugInteractionPacket, which isn't hooked), and are
-    // validated and relayed like anyone's; the host's world already has them.
+    /// <summary>
+    /// Numbers the service stations and module registers (as a client does) and gives each its
+    /// server part. Called once the save has loaded, rather than when the host's own client loads,
+    /// so a dedicated host has them too.
+    /// </summary>
+    private void InitialiseStations()
+    {
+        NetworkedPitStopStation.InitialisePitStops();
+        NetworkedCashRegisterWithModules.InitialiseCashRegisters();
+
+        foreach (NetworkedCashRegisterWithModules register in NetworkedCashRegisterWithModules.All)
+            register.GetOrAddComponent<ServerCashRegister>().Setup();
+        foreach (NetworkedPitStopStation station in NetworkedPitStopStation.All)
+            station.GetOrAddComponent<ServerPitStopStation>().Setup();
+    }
+
+    // The host player's pit stop, plug and module register requests reach the server in-process
+    // (the plug's through NetworkClient.SendPitStopPlugInteractionPacket, which isn't hooked), and
+    // are validated and relayed like anyone's; the host's world already has them. A register
+    // request is answered in-process (NetworkedCashRegisterWithModules.AnswerLocalRequest).
     partial void RegisterLocalStations()
     {
         HandleLocal<CommonPitStopInteractionPacket>(HandlePitStopInteraction);
         HandleLocal<CommonPitStopPlugInteractionPacket>(HandlePlugInteraction);
+        HandleLocal<CommonCashRegisterWithModulesActionPacket>(HandleCashRegisterAction);
     }
 
     private void OnCommonPitStopInteractionPacket(CommonPitStopInteractionPacket packet, ITransportPeer peer)
@@ -81,8 +100,8 @@ public partial class NetworkServer
 
     private void HandlePitStopInteraction(CommonPitStopInteractionPacket packet, ServerPlayer player)
     {
-        if (NetworkedPitStopStation.Get(packet.NetId, out NetworkedPitStopStation controller))
-            controller.ProcessInteractionPacketAsHost(packet, player);
+        if (ServerPitStopStation.TryGet(packet.NetId, out ServerPitStopStation station))
+            station.ProcessInteraction(packet, player);
         else
             LogWarning($"HandlePitStopInteraction() Failed to find PitStopStation with netId: {packet.NetId}");
     }
@@ -105,8 +124,9 @@ public partial class NetworkServer
 
     private void HandlePlugInteraction(CommonPitStopPlugInteractionPacket packet, ServerPlayer player)
     {
-        if (NetworkedPluggableObject.Get(packet.NetId, out NetworkedPluggableObject plug))
-            plug.ProcessInteractionPacketAsHost(packet, player);
+        if (NetworkedPluggableObject.Get(packet.NetId, out NetworkedPluggableObject plug) &&
+            plug.TryGetComponent(out ServerPluggableObject serverPlug))
+            serverPlug.ProcessInteraction(packet, player);
         else
             LogError($"HandlePlugInteraction() Failed to find plug with netId: {packet.NetId}");
     }
@@ -254,13 +274,18 @@ public partial class NetworkServer
             return;
         }
 
-        if (!NetworkedCashRegisterWithModules.Get(packet.NetId, out NetworkedCashRegisterWithModules netCashRegister))
+        HandleCashRegisterAction(packet, player);
+    }
+
+    private void HandleCashRegisterAction(CommonCashRegisterWithModulesActionPacket packet, ServerPlayer player)
+    {
+        if (!ServerCashRegister.TryGet(packet.NetId, out ServerCashRegister register))
         {
             LogWarning($"Cash Register With Modules Action received for netId: {packet.NetId}, but cash register does not exist!");
             return;
         }
 
-        Log($"Cash Register With Modules Action received for {netCashRegister.GetObjectPath()}, Action: {packet.Action}, Amount: {packet.Amount}");
-        netCashRegister.Server_ProcessCashRegisterAction(player, packet);
+        Log($"Cash Register With Modules Action received for {register.GetObjectPath()}, Action: {packet.Action}, Amount: {packet.Amount}");
+        register.ProcessAction(player, packet);
     }
 }

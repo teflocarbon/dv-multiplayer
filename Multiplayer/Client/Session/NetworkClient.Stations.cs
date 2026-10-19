@@ -13,7 +13,7 @@ using UnityEngine;
 namespace Multiplayer.Client.Session;
 
 // NetworkClient's stations handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkClient
+public partial class NetworkClient : IStationsClient
 {
     private void OnClientboundShopStockPacket(ClientboundShopStockPacket packet)
     {
