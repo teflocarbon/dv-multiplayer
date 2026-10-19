@@ -16,8 +16,9 @@ concurrency:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  # The game build the mod compiles against: a tag in teflocarbon/dv-gamelibs.
-  GAMELIBS_REF: steam-20251481
+  # The game build the mod compiles against: a tag in teflocarbon/dv-gamelibs (steam-<buildid>, with
+  # -r<n> when DLLs were added for the same game build).
+  GAMELIBS_REF: steam-20251481-r2
 
 jobs:
   core-tests:
@@ -100,8 +101,10 @@ jobs:
           "@ | Set-Content Directory.Build.targets
 
       # Debug: a Release build would stamp a new version into info.json.
+      # MSB3245 (a reference not found) is an error here: it means the mod now references a game DLL
+      # that dv-gamelibs doesn't have. Add it there under a new tag and bump GAMELIBS_REF.
       - name: Build the mod
-        run: dotnet build Multiplayer/Multiplayer.csproj -c Debug
+        run: dotnet build Multiplayer/Multiplayer.csproj -c Debug -warnAsError:MSB3245
 
       - name: Build the dev tools
         run: |
