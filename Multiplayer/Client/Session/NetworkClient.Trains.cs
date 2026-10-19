@@ -342,13 +342,13 @@ public partial class NetworkClient
         if (!NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) || car == null)
             return;
         Log($"The host's {car.ID} exploded ({(global::Multiplayer.Shared.Trains.ExplosionSync.Kind)packet.Kind})");
-        global::Multiplayer.Shared.Trains.ExplosionSync.ClientPlay(car, (global::Multiplayer.Shared.Trains.ExplosionSync.Kind)packet.Kind, packet.Index);
+        global::Multiplayer.Client.Trains.ExplosionPlayback.Play(car, (global::Multiplayer.Shared.Trains.ExplosionSync.Kind)packet.Kind, packet.Index);
     }
 
     private void OnClientboundCargoFirePacket(ClientboundCargoFirePacket packet)
     {
         if (NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) && car != null)
-            global::Multiplayer.Shared.Trains.CargoFireSync.Client_Receive(car, packet.Index, (global::Multiplayer.Shared.Trains.CargoFireSync.FireState)packet.State);
+            global::Multiplayer.Client.Trains.CargoFirePlayback.Receive(car, packet.Index, (global::Multiplayer.Shared.Trains.CargoFireSync.FireState)packet.State);
     }
 
     private void OnClientboundCargoStatePacket(ClientboundCargoStatePacket packet)

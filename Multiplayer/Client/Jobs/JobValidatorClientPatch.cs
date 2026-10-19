@@ -1,8 +1,5 @@
 using System.Collections;
-using DV.ThingTypes;
 using HarmonyLib;
-using Multiplayer.Server.Jobs;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Jobs;
@@ -11,48 +8,24 @@ using UnityEngine;
 
 namespace Multiplayer.Client.Jobs;
 
+/// <summary>
+/// A remote client asks the server to take or hand in a job instead of running the validator; the
+/// server's half is Server/Jobs/JobValidatorServerPatch. The reprint button is a request from every
+/// player, the host's own included (handled in-process).
+/// </summary>
 [HarmonyPatch(typeof(JobValidator))]
-public static class JobValidator_Patch
+public static class JobValidator_ClientPatch
 {
     private const float TIME_OUT = 3f;
-
-    [HarmonyPatch(nameof(JobValidator.Start))]
-    [HarmonyPostfix]
-    private static void Start(JobValidator __instance)
-    {
-        //Multiplayer.Log($"JobValidator Awake!");
-        NetworkedStationController.QueueJobValidator(__instance);
-    }
-
 
     [HarmonyPatch(nameof(JobValidator.ProcessJobOverview))]
     [HarmonyPrefix]
     private static bool ProcessJobOverview(JobValidator __instance, JobOverview jobOverview)
     {
-
-        if(__instance.bookletPrinter.IsOnCooldown)
-        {
-            __instance.bookletPrinter.PlayErrorSound();
-            return false;
-        }
-
-        if(!NetworkedJob.TryGetFromJob(jobOverview.job, out NetworkedJob networkedJob) || jobOverview.job.State != JobState.Available)
-        {
-            NetworkLifecycle.Instance.Client.LogWarning($"Processing JobOverview {jobOverview?.job?.ID} {(networkedJob == null ? "NetworkedJob not found!, " : "")}Job state: {jobOverview?.job?.State}");
-            __instance.bookletPrinter.PlayErrorSound();
-            jobOverview.DestroyJobOverview();
-            return false;
-        }
-
         if (NetworkLifecycle.Instance.IsHost())
-        {
-            NetworkLifecycle.Instance.Server.Log($"Processing JobOverview {jobOverview?.job?.ID}");
-            networkedJob.JobValidator = __instance;
-            if (networkedJob.PendingBookletIssuedToPlayerId == 0)
-                networkedJob.PendingBookletIssuedToPlayerId =
-                    NetworkLifecycle.Instance.Server.SelfId;
             return true;
-        }
+        if (!JobValidator_Patch.TryGetOverviewJob(__instance, jobOverview, out NetworkedJob networkedJob))
+            return false;
 
         if (!networkedJob.ValidatorRequestSent)
             SendValidationRequest(__instance, networkedJob, ValidationType.JobOverview,
@@ -73,53 +46,18 @@ public static class JobValidator_Patch
             __instance.bookletPrinter.PlayErrorSound();
             return false;
         }
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(
-                    NetworkLifecycle.Instance.Server.SelfId, out ServerPlayer host))
-                JobBookletSummonCoordinator.TryStart(__instance, host);
-        }
-        else
-        {
-            NetworkLifecycle.Instance.Client.SendJobBookletSummonRequest(station.NetId);
-        }
+        NetworkLifecycle.Instance.Client.SendJobBookletSummonRequest(station.NetId);
         return false;
     }
-
-    [HarmonyPatch(nameof(JobValidator.ProcessJobOverview))]
-    [HarmonyPostfix]
-    private static void ProcessJobOverviewComplete(JobOverview jobOverview)
-    {
-        if (NetworkLifecycle.Instance.IsHost() && jobOverview?.job != null &&
-            NetworkedJob.TryGetFromJob(jobOverview.job, out NetworkedJob networkedJob))
-            networkedJob.PendingBookletIssuedToPlayerId = 0;
-    }
-
 
     [HarmonyPatch(nameof(JobValidator.ValidateJob))]
     [HarmonyPrefix]
     private static bool ValidateJob_Prefix(JobValidator __instance, JobBooklet jobBooklet)
     {
-        if (__instance.bookletPrinter.IsOnCooldown)
-        {
-            __instance.bookletPrinter.PlayErrorSound();
-            return false;
-        }
-
-        if (!NetworkedJob.TryGetFromJob(jobBooklet.job, out NetworkedJob networkedJob) || jobBooklet.job.State != JobState.InProgress)
-        {
-            NetworkLifecycle.Instance.Client.LogWarning($"Validating Job {jobBooklet?.job?.ID} {(networkedJob == null ? "NetworkedJob not found!, " : "")}Job state: {jobBooklet?.job?.State}");
-            __instance.bookletPrinter.PlayErrorSound();
-            jobBooklet.DestroyJobBooklet();
-            return false;
-        }
-
         if (NetworkLifecycle.Instance.IsHost())
-        {
-            NetworkLifecycle.Instance.Server.Log($"Validating Job {jobBooklet?.job?.ID}");
-            networkedJob.JobValidator = __instance;
             return true;
-        }
+        if (!JobValidator_Patch.TryGetBookletJob(__instance, jobBooklet, out NetworkedJob networkedJob))
+            return false;
 
         if (!networkedJob.ValidatorRequestSent)
             SendValidationRequest(__instance, networkedJob, ValidationType.JobBooklet,

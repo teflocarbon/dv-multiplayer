@@ -254,9 +254,10 @@ decision changes (`Server_KeepCompressorSignal`).
   derailed car. Before, a rerailed car slid off at 1.5 m/s and was snapped back and flung, forever
   (playtest 2; see "What the code does").
 - Explosions are the host's: clients play the host's explosions but never apply explosion forces
-  to trains (`Shared/Trains/ExplosionPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
+  to trains (`Server/Trains/ExplosionServerPatch.cs`, `Client/Trains/ExplosionClientPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
 - Deleting a car steps any player on it off first, so players are no longer destroyed with it
-  (`Shared/Trains/CarDeletePlayerSafetyPatch.cs`).
+  (`Shared/Trains/CarDeletePlayerSafetyPatch.cs`); the items lying in it go to Lost and Found on the
+  host after that (`Server/Trains/CarDeleteLostAndFoundPatch.cs`).
 - Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`),
   a derail, a rerail (host or client-only) and a host move-to-track are the only things that clear
   a client's motion queues. `NetworkServer.SendTrainsetRelocation` has no caller, so the
@@ -399,9 +400,29 @@ train sync from the host's client at start-up; the reply was a snapshot from bef
 auto-couple, which uncoupled every new consist on the host, and every client followed (29 trains
 in one session).
 
-The host player's control writes do go through the server (`CommonTrainPortsPacket` and the
-rest), which broadcasts accepted commits with `excludeSelf`. A refused one comes back to the host's
-client and is dropped: the host's simulation already has the values.
+The host's own control changes, its simulation's and its player's levers alike, don't go through
+its client: `Common_SendPorts`, `Common_SendFuses`, the handbrake and the brake-cylinder release
+call `NetworkServer.CommitHostControls`, which commits the values read that tick, stamped with that
+tick, and broadcasts them with `excludeSelf`. There's no lease, range or operation check (they come
+from the server's world) and no rejection. The operation id has player byte 0, so clients still see
+a committed handbrake change as one. The brake-cylinder release is committed from vanilla's event,
+which fires before the release is set and is cleared at the next brake update. A remote player's
+release is applied in the server's apply scope so the host's event doesn't commit it again. Before
+2026-10-20 these went over loopback, and the server read the values a poll later than the tick it
+stamped on them.
+
+The host's player's lever leases are requests like any player's
+(`ServerboundTrainControlAuthorityPacket`), handled in-process (`RegisterLocalTrains`), with the
+range check against the host player's own transform rather than its last position packet. They
+keep their order with the commits: a release flushes the ports, committing them directly, before
+it's queued, and the host's commits take no lease, so a grant needs no order with them.
+
+The comms radio's car delete, rerail and work-train summon are requests too, the host player's
+handled in-process like the lever leases (`HandleTrainDelete`, `HandleTrainRerail`,
+`HandleWorkTrain`), validated like anyone's; the work train's range check reads the host player's
+own position too. Every work-train request is answered (`SpawnResponse`, "in use" for a refusal with
+no reason of its own); the host player's answer goes back through its client, which holds the
+radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in its own world.
 
 ## Stable identities
 

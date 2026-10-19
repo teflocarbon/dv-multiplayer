@@ -153,7 +153,7 @@ Every probe also gets the shared library in `Dvmp/Probes/lib` (namespace `Dvmp.L
 
 ```csharp
 // coroutine: pick up item 286 through DV's real grabber, carry it, drop it
-var item = Dev.All<NetworkedItem>().First(n => n.NetId == 286);   // add usings: Multiplayer.Components.Networking.World
+var item = Dev.All<NetworkedItem>().First(n => n.NetId == 286);   // add usings: Multiplayer.Shared.Items
 yield return LocalPlayer.GoTo(item);
 yield return Hands.Pickup(item.NetId);        // aims + raycast pickup, falls back to force-hold
 yield return LocalPlayer.TeleportAbs(Dev.PlayerAbs.Value + new Vector3(4, 0, 0));

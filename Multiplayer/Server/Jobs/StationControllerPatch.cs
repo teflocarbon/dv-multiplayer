@@ -12,6 +12,7 @@ public static class StationController_Patch
     public static void Awake(StationController __instance)
     {
         __instance.gameObject.AddComponent<NetworkedStationController>();
+        __instance.gameObject.AddComponent<ServerStationController>();
     }
 
     [HarmonyPatch(nameof(StationController.ExpireAllAvailableJobsInStation))]

@@ -147,7 +147,7 @@ public partial class NetworkServer : NetworkManager
     {
         Log($"Server created for {(singlePlayer ? "single player" : "multiplayer")} game");
         HazmatSync.Reset();
-        global::Multiplayer.Shared.Trains.CargoFireSync.Clear();
+        global::Multiplayer.Server.Trains.CargoFireServer.Clear();
 
         IsSinglePlayer = singlePlayer;
         ServerData = serverData;
@@ -1172,7 +1172,7 @@ public partial class NetworkServer : NetworkManager
 
             case PlayerLoadingState.ReadyForTiles:
                 HazmatSync.Server_SendAll(peer);
-                global::Multiplayer.Shared.Trains.CargoFireSync.Server_SendAll(peer);
+                global::Multiplayer.Server.Trains.CargoFireServer.SendAll(peer);
                 break;
 
             case PlayerLoadingState.Complete:

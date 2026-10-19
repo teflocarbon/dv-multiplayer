@@ -61,10 +61,10 @@
     records, unrestored Lost and Found entries and cold containers (`OwnedItemsSummary`, two new
     fields in `ClientboundSaveGameDataPacket`).
   - The client counts them as present when DV's starting-item and licence safeguards check what's
-    missing (`StartingItemsControllerPatch`, a postfix on `CombineAndResolveIllegalDuplicates`,
+    missing (`StartingItemsClientPatch`, a postfix on `CombineAndResolveIllegalDuplicates`,
     whose result only those safeguards use).
-  - A player host does the same from its own save. A dedicated host skips both safeguards, so its
-    parked body stays empty.
+  - A player host does the same from its own save (`StartingItemsServerPatch`). A dedicated host
+    skips both safeguards, so its parked body stays empty.
   - `rejoin`, `rejoin-crash` and `inventory-persist` passed. After a restart, the client's inventory
     held each item once.
   - This is narrower than "the server gives starting items": a genuinely missing item is still made
@@ -83,7 +83,11 @@
   - **Conversion:** a save without the marker `Multiplayer.PlayerStateFormat = 2` has its
     `Player_position`, rotation and `Storage_Inventory` turned into `Players.<owner>` and item
     records owned by the owner's player ID. The owner is the Steam account the game runs under, or
-    `-mp-owner` (`PlayerIdentity.Owner`). Then the marker is set.
+    `-mp-owner` (`PlayerIdentity.Owner`). Then the marker is set. Converting the same save twice
+    changes nothing the second time (an inventory item without a persistent ID gets one derived
+    from the owner, its place in the inventory and its prefab, not a random one), and so does
+    re-keying: `SaveFormatConversionTests` (`Multiplayer.Protocol.Tests`) checks both lose and
+    duplicate nothing. This is the JSON only; `career-convert` in a real game is still to do.
   - **Each load:**
     - a player host's own state saved under the install's GUID moves to its Steam ID, once
       (`InstallGuidRekey.RekeySave`); other players' moves at their login;

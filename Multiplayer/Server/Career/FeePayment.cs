@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DV.InventorySystem;
 using DV.ServicePenalty;
+using Multiplayer.Core.Career;
 using Multiplayer.Server.Chat;
 
 namespace Multiplayer.Server.Career;
@@ -12,7 +13,8 @@ namespace Multiplayer.Server.Career;
 ///
 /// With insurance, the fees screen clears every remaining fee free once the fees paid reach the
 /// insurance quota (CareerManagerFeesScreen.Activate). So this pays the cheapest fees first, only
-/// until the quota is reached, and lets insurance clear the rest; without insurance it pays them all.
+/// until the quota is reached, and lets insurance clear the rest; without insurance it pays them all
+/// (FeePaymentPlan, in Multiplayer.Core).
 /// </summary>
 internal static class FeePayment
 {
@@ -42,18 +44,10 @@ internal static class FeePayment
         debts.RefreshExistingDebtsState();
         debts.SortNonZeroDebtsAscending();
 
-        List<DisplayableDebt> toPay = [];
-        double cost = 0;
-        if (!(quota.InsuranceUsed && quota.QuotaReached))
-        {
-            foreach (DisplayableDebt debt in debts.currentNonZeroPricedDebts.Where(debt => debt.IsPayable))
-            {
-                if (quota.InsuranceUsed && cost >= quota.LeftToReachQuota)
-                    break;
-                toPay.Add(debt);
-                cost += debt.GetTotalPrice();
-            }
-        }
+        List<DisplayableDebt> payable = debts.currentNonZeroPricedDebts.Where(debt => debt.IsPayable).ToList();
+        var (count, cost) = FeePaymentPlan.Choose(payable.Select(debt => (double)debt.GetTotalPrice()).ToList(),
+            quota.InsuranceUsed, quota.QuotaReached, quota.LeftToReachQuota);
+        List<DisplayableDebt> toPay = payable.Take(count).ToList();
 
         if (toPay.Count > 0)
         {

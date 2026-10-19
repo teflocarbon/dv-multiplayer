@@ -16,6 +16,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Protocol.Packets.Common.Train;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Train;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Trains;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Shared.Utils;
@@ -32,8 +33,23 @@ using UnityEngine;
 namespace Multiplayer.Server.Session;
 
 // NetworkServer's trains handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkServer
+public partial class NetworkServer : ITrainServer
 {
+    private ulong hostControlOperationId;
+
+    partial void RegisterLocalTrains()
+    {
+        // Lever authority is ordered with the control commits it guards (ReliableOrdered on
+        // loopback). The host's commits are made directly (CommitHostControls), so a release,
+        // queued after flushing its last commit, still follows it; and a grant needs no order
+        // with them, since the host's commits take no lease.
+        HandleLocal<ServerboundTrainControlAuthorityPacket>(HandleTrainControlAuthority);
+        // The comms radio's car tools.
+        HandleLocal<ServerboundTrainDeleteRequestPacket>(HandleTrainDelete);
+        HandleLocal<ServerboundTrainRerailRequestPacket>(HandleTrainRerail);
+        HandleLocal<ServerboundWorkTrainRequestPacket>(HandleLocalWorkTrain);
+    }
+
     private void HoldForTrainBaseline(ServerPlayer player, NetDataWriter writer, DeliveryMethod deliveryMethod,
         PlayerLoadingState minimumLoadState)
     {
@@ -129,7 +145,7 @@ public partial class NetworkServer
             DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForTrainSets, SelfPeer);
     }
 
-    internal void NoteUncouple(Coupler coupler, ChangeCause<UncoupleReason> cause)
+    public void NoteUncouple(Coupler coupler, ChangeCause<UncoupleReason> cause)
     {
         ushort netId = coupler?.train?.GetNetId() ?? 0;
         if (netId == 0 || pendingUncoupleCauses.Count >= MaxPendingUncoupleCauses)
@@ -426,7 +442,7 @@ public partial class NetworkServer
     private void OnServerboundCargoIgnitePacket(ServerboundCargoIgnitePacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player) && NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car))
-            global::Multiplayer.Shared.Trains.CargoFireSync.Server_Ignite(car, packet.Index, packet.Strength, packet.Explode, player.WorldPosition, player.Username);
+            global::Multiplayer.Server.Trains.CargoFireServer.Ignite(car, packet.Index, packet.Strength, packet.Explode, player.WorldPosition, player.Username);
     }
 
     private void OnCommonCouplerInteractionPacket(CommonCouplerInteractionPacket packet, ITransportPeer peer)
@@ -506,7 +522,8 @@ public partial class NetworkServer
         {
             try
             {
-                if (!NetworkLifecycle.Instance.IsHost(player))
+                // The commit below carries it: the host's own release event isn't a second one.
+                using (ApplyingRemoteChange())
                     car.TrainCar.brakeSystem.ReleaseBrakeCylinderPressure();
                 if (!car.TrainCar.brakeSystem.controlReservoirPressureReleased)
                     result = TrainControlCommitResult.InvalidValue;
@@ -530,8 +547,7 @@ public partial class NetworkServer
             ? TrainControlCommitResult.InvalidValue
             : ValidateControlEnvelope(player, car, packet.ExpectedRevision,
                 packet.OperationId, requireLease: false, null, skipRangeCheck: packet.ViaRemote);
-        if (result == TrainControlCommitResult.Accepted &&
-            !NetworkLifecycle.Instance.IsHost(player))
+        if (result == TrainControlCommitResult.Accepted)
         {
             car.TrainCar.brakeSystem.SetHandbrakePosition(Mathf.Clamp01(packet.Position));
             car.Common_OnRemoteHandbrakeChange();
@@ -576,12 +592,9 @@ public partial class NetworkServer
         if (float.IsNaN(packet.CoalMassDelta))
             return;
 
-        if (!NetworkLifecycle.Instance.IsHost(player))
-        {
-            //is player close enough to add coal?
-            if ((player.WorldPosition - networkedTrainCar.transform.position).sqrMagnitude <= networkedTrainCar.CarLengthSq)
-                networkedTrainCar.firebox?.fireboxCoalControlPort.ExternalValueUpdate(packet.CoalMassDelta);
-        }
+        //is player close enough to add coal?
+        if ((player.WorldPosition - networkedTrainCar.transform.position).sqrMagnitude <= networkedTrainCar.CarLengthSq)
+            networkedTrainCar.firebox?.fireboxCoalControlPort.ExternalValueUpdate(packet.CoalMassDelta);
     }
 
     private void OnServerboundTenderCoalPacket(ServerboundTenderCoalPacket packet, ITransportPeer peer)
@@ -596,12 +609,9 @@ public partial class NetworkServer
         if (float.IsNaN(packet.CoalMassDelta))
             return;
 
-        if (!NetworkLifecycle.Instance.IsHost(player))
-        {
-            //is player close enough to add/remove coal?
-            if ((player.WorldPosition - networkedTrainCar.transform.position).sqrMagnitude <= networkedTrainCar.CarLengthSq)
-                networkedTrainCar.coalPile?.coalConsumePort.ExternalValueUpdate(packet.CoalMassDelta);
-        }
+        //is player close enough to add/remove coal?
+        if ((player.WorldPosition - networkedTrainCar.transform.position).sqrMagnitude <= networkedTrainCar.CarLengthSq)
+            networkedTrainCar.coalPile?.coalConsumePort.ExternalValueUpdate(packet.CoalMassDelta);
     }
 
     private void OnServerboundFireboxIgnitePacket(ServerboundFireboxIgnitePacket packet, ITransportPeer peer)
@@ -612,12 +622,9 @@ public partial class NetworkServer
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
-        if (!NetworkLifecycle.Instance.IsHost(player))
-        {
-            //is player close enough to ignite firebox?
-            if ((player.WorldPosition - networkedTrainCar.transform.position).sqrMagnitude <= networkedTrainCar.CarLengthSq)
-                networkedTrainCar.firebox?.Ignite();
-        }
+        //is player close enough to ignite firebox?
+        if ((player.WorldPosition - networkedTrainCar.transform.position).sqrMagnitude <= networkedTrainCar.CarLengthSq)
+            networkedTrainCar.firebox?.Ignite();
     }
 
     private void OnCommonTrainPortsPacket(CommonTrainPortsPacket packet, ITransportPeer peer)
@@ -635,8 +642,7 @@ public partial class NetworkServer
             ? ValidateControlEnvelope(player, networkedTrainCar, packet.ExpectedRevision,
                 packet.OperationId, requireLease: true, packet.PortIds)
             : TrainControlCommitResult.InvalidValue;
-        if (result == TrainControlCommitResult.Accepted &&
-            !NetworkLifecycle.Instance.IsHost(player))
+        if (result == TrainControlCommitResult.Accepted)
         {
             if (!networkedTrainCar.Server_ValidateClientSimFlowPacket(player, packet))
                 result = TrainControlCommitResult.AuthorityDenied;
@@ -648,22 +654,56 @@ public partial class NetworkServer
             result = TrainControlCommitResult.UnknownControl;
         ClientboundTrainControlCommitPacket commit = ControlCommit(networkedTrainCar,
             packet.OperationId, result, packet.PortIds, acceptedValues);
-        // The host's own values are from the tick its simulation read them, which its local
-        // client's packet carries: it reaches here a frame or so later, unevenly. A player's are
-        // the host's from now.
-        if (NetworkLifecycle.Instance.IsHost(player) && packet.Tick != 0)
-            commit.Tick = packet.Tick;
         SendControlCommit(commit, peer);
     }
 
     private void OnServerboundTrainControlAuthorityPacket(ServerboundTrainControlAuthorityPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleTrainControlAuthority(packet, player);
+    }
+
+    // Taking or releasing a lever: a player's request, the host's player's too (in-process, see
+    // RegisterLocalTrains), validated the same way.
+    private void HandleTrainControlAuthority(ServerboundTrainControlAuthorityPacket packet, ServerPlayer player)
+    {
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
-        networkedTrainCar.Server_ReceiveAuthorityRequest(packet.PortNetId, player, packet.RequestAuthority);
+        networkedTrainCar.Server_ReceiveAuthorityRequest(packet.PortNetId, player, packet.RequestAuthority,
+            CurrentWorldPosition(player));
+    }
+
+    // Where a player is now. The host's own player is read from its game: its position packets
+    // reach the server a poll or more late, which could put it out of range of a lever it's at.
+    // TODO: remove once LocalPlayer.WorldPosition is current (docs/design/host-local-session.md,
+    // "Position read from the tracker"); use player.WorldPosition then.
+    private Vector3 CurrentWorldPosition(ServerPlayer player) =>
+        player == LocalPlayer && PlayerManager.PlayerTransform != null
+            ? PlayerManager.PlayerTransform.position
+            : player.WorldPosition;
+
+    /// <summary>
+    ///     The host's own simulation: its changed ports, fuses and handbrake, or a brake-cylinder
+    ///     release, committed with the values it read this tick and broadcast. Not a player's
+    ///     request, so there's no lease, range or operation check, and nothing to apply: they came
+    ///     from the server's world. The host player's levers are part of that world; what keeps
+    ///     the host off a lever someone else holds is the lease, which blocks it in the host's cab.
+    /// </summary>
+    public void CommitHostControls(NetworkedTrainCar car, uint[] portIds = null, float[] portValues = null,
+        uint[] fuseIds = null, bool[] fuseValues = null, bool handbrake = false,
+        bool brakeCylinderReleased = false)
+    {
+        if (car?.TrainCar == null || car.NetId == 0)
+            return;
+        // No player's operation (player ids start at 1), but not 0 either: clients tell a
+        // committed handbrake change from a join's state by its operation.
+        ulong operationId = ++hostControlOperationId & 0x00FFFFFFFFFFFFFFUL;
+        if (operationId == 0)
+            operationId = ++hostControlOperationId & 0x00FFFFFFFFFFFFFFUL;
+        SendControlCommit(ControlCommit(car, operationId, TrainControlCommitResult.Accepted,
+            portIds, portValues, fuseIds, fuseValues, includesHandbrake: handbrake,
+            brakeCylinderReleased: brakeCylinderReleased), requester: null);
     }
 
     private void OnCommonTrainFusesPacket(CommonTrainFusesPacket packet, ITransportPeer peer)
@@ -678,7 +718,7 @@ public partial class NetworkServer
             ? ValidateControlEnvelope(player, car, packet.ExpectedRevision,
                 packet.OperationId, requireLease: false, null)
             : TrainControlCommitResult.InvalidValue;
-        if (result == TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost(player))
+        if (result == TrainControlCommitResult.Accepted)
             car.Common_UpdateFuses(packet);
         if (!car.TryCaptureFuseValues(packet.FuseIds ?? Array.Empty<uint>(), out bool[] acceptedValues))
             result = TrainControlCommitResult.UnknownControl;
@@ -693,7 +733,7 @@ public partial class NetworkServer
     {
         if (player == null || car?.TrainCar == null)
             return TrainControlCommitResult.UnknownControl;
-        if (!skipRangeCheck && !NetworkLifecycle.Instance.IsHost(player) &&
+        if (!skipRangeCheck &&
             (player.WorldPosition - car.transform.position).sqrMagnitude > car.CarLengthSq)
             return TrainControlCommitResult.OutOfRange;
         if (requireLease && !car.Server_MayWritePorts(player, portIds))
@@ -771,7 +811,7 @@ public partial class NetworkServer
             return;
         if (packet.Derail)
         {
-            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(DerailReason.CommsRadio, player)))
+            using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(DerailReason.CommsRadio, player)))
                 car.Derail();
             return;
         }
@@ -885,7 +925,7 @@ public partial class NetworkServer
         }
 
         ClientboundTrainTopologySnapshotPacket snapshot;
-        var uncoupleCause = TrainChangeCauses.Cause(
+        var uncoupleCause = PlayerChangeCauses.Cause(
             packet.ViaRemote ? UncoupleReason.Remote : UncoupleReason.PlayerCommand, player,
             $"{packet.Kind} command");
         using (TrainChangeCauses.Scope(uncoupleCause))
@@ -960,8 +1000,13 @@ public partial class NetworkServer
 
     private void OnServerboundTrainDeleteRequestPacket(ServerboundTrainDeleteRequestPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleTrainDelete(packet, player);
+    }
+
+    // The comms radio's car deleter, the host's player's too (in-process).
+    private void HandleTrainDelete(ServerboundTrainDeleteRequestPacket packet, ServerPlayer player)
+    {
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
 
@@ -995,12 +1040,12 @@ public partial class NetworkServer
         var garageRef = trainCar.GetComponent<HomeGarageReference>();
         if (garageRef != null && garageRef.garageCarSpawner != null)
         {
-            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.ReturnedToGarage, player)))
+            using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(CarRemovalReason.ReturnedToGarage, player)))
                 garageRef.garageCarSpawner.ReturnCarHome(trainCar);
         }
         else
         {
-            using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(CarRemovalReason.PlayerDeleted, player)))
+            using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(CarRemovalReason.PlayerDeleted, player)))
                 CarSpawner.Instance.DeleteCar(trainCar);
             UnusedTrainCarDeleter.Instance.ClearInvalidCarReferencesAfterManualDelete();
         }
@@ -1008,8 +1053,13 @@ public partial class NetworkServer
 
     private void OnServerboundTrainRerailRequestPacket(ServerboundTrainRerailRequestPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleTrainRerail(packet, player);
+    }
+
+    // The comms radio's rerailer, the host's player's too (in-process).
+    private void HandleTrainRerail(ServerboundTrainRerailRequestPacket packet, ServerPlayer player)
+    {
         if (!NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
             return;
         if (!NetworkedRailTrack.TryGet(packet.TrackId, out NetworkedRailTrack networkedRailTrack))
@@ -1029,7 +1079,7 @@ public partial class NetworkServer
         }
 
         Log($"{player.Username} rerailed {networkedTrainCar.CurrentID}");
-        using (TrainChangeCauses.Scope(TrainChangeCauses.Cause(UncoupleReason.CarRerailed, player)))
+        using (TrainChangeCauses.Scope(PlayerChangeCauses.Cause(UncoupleReason.CarRerailed, player)))
             trainCar.Rerail(networkedRailTrack.RailTrack, position, packet.Forward);
     }
 
@@ -1083,34 +1133,44 @@ public partial class NetworkServer
         TrainCar spawnedCar = CarSpawner.Instance.SpawnCarFromRemote(livery.prefab, networkedRailTrack.RailTrack, (Vector3)spawnPoint.position, forward);
     }
 
+    // Every request is answered, or the radio waits out its ticket. A refusal with no reason of its
+    // own answers "in use".
     private void OnServerboundWorkTrainRequestPacket(ServerboundWorkTrainRequestPacket packet, ITransportPeer peer)
+    {
+        SpawnResponse.ResponseType response = TryGetServerPlayer(peer, out ServerPlayer player)
+            ? HandleWorkTrain(packet, player)
+            : SpawnResponse.ResponseType.InUse;
+        SendRpcResponse(packet.TicketId, new SpawnResponse { Response = response }, peer);
+    }
+
+    // The host's player's answer goes back through its client, which holds the radio's ticket.
+    private void HandleLocalWorkTrain(ServerboundWorkTrainRequestPacket packet, ServerPlayer player) =>
+        SendRpcResponse(packet.TicketId, new SpawnResponse { Response = HandleWorkTrain(packet, player) }, player.Peer);
+
+    // The comms radio's work-train summon. Charges only once every other check has passed.
+    private SpawnResponse.ResponseType HandleWorkTrain(ServerboundWorkTrainRequestPacket packet, ServerPlayer player)
     {
         TrainCar trainCar;
 
-        var rpcResponse = new SpawnResponse() { Response = SpawnResponse.ResponseType.InUse };
-
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
-
-        LogDebug(() => $"OnServerboundWorkTrainRequestPacket() from : {player.Username}, trackNetId: {packet.TrackNetId}, liveryId: {packet.LiveryId}, index: {packet.Index}, withTrackDirection: {packet.WithTrackDirection}");
+        LogDebug(() => $"HandleWorkTrain() from : {player.Username}, trackNetId: {packet.TrackNetId}, liveryId: {packet.LiveryId}, index: {packet.Index}, withTrackDirection: {packet.WithTrackDirection}");
 
         if (!NetworkedRailTrack.TryGet(packet.TrackNetId, out NetworkedRailTrack networkedRailTrack) || networkedRailTrack == null)
         {
             LogWarning($"{player.Username} tried to request a work train on invalid track netId: {packet.TrackNetId}");
-            return;
+            return SpawnResponse.ResponseType.InUse;
         }
 
         if (!global::Multiplayer.Shared.Trains.TrainComponentLookup.Instance.LiveryFromId(packet.LiveryId, out TrainCarLivery livery) || livery == null || livery.prefab == null)
         {
             LogWarning($"{player.Username} tried to request a work train with invalid livery Id: {packet.LiveryId}");
-            return;
+            return SpawnResponse.ResponseType.InUse;
         }
 
         // Check if this is a garage loco
         bool isGarageCar = GarageCarSpawner.Spawners.TryGetValue(livery, out var selectedGarageSpawner);
 
         // Check funds now, but only charge once every other check has passed: failures used to
-        // return after the money was taken (and some never answered the client's RPC).
+        // return after the money was taken.
         float price = isGarageCar
             ? Mathf.Min(selectedGarageSpawner.garageType.summonPrice, Globals.G.GameParams.WorkTrainSummonMaxPrice)
             : 0f;
@@ -1119,14 +1179,12 @@ public partial class NetworkServer
             if (price <= 0f || Inventory.Instance.RemoveMoney(price))
                 return true;
             LogWarning($"{player.Username} tried to request a work train without enough money to do so!");
-            rpcResponse.Response = SpawnResponse.ResponseType.InsufficientFunds;
-            SendRpcResponse(packet.TicketId, rpcResponse, peer);
             return false;
         }
         if (price > 0f && Inventory.Instance.PlayerMoney < price)
         {
-            Charge();
-            return;
+            LogWarning($"{player.Username} tried to request a work train without enough money to do so!");
+            return SpawnResponse.ResponseType.InsufficientFunds;
         }
 
         trainCar = isGarageCar ? selectedGarageSpawner.GetCar(livery) : CarSpawner.Instance.AllCars.FirstOrDefault(tc => tc.carLivery == livery);
@@ -1136,8 +1194,7 @@ public partial class NetworkServer
         if (packet.Index < 0 || packet.Index >= kinked.Length)
         {
             LogWarning($"{player.Username} tried to spawn a car at an invalid index: {packet.Index}");
-            SendRpcResponse(packet.TicketId, rpcResponse, peer);
-            return;
+            return SpawnResponse.ResponseType.InUse;
         }
 
         var spawnPoint = kinked[packet.Index];
@@ -1149,26 +1206,24 @@ public partial class NetworkServer
         if (!CarSpawner.IsThereSpaceForCarOnPoint(spawnPoint, startPoint, endpoint, carBounds.extents))
         {
             LogWarning($"{player.Username} tried to spawn a car, but there's no room on the track");
-            SendRpcResponse(packet.TicketId, rpcResponse, peer);
-            return;
+            return SpawnResponse.ResponseType.InUse;
         }
 
         // Check player is within range of the spawn point
-        float playerDistanceToSpawn = (player.AbsoluteWorldPosition - (Vector3)spawnPoint.position).magnitude;
+        float playerDistanceToSpawn = (CurrentWorldPosition(player) - WorldMover.currentMove - (Vector3)spawnPoint.position).magnitude;
         if (playerDistanceToSpawn > CommsRadioCarSpawner.SIGNAL_RANGE && !Mathf.Approximately(playerDistanceToSpawn, CommsRadioCarSpawner.SIGNAL_RANGE))
         {
             LogWarning($"{player.Username} tried to spawn a train {playerDistanceToSpawn:F2}m away (max: {CommsRadioCarSpawner.SIGNAL_RANGE}m)");
-            SendRpcResponse(packet.TicketId, rpcResponse, peer);
-            return;
+            return SpawnResponse.ResponseType.InUse;
         }
 
         Vector3 forward = packet.WithTrackDirection ? spawnPoint.forward : -spawnPoint.forward;
 
         if (trainCar == null)
         {
-            LogDebug(() => $"OnServerboundWorkTrainRequestPacket() {player.Username} tried to request a work train of {livery.id} but no existing car found, spawning new car");
+            LogDebug(() => $"HandleWorkTrain() {player.Username} tried to request a work train of {livery.id} but no existing car found, spawning new car");
             if (!Charge())
-                return;
+                return SpawnResponse.ResponseType.InsufficientFunds;
             trainCar = CarSpawner.Instance.SpawnCrewVehicle(livery, networkedRailTrack.RailTrack, (Vector3)spawnPoint.position, forward, selectedGarageSpawner);
 
             SendSpawnTrainset([trainCar], true, true);
@@ -1178,10 +1233,9 @@ public partial class NetworkServer
             // Check if is currently in use/recently used
             if (trainCar.IsTeleporting || !trainCar.isStationary)
             {
-                LogDebug(() => $"OnServerboundWorkTrainRequestPacket() {player.Username} tried to request a work train of {livery.id} but the car is in use teleporting: {trainCar.IsTeleporting}, stationary: {trainCar.isStationary}");
+                LogDebug(() => $"HandleWorkTrain() {player.Username} tried to request a work train of {livery.id} but the car is in use teleporting: {trainCar.IsTeleporting}, stationary: {trainCar.isStationary}");
 
-                SendRpcResponse(packet.TicketId, rpcResponse, peer);
-                return;
+                return SpawnResponse.ResponseType.InUse;
             }
 
             bool recentlyVisited = false;
@@ -1207,33 +1261,29 @@ public partial class NetworkServer
 
             if (recentlyVisited || attachedToJob)
             {
-                LogDebug(() => $"OnServerboundWorkTrainRequestPacket() {player.Username} tried to request a work train of {livery.id} but the car is in use ({(recentlyVisited ? "recently visited" : "")}{(recentlyVisited && attachedToJob ? ", " : "")}{(attachedToJob ? "attached to an active job" : "")})");
-                SendRpcResponse(packet.TicketId, rpcResponse, peer);
-                return;
+                LogDebug(() => $"HandleWorkTrain() {player.Username} tried to request a work train of {livery.id} but the car is in use ({(recentlyVisited ? "recently visited" : "")}{(recentlyVisited && attachedToJob ? ", " : "")}{(attachedToJob ? "attached to an active job" : "")})");
+                return SpawnResponse.ResponseType.InUse;
             }
 
             // Confirm no players are currently in the car
             if (!NetworkedTrainCar.TryGetFromTrainCar(trainCar, out var networkedTrainCar))
             {
-                LogError($"OnServerboundWorkTrainRequestPacket() {player.Username} tried to request a work train of {livery.id} but NetworkedTrainCar was not found for {trainCar?.ID}");
-                SendRpcResponse(packet.TicketId, rpcResponse, peer);
-                return;
+                LogError($"HandleWorkTrain() {player.Username} tried to request a work train of {livery.id} but NetworkedTrainCar was not found for {trainCar?.ID}");
+                return SpawnResponse.ResponseType.InUse;
             }
 
             if (networkedTrainCar.HasPlayers)
             {
-                LogDebug(() => $"OnServerboundWorkTrainRequestPacket() {player.Username} tried to request a work train of {livery.id} but the car is occupied");
-                SendRpcResponse(packet.TicketId, rpcResponse, peer);
-                return;
+                LogDebug(() => $"HandleWorkTrain() {player.Username} tried to request a work train of {livery.id} but the car is occupied");
+                return SpawnResponse.ResponseType.InUse;
             }
 
             // Checks passed, call the work train
             if (!Charge())
-                return;
+                return SpawnResponse.ResponseType.InsufficientFunds;
             trainCar = CarSpawner.Instance.SpawnCrewVehicle(livery, networkedRailTrack.RailTrack, (Vector3)spawnPoint.position, forward, selectedGarageSpawner);
         }
 
-        rpcResponse.Response = SpawnResponse.ResponseType.Success;
-        SendRpcResponse(packet.TicketId, rpcResponse, peer);
+        return SpawnResponse.ResponseType.Success;
     }
 }

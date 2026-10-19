@@ -60,7 +60,7 @@ public static class DerailCausePatch
         if (!Application.isPlaying || __instance == null || __instance.derailed)
             return;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || (lifecycle.Server == null && lifecycle.Client == null))
+        if (lifecycle == null || (!lifecycle.IsServerRunning && !lifecycle.IsClientRunning))
             return;
 
         try
