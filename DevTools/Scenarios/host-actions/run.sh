@@ -2,7 +2,7 @@
 # The host's own world takes other players' actions, and the host's actions reach the others, each
 # applied once (docs/design/host-local-session.md, stage 2: the server applies junctions,
 # turntables and time skips itself, not the host's own client). One player throws the junction
-# nearest it, pushes the nearest turntable round (both players go to it), fast-travels and sleeps;
+# nearest it, turns the nearest turntable half round (both players go to it), fast-travels and sleeps;
 # after each, both games must agree: the same branch (switched exactly once on each game), the same
 # turntable rotation, each clock skipped forward once, and the same shared sleep cooldown.
 #   WHO=client (default) or host: who acts. MODE=all (default), or one of junction, turntable,
@@ -11,6 +11,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 D=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
+# A failed eval says so, rather than ending the run silently under set -e.
+dvmp_bin=$D; D=dvmp_checked
+dvmp_checked() { local out; if ! out=$("$dvmp_bin" "$@"); then echo "FAIL: dvmp ${*:1:3} failed: ${out:-no output}" >&2; return 1; fi; printf '%s\n' "$out"; }
 P=DevTools/Scenarios/host-actions
 WHO=${WHO:-client}; MODE=${MODE:-all}; SKIP=${SKIP:-3600}
 [ "$WHO" = host ] && OTHER=client || OTHER=host

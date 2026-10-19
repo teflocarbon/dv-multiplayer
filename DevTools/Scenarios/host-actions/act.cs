@@ -1,5 +1,5 @@
 // Acting peer: one player action, the way the game does it. Args: action (junction: throw it to
-// its next branch; turntable: push it round for 2 s, as the lever does, and let it snap; fast-travel:
+// its next branch; turntable: turn it half a turn with its controller; fast-travel:
 // skip time as fast travel does; sleep: sleep in a bed), junction, turntable (NetIds), seconds (the
 // time skip).
 string action = ctx.Args["action"];
@@ -16,16 +16,11 @@ else if (action == "turntable")
     NetworkedTurntable.Get(byte.Parse(ctx.Args["turntable"]), out NetworkedTurntable t);
     var controller = Resources.FindObjectsOfTypeAll<TurntableController>().First(c => c.turntable == t.TurntableRailTrack);
     float before = t.TurntableRailTrack.targetYRotation;
-    controller.pushingPositiveDirectionValue = 1f;
-    yield return new WaitForSecondsRealtime(2f);
-    controller.pushingPositiveDirectionValue = 0f;
-    // It snaps to the nearest track at 10 degrees a second.
-    float last = float.NaN;
-    for (int i = 0; i < 40 && !Mathf.Approximately(last, t.TurntableRailTrack.targetYRotation); i++)
-    {
-        last = t.TurntableRailTrack.targetYRotation;
-        yield return new WaitForSecondsRealtime(0.5f);
-    }
+    // Half a turn lines the other end up with the same tracks. Pushing the handle can't be faked:
+    // the controller's Update clears the push every frame unless a player's body is at the handle.
+    controller.SetAngle(TurntableRailTrack.AngleRange0To360(before + 180f), forceNoSnapping: true);
+    // NetworkedTurntable sends the new rotation from the next tick.
+    yield return new WaitForSecondsRealtime(1f);
     ctx.Result = new { before, rotation = t.TurntableRailTrack.targetYRotation };
 }
 else if (action == "fast-travel")
