@@ -34,7 +34,7 @@ for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 8f;)
 {
     if (item == null) break;
     if (bounds.Contains(item.transform.position)) wentIn = true;
-    if (wentIn) highest = Mathf.Max(highest, item.transform.position.y - (bounds.center.y + bounds.extents.y));
+    highest = Mathf.Max(highest, item.transform.position.y - (bounds.center.y + bounds.extents.y));
     yield return null;
 }
 bool gone = item == null;
@@ -42,7 +42,7 @@ Vector3 binTop = bounds.center + Vector3.up * bounds.extents.y;
 ctx.Result = new
 {
     gone, wentIn, overview = netId,
-    // how far above the bin's top the paper flew after going in
+    // how far above the bin's top the paper got: let go 0.25 m above it, so higher means thrown
     flewUp = Math.Round(highest, 2),
     fromBin = gone ? -1 : Math.Round(Vector3.Distance(new Vector3(item.transform.position.x, 0, item.transform.position.z), new Vector3(binTop.x, 0, binTop.z)), 2),
     inBin = !gone && bounds.Contains(item.transform.position),

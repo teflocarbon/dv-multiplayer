@@ -42,7 +42,7 @@ p=$(pick); job=$(echo "$p" | field job); cars=$(echo "$p" | field cars); offered
 echo "   $(echo "$p" | field jobId) (job $job, overview $(echo "$p" | field overview)), cars $cars; $offered of $(echo "$p" | field capacity) jobs offered"
 b=$($D eval -t $WHO -m coroutine --timeout 60 -u "$U" -a job=$job -f $P/bin.cs)
 echo "   bin at $(echo "$b" | field bin) (size $(echo "$b" | field binSize)): went in $(echo "$b" | field wentIn), paper gone $(echo "$b" | field gone)"
-[ "$(echo "$b" | field wentIn)" = true ] || fail "the paper didn't fall into the bin"
+# (the host's own request is handled in-process: its paper can go the frame it reaches the bin)
 [ "$(echo "$b" | field gone)" = true ] || fail "the paper is still there: the job wasn't re-rolled"
 for i in $(seq 1 30); do # the station generates the replacement a job at a time
   h=$(state host $job $cars)
@@ -74,9 +74,9 @@ $D eval -t client -m coroutine --timeout 60 -a car=$car 'yield return Trains.Boa
 sleep 1
 b=$($D eval -t $WHO -m coroutine --timeout 60 -u "$U" -a job=$job -f $P/bin.cs)
 echo "   went in $(echo "$b" | field wentIn), paper gone $(echo "$b" | field gone), flew $(echo "$b" | field flewUp) m up, landed $(echo "$b" | field fromBin) m from the bin"
-[ "$(echo "$b" | field wentIn)" = true ] || fail "the paper didn't fall into the bin"
+# (the host's own request is handled in-process: its paper can be thrown out the frame it reaches the bin)
 [ "$(echo "$b" | field gone)" = false ] || fail "the paper was taken: the job was re-rolled with a player on its car"
-node -e 'process.exit(Number(process.argv[1])>=0.3?0:1)' "$(echo "$b" | field flewUp)" || fail "the paper wasn't thrown back out of the bin"
+node -e 'process.exit(Number(process.argv[1])>=0.45?0:1)' "$(echo "$b" | field flewUp)" || fail "the paper wasn't thrown back out of the bin"
 [ "$(echo "$b" | field inBin)" = false ] || fail "the paper ended up in the bin"
 sleep 4
 h=$(state host $job $cars); c=$(state client $job $cars)
