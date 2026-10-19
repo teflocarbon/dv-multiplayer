@@ -159,8 +159,8 @@ public partial class NetworkedItem
         }
 
         if (NetworkLifecycle.Instance.IsHost() && NetId != 0 &&
-            AuthoritativeItemRegistry.TryGet(NetId, out AuthoritativeItemRegistry.Record authority) &&
-            authority.Placement == ItemPlacementKind.LostAndFound)
+            ItemServer.Current?.TryGetPlacement(NetId, out ItemPlacementKind placement) == true &&
+            placement == ItemPlacementKind.LostAndFound)
         {
             hostStateObservationPending = false;
             createdDirty = false;
@@ -939,8 +939,8 @@ public partial class NetworkedItem
     {
         if (NetworkLifecycle.Instance.IsHost())
         {
-            byte hostPlayerId = NetworkLifecycle.Instance.Server?.SelfId ?? 0;
-            return BelongsTo != null && BelongsTo.PlayerId != hostPlayerId;
+            byte hostPlayerId = ItemServer.Current?.LocalPlayerId ?? 0;
+            return HostPossessorPlayerId != 0 && HostPossessorPlayerId != hostPlayerId;
         }
 
         byte localPlayerId = InventoryIntegration.LocalPlayerId;

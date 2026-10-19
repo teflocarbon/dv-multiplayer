@@ -1,3 +1,4 @@
+using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Shared.Items;
@@ -17,6 +18,21 @@ public interface IItemServer
 
     /// <summary>The owner the server's record of the item names (0 for nobody); false if it has no record.</summary>
     bool TryGetPersistentOwner(ushort itemNetId, out byte ownerPlayerId);
+
+    /// <summary>Where the server's record of the item puts it; false if it has no record.</summary>
+    bool TryGetPlacement(ushort itemNetId, out ItemPlacementKind placement);
+
+    /// <summary>A scene-authored item's key is known: its record says so.</summary>
+    void MarkAuthoredIdentity(NetworkedItem item);
+
+    /// <summary>An authored item left its slot for good: its record becomes an ordinary persistent item's.</summary>
+    void PromoteAuthoredToPersistent(NetworkedItem item);
+
+    /// <summary>
+    ///     The item is being destroyed (its OnDestroy): the host logs why, keeps a scene-authored
+    ///     item's tombstone, queues the Destroy for the players who know it and drops its record.
+    /// </summary>
+    void OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy);
 
     /// <summary>Whether the server's world-item persistence saves this item, rather than the vanilla save.</summary>
     bool OwnsWorldPersistence(NetworkedItem item);

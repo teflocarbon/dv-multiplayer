@@ -474,7 +474,7 @@ public partial class NetworkedItem
         });
     }
 
-    private void PublishUnityState(string eventName, Dictionary<string, object> additional)
+    internal void PublishUnityState(string eventName, Dictionary<string, object> additional)
     {
         if (!DebugRuntime.EnabledFor("item"))
             return;
@@ -502,7 +502,7 @@ public partial class NetworkedItem
             ["remoteHolderPlayerId"] = playerBelongsTo?.PlayerId ?? 0,
             ["remoteHandMember"] = playerBelongsTo?.HoldsItem(gameObject) == true,
             ["placementPlayerId"] = playerBelongsToId,
-            ["hostPossessorPlayerId"] = BelongsTo?.PlayerId ?? 0,
+            ["hostPossessorPlayerId"] = HostPossessorPlayerId,
             ["authorityRevision"] = AuthorityRevision,
             ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
             ["inventoryClaimPlayerId"] = InventoryClaimPlayerId,
@@ -862,7 +862,7 @@ public partial class NetworkedItem
             violations.Add("expected-remote-hand-missing");
         if (snapshot.ItemState != ItemState.InHand && actualRemoteHolder != null)
             violations.Add("stale-remote-hand-membership");
-        if (NetworkLifecycle.Instance.IsHost() && (BelongsTo?.PlayerId ?? 0) != snapshot.PlayerId)
+        if (NetworkLifecycle.Instance.IsHost() && HostPossessorPlayerId != snapshot.PlayerId)
             violations.Add("host-possessor-mismatch");
         if (violations.Count == 0)
             return;
@@ -874,7 +874,7 @@ public partial class NetworkedItem
                 ["expectedPlayerId"] = snapshot.PlayerId,
                 ["localPlayerId"] = localPlayerId,
                 ["actualRemoteHolderPlayerId"] = actualRemoteHolder?.PlayerId ?? 0,
-                ["hostPossessorPlayerId"] = BelongsTo?.PlayerId ?? 0,
+                ["hostPossessorPlayerId"] = HostPossessorPlayerId,
                 ["violations"] = violations
             });
     }

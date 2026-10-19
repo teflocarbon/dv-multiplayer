@@ -229,8 +229,6 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         ClientDetachedAuthoredSlots.Clear();
     }
 
-    public void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot) =>
-        ServerPart?.AddDirtyItemSnapshot(netItem, snapshot);
 
     //public void ReceiveSnapshots(List<ItemUpdateData> snapshots)
     //{

@@ -35,6 +35,19 @@ public partial class NetworkServer : IItemServer
         return known;
     }
 
+    bool IItemServer.TryGetPlacement(ushort itemNetId, out ItemPlacementKind placement)
+    {
+        bool known = AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record);
+        placement = known ? record.Placement : default;
+        return known;
+    }
+
+    void IItemServer.MarkAuthoredIdentity(NetworkedItem item) => AuthoritativeItemRegistry.MarkAuthoredIdentity(item);
+
+    void IItemServer.PromoteAuthoredToPersistent(NetworkedItem item) => AuthoritativeItemRegistry.PromoteAuthoredToPersistent(item);
+
+    void IItemServer.OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy) => item.OnDestroyed(suppressNetworkDestroy);
+
     bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => WorldItemPersistenceManager.OwnsWorldPersistence(item);
 
     IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);

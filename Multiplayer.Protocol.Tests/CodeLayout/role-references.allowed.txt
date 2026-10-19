@@ -20,7 +20,6 @@ Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.Serv
 Multiplayer.Shared.Debugging.DebugOverlayController -> Multiplayer.Server.Items.NetworkedColdContainerManager
 Multiplayer.Shared.Debugging.DebugOverlayController -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
 Multiplayer.Shared.Debugging.EntityDebugRegistry -> Multiplayer.Server.Items.AuthoritativeItemRegistry
-Multiplayer.Shared.Debugging.EntityDebugRegistry -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Api.ClientPlayerWrapper
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Api.ServerPlayerWrapper
@@ -29,12 +28,6 @@ Multiplayer.Shared.Items.DerailValleyInventoryRuntimeAdapter -> Multiplayer.Clie
 Multiplayer.Shared.Items.InventoryIntegration -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Players.ClientPlayerManager
 Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Items.AuthoritativeItemRegistry
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Items.ItemChangeLog
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Items.NetworkedLostAndFoundManager
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Items.WorldItemPersistenceManager
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Items.NetworkedItem -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Items.NetworkedItemManager -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Client.Session.NetworkClient
 Multiplayer.Shared.Items.NetworkedItemSpatialManager -> Multiplayer.Server.Items.AuthoritativeItemRegistry
