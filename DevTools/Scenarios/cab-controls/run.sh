@@ -18,11 +18,12 @@
 #   reaches the host again. The client must still be aboard after the steps: a rolling loco left
 #   it behind in #159. A dedicated host works too (only the client boards).
 #   STEPS="external 1;external 0;..." (which copies, value)
-#   MODE=cab-reload: the client in an S282A's cab (LOCO=; it needs a cab with a control that has
-#   no port, the S282's ReleaseCyl: before 2026-10-20 such a cab hooked nothing for 2 s). Its cab
-#   reloads and, half a second later, it grabs a lever: hooked, and the grab takes its lease. The
-#   cab stays unloaded 2.5 s and loads: no "failed to load an interior". It reloads three times in
-#   quick succession, each unloaded mid-hook: no hook pass throws, every control ends up hooked.
+#   MODE=cab-reload: the client in an S282A's cab (LOCO=). Its cab reloads and, half a second
+#   later, it grabs a lever: hooked, and the grab takes its lease (before 2026-10-20 a cab with a
+#   control the old ready check never passed hooked nothing for 2 s; the run says whether this cab
+#   has one). The cab stays unloaded 2.5 s and loads: no "failed to load an interior" (logged on
+#   every such unload before). It reloads three times in quick succession, each unloaded mid-hook:
+#   no hook pass throws, every control ends up hooked.
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -120,8 +121,9 @@ if [ "${MODE:-}" = cab-reload ]; then
 
   echo "== the client's cab reloads; it grabs a lever half a second later"
   r=$(reload 0.5 0 0)
-  # The case this is about: a cab with a control the old ready check never passed.
-  expect "the cab has a control with no port" "$r" 'o.portless' || fail=1
+  # The 2 s window needs a cab with a control the old ready check never passed. Reported, not
+  # required: the next step fails without the fix on any cab.
+  node -e 'const o=JSON.parse(process.argv[1]);console.log("   "+(o.oldWait?"the old hook pass waited 2 s on this cab for: "+o.oldWait:"note: no control on this cab kept the old hook pass waiting; the 2 s window is not exercised here"))' "$r"
   expect "hooked in time and the grab took the lease, given back on release" "$r" 'o.hooked && o.owned && o.released' || fail=1
   echo "== the cab unloads for 2.5 s, then loads"
   r=$(reload 2.5 0 2.5)

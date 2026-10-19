@@ -3,10 +3,11 @@
 // then still running), then once more after leaving it unloaded `gap` seconds. `after` seconds
 // after the last load it grabs a lever, as a player reaching for one right after the cab appears
 // does, checks it took the lever's lease, and lets go.
-// Before 2026-10-20 a cab with a control the old ready check never passed (an overrider with no
-// port and no feeder: the S282's ReleaseCyl) hooked nothing for 2 s, so that grab took no lease; a
-// cab unloaded within those 2 s threw in HookControls; and one left unloaded 2 s logged "failed
-// to load an interior". `portless` says whether this cab has such a control.
+// Before 2026-10-20 a cab with a control the old ready check never passed hooked nothing for 2 s,
+// so that grab took no lease; a cab unloaded within those 2 s threw in HookControls (8 test logs,
+// one right after the player left an S282A); and one left unloaded 2 s logged "failed to load an
+// interior". `oldWait` lists this cab's controls that check fails on, as it read them: no
+// implementation, or no port while it has an overrider or a feeder.
 var car = Trains.Find(ctx.Args["loco"]);
 var client = Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>());
 var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -45,7 +46,11 @@ var manager = car.loadedInterior.GetComponent<DV.HUD.InteriorControlsManager>();
 // Wait for the cab to make its controls (a frame or two), as the mod does.
 for (int i = 0; i < 10 && manager != null && !manager.Initialized; i++) yield return null;
 var refs = manager != null ? manager.controls.Values.ToList() : new List<DV.HUD.InteriorControlsManager.ControlReference>();
-bool portless = refs.Any(r => r.overridableBaseControl != null && string.IsNullOrEmpty(PortOf(r)));
+// The old check (NetworkedTrainCarClient.ControlReady before 2026-10-20), word for word.
+bool OldReady(DV.HUD.InteriorControlsManager.ControlReference r) =>
+    r.controlImplBase != null && (!string.IsNullOrEmpty(PortOf(r)) ||
+        (r.overridableBaseControl == null && r.controlImplBase.GetComponent<DV.Simulation.Ports.InteractablePortFeeder>() == null));
+var oldWait = manager == null ? new List<string>() : manager.controls.Where(kv => !OldReady(kv.Value)).Select(kv => kv.Key.ToString()).ToList();
 // A lever or a knob that feeds a port: taking hold of it asks for its lease.
 var lever = refs.Where(r => r.controlImplBase is DV.CabControls.LeverBase or DV.CabControls.RotaryBase && !string.IsNullOrEmpty(PortOf(r)))
     .Select(r => r.controlImplBase).FirstOrDefault()
@@ -60,4 +65,4 @@ bool owned = client.locallyOwnedPortAuthorities.Contains(netId);
 lever.FireUngrabbed();
 // A sprung control is let go once it has settled (polled every 0.5 s), then the lease goes.
 yield return new WaitForSecondsRealtime(3f);
-ctx.Result = new { lever = lever.name, portless, hooked, owned, released = !client.locallyOwnedPortAuthorities.Contains(netId) };
+ctx.Result = new { lever = lever.name, oldWait = string.Join(",", oldWait), hooked, owned, released = !client.locallyOwnedPortAuthorities.Contains(netId) };
