@@ -197,3 +197,28 @@ The fork used upstream's `0.1.x` numbering up to 0.1.16.15.
 - Add an entry for that version to `CHANGELOG.md` at the repo root.
 - Run the gate, then commit `info.json` and the changelog together.
 - Send the zip. Every player needs the same build.
+
+### A release from GitHub Actions
+
+`.github/workflows/release.yml` builds a release from a branch or tag and publishes it as a
+GitHub Release, tagged `v<version>` on the commit it built, with the zip attached. The release
+names the commit and the run that built it, so players can trace the build, which a zip sent by
+hand can't do. Run it from the Actions tab ("Release", "Run workflow") or:
+
+```bash
+gh workflow run release.yml --ref beta -f version=2026.10.20.1
+```
+
+- **`version`:** leave it empty for today's date (UTC) and the next number not already tagged.
+  It doesn't see the zips in your `Releases/` folder, so give it explicitly on a day you've also
+  built a release locally. The build is `-c Release -p:InformationalVersion=<version>`:
+  `InformationalVersion` is only worked out when it's empty, so the DLL, `info.json` and the
+  fingerprint all carry the version given, and the workflow checks they do.
+- **`prerelease`:** marks the GitHub Release as a pre-release.
+- It runs the Core and Protocol tests and packs the same files as a local release zip, picked by
+  name (the repo is public: no game DLL may end up in it).
+- The DLLs aren't signed: the runner has no certificate. Signing needs one as a repository
+  secret, imported into the runner's store and its thumbprint passed as `Cert-Thumb`.
+- It doesn't commit `info.json` or the changelog: do that by hand as above if the release counts.
+
+GitHub only offers "Run workflow" for workflows on the default branch (`beta`).
