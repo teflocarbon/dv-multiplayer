@@ -100,6 +100,7 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
     {
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
         ShopRegisterView.Reset();
+        ShopScannerView.Reset();
         ShopRegisterPatches.Reset();
         Peer.Close();
     }

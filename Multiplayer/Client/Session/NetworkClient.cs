@@ -136,6 +136,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         typeof(ServerboundHazmatIgnitePacket),
         typeof(ServerboundShopBuyPacket),
         typeof(ServerboundShopCancelPacket),
+        typeof(ServerboundShopScannerAimPacket),
         typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
@@ -278,6 +279,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Log("Stopping client");
         ShopShelfLayout.Reset();
         ShopRegisterView.Reset();
+        ShopScannerView.Reset();
         ShopRegisterPatches.Reset();
         trainsetRelocationRevisions.Clear();
         pendingTrainsetRelocationRevisions.Clear();
@@ -330,6 +332,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundShopLayoutPacket>(OnClientboundShopLayoutPacket);
         Handle<ClientboundShopRegisterStatePacket>(OnClientboundShopRegisterStatePacket);
         Handle<ClientboundShopRequestResultPacket>(OnClientboundShopRequestResultPacket);
+        Handle<ClientboundShopScannerAimPacket>(OnClientboundShopScannerAimPacket);
         Handle<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
         Handle<ClientboundGadgetJoinSnapshotPacket>(OnClientboundGadgetJoinSnapshotPacket);
 

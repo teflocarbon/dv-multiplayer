@@ -107,6 +107,25 @@ public sealed class ShopPacketTests
     }
 
     [Test]
+    public void ScannerAim_RoundTripsBothWays()
+    {
+        ServerboundShopScannerAimPacket request = null;
+        ClientboundShopScannerAimPacket relay = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ServerboundShopScannerAimPacket>(p => request = new ServerboundShopScannerAimPacket
+            { ScannerNetId = p.ScannerNetId, ShopIndex = p.ShopIndex, ModuleIndex = p.ModuleIndex });
+        processor.SubscribeReusable<ClientboundShopScannerAimPacket>(p => relay = new ClientboundShopScannerAimPacket
+            { ScannerNetId = p.ScannerNetId, ShopIndex = p.ShopIndex, ModuleIndex = p.ModuleIndex });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundShopScannerAimPacket { ScannerNetId = 186, ShopIndex = 2, ModuleIndex = 17 });
+        processor.Write(writer, new ClientboundShopScannerAimPacket { ScannerNetId = 186, ShopIndex = 2, ModuleIndex = 255 });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That((request.ScannerNetId, request.ShopIndex, request.ModuleIndex), Is.EqualTo(((ushort)186, (byte)2, (byte)17)));
+        Assert.That((relay.ScannerNetId, relay.ShopIndex, relay.ModuleIndex), Is.EqualTo(((ushort)186, (byte)2, (byte)255)));
+    }
+
+    [Test]
     public void ShopLayout_RoundTripsANegativeSeed()
     {
         ClientboundShopLayoutPacket result = null;
