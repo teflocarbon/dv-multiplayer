@@ -15,10 +15,6 @@ Multiplayer.Shared.Api.APIProvider -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Api.ModCompatibilityManager -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Api.ClientPlayerWrapper
-Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Api.ServerPlayerWrapper
-Multiplayer.Shared.Integrations.RemoteDispatchPatch -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.IServerBrowserGameDetails
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.Session.NetworkServer
