@@ -51,7 +51,12 @@ The server owns every gadget fact. Players ask; nobody else changes anything.
 | Running state of server-run gadgets (ATS timer, roadrunner count, alternating phase, anti-slip active) | server | gadget state, rate-limited |
 | Anything a gadget writes to a train (ports, controls, MU radio) | server, by running the gadget | the existing port, control and fuse sync |
 | Displays, lamps, lights, power, outputs of wired switches, the remote signal booster's range | derived in every game from synced inputs | nothing extra |
-| Previews, highlights, wire lines, sounds, work animations, tool progress, popups | the acting player | local only |
+| Other players using tools on gadgets: drilling, taping, soldering, hammering, wiring, and the place, remove and fill sounds | server relays | [Tool use](#tool-use-other-players-see) |
+| Motion and randomness in gadgets: beacon spin, light sweep, the control stand's rain fault, hanger swing | shared clock, shared seed or server | [Shared motion and randomness](#shared-motion-and-randomness) |
+| The acting player's own UI: aim previews and highlights, wire lines shown while aiming the crimping tool, interaction text, the label popup, the HUD | the acting player | local only |
+
+Everything a player can see or hear in the world is the same in every game. Only a player's own UI is
+theirs alone.
 
 Every change works the same on a player host and a dedicated host: the host's player is a
 `LocalPlayerSession` whose requests go through the server's request queue like anyone's
@@ -247,11 +252,19 @@ keys, so a snapshot and a live update say the same thing.
 | DPU | `regime`, `channel`, `reverse` | setting |
 | Proximity screen | `channel`, `mode` | setting |
 | Control panel | `tilt` | setting |
+| Defect detector | running: `snoozed` | running (on change) |
+| Hanger | running: swing angle and velocity | running (10 Hz while swinging) |
 | Text | `text` | setting |
 
-Commands have no state of their own: ATS acknowledge, roadrunner start and acknowledge, the control
-panel's joysticks, horn, starter and power-off. A client sends them; the server runs the vanilla
-method; the result shows in state or in train controls.
+Commands have no state of their own: ATS acknowledge, roadrunner start and acknowledge, the defect
+detector's snooze, the control panel's joysticks, horn, starter and power-off. A client sends them;
+the server runs the vanilla method; the result shows in state or in train controls.
+
+The defect detector keeps its snooze in its LOD, which a dedicated host may never load. Its adapter
+keeps `snoozed` on the server instead, with vanilla's rules: set by the snooze command while there is a
+defect, cleared by a new derailment or overheat and when the defect clears (worked out on the server
+from its own trains). Every game shows its lamp from that field and the defect, which each game derives
+from the synced derail and brake-heat state.
 
 - **The server watches.** Each server tick it reads the adapters of installed gadgets and sends what
   changed in a `ClientboundGadgetStatePacket` (item, state revision, fields, the operation id of the
@@ -266,6 +279,24 @@ method; the result shows in state or in train controls.
   live settings.
 
 `GadgetSwitchPatch` is deleted when switches move to this.
+
+### Shared motion and randomness
+
+Vanilla drives some gadgets from local time, local physics or `Random`, so two games show different
+things. Each gets the cheapest form that is the same everywhere:
+
+- **Beacon spin, oscillating light sweep:** their phase is computed from the shared network tick clock
+  and the gadget's UID instead of accumulated `Time.deltaTime`, so every game shows the same angle with
+  no traffic.
+- **The control stand's rain fault:** vanilla rolls `Random.value < rain` every 0.125 s. Every game
+  rolls instead from a hash of the shared tick (in 0.125 s steps) and the gadget's UID against the
+  synced weather's rain, so the panel faults at the same moments everywhere and blocks everyone's
+  input together. Whether the weather sync gives every game the same rain value is checked in its PR;
+  if not, the server rolls and sends the fault state.
+- **Hanger swing:** a pendulum driven by the car's motion, with a random kick when an item is hung.
+  The server runs it and sends the angle and angular velocity at 10 Hz while it swings (as running
+  state); clients interpolate and never run their own. The forced unsnap is the server's alone.
+- **Alternating controller:** server-run, its state sent on change (above).
 
 ## Logic that writes the train
 
@@ -294,7 +325,8 @@ the player's input, so client-run gadget logic would apply twice.
   (the remote's control lease is the likely source) is settled in its PR.
 - **Control panel.** Joystick steps and buttons are commands applied as control inputs on the server,
   on the car the panel is installed in, through the same lease rules as a cab lever. The rain fault is
-  local to each player and gates only their own input.
+  shared ([above](#shared-motion-and-randomness)), and the server ignores panel commands while it
+  holds.
 
 ## Items that gadgets create and destroy
 
@@ -308,6 +340,20 @@ from the server.
 | Solder spool's first use: destroy it, put an empty spool in the tool's magazine | the server's `Solder` handler debits the tool (`AMMO`, server-authoritative), swaps the spool in the server's copy of the tool's magazine | the swap in `ProcessSoldering` off; loading and ejecting spools are item-container moves as today |
 | Label maker: instantiate a new gadget item and install it; destroy it on cancel | `SpawnInstall`: spawn the item, install it, set the text | the label maker places nothing: it opens its text popup at the chosen pose and sends `SpawnInstall` when the popup closes with text. Vanilla opens the popup from the placed gadget, so how it opens without one is settled in that PR; placing a local copy would link it and allocate a UID |
 | `DestroyOnGadgetUnlink`: destroy the label's item, spawn the replacement | runs natively inside `Remove`; the item code broadcasts the destroy and the new item | off |
+
+## Tool use other players see
+
+Everyone near a player using a gadget tool sees and hears it, as they would in one game.
+
+- **One-shot sounds** come with the change: every game plays vanilla's place, remove, untape, fill and
+  wire sounds at the gadget when it applies the change-log entry, not only the actor's.
+- **Ongoing work** (the drill's sound and particles, taping, the soldering gun's sparks, sound and
+  lamp, the hammer's swing, the crimping tool's loop) is a tool-use presence: the acting player's
+  game sends `ServerboundGadgetToolUsePacket` when work on a target starts and stops, the server relays
+  it to players within hearing range of the target, and their games run the tool's own effects
+  (`DrillEffects`, the soldering particles and audio, the work animation) on that player's held tool,
+  aimed at the target. The server drops a presence whose player stops holding the tool or leaves.
+- The **progress** of the work stays the actor's, as it is in vanilla: only its result is a change.
 
 ## Forced removals
 
@@ -356,9 +402,10 @@ a player host, and it runs the gadget logic. What differs:
   sim's controls overrider. `Move` gets the [step emulation](#logic-that-writes-the-train).
 - **No camera.** `Dangler.OnSnap` reads `PlayerManager.ActiveCamera`; a server patch skips the camera
   part when there is none. `HoleFiller` and the HUD and popup code run only for a player.
-- **LODs** may load where the server's distance LOD follows a player. Nothing authoritative is in a
-  LOD; LOD-only logic (the switch setter's junction lookup, the defect detector) is presentation, run
-  by each player. The switch setter's change button switches a junction, which `NetworkedJunction`
+- **LODs** may load where the server's distance LOD follows a player. Nothing the server owns lives
+  in a LOD: the defect detector's snooze moves to its adapter, and the switch setter's junction
+  lookup is derived in each game from the synced train and junction states, so every game finds the
+  same junction. The switch setter's change button switches a junction, which `NetworkedJunction`
   already sends.
 - **`GadgetColliderHolder`** reads `PlayerManager.PlayerTransform`; the server never relies on those
   colliders.
@@ -418,8 +465,10 @@ The server is never rolled back. Clients converge on it.
 | `ClientboundGadgetRequestResultPacket` | server → requester | operation id, rejected, reason |
 | `ClientboundGadgetAnchorSnapshotPacket` | server → client | anchor, revision, holes, `InstalledGadgetData[]` (item, pose, UID, `gadgetData` as compressed JSON) |
 | `ClientboundGadgetStatePacket` | server → clients | item, state revision, operation id, fields |
+| `ServerboundGadgetToolUsePacket` | client → server | tool item, target (item and mount point, or a hole), started or stopped |
+| `ClientboundGadgetToolUsePacket` | server → clients | player, tool item, target, started or stopped |
 
-All reliable ordered. Requests go in `NetworkClient.ObserverMutationPacketTypes` (an observer can't
+All reliable ordered except the hanger's swing state, which goes unreliable at its rate. Requests go in `NetworkClient.ObserverMutationPacketTypes` (an observer can't
 change gadgets). `gadgetData` is server-made JSON; the server never applies JSON from a client.
 
 ## Code layout
@@ -435,10 +484,11 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 
 ## Decisions for the user
 
-1. **The defect detector's snooze** is proposed per player (presentation), not shared.
-
 Decided:
 
+- **Everything syncs** (2026-10-21). Anything a player can see or hear in the world is the same in
+  every game: the defect detector's snooze, the control stand's rain fault, beacon spin, hanger swing,
+  other players' tool use. Only a player's own UI is theirs alone.
 - **Vehicles only** (2026-10-21). No gadgets on the world, the house, the shed or the paint station;
   see [Off-train installs](#off-train-installs).
 - **Anyone may remove anyone's gadget** (2026-10-21), for now. The item keeps its persistent owner, and
@@ -497,7 +547,8 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 
 - The request path, the checks, the native apply, the change log (`Installed`, `Removed`, `Mounted`,
   `Unmounted`, nesting, flush, revisions), the per-anchor queue, resync, item transitions in and out of
-  `Installed`, completing a hand removal, forced removals on clients through the apply scope.
+  `Installed`, completing a hand removal, forced removals on clients through the apply scope; the
+  place and remove sounds played by every game.
 - Files: `Core/Gadgets/` (`GadgetRequestRules`, `GadgetChangeLog`), `Server/Gadgets/` (`GadgetServer`,
   `GadgetObserverPatches`), `Client/Gadgets/` (`GadgetIntentPatches`), `Client/Session/LocalPlayerSession.Gadgets.cs`,
   `Server/Items/AuthoritativeItemRegistry.cs`.
@@ -534,11 +585,14 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 
 - The adapters, `Setting` and `Command` requests, the server's watch, prediction and rollback, the
   HUD path. Switches, alternating controller, switch setter, amp limiter, overheat and ATS settings,
-  DPU settings, proximity screen, control panel tilt. Delete `GadgetSwitchPatch`.
+  DPU settings, proximity screen, control panel tilt, the defect detector's shared snooze; beacon
+  spin and light sweep from the shared clock. Delete `GadgetSwitchPatch`.
 - Scenario **`gadget-settings`**: the client turns a switch through its knob and through the HUD; the
   wired light follows in both games. A setting out of range (`[ClientOnly]`) is rejected and the knob
   goes back. The amp limiter's mode changes the server's `TractionMotorAmpLimit` port, and the client
-  sees the limit. The host's player turns a switch (player host) and the client sees it.
+  sees the limit. The host's player turns a switch (player host) and the client sees it. A server step
+  derails a wagon: the defect detector blinks in both games; the client snoozes it and it is steady in
+  both. Two powered beacons show the same angle in both games (within 2°).
 
 ### 7. Gadgets that drive the train
 
@@ -554,11 +608,12 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 ### 8. DPU and the control panel
 
 - DPU radio membership on server and clients; control panel joysticks and buttons as control
-  commands.
+  commands; the shared rain fault.
 - Scenario **`gadget-dpu`**: two locos with DPUs on one channel, transmitter and receiver; the client
   moves the transmitter's throttle; the receiver follows in both games and its controls are blocked
   for the client. Scenario **`gadget-control-panel`**: the client uses the panel's throttle joystick;
-  the server's throttle moves by steps.
+  the server's throttle moves by steps. With rain forced on an exposed panel, the fault is on at the
+  same ticks in both games.
 
 ### 9. Labels
 
@@ -571,11 +626,21 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 ### 10. Hangers and shelves
 
 - Items hung on gadget hangers and put on gadget shelves as `SnappedAttachment` placement keyed by
-  `(car, UID)`; the dangler's forced unsnap decided by the server; the sliding anchor offset sent with
-  the snap.
-- Scenario **`gadget-hangers`**: a mug hung on a hanger on a moving car stays hung in both games; the
-  hanger can't be removed while the mug is on it; a forced unsnap on the server (a step) drops the mug
-  in both games.
+  `(car, UID)`; the dangler's swing run by the server and sent; its forced unsnap decided by the
+  server; the sliding anchor offset sent with the snap.
+- Scenario **`gadget-hangers`**: a mug hung on a hanger on a moving car stays hung in both games and
+  swings the same way (angle within 5°); the hanger can't be removed while the mug is on it; a forced
+  unsnap on the server (a step) drops the mug in both games.
+
+### 11. Tool use other players see
+
+- The tool-use presence: send, relay by hearing range, play the tool's effects on the other player's
+  held tool; dropped when the tool is let go or the player leaves. (The one-shot sounds go in with
+  each change in PRs 3 to 5.)
+- Files: `Client/Gadgets/GadgetToolPresence.cs`, `Server/Gadgets/GadgetServer.cs`, the two packets.
+- Scenario **`gadget-tool-use`**: the client drills a mount point and solders a gadget; the host's
+  game shows the client's drill effects and soldering sparks running while the client works and
+  stopped after; on a dedicated host, a second client sees them.
 
 ## Implementation status
 
