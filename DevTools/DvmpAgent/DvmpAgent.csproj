@@ -36,10 +36,10 @@
     <ItemGroup>
         <None Include="info.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
-    <!-- Debug builds deploy straight into the game. Release builds never deploy the agent. -->
+    <!-- Debug builds deploy straight into the game (unless -p:DvmpNoDeploy=true). Release builds never deploy the agent. -->
     <!-- DvInstallDir comes from Directory.Build.targets, which is imported after this file's
          properties, so the destination is computed inside the target. -->
-    <Target Name="DeployDvmpAgent" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' AND '$(DvInstallDir)' != '' AND Exists('$(DvInstallDir)\DerailValley.exe')">
+    <Target Name="DeployDvmpAgent" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' AND '$(DvmpNoDeploy)' != 'true' AND '$(DvInstallDir)' != '' AND Exists('$(DvInstallDir)\DerailValley.exe')">
         <PropertyGroup>
             <DvmpAgentModDir>$(DvInstallDir)\Mods\MultiplayerDevTools</DvmpAgentModDir>
         </PropertyGroup>

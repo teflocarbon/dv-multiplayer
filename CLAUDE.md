@@ -19,7 +19,9 @@ than one pair.
   with `Dev.Abs(...)`; a `class` probe can Harmony-patch a method to watch a code path live.
   `dvmp_logs` for exceptions, `dvmp_screenshot`, `dvmp_trace` (what code moved an item), `dvmp_desync`
   (persistent host/client differences), `dvmp_perf` (frame times, packets per type). The mod's debug
-  event stream is `dvmp-debug-<launch id>.jsonl` beside each game log.
+  event stream is `dvmp-debug-<launch id>.jsonl` beside each game log. Everything a probe starts
+  (coroutines, Harmony patches) ends with it unless it uses `ctx.StartBackground`; `dvmp_probes` lists
+  or stops what's left, so check it before and after probing a game other people play in.
 - **Someone else's game:** `dvmp_remote` pairs with a player's game over Tailscale; after that every
   tool takes `target: "remote:NAME"`.
 - **Regression scenarios:** `DevTools/Scenarios/<name>/run.sh` (docs/testing.md lists them), run by
@@ -30,8 +32,8 @@ than one pair.
 
 **Builds and the game install.** A Debug build of `Multiplayer` installs itself into the game, and every
 pair runs from that one install: after building, `dvmp_up` with `fresh: true` loads it. To only compile,
-set the environment variable `ConfigurationName=NoDeploy` (not `-p:`). Building `DevTools/DvmpAgent`
-installs the agent regardless. Don't build Release (see Versions).
+set the environment variable `ConfigurationName=NoDeploy` (not `-p:`). A Debug build of
+`DevTools/DvmpAgent` installs the agent too; `-p:DvmpNoDeploy=true` only compiles it. Don't build Release (see Versions).
 
 **Test in the test install, not the user's game.** `DevTools/make-test-install.ps1` makes a copy of the
 game at `%LOCALAPPDATA%\dvmp\test-install` (junctions, so it's small). Set `DVMP_DV_DIR` to it and build

@@ -17,6 +17,7 @@ run C# inside either game, take screenshots, and read logs. Debug-only; never sh
 
 ```bash
 dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug   # deploys the agent into the game
+dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug -p:DvmpNoDeploy=true   # compile only
 dotnet build DevTools/Dvmp/Dvmp.csproj
 ```
 
@@ -62,6 +63,7 @@ server can drive several pairs: p1, p2, d1. Remote games: `dvmp_remote` / `dvmp 
 | `dvmp_logs` | `dvmp logs [-t ...] [-l warning]` | Unity/Multiplayer log lines and exceptions. |
 | `dvmp_desync` | `dvmp desync [-n 6] [-i 1]` | Snapshot real Unity state on host and client repeatedly and report divergences that persist (items, cars, money, junctions). Full report in `%LOCALAPPDATA%\dvmp\reports`. |
 | `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1] [--filter JobOverview]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
+| `dvmp_probes` | `dvmp probes [-t ...] [--stop all\|ID] [--unpatch OWNER]` | Coroutines and Harmony patches probes left running in each game (with the coroutines' logs); stop or remove them. See [below](#coroutines-and-patches-a-probe-leaves-behind). |
 | `dvmp_trace` | `dvmp trace [--ids 12,34]` | Mutation tracer: which code froze/moved/reparented/hid/destroyed an item, with the calling method. `dvmp up --trace` installs it before the world loads. |
 | `dvmp_up` `dedicated` | `dvmp up --dedicated` | The host as a dedicated server: no avatar, no player slot. |
 | `dvmp_up` `hostOnly` | `dvmp up --host-only --session NAME` | Start (or reuse) only a host; see [Host-only sessions](#host-only-sessions). |
@@ -239,6 +241,44 @@ acts; `Hands.ReleaseControl()` hands it back.
 - Compare positions across peers with `Dev.Abs(...)`: each process has its own floating origin.
 - Private members of game and Multiplayer types are accessible directly.
 - `DevContext.State` persists between probes in the same process.
+
+### Coroutines and patches a probe leaves behind
+
+Probes may run in a game other people are playing in, where anything left running costs them
+frames. Everything a probe starts ends with it:
+
+```csharp
+// parallel work: stopped when the probe returns, fails or times out
+var sampler = ctx.StartCoroutine(Sample(), "sample");
+yield return new WaitForSeconds(5);
+yield return sampler;                        // or wait for it to end
+
+// a watcher read by later probes: outlives the probe, but only for maxSeconds (default 600, max 3600)
+ctx.StartBackground("l010-controls", pc => Watch(pc), maxSeconds: 300);   // Watch can pc.Log(x)
+// ...a later probe
+DevContext.Background("l010-controls")?.Stop();
+```
+
+- Don't call `someBehaviour.StartCoroutine(...)` with a probe's own enumerator. The agent hooks
+  `MonoBehaviour.StartCoroutine` (from the first probe on), logs a warning, and stops those with
+  the probe as well. A probe's eval result lists what was stopped (`stoppedCoroutines`).
+- A probe that times out is stopped with all its coroutines (its `finally` blocks run) and the
+  result says so (`timedOut`). Only a probe stuck without yielding can't be stopped: it blocks
+  the main thread.
+- Starting a background coroutine with the name of a running one replaces it.
+- `dvmp probes` (`dvmp_probes`) lists each game's probe coroutines with their logs, recently
+  ended ones and why, Harmony patches by owner (any `dvmp.*` owner, or a patch in a probe
+  assembly), and the number of probe assemblies loaded (Mono can't unload them; restart the game
+  if that number gets large). `--stop all|ID|NAME|dvmp_probe_…` stops coroutines, and
+  `--unpatch OWNER` (repeatable; `all` for every probe owner, `dvmp.foo.*` for a prefix) removes
+  patches. `dvmp.live.*` (live hotfixes) and `dvmp.agent.*` are never removed; `dvmp.harness.*`
+  only when named exactly, and `all` skips them.
+- `dvmp status` adds `warnings` while background or ownerless probe coroutines run, or
+  probe patches are installed (the tracer's and `dvmp perf`'s count as probe patches).
+- Name Harmony owners `dvmp.<tool>.<what>` so they're listed.
+- A C# scenario's steps (`/v1/invoke`, [scenarios](../docs/design/scenarios.md)) are tracked the
+  same way, under their assembly `DvmpScenarios_<id>`: what a step starts stops with it, and
+  `/v1/cancel` stops a step and everything it started.
 
 ## Notes
 
