@@ -70,10 +70,12 @@ namespace Dvmp.Scenarios
             List<TrainCar> found = CarSpawner.Instance.AllCars
                 .Where(c => c != null && listed.Any(l => l.Id == c.ID && l.Livery == c.carLivery.id) && !spawned.Contains(c.ID))
                 .ToList();
+            // Named before they go: a deleted car's ID is empty.
+            string[] deleted = found.Select(c => c.ID + " " + c.carLivery.id).ToArray();
             foreach (TrainCar c in found) CarSpawner.Instance.DeleteCar(c);
             for (int i = 0; i < 30 && found.Count > 0; i++) yield return null;
             SpawnedCars.Forget(listed.Where(l => !spawned.Contains(l.Id)).Select(l => l.Id));
-            step.Result = found.Select(c => c.ID + " " + c.carLivery.id).ToArray();
+            step.Result = deleted;
         }
 
         /// <summary>Every car this game has, by ID.</summary>
