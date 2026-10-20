@@ -1,6 +1,7 @@
 using DV.UI;
 using DV.UIFramework;
 using Multiplayer.Menus.Controls;
+using Multiplayer.Client.Players;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Utils;
 using System.Collections.Generic;

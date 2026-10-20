@@ -633,7 +633,7 @@ Useful stress cases include hundreds of nearby items, repeated enter/leave cycle
 | Server receive/relay and loading state | `Multiplayer/Server/Session/NetworkServer.cs` |
 | Automatic item registration | `Multiplayer/Shared/Items/ItemBasePatch.cs` |
 | Useful-item tracked fields | `FlashlightPatch.cs`, `LanternPatch.cs`, `LighterPatch.cs`, `ShovelPatch.cs`, `GadgetSwitchPatch.cs`, `MoneyPatch.cs` (banknote amount, since July), `PageBookPatch.cs` |
-| Throw/removal hooks | `GrabHandlerItem.cs`, `GadgetRemoverPatch.cs` |
+| Throw/removal hooks | `GrabHandlerItemPatch.cs`, `GadgetRemoverPatch.cs` |
 | Client starting inventory data | `ClientboundSaveGameDataPacket.cs`, `StartGameData_ServerSave.cs`, `PlayerItemSaveData.cs` |
 | Job document overlap | `BookletCreatorPatch.cs`, `NetworkedStationController.cs`, `NetworkedJob.cs` |
 

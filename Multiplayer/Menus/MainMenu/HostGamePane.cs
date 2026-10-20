@@ -79,7 +79,7 @@ public class HostGamePane : MonoBehaviour
     {
         this.SetupListeners(true);
 
-        incompatibleMods = ModCompatibilityManager.Instance.CheckModCompatibility();
+        incompatibleMods = IncompatibleModsWarning.Show();
         ValidateInputs(null);
     }
 

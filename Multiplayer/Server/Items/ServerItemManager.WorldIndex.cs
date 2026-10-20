@@ -39,7 +39,9 @@ internal sealed partial class ServerItemManager
         HostPlayerCells.Clear();
     }
 
-    private void RefreshHostWorldItem(NetworkedItem item)
+    // At the item's own position, or the given absolute one: a transition is committed before its
+    // Unity state is applied, so its record says where the item is going and the transform doesn't.
+    private void RefreshHostWorldItem(NetworkedItem item, Vector3? absolutePosition = null)
     {
         if (item == null)
             return;
@@ -74,7 +76,8 @@ internal sealed partial class ServerItemManager
                 HostNonSpatialItems.Add(item);
         }
 
-        WorldItemCellCoord cell = WorldItemCellCoord.FromAbsolute(item.transform.position - WorldMover.currentMove);
+        WorldItemCellCoord cell = WorldItemCellCoord.FromAbsolute(
+            absolutePosition ?? item.transform.position - WorldMover.currentMove);
         if (!HostItemsByCell.TryGetValue(cell, out HashSet<NetworkedItem> items))
             HostItemsByCell[cell] = items = new HashSet<NetworkedItem>();
         items.Add(item);
@@ -139,6 +142,12 @@ internal sealed partial class ServerItemManager
         AuthoritativeItemRegistry.Record record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {
+        // Every committed placement is indexed in the same operation, by the record's pose. One left
+        // to its caller was missed: an item moved from a car interior into the world stayed in no
+        // cell until a spatial sample came, and every player's interest retired it meanwhile and
+        // re-created it at rest, ending a thrown one's flight.
+        if (appliesPlacement && NetworkLifecycle.Instance.IsHost())
+            RefreshHostWorldItem(item, record.Position);
         TrainItemWake.OnAuthoritativeTransition(item, record, previousPlacement, appliesPlacement);
         HostSpatial.OnAuthoritativeTransitionCommitted(item, snapshot, record, actor, previousPlacement,
             appliesPlacement);

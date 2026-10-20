@@ -252,6 +252,18 @@ backstop for any other path that records such an item as the host player's.
    simulator sends a reliable settlement proposal.
 7. Host validates and commits the final pose, rotation, parent, and cell, then closes the epoch.
 
+The host can also throw an item itself, with a transition naming a player as actor (the job
+re-roll throws a binned job overview back out). The item may still be under the lease its drop
+opened. The new lease supersedes that one without stopping the body: its presentation sets the body
+up (a proxy goes kinematic, a local simulator keeps its motion), as a client's game does when a new
+lease replaces its old one. The host used to stop it (`RestoreLocalBodyAfterLease`), which lost the
+throw's force (`GrabHandlerItem.Throw` applies it for one physics step) when the actor was the
+host's own player.
+
+A drop from the player still in flight when the host throws arrives after the throw: it is refused
+as stale, and its correction puts the item at the record's pose at rest, ending the flight. A
+host-side throw of an item a player has just let go waits for that drop first (the job re-roll does).
+
 ### Leaving the hand
 
 Playtest 2 (VR players, dedicated server) found the steps above undone in four ways: a hand swap
@@ -515,9 +527,14 @@ The host should:
 - never require remote terrain to be loaded merely to remember a transform; and
 - use the committed record when constructing a projection for a newly interested player.
 
-Accepted samples and commits update the cell index through `RefreshHostSpatialPosition`;
-`RefreshHostWorldItem`, which reads the host Unity transform, is still used for ordinary
-transitions.
+Accepted samples and commits update the cell index through `RefreshHostSpatialPosition`. Every
+committed transition that applies a placement re-indexes the item at the record's pose in the same
+operation (`ServerItemManager.OnAuthoritativeItemTransition`), before its caller applies the Unity
+state. Callers used to do it themselves, after the fact; one that didn't (a host transition moving
+an item from a car interior into the world, as the job re-roll and booklet summon make) left the
+item in no cell until its first spatial sample, and every player's interest retired it meanwhile
+and re-created it at rest. Callers that still call `RegisterHostWorldItem` afterwards re-index it
+from the Unity transform, now at the same pose.
 
 ## Floating origin and anchors
 

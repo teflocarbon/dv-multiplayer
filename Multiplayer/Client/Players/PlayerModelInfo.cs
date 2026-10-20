@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Players
+namespace Multiplayer.Client.Players
 {
     public class PlayerModelInfo
     {
