@@ -10,14 +10,18 @@ ServerPlayer actor = ctx.Args["actor"] == "host" ? server.LocalPlayer
 var spatial = NetworkedItemManager.Instance.Spatial;
 NetworkedItem item = null;
 AuthoritativeItemRegistry.Record record = null;
-bool leased = false;
+bool leased = false, held = false;
 float t0 = Time.realtimeSinceStartup, inCabAt = -1f;
 while (Time.realtimeSinceStartup - t0 < 60f)
 {
     yield return null;
     if (item == null) NetworkedItem.TryGet(id, out item);
-    if (item == null || !AuthoritativeItemRegistry.TryGet(id, out record) ||
-        record.Placement != ItemPlacementKind.TrainInterior)
+    if (item == null || !AuthoritativeItemRegistry.TryGet(id, out record)) continue;
+    // The mug is spawned at the actor's feet in the cab and may already lie there, recorded in it:
+    // only a cab placement after the actor has picked it up is the drop.
+    if (record.Placement == ItemPlacementKind.PlayerHand) held = true;
+    if (!held) continue;
+    if (record.Placement != ItemPlacementKind.TrainInterior)
     {
         if (inCabAt >= 0f) break; // it left the cab on its own
         continue;
@@ -29,8 +33,13 @@ while (Time.realtimeSinceStartup - t0 < 60f)
              simulator == actor.PlayerId;
     if (leased || Time.realtimeSinceStartup - inCabAt > 2f) break;
 }
-if (record == null || record.Placement != ItemPlacementKind.TrainInterior)
-    throw new Exception("the mug was never recorded in the cab (" + (record?.Placement.ToString() ?? "no record") + ")");
+if (!held)
+    throw new Exception("the mug was never recorded in the " + ctx.Args["actor"] + "'s hand (" +
+        (record?.Placement.ToString() ?? "no record") + ")");
+if (record.Placement != ItemPlacementKind.TrainInterior)
+    throw new Exception(inCabAt >= 0f
+        ? "the mug left the cab on its own before the host threw it (" + record.Placement + ")"
+        : "the mug was never recorded in the cab after the " + ctx.Args["actor"] + " dropped it (" + record.Placement + ")");
 float droppedFor = Time.realtimeSinceStartup - inCabAt;
 
 var loco = Trains.Find(ctx.Args["loco"]);
