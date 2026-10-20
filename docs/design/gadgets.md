@@ -120,7 +120,8 @@ not eligible for Lost and Found. Nothing assigns it. Gadgets make it real:
 A player's gadget action becomes a request at the point where vanilla would commit it. The patch
 blocks the vanilla commit, sends the request, and leaves the rest of the tool (previews, progress,
 sounds) alone. Structural changes are **not predicted**: the result arrives one round trip later, the
-same on a player host (no network) and on a client.
+same on a player host (no network) and on a client. Whether that wait needs a ghost of the gadget
+while it lasts is left to the first playtest (agreed 2026-10-21).
 
 | Action | Where it is intercepted (Client role, any local player) | Request |
 | --- | --- | --- |
@@ -156,10 +157,23 @@ installed off a car exists in a multiplayer session. World holes keep their join
 
 ### What the server checks
 
-The server does not rerun vanilla's physics checks: on a dedicated host, and on a listen host whose
-player is more than 20 m from the car, the placement colliders are off
-(research: [Placement colliders depend on the local player](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md#placement-colliders-depend-on-the-local-player)).
-It checks what decides authority and sanity:
+The server runs vanilla's own checks as well as its own (decided 2026-10-21). Vanilla's placement and
+surface checks need the `Gadget_Mesh_Placing` colliders, copies of the cab's surfaces that every car
+builds from its interior prefab at setup, so they exist on the server too; vanilla only switches them
+on while the local player is within 20 m of the car
+(research: [Placement colliders depend on the local player](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md#placement-colliders-depend-on-the-local-player)),
+which on a dedicated host is never. For a request on a car, the server switches that car's holder on,
+runs vanilla's check, and switches it back:
+
+- install: `GadgetItem.CanPlace` at the requested pose (in the car's frame, so the car's position and
+  speed don't matter) and the "not on a hole" check; the mount points' on-glass flags are computed by
+  the server as `Drillable.GeneratePlacementData` does, and the gadget's own on-glass flag from the
+  request is accepted only with a window collider at the pose;
+- bolting and taping: `Drillable.CheckIfCanChangeToState`.
+
+A request vanilla's check refuses is rejected with that reason, so a misfire (a surface that exists
+only in a loaded cab interior, a floating-point difference at an edge) shows up as a named rejection,
+first in the scenarios on a dedicated host. The other checks:
 
 - the player is loaded past `ReadyForCustomizers`;
 - the item exists and is in the requester's hand (install), or is installed (everything else); the tool
@@ -186,7 +200,8 @@ It checks what decides authority and sanity:
 
 Then it applies the change natively in the apply scope: `GadgetItem.Place` (and `Mount.MountGadget`),
 `GadgetBase.Remove`, `Drillable.SetMountPointState`, `Customization.RemoveHole`, `WireLinkPort.Wire`,
-`MakeSoldered`. Place's on-glass flags are overwritten with the request's after `GeneratePlacementData`.
+`MakeSoldered`. Place's on-glass flags are overwritten with the checked ones after
+`GeneratePlacementData`.
 `Place` drops and purges the item from the server game's local `Inventory`; that is the requester's
 on a player host, and harmless otherwise. The item registry transition is committed explicitly next to
 the native call, inside the item code's own apply scope, so its observers never see the deactivation
@@ -410,7 +425,8 @@ A dedicated host is the server with no local player. It loads and saves gadgets 
 a player host, and it runs the gadget logic. What differs:
 
 - **No local intents.** Nothing intercepts anything; every request comes from a remote player.
-- **No physics validation.** See [What the server checks](#what-the-server-checks).
+- **Placement colliders forced on** for the target car while the server runs vanilla's checks; see
+  [What the server checks](#what-the-server-checks).
 - **No cab interiors.** Gadgets parent to `TrainCar.interior`, which always exists, and bind to the
   sim's controls overrider. `Move` gets the [step emulation](#logic-that-writes-the-train).
 - **No camera.** `Dangler.OnSnap` reads `PlayerManager.ActiveCamera`; a server patch skips the camera
@@ -420,8 +436,8 @@ a player host, and it runs the gadget logic. What differs:
   lookup is derived in each game from the synced train and junction states, so every game finds the
   same junction. The switch setter's change button switches a junction, which `NetworkedJunction`
   already sends.
-- **`GadgetColliderHolder`** reads `PlayerManager.PlayerTransform`; the server never relies on those
-  colliders.
+- **`GadgetColliderHolder`** decides from `PlayerManager.PlayerTransform` when the placement
+  colliders are on; the server switches them on itself for its checks.
 
 The scenarios run every gadget PR on a dedicated host as well as a player host.
 
@@ -597,8 +613,9 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
   the item `Installed`. The client removes one with the hammer: a world item at the gadget's pose in
   both. The client removes the other by hand: it is in the client's hand in both. The client installs
   on a mounted plate; removing the plate is refused while mounted. A request from 30 m
-  (`[ClientOnly]` step) is rejected and the item stays in hand. The car is deleted with a gadget on it:
-  a world item at its pose in both games, digests equal. Installing on the ground is refused in the
+  (`[ClientOnly]` step) is rejected and the item stays in hand, and so is one clipping into the cab
+  wall, by vanilla's own check on the server. The car is deleted with a gadget on it: the item is in
+  its owner's Lost and Found at once, digests equal. Installing on the ground is refused in the
   client's own game, with no request sent. `MODE=moving` repeats the install and the hand removal with
   the client riding the car at 10 m/s.
 
