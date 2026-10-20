@@ -14,6 +14,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 namespace Multiplayer.Server.Gadgets;
 
@@ -39,9 +40,9 @@ internal static class GadgetItemTransitions
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(StorageController), nameof(StorageController.MoveFromInstalledGadgetsToWorld))]
-    private static void MovedFromInstalledGadgets(ItemBase item)
+    private static void MovedFromInstalledGadgets(GameObject item)
     {
-        if (NetworkRole.IsServer && TryGetNetworked(item, out NetworkedItem networked))
+        if (NetworkRole.IsServer && item != null && TryGetNetworked(item.GetComponent<ItemBase>(), out NetworkedItem networked))
             CommitRemoved(networked);
     }
 
