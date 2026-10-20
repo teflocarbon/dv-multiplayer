@@ -474,9 +474,8 @@ Found means (any member's shed) belongs to the companies design.
 
 ## Plan
 
-Not started. The work starts once `split/client-server` has merged into `beta` (the user,
-2026-10-21). It then goes on a branch made from `beta` for these systems, in small PRs, in order,
-each from a branch `items/<what>`. Each one:
+Not started. `split/client-server` merged into `beta` on 2026-10-21 (#276), and this work goes on
+branches made from `beta`, in small PRs, in order, each from a branch `items/<what>`. Each one:
 
 - runs its scenarios on a player host and a dedicated host
   (`RUNS="<scenario> @player; <scenario> @dedicated"`), plus the item scenarios it could affect:
