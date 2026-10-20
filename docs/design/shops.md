@@ -472,9 +472,15 @@ and written into both docs:
    same requests. Owned-items PR 5 keeps the removal of adoption. Shop receipts are server-made from
    [PR 3](#3-delivery-receipts-and-the-buyers-own-effects), so nothing in a shop adopts.
 5. **Receipts aren't owned items.**
-6. **[PR 6](#6-per-player-stock) waits for owned-items PR 1** (the ledger) **and PR 2** (ownership by
-   identity). Until PR 2, ownership at birth uses today's registry (number plus GUID), as
-   `SpawnShopPurchase` does now.
+6. **The shops plan waits on owned items at three points:**
+   - [PR 2](#2-the-register-on-the-server) needs owned-items PR 1 (the ledger), to register each
+     purchase as born `Purchased`. Until owned-items PR 2 (ownership by identity), the owner is also
+     set in today's registry (number plus GUID), as `SpawnShopPurchase` does now.
+   - [PR 3](#3-delivery-receipts-and-the-buyers-own-effects) needs owned-items PR 3 (Lost and Found
+     for everyone), which brings `SendToLostAndFound` and Lost and Found records for offline owners.
+     Today a Lost and Found record needs a non-zero owner number (`LostAndFound.cs:140-142`), so an
+     offline buyer's delivery has nowhere to go.
+   - [PR 6](#6-per-player-stock) needs owned-items PRs 1 and 2.
 
 ## Gadgets
 
@@ -529,7 +535,7 @@ whose shops don't match is refused at join.
 
 ### 2. The register on the server
 
-The core of it.
+The core of it. After owned-items PR 1 (the ledger).
 
 - `ServerShopRegister` owns the basket, with lines by owner, the deposit and the phase.
 - Scan, deposit, buy and cancel are requests. Each game's register is a view of the server's state:
@@ -564,6 +570,8 @@ Fixes #1, #3–#9, #16, #18. No prediction yet: the actor waits a round trip, as
   controller (`NeedsLicence`). With it, the client buys it.
 
 ### 3. Delivery, receipts and the buyer's own effects
+
+After owned-items PR 3 (Lost and Found for everyone, with `SendToLostAndFound`).
 
 - Delivery checks each item's owner when it comes due: the counter within 200 m, otherwise their Lost
   and Found (`PurchasedDeliveryFallback`), with the HUD note. Only the buying shop is blocked.
