@@ -24,6 +24,9 @@ public interface IItemClient
     /// <summary>The remote client's part of a new item manager (never asked for on the host).</summary>
     IItemManagerClientPart CreateItemManagerPart(NetworkedItemManager manager);
 
+    /// <summary>The remote client's half of a new item (never asked for on the host).</summary>
+    INetworkedItemClientPart CreateItemPart(NetworkedItem item);
+
     void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
         uint expectedRevision, int requestedSlot = -1);
 

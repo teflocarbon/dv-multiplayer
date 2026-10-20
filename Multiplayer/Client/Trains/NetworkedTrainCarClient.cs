@@ -141,6 +141,16 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
     public bool WritingHostValues => TrainPortPresenter.Writing;
 
+    // Only controls are a client's to send. CONTROL ports simulation code sets (the compressor's
+    // signal, a horn fed from its control, a gearbox's gear input) are the host's: a client sends
+    // only the ones players drive.
+    public bool Reports(Port port, uint portNetId) =>
+        port.valueType == PortValueType.CONTROL && portWriters?.ClientReports(portNetId) == true;
+
+    // A client's own simulation also sets handbrakes and fuses (notably while the world loads):
+    // only the ones its player could have made are sent.
+    public bool SendsChange(bool viaRemote) => viaRemote || LocalPlayerCanTouch();
+
     public void NoteLocalControlChange()
     {
         // The local player moved one of the train's controls: predict from this frame on, not

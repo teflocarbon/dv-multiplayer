@@ -76,8 +76,8 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         ProcessPendingLocalStateObservations();
         // The server's part first: its train-wake manager, the host's leases, replenishment.
         ServerPart?.Update();
-        Spatial?.Update();
-        // A remote client's: deferred world projections and the unbound items it classifies.
+        // A remote client's: its side of the spatial stream, deferred world projections and the
+        // unbound items it classifies.
         ClientPart?.Update();
     }
 

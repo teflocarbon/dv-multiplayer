@@ -82,7 +82,7 @@ internal sealed partial class ClientItemManager
             {
                 NetworkedItemManager.TraceItem("item.lost-and-found-client-projection-restored", netItem,
                     DebugTrace.ItemSnapshotData(snapshot));
-                netItem.RestoreClientLostAndFoundProjection(snapshot);
+                netItem.Client()?.RestoreLostAndFoundProjection(snapshot);
                 return;
             }
 
@@ -95,7 +95,7 @@ internal sealed partial class ClientItemManager
                     ["trackedItemType"] = netItem.TrackedItemType?.FullName ?? string.Empty,
                     ["prefabName"] = snapshot.PrefabName ?? string.Empty
                 });
-                netItem.SetClientNetworkBinding(true);
+                netItem.Client()?.SetNetworkBinding(true);
                 netItem.gameObject.SetActive(true);
                 netItem.ReceiveSnapshot(snapshot);
                 ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
@@ -150,7 +150,7 @@ internal sealed partial class ClientItemManager
                 foreach (NetworkedItem representation in NetworkedItem.GetAll()
                              .Where(value => value != null && value.NetId == snapshot.ItemNetId)
                              .Distinct().ToArray())
-                    representation.ApplyClientLostAndFoundProjection(snapshot);
+                    representation.Client()?.ApplyLostAndFoundProjection(snapshot);
             }
             else
             {
@@ -272,7 +272,7 @@ internal sealed partial class ClientItemManager
             ["prefabName"] = snapshot.PrefabName ?? string.Empty,
             ["authorityRevision"] = snapshot.AuthorityRevision
         });
-        item.SetClientNetworkBinding(true);
+        item.Client()?.SetNetworkBinding(true);
         item.gameObject.SetActive(true);
         item.ReceiveSnapshot(snapshot);
         ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
@@ -281,7 +281,7 @@ internal sealed partial class ClientItemManager
 
     private static void SuspendJobDocumentProjection(NetworkedItem item, ItemUpdateData snapshot)
     {
-        item.SetClientNetworkBinding(false);
+        item.Client()?.SetNetworkBinding(false);
         item.gameObject.SetActive(false);
         DebugRuntime.Publish("item", "item.job-document-projection-dormant",
             DebugRuntimeSide.Client, entityType: "Item", entityId: item.NetId.ToString(),

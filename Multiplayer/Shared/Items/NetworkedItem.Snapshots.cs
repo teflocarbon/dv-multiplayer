@@ -4,7 +4,6 @@ using DV.Customization.Gadgets;
 using DV.Interaction;
 using DV.InventorySystem;
 using DV.Items;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -75,8 +74,8 @@ public partial class NetworkedItem
             DebugDiagnostics.QueueApplied("ItemPendingSnapshot", NetId.ToString(), pendingSnapshots.Count, NetworkLifecycle.Instance.Tick);
         }
         placementSnapshotPending = false;
-        if (releasePlacementGate && !NetworkLifecycle.Instance.IsHost())
-            SetClientNetworkBinding(true);
+        if (releasePlacementGate)
+            ClientPart?.SetNetworkBinding(true);
 
         DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "tracked-values-not-finalised");
         DebugRuntime.Publish("item", "item.tracked-values-finalized", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
@@ -129,7 +128,7 @@ public partial class NetworkedItem
         snapshot.States = TrackedStateComposer.HostReportsForRemoteHolder(GetTrackedStateEntries(), snapshot.States);
     }
 
-    private void MarkValuesClean()
+    internal void MarkValuesClean()
     {
         foreach (var trackedValue in trackedValues)
         {
@@ -236,9 +235,7 @@ public partial class NetworkedItem
 
         lastState = currentState;
         LastDirtyTick = NetworkLifecycle.Instance.Tick;
-        uint? authorityRevisionOverride = reserveClientRevision && !NetworkLifecycle.Instance.IsHost()
-            ? outboundRevisionPipeline.Reserve(AuthorityRevision)
-            : null;
+        uint? authorityRevisionOverride = reserveClientRevision ? ClientPart?.ReserveRevision() : null;
         snapshot = CreateUpdateData(updateType, authorityRevisionOverride);
         if (snapshot != null && pageOnlyWorldState && snapshot.States != null)
             snapshot.States = snapshot.States
@@ -306,31 +303,6 @@ public partial class NetworkedItem
         BeginColdStorageRetirement();
     }
 
-    private const float ConvergencePositionTolerance = 0.25f;
-
-    private bool DisagreesWithConvergence(ItemUpdateData snapshot)
-    {
-        if (Item == null || Item.IsGrabbed())
-            return false; // a local interaction is in flight; the host will hear about it
-        if (snapshot.AuthorityRevision > AuthorityRevision)
-            return true; // a canonical change never reached us
-        if (GetItemState() is not (ItemState.Dropped or ItemState.Thrown))
-            return true; // the host has it lying in the world; we have it somewhere else
-
-        float tolerance2 = ConvergencePositionTolerance * ConvergencePositionTolerance;
-        if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior)
-        {
-            // Compare in the car's frame so differences in train motion aren't mistaken for drift.
-            if (!global::Multiplayer.Shared.Trains.NetworkedTrainCar.TryGet(snapshot.WorldParentNetId, out TrainCar car) || car == null)
-                return false; // that car isn't here; nothing to compare against
-            if (TrainCar.Resolve(transform) != car)
-                return true;
-            Transform frame = car.interior != null ? car.interior : car.transform;
-            return (frame.InverseTransformPoint(transform.position) - snapshot.ParentLocalPosition).sqrMagnitude > tolerance2;
-        }
-        return (transform.position - WorldMover.currentMove - snapshot.ItemPosition).sqrMagnitude > tolerance2;
-    }
-
     public void ReceiveSnapshot(ItemUpdateData snapshot)
     {
         if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
@@ -348,10 +320,9 @@ public partial class NetworkedItem
                 });
             return;
         }
-        // Host convergence re-send (NetworkedItemManager.Convergence): only act when this copy
-        // actually disagrees, so the periodic pass never nudges consistent items.
-        if (snapshot.TransitionReason == ItemTransitionReason.Convergence &&
-            !NetworkLifecycle.Instance.IsHost() && !DisagreesWithConvergence(snapshot))
+        // Host convergence re-send (ServerItemManager.Convergence): a remote client acts only when
+        // its copy actually disagrees, so the periodic pass never nudges consistent items.
+        if (ClientPart?.IgnoresConvergence(snapshot) == true)
             return;
 
         bool localVrReleaseAcknowledgement = IsLocalVrReleaseAcknowledgement(snapshot);
@@ -440,7 +411,7 @@ public partial class NetworkedItem
         // item back at the pose it was released from with zero velocity, yanking a falling item
         // back up mid-air. Like a throw, take the revision and keep simulating; if the item does
         // end up somewhere else the host's convergence pass corrects it once it settles.
-        if (IsLocalDropAcknowledgement(snapshot))
+        if (ClientPart?.IsLocalDropAcknowledgement(snapshot) == true)
         {
             ApplyLocalThrowAcknowledgement(snapshot);
             return;
@@ -459,8 +430,7 @@ public partial class NetworkedItem
                     ProjectionFromSnapshot(snapshot));
                 hasLastSentState = true;
                 placementSnapshotPending = true;
-                if (!NetworkLifecycle.Instance.IsHost())
-                    SetClientNetworkBinding(false);
+                ClientPart?.SetNetworkBinding(false);
             }
             PendingEnqueueResult enqueue = pendingSnapshots.Enqueue(snapshot);
             if (enqueue.Accepted)
@@ -515,86 +485,6 @@ public partial class NetworkedItem
         ApplySnapshot(snapshot);
     }
 
-    internal void ApplyClientLostAndFoundProjection(ItemUpdateData snapshot)
-    {
-        if (snapshot == null || NetworkLifecycle.Instance.IsHost())
-            return;
-
-        ApplyAuthorityMetadata(snapshot);
-        SetClientNetworkBinding(true);
-        EnforceClientLostAndFoundProjection();
-        createdDirty = false;
-        stateDirty = false;
-        hasLastSentState = true;
-        EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
-            EntityDebugRegistry.ItemState(this));
-    }
-
-    private void EnforceClientLostAndFoundProjection()
-    {
-        byte localPlayerId = InventoryIntegration.LocalPlayerId;
-        bool preserveOwnerSilhouette = localPlayerId != 0 &&
-            PersistentOwnerPlayerId == localPlayerId &&
-            Item?.InventorySpecs?.IsEssential == true && InventoryClaimSlot >= 0 &&
-            HasRetrievalFlag(InventoryClaimFlags);
-        try
-        {
-            Inventory inventory = Inventory.Instance;
-            int slot = inventory?.IndexOf(gameObject) ?? -1;
-            bool membershipSecure = preserveOwnerSilhouette
-                ? slot == InventoryClaimSlot && inventory.GetSlotDroppedState(slot) &&
-                    inventory.GetSlotReservedState(slot)
-                : inventory?.Contains(gameObject, true) != true;
-            if (!gameObject.activeSelf && Item?.InteractionAllowed == false &&
-                Item?.IsGrabbed() != true && membershipSecure)
-                return;
-        }
-        catch { }
-
-        try { Item?.ForceEndInteraction(); } catch { }
-        try
-        {
-            if (preserveOwnerSilhouette)
-                InventoryIntegration.EnsureDroppedClaim(gameObject, InventoryClaimSlot);
-            else
-            {
-                InventoryIntegration.RevokeMembership(gameObject, NetId);
-                InventoryIntegration.PurgeForeignDroppedClaims("lost-and-found-tombstone");
-            }
-        }
-        catch { }
-        try
-        {
-            StorageController storage = StorageController.Instance;
-            if (storage?.StorageWorld?.ContainsItem(Item) == true)
-                storage.RemoveItemFromWorldStorage(Item);
-        }
-        catch { }
-
-        Rigidbody body = Item?.ItemRigidbody;
-        if (body != null)
-        {
-            body.velocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.isKinematic = true;
-        }
-        if (Item != null)
-            Item.InteractionAllowed = false;
-        gameObject.SetActive(false);
-        stateDirty = false;
-    }
-
-    internal void RestoreClientLostAndFoundProjection(ItemUpdateData snapshot)
-    {
-        if (snapshot == null || NetworkLifecycle.Instance.IsHost())
-            return;
-        SetClientNetworkBinding(true);
-        gameObject.SetActive(true);
-        if (Item != null)
-            Item.InteractionAllowed = true;
-        ReceiveSnapshot(snapshot);
-    }
-
     private void ApplyDeferredTrackedState(ItemUpdateData snapshot, string reason)
     {
         PublishDeferredDrain("item.pending-snapshot-stale-placement-skipped", snapshot, reason);
@@ -616,15 +506,6 @@ public partial class NetworkedItem
         try { return InventoryIntegration.ContainsActive(gameObject); }
         catch { return false; }
     }
-
-    private bool IsLocalDropAcknowledgement(ItemUpdateData snapshot) =>
-        !NetworkLifecycle.Instance.IsHost() &&
-        snapshot.TransitionReason == ItemTransitionReason.ClientState &&
-        snapshot.ItemState == ItemState.Dropped &&
-        snapshot.OriginatingPlayerId != 0 &&
-        snapshot.OriginatingPlayerId == NetworkLifecycle.Instance.LocalSession?.PlayerId &&
-        Item != null && !Item.IsGrabbed() &&
-        GetItemState() == ItemState.Dropped;
 
     private void ApplyLocalThrowAcknowledgement(ItemUpdateData snapshot)
     {
@@ -935,7 +816,7 @@ public partial class NetworkedItem
             vrBeltReleaseFrame, Time.frameCount, Item.IsGrabbed(),
             InventoryIntegration.ContainsActive(gameObject));
 
-    private bool IsRemotePlayerAuthoritative()
+    internal bool IsRemotePlayerAuthoritative()
     {
         if (NetworkLifecycle.Instance.IsHost())
         {

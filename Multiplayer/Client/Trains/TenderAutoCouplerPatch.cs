@@ -4,7 +4,7 @@ using DV;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
 
-namespace Multiplayer.Shared.Trains;
+namespace Multiplayer.Client.Trains;
 
 /// <summary>
 /// Steam locos couple their own tender: vanilla's <see cref="SteamTenderAutoCoupleMechanism"/>
@@ -71,9 +71,5 @@ public static class TenderAutoCouplerPatch
         harmony.Patch(method, prefix: new HarmonyMethod(AccessTools.Method(typeof(TenderAutoCouplerPatch), nameof(HostOnly))));
     }
 
-    private static bool HostOnly()
-    {
-        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        return lifecycle == null || !lifecycle.IsClientRunning || lifecycle.IsHost();
-    }
+    private static bool HostOnly() => !NetworkRole.IsRemoteClient;
 }

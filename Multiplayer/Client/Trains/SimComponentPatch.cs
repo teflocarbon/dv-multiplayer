@@ -4,7 +4,7 @@ using HarmonyLib;
 using LocoSim.Implementations;
 using Multiplayer.Shared.Session;
 
-namespace Multiplayer.Shared.Trains;
+namespace Multiplayer.Client.Trains;
 
 public static class SimComponent_Tick_Patch
 {
@@ -27,6 +27,6 @@ public static class SimComponent_Tick_Patch
 
     private static bool Prefix()
     {
-        return LocalTick || NetworkLifecycle.Instance.IsHost();
+        return LocalTick || !NetworkRole.IsRemoteClient;
     }
 }

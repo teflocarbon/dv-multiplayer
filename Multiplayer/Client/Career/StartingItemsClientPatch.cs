@@ -7,7 +7,7 @@ namespace Multiplayer.Client.Career;
 
 /// <summary>
 /// A client's starting items: what the server says the player owns count as present (see
-/// Shared/Career/StartingItemsControllerPatch).
+/// Server/Career/StartingItemsControllerPatch).
 /// </summary>
 [HarmonyPatch(typeof(StartingItemsController))]
 public static class StartingItemsClientPatch
