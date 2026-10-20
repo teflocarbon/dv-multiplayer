@@ -197,7 +197,7 @@ One entry per owned item, live or ended, kept by the server:
 ```text
 OwnedItem
   id            item GUID (the key)
-  owner         owner identity (GUID): a player now, a company later (see Permissions)
+  owner         owner identity (GUID): a player, or a company ([Companies](#companies))
   prefab        prefab name, for the list and for issuing essentials
   claimSlot     the essential's retrieval claim slot in its owner's inventory, or none
   where         see below
@@ -511,9 +511,22 @@ item request handler calls it, and no client decides.
 The permissions system replaces the policy, not the call sites: friends who may take your tools, a
 company's items any member may retrieve. The gadget server's request checks call the same function.
 
-**Companies** (the planned company model, not designed in a doc yet): the owner is a GUID that can name a company
-as well as a player, typed by a prefix as `PlayerIdentity`'s Steam IDs are. What a company's Lost and
-Found means (any member's shed) belongs to the companies design.
+### Companies
+
+The user decided on a company career (2026-10-21, [company-career.md](company-career.md)). A company
+is a persistent group sharing money, licences and owned locos, and each player also has a personal
+wallet. For owned items:
+
+- **Owner kinds.** An entry's owner is a player or a company. The owner field gets a kind beside the
+  GUID, and a company is keyed by a stable company id.
+- **Which items.** Everyday items stay player-owned: tools, lights, cassettes, containers and the
+  like. Gadgets, garage keys, loco paint, the wireless MU controller and the loco remote are
+  company-owned, even while a member carries them.
+- **A company Lost and Found (new).** A company item a member has with them when they leave the
+  company goes there, and so do company items the standard rules collect.
+- **Retrieval and red follow membership.** The company retrieves its items, so "the owner can
+  retrieve an installed gadget any time" becomes "the company can", subject to company permissions
+  later (`ItemAccess`). Red marks an item the holder's company doesn't own.
 
 ## Open decisions
 
@@ -525,7 +538,7 @@ Found means (any member's shed) belongs to the companies design.
   operated or paid, born `Made`. Decide when one is synced.
 - **Old installed gadgets with no owner** in a save from before gadget PR 1: recommended unowned (they
   stay as they are, and anyone may remove them), rather than giving them to the career owner.
-- **Companies:** company-owned items, and whose Lost and Found they go to.
+- **Companies:** decided in outline ([Companies](#companies)); the details are company-career.md's.
 
 ## Plan
 
