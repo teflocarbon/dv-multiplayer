@@ -254,7 +254,8 @@ The shared pieces (built, on `split/client-server`):
 |---|---|---|
 | `LocalRequestQueue<TPlayer>` | `Multiplayer.Core/Session/` (tested) | Handlers per request type; requests queued in order and handled at the server's poll; a handler that throws doesn't stop the rest; no player, nothing handled |
 | `ILocalServer.Submit(request)` | `Shared/Session/ILocalServer.cs`, reached as `NetworkLifecycle.Instance.LocalServer` | How Shared and Client code hand a request to the server without referencing it. Null when this game isn't the server |
-| `ILocalPlayerSession` | `Shared/Session/ILocalPlayerSession.cs`, reached as `NetworkLifecycle.Instance.LocalSession` | The player at this keyboard for Shared code: its id and the other players' avatars. `NetworkClient` implements it now; the host's local session will in stage 3 |
+| `ILocalPlayerSession` | `Shared/Session/ILocalPlayerSession.cs`, reached as `NetworkLifecycle.Instance.LocalSession` | The player at this keyboard for Shared and role code: its id, display name and ping, the other players' avatars and their connect, disconnect and preference events, and chat. `NetworkClient` implements it now; the host's local session will in stage 3 (see [A seam first](#a-seam-first)) |
+| `NetworkRole.LocalPlayerId` | `Shared/Session/NetworkRole.cs` | The one local player id, `LocalSession.PlayerId`, the same on a host and a client (it replaced `IsHost() ? ItemServer.LocalPlayerId : LocalSession.PlayerId`) |
 | Area interfaces | `Shared/<Area>/I<Area>Server.cs`, `I<Area>Client.cs` | When an area needs more, it declares its own interface, implemented by its partial `NetworkServer.<Area>.cs` / `NetworkClient.<Area>.cs` and read with `LocalServer as I<Area>Server` / `LocalSession as I<Area>Client` |
 | `NetworkServer.LocalPlayer`, `HandleLocal<T>`, the drain | `Server/Session/NetworkServer.LocalPlayer.cs` | The host's `ServerPlayer`; registering an in-process handler; draining the queue after each `PollEvents` |
 | `NetworkServer.ApplyingRemoteChange()` | the same file | Scope for the server applying another player's change; `NetworkLifecycle.IsProcessingPacket` is true inside it, so existing echo checks hold |
@@ -322,10 +323,24 @@ its place: the host's player as a session of the server in the same process. A c
 ### A seam first
 
 About sixty places read `NetworkLifecycle.Instance.Client` for "the local player" (the table
-above). Before stage 3, route them through one interface, `NetworkLifecycle.LocalPlayer`
-(`ILocalPlayerSession`: `PlayerId`, `DisplayName`, `Ping`, `Players` (the remote avatars),
-the UI events, `Submit`), implemented by `NetworkClient` on a client and by `LocalPlayerSession`
-on the host. This changes no behaviour and can land before stage 2.
+above). Before stage 3, route them through one interface, implemented by `NetworkClient` on a
+client and by `LocalPlayerSession` on the host. This changes no behaviour.
+
+**Built** (2026-10-20) as `NetworkLifecycle.LocalSession` (`ILocalPlayerSession`; not
+`LocalPlayer`, which is the server's `ServerPlayer` for the host): `PlayerId`, `DisplayName`,
+`Ping`, `RemotePlayers` and `TryGetRemotePlayer`, the `RemotePlayerConnected`/`Disconnected`/
+`PrefsUpdated` events, and `SendChat`. The player list, chat, the world map's player markers, the
+radio's sound delays, the port presenter's ping and `NetworkServer.SelfId` read it; Shared item,
+station and world code did already. Requests go through `ILocalServer.Submit` (or the client's
+send hook), not the session. What it leaves on `NetworkLifecycle.Instance.Client`:
+
+- **Area requests and their answers** (Lost and Found, containers, the radio's requests, train
+  controls, `RPC_Timeout`, `LoadingState`): each area's `I<Area>Client`, in stage 3 by area.
+- **Remote-client-only code** (followers, "send and skip vanilla" patches): it keeps the client,
+  which a client's game still has.
+- **The player's position** (`LocalPlayerTrackerBase`): read by the server from the tracker on
+  the host (stage 2), sent by the client on a client.
+- **MPAPI's client API and `RemoteDispatchPatch`**: stage 3.
 
 ### What moves
 

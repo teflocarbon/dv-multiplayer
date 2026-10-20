@@ -382,7 +382,7 @@ public sealed class TrainPortPresenter
         if (!tracks.TryGetValue(port, out Track track) || track.Values.IsEmpty || !Clock.Started)
             return false;
         value = track.Values.Latest;
-        float pingMs = NetworkLifecycle.Instance?.Client?.Ping ?? 0;
+        float pingMs = NetworkLifecycle.Instance?.LocalSession?.Ping ?? 0;
         ageSeconds = Math.Max(0, (Clock.HostTickAt(Now) - track.Values.LatestTick) * TICK_SECONDS) + pingMs / 2000.0;
         return true;
     }

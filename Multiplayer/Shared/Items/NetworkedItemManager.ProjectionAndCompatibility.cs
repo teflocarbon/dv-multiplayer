@@ -259,9 +259,7 @@ public partial class NetworkedItemManager
     {
         if (item == null || item.NetId == 0)
             return false;
-        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
-            ? ItemServer.Current?.LocalPlayerId ?? 0
-            : NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
+        byte localPlayerId = NetworkRole.LocalPlayerId;
         DebugRuntime.Publish("item", "item.recall-requested",
             NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
             entityType: "Item", entityId: item.NetId.ToString(), data: new()
