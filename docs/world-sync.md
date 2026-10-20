@@ -213,7 +213,12 @@ Found when the host isn't near), one item every 0.5 s, each with a persistent ow
 
 Stock: `NetworkServer.SendShopStock` sends `ClientboundShopStockPacket` (prefab names and
 `purchasedItems`) on join, after every purchase and after `Restock`. `Restock` runs on the host
-only, so a client destroying its copy of a bought item doesn't restock.
+only, so a client destroying its copy of a bought item doesn't restock. Vanilla's
+`ShopRestocker.OnDestroy` restocks on any destroy, but the server also destroys a GameObject when
+the item lives on elsewhere: a cold-container deposit, an aborted withdrawal's fresh copy, a
+replaced scene item. `Server/Shops/ShopRestockerRetirementPatch.cs` skips the restock for those
+(they are marked `NetworkedItem.ColdStorageRetirement` first). Before it, a bought lighter put
+through a toolbox put another on the shelf.
 
 The host's own purchases run vanilla and broadcast the stock afterwards.
 `CashRegisterWithModulesPatch` doesn't replay the host's shop buy or cancel on clients: each
