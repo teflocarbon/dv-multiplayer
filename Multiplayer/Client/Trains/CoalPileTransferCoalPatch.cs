@@ -37,7 +37,7 @@ public static class CoalPileTransferCoalPatch
     private static void Report(CoalPileSimController coalPile, float coalTaken)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsClientRunning || lifecycle.IsHost() || lifecycle.IsProcessingPacket)
+        if (lifecycle == null || !NetworkRole.IsRemoteClient || lifecycle.IsProcessingPacket)
             return;
         // An empty pile or a full one moves nothing.
         if (!(Mathf.Abs(coalTaken) > 0f))

@@ -8,7 +8,7 @@ namespace Multiplayer.Shared.Items;
 internal static class MultiplayerStoragePatchGuard
 {
     internal static bool Active => NetworkLifecycle.Instance != null &&
-        (NetworkLifecycle.Instance.IsServerRunning || NetworkLifecycle.Instance.IsClientRunning);
+        NetworkLifecycle.Instance.IsSessionRunning;
 
     internal static bool IsManaged(ItemBase item, out NetworkedItem networked)
     {

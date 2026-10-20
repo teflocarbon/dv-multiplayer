@@ -13,7 +13,7 @@ public partial class NetworkServer : IPauseServer
             NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
             return IsRunning &&
                 (IsSinglePlayer ||
-                (lifecycle.IsHostPlayingAlone && lifecycle.IsClientRunning) ||
+                lifecycle.IsHostPlayingAlone ||
                 DedicatedHost.AllowsPause);
         }
     }

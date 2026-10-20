@@ -8,7 +8,7 @@ public static class CarsSaveManager_Load_Patch
 {
     private static bool Prefix()
     {
-        if (!NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsHost())
+        if (!NetworkRole.IsRemoteClient)
             return true;
         CarsSaveManager.DeleteAllExistingCars();
         return false;

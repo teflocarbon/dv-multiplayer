@@ -2,6 +2,8 @@ using MPAPI.Interfaces;
 using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
 using Multiplayer.Client.Session;
+using Multiplayer.Shared.Players;
+using Multiplayer.Shared.Session;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,6 +14,7 @@ namespace Multiplayer.Client.Api
     public class ClientAPIProvider : IClient
     {
         private readonly NetworkClient client;
+        private readonly PlayerAvatars avatars;
 
         public event Action<IPlayer> OnPlayerConnected;
         public event Action<IPlayer> OnPlayerDisconnected;
@@ -29,7 +32,7 @@ namespace Multiplayer.Client.Api
         #region Client Properties
         public byte PlayerId => client.PlayerId;
         public IReadOnlyCollection<IPlayer> Players => client.ClientPlayerWrappers;
-        public int PlayerCount => client.ClientPlayerManager.Players.Count + 1; // add 1 for local player
+        public int PlayerCount => (NetworkLifecycle.Instance.Avatars?.Players.Count ?? 0) + 1; // add 1 for local player
 
         public IPlayer GetPlayer(byte playerId)
         {
@@ -69,14 +72,15 @@ namespace Multiplayer.Client.Api
         {
             this.client = clientInstance;
 
-            client.ClientPlayerManager.OnPlayerConnected += OnPlayerConnectedInternal;
-            client.ClientPlayerManager.OnPlayerDisconnected += OnPlayerDisconnectedInternal;
+            avatars = NetworkLifecycle.Instance.Avatars;
+            avatars.OnPlayerConnected += OnPlayerConnectedInternal;
+            avatars.OnPlayerDisconnected += OnPlayerDisconnectedInternal;
         }
 
         internal void Dispose()
         {
-            client.ClientPlayerManager.OnPlayerConnected -= OnPlayerConnectedInternal;
-            client.ClientPlayerManager.OnPlayerDisconnected -= OnPlayerDisconnectedInternal;
+            avatars.OnPlayerConnected -= OnPlayerConnectedInternal;
+            avatars.OnPlayerDisconnected -= OnPlayerDisconnectedInternal;
         }
 
         private void OnPlayerConnectedInternal(global::Multiplayer.Shared.Players.NetworkedPlayer networkedPlayer)

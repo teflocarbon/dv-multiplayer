@@ -152,23 +152,24 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     public string CrewName { get; private set; }
     public string DisplayName => string.IsNullOrEmpty(CrewName) ? Username : $"[{CrewName}] {Username}";
 
-    public readonly ClientPlayerManager ClientPlayerManager;
-    IReadOnlyCollection<NetworkedPlayer> ILocalPlayerSession.RemotePlayers => ClientPlayerManager.Players;
-    bool ILocalPlayerSession.TryGetRemotePlayer(byte playerId, out NetworkedPlayer player) => ClientPlayerManager.TryGetPlayer(playerId, out player);
+    // The other players' avatars, which this client fills from the server's packets.
+    private static PlayerAvatars Avatars => NetworkLifecycle.Instance.Avatars;
+    IReadOnlyCollection<NetworkedPlayer> ILocalPlayerSession.RemotePlayers => Avatars.Players;
+    bool ILocalPlayerSession.TryGetRemotePlayer(byte playerId, out NetworkedPlayer player) => Avatars.TryGetPlayer(playerId, out player);
     event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerConnected
     {
-        add => ClientPlayerManager.OnPlayerConnected += value;
-        remove => ClientPlayerManager.OnPlayerConnected -= value;
+        add => Avatars.OnPlayerConnected += value;
+        remove => Avatars.OnPlayerConnected -= value;
     }
     event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerDisconnected
     {
-        add => ClientPlayerManager.OnPlayerDisconnected += value;
-        remove => ClientPlayerManager.OnPlayerDisconnected -= value;
+        add => Avatars.OnPlayerDisconnected += value;
+        remove => Avatars.OnPlayerDisconnected -= value;
     }
     event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerPrefsUpdated
     {
-        add => ClientPlayerManager.OnPlayerPrefsUpdated += value;
-        remove => ClientPlayerManager.OnPlayerPrefsUpdated -= value;
+        add => Avatars.OnPlayerPrefsUpdated += value;
+        remove => Avatars.OnPlayerPrefsUpdated -= value;
     }
     public readonly Dictionary<byte, ClientPlayerWrapper> PlayerWrapperCache = [];
     public IReadOnlyCollection<ClientPlayerWrapper> ClientPlayerWrappers => PlayerWrapperCache.Values;
@@ -215,11 +216,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         Log($"Client created for {(singlePlayer ? "single player" : "multiplayer")} game");
         isSinglePlayer = singlePlayer;
-        ClientPlayerManager = new ClientPlayerManager();
-
-        // A static method, so re-subscribing on every new client replaces instead of piling up.
-        WorldStreamingInit.LoadingFinished -= NetworkedPlayer.CaptureItemAnchorOffset;
-        WorldStreamingInit.LoadingFinished += NetworkedPlayer.CaptureItemAnchorOffset;
 
         // A dedicated host's own client is a service identity, not the install's player.
         Username = NetworkLifecycle.Instance.IsDedicatedHost ? DedicatedHost.ServiceName : Multiplayer.Settings.GetUserName();
@@ -857,9 +853,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
         Log($"Received player joined packet for player id: {packet.PlayerId}, username: {packet.Username}");
-        ClientPlayerManager.AddPlayer(packet.PlayerId, packet.Username, packet.CrewName, packet.CharacterId, packet.IsVR);
+        Avatars.AddPlayer(packet.PlayerId, packet.Username, packet.CrewName, packet.CharacterId, packet.IsVR);
 
-        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
+        Avatars.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
     //For other player left the game
@@ -867,7 +863,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
         Log($"Received player disconnect packet for player id: {packet.PlayerId}");
-        ClientPlayerManager.RemovePlayer(packet.PlayerId);
+        Avatars.RemovePlayer(packet.PlayerId);
     }
 
     //For server shutting down / player kicked
@@ -888,7 +884,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     private void OnClientboundPlayerPositionPacket(ClientboundPlayerPositionPacket packet)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
-        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
+        Avatars.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
     private void OnClientboundPlayerPreferencesUpdatePacket(ClientboundPlayerPreferencesUpdatePacket packet)
@@ -901,12 +897,12 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
                 CrewName = crewName;
         }
 
-        ClientPlayerManager.UpdatePreferences(packet.PlayerId, packet.GetPreferencesDictionary());
+        Avatars.UpdatePreferences(packet.PlayerId, packet.GetPreferencesDictionary());
     }
 
     private void OnClientboundPingUpdatePacket(ClientboundPingUpdatePacket packet)
     {
-        ClientPlayerManager.UpdatePing(packet.PlayerId, packet.Ping);
+        Avatars.UpdatePing(packet.PlayerId, packet.Ping);
     }
 
     private void OnClientboundTickSyncPacket(ClientboundTickSyncPacket packet)
@@ -958,39 +954,13 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     private void OnClientboundRemoveLoadingScreen(ClientboundRemoveLoadingScreenPacket packet)
     {
         Log("World sync finished, removing loading screen");
-
-        DisplayLoadingInfo displayLoadingInfo = Object.FindObjectOfType<DisplayLoadingInfo>();
-        if (displayLoadingInfo != null)
-            displayLoadingInfo.OnLoadingFinished();
-        else
-            LogWarning($"Received {nameof(ClientboundRemoveLoadingScreenPacket)} but couldn't find {nameof(DisplayLoadingInfo)}");
-
-        // Only FinishLoading() leaves loading mode. Without it a VR player is left in the world (the
-        // VR loading overlay closes by itself at 100%) with the hand controllers switched off, their
-        // own controllers showing and no teleport (#72).
-        if (LoadingScreenManager.IsLoading)
-        {
-            LogWarning("Still in loading mode after removing the loading screen, finishing it");
-            LoadingScreenManager.Instance.FinishLoading();
-        }
+        LoadingScreen.Finish();
 
         // Starting items this game made itself are only this game's until the server adopts them.
         if (!isAlsoHost)
             ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
 
-        //if not single player, add in chat (nobody reads it on a dedicated host, and building it
-        //pauses the game)
-        if (!isSinglePlayer && !NetworkLifecycle.Instance.IsDedicatedHost)
-        {
-            GameObject common = GameObject.Find("[MAIN]/[GameUI]/[NewCanvasController]/Auxiliary Canvas, EventSystem, Input Module");
-            if (common != null)
-            {
-                //
-                GameObject chat = new("Chat GUI", typeof(ChatGUI));
-                chat.transform.SetParent(common.transform, false);
-                chatGUI = chat.GetComponent<ChatGUI>();
-            }
-        }
+        chatGUI = ChatGUI.Create(isSinglePlayer);
     }
 
     private void OnCommonChatPacket(CommonChatPacket packet)

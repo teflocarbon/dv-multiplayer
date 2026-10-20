@@ -25,7 +25,7 @@ public class NetworkStatsGui : MonoBehaviour
     public void Show(NetStatistics clientStats, NetStatistics serverStats)
     {
         this.clientStats = clientStats;
-        clientStats.Reset();
+        clientStats?.Reset();
         this.serverStats = serverStats;
         serverStats?.Reset();
         updateCoro = StartCoroutine(UpdateStats());
@@ -43,10 +43,10 @@ public class NetworkStatsGui : MonoBehaviour
     {
         while (true)
         {
-            bytesReceivedPerSecond = serverStats != null ? serverStats.BytesReceived - clientStats.BytesSent : clientStats.BytesReceived;
-            bytesSentPerSecond = serverStats != null ? serverStats.BytesSent - clientStats.BytesReceived : clientStats.BytesReceived;
-            packetsReceivedPerSecond = serverStats != null ? serverStats.PacketsReceived - clientStats.PacketsSent : clientStats.PacketsReceived;
-            packetsSentPerSecond = serverStats != null ? serverStats.PacketsSent - clientStats.PacketsReceived : clientStats.PacketsReceived;
+            bytesReceivedPerSecond = serverStats != null ? serverStats.BytesReceived - (clientStats?.BytesSent ?? 0) : clientStats.BytesReceived;
+            bytesSentPerSecond = serverStats != null ? serverStats.BytesSent - (clientStats?.BytesReceived ?? 0) : clientStats.BytesReceived;
+            packetsReceivedPerSecond = serverStats != null ? serverStats.PacketsReceived - (clientStats?.PacketsSent ?? 0) : clientStats.PacketsReceived;
+            packetsSentPerSecond = serverStats != null ? serverStats.PacketsSent - (clientStats?.PacketsReceived ?? 0) : clientStats.PacketsReceived;
             //packetsWrittenByType = serverStats?.PacketsWrittenByType; //disabled for steamnetworking
             //bytesWrittenByType = serverStats?.BytesWrittenByType;     //disabled for steamnetworking
             serverStats?.Reset();

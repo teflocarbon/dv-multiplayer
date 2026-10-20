@@ -20,7 +20,7 @@ public static class GlobalShopControllerClientPatch
         Shop shop, int amountBought)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsClientRunning || lifecycle.IsHost() || boughtItemSpec == null)
+        if (lifecycle == null || !NetworkRole.IsRemoteClient || boughtItemSpec == null)
             return true;
 
         NetworkClient.Instance?.SendShopPurchase(__instance.globalShopList.IndexOf(shop), boughtItemSpec.ItemPrefabName,
@@ -38,6 +38,6 @@ public static class GlobalShopControllerClientPatch
     private static bool Restock()
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        return lifecycle == null || !lifecycle.IsClientRunning || lifecycle.IsHost();
+        return lifecycle == null || !NetworkRole.IsRemoteClient;
     }
 }

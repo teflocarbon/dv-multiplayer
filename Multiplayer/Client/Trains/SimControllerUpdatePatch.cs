@@ -19,7 +19,7 @@ public static class SimControllerUpdatePatch
     private static void Prefix(SimController __instance)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsClientRunning || lifecycle.IsHost())
+        if (lifecycle == null || !NetworkRole.IsRemoteClient)
             return;
         // As SimController.Update: nothing moves while time stands still.
         if (!TimeUtil.IsFlowing || SingletonBehaviour<PausePhysicsHandler>.Instance.PhysicsHandlingInProcess)

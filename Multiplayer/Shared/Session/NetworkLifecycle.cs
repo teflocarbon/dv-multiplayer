@@ -1,4 +1,5 @@
 using DV.Utils;
+using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Utils;
 using System.Collections.Generic;
 using System.Collections;
@@ -33,7 +34,22 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     private NetworkManager client;
 
     public bool IsServerRunning => server?.IsRunning ?? false;
+
+    /// <summary>
+    ///     A <c>NetworkClient</c> runs here: a remote client, or (until host-local-session stage 3)
+    ///     the host's loopback client. Not "multiplayer is on" (<see cref="IsSessionRunning"/>) nor
+    ///     "someone plays here" (<see cref="NetworkRole.HasLocalPlayer"/>, <see cref="LocalSession"/>).
+    /// </summary>
     public bool IsClientRunning => client?.IsRunning ?? false;
+
+    /// <summary>Multiplayer is on in this game: it runs a server, a client, or both.</summary>
+    public bool IsSessionRunning => IsServerRunning || IsClientRunning;
+
+    /// <summary>
+    ///     The other players' avatars in this game's world; null when no session runs. A dedicated
+    ///     host has them too. Attached by the session root.
+    /// </summary>
+    public PlayerAvatars Avatars { get; private set; }
 
     /// <summary>
     ///     True while this game applies another player's change: the client handling a received
@@ -104,6 +120,12 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     {
         server = manager;
         LocalServer = local;
+    }
+
+    /// <summary>The session root attaches the avatar registry when a session starts (null when it ends).</summary>
+    internal void AttachAvatars(PlayerAvatars avatars)
+    {
+        Avatars = avatars;
     }
 
     /// <summary>The session root attaches the client it started (null when it stops it).</summary>
