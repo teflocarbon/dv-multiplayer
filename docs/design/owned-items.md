@@ -419,10 +419,14 @@ as far away:
   the clients' projections retire (unchanged).
 - **Reasons** (`LostItemReason`, byte, on the wire: append, never reorder):
   - kept: `OwnerDistance` (now also for offline owners) and `ContainerCleared` (car deleted);
-  - used for the first time: `GadgetDestinationMissing` (gadget PR 1), `PurchasedDeliveryFallback`
-    (a purchase born straight into its owner's Lost and Found, because the owner is more than 200 m
-    away or offline when it comes due, [shops.md](shops.md#owned-items)), `SaveRecovery` (migration and load
-    reconciliation), and `InventoryOverflow` (a possession or issued essential with no free slot);
+  - used for the first time:
+    - `GadgetDestinationMissing`: an installed gadget whose car is gone at load. Gadget PR 1 leaves
+      it on vanilla's path, and owned-items PR 3 routes it.
+    - `PurchasedDeliveryFallback`: a purchase born straight into its owner's Lost and Found, because
+      the owner is more than 200 m away or offline when it comes due
+      ([shops.md](shops.md#owned-items)).
+    - `SaveRecovery`: migration and load reconciliation.
+    - `InventoryOverflow`: a possession or issued essential with no free slot.
   - new: `BorrowerLeft` and `RetrievedByOwner`.
 - **Job papers** stay outside the ledger. A lost booklet goes to the Lost and Found of the player it
   was issued to: the issue moves from a number (`NetworkedJob.cs:102-113`) to an identity. The job
@@ -639,6 +643,9 @@ the identity, and Unbind/Rebind go (see [What goes away](#joining-and-rejoining)
 - Offline counts as far, with the wider placements for offline owners. A borrower leaving sends
   items to their owner's Lost and Found. The new reasons. The departing player's hand item goes into
   their inventory.
+- An installed gadget whose car is missing at load goes to its owner's Lost and Found
+  (`GadgetDestinationMissing`), online or not, instead of down vanilla's path (left here by gadget
+  PR 1, #281). `gadget-save` gains the check.
 - Scenario **`offline-lost-and-found`** (both hosts):
   1. With the policy tightened, the host places items owned by a made-up identity: one in the world,
      one in a car's interior, one on a car's end.
