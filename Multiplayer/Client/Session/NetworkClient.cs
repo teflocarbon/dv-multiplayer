@@ -26,7 +26,6 @@ using Multiplayer.Client.Players;
 using Multiplayer.Client.Trains;
 using Multiplayer.Client.UI;
 using Multiplayer.Client.World;
-using Multiplayer.Menus.MainMenu;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -250,7 +249,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
             SteamId = ticket.Length > 0 ? steamId : 0,
             AuthTicket = ticket,
             Password = password,
-            BuildVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
+            BuildVersion = FrontEnd.BuildVersion,
             Mods = ModCompatibilityManager.Instance.GetLocalMods(),
             CharacterId = Multiplayer.Settings.CharacterId,
             IsVR = VRManager.IsVREnabled()
@@ -655,18 +654,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
 
         TrainStress.globalIgnoreStressCalculation = false;
 
-        if (MainMenuThingsAndStuff.Instance != null)
-        {
-            //MainMenuThingsAndStuff.Instance.SwitchToDefaultMenu();
-            LogDebug(() => $"OnPeerDisconnected() queuing GoBackToMainMenu via NetworkLifecycle");
-            NetworkLifecycle.Instance.TriggerMainMenuEventLater();
-        }
-        else
-        {
-            LogDebug(() => $"OnPeerDisconnected() {nameof(MainMenuThingsAndStuff.Instance)} is null, calling GoBackToMainMenu directly");
-            MainMenu.GoBackToMainMenu();
-            NetworkLifecycle.Instance.TriggerMainMenuEventLater();
-        }
+        FrontEnd.ReturnToMainMenu();
 
         LogDebug(() => $"OnPeerDisconnected() calling onDisconnect({disconnectReason}, {disconnectMessage})");
         InvokeOnDisconnect(disconnectReason, disconnectMessage);

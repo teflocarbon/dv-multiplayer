@@ -322,4 +322,10 @@ Steps 2-3 are mechanical and change no behaviour; the regression gate on one pai
 
   Each area then shrinks its own lines of the allow-list, one PR at a time into that branch, which
   merges into `beta` when a full gate run and a playtest look good.
+- **The allow-list is empty** (2026-10-20, on `split/stage-3`). The last lines went with the server
+  browser's contract (`ServerVisibility`, `IServerBrowserGameDetails`) moving to `Shared/Protocol/Data`,
+  the joiner's save packet built in `Server/Career/SaveGameDataPacketBuilder`, the RPC response
+  type table in `Shared/Protocol/Data/RPCs/RpcResponseTypes`, and the build version and back-to-menu
+  handed to the roles through `Shared/Session/FrontEnd` (the mod root fills it from the menus at
+  load). Any new cross-role reference now fails the build.
 - Step 5: not started.

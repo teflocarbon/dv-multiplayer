@@ -3,8 +3,6 @@ using DV.Common;
 using DV.UI;
 using DV.UI.PresetEditors;
 using DV.UserManagement;
-using Multiplayer.Menus.MainMenu;
-using Multiplayer.Menus.ServerBrowser;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
@@ -318,7 +316,7 @@ public static class DedicatedHost
             CurrentPlayers = 0,
             MaxPlayers = Multiplayer.Settings.MaxPlayers,
             RequiredMods = ModCompatibilityManager.Instance.GetLocalMods(),
-            GameVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
+            GameVersion = FrontEnd.BuildVersion,
             MultiplayerVersion = Multiplayer.Ver,
             ServerDetails = Multiplayer.Settings.Details,
         };

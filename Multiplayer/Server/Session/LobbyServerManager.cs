@@ -2,7 +2,6 @@ using DV.Platform.Steam;
 using DV.WeatherSystem;
 using LiteNetLib.Utils;
 using LiteNetLib;
-using Multiplayer.Menus.ServerBrowser;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Packets.Unconnected;
 using Multiplayer.Shared.Session;

@@ -17,8 +17,8 @@ using LiteNetLib;
 using LiteNetLib.Utils;
 using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
-using Multiplayer.Menus.MainMenu;
 using Multiplayer.Server.Api;
+using Multiplayer.Server.Career;
 using Multiplayer.Server.Chat;
 using Multiplayer.Server.Coverage;
 using Multiplayer.Server.Dedicated;
@@ -337,7 +337,7 @@ public partial class NetworkServer : NetworkManager
         gameParamsPacket.FastTravelAdvancesTime = fastTravelAdvancesTime;
 
         SendPacket(peer, gameParamsPacket, DeliveryMethod.ReliableOrdered);
-        SendPacket(peer, ClientboundSaveGameDataPacket.CreatePacket(player), DeliveryMethod.ReliableOrdered);
+        SendPacket(peer, SaveGameDataPacketBuilder.Create(player), DeliveryMethod.ReliableOrdered);
     }
 
     private void OnLoaded()
@@ -825,13 +825,13 @@ public partial class NetworkServer : NetworkManager
             return;
         }
 
-        if (packet.BuildVersion != MainMenuControllerPatch.MenuProvider.BuildVersionString)
+        if (packet.BuildVersion != FrontEnd.BuildVersion)
         {
-            LogWarning($"Denied login to incorrect game version! Got: {packet.BuildVersion}, expected: {MainMenuControllerPatch.MenuProvider.BuildVersionString}");
+            LogWarning($"Denied login to incorrect game version! Got: {packet.BuildVersion}, expected: {FrontEnd.BuildVersion}");
             ClientboundLoginResponsePacket denyPacket = new()
             {
                 ReasonKey = Locale.DISCONN_REASON__GAME_VERSION_KEY,
-                ReasonArgs = [MainMenuControllerPatch.MenuProvider.BuildVersionString, packet.BuildVersion.ToString()]
+                ReasonArgs = [FrontEnd.BuildVersion, packet.BuildVersion.ToString()]
             };
             request.Reject(WritePacket(denyPacket));
             return;

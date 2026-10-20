@@ -1,9 +1,9 @@
 using DV.UI;
 using HarmonyLib;
-using Multiplayer.Menus.MainMenu;
+using Multiplayer.Server.Dedicated;
 using Multiplayer.Shared.Session;
 
-namespace Multiplayer.Server.Dedicated;
+namespace Multiplayer.Menus.MainMenu;
 
 /// <summary>
 /// Refuses to start a save whose career a dedicated host on this PC has open (DedicatedHostSaveLock),

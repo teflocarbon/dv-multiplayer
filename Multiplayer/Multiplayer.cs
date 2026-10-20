@@ -151,6 +151,10 @@ public static class Multiplayer
             _apiProvider = new APIProvider();
             MultiplayerAPI.RegisterAPI(_apiProvider);
 
+            // What the server and the client need from the menus, which they may not name.
+            FrontEnd.Attach(() => MainMenuControllerPatch.MenuProvider.BuildVersionString,
+                MainMenuThingsAndStuff.ReturnToMainMenu);
+
 #if DEBUG
             CheckPatches();
 #endif
