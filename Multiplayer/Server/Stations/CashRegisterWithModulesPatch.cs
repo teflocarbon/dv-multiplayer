@@ -2,6 +2,7 @@ using DV.CashRegister;
 using HarmonyLib;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Utils;
 using Multiplayer.Server.Session;
@@ -24,13 +25,18 @@ public class CashRegisterWithModulesPatch
         __instance?.SetupListeners(false);
 
         // Prevent clients from cancelling/returning cash on cash registers when loading the game or leaving the area
-        return NetworkLifecycle.Instance.IsHost();
+        // A shop register is the server's (Server/Shops/ServerShops): no game cancels it or returns its cash.
+        return NetworkLifecycle.Instance.IsHost() && !ShopRegisters.IsServerOwnedShop(__instance);
     }
 
     [HarmonyPrefix]
     [HarmonyPatch(nameof(CashRegisterWithModules.OnBuyPressed))]
     private static bool OnBuyPressed(CashRegisterWithModules __instance)
     {
+        // A shop register's Buy is a request to the server (Client/Shops/ShopRegisterPatches).
+        if (ShopRegisters.IsServerOwnedShop(__instance))
+            return true;
+
         var player = PlayerManager.PlayerTransform.position;
         var reg = __instance.transform.position;
         var sqrMag = (player - reg).sqrMagnitude;
@@ -47,9 +53,6 @@ public class CashRegisterWithModulesPatch
             Multiplayer.LogWarning($"CashRegisterWithModules.OnBuyPressed({__instance.GetObjectPath()}) NetworkedCashRegisterWithModules not found!");
             return false;
         }
-
-        if (netCashRegister.IsShopRegister)
-            return true;
 
         CoroutineManager.Instance.StartCoroutine(netCashRegister.Buy());
 
@@ -74,6 +77,8 @@ public class CashRegisterWithModulesPatch
     [HarmonyPatch(nameof(CashRegisterWithModules.OnBuyPressed))]
     private static void OnBuyPressed_Postfix(CashRegisterWithModules __instance)
     {
+        if (ShopRegisters.IsServerOwnedShop(__instance))
+            return;
         if (!NetworkLifecycle.Instance.IsHost())
             return;
 
@@ -89,11 +94,6 @@ public class CashRegisterWithModulesPatch
             return;
         }
 
-        // Shop registers run separately on each game (purchases go through the host as their own
-        // request); replaying the host's buy reset a client's basket and cash at the same shop.
-        if (netCashRegister.IsShopRegister)
-            return;
-
         // Send buy action to all clients
         NetworkServer.Instance.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
         {
@@ -107,6 +107,8 @@ public class CashRegisterWithModulesPatch
     [HarmonyPatch(nameof(CashRegisterWithModules.Cancel))]
     private static bool Cancel(CashRegisterWithModules __instance)
     {
+        if (ShopRegisters.IsServerOwnedShop(__instance))
+            return true;
 
         //Multiplayer.LogDebug(()=>$"CashRegisterWithModules.Cancel({__instance.GetObjectPath()})\r\n{Environment.StackTrace}");
 
@@ -119,9 +121,6 @@ public class CashRegisterWithModulesPatch
             return false;
         }
 
-        if (netCashRegister.IsShopRegister)
-            return true;
-
         CoroutineManager.Instance.StartCoroutine(netCashRegister.Cancel());
 
         return false;
@@ -131,6 +130,8 @@ public class CashRegisterWithModulesPatch
     [HarmonyPatch(nameof(CashRegisterWithModules.Cancel))]
     private static void Cancel_Postfix(CashRegisterWithModules __instance)
     {
+        if (ShopRegisters.IsServerOwnedShop(__instance))
+            return;
         //Multiplayer.LogWarning($"CashRegisterWithModules.Cancel_Postfix({__instance.GetObjectPath()})");
         if (!NetworkLifecycle.Instance.IsHost())
             return;
@@ -140,9 +141,6 @@ public class CashRegisterWithModulesPatch
             Multiplayer.LogWarning($"CashRegisterWithModules.Cancel_Postfix({__instance.GetObjectPath()}) NetworkedCashRegisterWithModules not found!");
             return;
         }
-
-        if (netCashRegister.IsShopRegister)
-            return;
 
         // Send cancel action to all clients
         NetworkServer.Instance.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket

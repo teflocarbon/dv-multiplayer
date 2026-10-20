@@ -130,8 +130,6 @@ public class ServerPlayer : IDisposable
     public Dictionary<NetworkedItem, uint> KnownItems { get; private set; } = new Dictionary<NetworkedItem, uint>(); //NetworkedItem, last updated tick
     public Dictionary<NetworkedItem, float> NearbyItems { get; private set; } = new Dictionary<NetworkedItem, float>(); //NetworkedItem, time since near the item
     public HashSet<ushort> OwnedItems { get; private set; } = new HashSet<ushort>();
-    // Cash this player has paid into shop registers and not yet had back or spent (host only).
-    public double ShopCashInRegisters { get; set; }
     public HashSet<ushort> AcknowledgedWorldItems { get; } = new HashSet<ushort>();
     // Items this player failed to project: when the host may send their Create again.
     internal Dictionary<ushort, float> ProjectionRetryAt { get; } = new Dictionary<ushort, float>();

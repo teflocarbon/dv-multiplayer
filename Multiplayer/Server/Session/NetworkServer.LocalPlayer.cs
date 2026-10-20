@@ -74,6 +74,7 @@ public partial class NetworkServer : ILocalServer
     partial void RegisterLocalItems();
     partial void RegisterLocalWorld();
     partial void RegisterLocalStations();
+    partial void RegisterLocalShops();
     partial void RegisterLocalJobs();
     partial void RegisterLocalCareer();
     partial void RegisterLocalSession();
@@ -84,6 +85,7 @@ public partial class NetworkServer : ILocalServer
         RegisterLocalItems();
         RegisterLocalWorld();
         RegisterLocalStations();
+        RegisterLocalShops();
         RegisterLocalJobs();
         RegisterLocalCareer();
         RegisterLocalSession();

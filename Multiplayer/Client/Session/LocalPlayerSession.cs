@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LiteNetLib.Utils;
 using Multiplayer.Client.Api;
+using Multiplayer.Client.Shops;
 using Multiplayer.Client.UI;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data.Player;
@@ -70,6 +71,7 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
         RegisterItems();
         RegisterWorld();
         RegisterStations();
+        RegisterShops();
         RegisterJobs();
         RegisterCareer();
         RegisterPlayers();
@@ -82,6 +84,7 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
     partial void RegisterItems();
     partial void RegisterWorld();
     partial void RegisterStations();
+    partial void RegisterShops();
     partial void RegisterJobs();
     partial void RegisterCareer();
     partial void RegisterPlayers();
@@ -96,6 +99,8 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
     public void Stop()
     {
         Settings.OnSettingsUpdated -= OnSettingsUpdated;
+        ShopRegisterView.Reset();
+        ShopRegisterPatches.Reset();
         Peer.Close();
     }
 

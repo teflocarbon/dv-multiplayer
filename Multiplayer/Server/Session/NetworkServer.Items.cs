@@ -444,13 +444,25 @@ public partial class NetworkServer : IItemServer
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
             return;
 
-        // Already spent (e.g. two players grabbed the same note): the client's local copy is gone
-        // and the next money broadcast corrects its wallet, so there is nothing to do.
-        if (!NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) || item == null ||
+        if (!TrySpendMoneyItem(player, packet.ItemNetId, "into the wallet", out double amount))
+            return;
+        if (amount > double.Epsilon)
+            Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
+    }
+
+    /// <summary>
+    /// Spends a banknote or coin <paramref name="player"/> may spend: all its value, and the item
+    /// goes. False if it isn't live money (already spent: two players grabbed the same note), or it's
+    /// in Lost and Found, a container, or another player's hands or inventory.
+    /// </summary>
+    internal bool TrySpendMoneyItem(ServerPlayer player, ushort netId, string where, out double amount)
+    {
+        amount = 0;
+        if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null ||
             !item.TryGetComponent(out IMoney money) || !money.ShouldDestroyOnUse)
         {
-            LogDebug(() => $"Money deposit from P{player.PlayerId} ignored: netId {packet.ItemNetId} is not live money");
-            return;
+            LogDebug(() => $"Money from P{player.PlayerId} ignored: netId {netId} is not live money");
+            return false;
         }
 
         if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
@@ -458,17 +470,16 @@ public partial class NetworkServer : IItemServer
              record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
              record.PlacementPlayerId != player.PlayerId))
         {
-            LogWarning($"Money deposit from P{player.PlayerId} rejected: netId {item.NetId} is {record.Placement} " +
+            LogWarning($"Money from P{player.PlayerId} rejected: netId {item.NetId} is {record.Placement} " +
                 $"(player {record.PlacementPlayerId})");
-            return;
+            return false;
         }
 
-        double amount = money.TrySpend(money.Amount);
-        Log($"P{player.PlayerId} deposited ${amount:N2} from money item {item.NetId}");
-        if (amount > double.Epsilon)
-            Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
-        item.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.MoneyDeposited, player, $"${amount:N2}"));
+        amount = money.TrySpend(money.Amount);
+        Log($"P{player.PlayerId} spent ${amount:N2} from money item {item.NetId} {where}");
+        item.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.MoneyDeposited, player, $"${amount:N2} {where}"));
         UnityEngine.Object.Destroy(item.gameObject); // NetworkedItem.OnDestroy replicates the destroy
+        return true;
     }
 
     private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)

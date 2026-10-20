@@ -153,22 +153,6 @@ public partial class NetworkClient : IStationsClient
         SendNetSerializablePacketToServer(packet, DeliveryMethod.ReliableOrdered);
     }
 
-    public void SendShopPurchase(int shopIndex, string itemPrefabName, int amount)
-    {
-        SendPacketToServer(new ServerboundShopPurchasePacket
-        {
-            ShopIndex = shopIndex,
-            ItemPrefabName = itemPrefabName,
-            Amount = amount
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void SendShopPayment(double amount)
-    {
-        SendPacketToServer(new ServerboundShopPaymentPacket { Amount = amount },
-            DeliveryMethod.ReliableOrdered);
-    }
-
     public void SendCashRegisterAction(ushort netId, CashRegisterAction action, double amount = 0.0f)
     {
         SendPacketToServer(
