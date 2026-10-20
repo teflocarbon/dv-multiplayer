@@ -43,6 +43,16 @@ dotnet build Multiplayer/Multiplayer.csproj -c Debug "-p:DvInstallDir=$DVMP_DV_D
 dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug "-p:DvInstallDir=$DVMP_DV_DIR"
 ```
 
+Windows Firewall keys its rules on the program path, so every install's copied `DerailValley.exe`
+shows a "Windows Defender Firewall has blocked some features" prompt on its first launch. Run as
+admin, the script adds an inbound allow rule for that exe (Private networks, named
+`Derail Valley test (<install folder>)`), first removing any Block rules a Cancel on the prompt left;
+running it again adds nothing new. Not run as admin, it prints the `New-NetFirewallRule` command to
+paste into an admin PowerShell instead. `-FirewallOnly` adds or repairs the rule for every
+`%LOCALAPPDATA%\dvmp\test-install*` install without touching anything else. Pairs on one PC don't
+need the rule (they connect over loopback, so Cancel is harmless), but a cloud or remote pair
+connecting to a game on this PC does.
+
 dvmp only reuses and quits games it launched (their `-dvmp-role` argument) from the install it is
 pointed at. A game you start yourself, or one running from another folder (your own play, a
 server for something else), is never taken over or shut down, even by `down --all`.
