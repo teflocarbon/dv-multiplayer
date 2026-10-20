@@ -136,7 +136,7 @@ namespace Dvmp.Scenarios
                 Rigidbody body = item.Item.ItemRigidbody;
                 if (body != null) { body.isKinematic = true; body.position = under; }
                 item.transform.position = under;
-                var server = NetworkLifecycle.Instance.Server;
+                var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 int sent = 0;
                 foreach (var player in server.ServerPlayers)
                 {

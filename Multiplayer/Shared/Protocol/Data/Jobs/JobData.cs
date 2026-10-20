@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Shared.Protocol.Data.Jobs;
 
@@ -91,7 +92,7 @@ public class JobData
 
     public static void Serialize(NetDataWriter writer, JobData data)
     {
-        //NetworkLifecycle.Instance.Server.Log($"JobData.Serialize({data.ID}) NetID {data.NetID}");
+        //NetworkServer.Instance.Log($"JobData.Serialize({data.ID}) NetID {data.NetID}");
 
         writer.Put(data.NetID);
         writer.Put((byte)data.JobType);

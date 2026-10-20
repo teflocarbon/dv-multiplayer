@@ -69,7 +69,7 @@ public sealed class DedicatedHostAnchor : MonoBehaviour
 
         if (followed == null || !IsFollowable(followed))
         {
-            ServerPlayer next = NetworkLifecycle.Instance.Server.GameplayPlayers
+            ServerPlayer next = NetworkServer.Instance.GameplayPlayers
                 .Where(IsFollowable)
                 .OrderBy(player => player.LastLogin)
                 .FirstOrDefault();
@@ -87,5 +87,5 @@ public sealed class DedicatedHostAnchor : MonoBehaviour
     // Connected, loaded, and has sent a position (until then it would read as the world origin).
     private static bool IsFollowable(ServerPlayer player) =>
         player != null && player.LoadingState == PlayerLoadingState.Complete && player.TrackingData.Position.HasValue &&
-        NetworkLifecycle.Instance.Server.TryGetServerPlayer(player.Peer, out ServerPlayer current) && current == player;
+        NetworkServer.Instance.TryGetServerPlayer(player.Peer, out ServerPlayer current) && current == player;
 }

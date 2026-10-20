@@ -28,7 +28,7 @@ internal sealed partial class ServerItemManager
             return;
         nextConvergenceAt = Time.unscaledTime + ConvergenceIntervalSeconds;
 
-        var server = NetworkLifecycle.Instance.Server;
+        var server = NetworkServer.Instance;
         foreach (ServerPlayer player in server.ServerPlayers)
         {
             if (player.Peer == server.SelfPeer || player.LoadingState < PlayerLoadingState.Complete)

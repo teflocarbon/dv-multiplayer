@@ -6,7 +6,7 @@ var ntc = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>();
 var c = car.loadedInterior.GetComponentsInChildren<DV.CabControls.ControlImplBase>(true).First(x => x.name == ctx.Args["control"]);
 var port = c.GetComponent<DV.Simulation.Ports.InteractablePortFeeder>().portId;
 uint netId = Multiplayer.Shared.Trains.NetworkedTrainCar.GetPortNetId(port);
-var local = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server.LocalPlayer;
+var local = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer;
 var owner = Multiplayer.Server.Trains.NetworkedTrainCarServer.Of(ntc).LeaseHolder(netId);
 string holder = owner == null ? "none"
     : owner == local ? "host" : owner.Username;

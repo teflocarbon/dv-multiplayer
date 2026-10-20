@@ -4,6 +4,7 @@ using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Stations;
 
@@ -94,7 +95,7 @@ public class CashRegisterWithModulesPatch
             return;
 
         // Send buy action to all clients
-        NetworkLifecycle.Instance.Server.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
+        NetworkServer.Instance.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
         {
             NetId = netCashRegister.NetId,
             Action = CashRegisterAction.Buy,
@@ -144,7 +145,7 @@ public class CashRegisterWithModulesPatch
             return;
 
         // Send cancel action to all clients
-        NetworkLifecycle.Instance.Server.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
+        NetworkServer.Instance.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
         {
             NetId = netCashRegister.NetId,
             Action = CashRegisterAction.Cancel,

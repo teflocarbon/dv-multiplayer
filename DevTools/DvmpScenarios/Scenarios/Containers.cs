@@ -161,7 +161,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static Browse HostBrowse(ushort box)
             {
-                var host = NetworkLifecycle.Instance.Server.LocalPlayer;
+                var host = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer;
                 AuthoritativeItemRegistry.TryGet(box, out var r);
                 var result = NetworkedColdContainerManager.Browse(host, box, 0, 64, out var view);
                 return new Browse

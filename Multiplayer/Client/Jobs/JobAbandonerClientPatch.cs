@@ -5,6 +5,7 @@ using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Session;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Jobs;
 
@@ -42,7 +43,7 @@ public static class JobAbandoner_ClientPatch
         lastRequestAt[job.NetId] = now;
 
         Multiplayer.Log($"Job overview {job.Job.ID} dropped in the bin; asking for a re-roll");
-        lifecycle.Client.SendJobRerollRequest(job.NetId, item.NetId,
+        NetworkClient.Instance.SendJobRerollRequest(job.NetId, item.NetId,
             __instance.transform.position - WorldMover.currentMove);
     }
 

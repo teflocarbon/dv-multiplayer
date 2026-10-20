@@ -4,6 +4,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -45,7 +46,7 @@ public static class CoalPileTransferCoalPatch
         if (car == null || !NetworkedTrainCar.TryGetFromTrainCar(car, out NetworkedTrainCar networkedCar))
             return;
         // The host passes this straight to the consume port, as the game does after scaling it.
-        lifecycle.Client.SendTenderCoalPileInteraction(networkedCar.NetId,
+        NetworkClient.Instance.SendTenderCoalPileInteraction(networkedCar.NetId,
             coalTaken * Globals.G.GameParams.ResourceConsumptionModifier);
     }
 }

@@ -77,7 +77,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator SpawnStale(Step<Stale> step, string wanted)
             {
-                var server = NetworkLifecycle.Instance.Server;
+                var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
                 var essentials = DV.Globals.G.Items.items.Where(i => i != null && i.IsEssential && !string.IsNullOrEmpty(i.ItemPrefabName)).ToList();
                 int Owned(string prefab) => OwnedItemsSummary.For(client).Count(x => string.Equals(x.Prefab, prefab, StringComparison.OrdinalIgnoreCase));
@@ -104,7 +104,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static ClientPlayer MakeClientAdmin()
             {
-                var server = NetworkLifecycle.Instance.Server;
+                var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
                 var old = SetAdmins(client.Guid.ToString());
                 return new ClientPlayer { Name = client.Username, OldAdmins = old };

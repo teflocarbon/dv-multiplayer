@@ -1,6 +1,7 @@
 using DV;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.World;
 
@@ -12,6 +13,6 @@ public static class GameParams_OnPropertyChanged_Patch
     {
         if (!NetworkLifecycle.Instance.IsHost() || __instance != Globals.G.GameParams)
             return;
-        NetworkLifecycle.Instance.Server.SendGameParams(__instance);
+        NetworkServer.Instance.SendGameParams(__instance);
     }
 }

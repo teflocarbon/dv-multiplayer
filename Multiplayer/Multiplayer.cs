@@ -140,7 +140,7 @@ public static class Multiplayer
 
 
             Log("Creating NetworkManager...");
-            NetworkLifecycle.CreateLifecycle();
+            MultiplayerSession.Create();
 
             DebugRuntime.ApplySettings(Settings);
 

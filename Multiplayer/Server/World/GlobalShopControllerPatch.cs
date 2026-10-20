@@ -1,6 +1,7 @@
 using DV.Shops;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.World;
 
@@ -16,7 +17,7 @@ public static class GlobalShopControllerPatch
     private static void AddItemToInstantiationQueuePostfix()
     {
         if (NetworkLifecycle.Instance?.IsHost() == true)
-            NetworkLifecycle.Instance.Server?.SendShopStock();
+            NetworkServer.Instance?.SendShopStock();
     }
 
     [HarmonyPostfix]
@@ -24,6 +25,6 @@ public static class GlobalShopControllerPatch
     private static void RestockPostfix()
     {
         if (NetworkLifecycle.Instance?.IsHost() == true)
-            NetworkLifecycle.Instance.Server?.SendShopStock();
+            NetworkServer.Instance?.SendShopStock();
     }
 }

@@ -6,6 +6,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -33,7 +34,7 @@ public static class CommsRadioCarDeleterPatch
             return false;
         }
 
-        NetworkLifecycle.Instance.Client.SendTrainDeleteRequest(networkedTrainCar.NetId);
+        NetworkClient.Instance.SendTrainDeleteRequest(networkedTrainCar.NetId);
 
         CoroutineManager.Instance.StartCoroutine(PlaySoundsLater(__instance, __instance.carToDelete.transform.position, __instance.removePrice > 0));
         __instance.ClearFlags();

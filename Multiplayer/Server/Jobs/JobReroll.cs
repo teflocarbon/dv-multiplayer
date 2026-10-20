@@ -94,7 +94,7 @@ public static class JobReroll
             return false;
         if (networked.HasPlayers)
             return true;
-        return NetworkLifecycle.Instance.Server.ServerPlayers.Any(player => player.CarId == networked.NetId);
+        return NetworkServer.Instance.ServerPlayers.Any(player => player.CarId == networked.NetId);
     }
 
     private static void Reroll(NetworkedJob networkedJob, List<TrainCar> cars, ServerPlayer requester)
@@ -158,7 +158,7 @@ public static class JobReroll
         Vector3 velocity = outwards * ThrowOutwards + Vector3.up * ThrowUpwards;
 
         if (!ThrowOutOfBin(item, requester, start, velocity, refusal) ||
-            requester != NetworkLifecycle.Instance.Server.LocalPlayer)
+            requester != NetworkServer.Instance.LocalPlayer)
             yield break;
 
         // The host's own player simulates the flight here. Granting that lease ends the one its drop
@@ -216,7 +216,7 @@ public static class JobReroll
         // interior; moved into the world, it was in no cell until its flight was sampled, so every
         // player's interest dropped it and took it up again created at rest: the throw was lost.
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
-        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
         return true;
     }
 
