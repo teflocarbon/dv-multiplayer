@@ -5,6 +5,7 @@ using System.Linq;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.World;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.World;
 
@@ -97,6 +98,6 @@ public static class HazmatClient
         if (lastIgniteForward.TryGetValue(tile.gridPosition, out float last) && now - last < 1f)
             return;
         lastIgniteForward[tile.gridPosition] = now;
-        NetworkLifecycle.Instance.Client?.SendHazmatIgnite(tile.gridPosition, strength);
+        NetworkClient.Instance?.SendHazmatIgnite(tile.gridPosition, strength);
     }
 }

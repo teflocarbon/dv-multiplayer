@@ -83,7 +83,7 @@ internal static partial class WorldItemPersistenceManager
         if (record.PersistentOwnerIdentity != Guid.Empty)
             return record.PersistentOwnerIdentity;
 
-        return NetworkLifecycle.Instance.Server.ServerPlayers
+        return NetworkServer.Instance.ServerPlayers
                    .FirstOrDefault(player => player.PlayerId == record.PersistentOwnerPlayerId)?.Guid ?? Guid.Empty;
     }
 
@@ -125,7 +125,7 @@ internal static partial class WorldItemPersistenceManager
             return record.PlacementPlayerIdentity;
         if (record.PlacementPlayerId == 0)
             return Guid.Empty;
-        NetworkServer server = NetworkLifecycle.Instance?.Server;
+        NetworkServer server = NetworkServer.Instance;
         ServerPlayer holder = server?.ServerPlayers.FirstOrDefault(player => player.PlayerId == record.PlacementPlayerId);
         return holder == null || holder.IsServiceHost ? Guid.Empty : holder.Guid;
     }

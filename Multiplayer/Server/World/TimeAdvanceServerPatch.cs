@@ -19,7 +19,7 @@ public static class TimeAdvanceServerPatch
 
     private static bool Prefix(float amountOfTimeToSkipInSeconds)
     {
-        NetworkServer server = NetworkLifecycle.Instance.Server;
+        NetworkServer server = NetworkServer.Instance;
         if (server == null || !server.IsRunning)
             return true;
 

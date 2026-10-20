@@ -96,7 +96,7 @@ public class ServerPlayer : IDisposable
                 { PlayerPreference.CrewName, _crewName }
             };
 
-            NetworkLifecycle.Instance.Server.SendPlayerPreferencesUpdate(this, preferences);
+            NetworkServer.Instance.SendPlayerPreferencesUpdate(this, preferences);
         }
     }
 
@@ -239,27 +239,27 @@ public class ServerPlayer : IDisposable
     public void AddOwnedItem(ushort itemNetId)
     {
         OwnedItems.Add(itemNetId);
-        NetworkLifecycle.Instance.Server.LogDebug(() => $"Player {Username} now owns item {itemNetId}");
+        NetworkServer.Instance.LogDebug(() => $"Player {Username} now owns item {itemNetId}");
     }
 
     public void AddOwnedItems(IEnumerable<ushort> itemNetIds)
     {
         OwnedItems.UnionWith(itemNetIds);
-        NetworkLifecycle.Instance.Server.LogDebug(() => $"Player {Username} batch added items: {string.Join(", ", itemNetIds)}");
+        NetworkServer.Instance.LogDebug(() => $"Player {Username} batch added items: {string.Join(", ", itemNetIds)}");
     }
 
     public void RemoveOwnedItem(ushort itemNetId)
     {
         if (OwnedItems.Remove(itemNetId))
         {
-            NetworkLifecycle.Instance.Server.LogDebug(() => $"Player {Username} no longer owns item {itemNetId}");
+            NetworkServer.Instance.LogDebug(() => $"Player {Username} no longer owns item {itemNetId}");
         }
     }
 
     public void ClearOwnedItems()
     {
         OwnedItems.Clear();
-        NetworkLifecycle.Instance.Server.LogDebug(() => $"Cleared all owned items for player {Username}");
+        NetworkServer.Instance.LogDebug(() => $"Cleared all owned items for player {Username}");
     }
 
     public bool TryGetOwnedItem(ushort itemNetId, out NetworkedItem item)

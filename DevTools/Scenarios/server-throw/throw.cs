@@ -4,7 +4,7 @@
 // after it, no velocity set on the new lease. Then watch the host's copy fly.
 // Args: item, loco, actor (host|client).
 ushort id = ushort.Parse(ctx.Args["item"]);
-var server = NetworkLifecycle.Instance.Server;
+var server = Multiplayer.Server.Session.NetworkServer.Instance;
 ServerPlayer actor = ctx.Args["actor"] == "host" ? server.LocalPlayer
     : server.ServerPlayers.First(p => p != server.LocalPlayer);
 var spatial = NetworkedItemManager.Instance.Spatial;

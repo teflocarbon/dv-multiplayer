@@ -13,6 +13,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Dedicated;
 
@@ -87,14 +88,14 @@ public static class DedicatedHost
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (!lifecycle.IsDedicatedHost)
             return;
-        if (lifecycle.Server.GameplayPlayerCount > 0)
+        if (NetworkServer.Instance.GameplayPlayerCount > 0)
             AppUtil.Instance.RemovePauseRequest(emptyServerPause);
         else
             lifecycle.StartCoroutine(SaveAndPauseWhenEmpty(someoneLeft));
     }
 
     /// <summary>Whether the game may pause: only while a dedicated host has nobody online.</summary>
-    public static bool AllowsPause => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.Server.GameplayPlayerCount == 0;
+    public static bool AllowsPause => NetworkLifecycle.Instance.IsDedicatedHost && NetworkServer.Instance.GameplayPlayerCount == 0;
 
     private static IEnumerator SaveAndPauseWhenEmpty(bool save)
     {
@@ -181,7 +182,7 @@ public static class DedicatedHost
             return;
         Stopping = true;
         bool saved = Save(reason);
-        NetworkLifecycle.Instance.Server.ChatManager.ServerMessage(
+        NetworkServer.Instance.ChatManager.ServerMessage(
             saved ? "The server is shutting down; the game is saved." : "The server is shutting down (saving failed).", null);
         Multiplayer.Log($"Dedicated host: stopping ({reason})");
         WriteHeartbeat();
@@ -227,7 +228,7 @@ public static class DedicatedHost
         foreach (string line in lines.Select(line => line.Trim()).Where(line => line.Length > 0))
         {
             Multiplayer.Log($"[Console] > {line}");
-            NetworkLifecycle.Instance.Server?.ChatManager.RunConsoleCommand(line);
+            NetworkServer.Instance?.ChatManager.RunConsoleCommand(line);
         }
     }
 
@@ -245,7 +246,7 @@ public static class DedicatedHost
                 tick = lifecycle.Tick,
                 // Unscaled: while paused the scaled frame time is zero.
                 fps = Math.Round(1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f), 1),
-                players = lifecycle.IsServerRunning ? lifecycle.Server.GameplayPlayers.Select(player => player.Username).ToArray() : new string[0],
+                players = lifecycle.IsServerRunning ? NetworkServer.Instance.GameplayPlayers.Select(player => player.Username).ToArray() : new string[0],
                 paused = AppUtil.Instance.IsTimePaused,
                 stopping = Stopping,
                 lastSave = LastSave?.ToString("o"),
@@ -306,7 +307,7 @@ public static class DedicatedHost
         int port = int.TryParse(Arg("-mp-port"), out int p) ? p : Multiplayer.Settings.Port;
         ServerVisibility visibility = Enum.TryParse(Arg("-mp-visibility"), true, out ServerVisibility v) ? v : Multiplayer.Settings.Visibility;
         string password = Multiplayer.Settings.Password ?? string.Empty;
-        NetworkLifecycle.Instance.serverData = new LobbyServerData
+        MultiplayerSession.Instance.serverData = new LobbyServerData
         {
             port = port,
             Name = string.IsNullOrWhiteSpace(Multiplayer.Settings.ServerName) ? "Dedicated server" : Multiplayer.Settings.ServerName,
@@ -322,7 +323,7 @@ public static class DedicatedHost
             MultiplayerVersion = Multiplayer.Ver,
             ServerDetails = Multiplayer.Settings.Details,
         };
-        NetworkLifecycle.Instance.IsSinglePlayer = false;
+        MultiplayerSession.Instance.IsSinglePlayer = false;
 
         Multiplayer.Log($"Dedicated host: hosting '{save.ParentSession?.Name}/{save.Name}' on port {port} ({visibility})");
         launcher.OnRunClicked();
@@ -364,7 +365,7 @@ public sealed class DedicatedHostMode : MonoBehaviour
         float now = Time.realtimeSinceStartup;
 
         // Timed saves while anyone is online; the last player leaving saves too.
-        if (lifecycle.Server.GameplayPlayerCount == 0 || AppUtil.Instance.IsTimePaused)
+        if (NetworkServer.Instance.GameplayPlayerCount == 0 || AppUtil.Instance.IsTimePaused)
             nextSave = 0f;
         else if (nextSave == 0f)
             nextSave = now + DedicatedHost.AutosaveMinutes * 60f;

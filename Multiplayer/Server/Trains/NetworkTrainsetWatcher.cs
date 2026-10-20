@@ -8,6 +8,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -87,7 +88,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         // IsHost() was only checked in Awake previously. If a player hosted a game,
         // returned to the menu, then joined somebody else, this stale watcher kept
         // trying to publish physics through a null server every tick.
-        if (!NetworkLifecycle.Instance.IsHost() || NetworkLifecycle.Instance.Server == null)
+        if (!NetworkLifecycle.Instance.IsHost() || NetworkServer.Instance == null)
             return;
 
         UpdateSimulationRate();
@@ -258,7 +259,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         }
 
         cachedSendPacket.TrainsetParts = trainsetParts;
-        NetworkLifecycle.Instance.Server.SendTrainsetPhysicsUpdate(cachedSendPacket, anyTracksDirty || justStopped);
+        NetworkServer.Instance.SendTrainsetPhysicsUpdate(cachedSendPacket, anyTracksDirty || justStopped);
     }
     #endregion
 

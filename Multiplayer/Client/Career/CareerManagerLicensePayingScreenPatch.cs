@@ -1,6 +1,7 @@
 using DV.ServicePenalty.UI;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Career;
 
@@ -15,9 +16,9 @@ public static class CareerManagerLicensePayingScreenPatch
             return false;
 
         if (__instance.IsJobLicense)
-            NetworkLifecycle.Instance.Client.SendLicensePurchaseRequest(__instance.jobLicenseToBuy.id, __instance.IsJobLicense);
+            NetworkClient.Instance.SendLicensePurchaseRequest(__instance.jobLicenseToBuy.id, __instance.IsJobLicense);
         else if (__instance.IsGeneralLicense)
-            NetworkLifecycle.Instance.Client.SendLicensePurchaseRequest(__instance.generalLicenseToBuy.id, __instance.IsJobLicense);
+            NetworkClient.Instance.SendLicensePurchaseRequest(__instance.generalLicenseToBuy.id, __instance.IsJobLicense);
 
         __instance.screenSwitcher.SetActiveDisplay(__instance.licensesScreen);
         return false;
