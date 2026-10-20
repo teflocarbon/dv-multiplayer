@@ -801,11 +801,11 @@ public partial class NetworkClient : ITrainClient
             LogWarning($"Cannot send topology {kind}: primary endpoint has no NetId");
             return;
         }
+        // The host's couplings are in the server's world, which observes and commits them itself
+        // (Server/Trains/TopologyObservationPatch, NetworkedTrainCarServer); the patches that call
+        // this send only from a client.
         if (NetworkLifecycle.Instance.IsHost())
-        {
-            NetworkServer.Instance?.CommitObservedTrainTopology();
             return;
-        }
         string signature = $"{(byte)kind}:{primaryNetId}:{primary?.isFrontCoupler == true}:" +
                            $"{secondaryNetId}:{secondary?.isFrontCoupler == true}:" +
                            $"{cascadeHose}:{cascadeMu}:{requestedValue}:{(byte)chainState}";

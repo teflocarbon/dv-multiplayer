@@ -401,9 +401,14 @@ commits, relocations, rerails, cargo, damage, paint, restoration) is dropped by 
 (`HostOwnClient`, see "The host's own client" in [architecture.md](../architecture.md)). Its
 `TrainTopologyReconciler` stays empty: it never takes a baseline (the host skips the join), and
 `SendTrainSyncRequest`, `RequestTrainTopologySync` and `RestoreCanonicalTrainTopology` do nothing
-on the host. Couplings made in the host's world reach clients by the host observing them
-(`CommitObservedTrainTopology`, which is also what a topology command from the host's client
-turns into), not by a round trip through its client.
+on the host. Couplings made in the host's world reach clients by the server observing them
+(`CommitObservedTrainTopology`), not by a round trip through its client: couples and uncouples from
+the couplers' events, chains settling (hooked on, parked, left hanging, screwed tight or loose)
+from their `StateChanged` (`NetworkedTrainCarServer`), and hoses, cocks, MU cables and the coupling
+menu from patches on the vanilla calls (`Server/Trains/TopologyObservationPatch.cs`). The client
+patches that report these send only from a remote client. Until 2026-10-20 the host's own client
+reported its player's as topology commands, which the server turned into the same commit; with
+no client on the host (stage 3) nothing would have reported them.
 
 This matters because the reconciler makes the world match a snapshot: run on the host against an
 old one, it takes the canonical graph apart. On 2026-10-19 each car the host spawned asked for a

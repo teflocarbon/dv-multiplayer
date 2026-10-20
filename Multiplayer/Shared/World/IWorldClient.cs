@@ -5,8 +5,8 @@ namespace Multiplayer.Shared.World;
 /// <summary>
 ///     The world requests a player at this keyboard sends, as Shared code makes them without
 ///     referencing the client (docs/design/code-layout.md). <c>NetworkClient</c> implements it, in
-///     <c>Client/Session/NetworkClient.World.cs</c>. On the host the requests it handles in-process
-///     go straight to the server (docs/design/host-local-session.md).
+///     <c>Client/Session/NetworkClient.World.cs</c>. A remote client's only: on the host these are
+///     changes to the server's own world, which it broadcasts itself (<see cref="IWorldServer"/>).
 /// </summary>
 public interface IWorldClient
 {

@@ -28,6 +28,7 @@ public static class HoseAndCock_SetCock_Patch
         if (networkedTrainCar.IsDestroying)
             return;
 
-        NetworkClient.Instance?.SendCockState(networkedTrainCar.NetId, coupler, open);
+        if (NetworkRole.IsRemoteClient) // the server observes its own world's (TopologyObservationPatch)
+            NetworkClient.Instance?.SendCockState(networkedTrainCar.NetId, coupler, open);
     }
 }

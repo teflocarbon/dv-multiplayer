@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using LiteNetLib;
+using LiteNetLib.Utils;
 using Multiplayer.Core.Session;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
@@ -66,6 +69,11 @@ public partial class NetworkServer : ILocalServer
 
     public bool Submit<TRequest>(TRequest request) where TRequest : class => localRequests.Submit(request);
 
+    private readonly Queue<byte[]> localPlayerPackets = new();
+    private readonly NetDataReader localPlayerReader = new();
+
+    public void ReceiveFromLocalPlayer(byte[] data) => localPlayerPackets.Enqueue(data);
+
     /// <summary>Registers the in-process handler for a request type: the same work as its packet handler.</summary>
     private void HandleLocal<TRequest>(Action<TRequest, ServerPlayer> handler) where TRequest : class =>
         localRequests.Handle(handler);
@@ -102,6 +110,16 @@ public partial class NetworkServer : ILocalServer
                 else
                     LogError($"Handling the host's {type.Name} threw: {e}");
             });
+
+        // MPAPI mods' packets from the host's player, read as from its peer like any player's.
+        while (localPlayerPackets.Count > 0)
+        {
+            byte[] data = localPlayerPackets.Dequeue();
+            if (LocalPlayer?.Peer == null)
+                continue;
+            localPlayerReader.SetSource(data);
+            OnNetworkReceive(LocalPlayer.Peer, localPlayerReader, 0, DeliveryMethod.ReliableOrdered);
+        }
     }
 
     private sealed class ScopeExit : IDisposable

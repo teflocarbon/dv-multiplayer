@@ -175,10 +175,15 @@ internal sealed class NetworkedTrainItemWakeManager
             WakeSupportedItems(record, 0);
     }
 
+    /// <param name="serverWitness">
+    /// The server saw the impact itself, with no sender: on a host with no player of its own, which
+    /// simulates as itself (<see cref="HostItemActor"/>).
+    /// </param>
     internal void ReceiveImpactWitness(ServerboundItemTrainWakeWitnessPacket packet,
-        ServerPlayer sender)
+        ServerPlayer sender, bool serverWitness = false)
     {
-        string rejection = ValidateWitness(packet, sender, out SettledRecord target,
+        byte senderId = sender?.PlayerId ?? ItemTransitionCommand.ServerActorId;
+        string rejection = ValidateWitness(packet, sender, senderId, serverWitness, out SettledRecord target,
             out ItemSpatialStateData sourceState);
         if (!string.IsNullOrEmpty(rejection))
         {
@@ -193,8 +198,8 @@ internal sealed class NetworkedTrainItemWakeManager
             return;
         }
 
-        lastWitnessIdByPlayer[sender.PlayerId] = packet.WitnessId;
-        string dedupe = $"{sender.PlayerId}:{packet.SourceItemNetId}:{packet.TargetItemNetId}";
+        lastWitnessIdByPlayer[senderId] = packet.WitnessId;
+        string dedupe = $"{senderId}:{packet.SourceItemNetId}:{packet.TargetItemNetId}";
         recentWitnesses[dedupe] = Time.realtimeSinceStartup;
         Vector3 localVelocity = Vector3.zero;
         if (NetworkedTrainCar.TryGet(packet.TrainCarNetId, out TrainCar car) && car != null)
@@ -205,11 +210,11 @@ internal sealed class NetworkedTrainItemWakeManager
         }
         ushort[] wakeSet = BuildWakeSet(packet.TrainCarNetId,
             new[] { packet.TargetItemNetId });
-        Wake(wakeSet, sender.PlayerId, localVelocity, TrainItemWakeReason.ItemImpact);
+        Wake(wakeSet, senderId, localVelocity, TrainItemWakeReason.ItemImpact);
         Publish("train-item.wake-witness-accepted", target.ItemNetId, target.TrainCarNetId, new()
         {
             ["sourceItemNetId"] = packet.SourceItemNetId,
-            ["senderPlayerId"] = sender.PlayerId,
+            ["senderPlayerId"] = senderId,
             ["sourceSimulationEpoch"] = sourceState.SimulationEpoch,
             ["relativeSpeed"] = packet.RelativeVelocity.magnitude,
             ["impulse"] = packet.Impulse.magnitude,
@@ -466,15 +471,16 @@ internal sealed class NetworkedTrainItemWakeManager
     }
 
     private string ValidateWitness(ServerboundItemTrainWakeWitnessPacket packet,
-        ServerPlayer sender, out SettledRecord target, out ItemSpatialStateData sourceState)
+        ServerPlayer sender, byte senderId, bool serverWitness, out SettledRecord target,
+        out ItemSpatialStateData sourceState)
     {
         target = null;
         sourceState = null;
-        if (packet == null || sender == null || packet.WitnessId == 0 ||
+        if (packet == null || sender == null && !serverWitness || packet.WitnessId == 0 ||
             packet.SourceItemNetId == 0 || packet.TargetItemNetId == 0 ||
             packet.SourceItemNetId == packet.TargetItemNetId || packet.TrainCarNetId == 0)
             return "invalid-witness";
-        if (lastWitnessIdByPlayer.TryGetValue(sender.PlayerId, out uint lastWitnessId) &&
+        if (lastWitnessIdByPlayer.TryGetValue(senderId, out uint lastWitnessId) &&
             packet.WitnessId <= lastWitnessId)
             return "stale-witness-id";
         if (!Finite(packet.RelativeVelocity) || !Finite(packet.Impulse) ||
@@ -484,13 +490,13 @@ internal sealed class NetworkedTrainItemWakeManager
         if (packet.RelativeVelocity.magnitude < ImpactRelativeSpeedThreshold &&
             packet.Impulse.magnitude < ImpactImpulseThreshold)
             return "impact-below-threshold";
-        string dedupe = $"{sender.PlayerId}:{packet.SourceItemNetId}:{packet.TargetItemNetId}";
+        string dedupe = $"{senderId}:{packet.SourceItemNetId}:{packet.TargetItemNetId}";
         if (recentWitnesses.TryGetValue(dedupe, out float observedAt) &&
             Time.realtimeSinceStartup - observedAt < WitnessDedupeSeconds)
             return "duplicate-impact-witness";
         if (!spatial.TryGetActiveLeaseIdentity(packet.SourceItemNetId,
                 out uint sourceRevision, out uint sourceEpoch, out byte simulator, out sourceState) ||
-            simulator != sender.PlayerId || sourceRevision != packet.SourceAuthorityRevision ||
+            simulator != senderId || sourceRevision != packet.SourceAuthorityRevision ||
             sourceEpoch != packet.SourceSimulationEpoch)
             return "source-not-current-simulator";
         if (sourceState.WorldParentKind != ItemWorldParentKind.TrainInterior ||

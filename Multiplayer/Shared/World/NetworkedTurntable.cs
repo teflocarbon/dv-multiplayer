@@ -84,7 +84,10 @@ public class NetworkedTurntable : IdMonoBehaviour<byte, NetworkedTurntable>
             return;
 
         lastYRotation = TurntableRailTrack.targetYRotation;
-        WorldClient.Current?.SendTurntableRotation(NetId, lastYRotation);
+        if (NetworkLifecycle.Instance.IsHost())
+            WorldServer.Current?.BroadcastTurntableRotation(NetId, lastYRotation);
+        else
+            WorldClient.Current?.SendTurntableRotation(NetId, lastYRotation);
     }
 
     public void SetRotation(float rotation, bool forceConnectionRefresh = false, bool initialising = false)

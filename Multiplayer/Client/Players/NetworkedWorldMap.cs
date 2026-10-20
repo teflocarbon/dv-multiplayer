@@ -12,30 +12,40 @@ public class NetworkedMapMarkersController : MonoBehaviour
     private MapMarkersController markersController;
     private GameObject textPrefab;
     private readonly Dictionary<NetworkedPlayer, WorldMapIndicatorRefs> playerIndicators = [];
+    // The map is the local player's: a game nobody plays at (a dedicated host with no loopback
+    // client) has no session, and marks nobody.
+    private ILocalPlayerSession session;
 
     private void Awake()
     {
+        session = NetworkLifecycle.Instance.LocalSession;
+        if (session == null)
+        {
+            enabled = false;
+            return;
+        }
+
         markersController = GetComponent<MapMarkersController>();
         textPrefab = markersController.GetComponentInChildren<TMP_Text>().gameObject;
-        foreach (NetworkedPlayer networkedPlayer in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
+        foreach (NetworkedPlayer networkedPlayer in session.RemotePlayers)
             OnPlayerConnected(networkedPlayer);
-        NetworkLifecycle.Instance.LocalSession.RemotePlayerConnected += OnPlayerConnected;
-        NetworkLifecycle.Instance.LocalSession.RemotePlayerDisconnected += OnPlayerDisconnected;
-        NetworkLifecycle.Instance.LocalSession.RemotePlayerPrefsUpdated += OnPlayerPrefsUpdated;
+        session.RemotePlayerConnected += OnPlayerConnected;
+        session.RemotePlayerDisconnected += OnPlayerDisconnected;
+        session.RemotePlayerPrefsUpdated += OnPlayerPrefsUpdated;
 
         NetworkLifecycle.Instance.OnTick += OnTick;
     }
 
     private void OnDestroy()
     {
-        if (UnloadWatcher.isQuitting)
+        if (UnloadWatcher.isQuitting || session == null)
             return;
         NetworkLifecycle.Instance.OnTick -= OnTick;
         if (UnloadWatcher.isUnloading)
             return;
-        NetworkLifecycle.Instance.LocalSession.RemotePlayerConnected -= OnPlayerConnected;
-        NetworkLifecycle.Instance.LocalSession.RemotePlayerDisconnected -= OnPlayerDisconnected;
-        NetworkLifecycle.Instance.LocalSession.RemotePlayerPrefsUpdated -= OnPlayerPrefsUpdated;
+        session.RemotePlayerConnected -= OnPlayerConnected;
+        session.RemotePlayerDisconnected -= OnPlayerDisconnected;
+        session.RemotePlayerPrefsUpdated -= OnPlayerPrefsUpdated;
     }
 
     private void OnPlayerConnected(NetworkedPlayer player)
@@ -111,7 +121,7 @@ public class NetworkedMapMarkersController : MonoBehaviour
             if(kvp.Value == null)
                 Multiplayer.LogDebug(() => $"NetworkedWorldMap.UpdatePlayers() key: {kvp.Key}, value is null: {kvp.Value == null}");
 
-            if (!NetworkLifecycle.Instance.LocalSession.TryGetRemotePlayer(kvp.Key.PlayerId, out NetworkedPlayer networkedPlayer))
+            if (!session.TryGetRemotePlayer(kvp.Key.PlayerId, out NetworkedPlayer networkedPlayer))
             {
                 Multiplayer.LogWarning($"Player indicator for {kvp.Key} exists but {nameof(NetworkedPlayer)} does not!");
                 OnPlayerDisconnected(kvp.Key);

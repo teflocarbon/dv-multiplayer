@@ -20,7 +20,7 @@ using Object = UnityEngine.Object;
 namespace Multiplayer.Client.Session;
 
 // NetworkClient's jobs handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkClient
+public partial class NetworkClient : IJobsClient
 {
     private void OnClientboundWarehouseControllerUpdatePacket(ClientboundWarehouseControllerUpdatePacket packet)
     {

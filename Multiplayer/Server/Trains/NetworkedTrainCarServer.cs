@@ -109,6 +109,9 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
         TrainCar.rearCoupler.Uncoupled += CouplerUncoupled;
         TrainCar.frontCoupler.Coupled += CouplerCoupled;
         TrainCar.rearCoupler.Coupled += CouplerCoupled;
+        foreach (Coupler coupler in TrainCar.couplers ?? Array.Empty<Coupler>())
+            if (coupler.ChainScript != null)
+                coupler.ChainScript.StateChanged += ChainStateChanged;
 
         TrainCar.CarDamage.CarEffectiveHealthStateUpdate += CarHealthUpdate;
 
@@ -174,6 +177,9 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
         TrainCar.rearCoupler.Uncoupled -= CouplerUncoupled;
         TrainCar.frontCoupler.Coupled -= CouplerCoupled;
         TrainCar.rearCoupler.Coupled -= CouplerCoupled;
+        foreach (Coupler coupler in TrainCar.couplers ?? Array.Empty<Coupler>())
+            if (coupler.ChainScript != null)
+                coupler.ChainScript.StateChanged -= ChainStateChanged;
 
         TrainCar.CarDamage.CarEffectiveHealthStateUpdate -= CarHealthUpdate;
 
@@ -467,6 +473,20 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
     }
 
     private void CouplerCoupled(object _, CoupleEventArgs args) => topologyDirty = true;
+
+    // A chain settling in the server's world: hooked on, parked or left hanging by the host's
+    // player, or tightened or loosened with its screw. Not a coupler event, so it's observed here
+    // and committed on the next tick, like a couple; the host's own client used to report these as
+    // topology commands (TopologyObservationPatch has the hoses, cocks and MU cables). Another
+    // player's request being applied commits once it's done.
+    private void ChainStateChanged(ChainCouplerInteraction.State state)
+    {
+        if (state == ChainCouplerInteraction.State.Being_Dragged || !NetworkRole.IsServer ||
+            UnloadWatcher.isUnloading || NetworkLifecycle.Instance.IsProcessingPacket ||
+            car.IsAuthoritativeTopologyObservationSuppressed)
+            return;
+        topologyDirty = true;
+    }
 
     /// <summary>
     /// The compressor's activation signal follows the brake system's decision (main reservoir
