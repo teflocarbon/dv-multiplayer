@@ -58,6 +58,15 @@ The server owns every gadget fact. Players ask; nobody else changes anything.
 Everything a player can see or hear in the world is the same in every game. Only a player's own UI is
 theirs alone.
 
+Gadgets are server-authoritative like the rest of the train system: the server keeps track of them and
+broadcasts; clients never decide. A display is **derived** in each game only if every input it reads
+is already synced, so every game shows the same thing without sending it twice; otherwise the server
+sends it. The speedometer gadget is the example: it reads the wheel-speed port, which each game feeds
+from its own copy of the car's synced motion, as the cab speedometer does (`locallyFedPorts`,
+[trains.md](trains.md), "Brake and locomotive simulation"). Sending that port as well gave it two
+writers and a flickering needle. It inherits that port's gap: a client's wheel speed doesn't include
+the server's wheelslip, which is train sync's to fix.
+
 Every change works the same on a player host and a dedicated host: the host's player is a
 `LocalPlayerSession` whose requests go through the server's request queue like anyone's
 ([host-local-session.md](host-local-session.md)).
