@@ -65,7 +65,7 @@ namespace Dvmp.Scenarios
             Expect.That(!(await other.Run(() => InGame.State(f.Station, f.Plug, f.Resource))).RemoteGrabbed, $"{otherName} sees the lever free");
 
             Report.Note($"{o.Who} picks the plug up");
-            await who.Run(() => InGame.Grab(f.Plug));
+            Report.Note($"{o.Who} grabbed it: " + await who.Run(() => InGame.Grab(f.Plug)));
             await Task.Delay(2000);
             State h = await pair.Host.Run(() => InGame.State(f.Station, f.Plug, f.Resource)), s = await other.Run(() => InGame.State(f.Station, f.Plug, f.Resource));
             Report.Note($"server: held by P{h.HeldBy}; {otherName} shows P{s.Holding} holding it ({o.Who} is P{me})");
@@ -157,12 +157,16 @@ namespace Dvmp.Scenarios
                 s.leverStateLookup[(DV.ThingTypes.ResourceType)resource].leverHandler(value);
             }
 
-            /// <summary>The plug's handler, as DV raises it when it's picked up.</summary>
+            /// <summary>The plug's handler, as DV raises it when it's picked up. Result: the plug's state then.</summary>
             [Step]
-            public static void Grab(ushort plug)
+            public static string Grab(ushort plug)
             {
                 NetworkedPluggableObject.Get(plug, out NetworkedPluggableObject p);
+                // What the handler checks before it takes the grab (it drops one while either of the first two
+                // is set), and whether its LateUpdate will send it (not while processing as host).
+                string state = $"waiting for the server: {p.WaitingForServerState}, processing a packet: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as host: {p.ProcessingAsHost}";
                 p.OnGrabbed(null);
+                return state;
             }
 
             /// <summary>The plug's handler, as DV raises it when it's put back home.</summary>
