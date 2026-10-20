@@ -71,6 +71,13 @@ namespace Multiplayer.Client.Session;
 
 public partial class NetworkClient : NetworkManager, ILocalPlayerSession
 {
+    /// <summary>
+    ///     The client this game runs (on a host, its loopback client until host-local-session stage 3);
+    ///     null when none runs. Set by the session root. Code that runs for the host's player too
+    ///     reads <see cref="NetworkLifecycle.LocalSession"/> instead.
+    /// </summary>
+    public static NetworkClient Instance { get; internal set; }
+
     public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
     public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
     public event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
