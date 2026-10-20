@@ -527,8 +527,8 @@ four points, and both docs state them the same way:
 
 It also meets the shops work ([shops.md](shops.md#owned-items)):
 
-- **The host's purchases.** Shops PR 3 makes every purchase a server transaction, the host's own
-  player's included, and births the item in the ledger.
+- **The host's purchases.** Shops PR 2 ("The register on the server") makes every purchase a
+  server transaction, the host's own player's included, and births the item in the ledger.
 - **Per-player stock.** Shops' per-player stock (shops PR 6) waits for owned-items PRs 1 and 2. It
   uses the count query and change event of [the ledger](#the-ledger).
 
@@ -638,7 +638,7 @@ game, and the join-packet fields and the rejoin swap go.
   and their packets are deleted. Shop receipts are client-local today and never adopted, and the
   shops work makes them server-made, so nothing in a shop adopts.
 - The host's own player buying through the server, owned at once and born `Purchased`, is now shops
-  PR 3 ("the purchase as a server transaction", [shops.md](shops.md#owned-items)), with its
+  PR 2 ("The register on the server", [shops.md](shops.md#owned-items)), with its
   `shop WHO=host` scenario.
 - Scenario: `starting-items` and `rejoin` show that no adoption request is sent. A check in
   `ServerRequests` counts none.
