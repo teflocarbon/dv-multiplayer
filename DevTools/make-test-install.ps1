@@ -4,7 +4,8 @@
 # (Multiplayer, MultiplayerDevTools) are real copies. No other mod is loaded: Unity Mod Manager
 # took 32 s per launch with the user's 21 mods against 10 s with these two (docs/research/
 # harness-time-budget.md), and tests should see the mod alone. -AllMods links every other mod
-# too, for a mod-compatibility pass; without it, a refresh removes those links again.
+# too, for a mod-compatibility pass; without it, a refresh removes those links again. An installed
+# copy of the harness's own mods (Info.json Id Multiplayer, in any folder) is never linked.
 # Run as admin, it also adds a Windows Firewall inbound allow rule for the install's own
 # DerailValley.exe, so its first launch doesn't prompt. -FirewallOnly only does that, for every
 # %LOCALAPPDATA%\dvmp\test-install* install.
@@ -64,20 +65,36 @@ AllowFirewall $TestDir
 
 $mods = Join-Path $TestDir 'Mods'
 New-Item -ItemType Directory -Force $mods | Out-Null
-foreach ($mod in Get-ChildItem (Join-Path $GameDir 'Mods') -Directory) {
+# One of the harness's own mods, by folder name or by its Info.json Id: the user's installed
+# release lives in a versioned folder ("Multiplayer 2026.10.20-dev.0945 ..."). Linked, the test
+# game would load two Multiplayer mods, and a build into the test install would write through the
+# link into the real one.
+function IsOwnMod($dir) {
+    if ($OwnMods -contains $dir.Name) { return $true }
+    $info = Join-Path $dir.FullName 'Info.json'
+    if (-not (Test-Path $info)) { return $false }
+    try { $id = (Get-Content $info -Raw | ConvertFrom-Json).Id } catch { return $false }
+    return [bool]($OwnMods | Where-Object { $_ -ieq $id })
+}
+$realMods = (Resolve-Path (Join-Path $GameDir 'Mods')).Path.TrimEnd('\') + '\'
+foreach ($mod in Get-ChildItem $realMods -Directory) {
     $dest = Join-Path $mods $mod.Name
     if ($OwnMods -contains $mod.Name) {
         # The harness's own mods: real copies (only on first creation; builds keep them current).
         if (-not (Test-Path $dest)) { Copy-Item $mod.FullName $dest -Recurse }
-    } elseif ($AllMods -and -not (Test-Path $dest)) {
+    } elseif ($AllMods -and -not (Test-Path $dest) -and -not (IsOwnMod $mod)) {
         New-Item -ItemType Junction -Path $dest -Target $mod.FullName | Out-Null
     }
 }
-if (-not $AllMods) {
-    # Links to other mods left by an earlier run. Only junctions go: Directory.Delete without
-    # recursion removes the link itself, never what it points to. A real folder is left alone.
-    foreach ($link in Get-ChildItem $mods -Directory | Where-Object { $_.LinkType -eq 'Junction' -and $OwnMods -notcontains $_.Name }) {
+# Links left by an earlier run: to other mods unless -AllMods, and to an own mod in the real
+# install always. Only junctions go: Directory.Delete without recursion removes the link itself,
+# never what it points to. A real folder is left alone.
+foreach ($link in Get-ChildItem $mods -Directory | Where-Object LinkType -eq 'Junction') {
+    $target = "$($link.Target)"
+    $own = IsOwnMod $link
+    if (($own -and $target.StartsWith($realMods, [StringComparison]::OrdinalIgnoreCase)) -or (-not $own -and -not $AllMods)) {
         [System.IO.Directory]::Delete($link.FullName, $false)
+        Write-Host "Removed link $($link.Name) -> $target"
     }
 }
 Get-ChildItem $TestDir | Select-Object Name, LinkType, Target | Format-Table -AutoSize | Out-String -Width 200
