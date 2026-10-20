@@ -25,6 +25,8 @@ public static class McpTools
         multiplayer role (host/client/offline), scene, whether the world is loaded, fps,
         and the local player's absolute position. Call this first. Also lists paired remote
         games (target remote:NAME; see `dvmp remote` in DevTools/README.md) without contacting them.
+        `warnings` flags probe coroutines still running after their probe and Harmony patches
+        probes left installed.
         """)]
     public static async Task<string> Status(
         [Description(Session)] string? session = null,
@@ -176,6 +178,13 @@ public static class McpTools
           set `ctx.Result = ...` to report a value when it finishes
         - a full `public static class Probe { public static object Run(DevContext ctx) {...} }`
 
+        Coroutines: run parallel work with `ctx.StartCoroutine(routine)`, never
+        `someBehaviour.StartCoroutine(...)`. Everything a probe starts is stopped when it
+        returns, fails or times out (a direct StartCoroutine is caught and stopped too, with a
+        warning). A watcher that must outlive the probe: `ctx.StartBackground("name", pc =>
+        Watch(pc), maxSeconds)` (default 600, max 3600); it can `pc.Log(x)`, later probes find
+        it with `DevContext.Background("name")`, and dvmp_probes lists or stops it.
+
         In scope: System, System.Linq, System.Collections(.Generic), UnityEngine, and
         Dvmp.Agent. `ctx` is the DevContext: ctx.Log(x) appends to output, ctx.Args holds
         string args, DevContext.State is a dictionary that persists between calls in that
@@ -202,6 +211,27 @@ public static class McpTools
     {
         using IDisposable scope = Sessions.Use(session);
         try { return Render(await Operations.EvalAsync(code, target, mode, usings, args, Math.Clamp(timeoutSeconds, 1, 600), ct)); }
+        catch (AgentException e) { return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message }); }
+    }
+
+    [McpServerTool(Name = "dvmp_probes")]
+    [Description("""
+        Lists what probes left running in each game: coroutines (with their id, kind, age,
+        host object and their own log), recently ended ones and why, Harmony patches by owner
+        id ("dvmp.*" or from a probe assembly), and how many probe assemblies are loaded
+        (Mono can't unload them). Optionally stops coroutines or removes patches first.
+        Patches of dvmp.live.* (live hotfixes) and dvmp.agent.* are never removed; dvmp.harness.*
+        ones only when named exactly. Use it before and after probing a game other people play in.
+        """)]
+    public static async Task<string> Probes(
+        [Description("host, client, all, a pid, or remote:NAME. Default all.")] string target = "all",
+        [Description("Stop coroutines: \"all\", an id, a name, or a probe id prefix (dvmp_probe_...).")] string? stop = null,
+        [Description("Harmony owner ids to unpatch; \"all\" means every probe owner, \"dvmp.foo.*\" a prefix.")] string[]? unpatch = null,
+        [Description(Session)] string? session = null,
+        CancellationToken ct = default)
+    {
+        using IDisposable scope = Sessions.Use(session);
+        try { return Render(await Operations.ProbesAsync(target, stop, unpatch, ct)); }
         catch (AgentException e) { return Render(new JsonObject { ["ok"] = false, ["error"] = e.Message }); }
     }
 
