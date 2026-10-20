@@ -27,6 +27,7 @@ public static class Locale
     private const string PREFIX_PAUSE_MENU = $"{PREFIX}pm";
     private const string PREFIX_PERMISSIONS_SYSTEM = $"{PREFIX}ps";
     private const string PREFIX_COMMS_RADIO = $"{PREFIX}cr";
+    private const string PREFIX_GADGETS = $"{PREFIX}gadgets";
 
     #region Main Menu
     public static string MAIN_MENU__JOIN_SERVER => Get(MAIN_MENU__JOIN_SERVER_KEY);
@@ -337,6 +338,11 @@ public static class Locale
     #region Comms Radio
     public static string COMMS_RADIO_WORK_TRAIN_IN_USE => Get(COMMS_RADIO_WORK_TRAIN_IN_USE_KEY);
     public const string COMMS_RADIO_WORK_TRAIN_IN_USE_KEY = $"{PREFIX_COMMS_RADIO}/in_use";
+    #endregion
+
+    #region Gadgets
+    public static string GADGETS__VEHICLES_ONLY => Get(GADGETS__VEHICLES_ONLY_KEY);
+    public const string GADGETS__VEHICLES_ONLY_KEY = $"{PREFIX_GADGETS}/vehicles_only";
     #endregion
 
     private static bool initializeAttempted;

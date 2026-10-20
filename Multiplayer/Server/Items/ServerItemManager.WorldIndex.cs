@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Multiplayer.Server.Gadgets;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -60,7 +61,13 @@ internal sealed partial class ServerItemManager
 
         if (NetworkedLostAndFoundManager.Contains(item.NetId))
             return;
-        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
+        // An installed gadget's inactive item isn't where its transform is (Server/Gadgets).
+        // Committing it as installed indexes it again, as non-spatial.
+        bool recorded = AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record);
+        if ((!recorded || record.Placement != ItemPlacementKind.Installed) &&
+            GadgetItemTransitions.TryCommitIfInstalled(item))
+            return;
+        if (recorded)
         {
             if (record.Placement == ItemPlacementKind.Destroyed)
                 return;

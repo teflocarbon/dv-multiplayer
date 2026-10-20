@@ -52,6 +52,7 @@ public sealed class ItemPacketFixtureTests
     [TestCase(ItemState.InHand)]
     [TestCase(ItemState.InInventory)]
     [TestCase(ItemState.Attached)]
+    [TestCase(ItemState.Installed)]
     public void ItemStateRoundTripsOnlyItsWireSemanticFields(ItemState state)
     {
         ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.ItemState, state);
@@ -80,6 +81,7 @@ public sealed class ItemPacketFixtureTests
                 Assert.That(result.ItemPosition, Is.EqualTo(Vector3.zero));
                 break;
             case ItemState.Attached:
+            case ItemState.Installed:
                 Assert.Multiple(() => {
                     Assert.That(result.CarNetId, Is.EqualTo(source.CarNetId));
                     Assert.That(result.AttachedFront, Is.EqualTo(source.AttachedFront));

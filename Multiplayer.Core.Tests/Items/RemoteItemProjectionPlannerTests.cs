@@ -43,7 +43,7 @@ public sealed class RemoteItemProjectionPlannerTests
     [TestCase(WireItemState.Dropped)]
     [TestCase(WireItemState.Thrown)]
     [TestCase(WireItemState.Attached)]
-    [TestCase(WireItemState.Removed)]
+    [TestCase(WireItemState.Installed)]
     public void NonPlayerState_IsRejectedByHandProjectionPlanner(WireItemState state)
     {
         Assert.That(RemoteItemProjectionPlanner.Plan(state, 1, 2, true).Action,

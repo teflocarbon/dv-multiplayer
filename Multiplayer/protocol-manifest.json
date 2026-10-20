@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.0731+c6a53e7b207c28e3aba04e31711dc53c7fb3dd40",
-  "Fingerprint": "3f636c4f8b7b41deb81a2e3e2538bff017f71884946eb68b5619a04c587e655e",
+  "BuildVersion": "2026.10.21-dev.0916+9be8b1c833d28d60f763d5770d8377ee16ddc9ff",
+  "Fingerprint": "351115ed365475b24f97424511c9c34bf221998014565135f9098ee9b9336133",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1294,7 +1294,9 @@
       "ClaimSlotMoved": 21,
       "RescuedFromBelowMap": 22,
       "HostCorrection": 23,
-      "ThrownOutOfBin": 24
+      "ThrownOutOfBin": 24,
+      "InstalledAsGadget": 25,
+      "RemovedAsGadget": 26
     },
     "Multiplayer.Core.Items.ItemRemovalReason": {
       "Unknown": 0,
@@ -1393,7 +1395,7 @@
       "InHand": 2,
       "InInventory": 3,
       "Attached": 4,
-      "Removed": 5
+      "Installed": 5
     },
     "Multiplayer.Shared.Protocol.Data.Items.ItemInventoryClaimFlags": {
       "None": 0,
@@ -1425,7 +1427,9 @@
       "SpatialSettlement": 14,
       "Convergence": 15,
       "ClientInteraction": 16,
-      "JobRerollRefused": 17
+      "JobRerollRefused": 17,
+      "GadgetInstalled": 18,
+      "GadgetRemoved": 19
     },
     "Multiplayer.Shared.Protocol.Data.Items.ItemUpdateData+ItemUpdateType": {
       "None": 0,

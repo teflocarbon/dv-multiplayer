@@ -236,7 +236,7 @@ internal sealed partial class ClientItemManager
 
     private static bool RequiresLoadedWorldRegion(ItemUpdateData snapshot) =>
         snapshot != null && snapshot.ItemState is ItemState.Dropped or ItemState.Thrown or
-            ItemState.Attached or ItemState.Removed;
+            ItemState.Attached;
 
     private static bool IsWorldRegionReady(ItemUpdateData snapshot)
     {
