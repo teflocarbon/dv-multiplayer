@@ -113,6 +113,12 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     /// aren't sent before then.
     /// </summary>
     public bool WaitingForServerState { get; set; } = false;
+
+    /// <summary>
+    /// A plug of this station was set up (<c>Init</c> finds them as their resource modules
+    /// initialise), before it can be grabbed: role parts attach theirs here.
+    /// </summary>
+    public event Action<NetworkedPluggableObject> PlugInitialised;
     #endregion
 
     #region Unity
@@ -303,6 +309,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
                     var netPlug = plug.GetOrAddComponent<NetworkedPluggableObject>();
                     resourceToPluggableObject[resourceModule.resourceType] = netPlug;
                     netPlug.InitPitStop(this);
+                    PlugInitialised?.Invoke(netPlug);
                 }
             }
         }

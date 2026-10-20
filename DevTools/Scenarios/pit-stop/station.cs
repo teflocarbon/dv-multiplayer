@@ -2,10 +2,10 @@
 // resource (NetIds and ResourceType).
 //   find (host): the plug nearest a point (args x, z; default the player) that belongs to a
 //     station with a resource lever.
-//   state: whether this game has the station and plug set up (the station no longer
-//     WaitingForServerState, the plug Refreshed), who holds the plug (the server's HeldBy, and the
-//     player id this game shows holding it), whether the lever is held by another player here, and
-//     this game's own player id.
+//   state: whether this game has the station and plug set up (neither still
+//     WaitingForServerState), who holds the plug (the server's HeldBy, and the player id this game
+//     shows holding it), whether the lever is held by another player here, and this game's own
+//     player id.
 //   lever (value 0/1): the lever's handler, as its RotaryAmplitudeChecker raises it when pulled
 //     (1) and let go (0).
 //   grab, dock: the plug's handlers, as DV raises them when it's picked up and put back home.
@@ -36,7 +36,7 @@ var lifecycle = Multiplayer.Shared.Session.NetworkLifecycle.Instance;
 return new
 {
     found = true,
-    refreshed = !station.WaitingForServerState && netPlug.Refreshed,
+    refreshed = !station.WaitingForServerState && !netPlug.WaitingForServerState,
     heldBy = (int)netPlug.HeldByPlayerId,
     holding = (int)netPlug.playerHolding,
     remoteGrabbed = station.isResourceRemoteGrabbedDict.TryGetValue(resource, out bool g) && g,
