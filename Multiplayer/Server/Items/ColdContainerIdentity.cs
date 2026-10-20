@@ -1,7 +1,8 @@
 using System;
 using UnityEngine;
+using Multiplayer.Shared.Items;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
 public sealed class ColdContainerIdentity : MonoBehaviour
 {

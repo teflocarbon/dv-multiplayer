@@ -1,7 +1,8 @@
 using System;
 using UnityEngine;
+using Multiplayer.Shared.Items;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
 [DisallowMultipleComponent]
 internal sealed class PersistentWorldItemIdentity : MonoBehaviour

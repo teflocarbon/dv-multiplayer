@@ -2,8 +2,9 @@ using Multiplayer.Shared.Protocol.Data.Items;
 using Newtonsoft.Json.Linq;
 using System;
 using UnityEngine;
+using Multiplayer.Shared.Items;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
 /// <summary>Typed representation of one entry in the version-one world-item save array.</summary>
 internal sealed class WorldItemPersistenceRecord
