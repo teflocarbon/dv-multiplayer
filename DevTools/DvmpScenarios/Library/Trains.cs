@@ -185,6 +185,22 @@ namespace Dvmp.Scenarios
 
         internal static DV.ThingTypes.TrainCarLivery Livery(string id) =>
             DV.Globals.G.Types.Liveries.FirstOrDefault(l => l.id == id) ?? throw new Exception("no livery " + id);
+
+        /// <summary>A track's length along its points (m), or 0 for a track without them. Its curve
+        /// (BezierCurve) isn't used: that type's assembly isn't among the game DLLs CI builds against.</summary>
+        internal static float Length(RailTrack t)
+        {
+            try { return (float)t.GetKinkedPointSet().span; }
+            catch (Exception) { return 0f; }
+        }
+
+        /// <summary>The world position halfway along a track's points.</summary>
+        internal static Vector3 Middle(RailTrack t)
+        {
+            var points = t.GetKinkedPointSet().points;
+            double half = points[points.Length - 1].span / 2;
+            return (Vector3)points.OrderBy(p => Math.Abs(p.span - half)).First().position + WorldMover.currentMove;
+        }
     }
 
     public static class Couplings

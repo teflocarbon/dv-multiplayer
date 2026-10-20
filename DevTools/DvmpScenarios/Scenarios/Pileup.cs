@@ -238,7 +238,7 @@ namespace Dvmp.Scenarios
                 float need = n * pitch + ends * (runup + LocoLength) + 20f;
 
                 var tracks = UnityEngine.Object.FindObjectsOfType<RailTrack>()
-                    .Where(t => t.name.StartsWith(prefix) && t.curve != null && t.curve.length >= need)
+                    .Where(t => t.name.StartsWith(prefix) && Cars.Length(t) >= need)
                     .OrderBy(t => t.name).Take(k).ToList();
                 if (tracks.Count < k) throw new Exception($"only {tracks.Count} tracks named {prefix}* are at least {need:F0} m long");
 
@@ -266,7 +266,7 @@ namespace Dvmp.Scenarios
                         if (other != null && path.Any(p => Vector3.Distance(p, other.transform.position) < 3f))
                             CarSpawner.Instance.DeleteCar(other);
                     for (int i = 0; i < 10; i++) yield return null;
-                    double len = t.curve.length;
+                    double len = Cars.Length(t);
                     double first = (len - n * pitch) / 2 + pitch / 2;           // middle of the first wagon
                     var wagons = new List<TrainCar>();
                     for (int i = 0; i < n; i++) wagons.Add(Spawn(t, wagonLivery, first + i * pitch));
