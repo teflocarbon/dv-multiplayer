@@ -2,6 +2,7 @@ using LiteNetLib.Utils;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
 using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Protocol.Data.Gadgets;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Protocol.Data.Player;
@@ -42,6 +43,7 @@ public static class PacketSerializationRegistry
         packetProcessor.RegisterNestedType(ItemUpdateData.Serialize, ItemUpdateData.Deserialize);
         packetProcessor.RegisterNestedType(ItemSpatialStateData.Serialize, ItemSpatialStateData.Deserialize);
         packetProcessor.RegisterNestedType(CustomizationHoleData.Serialize, CustomizationHoleData.Deserialize);
+        packetProcessor.RegisterNestedType(GadgetAnchorSnapshotData.Serialize, GadgetAnchorSnapshotData.Deserialize);
         packetProcessor.RegisterNestedType(Vector2Serializer.Serialize, Vector2Serializer.Deserialize);
         packetProcessor.RegisterNestedType(Vector3Serializer.Serialize, Vector3Serializer.Deserialize);
         packetProcessor.RegisterNestedType(QuaternionSerializer.Serialize, QuaternionSerializer.Deserialize);

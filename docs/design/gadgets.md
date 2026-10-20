@@ -1,6 +1,6 @@
 # Gadgets
 
-> Status: designed 2026-10-21, not started. Nothing below is built except where
+> Status: designed 2026-10-21; PRs 1 and 2 built. Nothing below is built except where
 > [Implementation status](#implementation-status) says so. Vanilla behaviour is in
 > [`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md);
 > this doc refers to its sections rather than repeating them.
@@ -512,14 +512,19 @@ The scenarios run every gadget PR on a dedicated host as well as a player host.
 Gadgets use it:
 
 1. The client reaches `ReadyForCustomizers` after the train baseline, so every car exists.
-2. The server sends a Create (placement `Installed`) for every installed item, then one
-   `ClientboundGadgetAnchorSnapshotPacket` per car with gadgets or holes: the car's revision, its
-   holes, and each gadget's item, pose, UID and `gadgetData`. Car holes stay in `TrainsetSpawnPart`
-   for cars spawned later and are repeated here for the snapshot to be whole.
-3. The client applies each anchor as vanilla loads a save: holes (`ClearHoles` then `AddHole`); then
-   every gadget (`AssignUID`, `Place`, `SaveDataLoaded`); then every gadget's
-   `AfterSaveDataLoaded` (mounts, the alternating order, text, hanger snaps). Wiring tolerates any order
-   because both ends carry the edge.
+2. The server sends a Create (placement `Installed`, with its car) for every installed item, then one
+   `ClientboundGadgetJoinSnapshotPacket`: for each car with gadgets, each gadget's item, its UID, and
+   its item's whole vanilla save data (`ItemSaveData.SaveItemData()`, the mod's own `dvmp*` keys left
+   out), which holds the pose, `placedOn` and `gadgetData`. It is sent even with no gadgets, so the
+   client knows the step is done. Car holes come with the train baseline (`TrainsetSpawnPart`); the
+   resync of 3a sends them with a car's snapshot.
+3. The client replays vanilla's load of that data (`StartingItemsController`): for every gadget,
+   `AssignUID` (the server's, before `Place` links it, so the client allocates none), then
+   `ItemSaveData.LoadItemData`, which places it and restores its state; then every item's
+   `PostLoadItemData` (mounts, the alternating order, text, hanger snaps). It sets
+   `GadgetItem.Item` first, which vanilla sets in `Start` and an inactive item never runs. Wiring
+   tolerates any order because both ends carry the edge. Because the whole item save data is
+   replayed, modded gadgets come through too.
 4. The client advances to `ReadyForItems`. The server sends live gadget traffic only to players past
    `ReadyForCustomizers`, so nothing in the log predates the snapshot.
 
@@ -557,7 +562,8 @@ The server is never rolled back. Clients converge on it.
 | `ServerboundGadgetResyncRequestPacket` | client → server | anchor, applied revision |
 | `ClientboundGadgetChangesPacket` | server → clients | anchor, first revision, `GadgetChange[]` with operation ids |
 | `ClientboundGadgetRequestResultPacket` | server → requester | operation id, rejected, reason |
-| `ClientboundGadgetAnchorSnapshotPacket` | server → client | anchor, revision, holes, `InstalledGadgetData[]` (item, pose, UID, `gadgetData` as compressed JSON) |
+| `ClientboundGadgetJoinSnapshotPacket` (built, PR 2) | server → joining client | per car, `InstalledGadgetData[]`: item, UID, the item's vanilla save data as JSON |
+| `ClientboundGadgetAnchorSnapshotPacket` (3a) | server → client | one car's resync: revision, holes, `InstalledGadgetData[]` |
 | `ClientboundGadgetStatePacket` | server → clients | item, state revision, operation id, fields |
 | `ServerboundGadgetToolUsePacket` | client → server | tool item, target (item and mount point, or a hole), started or stopped |
 | `ClientboundGadgetToolUsePacket` | server → clients | player, tool item, target, started or stopped |
@@ -821,5 +827,12 @@ predict their own actions with.
 
 ## Implementation status
 
-Nothing is built. 2026-10-21: the vanilla research was checked against the decompiled game and the
-design written.
+2026-10-21: the vanilla research was checked against the decompiled game and the design written.
+
+- **PR 1 built** (#281): installed items are `Installed`; vehicles only. `gadget-save` passes on both
+  host kinds.
+- **PR 2 built** (`gadgets/join-snapshot`): late joiners get every installed gadget; the server-only
+  logic is off on a client for the gadgets the server sent. `gadget-join`, `gadget-save` and `rejoin`
+  pass on both host kinds. The comparison the plan gave `dvmp_desync` is a scenario step for now
+  (`Gadgets.Digest`: each gadget's own vanilla save data, wires sorted).
+- Next: 3a.

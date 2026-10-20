@@ -130,6 +130,54 @@ namespace Dvmp.Scenarios
             for (int i = 0; i < 10; i++) yield return null;
         }
 
+        /// <summary>
+        /// The gadgets installed on <paramref name="car"/>, one line each in UID order, comparable
+        /// between games: prefab, UID, pose (cm), power, and the gadget's own vanilla save data
+        /// (soldering, wires, mount points, the mount, settings) with its wire list sorted, since
+        /// wiring order can differ between games while the wires are the same. Then the car's holes.
+        /// </summary>
+        [Step]
+        public static string Digest(string car)
+        {
+            TrainCar trainCar = CarSpawner.Instance.AllCars.First(c => c != null && c.ID == car);
+            var lines = trainCar.Customization.Customizers.OfType<GadgetBase>().OrderBy(g => g.UID).Select(g =>
+            {
+                var data = new Newtonsoft.Json.Linq.JObject();
+                g.SaveDataRequested(data);
+                if (data["links"] is Newtonsoft.Json.Linq.JArray links)
+                    data["links"] = new Newtonsoft.Json.Linq.JArray(links.Select(l => (int)l).OrderBy(l => l));
+                Vector3 p = g.transform.localPosition * 100f;
+                string prefab = g.GadgetItem?.GetComponent<InventoryItemSpec>()?.ItemPrefabName ?? g.name;
+                return $"{prefab} uid={g.UID} at=({Mathf.RoundToInt(p.x)},{Mathf.RoundToInt(p.y)},{Mathf.RoundToInt(p.z)}) " +
+                       $"power={g.PowerState} {data.ToString(Newtonsoft.Json.Formatting.None)}";
+            });
+            return string.Join("\n", lines) + $"\nholes={trainCar.Customization.Holes.Count()}";
+        }
+
+        /// <summary>This game's <see cref="Digest"/> once it matches <paramref name="expected"/>, or after
+        /// <paramref name="seconds"/>, whichever is first.</summary>
+        [Step]
+        public static IEnumerator DigestWhenEqual(Step<string> step, string car, string expected, float seconds)
+        {
+            float end = Time.realtimeSinceStartup + seconds;
+            do
+            {
+                step.Result = CarSpawner.Instance.AllCars.Any(c => c != null && c.ID == car) ? Digest(car) : "(no car " + car + ")";
+                if (step.Result == expected)
+                    yield break;
+                yield return new WaitForSecondsRealtime(0.5f);
+            } while (Time.realtimeSinceStartup < end);
+        }
+
+        /// <summary>
+        /// Of the items with these net IDs, how many this game has as installed gadgets: the item
+        /// inactive, its projection linked to a car.
+        /// </summary>
+        [Step]
+        public static int CountInstalled(ushort[] netIds) =>
+            netIds.Count(id => NetworkedItem.TryGet(id, out NetworkedItem item) && item != null &&
+                               !item.gameObject.activeSelf && item.GetComponent<GadgetItem>()?.Gadget?.IsLinked == true);
+
         /// <summary>Whether this game has the item active anywhere after <paramref name="seconds"/>.</summary>
         [Step]
         public static IEnumerator ActiveHere(Step<bool> step, ushort netId, float seconds)
