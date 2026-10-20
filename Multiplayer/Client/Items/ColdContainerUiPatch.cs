@@ -1,3 +1,4 @@
+using Multiplayer.Shared.Items;
 using DV.InventorySystem;
 using DV.Items;
 using DV.UI.Inventory;
@@ -94,7 +95,7 @@ public static class ColdContainerUiPatch
     [HarmonyPostfix]
     private static void ToggleContainerAccess(ItemContainer __instance)
     {
-        if (NetworkLifecycle.Instance?.IsClientRunning == true &&
+        if (ItemClient.Current != null &&
             Inventory.Instance?.ItemContainerRegistry?.ActiveContainer == __instance)
             ColdContainerUiIntegration.Open(__instance);
     }

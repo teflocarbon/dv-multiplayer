@@ -212,19 +212,19 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     {
         Previous = previousScreen;
         LostAndFoundList.Changed += OnListChanged;
-        if (NetworkClient.Instance != null)
-            NetworkClient.Instance.LostItemRetrieveCompleted += OnRetrieveCompleted;
+        if (ItemClient.Current != null)
+            ItemClient.Current.LostItemRetrieveCompleted += OnRetrieveCompleted;
         loading = true;
         message = "LOADING...";
-        NetworkClient.Instance?.RequestLostItems(++requestId);
+        ItemClient.Current?.RequestLostItems(++requestId);
         RefreshFromModel();
     }
 
     public override void Disable()
     {
         LostAndFoundList.Changed -= OnListChanged;
-        if (NetworkClient.Instance != null)
-            NetworkClient.Instance.LostItemRetrieveCompleted -= OnRetrieveCompleted;
+        if (ItemClient.Current != null)
+            ItemClient.Current.LostItemRetrieveCompleted -= OnRetrieveCompleted;
         Clear();
     }
 
@@ -243,7 +243,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
             LostItemData item = items[Selected];
             pending = true;
             message = "RETRIEVING...";
-            NetworkClient.Instance?.RequestLostItemRetrieval(++requestId,
+            ItemClient.Current?.RequestLostItemRetrieval(++requestId,
                 item.Handle, item.NetId, item.Revision);
         }
         else if (input == InputAction.PrintInfo)

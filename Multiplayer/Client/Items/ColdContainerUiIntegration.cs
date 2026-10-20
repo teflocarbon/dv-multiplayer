@@ -113,7 +113,7 @@ internal static class ColdContainerUiIntegration
 
     public static void Open(AItemContainer container)
     {
-        if (container == null || NetworkClient.Instance == null ||
+        if (container == null || ItemClient.Current == null ||
             !NetworkedItem.TryGetNetworkedItem(container.GetComponent<ItemBase>(), out NetworkedItem shell) ||
             shell.NetId == 0)
             return;
@@ -125,16 +125,16 @@ internal static class ColdContainerUiIntegration
         global::Multiplayer.Multiplayer.Log($"[Cold Container] Browse requested: " +
             $"request={pendingRequestId}, shellNetId={requestedShellNetId}, " +
             $"containerId={container.ContainerId}");
-        NetworkClient.Instance.RequestContainerView(pendingRequestId,
+        ItemClient.Current.RequestContainerView(pendingRequestId,
             requestedShellNetId);
     }
 
     public static void OpenChild(uint containerHandle)
     {
-        if (containerHandle == 0 || NetworkClient.Instance == null) return;
+        if (containerHandle == 0 || ItemClient.Current == null) return;
         EnsureInitialized();
         pendingRequestId = ++requestId;
-        NetworkClient.Instance.RequestContainerView(pendingRequestId, 0,
+        ItemClient.Current.RequestContainerView(pendingRequestId, 0,
             containerHandle);
     }
 
@@ -190,7 +190,7 @@ internal static class ColdContainerUiIntegration
             ["sourceSlot"] = packet.SourceSlot,
             ["destinationSlot"] = packet.DestinationSlot
         });
-        NetworkClient.Instance.RequestContainerMutation(packet);
+        ItemClient.Current.RequestContainerMutation(packet);
         return true;
     }
 
@@ -229,7 +229,7 @@ internal static class ColdContainerUiIntegration
             ["sourceSlot"] = packet.SourceSlot,
             ["destinationSlot"] = packet.DestinationSlot
         });
-        NetworkClient.Instance.RequestContainerMutation(packet);
+        ItemClient.Current.RequestContainerMutation(packet);
         return true;
     }
 
@@ -247,7 +247,7 @@ internal static class ColdContainerUiIntegration
         packet.ExpectedDestinationRevision = ActiveRevision;
         packet.SourceSlot = from;
         packet.DestinationSlot = to;
-        NetworkClient.Instance.RequestContainerMutation(packet);
+        ItemClient.Current.RequestContainerMutation(packet);
         return true;
     }
 
@@ -264,11 +264,11 @@ internal static class ColdContainerUiIntegration
 
     private static void EnsureInitialized()
     {
-        if (initialized || NetworkClient.Instance == null) return;
+        if (initialized || ItemClient.Current == null) return;
         initialized = true;
         NetworkedItemManager.Cleared += Reset;
-        NetworkClient.Instance.ContainerViewReceived += OnView;
-        NetworkClient.Instance.ContainerMutationCompleted += OnMutation;
+        ItemClient.Current.ContainerViewReceived += OnView;
+        ItemClient.Current.ContainerMutationCompleted += OnMutation;
     }
 
     private static void OnMutation(ClientboundContainerMutationResultPacket result)
@@ -296,7 +296,7 @@ internal static class ColdContainerUiIntegration
             }, result.Accepted ? DebugSeverity.Info : DebugSeverity.Warning);
         if (activeShellNetId == 0) return;
         pendingRequestId = ++requestId;
-        NetworkClient.Instance.RequestContainerView(pendingRequestId, 0,
+        ItemClient.Current.RequestContainerView(pendingRequestId, 0,
             ActiveHandle);
     }
 
@@ -382,10 +382,10 @@ internal static class ColdContainerUiIntegration
     private static void Reset()
     {
         NetworkedItemManager.Cleared -= Reset;
-        if (initialized && NetworkClient.Instance != null)
+        if (initialized && ItemClient.Current != null)
         {
-            NetworkClient.Instance.ContainerViewReceived -= OnView;
-            NetworkClient.Instance.ContainerMutationCompleted -= OnMutation;
+            ItemClient.Current.ContainerViewReceived -= OnView;
+            ItemClient.Current.ContainerMutationCompleted -= OnMutation;
         }
         initialized = false;
         activeView = null;
