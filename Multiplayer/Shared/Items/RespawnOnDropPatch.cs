@@ -16,7 +16,7 @@ namespace Multiplayer.Shared.Items;
 /// Unmanaged scene objects keep vanilla behaviour.
 /// </summary>
 [HarmonyPatch(typeof(RespawnOnDrop), nameof(RespawnOnDrop.RespawnOrDestroy))]
-internal static class RespawnOnDropDebugPatch
+internal static class RespawnOnDropPatch
 {
     [HarmonyPrefix]
     private static bool BeforeRespawnOrDestroy(RespawnOnDrop __instance, float delay, ref System.Collections.IEnumerator __result)

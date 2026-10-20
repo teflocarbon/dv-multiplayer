@@ -1,5 +1,4 @@
 using HarmonyLib;
-using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using System;
 
@@ -8,18 +7,6 @@ namespace Multiplayer.Shared.Stations;
 [HarmonyPatch(typeof(PluggableObject))]
 public static class PluggableObjectPatch
 {
-    [HarmonyPatch(nameof(PluggableObject.Awake))]
-    [HarmonyPrefix]
-    public static bool Awake(PluggableObject __instance)
-    {
-        if (NetworkLifecycle.Instance.IsHost())
-            return true;
-
-        // Allow the client to setup the plug, but don't allow `InstantSnapTo(this.startAttachedTo);` to be called
-        __instance.CheckInitialization();
-        return false;
-    }
-
     [HarmonyPatch(nameof(PluggableObject.IsHeldInHand), MethodType.Getter)]
     [HarmonyPrefix]
     public static bool IsHeldInHand(PluggableObject __instance, ref bool __result)

@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 
-namespace Multiplayer.Shared.Integrations;
+namespace Multiplayer.Server.Integrations;
 
 /// <summary>
 /// Dynamic Seasons (DVSeasons, Nexus mod 1668, github.com/HerodrineYT/DVSeasons), for /season.

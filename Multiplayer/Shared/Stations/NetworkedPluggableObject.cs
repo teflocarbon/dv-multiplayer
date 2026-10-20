@@ -43,12 +43,6 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     /// (<c>Server/Stations/ServerPluggableObject</c>); a client knows the holder as <see cref="playerHolding"/>.
     /// </summary>
     public byte HeldByPlayerId { get; set; }
-
-    /// <summary>
-    /// The plug changed in the server's world by itself (the hose yanked it out of a hand, or
-    /// snapped it home): the server tells the players at the station.
-    /// </summary>
-    public event Action<CommonPitStopPlugInteractionPacket> HostStateChanged;
     #endregion
 
     #region Common Variables
@@ -172,68 +166,13 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     }
     #endregion
 
-    #region Host
-    // The hose's rope physics runs on the host only (PropHosePatch).
-
-    public void YankedByRope(Vector3 force, ForceMode mode)
-    {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.YankedByRope() [{transform.parent.name}, {NetId}] station: {Station?.StationName}, force: {force}");
-
-        //cancel any client events
-        currentInteraction = PlugInteractionType.Rejected;
-
-        HeldByPlayerId = 0;
-        TrainCarNetId = INVALID_NETID;
-        SocketIndex = INVALID_SOCKET;
-        IsConnecting = false;
-
-        var packet = new CommonPitStopPlugInteractionPacket
-        {
-            NetId = NetId,
-            InteractionType = PlugInteractionType.Yanked,
-            Position = transform.position - WorldMover.currentMove,
-            Rotation = transform.rotation,
-            YankForce = force,
-            YankMode = mode,
-        };
-
-        //Allow host to process packet
-        ProcessingAsHost = true;
-        ProcessPacket(packet);
-        ProcessingAsHost = false;
-
-        HostStateChanged?.Invoke(packet);
-    }
-
-    public void SnappedByRope()
-    {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.SnappedByRope() [{transform.parent.name}, {NetId}] station: {Station?.StationName}");
-
-        //cancel any client events
-        currentInteraction = PlugInteractionType.Rejected;
-
-        HeldByPlayerId = 0;
-        TrainCarNetId = INVALID_NETID;
-        SocketIndex = INVALID_SOCKET;
-        IsConnecting = false;
-
-        var packet = new CommonPitStopPlugInteractionPacket
-        {
-            NetId = NetId,
-            InteractionType = PlugInteractionType.DockHome,
-        };
-
-        //Allow host to process packet
-        ProcessingAsHost = true;
-        ProcessPacket(packet);
-        ProcessingAsHost = false;
-
-        HostStateChanged?.Invoke(packet);
-    }
-
-    #endregion
-
     #region Common
+
+    /// <summary>
+    /// Drops the local player's interaction waiting to be reported this frame: the server's hose
+    /// physics moved the plug (<c>Server/Stations/ServerPluggableObject</c>).
+    /// </summary>
+    internal void CancelLocalInteraction() => currentInteraction = PlugInteractionType.Rejected;
 
     public void ProcessPacket(CommonPitStopPlugInteractionPacket packet)
     {
