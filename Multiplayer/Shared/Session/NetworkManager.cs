@@ -14,7 +14,8 @@ namespace Multiplayer.Shared.Session;
 
 public abstract class NetworkManager
 {
-    protected const int LATENCY_FLAG = 150;
+    // Round trip, in ms: the same 150 ms one-way it was when the transports reported half the round trip.
+    protected const int LATENCY_FLAG = 300;
 
     protected readonly NetPacketProcessor netPacketProcessor;
     protected readonly NetDataWriter cachedWriter = new();
