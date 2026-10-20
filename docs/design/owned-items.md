@@ -267,6 +267,30 @@ vanilla's list for its placement (`StorageIntegration`). A check in debug builds
 disagree with its `where`, or in more than one (`StorageController.ItemInMultipleStorages`). On
 clients nothing changes: their lists follow the server's item snapshots, as now.
 
+The stage-3 test pass (2026-10-21) showed where vanilla gets behind the server's back. The ledger
+keeps four rules because of it:
+
+- **Vanilla never moves an owned item.**
+  - Vanilla's `RespawnOnDrop` sent personal items to the server's own vanilla Lost and Found while
+    the record still said `World`, and clients were sent the item at (0,0,0) (#263). Only the
+    ledger's Lost and Found moves an owned item.
+  - The check reports an owned item in vanilla's Lost and Found list whose `where` isn't
+    `LostAndFound`, and any item at all in the server's own vanilla inventory on a dedicated host:
+    there, that inventory belongs to the parked body and must stay empty. Vanilla's job load had
+    printed a booklet into it (#261).
+- **Inactive is not gone.**
+  - DV's train LOD switches off items lying on a parked car, and a lookup of active objects missed
+    them (the `booklet-summon` failure).
+  - The ledger and the load check never infer an item's absence from its object being inactive. They
+    look items up by id among inactive objects too, and by record, not by `FindObjectsOfType`.
+- **Only an accepted transition moves the ledger.**
+  - A refused one (the `regrab-late` race, `stale-authority-revision`) leaves the ledger as it was,
+    as it leaves the record.
+  - The ledger is updated where the registry commits, never from what a game observed.
+- **Unowned personal items are a gap to close, not a state to keep.** #263 hit items no one owned
+  yet: purchases, grants, `Items.SpawnPersonal`. Purchases and grants are born owned now (shops
+  PR 2, `/give`), so the first-taker rule remains only for a world-authored personal item.
+
 **In the vanilla save.** The server keeps the vanilla save as its store. The ledger is one more key
 in the mod's `Multiplayer` section, next to `Players`, `WorldItemsV1`, `LostAndFound` and
 `ColdContainers`:
@@ -531,6 +555,18 @@ It also meets the shops work ([shops.md](shops.md#owned-items)):
   server transaction, the host's own player's included, and births the item in the ledger.
 - **Per-player stock.** Shops' per-player stock (shops PR 6) waits for owned-items PRs 1 and 2. It
   uses the count query and change event of [the ledger](#the-ledger).
+
+The plan's scenarios cover issue #242's item scenarios. That issue asks that each is written with its
+fix, so the failing run proves the fix:
+
+| #242 | Here |
+| --- | --- |
+| Inventory saving, for the host's player and a client, both host kinds | `ledger-save`, `item-id-roundtrip` (PR 1b), `starting-items` (PR 4) |
+| Essentials can't be lost from the inventory | `starting-items` (PR 4: a destroyed essential is issued again; nothing duplicates on rejoin), `offline-lost-and-found` and `borrowed-disconnect` (PR 3) |
+| Essentials are always retrievable | `owned-retrieve` (PR 6), from every place in the [retrieval table](#retrieval) |
+
+Throwing items onto trains (#242's first item, and #148) isn't the ledger's. It stays with the item
+release and train wake work.
 
 A dedicated host has no player of its own and a pair has one client, so "an owner who isn't here" is
 a made-up identity: the host spawns an item and gives it to a new GUID, as the `owned-items` scenario
