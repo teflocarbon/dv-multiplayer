@@ -385,7 +385,7 @@ were already set for it (the far layer still carries a few km, like the loco exp
 Other world sounds were checked in a live game: train, loco and station sounds are already 3D, the
 2D ones are ambience, weather and local UI.
 
-Scenario: `DevTools/Scenarios/explosion` (a client can't set off loco or tank-car explosions; a host
+Scenario: `explosion` (`DevTools/DvmpScenarios/Scenarios/Explosion.cs`: a client can't set off loco or tank-car explosions; a host
 explosion leaves both peers with the same burnt car, derailments and positions).
 
 ## Car cargo fires
