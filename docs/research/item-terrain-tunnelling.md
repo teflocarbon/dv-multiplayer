@@ -75,11 +75,19 @@ the probe launches the body from the same start.
 | The host (player host), 40 throws | 11 fell through | 0 | 13 |
 | The host, 10 and 20 throws (other seeds) | 3 of 10 | 0 of 20 | 4 |
 | The client (lease simulator), 30 throws | 6 fell through, rescued back to where they were picked up | 0 | 12 |
+| A dedicated host (the client standing at the spot), 30 throws | 9 fell through | 0 | 9 |
 
 The guard costs about 55 to 65 µs a physics step with about 800 items loaded and none moving (it
-looks at every item, skipping kinematic and sleeping bodies). In the `server-throw` scenario the
-guard put the mug back on the ground in the first run, and the scenario now requires the mug never
-to go under the ground and never to be rescued.
+looks at every item, skipping kinematic and sleeping bodies). On a player host, `server-throw`
+lands its mug at this spot, and the guard put it back on the ground in 5 of 6 runs (on the host for
+`ACTOR=host`, on the client for `ACTOR=client`). The scenario now requires the mug never to go under
+the ground and never to be rescued. On a dedicated host it lands by the client's home instead, where
+the guard never had to act.
+
+An observer's proxy could also dip under the ground: it extrapolates the last motion sample by up to
+0.15 s, and a sample taken just before landing carried it on down. On a dedicated host the host's
+copy of a client's throw went 0.3 m under once in 7 runs, with no guard correction on the client.
+The observer no longer predicts into the terrain.
 
 **Tunnels.** At the portal at absolute (5714, 146, 9145): a mug dropped 40 m inside the tunnel, 25 m
 under the terrain surface, and a mug thrown in through the portal at 12 m/s (it ended 5.5 m under the
