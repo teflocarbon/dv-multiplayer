@@ -1254,6 +1254,10 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         NetworkClient.Instance.SendFireboxIgnition(NetId);
     }
 
+    // Where a client reports its player's chain placements. The host's player's chains are in the
+    // server's world, which observes them itself (NetworkedTrainCarServer.ChainStateChanged).
+    private static NetworkClient RemoteClient => NetworkRole.IsRemoteClient ? NetworkClient.Instance : null;
+
     public void CouplerStateChange(ChainCouplerInteraction.State state, Coupler coupler)
     {
         //Multiplayer.LogDebug(() => $"1 CouplerStateChange({state}) trainCar: [{TrainCar?.ID}, {NetId}], coupler is front: {coupler?.isFrontCoupler}");
@@ -1296,7 +1300,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             case ChainCouplerInteraction.State.Parked:
                 if (couplerInteraction != null)
                 {
-                    NetworkClient.Instance.SendChainPlacement(coupler,
+                    RemoteClient?.SendChainPlacement(coupler,
                         TrainChainState.Parked, originalCoupledTo != null);
                     couplerInteraction = null;
                 }
@@ -1305,7 +1309,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             case ChainCouplerInteraction.State.Dangling:
                 if (couplerInteraction != null)
                 {
-                    NetworkClient.Instance.SendChainPlacement(coupler,
+                    RemoteClient?.SendChainPlacement(coupler,
                         TrainChainState.Dangling, originalCoupledTo != null);
                     couplerInteraction = null;
                 }
@@ -1332,7 +1336,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (interactionFlags != CouplerInteractionType.NoAction)
         {
             //Multiplayer.LogDebug(() => $"8 CouplerStateChange({state}) trainCar: [{TrainCar?.ID}, {NetId}], coupler is front: {coupler?.isFrontCoupler}, Sending: {interactionFlags}");
-            NetworkClient.Instance.SendCouplerInteraction(interactionFlags, coupler, otherCoupler);
+            RemoteClient?.SendCouplerInteraction(interactionFlags, coupler, otherCoupler);
 
             //finished interaction, clear flag
             if (interactionFlags != CouplerInteractionType.Start)

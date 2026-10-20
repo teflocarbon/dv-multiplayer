@@ -37,7 +37,8 @@ public static class CouplerPatch
             return;
         }
 
-        NetworkClient.Instance?.SendHoseConnected(__instance, other, playAudio);
+        if (NetworkRole.IsRemoteClient) // the server observes its own world's (TopologyObservationPatch)
+            NetworkClient.Instance?.SendHoseConnected(__instance, other, playAudio);
     }
 
     [HarmonyPatch(nameof(Coupler.DisconnectAirHose))]
@@ -65,7 +66,8 @@ public static class CouplerPatch
         }
 
         Multiplayer.LogDebug(() => $"DisconnectAirHose({__instance?.train?.ID}, {__instance.isFrontCoupler})");
-        NetworkClient.Instance?.SendHoseDisconnected(__instance, playAudio); 
+        if (NetworkRole.IsRemoteClient) // the server observes its own world's (TopologyObservationPatch)
+            NetworkClient.Instance?.SendHoseDisconnected(__instance, playAudio);
     }
 
 }
