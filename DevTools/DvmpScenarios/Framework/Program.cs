@@ -116,9 +116,9 @@ namespace Dvmp.Scenarios
             int budget = found.Type.GetCustomAttribute<BudgetAttribute>()?.Seconds ?? 600;
 
             ScenarioRun run = new(session, GameDir, dvmp);
-            Pair pair = new(run);
+            Pair pair = run.Pair;
             run.Out.Text($"== {name}  session {session}  {Options.Describe(options)}");
-            Dictionary<string, HashSet<string>> carsBefore = null;
+            bool started = false;
             Dictionary<string, long> logStart = new();
             string error = null;
             bool harness = false;
@@ -128,7 +128,8 @@ namespace Dvmp.Scenarios
                 run.Out.Text($"   {(pair.Dedicated ? "dedicated host" : "player host")}; client #{run.Agent("client").Pid}, host #{run.Agent("host").Pid}");
                 CheckNeeds(found.Type, pair);
                 logStart = await run.LogCursorsAsync();
-                carsBefore = await run.CarsAsync(pair);
+                await run.ForgetSpawnedAsync();
+                started = true;
                 Task body = scenario.Run(pair, options);
                 if (await Task.WhenAny(body, Task.Delay(TimeSpan.FromSeconds(budget))) != body)
                     throw new StepFailed($"the run took longer than its budget of {budget} s", null);
@@ -141,7 +142,7 @@ namespace Dvmp.Scenarios
             catch (Exception e) { error = e.ToString(); }
 
             if (error != null) run.Out.Text((harness ? "ERROR " : "FAIL ") + error);
-            await CleanUpAsync(run, pair, carsBefore, harness);
+            await CleanUpAsync(run, started && !harness);
 
             bool passed = error == null && run.Failures.Count == 0;
             if (!passed && !harness)
@@ -153,7 +154,7 @@ namespace Dvmp.Scenarios
         }
 
         // Cleanups, then the leak check: every car the run spawned is gone again, on both games.
-        private static async Task CleanUpAsync(ScenarioRun run, Pair pair, Dictionary<string, HashSet<string>> carsBefore, bool harness)
+        private static async Task CleanUpAsync(ScenarioRun run, bool checkLeaks)
         {
             try { await run.CancelStartedAsync(); }
             catch (Exception e) { run.Out.Note("cancelling started steps: " + e.Message); }
@@ -162,11 +163,11 @@ namespace Dvmp.Scenarios
                 try { await run.Cleanups.Pop()(); }
                 catch (Exception e) { run.Out.Note("cleanup failed: " + e.Message); }
             }
-            if (carsBefore == null || harness) return;
+            if (!checkLeaks) return;
             try
             {
-                foreach (var (peer, after) in (await run.CarsAsync(pair)).Select(kv => (kv.Key, kv.Value)))
-                    Expect.Empty(after.Where(id => !carsBefore.TryGetValue(peer, out var before) || !before.Contains(id)), $"{peer}: cars the run left behind");
+                foreach (var (peer, left) in await run.SpawnedLeftAsync())
+                    Expect.Empty(left, $"{peer}: cars the run spawned and left behind");
             }
             catch (Exception e) { run.Out.Note("leak check: " + e.Message); }
         }

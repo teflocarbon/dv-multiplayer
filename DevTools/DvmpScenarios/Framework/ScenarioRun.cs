@@ -50,6 +50,8 @@ namespace Dvmp.Scenarios
         }
 
         public Output Out { get; } = new();
+        private Pair pair;
+        public Pair Pair => pair ??= new Pair(this);
         public string AssemblyHash { get; }
         public List<string> Failures { get; } = new();
         public Stack<Func<Task>> Cleanups { get; } = new();
@@ -119,11 +121,16 @@ namespace Dvmp.Scenarios
                 throw new HarnessException($"dvmp {string.Join(" ", args)} failed ({p.ExitCode}): {(await stderr).Trim()} {Tail(await stdout)}");
         }
 
-        /// <summary>Car IDs on each game, for the leak check: a run leaves none of its cars behind.</summary>
-        public async Task<Dictionary<string, HashSet<string>>> CarsAsync(Pair pair)
+        /// <summary>Before a run: the host forgets cars an earlier run's spawn steps made.</summary>
+        public Task ForgetSpawnedAsync() => Pair.Host.Quiet(() => Cars.TakeSpawned());
+
+        /// <summary>After a run's cleanups, for the leak check: the cars its spawn steps made that
+        /// each game still has. A run leaves none behind.</summary>
+        public async Task<PeerResults<string[]>> SpawnedLeftAsync()
         {
-            PeerResults<string[]> ids = await pair.Both.Run(() => Cars.All());
-            return ids.ToDictionary(r => r.Peer, r => new HashSet<string>(r.Value));
+            string[] ids = await Pair.Host.Quiet(() => Cars.TakeSpawned());
+            if (ids.Length == 0) return new PeerResults<string[]>(ids, ids);
+            return new PeerResults<string[]>(await Pair.Host.Quiet(() => Cars.Existing(ids)), await Pair.Client.Quiet(() => Cars.Existing(ids)));
         }
 
         /// <summary>Cancels steps the scenario started and didn't wait for.</summary>

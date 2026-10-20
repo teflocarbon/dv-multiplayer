@@ -41,11 +41,37 @@ namespace Dvmp.Scenarios
         public float Clear, Charged, Cylinders, Seconds;
     }
 
+    /// <summary>A loco held still (Cars.SpawnHeldLoco): the loco, then its tender if it has one.</summary>
+    public sealed class HeldLoco
+    {
+        public string Loco;
+        public string[] Cars;
+        public Abs At;
+    }
+
     public static class Cars
     {
+        // Cars the library's spawn steps made in this game since the last TakeSpawned: the leak check's
+        // list. The world spawns cars of its own while a run goes on (StationLocoSpawner puts locos
+        // at a station a player comes near), so "cars that weren't there before" isn't a leak.
+        private static readonly HashSet<string> spawned = new();
+
         /// <summary>Every car this game has, by ID.</summary>
         [Step]
         public static string[] All() => CarSpawner.Instance.AllCars.Where(c => c != null).Select(c => c.ID).ToArray();
+
+        /// <summary>Host: the IDs of the cars spawn steps made since the last call, and forgets them.</summary>
+        [Step]
+        public static string[] TakeSpawned()
+        {
+            string[] ids = spawned.ToArray();
+            spawned.Clear();
+            return ids;
+        }
+
+        /// <summary>Which of these cars this game still has.</summary>
+        [Step]
+        public static string[] Existing(string[] ids) => CarSpawner.Instance.AllCars.Where(c => c != null && ids.Contains(c.ID)).Select(c => c.ID).ToArray();
 
         [Step]
         public static Abs Position(string car) => Positions.Of(Trains.Find(car).transform.position);
@@ -85,6 +111,7 @@ namespace Dvmp.Scenarios
                 if (t == null) continue;
                 var cars = CarSpawner.Instance.SpawnCarTypesOnTrack(liveries, liveries.Select(_ => false).ToList(), t, true, false);
                 if (cars == null) continue;
+                foreach (var c in cars) spawned.Add(c.ID);
                 for (int i = 0; i < 60; i++) yield return null;
 
                 // Room from the loco, less the train's own length (the wagons may be on the side we push to).
@@ -129,6 +156,86 @@ namespace Dvmp.Scenarios
                 yield break;
             }
             throw new Exception($"no track with {clear:F0} m clear near the client (tried {string.Join("; ", rejected)})");
+        }
+
+        /// <summary>
+        /// Host: a loco near the host's player that stays put: a steam loco with its tender coupled,
+        /// every car braked, on a spot where it doesn't roll. The S282's handbrake is on its tender:
+        /// spawned alone, it rolled away on a grade and left a boarded client behind, out of reach of
+        /// its controls (#159). The S282A has no handbrake at all, so a car without one gets its air
+        /// brake: its main reservoir charged and its independent brake applied, through its port.
+        /// With that, an S282A and tender still crept 15-18 m in a minute on some grades: each spot is
+        /// watched for 5 s, and one the loco moves 0.3 m or more on is given up for one further out.
+        /// If every spot creeps, the one it crept least on is kept.
+        /// </summary>
+        [Step]
+        public static IEnumerator SpawnHeldLoco(Step<HeldLoco> step, string livery)
+        {
+            var tried = new List<string>();
+            var braked = new List<string>();
+            string bestBraked = "";
+            void Brake(TrainCar c)
+            {
+                if (c.brakeSystem.hasHandbrake)
+                {
+                    c.brakeSystem.SetHandbrakePosition(1f);
+                    braked.Add(c.ID + ": handbrake");
+                    return;
+                }
+                var flow = c.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>()?.simulationFlow;
+                var ind = flow?.fullPortIdToPort.Where(kv => kv.Key.StartsWith("indBrake") && kv.Value.type == LocoSim.Definitions.PortType.EXTERNAL_IN)
+                    .Select(kv => kv.Value).FirstOrDefault();
+                if (ind == null)
+                {
+                    braked.Add(c.ID + ": no brake to apply");
+                    return;
+                }
+                c.brakeSystem.SetMainReservoirPressure(8f);
+                ind.ExternalValueUpdate(1f);
+                braked.Add(c.ID + ": independent brake (" + ind.id + "), main reservoir charged");
+            }
+            TrainCar best = null, bestTender = null;
+            float bestMoved = float.MaxValue;
+            foreach (float ahead in new[] { 25f, 45f, 70f, 100f })
+            {
+                braked.Clear();
+                var car = Trains.SpawnWithTenderNearPlayer(livery, ahead);
+                var tenderLivery = Trains.TenderOf(car.carLivery);
+                TrainCar tender = tenderLivery == null ? null : UnityEngine.Object.FindObjectsOfType<TrainCar>()
+                    .Where(c => c.carLivery == tenderLivery).OrderBy(c => (c.transform.position - car.transform.position).sqrMagnitude).FirstOrDefault();
+                foreach (var c in new[] { car, tender }.Where(c => c != null))
+                {
+                    spawned.Add(c.ID);
+                    Brake(c);
+                }
+                yield return Trains.CoupleTender(car, 1.5f);
+                for (int i = 0; i < 120; i++) yield return null;
+                Vector3 from = Dev.Abs(car.transform.position);
+                yield return new WaitForSecondsRealtime(5f);   // watching it creep
+                float moved = Vector3.Distance(Dev.Abs(car.transform.position), from);
+                if (moved < 0.3f || moved < bestMoved)
+                {
+                    if (best != null)
+                        foreach (var c in new[] { best, bestTender }.Where(c => c != null))
+                            Trains.Delete(c);
+                    best = car; bestTender = tender; bestMoved = moved; bestBraked = string.Join("; ", braked);
+                    if (moved < 0.3f)
+                        break;
+                }
+                else
+                    foreach (var c in new[] { car, tender }.Where(c => c != null))
+                        Trains.Delete(c);
+                tried.Add($"{ahead} m ahead: moved {moved:F2} m in 5 s");
+                for (int i = 0; i < 30; i++) yield return null;
+            }
+            if (tried.Count > 0) step.Note("spots tried (the loco crept): " + string.Join("; ", tried));
+            step.Note("braked: " + bestBraked);
+            step.Result = new HeldLoco
+            {
+                Loco = best.ID,
+                Cars = new[] { best, bestTender }.Where(c => c != null).Select(c => c.ID).ToArray(),
+                At = Positions.Of(best.transform.position)
+            };
         }
 
         /// <summary>Host: pushes the loco's consist (ramp to <paramref name="speed"/> m/s, hold, ramp

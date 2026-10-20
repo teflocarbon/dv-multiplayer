@@ -111,6 +111,11 @@ jobs:
           dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug
           dotnet build DevTools/Dvmp/Dvmp.csproj -c Debug
 
+      # The C# scenarios compile against the mod just built: one that uses a moved or renamed type
+      # fails here, not halfway through a gate run (docs/design/scenarios.md).
+      - name: Build the scenarios
+        run: dotnet build DevTools/DvmpScenarios/DvmpScenarios.csproj -c Debug
+
       - name: Protocol tests
         shell: pwsh
         run: dotnet test Multiplayer.Protocol.Tests -c Debug "-p:DerailValleyManagedDir=$env:GITHUB_WORKSPACE\gamelibs\DerailValley_Data\Managed"
