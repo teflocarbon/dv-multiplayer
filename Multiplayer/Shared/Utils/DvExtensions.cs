@@ -1,10 +1,6 @@
-using DV.Interaction;
-using DV.KeyboardInput;
 using DV.Localization;
 using DV.UI;
 using DV.UIFramework;
-using Multiplayer.Server.Dedicated;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.World;
@@ -115,52 +111,6 @@ public static class DvExtensions
 
     #region Utils
 
-    public static float AnyPlayerSqrMag(this GameObject item)
-    {
-        return AnyPlayerSqrMag(item.transform.position);
-    }
-
-    public static float AnyPlayerSqrMag(this Vector3 anchor)
-    {
-        float result = float.MaxValue;
-        //string origin = new StackTrace().GetFrame(1).GetMethod().Name;
-
-        //Loop through all of the players and return the one thats closest to the anchor (a
-        //dedicated host's parked body isn't a player)
-        foreach (ServerPlayer serverPlayer in NetworkLifecycle.Instance.Server.ServerPlayers)
-        {
-            if (serverPlayer.IsServiceHost)
-                continue;
-            float sqDist = (serverPlayer.WorldPosition - anchor).sqrMagnitude;
-
-            if (sqDist < result)
-                result = sqDist;
-        }
-
-        return result;
-    }
-
-    public static bool PlayerCanReach(this GameObject item, ServerPlayer player, float extraRange = 0f)
-    {
-        return PlayerCanReach (item.transform, player, extraRange);
-    }
-
-    public static bool PlayerCanReach(this Transform item, ServerPlayer player, float extraRange = 0f)
-    {
-        float reachRange = AKeyboardInput.XZ_SQR_REACH_RANGE + GrabberRaycasterDV.FPS_INTERACTION_RANGE_SQR + (extraRange * extraRange);
-
-        var delta = player.WorldPosition - item.transform.position;
-
-        if (Mathf.Abs(delta.y) > AKeyboardInput.Y_REACH_RANGE)
-            return false;
-
-        delta.y = 0f;
-
-        float sqrMag = (delta).sqrMagnitude;
-
-        return sqrMag <= reachRange;
-    }
-
     public static Vector3 GetWorldAbsolutePosition(this GameObject go)
     {
         return go.transform.GetWorldAbsolutePosition();
@@ -171,12 +121,10 @@ public static class DvExtensions
         return transform.position - WorldMover.currentMove;
     }
 
+    /// <summary>Whether this game may pause: the server decides (<see cref="IPauseServer"/>), so never on a remote client.</summary>
     public static bool AllowPause()
     {
-        return NetworkLifecycle.Instance.IsHost() &&
-            (NetworkLifecycle.Instance.Server.IsSinglePlayer ||
-            (NetworkLifecycle.Instance.IsHostPlayingAlone && NetworkLifecycle.Instance.IsClientRunning) ||
-            DedicatedHost.AllowsPause);
+        return NetworkLifecycle.Instance.LocalServer is IPauseServer server && server.AllowsPause;
     }
     #endregion
 }
