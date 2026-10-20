@@ -41,13 +41,18 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
     internal ClientItemManager(NetworkedItemManager shell)
     {
         this.shell = shell;
+        Spatial = new ClientItemSpatial(shell.Spatial);
     }
+
+    /// <summary>This game's side of the Shared spatial manager's leases.</summary>
+    internal ClientItemSpatial Spatial { get; }
 
     /// <summary>The client's item manager, while there is one.</summary>
     internal static ClientItemManager Instance => NetworkedItemManager.Instance?.ClientPart as ClientItemManager;
 
     public void Update()
     {
+        Spatial.Update();
         if (!ClientInitialised)
             return;
 
@@ -92,6 +97,7 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
 
     public void Clear()
     {
+        Spatial.Clear();
         ClientDetachedAuthoredSlots.Clear();
     }
 

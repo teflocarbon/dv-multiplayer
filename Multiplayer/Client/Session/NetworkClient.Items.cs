@@ -342,16 +342,16 @@ public partial class NetworkClient : IItemClient
     }
 
     private void OnClientboundItemSpatialLeasePacket(ClientboundItemSpatialLeasePacket packet) =>
-        NetworkedItemManager.Instance?.ReceiveItemSpatialLease(packet);
+        ClientItemManager.Instance?.Spatial.ReceiveClientLease(packet);
 
     private void OnClientboundItemSpatialSamplePacket(ClientboundItemSpatialSamplePacket packet)
     {
         if (packet?.State != null)
-            NetworkedItemManager.Instance?.ReceiveItemSpatialSample(packet.State);
+            ClientItemManager.Instance?.Spatial.ReceiveRelayedSample(packet.State);
     }
 
     private void OnClientboundItemSpatialCommitPacket(ClientboundItemSpatialCommitPacket packet) =>
-        NetworkedItemManager.Instance?.ReceiveItemSpatialCommit(packet);
+        ClientItemManager.Instance?.Spatial.ReceiveSpatialCommit(packet);
 
     public void SendItemSpatialSample(ItemSpatialStateData state)
     {

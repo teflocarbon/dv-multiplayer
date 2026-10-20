@@ -3,7 +3,6 @@ using DV.CabControls;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
@@ -20,8 +19,9 @@ namespace Multiplayer.Shared.Items;
 /// Host-controlled transient Rigidbody simulation. Logical authority remains in
 /// AuthoritativeItemRegistry; this manager orders motion with a separate epoch/sequence stream and
 /// commits only a reliable final pose to the durable authority revision. This is what every game
-/// has: the leases it knows of, simulating its own and following the others', and a client's
-/// side of the stream. The host grants, transfers and commits leases in ServerItemSpatial.
+/// has: the leases it knows of, simulating its own and following the others'. The host grants,
+/// transfers and commits leases in ServerItemSpatial; a remote client receives them, and sends
+/// its samples, in ClientItemSpatial.
 /// </summary>
 internal sealed class NetworkedItemSpatialManager
 {
@@ -74,7 +74,6 @@ internal sealed class NetworkedItemSpatialManager
     internal Dictionary<ushort, Lease> Leases => leases;
     internal Dictionary<ushort, ItemSpatialStateData> CommittedStates => committedStates;
     internal Dictionary<ushort, uint> Epochs => epochs;
-    private readonly Dictionary<ushort, ClientboundItemSpatialLeasePacket> pendingClientLeases = new();
 
 
     internal void Clear()
@@ -84,133 +83,6 @@ internal sealed class NetworkedItemSpatialManager
         leases.Clear();
         committedStates.Clear();
         epochs.Clear();
-        pendingClientLeases.Clear();
-    }
-
-    internal void Update()
-    {
-        if (NetworkLifecycle.Instance == null)
-            return;
-        ProcessPendingClientLeases();
-        // The host's leases are the server's (ServerItemSpatial.Update).
-        if (!NetworkLifecycle.Instance.IsHost() && NetworkLifecycle.Instance.IsClientRunning)
-            UpdateClientLeases();
-    }
-
-    internal void ReceiveClientLease(ClientboundItemSpatialLeasePacket packet)
-    {
-        ItemSpatialStateData state = packet?.State;
-        if (state == null || state.ItemNetId == 0)
-            return;
-        if (!packet.Active)
-        {
-            if (leases.TryGetValue(state.ItemNetId, out Lease existing) && existing.Epoch <= state.SimulationEpoch)
-            {
-                leases.Remove(state.ItemNetId);
-                RestoreLocalBodyAfterLease(existing);
-            }
-            return;
-        }
-        if (!NetworkedItem.TryGet(state.ItemNetId, out NetworkedItem item) || item == null)
-        {
-            pendingClientLeases[state.ItemNetId] = packet;
-            return;
-        }
-        ApplyClientLease(item, packet);
-    }
-
-    private void ProcessPendingClientLeases()
-    {
-        foreach (KeyValuePair<ushort, ClientboundItemSpatialLeasePacket> pair in pendingClientLeases.ToArray())
-        {
-            if (!NetworkedItem.TryGet(pair.Key, out NetworkedItem item) || item == null)
-                continue;
-            pendingClientLeases.Remove(pair.Key);
-            ApplyClientLease(item, pair.Value);
-        }
-    }
-
-    private void ApplyClientLease(NetworkedItem item, ClientboundItemSpatialLeasePacket packet)
-    {
-        ItemSpatialStateData state = packet.State;
-        if (leases.TryGetValue(item.NetId, out Lease old) && old.Epoch > state.SimulationEpoch)
-            return;
-        // A lease for our own release, arriving once we have the item back (a quick re-grab):
-        // the pickup we sent ends it at the host. Simulating it would loosen the held body.
-        if (state.SimulatorPlayerId == NetworkLifecycle.Instance.LocalSession.PlayerId && item.IsLocallyPossessed())
-        {
-            Publish("item.spatial-lease-skipped", item.NetId, new()
-            {
-                ["simulationEpoch"] = state.SimulationEpoch,
-                ["reason"] = "item-locally-possessed"
-            }, DebugRuntimeSide.Client);
-            return;
-        }
-        float now = Time.realtimeSinceStartup;
-        Lease lease = new()
-        {
-            ItemNetId = item.NetId,
-            AuthorityRevision = state.AuthorityRevision,
-            Epoch = state.SimulationEpoch,
-            SimulatorPlayerId = state.SimulatorPlayerId,
-            LastSequence = state.SampleSequence,
-            StartedAt = now,
-            LastAcceptedAt = now,
-            LastAccepted = state.Clone(),
-            Target = state.Clone()
-        };
-        leases[item.NetId] = lease;
-        bool localSimulator = state.SimulatorPlayerId == NetworkLifecycle.Instance.LocalSession.PlayerId;
-        ConfigureLeasePresentation(item, localSimulator, state);
-        if (localSimulator && (packet.Reason?.StartsWith("lease-transfer:", StringComparison.Ordinal) == true ||
-                               packet.Reason?.StartsWith("train-wake:", StringComparison.Ordinal) == true))
-            ApplySimulationVelocity(item, state);
-        Publish("item.spatial-lease-applied", item.NetId, new()
-        {
-            ["simulationEpoch"] = state.SimulationEpoch,
-            ["simulatorPlayerId"] = state.SimulatorPlayerId,
-            ["localSimulator"] = localSimulator
-        }, DebugRuntimeSide.Client);
-    }
-
-    internal void ReceiveRelayedSample(ItemSpatialStateData state)
-    {
-        if (state == null || !leases.TryGetValue(state.ItemNetId, out Lease lease) ||
-            state.SimulationEpoch != lease.Epoch || state.SampleSequence <= lease.LastSequence)
-            return;
-        lease.LastSequence = state.SampleSequence;
-        lease.LastAcceptedAt = Time.realtimeSinceStartup;
-        lease.LastAccepted = state.Clone();
-        lease.Target = state.Clone();
-        if (NetworkedItem.TryGet(state.ItemNetId, out NetworkedItem item) && item != null &&
-            state.SimulatorPlayerId != NetworkLifecycle.Instance.LocalSession.PlayerId)
-            SetProxyKinematic(item, true);
-    }
-
-    internal void ReceiveSpatialCommit(ClientboundItemSpatialCommitPacket packet)
-    {
-        ItemSpatialStateData state = packet?.State;
-        if (state == null || state.ItemNetId == 0)
-            return;
-        if (leases.TryGetValue(state.ItemNetId, out Lease lease) && lease.Epoch > state.SimulationEpoch)
-            return;
-        leases.Remove(state.ItemNetId);
-        if (!NetworkedItem.TryGet(state.ItemNetId, out NetworkedItem item) || item == null)
-            return;
-        ApplyPose(item, state, immediate: true);
-        ApplyCommitMetadata(item, state);
-        committedStates[state.ItemNetId] = state.Clone();
-        Rigidbody body = item.Item?.ItemRigidbody;
-        if (body != null)
-        {
-            body.velocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.Sleep();
-            if (state.WorldParentKind == ItemWorldParentKind.TrainInterior ||
-                state.SimulatorPlayerId != NetworkLifecycle.Instance.LocalSession.PlayerId)
-                body.isKinematic = true;
-        }
-        Publish("item.spatial-commit-applied", item.NetId, SpatialDebug(state), DebugRuntimeSide.Client);
     }
 
     internal bool TryGetLatestAccepted(ushort itemNetId, out ItemSpatialStateData state)
@@ -264,27 +136,6 @@ internal sealed class NetworkedItemSpatialManager
         snapshot.WorldParentKey = state.WorldParentKey ?? string.Empty;
         snapshot.ParentLocalPosition = state.ParentLocalPosition;
         snapshot.ParentLocalRotation = state.ParentLocalRotation;
-    }
-
-    private void UpdateClientLeases()
-    {
-        byte localId = NetworkLifecycle.Instance.LocalSession.PlayerId;
-        foreach (Lease lease in leases.Values.ToArray())
-        {
-            if (!NetworkedItem.TryGet(lease.ItemNetId, out NetworkedItem item) || item?.Item == null)
-                continue;
-            if (lease.SimulatorPlayerId == localId)
-            {
-                if (!TrySampleLocalLease(item, lease, host: false, out ItemSpatialStateData state, out bool settled))
-                    continue;
-                if (settled)
-                    ItemClient.Current.SendItemSpatialSettlement(state);
-                else
-                    ItemClient.Current.SendItemSpatialSample(state);
-            }
-            else if (lease.Target != null)
-                ApplyObservedPose(item, lease, Time.realtimeSinceStartup);
-        }
     }
 
     /// <summary>

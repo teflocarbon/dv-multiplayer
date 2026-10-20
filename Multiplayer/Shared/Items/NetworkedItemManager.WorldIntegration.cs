@@ -95,15 +95,6 @@ public partial class NetworkedItemManager
         return item.IsReplenishableAuthoredOfficeSlot && !item.IsAuthoredShopSlot;
     }
 
-    internal void ReceiveItemSpatialLease(ClientboundItemSpatialLeasePacket packet) =>
-        Spatial?.ReceiveClientLease(packet);
-
-    internal void ReceiveItemSpatialSample(ItemSpatialStateData state) =>
-        Spatial?.ReceiveRelayedSample(state);
-
-    internal void ReceiveItemSpatialCommit(ClientboundItemSpatialCommitPacket packet) =>
-        Spatial?.ReceiveSpatialCommit(packet);
-
     internal void AppendSpatialDebugState(ushort itemNetId, Dictionary<string, object> state) =>
         AppendItemPhysicsDebugState(itemNetId, state);
 
