@@ -861,7 +861,7 @@ measurement (M5).
 
 ### 7.4 Tests (dvmp, `DevTools/Scenarios`)
 
-`far-derail` (`DevTools/Scenarios/far-derail/run.sh`, `state.cs`) is the single-anchor template.
+`far-derail` (`DevTools/DvmpScenarios/Scenarios/FarDerail.cs`, with `Cars.Rest` in `Library/Trains.cs`) is the single-anchor template.
 It derails next to the client 4-8 km from the parked body, then checks on the host:
 
 - `IsSceneAndTerrainCellLoaded` true;
