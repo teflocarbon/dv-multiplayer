@@ -108,6 +108,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "job-reroll-host|job-reroll|WHO=host|player"
   "booklet-summon|booklet-summon|"
   "booklet-summon-host|booklet-summon|WHO=host|player"
+  "station-loco-spawn|station-loco-spawn|"
+  "station-loco-spawn-host|station-loco-spawn|WHO=host|player"
   "host-job-train-coupled|host-job-train-coupled|"
   "remote-held-item|remote-held-item|"
   "owned-items|owned-items|"
