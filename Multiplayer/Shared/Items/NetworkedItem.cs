@@ -196,7 +196,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
 
         if (!NetworkLifecycle.Instance.IsHost() && NetId == 0)
-            NetworkedItemManager.Instance?.RegisterUnboundClientItem(this);
+            NetworkedItemManager.Instance?.ClientPart?.RegisterUnboundClientItem(this);
 
         EntityDebugRegistry.RegisterItem(this);
         DebugRuntime.Publish("item", "item.registered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
@@ -207,7 +207,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     {
         NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
         if (!NetworkLifecycle.Instance.IsHost() && NetId == 0)
-            NetworkedItemManager.Instance?.RegisterUnboundClientItem(this);
+            NetworkedItemManager.Instance?.ClientPart?.RegisterUnboundClientItem(this);
     }
 
     protected void LateUpdate()
@@ -215,7 +215,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (coldMaterializationPending)
             return;
         if (!NetworkLifecycle.Instance.IsHost() &&
-            NetworkedItemManager.Instance?.IsClientLostAndFoundTombstoned(NetId) == true)
+            NetworkedItemManager.Instance?.ClientPart?.IsLostAndFoundTombstoned(NetId) == true)
         {
             EnforceClientLostAndFoundProjection();
             return;
@@ -412,7 +412,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (netId != 0)
         {
             if (!NetworkLifecycle.Instance.IsHost())
-                NetworkedItemManager.Instance?.ResolveAuthoritativeBindingCollision(this, netId, typeof(T));
+                NetworkedItemManager.Instance?.ClientPart?.ResolveAuthoritativeBindingCollision(this, netId, typeof(T));
             NetId = netId;
             SetClientNetworkBinding(true);
         }
@@ -427,7 +427,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             Register();
 
         NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
-        NetworkedItemManager.Instance?.ApplyPendingSpecialSnapshot(this);
+        NetworkedItemManager.Instance?.ClientPart?.ApplyPendingSpecialSnapshot(this);
 
     }
 
@@ -456,7 +456,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             NetworkedPageBookState.TryRegister(this);
 
             if (!NetworkLifecycle.Instance.IsHost() && NetId == 0)
-                NetworkedItemManager.Instance?.RegisterUnboundClientItem(this);
+                NetworkedItemManager.Instance?.ClientPart?.RegisterUnboundClientItem(this);
 
             lastState = GetItemState();
             stateDirty = false;
@@ -724,7 +724,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         if (NetId == 0)
         {
-            NetworkedItemManager.Instance?.RequestItemAdoption(this, reason);
+            NetworkedItemManager.Instance?.ClientPart?.RequestItemAdoption(this, reason);
             stateDirty = false;
             PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
                 "awaiting-host-item-adoption");
