@@ -1,6 +1,6 @@
 # Shops
 
-> Status: designed 2026-10-21, not started. Nothing below is built. Vanilla behaviour is in
+> Status: designed 2026-10-21, in progress: PRs 0 and 1 are open (#280, #279), the rest isn't built. Vanilla behaviour is in
 > [`../research/DERAIL_VALLEY_SHOP_LOGIC.md`](../research/DERAIL_VALLEY_SHOP_LOGIC.md); this doc
 > refers to it rather than repeating it. What the mod does today is in [Today](#today), and in
 > [`../world-sync.md`](../world-sync.md#shops) until this lands.
@@ -17,7 +17,14 @@ round trip. A purchased item is made by the server and is owned by its buyer bef
 
 ## Implementation status
 
-Not started (2026-10-21). See the [plan](#plan).
+In progress (2026-10-21). See the [plan](#plan).
+
+- PR 0, no restock on a retirement: open as #280. Passed `shop-restock` and `shop` on both host
+  kinds.
+- PR 1, the same shelves everywhere: open as #279. Passed `shop-layout` and `shop` on both host
+  kinds. It sends only the shelf seed and the shop check; prices and availability move to PR 2,
+  where the server first decides with them.
+- PRs 2 to 6: not started.
 
 ## Decisions
 
@@ -88,7 +95,7 @@ to confirm each one.
 | # | Gap or bug | Where | Effect | Fixed in |
 | --- | --- | --- | --- | --- |
 | 1 | Registers aren't shared. | `CashRegisterWithModulesPatch.cs:51-52`, `:94-95` | Two players at a shop each see only their own basket and cash. Nobody else sees or hears a scan, a payment, a purchase or the "goodbye" screen. Vanilla's register sounds carry 500 m. | [PR 2](#2-the-register-on-the-server) |
-| 2 | Shelf layouts differ between games (code). | `ShopShelves.Start` uses `UnityEngine.Random`; nothing in the mod touches it | Each player sees the items in different places on the shelves. | [PR 1](#1-the-same-shelves-everywhere) |
+| 2 | Shelf layouts differ between games (confirmed: 38 of 244 displays, up to 5.6 m apart). | `ShopShelves.Start` uses `UnityEngine.Random`; nothing in the mod touches it | Each player sees the items in different places on the shelves. | [PR 1](#1-the-same-shelves-everywhere) |
 | 3 | The host's own purchases are unowned, run vanilla, and skip the server. | `GlobalShopControllerClientPatch.cs:23` | Whoever picks the item up first becomes its owner. The host's player is the one player whose purchase isn't a request (the split's rule is that it should be). Vanilla delivery measures from the host player. | [PR 2](#2-the-register-on-the-server) |
 | 4 | Escrow is per session. | `ServerPlayer.cs:132-133` | Cash a client paid in and didn't spend is lost when they disconnect (also in `world-sync.md`'s known issues). | [PR 2](#2-the-register-on-the-server) |
 | 5 | A client's register never gives cash back when they walk away. | `CashRegisterBasePatch.cs:68-77` skips `CashRegisterBase.OnEnable` on clients, so `ReturnMoneyToPlayerCheck` never runs there; `:79-90` skips `OnDisable` | Cash stays in that client's register (and the escrow) until they buy, cancel, or disconnect and lose it (#4). | [PR 2](#2-the-register-on-the-server) |
@@ -99,7 +106,7 @@ to confirm each one.
 | 10 | Receipts exist only for the buyer (code). | the client's vanilla `Buy` prints `ReceiptBooklet` locally (`BookletCreator_CashRegisterReceipt.Create`); it isn't `BelongsToPlayer`, so nothing adopts it | Other players never see a client's receipt. The host's receipts are ordinary host items, so everyone sees those. | [PR 3](#3-delivery-receipts-and-the-buyers-own-effects) |
 | 11 | The buyer's own effects run on the server. | `SpawnShopPurchase` runs `APurchaseTrigger.OnPurchased` (`NetworkServer.Stations.cs:234-235`) and `UnlockItem` (`:210`) | When a client buys a boombox, the licensing popup shows on the host player's screen (and on a dedicated host, on nobody's). The unlock goes into the host's user profile, never the buyer's. | [PR 3](#3-delivery-receipts-and-the-buyers-own-effects) |
 | 12 | No Lost and Found fallback. | `SpawnShopPurchase` always uses the counter; `LostItemReason.PurchasedDeliveryFallback` (`Multiplayer.Core/Items/LostAndFound.cs:13`) is never used | A buyer who fast-travels away leaves their items on the counter. Lost and Found picks them up later, unless someone is near. | [PR 3](#3-delivery-receipts-and-the-buyers-own-effects) |
-| 13 | Putting a bought item in a container may restock the shop (code). | a cold deposit destroys the item's GameObject on the server (`Server/Items/NetworkedColdContainerManager.cs:233`), and vanilla's `ShopRestocker.OnDestroy` restocks on any destroy outside a scene unload | Buy the only shovel, put it in a toolbox, and the shop has one again: unlimited shovels. Any other server-side destroy that isn't the item's end does the same. | [PR 0](#0-only-if-13-is-confirmed-no-restock-on-a-retirement) if confirmed, else [PR 6](#6-per-player-stock) |
+| 13 | Putting a bought item in a container restocks the shop (confirmed: stock 11 -> 12). | a cold deposit destroys the item's GameObject on the server (`Server/Items/NetworkedColdContainerManager.cs:233`), and vanilla's `ShopRestocker.OnDestroy` restocks on any destroy outside a scene unload | Buy the only shovel, put it in a toolbox, and the shop has one again: unlimited shovels. Any other server-side destroy that isn't the item's end does the same. | [PR 0](#0-only-if-13-is-confirmed-no-restock-on-a-retirement), then [PR 6](#6-per-player-stock) |
 | 14 | Stock comes back on every load (code). | `UpdateItemStocksOnGameLoad` runs at `carsAndJobsLoadingFinished` and counts `StorageController`'s lists. The mod's items are restored from `WorldItemsV1` on its own schedule (`Server/Items/WorldItemPersistenceManager.cs:52-58`), offline owners' possessions only when the owner connects, and cold-container contents never enter those lists | After a reload, whatever the count missed is for sale again. | [PR 6](#6-per-player-stock) |
 | 15 | Other players' scanners are dead. | nothing in the mod handles `ShopScanner` | A remote player holding the scanner shows no laser and no screen text, and their scans make no sound. | [PR 5](#5-the-scanner) |
 | 16 | Money is a `float`, sent unordered. | `world-sync.md` known issues | Large balances lose cents, so the price you see and the price you pay can differ by cents. Two updates out of order leave the older balance. | [PR 2](#2-the-register-on-the-server) |
@@ -526,9 +533,10 @@ retirements). Small, and it goes first because it's a dupe. PR 6 replaces it.
 
 ### 1. The same shelves everywhere
 
-The catalogue packet (prefab names, prices, availability, module checksums, shelf seeds) is sent at
-join. The server picks a seed per `ShopShelves`, and every game lays its shelves out from it. A client
-whose shops don't match is refused at join.
+The server picks a shelf seed per session and sends it at join (`ClientboundShopLayoutPacket`).
+Every game derives each shop's verified seed from it and lays its shelves out the same way. The client
+sends a fingerprint of its shops with `ReadyForWorldState`, and a client whose shops don't match is
+refused. The catalogue's prices and availability come with PR 2.
 
 - **`shop-layout`** (new): every display's position at every shop matches between the host and the
   client, within 1 cm.
@@ -633,11 +641,11 @@ run for this doc.
 
 | # | Check |
 | --- | --- |
-| 2 | Shelf layouts differ: compare `ScanItemCashRegisterModule` positions at one shop on host and client. |
+| 2 | Confirmed 2026-10-21 by `shop-layout` on `beta`: 38 of 244 displays apart. |
 | 7 | The licence limit doesn't apply on a client: without the MU licence, read the MU controller row's `allowedToHaveAmount` on host and client. |
 | 10 | A client's receipt is local: after a client purchase, look for a `Receipt` item with a NetId on the host. |
 | 11 | A client's boombox purchase shows the popup on a player host. |
-| 13 | A container deposit restocks: buy until out of stock, deposit one in a toolbox, read `ItemsInStock` on the host. |
+| 13 | Confirmed 2026-10-21 by `shop-restock` on `beta`: stock 11 -> 12 after a lighter went through a toolbox. |
 | 14 | Stock comes back on load: own a shovel in a cold container or an offline player's inventory, save and reload, read `ItemsInStock`. |
 | — | Shop registers are active on a dedicated host (`CashRegisterWithModules.isActiveAndEnabled` per shop), which says whether vanilla's own `OnDisable` cancels baskets there today. |
 | — | `GlobalShopController.InitializeShopData` on a client sees the server's game mode (sandbox prices are 0 on a client of a sandbox server). The catalogue packet makes this moot from PR 1. |
