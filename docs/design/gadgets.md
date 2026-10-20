@@ -625,8 +625,8 @@ Decided:
 
 ## PR plan
 
-The work starts once `split/client-server` has merged into `beta` (the user, 2026-10-21): small PRs,
-in order, each from a branch `gadgets/<what>` off `beta` and into `beta`.
+Small PRs, in order, each from a branch `gadgets/<what>` off `beta` and into `beta` (the client/server
+split merged into `beta` in #276, 2026-10-21).
 
 It runs beside the owned-items work ([owned-items.md](owned-items.md), PR #275), which redoes the item
 lifecycle. They meet at four points:
