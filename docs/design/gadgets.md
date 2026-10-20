@@ -80,10 +80,14 @@ Every change works the same on a player host and a dedicated host: the host's pl
 - **UIDs are the server's.** Vanilla's customizer UID is what wires, mounts and hanger snaps refer to,
   and every process allocates it from its own counter, so two games disagree after the first install.
   The server lets vanilla allocate it; every install it sends carries the UID; a client sets it with
-  `AssignUID` **before** `Place`, so `OnAfterLinked` sees a non-zero UID and never allocates. A client
-  that finds itself allocating one (a `Link` with UID 0 outside the server) logs it and asks for a
-  [resync](#desync-and-rollback). Wires and mounts on the wire are `(anchor, UID)` pairs; the change
-  log and the snapshot only carry UIDs the server assigned.
+  `AssignUID` **before** `Place`, so `OnAfterLinked` sees a non-zero UID and never allocates. A
+  [predicted](#optimistic) install takes a provisional **negative** UID the same way (negative ones
+  never raise vanilla's counter and can't collide with the server's), replaced by the server's on
+  confirmation. A client that finds itself allocating one (a `Link` with UID 0 outside the server)
+  logs it and asks for a [resync](#desync-and-rollback). Wires and mounts on the wire are
+  `(anchor, UID)` pairs; the change log and the snapshot only carry UIDs the server assigned, and a
+  request never carries a provisional one (a request about a gadget whose install is unconfirmed waits
+  for the confirmation, while its effect is already predicted).
 - `Index` is never used.
 
 ## The installed gadget and its item
@@ -126,11 +130,9 @@ not eligible for Lost and Found. Nothing assigns it. Gadgets make it real:
 
 ## Requests
 
-A player's gadget action becomes a request at the point where vanilla would commit it. The patch
-blocks the vanilla commit, sends the request, and leaves the rest of the tool (previews, progress,
-sounds) alone. Structural changes are **not predicted**: the result arrives one round trip later, the
-same on a player host (no network) and on a client. Whether that wait needs a ghost of the gadget
-while it lasts is left to the first playtest (agreed 2026-10-21).
+A player's gadget action becomes a request at the point where vanilla would commit it, and on a
+remote client it is also [optimistic](#optimistic): the change shows at once and the server confirms
+or corrects it. The rest of the tool (previews, progress, sounds) is vanilla's.
 
 | Action | Where it is intercepted (Client role, any local player) | Request |
 | --- | --- | --- |
@@ -144,12 +146,50 @@ while it lasts is left to the first playtest (agreed 2026-10-21).
 
 The intercepting patches pass straight through inside the **gadget apply scope**
 (`Shared/Gadgets/GadgetApplyScope`), which the server sets while it applies a request and a client sets
-while it applies the change log. That is how the same vanilla methods serve the player's intent and the
-server's apply.
+while it applies the change log or its own prediction. That is how the same vanilla methods serve the
+player's intent and the server's apply.
 
-A client keeps one pending request per item; further intents on that item are ignored until its result
-arrives, and the preview stays hidden. Every request carries an operation id; the result is either the
-change-log entry that echoes it or a rejection with a reason (shown as interaction text).
+### Optimistic
+
+Every gadget interaction is optimistic on a remote client (decided 2026-10-21: at 250 ms everything
+that waited for the server felt laggy, and making train controls optimistic fixed that). The patch
+sends the request and applies the change in the player's own game at once, in the apply scope, as
+vanilla would have; the server's answer confirms it or undoes it. On the host the request is handled
+within a frame, so the host's player is never predicted: there is no separate game to predict in.
+
+| Action | Applied at once | Confirmed by | Undone on rejection by |
+| --- | --- | --- | --- |
+| Install | `Place` with a provisional negative UID; the item leaves the hand | the `Installed` entry echoing the operation: the server's UID replaces the provisional one | `Remove` (no holes: nothing is bolted yet) and the item back in the hand |
+| Remove | `Remove`; by hand or telegrab the item goes to the hand | the `Removed` entry | a [resync](#desync-and-rollback) of the car: removal erased the UID, soldering and wires, which only the server's snapshot has |
+| Bolt, tape, untape | `SetMountPointState` | the `MountPoint` entry | setting the previous state |
+| Fill a hole | `RemoveHole` | the `HoleRemoved` entry | adding the hole back |
+| Wire, unwire | `Wire` / `Unwire` | the entry | the opposite call |
+| Solder | `MakeSoldered` with the player's units | the `Soldered` entry's absolute units | the server's units ([below](#soldering)) |
+| Knobs, switches, setters | the setter | the state broadcast echoing the operation | the server's value, through `SyncControls` |
+| Buttons and joysticks (ATS acknowledge, distance tracker, snooze, control stand) | the vanilla method's visible effect | the state broadcast | the server's state |
+
+- **Items wait.** Anything that creates or destroys an item (the last duct tape swapped for an empty
+  one, the spent solder reel, a new label) waits for the server, because items only get NetIds from
+  the server. The rest of the same action is still applied at once.
+- **Order.** The player's predictions sit on top of the car's confirmed state. Other players' entries
+  keep applying underneath in revision order; a prediction they make impossible (someone else removed
+  the plate the player is mounting on) is rejected by the server and undone.
+- **Gadget knobs use leases like cab levers.** Grabbing a gadget's knob, lever or joystick takes that
+  control's lease through the same path as a cab control, so two players never fight over one knob,
+  and the holder's moves stream like a cab lever's. The HUD's buttons, which have no grab, send their
+  change as a request without a lease.
+- **The gadget wins.** When a server-run gadget acts on a control a player holds (ATS braking,
+  anti-slip easing the throttle), the server revokes that player's lease, as vanilla makes the player
+  let go (decided 2026-10-21; see [Logic that writes the train](#logic-that-writes-the-train)).
+- Rejections are rare, because the player's own game ran vanilla's checks before predicting; each one
+  is logged with its reason.
+
+Every request carries an operation id; the result is either the change-log entry that echoes it or a
+rejection with a reason (shown as interaction text). A player can keep working while earlier requests
+are in flight (install a plate, then bolt it, at once): requests go reliable and ordered, the server
+handles them in order, and one that names a gadget by a provisional UID (a wire to a gadget just
+placed) is held until that install is confirmed. When a request is rejected, the server also rejects
+any later one that depended on it, and the client undoes its predictions newest first.
 
 ### Off-train installs
 
@@ -261,7 +301,9 @@ player's intent and get an answer; the log only carries the result.
 
 ### Applying it on a client
 
-In the apply scope, in order:
+In the apply scope, in order. An entry that echoes one of this client's own predicted operations is
+reconciled rather than applied again: the provisional UID is replaced by the server's, and if the state
+after the entry differs from the prediction, the client resyncs the car. Otherwise:
 
 - `Installed`: the item is known and inactive (else wait for its Create, below). Release it from any
   avatar's hand, `AssignUID(uid)`, `GadgetItem.Place(anchor, pose, item, null)`, then
@@ -302,8 +344,9 @@ keys, so a snapshot and a live update say the same thing.
 | Text | `text` | setting |
 
 Commands have no state of their own: ATS acknowledge, roadrunner start and acknowledge, the defect
-detector's snooze, the control panel's joysticks, horn, starter and power-off. A client sends them;
-the server runs the vanilla method; the result shows in state or in train controls.
+detector's snooze, the control panel's joysticks, horn, starter and power-off. A client shows the
+effect at once and sends them; the server runs the vanilla method; the result shows in state or in
+train controls, and corrects the client if it differs.
 
 The defect detector keeps its snooze in its LOD, which a dedicated host may never load. Its adapter
 keeps `snoozed` on the server instead, with vanilla's rules: set by the snooze command while there is a
@@ -316,9 +359,10 @@ from the synced derail and brake-heat state.
   request that caused it), running fields at their rate. This catches the host player's knobs, server
   logic and applied requests alike.
 - **A client's setting is predicted.** A remote client lets the vanilla setter run (the knob moves and
-  outputs update at once) and sends `Setting` with an operation id. The server applies it in the apply
-  scope (setter, then `SyncControls`) after checking range (5 m) and the value's bounds, and its
-  broadcast echoes the id. The host's player turns the server's own gadget, so its knobs aren't
+  outputs update at once) and sends `Setting` with an operation id, under the knob's lease when it was
+  grabbed ([Optimistic](#optimistic)). The server applies it in the apply scope (setter, then
+  `SyncControls`) after checking the lease, range (5 m) and the value's bounds, and its broadcast
+  echoes the id. The host's player turns the server's own gadget, so its knobs aren't
   requests; the watch broadcasts them, as the host's cab levers commit directly.
 - **Modded gadgets** with no adapter get correct state from snapshots (install, join, resync) but no
   live settings.
@@ -355,9 +399,10 @@ the player's input, so client-run gadget logic would apply twice.
   `AlternatingController.Update` (`Client/Gadgets/GadgetServerOnlyPatches.cs`). Their displays read
   the replicated running state.
 - **Server writes go through the server's simulation commits.** A control a gadget moves is committed
-  and broadcast like any server-side control change. If a player holds that control's lease, the server
-  revokes it first, which is vanilla's `TryUnhandControl` for that player: their game lets go of the
-  lever.
+  and broadcast like any server-side control change. **The gadget always wins** (decided 2026-10-21):
+  if a player holds that control's lease, the server revokes it first, which is vanilla's
+  `TryUnhandControl` for that player: their game lets go of the lever. A gadget behaves as part of the
+  train and follows the train's sync.
 - **Steps without an interior.** With no cab loaded (always on a dedicated host, and on a listen host
   for cabs its player isn't in), `Move` on a non-notched control jumps to 0 or 1. On the server, a
   gadget's `Move` on a control with no loaded interior steps by the cab lever's scroll step, read from
@@ -481,8 +526,9 @@ Gadgets use it:
 
 The server is never rolled back. Clients converge on it.
 
-- **Structural changes** aren't predicted, so there is nothing to undo; a rejection clears the
-  pending request and shows its reason.
+- **Structural changes** are predicted, and a rejection undoes them as the [Optimistic](#optimistic)
+  table says, newest first, with the reason shown. A removal is undone by resyncing the car, since only
+  the server's snapshot still has the gadget's UID, soldering and wires.
 - **Settings** are predicted. The server's broadcast is the truth: the requester skips the echo of its
   latest pending operation for that field and applies anything else, including the correction a
   rejection sends. The knob snaps back through `SyncControls`.
@@ -522,10 +568,10 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 
 | Role | Files |
 | --- | --- |
-| Core | `Multiplayer.Core/Gadgets/`: `GadgetAnchorModel` (revisions, installed set, wires, holes, idempotent apply, the rebuild plan), `GadgetRequestRules` (the checks that don't need the game: possession, reach, bounds, units), `GadgetChangeLog` (nesting, ordering, flush), `GadgetStateSync` (prediction and echo rules). Tests in `Multiplayer.Core.Tests/Gadgets/`. |
+| Core | `Multiplayer.Core/Gadgets/`: `GadgetAnchorModel` (revisions, installed set, wires, holes, idempotent apply, the rebuild plan), `GadgetRequestRules` (the checks that don't need the game: possession, reach, bounds, units), `GadgetChangeLog` (nesting, ordering, flush), `GadgetPredictionLog` (a client's pending operations, their dependencies, reconciling echoes, the undo order), `GadgetStateSync` (setting prediction and echo rules). Tests in `Multiplayer.Core.Tests/Gadgets/`. |
 | Shared | `Shared/Gadgets/`: `GadgetApplyScope`, `GadgetAnchorRef` resolution, `GadgetNative` (place with a UID, remove, the on-glass flags), `State/*` adapters, `IGadgetServer`/`IGadgetClient`. `Shared/Protocol/Packets/{Serverbound,Clientbound}/Gadgets/`, `Shared/Protocol/Data/Gadgets/`. Item touchpoints: `Shared/Items/StorageIntegration.cs` (installed storage as a membership). |
 | Server | `Server/Gadgets/`: `GadgetServer` (handlers, checks, native apply, item transitions), `GadgetObserverPatches` (the change log), `GadgetSnapshots`, `GadgetStateWatch`, `GadgetControlWriter` (lease revoke, step emulation), `GadgetServerPatches` (dangler camera, pool holes). `Server/Session/NetworkServer.Gadgets.cs` (subscriptions, `RegisterLocalGadgets`, the `ReadyForCustomizers` case). Item touchpoints: `AuthoritativeItemRegistry`, `ServerItemManager.Interest`, `WorldItemPersistence*`, `PersistentWorldItemIdentityPatch`. |
-| Client | `Client/Gadgets/`: `GadgetIntentPatches`, `GadgetChangeApplier` (queue, resync, rebuild), `GadgetStatePrediction`, `GadgetServerOnlyPatches`, `GadgetItemLifecyclePatches`. `Client/Session/NetworkClient.Gadgets.cs`, `LocalPlayerSession.Gadgets.cs` (results and state the host's player needs). Item touchpoint: the `Installed` apply in `NetworkedItem.Snapshots`/`StateApplication`. |
+| Client | `Client/Gadgets/`: `GadgetIntentPatches`, `GadgetChangeApplier` (queue, reconcile, resync, rebuild), `GadgetPrediction` (applying and undoing predictions), `GadgetStatePrediction`, `GadgetServerOnlyPatches`, `GadgetItemLifecyclePatches`. `Client/Session/NetworkClient.Gadgets.cs`, `LocalPlayerSession.Gadgets.cs` (results and state the host's player needs). Item touchpoint: the `Installed` apply in `NetworkedItem.Snapshots`/`StateApplication`. |
 | Tests | `Multiplayer.Protocol.Tests/GadgetPacketTests.cs` (round trips). |
 | Scenarios | `DevTools/DvmpScenarios/Library/Gadgets.cs` (spawn a gadget item, install, remove, drill, tape, wire, solder, set and read state through the vanilla tool methods, the digest); `Scenarios/Gadget*.cs`; runs in `DevTools/Scenarios/gate.sh`. |
 
@@ -560,6 +606,11 @@ players; owners change while ids must not; players without Steam have no SteamID
 
 Decided:
 
+- **Optimistic** (2026-10-21). Every gadget interaction shows at once in the player's game and the
+  server confirms or undoes it; only creating or destroying an item waits. Gadget knobs take leases
+  like cab levers. See [Optimistic](#optimistic).
+- **The gadget always wins** (2026-10-21). A server-run gadget acting on a control takes it from the
+  player holding it, as vanilla does.
 - **Everything syncs** (2026-10-21). Anything a player can see or hear in the world is the same in
   every game: the defect detector's snooze, the control stand's rain fault, beacon spin, hanger swing,
   other players' tool use. Only a player's own UI is theirs alone.
@@ -576,8 +627,9 @@ Decided:
 
 Small PRs, in order, each into `split/client-server`. Each runs its scenarios on a player host and a
 dedicated host (`RUNS="<scenario> @player; <scenario> @dedicated"`) and the existing item scenarios it
-could affect. Each updates this doc's status and, where it changes them, `item-world-sync.md` and the
-research doc.
+could affect. Every interaction scenario also runs with the client at 250 ms of lag (`LAG=250`),
+checking that the change shows at once in the client's game and that a rejected one is undone. Each
+updates this doc's status and, where it changes them, `item-world-sync.md` and the research doc.
 
 ### 1. Installed items are `Installed`
 
@@ -622,9 +674,11 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 - The request path, the checks, the native apply, the change log (`Installed`, `Removed`, `Mounted`,
   `Unmounted`, nesting, flush, revisions), the per-anchor queue, resync, item transitions in and out of
   `Installed`, completing a hand removal, forced removals on clients through the apply scope; the
-  place and remove sounds played by every game.
+  place and remove sounds played by every game; prediction for install and remove (provisional UIDs,
+  reconciling the echo, undo, rejecting dependent requests).
 - Files: `Core/Gadgets/` (`GadgetRequestRules`, `GadgetChangeLog`), `Server/Gadgets/` (`GadgetServer`,
-  `GadgetObserverPatches`), `Client/Gadgets/` (`GadgetIntentPatches`), `Client/Session/LocalPlayerSession.Gadgets.cs`,
+  `GadgetObserverPatches`), `Core/Gadgets/GadgetPredictionLog`, `Client/Gadgets/` (`GadgetIntentPatches`,
+  `GadgetPrediction`), `Client/Session/LocalPlayerSession.Gadgets.cs`,
   `Server/Items/AuthoritativeItemRegistry.cs`.
 - Scenario **`gadget-install`**: the client installs a gadget on a car through `TryPlace` (and, on a
   player host, the host's player installs another); both games show it with the same UID and pose and
@@ -635,7 +689,10 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
   wall, by vanilla's own check on the server. The car is deleted with a gadget on it: the item is in
   its owner's Lost and Found at once, digests equal. Installing on the ground is refused in the
   client's own game, with no request sent. `MODE=moving` repeats the install and the hand removal with
-  the client riding the car at 10 m/s.
+  the client riding the car at 10 m/s. With `LAG=250`, the install and the hand removal show in the
+  client's game before the server answers, and when a server step removes a plate while the client's
+  install onto it is in flight, the client's predicted install is undone and the item is back in its
+  hand.
 
 ### 4. Mount points, holes, tape
 
@@ -661,13 +718,16 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 - The adapters, `Setting` and `Command` requests, the server's watch, prediction and rollback, the
   HUD path. Switches, alternating controller, switch setter, amp limiter, overheat and ATS settings,
   DPU settings, proximity screen, control panel tilt, the defect detector's shared snooze; beacon
-  spin and light sweep from the shared clock. Delete `GadgetSwitchPatch`.
+  spin and light sweep from the shared clock; gadget knobs, levers and joysticks taking leases
+  through the cab-control path. Delete `GadgetSwitchPatch`.
 - Scenario **`gadget-settings`**: the client turns a switch through its knob and through the HUD; the
   wired light follows in both games. A setting out of range (`[ClientOnly]`) is rejected and the knob
   goes back. The amp limiter's mode changes the server's `TractionMotorAmpLimit` port, and the client
   sees the limit. The host's player turns a switch (player host) and the client sees it. A server step
   derails a wagon: the defect detector blinks in both games; the client snoozes it and it is steady in
-  both. Two powered beacons show the same angle in both games (within 2°).
+  both. Two powered beacons show the same angle in both games (within 2°). While the client holds a
+  switch's knob, the host's player (player host) can't turn it; with `LAG=250` the client's knob and
+  the wired light respond at once in its own game.
 
 ### 7. Gadgets that drive the train
 
