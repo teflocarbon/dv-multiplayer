@@ -207,7 +207,7 @@ keep the others off until it's down. If they drop out while holding it, the othe
 second later.
 
 Some controls never raise `Grabbed` or `Used`: VR valves and cylinder cocks, and controls nothing
-hooks (a Custom Car Loader car's, say). A client sends a change to one of those that nobody holds
+hooks (one on a car's body prefab rather than its cab or car-body controls, say). A client sends a change to one of those that nobody holds
 the lease on (`NetworkedTrainCarClient.GetUnleasedChange`): the port differs from the host's last value by more than
 0.02, and that value isn't still settling (1.5 s after the host set it; a change in that window
 waits and goes if it still differs). A change its player can't make, out of reach of the car (the
@@ -229,7 +229,27 @@ values from these), `OilingPointPortFeederReader` (an oiler can), the `NotchedPo
 keyboard inputs and `HandcarBarController`, plus any control hooked when a cab loads. Custom Car
 Loader builds its cars' controls from the same DV components when it imports them, so the scan
 covers them, and every game, a dedicated server included, gets the same set without loading the
-cab. A client sends only player-driven ports; the host takes only those, or one the sender holds
+cab.
+
+A CCL control has a port only if its car's author placed a feeder proxy on it, and older cars
+have doors, windows and seats with none (the C class's cab doors, its twenty engine-room doors, two
+sliding windows and wall seat; the S464-730's tender toolboxes; the Santa Fe 2901's tender doors and
+hatches). Those moved on one game only, and the save never kept them. `CustomCarLoaderPorts`
+(Shared/Compatibility) wires them the way DV wires its own doors, as CCL builds each car and before
+any spawns: a `GenericControlDefinition` (`saveState` on) in the livery's simulation, and an
+`InteractablePortFeeder` on the control writing its `EXT_IN`, listed in its prefab's
+`InteractablePortFeedersController`. Only a lever, puller, knob, switch, wheel or CCL screw that has
+no feeder of any kind, isn't driven by another control (CCL's constant and ratchet feeders, a
+whistle's dummy) and carries nothing outside a list of harmless components gets one; anything
+unknown leaves it alone, with a warning naming it. The component's name comes from the control's
+path in its prefab (`AddedControlIds`, Multiplayer.Core: `mpControl_<cab|ext|body>_<path>`), so
+every game builds the same ports and the save finds them again; renaming one loses its saved state.
+From there the scan and the cab and car-body hooks take them like any other control. A save from
+before has no state for them, which vanilla would log as an error per control per car: they start
+where the prefab places them instead. A car with no simulation at all can't be given ports; that's
+logged.
+
+A client sends only player-driven ports; the host takes only those, or one the sender holds
 the lease on. The compressor's activation signal is host-kept: clients never send it, and the host
 keeps it matched to `brakeSystem.compressorActivationSignal`, since DV writes it only when that
 decision changes (`NetworkedTrainCarServer.KeepCompressorSignal`).
