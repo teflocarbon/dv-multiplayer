@@ -5,6 +5,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -16,13 +17,13 @@ public static class ExplosionServer
     internal static void Exploded(Component component, ExplosionSync.Kind kind)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsHost() || lifecycle.Server == null || component == null)
+        if (lifecycle == null || !lifecycle.IsHost() || NetworkServer.Instance == null || component == null)
             return;
         TrainCar car = ExplosionSync.CarOf(component);
         if (car == null || !car.TryNetworked(out NetworkedTrainCar networked))
             return;
         int index = Array.IndexOf(ExplosionSync.Components(car, kind), component);
-        lifecycle.Server.SendExplosion(networked.NetId, kind, (byte)Math.Max(0, index));
+        NetworkServer.Instance.SendExplosion(networked.NetId, kind, (byte)Math.Max(0, index));
     }
 }
 

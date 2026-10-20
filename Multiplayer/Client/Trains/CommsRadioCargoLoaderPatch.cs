@@ -4,6 +4,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -42,7 +43,7 @@ public static class CommsRadioCargoLoaderPatch
             Multiplayer.LogWarning($"Sandbox cargo loader: no network id for cargo {SelectedCargoType(loader)?.id}");
             return false;
         }
-        NetworkLifecycle.Instance.Client.SendSandboxCargo(networkedCar.NetId, cargoNetId);
+        NetworkClient.Instance.SendSandboxCargo(networkedCar.NetId, cargoNetId);
         CommsRadioController.PlayAudioFromRadio(loader.confirmSound, loader.transform);
         return false;
     }

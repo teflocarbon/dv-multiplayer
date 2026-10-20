@@ -57,10 +57,17 @@ two-game testing goes through dvmp.
 
 `Multiplayer/Multiplayer.cs` is the UMM entry point. `Load` checks the MultiplayerAPI version,
 runs `harmony.PatchAll()` (plus `SimComponent_Tick_Patch`, which is patched by hand), loads the
-asset bundle, creates the `NetworkLifecycle` object and registers the API provider.
+asset bundle, creates the session object (`MultiplayerSession.Create`) and registers the API provider.
 
-`Multiplayer/Shared/Session/NetworkLifecycle.cs` is a `DontDestroyOnLoad` singleton that
-owns the current `NetworkServer` and `NetworkClient` and runs the network tick. Hosting calls
+The session object is a `DontDestroyOnLoad` game object with two parts.
+`Multiplayer/MultiplayerSession.cs`, the composition root in the mod, owns the current
+`NetworkServer` and `NetworkClient`: it starts and stops them, registers them with MPAPI, wires up
+the dedicated host, the player list and the network stats. `Multiplayer/Shared/Session/NetworkLifecycle.cs`
+runs the network tick and answers the role queries (`IsHost()`, `IsServerRunning`,
+`IsDedicatedHost`, `IsProcessingPacket`, `LocalServer`, `LocalSession`), naming no role: the
+root attaches the server and client to it as their Shared parts. Role code reaches its own role as
+`NetworkServer.Instance` or `NetworkClient.Instance`; whether a `ServerPlayer` is the host's is
+the server's `NetworkLifecycle.Instance.IsHost(player)` extension. Hosting calls
 `StartServer`, which starts a `NetworkServer` and then a `NetworkClient` connected to loopback.
 **The host is also a player**: its own client logs in like anyone else, gets a `ServerPlayer` and
 is addressed by the server as `SelfPeer`. Most broadcasts pass `excludeSelf` because the host's
@@ -367,8 +374,13 @@ Notes on the steps:
   `WorldStreamingInit.LoadingFinished`, so it stays up through the sync. `RemoveLoadingScreen` takes
   it down, and the client then makes sure it has left loading mode
   (`LoadingScreenManager.FinishLoading()`), even if the loading screen object is gone. In VR that's
-  what turns the gloves and the teleport pointer back on; the VR loading overlay closes by itself at
-  100%, so a client left in loading mode is in the world without them (#72).
+  what turns the gloves and the teleport pointer back on (#72). The VR loading view (`VrLoading`)
+  fades into the world as soon as its progress reaches 1, and the client reports 100% before the
+  sync is done (on "Complete", with the host's items and jobs still arriving, and when a mod clears
+  its ready block). `VrLoadingProgressPatch` holds that progress below 1, so only
+  `FinishLoading()` ends it, in the frame the loading screen and its camera are destroyed. Before,
+  a VR player was in the world while the desktop still showed the loading screen, with one eye
+  upside down.
 - `ReadyForCustomizers` exists in the enum but the client never sends it. The client waits a
   fixed 0.25–0.5 s between the later states; there is no completion acknowledgement for items.
 

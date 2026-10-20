@@ -5,6 +5,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -30,7 +31,7 @@ public static class TrainsetPhysicsFollower
         mismatch.seen = now;
         setMismatches[firstNetId] = mismatch;
 
-        var client = NetworkLifecycle.Instance.Client;
+        var client = NetworkClient.Instance;
         // A deferred snapshot is already being retried.
         if (client == null || client.TrainTopologyPending || now - mismatch.since < TOPOLOGY_MISMATCH_SECONDS ||
             now - lastTopologyRestore < TOPOLOGY_MISMATCH_SECONDS)
@@ -74,7 +75,7 @@ public static class TrainsetPhysicsFollower
                 }
             }
             if (derailmentTransition)
-                NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
+                NetworkClient.Instance?.RestoreCanonicalTrainTopology();
             else
                 NoteSetMismatch(packet.FirstNetId, set, packet.TrainsetParts.Length);
             return;
@@ -99,6 +100,6 @@ public static class TrainsetPhysicsFollower
         // transition first, then restore the host's last committed topology once; doing
         // this per car can create long, explosive joints to cars not processed yet.
         if (derailmentTransition)
-            NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
+            NetworkClient.Instance?.RestoreCanonicalTrainTopology();
     }
 }

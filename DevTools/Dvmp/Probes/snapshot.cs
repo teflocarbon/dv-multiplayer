@@ -21,7 +21,7 @@ public static class Probe
             role = ctx.Role,
             t = Time.realtimeSinceStartup,
             tick = lifecycle != null ? lifecycle.Tick : 0u,
-            me = lifecycle?.Client != null ? new { id = lifecycle.Client.PlayerId, name = lifecycle.Client.Username } : null,
+            me = Multiplayer.Client.Session.NetworkClient.Instance != null ? new { id = Multiplayer.Client.Session.NetworkClient.Instance.PlayerId, name = Multiplayer.Client.Session.NetworkClient.Instance.Username } : null,
             player = V(Dev.PlayerAbs),
             items = Items(),
             cars = Cars(),
@@ -160,8 +160,8 @@ public static class Probe
     // What the host believes each remote player has been sent and still holds.
     private static object Interest(NetworkLifecycle lifecycle)
     {
-        return lifecycle.Server.ServerPlayers
-            .Where(p => p.PlayerId != lifecycle.Client?.PlayerId)
+        return Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers
+            .Where(p => p.PlayerId != Multiplayer.Client.Session.NetworkClient.Instance?.PlayerId)
             .Select(p => new
             {
                 id = p.PlayerId,

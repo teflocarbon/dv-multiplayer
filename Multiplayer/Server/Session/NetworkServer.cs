@@ -73,6 +73,9 @@ namespace Multiplayer.Server.Session;
 
 public partial class NetworkServer : NetworkManager
 {
+    /// <summary>The server this game runs (a player host or a dedicated host); null when it isn't the server. Set by the session root.</summary>
+    public static NetworkServer Instance { get; internal set; }
+
     private const int WEATHER_UPDATE_INTERVAL = 30; //seconds
     private const int HIGH_PING_LOG_INTERVAL = 60; //only log high ping once every 60 seconds per player
 
@@ -769,7 +772,7 @@ public partial class NetworkServer : NetworkManager
     {
         if (!string.IsNullOrEmpty(message) && recipient != null && recipient.Peer != null)
         {
-            NetworkLifecycle.Instance.Server.SendPacket
+            NetworkServer.Instance.SendPacket
             (
                 recipient.Peer,
                 new CommonChatPacket

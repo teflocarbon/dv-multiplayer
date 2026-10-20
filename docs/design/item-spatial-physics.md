@@ -754,7 +754,7 @@ accepted pose, committed pose, committed cell, and rejection reason.
 
 In-game scenarios run through the dvmp harness
 ([`../../DevTools/README.md`](../../DevTools/README.md)); each owns the fixtures it creates. Only
-13-15 are automated (`DevTools/Scenarios/train-items`).
+13-15 are automated (`train-items`, `DevTools/DvmpScenarios/Scenarios/TrainItems.cs`).
 
 Initial scenarios:
 

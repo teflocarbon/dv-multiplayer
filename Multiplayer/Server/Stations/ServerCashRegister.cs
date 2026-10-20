@@ -26,7 +26,7 @@ public class ServerCashRegister : MonoBehaviour
 
     private CullingManager cullingManager;
 
-    private static NetworkServer Server => NetworkLifecycle.Instance.Server;
+    private static NetworkServer Server => NetworkServer.Instance;
 
     public static bool TryGet(ushort netId, out ServerCashRegister server)
     {

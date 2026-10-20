@@ -8,6 +8,6 @@ public static class MainMenu_GoBackToMainMenu_Patch
 {
     private static void Prefix()
     {
-        NetworkLifecycle.Instance.Stop();
+        MultiplayerSession.Instance.Stop();
     }
 }

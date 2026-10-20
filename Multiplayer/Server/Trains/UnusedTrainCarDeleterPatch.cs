@@ -90,7 +90,7 @@ public static class UnusedTrainCarDeleterPatch
 
         int players = 0;
         int placed = 0;
-        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
             if (player.IsServiceHost)
                 continue;

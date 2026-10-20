@@ -1,6 +1,7 @@
 using DV;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -15,6 +16,6 @@ public static class RerailControllerServerPatch
         if (!NetworkLifecycle.Instance.IsHost())
             return;
 
-        NetworkLifecycle.Instance.Server.rerailController = __instance;
+        NetworkServer.Instance.rerailController = __instance;
     }
 }

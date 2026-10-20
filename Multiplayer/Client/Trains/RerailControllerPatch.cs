@@ -7,6 +7,7 @@ using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.World;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -37,7 +38,7 @@ public static class RerailControllerPatch
         }
 
 
-        NetworkLifecycle.Instance.Client.SendTrainRerailRequest(
+        NetworkClient.Instance.SendTrainRerailRequest(
             networkedTrainCar.NetId,
             NetworkedRailTrack.GetFromRailTrack(__instance.rerailTrack).NetId,
             __instance.rerailPointWorldAbsPosition,

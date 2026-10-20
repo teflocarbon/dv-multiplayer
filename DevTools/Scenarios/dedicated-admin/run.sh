@@ -15,13 +15,13 @@ field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));cons
 fail() { echo "FAIL: $*"; exit 1; }
 host() { $D eval -t host -m body -u "$U" "$1"; }
 # The command goes without its slash: Git Bash would turn "/save" into a Windows path.
-chat() { $D eval -t client -m body -u "$U" -a cmd="$1" 'NetworkLifecycle.Instance.Client.SendChat("/" + ctx.Args["cmd"]); return 0;' >/dev/null; sleep 3; }
-state='var debts = DV.ServicePenalty.CareerManagerDebtController.Instance; debts.RefreshExistingDebtsState(); var payable = debts.currentNonZeroPricedDebts.Where(d => d.IsPayable).ToList(); var q = debts.feeQuota; double cost = 0; if (!(q.InsuranceUsed && q.QuotaReached)) foreach (double p in payable.Select(d => (double)d.GetTotalPrice()).OrderBy(p => p)) { if (q.InsuranceUsed && cost >= q.LeftToReachQuota) break; cost += p; } return new { saved = (DedicatedHost.LastSave?.ToString("o") ?? "never") + " " + DedicatedHost.LastSaveReason, paused = DV.AppUtil.Instance.IsTimePaused, money = DV.InventorySystem.Inventory.Instance.PlayerMoney, fees = payable.Count, cost, players = NetworkLifecycle.Instance.Server.GameplayPlayerCount };'
+chat() { $D eval -t client -m body -u "$U" -a cmd="$1" 'Multiplayer.Client.Session.NetworkClient.Instance.SendChat("/" + ctx.Args["cmd"]); return 0;' >/dev/null; sleep 3; }
+state='var debts = DV.ServicePenalty.CareerManagerDebtController.Instance; debts.RefreshExistingDebtsState(); var payable = debts.currentNonZeroPricedDebts.Where(d => d.IsPayable).ToList(); var q = debts.feeQuota; double cost = 0; if (!(q.InsuranceUsed && q.QuotaReached)) foreach (double p in payable.Select(d => (double)d.GetTotalPrice()).OrderBy(p => p)) { if (q.InsuranceUsed && cost >= q.LeftToReachQuota) break; cost += p; } return new { saved = (DedicatedHost.LastSave?.ToString("o") ?? "never") + " " + DedicatedHost.LastSaveReason, paused = DV.AppUtil.Instance.IsTimePaused, money = DV.InventorySystem.Inventory.Instance.PlayerMoney, fees = payable.Count, cost, players = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayerCount };'
 money() { host "DV.InventorySystem.Inventory.Instance.SetMoney($1); return 0;" >/dev/null; }
 
 [ "$(host 'return new { d = NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = "true" ] ||
   { echo "SKIP: needs a dedicated host (dvmp up --dedicated)"; exit 0; }
-guid=$(host 'return new { g = NetworkLifecycle.Instance.Server.GameplayPlayers.First().Guid.ToString() };' | field g)
+guid=$(host 'return new { g = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayers.First().Guid.ToString() };' | field g)
 restore() { host 'Multiplayer.Multiplayer.Settings.Admins = ""; return 0;' >/dev/null 2>&1 || true; }
 trap restore EXIT
 
@@ -49,7 +49,7 @@ if [ "$fees" != "0" ]; then
   fi
   # Enough, from the fees screen: paid once, and insurance clears the rest.
   rich=$(node -e 'console.log((+process.argv[1] + 1000).toFixed(2))' "$cost"); money "$rich"
-  $D eval -t client -m body -u "$U" 'NetworkLifecycle.Instance.Client.SendPayFeesRequest(); return 0;' >/dev/null; sleep 3
+  $D eval -t client -m body -u "$U" 'Multiplayer.Client.Session.NetworkClient.Instance.SendPayFeesRequest(); return 0;' >/dev/null; sleep 3
   s4=$(host "$state")
   echo "   with \$$rich: fees left $(echo "$s4" | field fees), wallet \$$(echo "$s4" | field money)"
   [ "$(echo "$s4" | field fees)" = "0" ] || fail "fees left after the fees screen paid them"

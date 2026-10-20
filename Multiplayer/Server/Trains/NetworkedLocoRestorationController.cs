@@ -6,6 +6,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using System.Collections;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -54,13 +55,13 @@ public class NetworkRestorationWatcher : SingletonBehaviour<NetworkRestorationWa
                 return; // No need to send updates for other states
         }
 
-        NetworkLifecycle.Instance.Server.SendRestorationStateChange(netId, newState, transportCars);
+        NetworkServer.Instance.SendRestorationStateChange(netId, newState, transportCars);
     }
 
     private static IEnumerator WaitPaintDone(ushort netId)
     {
         yield return new WaitForSecondsRealtime(0.25f);
-        NetworkLifecycle.Instance.Server.SendRestorationStateChange(netId, LocoRestorationController.RestorationState.S10_PaintJobDone, null);
+        NetworkServer.Instance.SendRestorationStateChange(netId, LocoRestorationController.RestorationState.S10_PaintJobDone, null);
     }
 
     [UsedImplicitly]

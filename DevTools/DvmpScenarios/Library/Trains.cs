@@ -133,7 +133,7 @@ namespace Dvmp.Scenarios
         public static IEnumerator SpawnByClient(Step<FarCar> step, string livery)
         {
             var lifecycle = NetworkLifecycle.Instance;
-            var player = lifecycle.Server.GameplayPlayers.First(p => !lifecycle.IsHost(p));
+            var player = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayers.First(p => p != Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer);
             var car = CarSpawner.Instance.SpawnCarOnClosestTrack(player.WorldPosition, Livery(livery), false, true, false)
                       ?? throw new Exception("no room to spawn next to the client's player");
             Record(new[] { car });

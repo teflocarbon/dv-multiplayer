@@ -117,14 +117,14 @@ internal sealed partial class ServerItemManager
         RefreshHostWorldItem(item);
 
         // Tell everyone who has it now rather than waiting for the convergence pass.
-        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
-            if (player.Peer == NetworkLifecycle.Instance.Server.SelfPeer || !player.KnownItems.ContainsKey(item))
+            if (player.Peer == NetworkServer.Instance.SelfPeer || !player.KnownItems.ContainsKey(item))
                 continue;
             if (TryCreateConvergenceSnapshot(item, out ItemUpdateData snapshot))
             {
                 snapshot.MoveCause = rescued;
-                NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot, sendToPlayer: player);
+                NetworkServer.Instance.SendItemUpdatePacket(snapshot, sendToPlayer: player);
             }
         }
     }}

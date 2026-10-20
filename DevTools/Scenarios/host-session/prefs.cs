@@ -12,4 +12,4 @@ if (id != "")
     global::Multiplayer.Settings.OnSettingsUpdated?.Invoke(settings);
 }
 yield return new WaitForSecondsRealtime(1f);
-ctx.Result = new { before, set = id, server = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server.LocalPlayer.CharacterId };
+ctx.Result = new { before, set = id, server = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer.CharacterId };

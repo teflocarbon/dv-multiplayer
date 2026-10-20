@@ -150,8 +150,9 @@ public class LiteNetLibTransport : ITransport, INetEventListener
 
     void INetEventListener.OnNetworkLatencyUpdate(NetPeer netPeer, int latency)
     {
+        // LiteNetLib's latency is one-way (RTT/2); report the round trip, which is what players mean by ping.
         if (netPeerToPeer.TryGetValue(netPeer, out var peer))
-            OnNetworkLatencyUpdate?.Invoke(peer, latency);
+            OnNetworkLatencyUpdate?.Invoke(peer, netPeer.RoundTripTime);
     }
 
     #endregion
