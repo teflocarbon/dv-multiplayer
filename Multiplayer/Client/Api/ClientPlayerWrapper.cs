@@ -1,4 +1,5 @@
 using MPAPI.Interfaces;
+using Multiplayer.Client.Players;
 using Multiplayer.Shared.Players;
 using UnityEngine;
 
