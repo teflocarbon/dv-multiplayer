@@ -489,6 +489,20 @@ branches made from `beta`, in small PRs, in order, each from a branch `items/<wh
   - `Multiplayer/Server/Items/OwnedItems/` (the server's ledger, its persistence, retrieval, issuing);
   - `Multiplayer/Client/Career/OwnedItemsScreen.cs`.
 
+It runs beside the gadget work ([gadgets.md](gadgets.md#pr-plan), PR #273). The two plans meet at
+four points, and both docs state them the same way:
+
+- **Gadget PR 1 goes before either track.** The ledger counts installed gadgets as one of its stores,
+  and its migration reads `dvmpPersistentOwner`. Both come from gadget PR 1.
+- **`AuthoritativeItemRegistry.cs` is shared.** Owned-items PR 1 hooks the ledger into every registry
+  commit and moves ownership out of that file. Gadget PR 3a adds the install and remove transitions,
+  in a file of their own that calls the registry. The two are never in flight at once.
+- **Gadget PR 3a comes after owned-items PR 2** (ownership by identity), so a deleted car's gadgets
+  reach an offline owner's Lost and Found.
+- **Gadget PRs 4, 5 and 9 come before owned-items PR 7.** Those PRs make tape, spools and labels
+  server-side, and PR 7 (lineage) records what they replace. Owned-items PR 8 (retrieving installed
+  gadgets) comes after gadget PR 3a.
+
 A dedicated host has no player of its own and a pair has one client, so "an owner who isn't here" is
 a made-up identity: the host spawns an item and gives it to a new GUID, as the `owned-items` scenario
 already does. "Another player" is the host's own player, so steps that need two players run on a
@@ -616,17 +630,20 @@ game, and the join-packet fields and the rejoin swap go.
 
 ### 7. Lineage
 
-- Replacement scopes, and ended entries for money deposits and destroys.
+After gadget PRs 4, 5 and 9, which make tape, spools and labels server-side.
+
+- Replacement scopes around those server-side swaps, and ended entries for money deposits and
+  destroys.
 - Scenario **`item-lineage`** (both hosts):
   - a deposited banknote's entry ends `MoneyDeposited`;
   - an owned item destroyed by a server step ends `DestroyedByGame`;
-  - neither is listed.
-- The gadget PRs that make tape, spools and labels server-side (gadgets PRs 4, 5 and 9) add the
-  `Replaced` checks to their scenarios.
+  - a duct tape used up through the gadget server's mount request ends with `replacedBy`, and the
+    empty roll is born `Replaced`, owned by the tape's owner;
+  - none of the ended ones is listed.
 
 ### 8. Retrieving installed gadgets
 
-After gadget PR 3 (install and remove).
+After gadget PR 3a (install and remove, confirmed by the server).
 
 - Scenario **`gadget-retrieve`** (both hosts):
   1. The client installs its gadget on a car, and the host's player stands in that car on a player
