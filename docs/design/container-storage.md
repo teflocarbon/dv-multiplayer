@@ -26,7 +26,7 @@
   (`deposit-item-not-owned`), so mixed-owner contents can't arise. An unowned shell is bound to
   whoever holds it when it is first bound.
 - In-game scenarios run through dvmp ([`../testing.md`](../testing.md)); the `containers`
-  scenario is `DevTools/Scenarios/containers/`.
+  scenario is `containers` (`DevTools/DvmpScenarios/Scenarios/Containers.cs`).
 
 ## Implemented surface (2026-07-15)
 
