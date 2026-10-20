@@ -84,9 +84,11 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
 
     public void ReceiveLocalTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)
     {
-        ServerPlayer hostPlayer = NetworkServer.Instance.LocalPlayer;
+        ServerPlayer hostPlayer = HostItemActor.Player;
         if (hostPlayer != null)
             TrainItemWake.ReceiveImpactWitness(packet, hostPlayer);
+        else if (HostItemActor.IsServer)
+            TrainItemWake.ReceiveImpactWitness(packet, null, serverWitness: true);
     }
 
     public void AppendTrainWakeDebugState(ushort itemNetId, Dictionary<string, object> state) =>
