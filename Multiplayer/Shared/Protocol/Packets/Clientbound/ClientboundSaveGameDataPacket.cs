@@ -8,7 +8,7 @@ public class ClientboundSaveGameDataPacket
 {
     public string GameMode { get; set; }
     public string SerializedDifficulty { get; set; }
-    public float Money { get; set; }
+    public double Money { get; set; }
     public string[] AcquiredGeneralLicenses { get; set; }
     public string[] AcquiredJobLicenses { get; set; }
     public string[] UnlockedGarages { get; set; }

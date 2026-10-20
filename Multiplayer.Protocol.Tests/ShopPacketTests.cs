@@ -1,5 +1,6 @@
 using LiteNetLib.Utils;
 using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Protocol.Packets.Clientbound.SaveGame;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using NUnit.Framework;
@@ -104,6 +105,42 @@ public sealed class ShopPacketTests
 
         Assert.That(result.LineModules, Is.Empty);
         Assert.That(result.LineUnits, Is.Empty);
+    }
+
+    [Test]
+    public void Money_KeepsTheCentsOfALargeBalance()
+    {
+        ClientboundMoneyPacket result = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ClientboundMoneyPacket>(packet =>
+            result = new() { Amount = packet.Amount, Revision = packet.Revision });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundMoneyPacket { Amount = 12_345_678.91, Revision = 42 });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.Amount, Is.EqualTo(12_345_678.91));
+        Assert.That(result.Revision, Is.EqualTo(42u));
+    }
+
+    [Test]
+    public void ShopStock_RoundTripsTheAllowedAmounts()
+    {
+        ClientboundShopStockPacket result = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ClientboundShopStockPacket>(packet => result = new ClientboundShopStockPacket
+        {
+            ItemPrefabNames = packet.ItemPrefabNames, PurchasedItems = packet.PurchasedItems, AllowedToHaveAmount = packet.AllowedToHaveAmount
+        });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundShopStockPacket
+        {
+            ItemPrefabNames = new[] { "shovel", "WirelessMUController" }, PurchasedItems = new[] { 1, 0 }, AllowedToHaveAmount = new[] { 2, 0 }
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.ItemPrefabNames, Is.EqualTo(new[] { "shovel", "WirelessMUController" }));
+        Assert.That(result.PurchasedItems, Is.EqualTo(new[] { 1, 0 }));
+        Assert.That(result.AllowedToHaveAmount, Is.EqualTo(new[] { 2, 0 }));
     }
 
     [Test]

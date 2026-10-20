@@ -22,13 +22,17 @@ public partial class NetworkServer
         SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForGameData, excludeSelf: true);
     }
 
-    public void SendMoney(float amount)
+    // Unordered: the revision lets a client keep the newest balance.
+    private uint moneyRevision;
+
+    public void SendMoney(double amount)
     {
         SendPacketToAll
         (
             new ClientboundMoneyPacket
             {
-                Amount = amount
+                Amount = amount,
+                Revision = ++moneyRevision
             },
             DeliveryMethod.ReliableUnordered,
             PlayerLoadingState.ReadyForWorldState,
