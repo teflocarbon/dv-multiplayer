@@ -625,7 +625,23 @@ Decided:
 
 ## PR plan
 
-Small PRs, in order, each into `split/client-server`. Each runs its scenarios on a player host and a
+The work starts once `split/client-server` has merged into `beta` (the user, 2026-10-21): small PRs,
+in order, each from a branch `gadgets/<what>` off `beta` and into `beta`.
+
+It runs beside the owned-items work ([owned-items.md](owned-items.md), PR #275), which redoes the item
+lifecycle. They meet at four points:
+
+- **Gadget PR 1 goes first.** The ledger counts installed gadgets as one of its stores and its
+  migration reads `dvmpPersistentOwner`; both come from it.
+- **`AuthoritativeItemRegistry.cs` is shared.** Owned-items PR 1 hooks the ledger into every registry
+  commit and moves ownership out of that file; gadget PR 3 adds the install and remove transitions,
+  in a file of their own that calls the registry. The two are never in flight at once.
+- **Gadget PR 3 after owned-items PR 2** (ownership by identity), so a deleted car's gadgets reach an
+  offline owner's Lost and Found.
+- Gadget PRs 4, 5 and 9 (tape, spools, labels) come before owned-items PR 7 (lineage), which records
+  what they replace; owned-items PR 8 (retrieving installed gadgets) comes after gadget PR 3.
+
+Each runs its scenarios on a player host and a
 dedicated host (`RUNS="<scenario> @player; <scenario> @dedicated"`) and the existing item scenarios it
 could affect. Every interaction scenario also runs with the client at 250 ms of lag (`LAG=250`),
 checking that the change shows at once in the client's game and that a rejected one is undone. Each
