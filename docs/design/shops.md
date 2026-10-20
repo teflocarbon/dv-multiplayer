@@ -1,6 +1,6 @@
 # Shops
 
-> Status: designed 2026-10-21, in progress: PRs 0 and 1 are open (#280, #279), the rest isn't built. Vanilla behaviour is in
+> Status: designed 2026-10-21, in progress: PRs 0 and 1 are merged (#280, #279), 2a is open (#284), the rest isn't built. Vanilla behaviour is in
 > [`../research/DERAIL_VALLEY_SHOP_LOGIC.md`](../research/DERAIL_VALLEY_SHOP_LOGIC.md); this doc
 > refers to it rather than repeating it. What the mod does today is in [Today](#today), and in
 > [`../world-sync.md`](../world-sync.md#shops) until this lands.
@@ -19,12 +19,17 @@ round trip. A purchased item is made by the server and is owned by its buyer bef
 
 In progress (2026-10-21). See the [plan](#plan).
 
-- PR 0, no restock on a retirement: open as #280. Passed `shop-restock` and `shop` on both host
+- PR 0, no restock on a retirement: merged (#280). Passed `shop-restock` and `shop` on both host
   kinds.
-- PR 1, the same shelves everywhere: open as #279. Passed `shop-layout` and `shop` on both host
-  kinds. It sends only the shelf seed and the shop check; prices and availability move to PR 2,
-  where the server first decides with them.
-- PRs 2 to 6: not started.
+- PR 1, the same shelves everywhere: merged (#279). Passed `shop-layout` and `shop` on both host
+  kinds. It sends only the shelf seed and the shop check. Prices and availability aren't sent: every
+  game has the same scene data, and from PR 2a the server decides with its own.
+- PR 2a, the register on the server: open as #284. Passed `shop`, `shop-basket` and
+  `pit-stop` on both host kinds, and `shop WHO=host` and `host-register-empty-basket` on a player host,
+  on a career save and a sandbox save.
+- PR 2b, the cash rules (walk-away, leaving the shop, disconnect, saved money), money as a `double`,
+  and licence limits on clients (#7): coded, stacked on #284, waiting for its in-game run.
+- PRs 3 to 6: not started.
 
 ## Decisions
 
@@ -500,6 +505,30 @@ For [`gadgets.md`](gadgets.md) (PR #273):
   ends an item's entry (duct tape, solder spools, labels), the slot frees. A replacement (the empty
   roll) is born `Replaced` and isn't shop-stocked.
 
+## Companies
+
+Decided by the user on 2026-10-21 (from the economy and licences session). The full design is
+[`company-career.md`](company-career.md), still to be written. A company is a persistent group that
+shares money, licences and owned locos, and every player also has a personal wallet (a 20% bonus on
+each job, on top of the company's full pay). Who pays and who owns depends on the item:
+
+| Items | Paid from | Owned by |
+| --- | --- | --- |
+| Everyday items: tools, lights, lanterns, cassettes, the boombox, containers, flags, shovels | the buyer's personal wallet, at the register | the player |
+| Gadgets, garage keys, loco paint, the wireless MU controller, the loco remote | the buyer's company account, billed (no cash at the register) | the company |
+
+What that changes here:
+
+- **A basket can hold both kinds of line.** Each line knows its kind, its owner and who pays for it.
+- **The register's cash is tracked per paying wallet,** personal or company. Change, Cancel and
+  walk-away cash go back to the wallet that paid.
+- **A garage key unlocks the garage for the buyer's company.**
+- **Licence-gated items check the buyer's company's licences.**
+- **Per-player stock counts the player's own items.**
+
+Until companies exist there is one company holding everyone, and its account is today's shared
+wallet.
+
 ## Service-station registers
 
 Out of scope. They keep `NetworkedCashRegisterWithModules` and `ServerCashRegister`. This work only
@@ -659,6 +688,4 @@ Choices made in this doc that the user may want to change:
   lines, and returns cash only when the basket ends up empty.
 - **Change as a banknote,** as in vanilla. The alternative is straight back to the wallet, which is
   what the mod does today because a banknote used to exist on one game only.
-- **Companies.** Money, licences and stock are "the company's" once companies exist. With one company
-  holding everyone (today), that is the shared wallet and licences. Later, the deposit would track
-  which company paid what, so change and walk-away cash go back to the right company.
+- **Companies** are decided now: see [Companies](#companies).
