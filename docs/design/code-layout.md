@@ -131,7 +131,7 @@ Paths are under `Multiplayer/`.
 | `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,934 lines) could also split by area (trains, items, world, career) while it moves |
 | `Networking/Managers/Client/` | Client | `NetworkClient.cs` (3,079 lines), likewise |
 | `Patches/` | Per file: see Patches | |
-| `Utils/` | Shared. `DvExtensions`: split (`AnyPlayerSqrMag` is the server's) | |
+| `Utils/` | Shared. `DvExtensions`: split; its server rules are `Server/Players/PlayerDistance` (`AnyPlayerSqrMag`, `PlayerCanReach`) and `NetworkServer.Pause` (`AllowsPause`, read through `IPauseServer`) | |
 
 ### Patches
 

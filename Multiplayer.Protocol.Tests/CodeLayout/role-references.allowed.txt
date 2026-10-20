@@ -37,9 +37,6 @@ Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Dedicated.Dedi
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Session.PlayerIdentity -> Multiplayer.Server.Dedicated.DedicatedHost
-Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Dedicated.DedicatedHost
-Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.RightPaneController_Patch
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.ServerBrowserPane
