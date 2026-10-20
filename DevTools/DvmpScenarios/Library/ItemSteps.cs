@@ -230,6 +230,17 @@ namespace Dvmp.Scenarios
         }
     }
 
+    public static class Saves
+    {
+        /// <summary>Host: a manual save, given 3 s to be written.</summary>
+        [Step]
+        public static IEnumerator Manual()
+        {
+            SaveGameManager.Instance.Save(DV.Common.SaveType.Manual);
+            yield return new WaitForSeconds(3);
+        }
+    }
+
     public static class ServerRequests
     {
         /// <summary>Host: which of these requests (type names in
