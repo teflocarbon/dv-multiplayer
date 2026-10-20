@@ -7,6 +7,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
@@ -47,6 +48,12 @@ public partial class NetworkClient : IStationsClient
                 data.purchasedItems = packet.PurchasedItems[i];
         }
         shops.Fire_GlobalShopDataChanged();
+    }
+
+    private void OnClientboundShopLayoutPacket(ClientboundShopLayoutPacket packet)
+    {
+        Log($"Shop shelf seed {packet.Seed}");
+        ShopShelfLayout.Apply(packet.Seed);
     }
 
     private void OnCommonPitStopInteractionPacket(CommonPitStopInteractionPacket packet)

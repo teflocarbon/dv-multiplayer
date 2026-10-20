@@ -12,5 +12,11 @@ namespace Multiplayer.Shared.Protocol.Packets.Serverbound
         public ushort TrackCount { get; set; }
         public ushort JunctionCount { get; set; }
         public ushort TurntableCount { get; set; }
+
+        // The client's ShopCatalogueFingerprint, sent the same way: the host refuses the join if
+        // its shops differ.
+        public ulong ShopCatalogueHash { get; set; }
+        public ushort ShopCount { get; set; }
+        public ushort ShopItemCount { get; set; }
     }
 }
