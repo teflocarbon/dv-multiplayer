@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Utils;
+namespace Multiplayer.Menus.Controls;
 
 
 

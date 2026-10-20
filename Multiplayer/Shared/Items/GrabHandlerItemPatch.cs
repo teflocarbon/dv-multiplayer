@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Multiplayer.Shared.Items;
 
 [HarmonyPatch(typeof(GrabHandlerItem))]
-public static class GrabHandlerItem_Patch
+public static class GrabHandlerItemPatch
 {
     [HarmonyPatch(nameof(GrabHandlerItem.Throw))]
     [HarmonyPrefix]

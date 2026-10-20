@@ -1,7 +1,7 @@
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using System.Collections.Generic;
 
-namespace Multiplayer.Shared.Jobs;
+namespace Multiplayer.Server.Jobs;
 
 public static class JobReportArtifactRegistry
 {
