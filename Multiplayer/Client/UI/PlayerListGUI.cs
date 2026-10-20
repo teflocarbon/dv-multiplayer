@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Multiplayer.Client.Players;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Session;
 using UnityEngine;
