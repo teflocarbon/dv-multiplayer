@@ -187,3 +187,6 @@ ps/insufficient,Message when player is missing permissions,Insufficient Permissi
 ,Comms Radio,,,,,,,,,,,,,,,,,,,,,,,,,,
 cr/in_use,Message when work train is in use,Locomotive In Use,,机车正在使用中,機車正在使用中,,,,,Locomotive en cours d’utilisation,Lok wird benutzt
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,
+,Gadgets,,,,,,,,,,,,,,,,,,,,,,,,,,
+gadgets/vehicles_only,Shown when a player aims a gadget at anything but a vehicle,Gadgets can only be installed on vehicles,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,

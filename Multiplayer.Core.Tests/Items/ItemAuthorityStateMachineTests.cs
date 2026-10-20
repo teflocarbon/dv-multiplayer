@@ -477,9 +477,11 @@ public sealed class ItemAuthorityStateMachineTests
         ItemAuthorityState original = State(revision: 1,
             placement: AuthorityPlacement.PlayerHand);
         original.PlacementPlayerId = 2;
+        ItemTransitionCommand command = Transition(2, 1, placement);
+        // Installing from a hand is the gadget code's transition (InstalledItem_IsMovedOnlyByItsGadget).
+        command.GadgetTransition = placement == AuthorityPlacement.Installed;
 
-        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original,
-            Transition(2, 1, placement));
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original, command);
 
         Assert.That(result.Accepted, Is.True);
         Assert.That(result.State.PlacementPlayerId, Is.Zero);
@@ -641,6 +643,77 @@ public sealed class ItemAuthorityStateMachineTests
                 Assert.That(state.InventoryClaimFlags.HasFlag(AuthorityClaimFlags.Dropped), Is.True);
             }
         }
+    }
+
+    [Test]
+    public void InstalledItem_IsMovedOnlyByItsGadget()
+    {
+        ItemAuthorityState installed = State(revision: 4, placement: AuthorityPlacement.Installed);
+
+        ItemAuthorityResult pickup = ItemAuthorityStateMachine.Apply(installed,
+            Transition(actor: 2, revision: 4, placement: AuthorityPlacement.PlayerHand));
+        ItemTransitionCommand forced = Transition(actor: ItemTransitionCommand.ServerActorId, revision: 4,
+            placement: AuthorityPlacement.LostAndFound);
+        forced.Force = true;
+        ItemAuthorityResult collected = ItemAuthorityStateMachine.Apply(installed, forced);
+
+        Assert.That(pickup.Accepted, Is.False);
+        Assert.That(pickup.RejectionReason, Is.EqualTo("item-installed"));
+        Assert.That(collected.Accepted, Is.False, "not even a forced move: its projection would stay on the car");
+        Assert.That(collected.RejectionReason, Is.EqualTo("item-installed"));
+    }
+
+    [Test]
+    public void Installing_NeedsAGadgetTransition()
+    {
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(State(revision: 1),
+            Transition(actor: 2, revision: 1, placement: AuthorityPlacement.Installed));
+
+        Assert.That(result.Accepted, Is.False);
+        Assert.That(result.RejectionReason, Is.EqualTo("installed-only-by-gadgets"));
+    }
+
+    [Test]
+    public void GadgetTransition_InstallsAndRemovesWithoutChangingTheOwner()
+    {
+        ItemAuthorityState owned = State(revision: 6);
+        owned.PersistentOwnerPlayerId = 5;
+        ItemTransitionCommand install = Transition(actor: ItemTransitionCommand.ServerActorId, revision: 6,
+            placement: AuthorityPlacement.Installed);
+        install.GadgetTransition = true;
+
+        ItemAuthorityResult installed = ItemAuthorityStateMachine.Apply(owned, install);
+        ItemTransitionCommand remove = Transition(actor: ItemTransitionCommand.ServerActorId, revision: 7,
+            placement: AuthorityPlacement.World);
+        remove.GadgetTransition = true;
+        ItemAuthorityResult removed = ItemAuthorityStateMachine.Apply(installed.State, remove);
+
+        Assert.That(installed.Accepted, Is.True);
+        Assert.That(installed.State.Placement, Is.EqualTo(AuthorityPlacement.Installed));
+        Assert.That(installed.State.PersistentOwnerPlayerId, Is.EqualTo(5));
+        Assert.That(removed.Accepted, Is.True);
+        Assert.That(removed.State.Placement, Is.EqualTo(AuthorityPlacement.World));
+        Assert.That(removed.State.PersistentOwnerPlayerId, Is.EqualTo(5));
+    }
+
+    [Test]
+    public void InstalledItem_TakesObjectStateAndCannotBeRecalled()
+    {
+        ItemAuthorityState installed = OwnedEssentialWorldItem(owner: 3, revision: 2);
+        installed.Placement = AuthorityPlacement.Installed;
+
+        ItemAuthorityResult objectState = ItemAuthorityStateMachine.Apply(installed, new ItemTransitionCommand
+        {
+            ActorPlayerId = ItemTransitionCommand.ServerActorId,
+            ExpectedRevision = 2,
+            AppliesPlacement = false
+        });
+        ItemAuthorityResult recall = ItemAuthorityStateMachine.Recall(installed, Recall(player: 3, revision: 2, requestedSlot: 3));
+
+        Assert.That(objectState.Accepted, Is.True);
+        Assert.That(objectState.State.Placement, Is.EqualTo(AuthorityPlacement.Installed));
+        Assert.That(recall.Accepted, Is.False);
+        Assert.That(recall.RejectionReason, Is.EqualTo("item-installed"));
     }
 
     private static ItemAuthorityState State(ushort netId = 772, uint revision = 0,

@@ -248,8 +248,9 @@ internal sealed partial class ServerItemManager
                 continue;
             if (WorldItemPersistenceManager.IsRestorePending(item))
                 continue;
+            // An installed gadget's item changes only with its gadget (Server/Gadgets).
             if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record existingRecord) &&
-                existingRecord.Placement == ItemPlacementKind.Destroyed)
+                existingRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Installed)
                 continue;
             ItemUpdateData snapshot = item.GetSnapshot();
             if (snapshot != null && hostActs && !TryKeepRemotePossession(item, snapshot, hostPlayer))

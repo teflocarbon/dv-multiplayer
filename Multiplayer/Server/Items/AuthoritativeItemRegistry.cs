@@ -189,10 +189,18 @@ public static class AuthoritativeItemRegistry
         ChangeCause<ItemMoveReason>? cause = null) =>
         ApplyTransition(item, snapshot, null, reason, force, out rejectionReason, false, cause);
 
+    /// <summary>
+    /// What vanilla did to an installed gadget's item, committed by the server's gadget code: the
+    /// only transition into or out of <see cref="ItemPlacementKind.Installed"/> (Server/Gadgets).
+    /// </summary>
+    public static bool TryApplyGadgetTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
+        ItemTransitionReason reason, out string rejectionReason, ChangeCause<ItemMoveReason>? cause = null) =>
+        ApplyTransition(item, snapshot, actor, reason, true, out rejectionReason, false, cause, gadgetTransition: true);
+
     // actor null: the server itself.
     private static bool ApplyTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
         ItemTransitionReason reason, bool force, out string rejectionReason,
-        bool clearRetrievalClaim, ChangeCause<ItemMoveReason>? cause)
+        bool clearRetrievalClaim, ChangeCause<ItemMoveReason>? cause, bool gadgetTransition = false)
     {
         rejectionReason = string.Empty;
         if (item == null || snapshot == null || item.NetId == 0)
@@ -247,6 +255,7 @@ public static class AuthoritativeItemRegistry
             AppliesPlacement = appliesPlacement,
             RequestedPlacement = (AuthorityPlacement)(byte)requestedPlacement,
             ClearRetrievalClaim = clearRetrievalClaim,
+            GadgetTransition = gadgetTransition,
             EstablishPersistentOwner = reason == ItemTransitionReason.ClientAdoption,
             MayEstablishPersistentOwner = item.Item?.InventorySpecs?.BelongsToPlayer == true,
             InventoryClaimSlot = retrievalEligible ? snapshot.InventoryClaimSlot : -1,
@@ -304,7 +313,8 @@ public static class AuthoritativeItemRegistry
         record.ParentLocalRotation = snapshot.ParentLocalRotation;
         record.AttachedCarNetId = snapshot.CarNetId;
         record.AttachedFront = snapshot.AttachedFront;
-        if (record.Placement == ItemPlacementKind.Attached &&
+        // The car an end-of-train lantern hangs on, or an installed gadget sits on.
+        if ((record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.Installed) &&
             NetworkedTrainCar.TryGet(record.AttachedCarNetId, out TrainCar attachedCar))
             record.AttachedCarPersistentId = attachedCar.CarGUID ?? string.Empty;
         if (item.IsSceneAuthored && snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState) &&
@@ -856,6 +866,7 @@ public static class AuthoritativeItemRegistry
             ItemPlacementKind.PlayerHand => ItemState.InHand,
             ItemPlacementKind.PlayerInventory => ItemState.InInventory,
             ItemPlacementKind.Attached => ItemState.Attached,
+            ItemPlacementKind.Installed => ItemState.Installed,
             _ => ItemState.Dropped
         };
         snapshot.ItemPosition = record.Position;
@@ -1133,6 +1144,7 @@ public static class AuthoritativeItemRegistry
         ItemState.InHand => ItemPlacementKind.PlayerHand,
         ItemState.InInventory => ItemPlacementKind.PlayerInventory,
         ItemState.Attached => ItemPlacementKind.Attached,
+        ItemState.Installed => ItemPlacementKind.Installed,
         _ => ItemPlacementKind.World
     };
 

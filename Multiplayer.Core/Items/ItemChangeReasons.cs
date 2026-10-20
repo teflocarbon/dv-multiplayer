@@ -93,7 +93,11 @@ public enum ItemMoveReason : byte
     /// </summary>
     HostCorrection,
     /// <summary>A job overview thrown back out of the office bin: its job couldn't be re-rolled.</summary>
-    ThrownOutOfBin
+    ThrownOutOfBin,
+    /// <summary>Installed on a car as a gadget (gadgets.md).</summary>
+    InstalledAsGadget,
+    /// <summary>Taken off the car it was installed on, by a player or forced (a deleted car, broken glass).</summary>
+    RemovedAsGadget
 }
 
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>
@@ -130,6 +134,10 @@ public static class ItemMoveClassifier
 
     public static ItemMoveReason Classify(ItemWhereabouts before, ItemWhereabouts after, bool thrown)
     {
+        if (after.Placement == AuthorityPlacement.Installed)
+            return before.Placement == after.Placement ? ItemMoveReason.Unknown : ItemMoveReason.InstalledAsGadget;
+        if (before.Placement == AuthorityPlacement.Installed)
+            return ItemMoveReason.RemovedAsGadget;
         bool fromOtherPlayer = IsHeld(before.Placement) && before.HolderPlayerId != 0 &&
             IsHeld(after.Placement) && after.HolderPlayerId != before.HolderPlayerId;
         switch (after.Placement)

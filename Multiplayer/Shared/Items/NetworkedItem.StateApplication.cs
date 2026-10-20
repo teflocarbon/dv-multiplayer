@@ -230,7 +230,7 @@ public partial class NetworkedItem
         ItemState.InInventory => WireItemState.InInventory,
         ItemState.InHand => WireItemState.InHand,
         ItemState.Attached => WireItemState.Attached,
-        ItemState.Removed => WireItemState.Removed,
+        ItemState.Installed => WireItemState.Installed,
         _ => WireItemState.Dropped
     };
 
@@ -589,6 +589,20 @@ public partial class NetworkedItem
     }
 
     private string ParentPath() => transform.parent?.gameObject?.GetPath() ?? string.Empty;
+
+    /// <summary>
+    /// An installed gadget's item is inactive: what players see is its projection on the car,
+    /// which the gadget code places (gadgets.md, "The installed gadget and its item"). The item
+    /// only leaves any hand and goes out of sight; one this game installed itself stays as vanilla
+    /// left it, in its installed storage.
+    /// </summary>
+    private void HandleInstalledState()
+    {
+        if (StorageController.Instance?.StorageInstalledGadgets?.ContainsItem(Item) == true)
+            return;
+        DetachForWorldState(ItemState.Installed);
+        gameObject.SetActive(false);
+    }
 
     private void HandleAttachedState(ItemUpdateData snapshot)
     {

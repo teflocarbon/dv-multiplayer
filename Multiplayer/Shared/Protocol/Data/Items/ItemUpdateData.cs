@@ -139,7 +139,7 @@ public class ItemUpdateData
                 if (data.ItemState == ItemState.InHand)
                     writer.Put((byte)data.PlayerHand);
             }
-            else if (data.ItemState == ItemState.Attached)
+            else if (data.ItemState is ItemState.Attached or ItemState.Installed)
             {
                 writer.Put(data.CarNetId);
                 writer.Put(data.AttachedFront);
@@ -219,7 +219,7 @@ public class ItemUpdateData
                 if (data.ItemState == ItemState.InHand)
                     data.PlayerHand = (PlayerHand)reader.GetByte();
             }
-            else if (data.ItemState == ItemState.Attached)
+            else if (data.ItemState is ItemState.Attached or ItemState.Installed)
             {
                 data.CarNetId = reader.GetUShort();
                 data.AttachedFront = reader.GetBool();
