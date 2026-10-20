@@ -71,7 +71,7 @@ using Object = UnityEngine.Object;
 
 namespace Multiplayer.Client.Session;
 
-public partial class NetworkClient : NetworkManager, ILocalPlayerSession
+public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClientApiSession
 {
     /// <summary>
     ///     The client this game runs (on a host, its loopback client until host-local-session stage 3);
@@ -171,8 +171,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         add => Avatars.OnPlayerPrefsUpdated += value;
         remove => Avatars.OnPlayerPrefsUpdated -= value;
     }
-    public readonly Dictionary<byte, ClientPlayerWrapper> PlayerWrapperCache = [];
-    public IReadOnlyCollection<ClientPlayerWrapper> ClientPlayerWrappers => PlayerWrapperCache.Values;
 
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     internal uint trainSetsToSpawn = uint.MaxValue;
@@ -199,6 +197,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     public int Ping { get; private set; }
     private ITransportPeer serverPeer;
     public float RPC_Timeout => (Ping * 8f) / 1000;
+    float ILocalPlayerSession.RpcTimeout => RPC_Timeout;
 
     private ChatGUI chatGUI;
     private readonly bool isSinglePlayer;
@@ -469,7 +468,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     }
 
     // Allow mods to register ready blocks
-    internal void RegisterReadyBlock(string modName)
+    public void RegisterReadyBlock(string modName)
     {
         Log($"Ready Block has been registered by {modName}");
 
@@ -479,7 +478,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         readyBlocks.Add(modName);
     }
 
-    internal void CancelReadyBlock(string modName)
+    public void CancelReadyBlock(string modName)
     {
         Log($"Ready Block has been cleared by {modName}");
 
@@ -675,16 +674,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         SendLoadStateUpdate(PlayerLoadingState.Complete);
         displayLoadingInfo.OnLoadingStatusChanged("Complete", false, ((float)LoadingState / (float)PlayerLoadingState.Complete) * 100);
         yield return new WaitForSeconds(0.25f);
-    }
-
-    public ClientPlayerWrapper GetWrapper(NetworkedPlayer networkedPlayer)
-    {
-        if (!PlayerWrapperCache.TryGetValue(networkedPlayer.PlayerId, out var wrapper))
-        {
-            wrapper = new ClientPlayerWrapper(networkedPlayer);
-            PlayerWrapperCache[networkedPlayer.PlayerId] = wrapper;
-        }
-        return wrapper;
     }
 
 
