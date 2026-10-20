@@ -450,21 +450,23 @@ Refusal reasons: `NotNear`, `NoScanner`, `NotSoldHere`, `NotAvailable`, `NeedsLi
 
 ## Owned items
 
-The seam with [`owned-items.md`](owned-items.md) (PR #275), proposed to that session on 2026-10-21:
+The seam with [`owned-items.md`](owned-items.md) (PR #275), agreed with that session on 2026-10-21
+and written into both docs:
 
 1. **Shops hands over a finished item.** The server makes it and registers it with the ledger before
    any player sees it:
    - owner: the identity that scanned the line;
    - born `Purchased`, `by` that identity;
    - detail: the shop, the transaction id, and who paid.
-2. **It is born in one of two places:** `World` on the counter, or the owner's Lost and Found with
-   `LostItemReason.PurchasedDeliveryFallback`, through owned items' Lost and Found entry point.
-3. **Shops reads the ledger** for per-player stock. It needs:
-   - a *shop-stocked* bit on each entry, which mirrors vanilla's `Restock` flag on the item (set at
-     birth, cleared by a used garage key);
-   - a count of live shop-stocked entries by owner and prefab;
-   - an event when that count changes for an owner (an entry ending, the bit clearing, an owner
-     changing).
+2. **It is born in one of two places:** `World` on the counter, or the owner's Lost and Found
+   through owned items' one entry point, `SendToLostAndFound(id, PurchasedDeliveryFallback)`.
+3. **Shops reads the ledger** for per-player stock:
+   - `shopStocked` on each entry mirrors vanilla's `Restock` flag on the item. It's set at birth,
+     cleared where vanilla clears it (a used garage key), read from the stored state at load and
+     migration, and never set on replacements;
+   - `CountLive(owner, prefab, shopStocked)` gives `owned(player, item)`;
+   - a change event, raised when an entry is born, ends, or has `shopStocked` change, triggers that
+     player's allowance packet.
 4. **Owned-items PR 5's first bullet**, the host's own player buying through `SpawnShopPurchase`,
    is done by shops [PR 2](#2-the-register-on-the-server), where the host's player goes through the
    same requests. Owned-items PR 5 keeps the removal of adoption. Shop receipts are server-made from
