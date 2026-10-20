@@ -40,7 +40,8 @@ internal sealed partial class ClientItemManager
             if (item.GetItemState() is not (ItemState.Dropped or ItemState.Thrown))
                 continue;
             if (NetworkedItemManager.BelowTerrain(item.transform.position, out float surfaceY) is not float depth ||
-                depth <= NetworkedItemManager.BelowTerrainTolerance)
+                depth <= NetworkedItemManager.BelowTerrainTolerance ||
+                NetworkedItemManager.HasFloorUnder(item))
                 continue;
             if (clientRescueReportedAt.TryGetValue(item.NetId, out float reportedAt) &&
                 Time.unscaledTime - reportedAt < ClientReportCooldown)

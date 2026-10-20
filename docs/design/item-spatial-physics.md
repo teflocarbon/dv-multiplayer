@@ -270,6 +270,33 @@ A drop from the player still in flight when the host throws arrives after the th
 as stale, and its correction puts the item at the record's pose at rest, ending the flight. A
 host-side throw of an item a player has just let go waits for that drop first (the job re-roll does).
 
+### Landing on the terrain
+
+A small item with a convex mesh collider, such as the mug, can go straight through DV's terrain
+heightfield in plain PhysX ([research](../research/item-terrain-tunnelling.md)): beside the track,
+about a quarter to a half of mugs thrown at 10 m/s. So the game that simulates a flight guards it
+(`NetworkedItemManager.TerrainGuard.cs`). It runs on every game, right after each physics step
+(`WaitForFixedUpdate`), over the item bodies that game simulates: dynamic, awake and not held. A
+proxy is kinematic, so only a lease's simulator, or the host for a world item with no lease, acts.
+
+An item whose centre was above the terrain surface after the last step and is under it now has
+crossed it. The guard then puts it on the surface where it crossed, with its lowest point just above
+it, and takes away the part of its velocity going into the ground. It's left alone when:
+
+- the segment it moved along doesn't hit a `TerrainCollider` (the rendered heightmap is only a
+  pre-filter, the collider is a separate object in `TerrainGrid`'s pool or the host's extra terrain);
+- the terrain collider ignores it (`Physics.GetIgnoreCollision`), or the crossing is within 10 m of
+  a tunnel portal's trigger (`TunnelCollisionIgnore`). DV's tunnel holes are only visual: what enters
+  a portal ignores the terrain, so an item thrown into a tunnel crosses the surface on purpose;
+- it rides a train, or code moved it further than its velocity could in two steps (a teleport, a
+  snapshot, a placement).
+
+The correction happens before the step's pose is rendered or sampled, so observers never see the
+item under the ground, and its next motion sample carries the corrected pose. The fall rescue
+(`ServerItemManager.FallRescue.cs`, `ClientItemManager.FallRescue.cs`) stays as the backstop for
+what the guard can't see. Neither touches an item under the terrain that has a floor under it within
+3 m (`HasFloorUnder`: anything but terrain and items), so items in tunnels stay there.
+
 ### Leaving the hand
 
 Playtest 2 (VR players, dedicated server) found the steps above undone in four ways: a hand swap
