@@ -1,3 +1,5 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
 
 namespace Dvmp.Agent;
@@ -31,5 +33,46 @@ public sealed class DevContext
     /// <summary>Appends a value to the probe's output list.</summary>
     public void Log(object value) => output.Add(value);
 
+    /// <summary>
+    /// Runs <paramref name="routine"/> alongside the probe. It is stopped when the probe
+    /// finishes, fails or times out, so it can never outlive it. Use this rather than
+    /// MonoBehaviour.StartCoroutine (which the agent also catches and stops, with a warning).
+    /// </summary>
+    public ProbeCoroutine StartCoroutine(IEnumerator routine, string name = null) =>
+        ProbeRegistry.StartChild(Root, routine, name);
+
+    /// <summary>
+    /// Runs <paramref name="routine"/> past the end of the probe, for watchers read by later
+    /// probes. It stops after <paramref name="maxSeconds"/> (default 600, at most 3600), is
+    /// listed by `dvmp probes` and flagged by `dvmp status` while it runs, and replaces any
+    /// running background coroutine with the same name. Find it again with <see cref="Background"/>.
+    /// </summary>
+    public ProbeCoroutine StartBackground(string name, IEnumerator routine, float maxSeconds = ProbeRegistry.DefaultBackgroundSeconds) =>
+        ProbeRegistry.StartBackground(Root?.Owner ?? "unknown", name, routine, maxSeconds);
+
+    /// <summary>Like the other overload, but the routine gets its own handle, e.g. to call Log on it.</summary>
+    public ProbeCoroutine StartBackground(string name, Func<ProbeCoroutine, IEnumerator> routine, float maxSeconds = ProbeRegistry.DefaultBackgroundSeconds)
+    {
+        Holder holder = new();
+        ProbeCoroutine started = StartBackground(name, Deferred(holder, routine), maxSeconds);
+        holder.Value = started;
+        return started;
+    }
+
+    /// <summary>The running background coroutine with this name, if any.</summary>
+    public static ProbeCoroutine Background(string name) => ProbeRegistry.FindBackground(name);
+
+    internal ProbeCoroutine Root { get; set; }
+
     internal IReadOnlyList<object> Output => output;
+
+    private sealed class Holder { public ProbeCoroutine Value; }
+
+    // The handle only exists once StartBackground returns, after the routine's first step would
+    // have run; wait a frame so the routine sees it.
+    private static IEnumerator Deferred(Holder holder, Func<ProbeCoroutine, IEnumerator> routine)
+    {
+        yield return null;
+        yield return routine(holder.Value);
+    }
 }

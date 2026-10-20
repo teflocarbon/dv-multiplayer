@@ -214,6 +214,10 @@ The agent's `ScenarioSteps` (`/v1/load`, `/v1/invoke`, `/v1/cancel`; local only,
   the renamed copy matches), reads the arguments as JSON, and runs it like a probe: on the main
   thread, nested coroutines flattened, a timeout. The agent knows no scenario types: a coroutine's
   result is the `Result` of its first parameter when that parameter's type is a `Step<>`.
+- **A step cleans up after itself**, as a probe does (`DvmpAgent/ProbeCalls.cs`, the agent's probe
+  registry): a coroutine it starts with `MonoBehaviour.StartCoroutine` is caught and stops when the
+  step ends, fails, times out or is cancelled; `/v1/cancel` stops the step and all of them at
+  once. `dvmp probes` lists what's left in a game, a scenario's steps under `DvmpScenarios_<id>`.
 - A blocking step (a stall) blocks `/v1/status` on that game too; the exe doesn't poll status
   during a run.
 
