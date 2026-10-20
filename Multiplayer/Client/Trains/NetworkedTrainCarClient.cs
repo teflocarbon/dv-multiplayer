@@ -31,8 +31,10 @@ namespace Multiplayer.Client.Trains;
 /// The local player's half of a car (<see cref="ITrainCarClientPart"/>), on every game someone
 /// plays at, the host's too: its cab and external controls hooked for leases, the player's control
 /// changes and chain interactions sent, and on a client, following the host (the host's values
-/// played out or predicted, its motion, brakes and commits). Made by the car from the local session
-/// (<see cref="NetworkClient.CreateCarPart"/>); client code reaches it as <c>car.Client()</c>.
+/// played out or predicted, its motion, brakes and commits). Made by the car from the local session:
+/// a client's <see cref="NetworkClient.CreateCarPart"/>, or on a player host its
+/// <see cref="LocalPlayerSession.CreateCarPart"/>, whose part follows nobody. Client code reaches it as
+/// <c>car.Client()</c>.
 /// </summary>
 public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 {
@@ -65,10 +67,15 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     private static uint GetPortNetId(string portId) => NetworkedTrainCar.GetPortNetId(portId);
     private static string GetPort(uint netId) => NetworkedTrainCar.GetPort(netId);
 
-    public NetworkedTrainCarClient(NetworkedTrainCar car)
+    // A client's part: the car follows the host. The host's own player's part (made by its
+    // LocalPlayerSession) follows nobody: its car is in the server's world.
+    private readonly bool followsHost;
+
+    public NetworkedTrainCarClient(NetworkedTrainCar car, bool followsHost)
     {
         this.car = car;
-        if (!NetworkLifecycle.Instance.IsHost())
+        this.followsHost = followsHost;
+        if (followsHost)
         {
             trainSpeedQueue = TrainCar.GetOrAddComponent<TrainSpeedQueue>();
             trainRigidbodyQueue = TrainCar.GetOrAddComponent<NetworkedRigidbody>();
@@ -91,7 +98,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
         if (hasSimFlow)
         {
-            if (simulationFlow != null && !NetworkLifecycle.Instance.IsHost())
+            if (simulationFlow != null && followsHost)
             {
                 portPresenter = TrainPortPresenter.Create(car, simulationFlow, portId => portWriters.Classify(GetPortNetId(portId)),
                     port => HoldsPort(GetPortNetId(port.id)));
@@ -121,9 +128,9 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                 car.firebox.fireboxIgnitionPort.ValueUpdatedInternally += OnIgnite;      //Player igniting firebox
         }
 
-        // Only a client asks: the host's own reply carried a snapshot from before the spawn's
-        // auto-couple, and applying it uncoupled every freshly spawned consist on the host.
-        if (!NetworkLifecycle.Instance.IsHost())
+        // Only a client asks. Before 2026-10-20 the host's own client asked too, and the reply, a snapshot
+        // from before the spawn's auto-couple, uncoupled every freshly spawned consist on the host.
+        if (followsHost)
             NetworkClient.Instance?.SendTrainSyncRequest(NetId);
     }
 
@@ -728,7 +735,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         {
             AcknowledgeControlOperation(packet.OperationId);
             // The host didn't take our change; get its state back rather than keep ours.
-            if (packet.Result != TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost())
+            if (packet.Result != TrainControlCommitResult.Accepted)
                 client.SendTrainSyncRequest(NetId);
         }
         // Another player's handbrake operation (a join's state carries no operation).
@@ -736,7 +743,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                  packet.Result == TrainControlCommitResult.Accepted)
             car.Common_OnRemoteHandbrakeChange();
         // Every commit is stamped with the host's tick: their arrivals measure the link's jitter.
-        if (packet.Tick != 0 && !NetworkLifecycle.Instance.IsHost())
+        if (packet.Tick != 0)
             TrainPortPresenter.Clock.OnArrival(packet.Tick, TrainPortPresenter.Now);
         if (packet.Revision < ControlRevision)
             return;
@@ -852,7 +859,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     /// operations and resync requests. The host always reports.
     /// </summary>
     public bool LocalPlayerCanTouch() =>
-        NetworkLifecycle.Instance.IsHost() ||
+        !followsHost ||
         (PlayerManager.PlayerTransform != null &&
          (PlayerManager.PlayerTransform.position - transform.position).sqrMagnitude <= CarLengthSq);
 
@@ -1247,7 +1254,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             return;
 
         // The host's fire is lit in the world it already owns.
-        if (ignition == 0f || NetworkLifecycle.Instance.IsHost())
+        if (ignition == 0f || !followsHost)
             return;
 
         NetworkClient.Instance.LogDebug(() => $"Common_OnIgnite({CurrentID})");
@@ -1256,7 +1263,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
     // Where a client reports its player's chain placements. The host's player's chains are in the
     // server's world, which observes them itself (NetworkedTrainCarServer.ChainStateChanged).
-    private static NetworkClient RemoteClient => NetworkRole.IsRemoteClient ? NetworkClient.Instance : null;
+    private NetworkClient RemoteClient => followsHost ? NetworkClient.Instance : null;
 
     public void CouplerStateChange(ChainCouplerInteraction.State state, Coupler coupler)
     {

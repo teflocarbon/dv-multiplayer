@@ -405,9 +405,8 @@ host's world reach clients by the server observing them (`CommitObservedTrainTop
 couples and uncouples from the couplers' events, chains settling (hooked on, parked, left hanging, screwed tight or loose)
 from their `StateChanged` (`NetworkedTrainCarServer`), and hoses, cocks, MU cables and the coupling
 menu from patches on the vanilla calls (`Server/Trains/TopologyObservationPatch.cs`). The client
-patches that report these send only from a remote client. Until 2026-10-20 the host's own client
-reported its player's as topology commands, which the server turned into the same commit; with
-no client on the host (stage 3) nothing would have reported them.
+patches that report these send only from a remote client. Before stage 3 the host's loopback client
+reported its player's as topology commands, which the server turned into the same commit.
 
 This matters because the reconciler makes the world match a snapshot: run on the host against an
 old one, it takes the canonical graph apart. On 2026-10-19 each car the host spawned asked for a
@@ -415,8 +414,7 @@ train sync from the host's client at start-up; the reply was a snapshot from bef
 auto-couple, which uncoupled every new consist on the host, and every client followed (29 trains
 in one session).
 
-The host's own control changes, its simulation's and its player's levers alike, don't go through
-its client: `Common_SendPorts`, `Common_SendFuses`, the handbrake and the brake-cylinder release
+The host's own control changes, its simulation's and its player's levers alike, aren't requests: `Common_SendPorts`, `Common_SendFuses`, the handbrake and the brake-cylinder release
 call `NetworkServer.CommitHostControls`, which commits the values read that tick, stamped with that
 tick, and broadcasts them with `excludeSelf`. There's no lease, range or operation check (they come
 from the server's world) and no rejection. The operation id has player byte 0, so clients still see
@@ -439,13 +437,12 @@ own position too. Every work-train request is answered (`SpawnResponse`, "in use
 no reason of its own); the host player's answer goes back through its peer to whatever holds the
 radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in its own world.
 
-The host's player makes these requests through `ITrainClient` (`TrainRoles.Client`), never through
-`NetworkClient`: on a client it's `NetworkClient`, which sends them; on a player host (host-local-session
-stage 3) it's the host's `LocalPlayerSession`
+A player makes these requests through `ITrainClient` (`TrainRoles.Client`): on a client it's
+`NetworkClient`, which sends them; on a player host it's the host's `LocalPlayerSession`
 (`LocalPlayerSession.Trains.cs`), which hands the same packets to the server in-process and
 subscribes the lease updates its cab needs (`ClientboundTrainControlAuthorityUpdatePacket`), the
-one train packet the host's player is sent; until stage 3 ends, the loopback client still does both
-without the switch. A dedicated host has no session, so its cars have no local-player half.
+one train packet the host's player is sent. A dedicated host has no session, so its cars have no
+local-player half.
 
 ### Where the code is, by role
 
@@ -471,7 +468,8 @@ session (`ITrainClient.CreateCarPart`, `TrainRoles.Client` = `LocalSession as IT
 calls it through `ITrainCarClientPart` at the end of `Start`, in `OnDisable`, from its sends, and
 when the host's port values land. Client code reaches it as `car.Client()`. On a player host
 the host's `LocalPlayerSession` implements `ITrainClient` and makes the
-same part, its follower half off; a dedicated host has none.
+same part with `followsHost` false: it hooks the host player's controls and tracks its chain drags,
+but follows nobody and reports no coupling (the server observes those). A dedicated host has none.
 
 The car's own changes (dirty ports, fuses, handbrake, brake release, paint) go through one of the
 two, its `Role` (`ITrainCarRole`, both parts implement it): the server's half on the server, which
@@ -769,8 +767,8 @@ Implemented: the join baseline described under "Implementation status" (readines
 declared trainset applied and the baseline topology snapshot reconciled, including its brake
 lines; the completion manifest is counts, not a digest); a snapshot after every command; a
 snapshot on the tick after the host observes a native change; a full snapshot on a client's
-`ServerboundTrainTopologySyncRequestPacket` or `ServerboundTrainSyncRequestPacket` (never to the
-host's own client, which sends neither). Each of these
+`ServerboundTrainTopologySyncRequestPacket` or `ServerboundTrainSyncRequestPacket` (the host's player
+sends neither). Each of these
 is the whole graph, not a targeted closure. Not implemented: the periodic host audit and
 client-reported digests.
 
