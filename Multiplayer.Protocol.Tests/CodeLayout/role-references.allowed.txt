@@ -13,8 +13,6 @@ Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.World.TimeAdvance
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Shared.Api.APIProvider -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Api.ModCompatibilityManager -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
-Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Debugging.DebugDiagnostics -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.IServerBrowserGameDetails
 Multiplayer.Shared.Protocol.Data.LobbyServerData -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Shared.Protocol.Data.Train.TrainsetSpawnPart -> Multiplayer.Server.Session.NetworkServer
@@ -31,7 +29,6 @@ Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Dedicated.Dedi
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Dedicated.DedicatedHostMode
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Session.PlayerIdentity -> Multiplayer.Server.Dedicated.DedicatedHost
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.RightPaneController_Patch
 Multiplayer.Shared.Utils.SteamworksUtils -> Multiplayer.Menus.MainMenu.ServerBrowserPane
