@@ -24,7 +24,9 @@ namespace Dvmp.Scenarios
     /// - the throw keeps its force when the actor is the host's own player (granting the new lease
     ///   used to stop the body under the old one, losing GrabHandlerItem.Throw's one-step force).
     /// Both games must then have it at the same spot outside the loco, no lease open, the client's
-    /// copy never retired and re-created. ACTOR=host needs a player host (the host's body boards).
+    /// copy never retired and re-created. A mug that goes through the terrain where it lands
+    /// (vanilla physics, docs/research/item-terrain-tunnelling.md) is judged by its flight above the
+    /// ground and must have been rescued. ACTOR=host needs a player host (the host's body boards).
     /// </summary>
     [Scenario("server-throw", "The host throws a mug out of a loco cab on a player's behalf under the drop's lease: it's indexed in its world cell at once, keeps its force, and lands at the same spot in both games")]
     public sealed class ServerThrow : Scenario<ServerThrow.Options>
@@ -62,11 +64,19 @@ namespace Dvmp.Scenarios
             Expect.That(t.LeaseLiveAtThrow, "a lease from the drop was open when the host threw it (else the throw superseded none, and this run shows nothing about its force)",
                 $"{t.DroppedFor:0.#} s after it was in the cab");
             Expect.That(t.IndexedOnCommit, "the transition put the mug in a world cell");
-            // Rescued from below the map, it was put back where it was thrown and fell straight down
-            // from there: where it lies says nothing about the force of the throw.
+            // The mug's convex collider often goes straight through DV's terrain where it lands beside
+            // the track, in plain PhysX with none of the game's or the mod's scripts on it
+            // (docs/research/item-terrain-tunnelling.md). The fall rescue then puts it back at its
+            // last safe spot, so where it lies says nothing about the throw: its flight above the
+            // ground still does, and the rescue must have happened.
             bool rescued = pose.Host.Present && record.LastMove == "RescuedFromBelowMap";
-            if (rescued) Expect.That(false, "the mug stayed above the ground", $"fell through after flying {t.Travel:0.##} m sideways and was rescued from below the map");
-            else Expect.AtLeast(t.Travel, 1.5, "the host's copy's flight sideways (m), less is a throw that lost its force");
+            if (t.FellThrough)
+            {
+                Report.Note($"the host's copy went through the terrain {t.FellAfter:0.##} s into its flight (vanilla physics, not the throw)");
+                Expect.That(rescued, "the fall rescue brought it back from below the map", $"last move {record.LastMove}");
+            }
+            else Expect.That(!rescued, "rescued from below the map only after the host's copy went through the terrain", $"last move {record.LastMove}");
+            Expect.AtLeast(t.Travel, 1.5, "the host's copy's flight sideways above the ground (m), less is a throw that lost its force");
             foreach (var (peer, v) in pose)
             {
                 if (!Expect.That(v.Present, $"{peer}: has the mug")) continue;
@@ -85,8 +95,10 @@ namespace Dvmp.Scenarios
 
         public sealed class Thrown
         {
-            public float DroppedFor, Travel, Rise;
-            public bool LeaseLiveAtThrow, IndexedOnCommit;
+            /// <summary>Travel and Rise: the flight while above the ground. FellAfter: seconds into the
+            /// flight it went under the terrain, if it did.</summary>
+            public float DroppedFor, Travel, Rise, FellAfter;
+            public bool LeaseLiveAtThrow, IndexedOnCommit, FellThrough;
             public Abs Start;
         }
 
@@ -167,11 +179,19 @@ namespace Dvmp.Scenarios
                 server.SendItemUpdatePacket(snapshot);
 
                 Vector3 startAbs = start - WorldMover.currentMove;
-                float travel = 0f, rise = 0f;
+                float travel = 0f, rise = 0f, fellAfter = 0f;
+                bool fellThrough = false;
                 float t1 = Time.realtimeSinceStartup;
                 while (Time.realtimeSinceStartup - t1 < 4f && item != null)
                 {
                     yield return null;
+                    if (fellThrough) continue;   // underground, then rescued: no longer the throw's flight
+                    if (NetworkedItemManager.BelowTerrain(item.transform.position, out _) is float depth && depth > 0.3f)
+                    {
+                        fellThrough = true;
+                        fellAfter = Time.realtimeSinceStartup - t1;
+                        continue;
+                    }
                     Vector3 at = Dev.Abs(item.transform.position) - startAbs;
                     rise = Mathf.Max(rise, at.y);
                     travel = Mathf.Max(travel, new Vector3(at.x, 0f, at.z).magnitude);
@@ -179,6 +199,7 @@ namespace Dvmp.Scenarios
                 step.Result = new Thrown
                 {
                     DroppedFor = droppedFor, LeaseLiveAtThrow = leased, IndexedOnCommit = indexedOnCommit, Travel = travel, Rise = rise,
+                    FellThrough = fellThrough, FellAfter = fellAfter,
                     Start = new Abs { X = startAbs.x, Y = startAbs.y, Z = startAbs.z }
                 };
             }
