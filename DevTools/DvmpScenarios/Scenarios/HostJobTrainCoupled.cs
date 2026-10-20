@@ -238,9 +238,12 @@ namespace Dvmp.Scenarios
             /// <summary>
             /// Host: a shunter on the job's track rolls onto a free end of the job's train and the host
             /// couples it the way a player does when the couplers meet (the coupling helper). The loco is
-            /// spawned 15-50 m beyond the end, nearest first: in a full yard, other cars stand in the way
-            /// of a longer roll. A spawn that lands on another track or further away, couples to
-            /// something else, or stops closing in, is deleted and the next tried.
+            /// put on the end car's own track, 2.5 m (then 6 m) past its free coupler, where vanilla's
+            /// spawner finds room (CarSpawner.IsBoxOverlapping), and rolls that gap. Spawned "near" the
+            /// end instead (SpawnCarOnClosestTrack), it took a neighbouring yard track's or the nearest
+            /// free spot, 70-180 m away, and stalled against the yard's other cars. An end with the
+            /// track ending, or no room, past it is skipped; a try that couples to something else or
+            /// stops closing in is deleted and the next tried.
             /// </summary>
             [Step]
             public static IEnumerator CoupleLoco(Step<Coupled> step, ushort[] cars, string locoLivery)
@@ -257,17 +260,46 @@ namespace Dvmp.Scenarios
                             ends.Add((car, cp));
                 var tried = new List<string>();
                 foreach (var (endCar, end) in ends)
-                foreach (float distance in new[] { 15f, 20f, 30f, 50f })
+                foreach (float distance in new[] { 2.5f, 6f })
                 {
-                    Vector3 outward = Vector3.ProjectOnPlane(end.transform.position - endCar.transform.position, Vector3.up).normalized;
-                    TrainCar loco = CarSpawner.Instance.SpawnCarOnClosestTrack(end.transform.position + outward * distance, livery, false, true, false);
-                    if (loco == null) { tried.Add($"{endCar.ID} +{distance} m: no room"); continue; }
+                    // The end car's track at its free coupler, and which way along its points is outward.
+                    Bogie bogie = endCar.Bogies.OrderBy(b => Vector3.Distance(b.transform.position, end.transform.position)).First();
+                    RailTrack track = bogie.track;
+                    if (track == null) { tried.Add($"{endCar.ID}: derailed"); continue; }
+                    var points = track.GetKinkedPointSet().points;
+                    Vector3 At(int k) => (Vector3)points[k].position + WorldMover.currentMove;
+                    int i0 = Enumerable.Range(0, points.Length).OrderBy(k => (At(k) - end.transform.position).sqrMagnitude).First();
+                    int outward = i0 == 0 ? 1 : i0 == points.Length - 1 ? -1
+                        : Vector3.Distance(At(i0 + 1), endCar.transform.position) > Vector3.Distance(At(i0 - 1), endCar.transform.position) ? 1 : -1;
+                    // The loco's centre: its half length plus the gap past the coupler, along the track.
+                    Bounds bounds = CarSpawner.GetBoundsOfCar(livery.prefab);
+                    int j = i0;
+                    float along = 0f;
+                    while (along < bounds.extents.z + distance && j + outward >= 0 && j + outward < points.Length)
+                    {
+                        along += Vector3.Distance(At(j), At(j + outward));
+                        j += outward;
+                    }
+                    if (along < bounds.extents.z + distance)
+                    {
+                        tried.Add($"{endCar.ID} +{distance} m: {track.name} ends {along:F0} m past it");
+                        step.Note(tried.Last());
+                        continue;
+                    }
+                    Vector3 position = At(j), forward = points[j].forward;
+                    if (CarSpawner.IsBoxOverlapping(position, bounds.extents, Quaternion.LookRotation(forward)))
+                    {
+                        tried.Add($"{endCar.ID} +{distance} m: no room on {track.name}");
+                        step.Note(tried.Last());
+                        continue;
+                    }
+                    TrainCar loco = CarSpawner.Instance.SpawnCar(livery.prefab, track, position, forward, true, false);
+                    if (loco == null) { tried.Add($"{endCar.ID} +{distance} m: not spawned"); continue; }
                     Cars.Spawned(loco);
                     for (int i = 0; i < 60; i++) yield return null;
-                    var endTracks = new HashSet<RailTrack>(endCar.Bogies.Select(b => b.track));
-                    if (!loco.Bogies.Any(b => endTracks.Contains(b.track)) || loco.trainset.cars.Count > 1)
+                    if (loco.trainset.cars.Any(c => c != loco && c != endCar && !jobCars.Contains(c)))
                     {
-                        tried.Add($"{endCar.ID} +{distance} m: landed on {loco.Bogies[0].track?.name} with {loco.trainset.cars.Count} car(s)");
+                        tried.Add($"{endCar.ID} +{distance} m: coupled to {string.Join(",", loco.trainset.cars.Where(c => c != loco).Select(c => c.ID))}");
                         step.Note(tried.Last());
                         Trains.Delete(loco);
                         for (int i = 0; i < 30; i++) yield return null;
@@ -276,17 +308,7 @@ namespace Dvmp.Scenarios
 
                     Coupler near = new[] { loco.frontCoupler, loco.rearCoupler }
                         .OrderBy(c => Vector3.Distance(c.transform.position, end.transform.position)).First();
-                    // A spawn that landed further along than asked has the job's other cars in the way, and
-                    // never reaches the end: the next try.
                     float start = Vector3.Distance(near.transform.position, end.transform.position);
-                    if (start > distance + 25f)
-                    {
-                        tried.Add($"{endCar.ID} +{distance} m: landed {start:F0} m from the end");
-                        step.Note(tried.Last());
-                        Trains.Delete(loco);
-                        for (int i = 0; i < 30; i++) yield return null;
-                        continue;
-                    }
                     foreach (TrainCar car in jobCars) car.brakeSystem.SetHandbrakePosition(1f);
                     loco.brakeSystem.SetHandbrakePosition(0f);
                     float closest = float.MaxValue;
