@@ -243,8 +243,8 @@ public class ServerPitStopStation : MonoBehaviour
             // The host player's own interaction has happened in this world already.
             if (senderPlayer != Server.LocalPlayer)
             {
-                Multiplayer.LogDebug(() => $"ServerPitStopStation.ProcessInteraction() ProcessInteractionPacketAsClient()");
-                Station.ProcessInteractionPacketAsClient(packet);
+                Multiplayer.LogDebug(() => $"ServerPitStopStation.ProcessInteraction() ApplyInteractionPacket()");
+                Station.ApplyInteractionPacket(packet);
             }
             Station.ProcessingAsHost = false;
 

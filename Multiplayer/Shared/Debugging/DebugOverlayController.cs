@@ -520,7 +520,8 @@ public sealed class DebugOverlayController : MonoBehaviour
         List<DebugEntityDto> entries = new();
         // A client has only its own list; the server's snapshot has that too, beside its records.
         foreach (Dictionary<string, object> state in ItemServer.Current?.LostAndFoundDebugSnapshot() ??
-                     LostAndFoundList.DebugSnapshot().ToArray())
+                     ItemClient.Current?.LostAndFoundDebugSnapshot()?.ToArray() ??
+                     Array.Empty<Dictionary<string, object>>())
         {
             string key = Convert.ToString(state.TryGetValue("debugKey", out object keyValue) ? keyValue : null) ?? Guid.NewGuid().ToString("N");
             string name = Convert.ToString(state.TryGetValue("displayName", out object nameValue) ? nameValue : null);

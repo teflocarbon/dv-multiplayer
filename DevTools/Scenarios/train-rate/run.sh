@@ -54,7 +54,7 @@ dedicated=$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session
 # 1.0 bar cylinder is released). Then its traction is printed and it's set up again elsewhere.
 exclude=""
 for attempt in 1 2; do
-  s=$($D eval -t host -m coroutine --timeout 200 -a wagons=2 -a room=$ROOM ${exclude:+-a exclude=$exclude} -f DevTools/Scenarios/host-stall/setup.cs)
+  s=$($D eval -t host -m coroutine --timeout 200 -a wagons=2 -a room=$ROOM ${exclude:+-a exclude=$exclude} -f $P/setup.cs)
   cars=$(echo "$s" | field cars); loco=$(echo "$s" | field loco); dir=$(echo "$s" | field dir); track=$(echo "$s" | field track)
   echo "== $cars on $track, $(echo "$s" | field clear) m clear; the host drives it at ${SPEED} m/s"
   # On a player host, the host's player stands beside the line (they aren't a recipient: the

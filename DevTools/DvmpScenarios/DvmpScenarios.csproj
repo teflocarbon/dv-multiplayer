@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+        Regression scenarios as C# (docs/design/scenarios.md). One assembly is both halves: the
+        exe orchestrates a run outside the games, and the same assembly is loaded into each game,
+        where its [Step] methods run. It compiles against the built Multiplayer.dll and the game's
+        assemblies, so a scenario that touches a moved type fails the build, not a run.
+        Build Multiplayer first: this references its output and never builds or deploys it.
+    -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>DvmpScenarios</AssemblyName>
+        <RootNamespace>Dvmp.Scenarios</RootNamespace>
+        <MultiplayerAssemblyPath Condition="'$(MultiplayerAssemblyPath)' == ''">..\..\Multiplayer\bin\$(Configuration)\net48\Multiplayer.dll</MultiplayerAssemblyPath>
+        <!-- The probe libraries use names a publicized Assembly-CSharp makes ambiguous otherwise. -->
+        <NoWarn>$(NoWarn);CS0436</NoWarn>
+    </PropertyGroup>
+    <ItemGroup>
+        <!-- The probe libraries, shared with `dvmp eval` during the migration: one copy of each helper. -->
+        <Compile Include="..\Dvmp\Probes\lib\*.cs" Link="ProbeLib\%(Filename)%(Extension)" />
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Krafs.Publicizer" Version="2.3.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+        <!-- The game's own copy fails .NET Framework's strong-name check; in a game, the same identity binds to the game's. -->
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+        <Publicize Include="Assembly-CSharp" IncludeCompilerGeneratedMembers="false" />
+        <Publicize Include="DV.Interaction" IncludeCompilerGeneratedMembers="false" />
+        <Publicize Include="DV.Simulation" IncludeCompilerGeneratedMembers="false" />
+        <Publicize Include="DV.UI" IncludeCompilerGeneratedMembers="false" />
+        <Publicize Include="Multiplayer" IncludeCompilerGeneratedMembers="false" />
+    </ItemGroup>
+    <ItemGroup>
+        <!-- Compiled against: the exe copies it, so a run can tell whether the games run this build. -->
+        <!-- Not Private: that would copy every game DLL Multiplayer depends on. Only the mod's own. -->
+        <Reference Include="Multiplayer"><HintPath>$(MultiplayerAssemblyPath)</HintPath><Private>false</Private></Reference>
+        <!-- The mod's own libraries beside it (ChangeCause, ItemMoveReason, the debug protocol). -->
+        <Reference Include="Multiplayer.Core"><HintPath>$([System.IO.Path]::GetDirectoryName($(MultiplayerAssemblyPath)))\Multiplayer.Core.dll</HintPath><Private>false</Private></Reference>
+        <Reference Include="Multiplayer.DebugProtocol"><HintPath>$([System.IO.Path]::GetDirectoryName($(MultiplayerAssemblyPath)))\Multiplayer.DebugProtocol.dll</HintPath><Private>false</Private></Reference>
+        <Reference Include="MultiplayerAPI"><HintPath>$([System.IO.Path]::GetDirectoryName($(MultiplayerAssemblyPath)))\MultiplayerAPI.dll</HintPath><Private>false</Private></Reference>
+        <None Include="$([System.IO.Path]::GetDirectoryName($(MultiplayerAssemblyPath)))\Multiplayer*.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+        <!-- Release: a Debug build of the agent installs itself into the game. -->
+        <ProjectReference Include="..\DvmpAgent\DvmpAgent.csproj" SetConfiguration="Configuration=Release" Private="false" />
+        <!-- DVMP0101/0102: game code in a scenario's orchestrator fails the build. -->
+        <ProjectReference Include="..\DvmpScenariosAnalyzer\DvmpScenariosAnalyzer.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+        <!-- The game's own, every one of them (no list to edit when a port needs another), except
+             the class libraries and what the exe brings itself. Found at run time in the install
+             dvmp points at (Framework/Program.cs: Resolver). -->
+        <GameAssembly Include="$(DvInstallDir)\DerailValley_Data\Managed\*.dll"
+                      Exclude="$(DvInstallDir)\DerailValley_Data\Managed\mscorlib.dll;$(DvInstallDir)\DerailValley_Data\Managed\netstandard.dll;$(DvInstallDir)\DerailValley_Data\Managed\System*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Mono.*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Microsoft.*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Newtonsoft*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Unity.Burst.Cecil*.dll" />
+        <Reference Include="@(GameAssembly)" Private="false" />
+        <Reference Include="System.Net.Http" />
+    </ItemGroup>
+</Project>

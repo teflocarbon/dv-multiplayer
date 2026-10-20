@@ -629,7 +629,7 @@ public partial class NetworkedItem
     private void HandleInventoryOrHandState(ItemUpdateData snapshot)
     {
         if (!NetworkLifecycle.Instance.IsHost())
-            NetworkedItemManager.Instance?.DetachClientAuthoredProjectionForPossession(this, snapshot);
+            NetworkedItemManager.Instance?.ClientPart?.DetachAuthoredProjectionForPossession(this, snapshot);
         Multiplayer.LogDebug(() => $"NetworkedItem.HandleInventoryOrHandState() ItemNetId: {snapshot?.ItemNetId} State: {snapshot?.ItemState}. Player: {snapshot?.PlayerId}, Position: {snapshot?.ItemPosition}");
 
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
@@ -657,7 +657,7 @@ public partial class NetworkedItem
                 // else is duplicated. The original takes the copy's slot, so the inventory keeps
                 // its layout across a rejoin.
                 int freedSlot = NetworkLifecycle.Instance.IsHost() ? -1 :
-                    NetworkedItemManager.Instance?.DiscardUnboundLocalDuplicate(this) ?? -1;
+                    NetworkedItemManager.Instance?.ClientPart?.DiscardUnboundLocalDuplicate(this) ?? -1;
 
                 // Retrieval claims reserve an exact silhouette slot. Ordinary inventory
                 // possession uses DV's normal free-slot insertion. A slot without a retrieval
@@ -828,14 +828,7 @@ public partial class NetworkedItem
         if (snapshot == null)
             return;
         AuthorityRevision = snapshot.AuthorityRevision;
-        if (!NetworkLifecycle.Instance.IsHost())
-        {
-            byte localPlayerId = InventoryIntegration.LocalPlayerId;
-            bool ownAcknowledgement = localPlayerId != 0 &&
-                snapshot.OriginatingPlayerId == localPlayerId;
-            outboundRevisionPipeline.ObserveCanonical(AuthorityRevision,
-                preserveReservations: ownAcknowledgement);
-        }
+        ClientPart?.ObserveCanonicalRevision(snapshot);
         PersistentOwnerPlayerId = snapshot.PersistentOwnerPlayerId;
         InventoryClaimPlayerId = snapshot.InventoryClaimPlayerId;
         InventoryClaimSlot = snapshot.InventoryClaimSlot;
@@ -932,6 +925,6 @@ public partial class NetworkedItem
     }
 
 
-    private static bool HasRetrievalFlag(ItemInventoryClaimFlags flags) =>
+    internal static bool HasRetrievalFlag(ItemInventoryClaimFlags flags) =>
         (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
 }

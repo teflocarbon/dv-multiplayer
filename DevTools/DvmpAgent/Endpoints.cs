@@ -24,6 +24,9 @@ internal static class Endpoints
         {
             "/v1/status" => Ok(Await(MainThread.Run(() => Json.ToToken(Status())), Timeout(request, 10_000), "status")),
             "/v1/eval" => Eval(request),
+            "/v1/load" => ScenarioSteps.Load(request),
+            "/v1/invoke" => ScenarioSteps.Invoke(request),
+            "/v1/cancel" => ScenarioSteps.Cancel(request),
             "/v1/screenshot" => Ok(Await(MainThread.RunCoroutine<object>(tcs => Screenshot(request, tcs)), Timeout(request, 15_000), "screenshot")),
             "/v1/logs" => Ok(Logs(request)),
             "/v1/quit" => Ok(Await(MainThread.Run(Quit), 5_000, "quit")),

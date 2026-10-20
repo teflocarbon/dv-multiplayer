@@ -151,7 +151,8 @@ has no retrieval claim. If a player puts it in their inventory:
 The adoption compatibility path is not valid for an already catalogued scene-authored bin. It is
 also not part of the target lifecycle: the host must ultimately create receipts, starting items,
 and every other runtime item through explicit operations, as it now does for client shop
-purchases. `TemporaryClientAdoptionCompatibility` and
+purchases. `TemporaryClientAdoptionCompatibility` (with its host half,
+`TemporaryHostAdoptionCompatibility`) and
 its packets must be removed when those producers are converted. If a future code path nevertheless
 gives a stock fork a persistent owner or retrieval claim, cleanup fails safe: the item is no longer
 disposable and recovery/persistence takes precedence.
@@ -461,7 +462,7 @@ carries a change, never on interest creates or convergence, and drops any cause 
 its own update. Corrections carry one too: a refused change (`HostCorrection`, "your change was
 refused: stale-authority-revision"), a cancelled recall, a claim slot move and a fall rescue.
 
-The client logs each cause it receives (`ItemChangeCauses.OnClientSnapshot`) in the same format and
+The client logs each cause it receives (`ClientItemChangeLog.OnSnapshot`) in the same format and
 keeps it on the item (`NetworkedItem.LastMoveCause`, `LastRemovalCause`, shown in the entity debug
 state). Changes to the local player's own or held items go to the log; everyone else's, and items
 that only left the player's interest (`LeftInterest`), go to the debug log.

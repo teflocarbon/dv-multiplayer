@@ -435,8 +435,8 @@ Run each change on a player host and on a dedicated host (`UP_ARGS=--dedicated`)
 | The host's simulation commits | `compressor-signal` (the host sets a port), `settle-window` (host resyncs), `uncouple-moving`, `host-stall`, `couple-impact` (the host drives), `stoker-coal` | |
 | Control authority | `cab-controls` (from the client) | **New:** the host grabs a lever the client holds, and the client one the host holds. |
 | Topology | `manual-uncouple`, `uncouple-moving`, `couple-impact`, `coupler-desync`, `host-stall` | |
-| Position from the tracker | `player-soak` (both players' views of each other) | |
-| Chat | `dedicated-admin`, `owned-items` (commands from a client) | Chat from the host to a client. |
+| Position from the tracker | `player-soak` (both players' views of each other), `host-session` (`MODE=position`: the host takes a lever the frame it reaches the cab) | |
+| Chat | `dedicated-admin`, `owned-items` (commands from a client), `host-session` (`MODE=chat`: a line and a whisper from the host) | |
 | Pit stop, plug, module register | `shop` (a client's purchase, not the host's) | **New:** the host refuels at a pit stop with a client watching; the host pays at a module register. |
 | Car delete, rerail, work train | `rerail-host` (`WHO=host`), `car-delete` (bulk delete in code, not the radio) | **New:** the host deletes a car and summons a work train with the radio while a client is online. |
 | Lost and Found, containers | `lost-and-found`, `containers` (from the client) | The host's own career-manager screen and container. |
@@ -464,11 +464,15 @@ As of 2026-10-20, on `split/client-server` (not yet in `beta`):
     changes itself and the host's own go in-process (#126).
   - **Stations:** pit stops and plugs (#130); the host's module register answered in-process (#138).
   - **Jobs and career:** the host's booklet summon (#127).
-
-  Left for stage 2: chat and commands, player position from the local tracker
-  (`LocalPlayer.UpdateFromTracker()`, until then `NetworkServer.Trains.cs` reads the host's position
-  from its game: `CurrentWorldPosition`), preferences, and the `TimeAdvancePatch`
-  reference from `NetworkServer` (session area).
+  - **Session:** chat and commands, preferences (in-process handlers, `RegisterLocalSession` in
+    `NetworkServer.cs`); the host's position read from its tracker: `ILocalPlayerTracker`
+    (`Shared/Session/`), implemented by `LocalPlayerTrackerBase`, sampled by
+    `NetworkServer.UpdateLocalPlayerFromTracker()` at each poll right before the host's requests
+    are drained, merged and relayed as a position packet is. The host's tracker no longer sends,
+    and the trains' `CurrentWorldPosition` workaround is gone: range checks use `WorldPosition`.
+    The host's fast travel and sleep go through `Server/World/TimeAdvanceServerPatch`, which reads
+    the server's own `FastTravelAdvancesTime`; `Client/World/TimeAdvancePatch` is remote-client
+    only, so `NetworkServer` no longer sets it. Scenario: `host-session`.
 - **Stage 3: not started.** It needs the rest of stage 2, then a local player session implementing
   `ILocalPlayerSession` and each area's `I<Area>Client` (for trains, the host's cars must get their
   local-player half, lever leases and chain reports, from it, as `TrainRoles.Client` does for a

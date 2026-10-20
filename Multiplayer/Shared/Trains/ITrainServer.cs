@@ -1,4 +1,3 @@
-using DV.Customization.Paint;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
 using Multiplayer.Shared.Session;
@@ -22,9 +21,11 @@ public interface ITrainServer
 /// <summary>
 ///     The server's half of a <see cref="NetworkedTrainCar"/>: its authority (leases, coupler
 ///     interactions, validation) and what it sends players. The car calls it at the points that
-///     code always ran, so splitting it out changed no order.
+///     code always ran, so splitting it out changed no order. On the server it is also the car's
+///     <see cref="ITrainCarRole"/>: the host's own control changes (its simulation's, its player's
+///     levers) are committed through it.
 /// </summary>
-public interface ITrainCarServerPart
+public interface ITrainCarServerPart : ITrainCarRole
 {
     /// <summary>At the end of the car's Start.</summary>
     void Start();
@@ -37,18 +38,6 @@ public interface ITrainCarServerPart
 
     /// <summary>Every network tick, after the car's own.</summary>
     void Tick(uint tick);
-
-    /// <summary>The host's own control changes (its simulation's, its player's levers), read this tick.</summary>
-    void CommitPorts(uint[] portIds, float[] portValues);
-
-    void CommitFuses(uint[] fuseIds, bool[] fuseValues);
-
-    void CommitHandbrake();
-
-    void CommitBrakeCylinderRelease();
-
-    /// <summary>A paint theme changed in the host's world.</summary>
-    void SendPaintTheme(TrainCarPaint.Target target, uint themeNetId);
 }
 
 public static class TrainRoles

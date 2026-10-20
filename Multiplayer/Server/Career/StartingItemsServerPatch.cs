@@ -6,7 +6,7 @@ namespace Multiplayer.Server.Career;
 
 /// <summary>
 /// A player host's starting items: what its own player owns according to the save count as
-/// present (see Shared/Career/StartingItemsControllerPatch).
+/// present (see Server/Career/StartingItemsControllerPatch).
 /// </summary>
 [HarmonyPatch(typeof(StartingItemsController))]
 public static class StartingItemsServerPatch

@@ -21,6 +21,7 @@ using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
 using Multiplayer.Client.Api;
 using Multiplayer.Client.Career;
+using Multiplayer.Client.Items;
 using Multiplayer.Client.Players;
 using Multiplayer.Client.Trains;
 using Multiplayer.Client.UI;
@@ -58,6 +59,7 @@ using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.World;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
+using Multiplayer.Core.World;
 using Multiplayer.Debugging.Protocol;
 using Newtonsoft.Json.Linq;
 using System;
@@ -540,7 +542,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         Log($"Starting Item Manager...");
         NetworkedItemManager.Instance.CheckInstance();
         Log($"Quarantining unbound client items...");
-        NetworkedItemManager.Instance.QuarantineUnboundClientItems();
+        ClientItemManager.Instance?.QuarantineUnboundClientItems();
         SendWorldItemCatalogue();
         InitialiseStations();
 
@@ -566,7 +568,11 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
          */
 
         Log("Syncing world state");
-        SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState);
+        // The host checks it against its own before sending any world state. Taken after the
+        // ready-blocks, so a mod that adds track has done so.
+        TrackGraphFingerprint trackGraph = TrackGraph.Compute();
+        Log($"Track graph: {trackGraph}");
+        SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState, trackGraph);
         displayLoadingInfo.OnLoadingStatusChanged(Locale.LOADING_INFO__SYNC_WORLD_STATE, false, ((float)LoadingState / (float)PlayerLoadingState.Complete) * 100);
 
         float railwayDeadline = Time.realtimeSinceStartup + RailwayStateTimeoutSeconds;
@@ -862,8 +868,8 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         if (packet.Kicked)
         {
-            Log($"Player was kicked!");
-            disconnectMessage = "You were kicked!";
+            Log($"Player was kicked! {packet.Reason}");
+            disconnectMessage = string.IsNullOrEmpty(packet.Reason) ? "You were kicked!" : packet.Reason;
         }
         else
         {
@@ -963,7 +969,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
 
         // Starting items this game made itself are only this game's until the server adopts them.
         if (!isAlsoHost)
-            NetworkedItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
+            ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
 
         //if not single player, add in chat (nobody reads it on a dedicated host, and building it
         //pauses the game)
@@ -1035,24 +1041,23 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         SendNetSerializablePacketToServer(wrapper, deliveryMethod);
     }
 
-    private void SendLoadStateUpdate(PlayerLoadingState newState)
+    private void SendLoadStateUpdate(PlayerLoadingState newState, TrackGraphFingerprint trackGraph = default)
     {
         Log($"Sending Load State {newState}");
-        SendPacketToServer(new ServerboundLoadStateUpdatePacket { LoadState = newState }, DeliveryMethod.ReliableOrdered);
+        SendPacketToServer(new ServerboundLoadStateUpdatePacket
+        {
+            LoadState = newState,
+            TrackGraphHash = trackGraph.Hash,
+            TrackCount = (ushort)trackGraph.Tracks,
+            JunctionCount = (ushort)trackGraph.Junctions,
+            TurntableCount = (ushort)trackGraph.Turntables,
+        }, DeliveryMethod.ReliableOrdered);
         LoadingState = newState;
     }
 
-    public void SendPlayerPosition(PlayerTrackingData trackingData, PlayerPostureFlags posture, bool isOnCar, ushort carId, bool reliable)
+    public void SendPlayerPosition(ServerboundPlayerPositionPacket packet, bool reliable)
     {
-        //LogDebug(() => $"SendPlayerPosition({position}, {moveDir}, {rotationY}, {carId}, {isJumping}, {IsOnCar})");
-
-        SendPacketToServer(new ServerboundPlayerPositionPacket
-        {
-            TrackingData = trackingData,
-            Posture = posture,
-            IsOnCar = isOnCar,
-            CarID = carId
-        }, reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Sequenced);
+        SendPacketToServer(packet, reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Sequenced);
     }
 
     public void SendPlayerPreferences(Dictionary<PlayerPreference, string> preferences)

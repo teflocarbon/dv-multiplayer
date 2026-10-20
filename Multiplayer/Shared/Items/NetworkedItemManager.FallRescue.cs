@@ -1,9 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
-using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Session;
-using Multiplayer.Core.Diagnostics;
-using Multiplayer.Core.Items;
 using UnityEngine;
 
 namespace Multiplayer.Shared.Items;
@@ -17,17 +11,13 @@ public partial class NetworkedItemManager
     // their spawn, so it never recovers these. Put them back where they were last safely above
     // ground.
     //
-    // The host checks wherever it has terrain loaded. Clients report items near them that sink
-    // below their terrain, since the host usually has no terrain loaded around a distant player.
+    // The host checks wherever it has terrain loaded (ServerItemManager.FallRescue.cs). Clients
+    // report items near them that sink below their terrain, since the host usually has no terrain
+    // loaded around a distant player (ClientItemManager.FallRescue.cs). What both use is here.
 
     internal const float BelowTerrainTolerance = 1f;    // metres under the surface before rescue
     internal const float RescueScanInterval = 1f;
-    private const float ClientReportCooldown = 5f;
-    private const float ClientScanRadius = 200f;
     internal const float RestSpeed = 0.5f;              // m/s: settled enough to remember as safe
-
-    private float nextRescueScanAt;
-    private readonly Dictionary<ushort, float> clientRescueReportedAt = new();
 
     /// <summary>Metres below the terrain surface (positive = underground), or null when no terrain
     /// is loaded under the position on this peer. Also returns the surface height (absolute).</summary>
@@ -48,41 +38,5 @@ public partial class NetworkedItemManager
             return surfaceWorldY - worldPosition.y;
         }
         return null;
-    }
-
-    // The client's scan, from a remote client's item tick; the host's is the server's
-    // (ServerItemManager.FallRescue.cs). Client code: it moves to the manager's client part with
-    // the rest of the client side (see Start).
-    private void RunFallRescue()
-    {
-        if (Time.unscaledTime < nextRescueScanAt)
-            return;
-        nextRescueScanAt = Time.unscaledTime + RescueScanInterval;
-
-        ClientScanForFallenItems();
-    }
-
-    private void ClientScanForFallenItems()
-    {
-        if (PlayerManager.PlayerTransform == null)
-            return;
-        Vector3 player = PlayerManager.PlayerTransform.position;
-        foreach (NetworkedItem item in NetworkedItem.GetAll())
-        {
-            if (item == null || item.NetId == 0 || !item.gameObject.activeInHierarchy ||
-                item.Item == null || item.Item.IsGrabbed() ||
-                (item.transform.position - player).sqrMagnitude > ClientScanRadius * ClientScanRadius)
-                continue;
-            if (item.GetItemState() is not (ItemState.Dropped or ItemState.Thrown))
-                continue;
-            if (BelowTerrain(item.transform.position, out float surfaceY) is not float depth ||
-                depth <= BelowTerrainTolerance)
-                continue;
-            if (clientRescueReportedAt.TryGetValue(item.NetId, out float reportedAt) &&
-                Time.unscaledTime - reportedAt < ClientReportCooldown)
-                continue;
-            clientRescueReportedAt[item.NetId] = Time.unscaledTime;
-            ItemClient.Current.SendItemBelowMapReport(item.NetId, surfaceY);
-        }
     }
 }

@@ -1,4 +1,5 @@
 using DV.ServicePenalty.UI;
+using Multiplayer.Client.Items;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;

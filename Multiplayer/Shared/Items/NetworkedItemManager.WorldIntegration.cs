@@ -24,9 +24,10 @@ namespace Multiplayer.Shared.Items;
 
 public partial class NetworkedItemManager
 {
-    // Authored catalogue binding and spatial delegation. The host's cell index and the
-    // replenishment hooks are the server's (ServerItemManager.WorldIndex.cs).
-    private void EnsureAuthoredCatalogue()
+    // The authored catalogue and spatial delegation. Binding the host's authored items to this
+    // game's copies is the remote client's part's (ClientItemManager.WorldIntegration.cs). The
+    // host's cell index and the replenishment hooks are the server's (ServerItemManager.WorldIndex.cs).
+    internal void EnsureAuthoredCatalogue()
     {
         if (authoredCatalogueBuilt)
             return;
@@ -67,6 +68,8 @@ public partial class NetworkedItemManager
         AuthoredCatalogue.Replace(key, item);
     }
 
+    internal string AuthoredCatalogueDigest() => AuthoredCatalogue.Digest();
+
     internal void RemoveAuthoredItemProjection(string key, NetworkedItem expected) =>
         AuthoredCatalogue.Remove(key, expected);
 
@@ -76,25 +79,6 @@ public partial class NetworkedItemManager
 
     internal void RefreshHostSpatialPosition(NetworkedItem item, Vector3 absolutePosition,
         ItemWorldParentKind parentKind) => ServerPart?.RefreshHostSpatialPosition(item, absolutePosition, parentKind);
-
-    internal void SetAuthoredCatalogueNegotiationResult(bool accepted)
-    {
-        authoredCatalogueAccepted = accepted;
-    }
-
-    internal void DetachClientAuthoredProjectionForPossession(NetworkedItem item, ItemUpdateData snapshot)
-    {
-        if (item == null || snapshot == null ||
-            snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
-            !IsEligibleAuthoredOfficeProp(item))
-            return;
-        string key = item.DetachAuthoredItemKey();
-        if (WorldItemStableIdentity.IsValid(key))
-        {
-            AuthoredCatalogue.Remove(key, item);
-            ClientDetachedAuthoredSlots.Add(key);
-        }
-    }
 
     /// <summary>
     /// A scene-authored office prop whose slot the host refills once it's taken away
@@ -110,15 +94,6 @@ public partial class NetworkedItemManager
             return false;
         return item.IsReplenishableAuthoredOfficeSlot && !item.IsAuthoredShopSlot;
     }
-
-    internal void ReceiveItemSpatialLease(ClientboundItemSpatialLeasePacket packet) =>
-        Spatial?.ReceiveClientLease(packet);
-
-    internal void ReceiveItemSpatialSample(ItemSpatialStateData state) =>
-        Spatial?.ReceiveRelayedSample(state);
-
-    internal void ReceiveItemSpatialCommit(ClientboundItemSpatialCommitPacket packet) =>
-        Spatial?.ReceiveSpatialCommit(packet);
 
     internal void AppendSpatialDebugState(ushort itemNetId, Dictionary<string, object> state) =>
         AppendItemPhysicsDebugState(itemNetId, state);
@@ -208,98 +183,6 @@ public partial class NetworkedItemManager
         state = null;
         return Spatial?.TryGetCommitted(itemNetId, out state) == true;
     }
-
-    private bool TryBindAuthoredClientProjection(ItemUpdateData snapshot, bool acknowledge = true)
-    {
-        EnsureAuthoredCatalogue();
-        if (!authoredCatalogueAccepted)
-        {
-            DebugRuntime.Publish("item-world", "world-item.authored-binding-quarantined", DebugRuntimeSide.Client,
-                DebugSeverity.Error, "Item", snapshot.ItemNetId.ToString(), new()
-                {
-                    ["authoredItemKey"] = snapshot.AuthoredItemKey,
-                    ["prefabName"] = snapshot.PrefabName ?? string.Empty,
-                    ["reason"] = "catalogue-not-accepted"
-                });
-            return false;
-        }
-        if (!AuthoredCatalogue.TryGet(snapshot.AuthoredItemKey, out NetworkedItem authored) || authored == null)
-        {
-            // A replenishable authored slot deliberately loses its original local scene
-            // projection when that object becomes a persistent carried item. Only a key
-            // recorded by that local transition may create a fresh projection; every other
-            // missing authored key remains an integrity failure.
-            if (ClientDetachedAuthoredSlots.Contains(snapshot.AuthoredItemKey) &&
-                CreateItem(snapshot, false) &&
-                NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem replacement) &&
-                replacement != null)
-            {
-                ClientDetachedAuthoredSlots.Remove(snapshot.AuthoredItemKey);
-                replacement.AdoptAuthoredItemKey(snapshot.AuthoredItemKey,
-                    replenishableOfficeSlot: true);
-                if (acknowledge)
-                    ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                        snapshot.AuthorityRevision, true);
-                DebugRuntime.Publish("item-world", "world-item.authored-slot-replacement-projected",
-                    DebugRuntimeSide.Client, entityType: "Item",
-                    entityId: snapshot.ItemNetId.ToString(), data: new()
-                    {
-                        ["authoredItemKey"] = snapshot.AuthoredItemKey,
-                        ["prefabName"] = snapshot.PrefabName ?? string.Empty
-                    });
-                return true;
-            }
-            DebugRuntime.Publish("item-world", "world-item.authored-binding-missing", DebugRuntimeSide.Client,
-                DebugSeverity.Error, "Item", snapshot.ItemNetId.ToString(), new()
-                {
-                    ["authoredItemKey"] = snapshot.AuthoredItemKey,
-                    ["prefabName"] = snapshot.PrefabName ?? string.Empty,
-                    ["catalogueDigest"] = AuthoredCatalogue.Digest()
-                });
-            return false;
-        }
-
-        if (NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem collision) && collision != null && collision != authored)
-            RetireClientProjection(collision, "authored-binding-collision");
-        DormantAuthoredClientProjections.Remove(authored);
-        if (authored.NetId != 0 && authored.NetId != snapshot.ItemNetId)
-            authored.ResetClientNetworkLifetime();
-        authored.NetId = snapshot.ItemNetId;
-        authored.SetClientNetworkBinding(true);
-        authored.gameObject.SetActive(true);
-        authored.ReceiveSnapshot(snapshot);
-        if (acknowledge)
-            ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
-                snapshot.AuthorityRevision, true);
-        DebugRuntime.Publish("item-world", "world-item.authored-projection-bound", DebugRuntimeSide.Client,
-            entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: new()
-            {
-                ["authoredItemKey"] = snapshot.AuthoredItemKey,
-                ["prefabName"] = snapshot.PrefabName ?? string.Empty
-            });
-        return true;
-    }
-
-#if DEBUG
-    internal void PurgeClientFixtureRepresentation(NetworkedItem netItem)
-    {
-        if (netItem == null || NetworkLifecycle.Instance.IsHost())
-            return;
-        ushort netId = netItem.NetId;
-        bool isCanonical = netId != 0 && NetworkedItem.TryGet(netId,
-            out NetworkedItem canonical) && canonical == netItem;
-        DormantAuthoredClientProjections.Remove(netItem);
-        netItem.BeginColdStorageRetirement();
-        StorageIntegration.MoveTo(netItem.Item, StorageMembership.None);
-        InventoryIntegration.RevokeMembership(netItem.gameObject,
-            isCanonical ? netId : (ushort)0);
-        InventoryIntegration.PurgeContainerMembership(netItem.gameObject);
-        netItem.SetClientNetworkBinding(false);
-        netItem.gameObject.SetActive(false);
-        netItem.NetId = 0;
-        Destroy(netItem.gameObject);
-    }
-#endif
 
     internal static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
     {
