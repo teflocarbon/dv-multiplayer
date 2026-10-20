@@ -478,7 +478,7 @@ own.
   `StorageControllerAddLostItemPatch` blocks for owned items. Owned: the owner's Lost and Found with
   `LostItemReason.GadgetDestinationMissing`. Unowned: vanilla's behaviour, as for other unowned items.
 - **Car deleted:** owned gadget items go straight to their owners' Lost and Found. Its records
-  carry the owner's identity; PR 3 checks that a record can be added while the owner is offline (the
+  carry the owner's identity; PR 3a checks that a record can be added while the owner is offline (the
   runtime player number is unbound then) and makes it so if not, so they get it on their next join.
 - Clients save nothing, as for everything else.
 
@@ -634,18 +634,19 @@ lifecycle. They meet at four points:
 - **Gadget PR 1 goes first.** The ledger counts installed gadgets as one of its stores and its
   migration reads `dvmpPersistentOwner`; both come from it.
 - **`AuthoritativeItemRegistry.cs` is shared.** Owned-items PR 1 hooks the ledger into every registry
-  commit and moves ownership out of that file; gadget PR 3 adds the install and remove transitions,
+  commit and moves ownership out of that file; gadget PR 3a adds the install and remove transitions,
   in a file of their own that calls the registry. The two are never in flight at once.
-- **Gadget PR 3 after owned-items PR 2** (ownership by identity), so a deleted car's gadgets reach an
+- **Gadget PR 3a after owned-items PR 2** (ownership by identity), so a deleted car's gadgets reach an
   offline owner's Lost and Found.
 - Gadget PRs 4, 5 and 9 (tape, spools, labels) come before owned-items PR 7 (lineage), which records
-  what they replace; owned-items PR 8 (retrieving installed gadgets) comes after gadget PR 3.
+  what they replace; owned-items PR 8 (retrieving installed gadgets) comes after gadget PR 3a.
 
 Each runs its scenarios on a player host and a
 dedicated host (`RUNS="<scenario> @player; <scenario> @dedicated"`) and the existing item scenarios it
 could affect. Every interaction scenario also runs with the client at 250 ms of lag (`LAG=250`),
 checking that the change shows at once in the client's game and that a rejected one is undone. Each
 updates this doc's status and, where it changes them, `item-world-sync.md` and the research doc.
+From 3b on, every PR predicts its own actions with 3b's machinery.
 
 ### 1. Installed items are `Installed`
 
@@ -685,17 +686,20 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
   Host and client digests match: UIDs, wires, soldering, mount points, the mount, holes, the switch
   value, the light's output.
 
-### 3. Install and remove
+### 3a. Install and remove, confirmed by the server
 
-- The request path, the checks, the native apply, the change log (`Installed`, `Removed`, `Mounted`,
-  `Unmounted`, nesting, flush, revisions), the per-anchor queue, resync, item transitions in and out of
-  `Installed`, completing a hand removal, forced removals on clients through the apply scope; the
-  place and remove sounds played by every game; prediction for install and remove (provisional UIDs,
-  reconciling the echo, undo, rejecting dependent requests).
+The plumbing, with every change waiting for the server's answer: useful on its own for testing the
+server side, and the base 3b predicts on top of.
+
+- The request path, the checks (vanilla's on the server too), the native apply, the change log
+  (`Installed`, `Removed`, `Mounted`, `Unmounted`, nesting, flush, revisions), the per-anchor queue,
+  resync, item transitions in and out of `Installed` (in a file of their own that calls the
+  registry), completing a hand removal, forced removals on clients through the apply scope, deleted
+  cars' gadgets to their owners' Lost and Found, the owner on aim; the place and remove sounds played
+  by every game.
 - Files: `Core/Gadgets/` (`GadgetRequestRules`, `GadgetChangeLog`), `Server/Gadgets/` (`GadgetServer`,
-  `GadgetObserverPatches`), `Core/Gadgets/GadgetPredictionLog`, `Client/Gadgets/` (`GadgetIntentPatches`,
-  `GadgetPrediction`), `Client/Session/LocalPlayerSession.Gadgets.cs`,
-  `Server/Items/AuthoritativeItemRegistry.cs`.
+  `GadgetObserverPatches`, `GadgetItemTransitions`), `Client/Gadgets/` (`GadgetIntentPatches`),
+  `Client/Session/LocalPlayerSession.Gadgets.cs`.
 - Scenario **`gadget-install`**: the client installs a gadget on a car through `TryPlace` (and, on a
   player host, the host's player installs another); both games show it with the same UID and pose and
   the item `Installed`. The client removes one with the hammer: a world item at the gadget's pose in
@@ -705,10 +709,23 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
   wall, by vanilla's own check on the server. The car is deleted with a gadget on it: the item is in
   its owner's Lost and Found at once, digests equal. Installing on the ground is refused in the
   client's own game, with no request sent. `MODE=moving` repeats the install and the hand removal with
-  the client riding the car at 10 m/s. With `LAG=250`, the install and the hand removal show in the
-  client's game before the server answers, and when a server step removes a plate while the client's
+  the client riding the car at 10 m/s.
+
+### 3b. Prediction and undo
+
+[Optimistic](#optimistic) install and remove on remote clients, and the machinery the later PRs
+predict their own actions with.
+
+- Provisional negative UIDs, applying a prediction in the apply scope, reconciling the echo (the
+  server's UID replaces the provisional one; a mismatch resyncs the car), undo newest first, requests
+  held while they name a provisional UID, the server rejecting requests that depended on a rejected
+  one.
+- Files: `Core/Gadgets/GadgetPredictionLog` (with unit tests: dependencies, reconcile, undo order),
+  `Client/Gadgets/GadgetPrediction`, `Client/Gadgets/GadgetIntentPatches`, `Client/Gadgets/GadgetChangeApplier`.
+- Scenario **`gadget-install`** gains `LAG=250` runs: the install and the hand removal show in the
+  client's game before the server answers; when a server step removes a plate while the client's
   install onto it is in flight, the client's predicted install is undone and the item is back in its
-  hand.
+  hand; a rejected removal is undone by a resync, with the gadget's UID, soldering and wires back.
 
 ### 4. Mount points, holes, tape
 
@@ -787,7 +804,7 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 
 - The tool-use presence: send, relay by hearing range, play the tool's effects on the other player's
   held tool; dropped when the tool is let go or the player leaves. (The one-shot sounds go in with
-  each change in PRs 3 to 5.)
+  each change in PRs 3a to 5.)
 - Files: `Client/Gadgets/GadgetToolPresence.cs`, `Server/Gadgets/GadgetServer.cs`, the two packets.
 - Scenario **`gadget-tool-use`**: the client drills a mount point and solders a gadget; the host's
   game shows the client's drill effects and soldering sparks running while the client works and
