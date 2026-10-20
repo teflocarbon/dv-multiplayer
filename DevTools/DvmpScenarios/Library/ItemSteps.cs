@@ -211,6 +211,70 @@ namespace Dvmp.Scenarios
         /// <summary>This game's local player number (NetworkLifecycle.LocalSession; 0 for none).</summary>
         [Step]
         public static int LocalPlayerId() => NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
+
+        /// <summary>Records an item a scenario's own step spawned, so the framework removes it
+        /// after the run and the leak check counts it.</summary>
+        public static void Track(ushort netId) => spawned.Add(netId);
+    }
+
+    public static class Walk
+    {
+        /// <summary>Moves this game's player <paramref name="dx"/>, <paramref name="dz"/> metres from
+        /// where they stand, onto the ground there. Result: where they are then.</summary>
+        [Step]
+        public static IEnumerator Away(Step<Abs> step, float dx, float dz)
+        {
+            Vector3 now = Dev.Abs(PlayerManager.PlayerTransform.position);
+            yield return LocalPlayer.TeleportToGround(now.x + dx, now.z + dz);
+            step.Result = Positions.Of(PlayerManager.PlayerTransform.position);
+        }
+    }
+
+    public static class ServerRequests
+    {
+        /// <summary>Host: which of these requests (type names in
+        /// Multiplayer.Shared.Protocol.Packets.Serverbound) the server does NOT handle in-process for
+        /// the host's own player, going over its loopback client instead
+        /// (docs/design/host-local-session.md, stage 2). None is what's wanted.</summary>
+        [Step]
+        public static string[] NotHandledLocally(string[] types)
+        {
+            var server = Multiplayer.Server.Session.NetworkServer.Instance;
+            return types.Where(name => !server.localRequests.Handles(
+                server.GetType().Assembly.GetType("Multiplayer.Shared.Protocol.Packets.Serverbound." + name, true))).ToArray();
+        }
+    }
+
+    /// <summary>
+    /// The local player's requests and answers that aren't on an area interface yet: the Lost and
+    /// Found list request and the retrieval result (IItemClient has the retrieval itself only). Reached
+    /// through NetworkLifecycle.LocalSession by name, never the game's client (stage 3 removes the
+    /// host's): a local session without them fails the step, naming what it lacks.
+    /// </summary>
+    public static class LocalSessionCalls
+    {
+        private static object Session => NetworkLifecycle.Instance.LocalSession ?? throw new InvalidOperationException("no local player session");
+
+        public static void Call(string method, params object[] args)
+        {
+            object s = Session;
+            var m = s.GetType().GetMethod(method) ?? throw new MissingMethodException($"the local session ({s.GetType().Name}) has no {method}");
+            m.Invoke(s, args);
+        }
+
+        /// <summary>Subscribes <paramref name="handler"/> to the session's event; dispose to unsubscribe.</summary>
+        public static IDisposable On<T>(string name, Action<T> handler)
+        {
+            object s = Session;
+            var e = s.GetType().GetEvent(name) ?? throw new MissingMemberException($"the local session ({s.GetType().Name}) has no event {name}");
+            e.AddEventHandler(s, handler);
+            return new Unsubscribe(() => e.RemoveEventHandler(s, handler));
+        }
+
+        private sealed class Unsubscribe(Action undo) : IDisposable
+        {
+            public void Dispose() => undo();
+        }
     }
 
     public static partial class Cars
