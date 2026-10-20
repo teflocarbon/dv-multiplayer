@@ -30,7 +30,7 @@ namespace Multiplayer.Shared.Compatibility;
 /// hooked as they load, and <see cref="Trains.InteractablePortScan"/> makes them player-driven), and the
 /// vanilla save keeps them.
 ///
-/// Done to the livery's prefabs as CCL builds each car, before any car spawns, so every game, a
+/// Done to the livery's prefabs the frame after CCL builds each car, long before any spawns, so every game, a
 /// dedicated server included, adds the same components under the same names
 /// (<see cref="AddedControlIds"/>). Only a control nothing else drives is given one: it's not a button
 /// (momentary), has no feeder of any kind, isn't driven by another control (CCL's constant and ratchet
@@ -117,14 +117,39 @@ internal static class CustomCarLoaderPorts
         harmony.Patch(AccessTools.Method(typeof(SimulationFlow), nameof(SimulationFlow.SetSaveStateData)),
             prefix: new HarmonyMethod(AccessTools.Method(typeof(CustomCarLoaderPorts), nameof(FillMissingSaveData))));
         // The ones it built before Multiplayer loaded.
-        WireLoadedCars();
+        WireNextFrame();
         return true;
     }
 
     private static void LoadCarPostfix(bool __result)
     {
         if (__result)
+            WireNextFrame();
+    }
+
+    // CCL swaps its proxies for DV's components with Object.Destroy, which takes effect at the end
+    // of the frame: until then each control still carries its LeverProxy or the like, which isn't
+    // known to be harmless. Every mod loads in the same frame and cars spawn long after, so the cars
+    // are wired on the next.
+    private static GameObject pending;
+
+    private static void WireNextFrame()
+    {
+        if (pending != null)
+            return;
+        pending = new GameObject("[Multiplayer CCL ports]");
+        UnityEngine.Object.DontDestroyOnLoad(pending);
+        pending.AddComponent<NextFrame>();
+    }
+
+    private sealed class NextFrame : MonoBehaviour
+    {
+        private void Update()
+        {
+            pending = null;
+            Destroy(gameObject);
             WireLoadedCars();
+        }
     }
 
     private static void WireLoadedCars()
