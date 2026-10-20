@@ -45,7 +45,9 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
-        if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
+        // Anywhere on the line: `dvmp up --help` once ran a real `up` against the Steam install,
+        // replacing the user's installed mod (2026-10-20). Help never acts.
+        if (args.Length == 0 || args[0] == "help" || args.Any(a => a is "-h" or "--help" or "/?"))
         {
             Console.WriteLine(Usage);
             return args.Length == 0 ? 1 : 0;
