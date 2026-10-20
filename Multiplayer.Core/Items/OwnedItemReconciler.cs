@@ -23,7 +23,7 @@ public enum OwnedItemStore : byte
 public readonly struct OwnedItemStoreHit
 {
     public OwnedItemStoreHit(Guid id, OwnedItemStore store, OwnedItemWhere where, Guid owner, string prefab,
-        bool shopStocked = false)
+        bool shopStocked = false, int claimSlot = -1)
     {
         Id = id;
         Store = store;
@@ -31,6 +31,7 @@ public readonly struct OwnedItemStoreHit
         Owner = owner;
         Prefab = prefab ?? string.Empty;
         ShopStocked = shopStocked;
+        ClaimSlot = claimSlot;
     }
 
     public Guid Id { get; }
@@ -40,6 +41,8 @@ public readonly struct OwnedItemStoreHit
     public Guid Owner { get; }
     public string Prefab { get; }
     public bool ShopStocked { get; }
+    /// <summary>An essential's retrieval claim slot as the store records it, or -1.</summary>
+    public int ClaimSlot { get; }
 }
 
 public enum OwnedItemLoadAction : byte
@@ -67,8 +70,9 @@ public enum OwnedItemLoadAction : byte
 public readonly struct OwnedItemLoadStep
 {
     public OwnedItemLoadStep(OwnedItemLoadAction action, Guid id, OwnedItemStore? store, OwnedItemWhere where,
-        Guid owner, string prefab, string reason, bool shopStocked = false)
+        Guid owner, string prefab, string reason, bool shopStocked = false, int claimSlot = -1)
     {
+        ClaimSlot = claimSlot;
         Action = action;
         Id = id;
         Store = store;
@@ -89,6 +93,7 @@ public readonly struct OwnedItemLoadStep
     public string Prefab { get; }
     public string Reason { get; }
     public bool ShopStocked { get; }
+    public int ClaimSlot { get; }
 
     public override string ToString() => $"{Action} {Prefab} {Id:D}" +
         (Store.HasValue ? $" ({Store})" : "") + (Reason.Length == 0 ? "" : ": " + Reason);
@@ -190,7 +195,9 @@ public static class OwnedItemReconciler
                         Where = step.Where,
                         Reason = OwnedItemBirth.Migrated,
                         Detail = step.Reason,
-                        ShopStocked = step.ShopStocked
+                        ShopStocked = step.ShopStocked,
+                        Essential = step.ClaimSlot >= 0,
+                        PreferredClaimSlot = step.ClaimSlot
                     });
                     break;
             }
@@ -243,9 +250,9 @@ public static class OwnedItemReconciler
         if (kept.Where.IsWithPlayer && kept.Where.Holder != owner)
             steps.Add(new OwnedItemLoadStep(OwnedItemLoadAction.RecoverToLostAndFound, kept.Id, kept.Store,
                 OwnedItemWhere.LostAndFound, owner, prefab, $"saved with {kept.Where.Holder:D}, not its owner",
-                kept.ShopStocked));
+                kept.ShopStocked, kept.ClaimSlot));
     }
 
     private static OwnedItemLoadStep Step(OwnedItemLoadAction action, OwnedItemStoreHit hit, Guid owner, string prefab,
-        string reason) => new(action, hit.Id, hit.Store, hit.Where, owner, prefab, reason, hit.ShopStocked);
+        string reason) => new(action, hit.Id, hit.Store, hit.Where, owner, prefab, reason, hit.ShopStocked, hit.ClaimSlot);
 }
