@@ -39,8 +39,9 @@ namespace Dvmp.Scenarios
         {
             if (o.Actor == "host" && pair.Dedicated) throw new HarnessException("ACTOR=host needs a player host: the host's body boards the loco");
             Peer actor = o.Actor == "host" ? pair.Host : pair.Client;
-            // Around the host's player, as the bash scenario did; a dedicated host's is parked away from the run.
-            string loco = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "LocoDE2", pair.Dedicated ? "client" : "host"));
+            // Around the host's player, as the bash scenario did (on a dedicated host, its player
+            // transform follows the client).
+            string loco = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "LocoDE2", "host"));
             pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, new[] { loco })));
             // Both on board: the onlooker is near enough to have the mug in its interest all along.
             if (!pair.Dedicated) await pair.Host.Run(() => Players.Board(loco));
