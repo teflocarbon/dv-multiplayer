@@ -130,6 +130,9 @@ namespace Dvmp.Scenarios
         public async Task ResetAsync()
         {
             int money = int.TryParse(Environment.GetEnvironmentVariable("MONEY"), out int m) ? m : 100000;
+            string[] leftovers = await Pair.Host.Quiet<string[]>(s => Cars.DeleteLeftovers(s));
+            if (leftovers.Length > 0)
+                Out.Note($"deleted {leftovers.Length} car(s) an earlier run left in the session's world: {string.Join(", ", leftovers)}");
             List<Task> players = new() { Pair.Client.Quiet(() => World.ResetPlayer(7190f, 6880f)) };
             if (!Agent("host").Dedicated) players.Add(Pair.Host.Quiet(() => World.ResetPlayer(7194f, 6873f)));
             await Task.WhenAll(players);

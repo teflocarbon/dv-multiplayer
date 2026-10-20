@@ -92,49 +92,25 @@ internal static class ScenarioSteps
         object step = hasStep ? Activator.CreateInstance(parameters[0].ParameterType) : null;
         object[] values = parameters.Select((p, i) => i == 0 && hasStep ? step : args[i - (hasStep ? 1 : 0)].ToObject(p.ParameterType, json)).ToArray();
 
+        // A tracked root, as a probe is: every coroutine the step starts (through a hooked
+        // MonoBehaviour.StartCoroutine) stops with it, and a cancel stops it and them at once.
         TaskCompletionSource<bool> cancel = new();
         running[call] = cancel;
-        object returned = null;
-        Stopwatch clock = Stopwatch.StartNew();
-        Task<JObject> task = MainThread.RunMaybeCoroutine(
-            start: () => returned = method.Invoke(null, values),
-            finish: () =>
-            {
-                object result = returned is IEnumerator ? step?.GetType().GetProperty("Result")?.GetValue(step) : returned;
-                return new JObject { ["result"] = result == null ? JValue.CreateNull() : JToken.FromObject(result, json), ["notes"] = Notes(step) };
-            },
-            cancelled: () => cancel.Task.IsCompleted);
         try
         {
-            int done = Task.WaitAny(new Task[] { task, cancel.Task }, timeoutMs);
-            if (done != 0)
-            {
-                cancel.TrySetResult(true);
-                return (200, new JObject
+            JObject response = ProbeCalls.Run(assembly.GetName().Name, $"{type.Name}.{methodName}",
+                invoke: _ => method.Invoke(null, values),
+                finish: returned =>
                 {
-                    ["ok"] = false,
-                    ["cancelled"] = done == 1,
-                    ["error"] = done == 1 ? $"{methodName}: cancelled" : $"{methodName}: did not finish within {timeoutMs} ms",
-                    ["notes"] = Notes(step),
-                    ["elapsedMs"] = clock.ElapsedMilliseconds
-                }.ToString(Formatting.None));
-            }
-            JObject response = task.Result;
-            response["ok"] = true;
-            response["elapsedMs"] = clock.ElapsedMilliseconds;
+                    object result = returned is IEnumerator ? step?.GetType().GetProperty("Result")?.GetValue(step) : returned;
+                    return new JObject { ["result"] = result == null ? JValue.CreateNull() : JToken.FromObject(result, json) };
+                },
+                timeoutMs, cancel.Task, output: () => new JArray());
+            response.Remove("output");
+            response["notes"] = Notes(step);
+            if (response.Value<bool?>("ok") != true && response["error"] is JValue error)
+                response["error"] = $"{methodName}: {error}";
             return (200, response.ToString(Formatting.None));
-        }
-        catch (AggregateException e)
-        {
-            Exception inner = e.InnerException is TargetInvocationException tie ? tie.InnerException : e.InnerException;
-            return (200, new JObject
-            {
-                ["ok"] = false,
-                ["error"] = inner?.GetType().Name + ": " + inner?.Message,
-                ["stack"] = inner?.StackTrace,
-                ["notes"] = Notes(step),
-                ["elapsedMs"] = clock.ElapsedMilliseconds
-            }.ToString(Formatting.None));
         }
         finally
         {
@@ -142,7 +118,7 @@ internal static class ScenarioSteps
         }
     }
 
-    /// <summary>{call}: stops a running step at its next frame; its invoke returns cancelled.</summary>
+    /// <summary>{call}: stops a running step and every coroutine it started; its invoke returns cancelled.</summary>
     public static (int, string) Cancel(JObject request)
     {
         string call = request.Value<string>("call") ?? throw new HttpError(400, "missing call");

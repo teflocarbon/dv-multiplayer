@@ -375,13 +375,13 @@ at all.
 ## The dedicated host
 
 > Built in stage 3: a dedicated host has no player, no session and no service identity (no
-> `IsServiceHost`, no `ServiceGuid` login, no host token; `GameplayPlayers` is `ServerPlayers`), and
+> `IsServiceHost`, no `ServiceGuid` login, no host token; `ServerPlayers` is `ServerPlayers`), and
 > its console commands run as a console sender (`ServerPlayer.CreateConsole`). What follows was the
 > plan, written when it still had them.
 
 Today a dedicated host keeps the loopback client as a **service identity**: its `ServerPlayer` is
 `IsServiceHost` (`Server/Session/ServerPlayer.cs:44`), logs in with `Settings.ServiceGuid`,
-isn't counted in `GameplayPlayers` (`NetworkServer.cs:100-103`) and completes loading silently
+isn't counted in `ServerPlayers` (`NetworkServer.cs:100-103`) and completes loading silently
 (`:2015-2021`). The reason given in [dedicated-host.md](dedicated-host.md#keep-the-loopback-client-it-isnt-only-a-player)
 is that the loopback carries the host's simulation and applies relayed state. Those are jobs 2 and
 3, which stages 2 and 3 take off it.
@@ -391,7 +391,7 @@ is that the loopback carries the host's simulation and applies relayed state. Th
   The service identity still logs in, but nothing it does needs a player: it has no tracker, no
   chat UI and no requests. `IsServiceHost` stays the test for "not a player".
 - **Stage 3.** A dedicated host is the server with **no** `LocalPlayerSession`. There's no
-  service identity, no `ServiceGuid` login and no host token for it: `GameplayPlayers` becomes
+  service identity, no `ServiceGuid` login and no host token for it: `ServerPlayers` becomes
   `ServerPlayers`, and `IsServiceHost` and the loading special case go. `IsDedicatedHost` stays for
   what's about having nobody at the keyboard (the parked body, reduced rendering, the empty-server
   pause, the watchdog). `IsHostPlayingAlone` becomes "there's a local player and it's the only
@@ -511,7 +511,7 @@ As of 2026-10-20, on `split/client-server` (not yet in `beta`):
     `NetworkClient`: items #228, #232; players #229; world, stations and jobs #226, #227, #230, #234;
     trains #231, #233;
   - the switch-over: the switch, the loopback path, the host token, the service identity
-    (`IsServiceHost`, `Settings.ServiceGuid`; `GameplayPlayers` is now `ServerPlayers`) and stage 1's
+    (`IsServiceHost`, `Settings.ServiceGuid`; `ServerPlayers` is now `ServerPlayers`) and stage 1's
     `HostOwnClient` with its protocol test are gone. A dedicated host has no player at all; its first
     client is player 1.
 
