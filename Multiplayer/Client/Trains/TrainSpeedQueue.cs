@@ -54,6 +54,7 @@ public class TrainSpeedQueue : TickedQueue<float>
     private static int freezes;
     private static float lastFreezeSeconds;
     private static float freezeEndedAt = float.NegativeInfinity;
+    private static int freezeFrame = int.MinValue / 2;  // the frame the latest freeze was noticed in
     private static readonly List<TrainSpeedQueue> catchUpSet = [];
 
     private TrainCar trainCar;
@@ -72,6 +73,9 @@ public class TrainSpeedQueue : TickedQueue<float>
     private int caughtUpAfter;                       // the freeze this car's set was caught up after
     private float correctFrom = float.NegativeInfinity; // fixed time: no correction before (just caught up)
     private Vector3[] catchUpShifts = [];
+    private int receivedFrame = int.MinValue / 2;    // the frame the latest sample was received in
+    private uint freshFromTick;                      // the first sample received since the latest freeze
+    private uint processedTick;
 
     /// <summary>Following the host's samples of a moving car.</summary>
     public bool Following { get; private set; }
@@ -108,8 +112,25 @@ public class TrainSpeedQueue : TickedQueue<float>
         // Taken up with the sample (Process), not now: a car coming back into close range would
         // otherwise judge the last far sample by the close interval for a tick, and go stale.
         receivedIntervalSeconds = intervalSeconds;
+        // A frame's samples are received in its Update, after its physics steps noticed a freeze.
+        if (receivedFrame < freezeFrame)
+            freshFromTick = tick;
+        receivedFrame = Time.frameCount;
         ReceiveSnapshot(speed, tick);
     }
+
+    /// <summary>
+    /// Waiting to be caught up after this client's freeze (<see cref="TryCatchUp"/>): a full sync
+    /// doesn't snap it meanwhile. The full syncs a freeze leaves queued are seconds old (their age
+    /// unknown: the client's tick fell behind too) and snapped the car to where the host's had
+    /// been, before the catch-up put it where it is (client-freeze, q6: 11 m and 25 m snaps).
+    /// </summary>
+    public bool AwaitingCatchUp => caughtUpAfter != freezes && FreezeWindowOpen;
+
+    // The second after a freeze, and its next two frames whatever their length: processing the
+    // packets a 3 s freeze left took a 1 s frame of its own (q6).
+    private static bool FreezeWindowOpen =>
+        Time.frameCount - freezeFrame <= 2 || Time.realtimeSinceStartup - freezeEndedAt < FreezeCatchUp.WindowSeconds;
 
     /// <summary>
     /// How long (real time: samples arrive in real time) a moving car goes without a sample
@@ -159,6 +180,7 @@ public class TrainSpeedQueue : TickedQueue<float>
     protected override void Process(float snapshot, uint snapshotTick)
     {
         targetSpeed = snapshot;
+        processedTick = snapshotTick;
         lastSampleTime = Time.realtimeSinceStartup;
         SampleIntervalSeconds = receivedIntervalSeconds;
     }
@@ -200,7 +222,7 @@ public class TrainSpeedQueue : TickedQueue<float>
             return;
         }
 
-        if (caughtUpAfter != freezes && Time.realtimeSinceStartup - freezeEndedAt < FreezeCatchUp.WindowSeconds && TryCatchUp())
+        if (AwaitingCatchUp && TryCatchUp())
             return;
 
         float correction = 0f;
@@ -390,13 +412,21 @@ public class TrainSpeedQueue : TickedQueue<float>
             freezes++;
             lastFreezeSeconds = real - measuredRealTime - (game - measuredGameTime);
             freezeEndedAt = real;
+            freezeFrame = Time.frameCount;
         }
         measuredFrame = Time.frameCount;
         measuredRealTime = real;
         measuredGameTime = game;
     }
 
-    private bool HasFreshSample => Time.realtimeSinceStartup - lastSampleTime <= StaleSeconds(SampleIntervalSeconds);
+    /// <summary>
+    /// Following a sample received since the latest freeze. One received before it was queued by
+    /// the frame that took the freeze's packets, which can itself be long (1 s after a 3 s
+    /// freeze, q6): the host's train has run on since, further than a sample's projection goes
+    /// (0.5 s), and catching up to it left the car 5 m behind.
+    /// </summary>
+    private bool HasFreshSample => Time.realtimeSinceStartup - lastSampleTime <= StaleSeconds(SampleIntervalSeconds) &&
+                                   receivedFrame >= freezeFrame && processedTick >= freshFromTick;
 
     /// <summary>
     /// Right after this client froze (<see cref="MeasureFreeze"/>), moves this car's whole set

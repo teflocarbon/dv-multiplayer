@@ -22,7 +22,12 @@ for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 2f;)
 float speedBefore = Mathf.Abs(loco.GetForwardSpeed());
 
 System.Threading.Thread.Sleep(int.Parse(ctx.Args["freezeMs"]));
+// The frame that takes the packets the freeze left can be long itself (1 s after 3.25 s, q6):
+// time "after" from the first frame back.
+float tSlept = Time.realtimeSinceStartup;
+yield return null;
 float tFreeze = Time.realtimeSinceStartup;
+float catchUpFrame = tFreeze - tSlept;
 
 float firstError = float.NaN, worstLate = 0f, settledAt = -1f, worstStepLate = 0f;
 Vector3 last = Dev.Abs(loco.transform.position);
@@ -49,6 +54,7 @@ ctx.Result = new
 {
     before = Math.Round(before, 2),
     speed = Math.Round(speedBefore, 1),
+    catchUpFrame = Math.Round(catchUpFrame, 2),
     firstError = float.IsNaN(firstError) ? (double?)null : Math.Round(firstError, 2),
     settledAt = Math.Round(settledAt, 2),
     worstLate = Math.Round(worstLate, 2),

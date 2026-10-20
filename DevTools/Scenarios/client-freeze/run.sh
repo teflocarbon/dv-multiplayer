@@ -3,7 +3,7 @@
 # 3.25 s, like loading after a teleport) while the host pushes the train on. Right after it the
 # client's train must be put where the host's is (logged "caught up"), not driven after it and
 # snapped by a full sync.
-#   FREEZE_MS=freeze (default 3250)  SPEED=m/s (default 10)  MAX=worst error 1-4 s after it, m (default 1)
+#   FREEZE_MS=freeze (default 3250)  SPEED=m/s (default 10)  MAX=worst error 1-4 s after the first frame back, m (default 1)
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -28,7 +28,7 @@ caught=$(( $(count log "$loco: caught up") - caught0 )); snaps=$(( $(count warni
 $D logs -t client -l log -c "$loco: caught up" -n 5 2>/dev/null | grep -o '"message": *"[^"]*"' | tail -1 || true
 node -e '
 const r=JSON.parse(process.argv[1]), max=+process.argv[2], caught=+process.argv[3], snaps=+process.argv[4]; let bad=[];
-console.log(`   before: worst ${r.before} m at ${r.speed} m/s; after the freeze: first error ${r.firstError} m, under 1 m at ${r.settledAt} s, worst 1-4 s ${r.worstLate} m, biggest step beyond speed 1-4 s ${r.worstStepLate} m`);
+console.log(`   before: worst ${r.before} m at ${r.speed} m/s; the first frame back took ${r.catchUpFrame} s; after it: first error ${r.firstError} m, under 1 m at ${r.settledAt} s, worst 1-4 s ${r.worstLate} m, biggest step beyond speed 1-4 s ${r.worstStepLate} m`);
 console.log(`   errors: ${r.errors.map(e=>`${e.t}s ${e.e}m`).join(", ")}`);
 console.log(`   client log: ${caught} catch-up(s), ${snaps} full-sync snap(s) of the loco`);
 if (r.speed < 5) bad.push(`the train was at ${r.speed} m/s, not moving`);

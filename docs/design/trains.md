@@ -1077,8 +1077,9 @@ time barely moves, since DV caps a frame's delta, and its trains stop while the 
 a 3.25 s freeze at 9.4 m/s the client's train was 31 m behind; the correction drove it at the host's
 speed + 5.2 m/s, in view, and the next full sync snapped the last 26.6 m (train-rate, 2026-10-20).
 Now a frame (measured once a frame from the cars' physics steps) whose game time fell more than
-0.25 s behind real time is a freeze. In the second after one, as soon as a moving set has fresh
-samples (a frame or two later), the set's first car averages every car's along-track error and,
+0.25 s behind real time is a freeze. In the second after one (and its next two frames, however
+long), as soon as every car of a moving set follows a sample received since the freeze, the set's
+first car averages every car's along-track error and,
 when that is 2 m or more, moves the whole set there in one physics step, while the screen has only
 just come back. Each bogie's target is the point that far along its rails, across one track joint
 at most and only onto the track the host's bogie is on (a host bogie a track ahead counts for the
@@ -1088,7 +1089,14 @@ turned. Then the car runs at the host's speed with no correction for two steps (
 still at the old spans until then) and its train stress is reset. All or nothing: if any car
 doesn't follow fresh samples of a moving host car, isn't as coupled as the host's, the cars'
 errors differ by more than 1 m, or a bogie would cross two joints, the set is left to the
-correction and the full sync as before. Placing the set kinematically over a second (as `Hold`
+correction and the full sync as before. Until a moving car's set is caught up (or found within
+2 m) in that window, a full sync doesn't snap it. The first in-game run (q6, a 3.25 s freeze at
+10 m/s) showed why both rules are needed. The frame that took the freeze's packets lasted 1 s
+itself. During it, two full syncs the freeze had left queued snapped the loco 11 m and 25 m to
+where the host's had been: their age was unknown, because the client's tick also falls behind in
+a stall. The catch-up then used samples from that backlog, already about 1 s old, past what a
+sample's projection covers (0.5 s), and left the loco 5.3 m behind, closed by the correction
+over 0.8 s. Placing the set kinematically over a second (as `Hold`
 does) slides a whole consist through its coupler joints and can't cross a track joint;
 raising the correction limit for a while after a freeze drives a train at three or four times its
 speed through curves, in view, and still snaps after a longer freeze. Sustained low frame rates

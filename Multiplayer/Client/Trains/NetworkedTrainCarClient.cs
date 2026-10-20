@@ -1102,7 +1102,11 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
                 float positionDelta = Vector3.Distance(TrainCar.rb != null ? TrainCar.rb.position : TrainCar.transform.position, worldPos);
 
-                if (positionDelta > POSITION_UPDATE_THRESHOLD)
+                // Right after this client froze, a moving car is put in place by TrainSpeedQueue's
+                // catch-up from fresh samples, not snapped to a full sync the freeze left queued.
+                bool awaitingCatchUp = Mathf.Abs(movementPart.Speed) >= TrainSpeedQueue.HoldSpeed &&
+                                       trainSpeedQueue is TrainSpeedQueue { AwaitingCatchUp: true };
+                if (positionDelta > POSITION_UPDATE_THRESHOLD && !awaitingCatchUp)
                 {
                     // What #44 asked for: whether a snap is a real divergence or the sample's age
                     // (projected by the tick difference, capped at 0.5 s) being wrong.
