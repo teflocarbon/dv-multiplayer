@@ -37,7 +37,7 @@ internal sealed class ClientItemSpatial
         if (NetworkLifecycle.Instance == null)
             return;
         ProcessPendingClientLeases();
-        if (NetworkLifecycle.Instance.IsClientRunning)
+        if (NetworkRole.IsRemoteClient)
             UpdateClientLeases();
     }
 

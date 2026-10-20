@@ -42,7 +42,7 @@ public static class LostAndFoundList
     /// <summary>The list's rows for the in-game observability overlay, on a game with a client.</summary>
     public static IEnumerable<Dictionary<string, object>> DebugSnapshot()
     {
-        if (NetworkLifecycle.Instance?.IsClientRunning != true)
+        if (NetworkLifecycle.Instance?.LocalSession == null)
             yield break;
         foreach (LostItemData item in items)
         {
