@@ -149,7 +149,7 @@ Decided (2026-10-21, for the ledger):
 - job documents are the job's, not owned;
 - an admin `/give` is owned by its target, as `AdminItemGrants` already does;
 - the starter kit, essentials and licence papers become server-made, which removes temporary
-  adoption (owned-items PRs 5 and 6);
+  adoption (owned-items PRs 4 and 5);
 - a replacement vanilla makes while using an item up is owned by the used item's owner.
 
 Still undecided:

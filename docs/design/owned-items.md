@@ -45,6 +45,26 @@ run in game):
 | Used-up and swapped items leave no trace. | No mod code handles spent duct tape, solder spools or labels. A destroy drops the record and its owner (`NetworkedItemServer.cs:387-414`), and a replacement starts unowned. |
 | Recall, claims, containers and the red style compare numbers. | About 40 server-side reads of `PersistentOwnerPlayerId` against 20 of the identity, and the clients compare numbers only (`InventoryPresentation.cs:61,68`). |
 
+### Known bugs the ledger removes
+
+These are bugs in today's code. None gets a fix of its own (the user, 2026-10-21): the ledger
+redesign removes them, in PR 1 of the [plan](#plan), and [migration](#migration) covers what they
+left in saves.
+
+- **An item withdrawn from a cold container may not be saved.**
+  - `RegisterMaterializedColdItem` (`AuthoritativeItemRegistry.cs:729-753`) builds the withdrawn
+    item's record without its `PersistentItemId` (and without its authored key).
+  - The item's `PersistentWorldItemIdentity` does have the id again: withdrawal calls `LoadItemData`
+    on the stored state (`NetworkedColdContainerManager.cs:345-349`), and
+    `PersistentWorldItemIdentityPatch.Load` restores it.
+  - `Ensure` then returns the existing record (`AuthoritativeItemRegistry.cs:100`), so the record
+    never picks the id up.
+  - `WorldItemPersistenceSave.ShouldPersist` (`:133-160`) takes the branch for items with no
+    persistent id. Its authored-key check fails too, so it skips the item, whether it is in the world
+    or in a player's inventory.
+- **One item, several ids.** Lost and Found (`NetworkedLostAndFoundManager.cs:325`) and cold
+  containers (`NetworkedColdContainerManager.cs:177`) mint record ids of their own.
+
 ## Decisions
 
 All were decided with the user on 2026-10-21.
@@ -284,7 +304,7 @@ The server decides what a player has. No game makes its own items any more.
    claim slot. "Has" means a live entry anywhere: in Lost and Found, with another player, in a
    container. An ended or never-made one doesn't count. First join is just the case where all are
    missing.
-5. **Licence papers:** the same rule for the career's licences. PR 5 checks how licence papers are
+5. **Licence papers:** the same rule for the career's licences. PR 4 checks how licence papers are
    made in multiplayer today before settling this. The rule also runs for everyone online when a
    licence is bought.
 6. **The list:** the player's Lost and Found and owned-items lists are sent when asked, as Lost and
@@ -310,7 +330,7 @@ already does (`PerPlayerSaveFormat.cs:93`).
 | `NetworkServer.StarterKitsGiven` (in memory) | once per session | `players.<identity>.starterKit` (saved) |
 | `TryRestoreReturningOwnerItem` and `restoredOriginals` | swap a returning player's fresh copies for their originals, by prefab | no fresh copies |
 | `DiscardUnboundLocalDuplicate`, `AdoptUnboundInventoryItemsSoon` | client side of the same | no client-made items |
-| `TemporaryClientAdoptionCompatibility`, `TemporaryHostAdoptionCompatibility`, the adoption packets | client-made items reaching the server | removed once the kit, essentials, licence papers and purchases are server-made. PR 6 checks nothing else still adopts. |
+| `TemporaryClientAdoptionCompatibility`, `TemporaryHostAdoptionCompatibility`, the adoption packets | client-made items reaching the server | removed once the kit, essentials, licence papers and purchases are server-made. PR 5 checks nothing else still adopts. |
 | `EnsureDistinctClaimSlots` after transitions and at `ReadyForItems` | repair clashing claim slots | claim slots assigned uniquely, one repair in migration |
 | `UnbindPersistentOwner`, `RebindPersistentOwner`, Lost and Found's `UnbindOwner`/`RebindOwner`, pending Lost and Found imports per owner | numbers bound per session | identity everywhere |
 | `ServerPlayer.Inventory` and the `"inventory"` it writes per player (`NetworkedSaveGameManager.cs:88-92`) | nothing fills it | removed |
@@ -452,7 +472,9 @@ Found means (any member's shed) belongs to the companies design.
 
 ## Plan
 
-Small PRs, in order, each into `split/client-server`, each a branch `items/<what>`. Each one:
+Not started. The work starts once `split/client-server` has merged into `beta` (the user,
+2026-10-21). It then goes on a branch made from `beta` for these systems, in small PRs, in order,
+each from a branch `items/<what>`. Each one:
 
 - runs its scenarios on a player host and a dedicated host
   (`RUNS="<scenario> @player; <scenario> @dedicated"`), plus the item scenarios it could affect:
@@ -471,29 +493,19 @@ a made-up identity: the host spawns an item and gives it to a new GUID, as the `
 already does. "Another player" is the host's own player, so steps that need two players run on a
 player host only, and say so.
 
-### 1. One id through containers and Lost and Found
+### 1. The ledger, in shadow, and one id in every store
 
-A fix on its own, before any ledger.
+The ledger is built and saved, with nothing reading it yet. The stores move to the item's own id in
+the same PR. That fixes the [cold-withdrawal bug](#known-bugs-the-ledger-removes) as part of the
+redesign, not as a separate fix (decided by the user 2026-10-21).
 
-- `RegisterMaterializedColdItem` takes the item's `PersistentWorldItemIdentity` (and authored key),
-  so a withdrawn item is saved again.
-- The cold record id is the item's id, and so is the Lost and Found record id.
-- Lost and Found binds saved entries by the id in the inert item's save data, with today's index and
-  prefab as the fallback for old saves.
-- `LostItemRegistry.Restore`'s duplicate result is logged at its callers.
-- Scenario **`item-id-roundtrip`** (`[Needs(Need.RestartsGames)]`, both hosts):
-  1. The client claims a personal item (`Items.SpawnPersonal`) and the server notes its persistent id.
-  2. The client deposits it in a container and withdraws it: same id, record persisted
-     (`ShouldPersist`).
-  3. With the policy tightened, it is collected into Lost and Found and retrieved: same id, and the
-     Lost and Found record's id is that id.
-  4. It is collected again and the games save and restart: after the restart the entry is bound to
-     an item with that id. The client retrieves it: same id.
-
-### 2. The ledger, in shadow
-
-Built and saved, with nothing reading it yet.
-
+- One id in every store:
+  - `RegisterMaterializedColdItem` takes the item's `PersistentWorldItemIdentity` and authored key,
+    so a withdrawn item is saved again.
+  - The cold record's id is the item's id, and so is the Lost and Found record's.
+  - Lost and Found binds saved entries by the id in the inert item's save data, with today's index
+    and prefab as the fallback for old saves.
+  - `LostItemRegistry.Restore`'s duplicate result is logged at its callers.
 - Core: `OwnedItemLedger` (entries, `where`, born/ended, lineage, duplicate check, claim slots
   unique by construction) and `OwnedItemReconciler` (the load table). Unit tests in
   `Multiplayer.Core.Tests/Items/OwnedItemLedgerTests.cs`.
@@ -513,8 +525,19 @@ Built and saved, with nothing reading it yet.
      same ledger.
   5. A server step clones an owned item with `Instantiate`, identity and all: the copy gets a new id
      and is logged as a duplicate, and the original keeps its id and placement.
+- Scenario **`item-id-roundtrip`** (`[Needs(Need.RestartsGames)]`, both hosts):
+  1. The client claims a personal item (`Items.SpawnPersonal`) and the server notes its persistent
+     id.
+  2. The client deposits it in a container and withdraws it: same id, ledger `where` back to
+     `With(client)`, record persisted (`ShouldPersist`).
+  3. Save and restart: the withdrawn item is still there, with that id. This is the known bug's
+     check.
+  4. With the policy tightened, it is collected into Lost and Found and retrieved: same id, and the
+     Lost and Found record's id is that id.
+  5. It is collected again and the games save and restart: after the restart the entry is bound to
+     an item with that id. The client retrieves it: same id.
 
-### 3. Ownership by identity
+### 2. Ownership by identity
 
 The ledger becomes the owner's source. `PersistentOwnerPlayerId` is derived, every server check uses
 the identity, and Unbind/Rebind go (see [What goes away](#joining-and-rejoining)).
@@ -531,7 +554,7 @@ the identity, and Unbind/Rebind go (see [What goes away](#joining-and-rejoining)
      (server step); after the restart it is bound at load, not pending.
   4. `owned-items` still passes, with its explanation updated: there is no number to shift any more.
 
-### 4. Lost and Found for everyone
+### 3. Lost and Found for everyone
 
 - Offline counts as far, with the wider placements for offline owners. A borrower leaving sends
   items to their owner's Lost and Found. The new reasons. The departing player's hand item goes into
@@ -547,7 +570,7 @@ the identity, and Unbind/Rebind go (see [What goes away](#joining-and-rejoining)
   - On a dedicated host the owner is a made-up identity, so the scenario drops `Need.PlayerHost` and
     covers the offline-owner case too.
 
-### 5. Server-made starting items
+### 4. Server-made starting items
 
 The kit, essentials and licence papers are spawned by the server, the safeguards are off in every
 game, and the join-packet fields and the rejoin swap go.
@@ -565,7 +588,7 @@ game, and the join-packet fields and the rejoin swap go.
   6. Cleanup restores the client's GUID.
 - `host-player-persist` and `rejoin-crash` also run on a player host.
 
-### 6. The host's purchases, and no adoption
+### 5. The host's purchases, and no adoption
 
 - The host's own player buys through `SpawnShopPurchase` like everyone, so a purchase is owned by its
   buyer at once.
@@ -575,7 +598,7 @@ game, and the join-packet fields and the rejoin swap go.
   and born `Purchased` before anyone touches it. On both hosts the client's purchase is born
   `Purchased`.
 
-### 7. The list and retrieval
+### 6. The list and retrieval
 
 - The packets, the Career Manager page, and retrieval for every placement except installed.
 - Scenario **`owned-list`** (both hosts):
@@ -590,7 +613,7 @@ game, and the join-packet fields and the rejoin swap go.
      the client retrieves it. The host's hand is empty, its log names the client, and the lantern is
      in the client's Lost and Found.
 
-### 8. Lineage
+### 7. Lineage
 
 - Replacement scopes, and ended entries for money deposits and destroys.
 - Scenario **`item-lineage`** (both hosts):
@@ -600,7 +623,7 @@ game, and the join-packet fields and the rejoin swap go.
 - The gadget PRs that make tape, spools and labels server-side (gadgets PRs 4, 5 and 9) add the
   `Replaced` checks to their scenarios.
 
-### 9. Retrieving installed gadgets
+### 8. Retrieving installed gadgets
 
 After gadget PR 3 (install and remove).
 
@@ -610,14 +633,14 @@ After gadget PR 3 (install and remove).
   2. The client retrieves it from its list: the gadget is removed in every game (change-log reason
      `gadget-retrieved`) and is in the client's Lost and Found, still with its id.
 
-### 10. `ItemAccess`
+### 9. `ItemAccess`
 
 The one decision point with today's rules, called by every item request handler. No behaviour
 change: unit tests for the default policy, and the item scenarios as they are.
 
 ## Migration
 
-A save written before PR 2 has no ledger. At its first load with the ledger, the server builds one
+A save written before PR 1 has no ledger. At its first load with the ledger, the server builds one
 from what the stores hold. `PerPlayerSaveFormat`'s version-1 conversion runs first, so an old career
 is already per player.
 
@@ -631,6 +654,20 @@ is already per player.
 
 Then, once:
 
+- **Items lost to the cold-withdrawal bug.** A withdrawn item that today's builds didn't save is in
+  no store, so the ledger can't bring it back from one. Migration does what it can:
+  - **Host's player:** for the host's own player, DV's `Storage_Inventory` mirror is still written
+    from the live inventory, item save data and id included (`RemoveVanillaStorageDuplicates` with
+    `keepInventory`). Migration looks there for an entry whose `dvmpPersistentWorldItemId` no store
+    has, and restores it into that player's inventory as `SaveRecovery`.
+  - **Other players and the world:** nothing on disk holds those items. Migration logs how many
+    cold records were withdrawn (the cold graph's operation log, if it has one) and leaves it at
+    that.
+  - **PR 1 checks the mirror:** whether it really carries such items, against a save made with
+    today's build after a withdrawal.
+- **Records with an empty id** in a store (`WorldItemsV1` written by a build with the bug) get the id
+  from the item's own save data (`dvmpPersistentWorldItemId` in `state`) when it's there, and are
+  re-minted otherwise.
 - **Duplicates:** the same id in two stores is resolved by the load table's priority.
 - **Borrowed items in a saved possession** (another player's item in someone's saved inventory: the
   offline-owner gap) go to their owner's Lost and Found, `SaveRecovery`.

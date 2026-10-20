@@ -55,7 +55,7 @@
   - Lost and Found and cold-container records mint ids of their own instead of using the item's.
   - Owner numbers are unbound while an owner is offline, so many checks treat their items as unowned.
 
-  All three are fixed by [`owned-items.md`](owned-items.md) (PRs 1 and 3).
+  All three are fixed by [`owned-items.md`](owned-items.md) (PRs 1 and 2).
 - **Not implemented:** revoking a spatial lease on Lost-and-Found collection (the revision
   advance makes late samples fail instead), the container retirement retry, and per-recipient
   projection state in the debug snapshot.
