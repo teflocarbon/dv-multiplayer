@@ -476,7 +476,8 @@ own.
   (`dvmpPersistentOwner`) beside the persistent id, and restores it on load.
 - **A missing anchor on load.** Vanilla sends the item to its Lost and Found, which
   `StorageControllerAddLostItemPatch` blocks for owned items. Owned: the owner's Lost and Found with
-  `LostItemReason.GadgetDestinationMissing`. Unowned: vanilla's behaviour, as for other unowned items.
+  `LostItemReason.GadgetDestinationMissing`, once ownership is by identity (owned-items PRs 2 and 3);
+  until then vanilla's path. Unowned: vanilla's behaviour, as for other unowned items.
 - **Car deleted:** owned gadget items go straight to their owners' Lost and Found. Its records
   carry the owner's identity; PR 3a checks that a record can be added while the owner is offline (the
   runtime player number is unbound then) and makes it so if not, so they get it on their next join.
@@ -650,23 +651,31 @@ From 3b on, every PR predicts its own actions with 3b's machinery.
 
 ### 1. Installed items are `Installed`
 
-The item side, with no gadget sync yet: an installed gadget stops leaking as a loose item.
+The item side, with no gadget sync yet: an installed gadget stops leaking as a loose item. Built on
+`gadgets/installed-placement`.
 
-- Registration of installed-storage items as `Installed` with their anchor; the anchor on the record;
-  relevance and the client apply that keeps them inactive; never destroyed; `WorldItemsV1` and the
-  dedupe; the owner in vanilla save data; `GadgetDestinationMissing` recovery; off-train installs in
-  a loaded save removed into the world. Delete `GadgetRemoverPatch` and the dead `Removed` branch.
-- Core: the `Installed` transitions and their reasons in the item state machine, with tests.
-- Files: `Multiplayer.Core/Items/`, `Server/Items/` (`AuthoritativeItemRegistry`,
-  `ServerItemManager.Interest`, `WorldItemPersistence*`, `PersistentWorldItemIdentityPatch`),
-  `Shared/Items/` (`StorageIntegration`, `NetworkedItem.Snapshots`, `GadgetRemoverPatch`).
-- Scenario **`gadget-save`**: the host installs a gadget on a car through a server step, saves, and
-  restarts (`[Needs(Need.RestartsGames)]`). The item is `Installed` on that car with its owner on the
-  server; no client has a loose copy at its old pose; it is not in `WorldItemsV1` and not in Lost and
-  Found. Then the car is deleted and restarted again with the car gone: the item reaches its owner's
-  Lost and Found. A save with a gadget installed on the ground (written by a server step before the
-  restart) comes back with that gadget as a world item at its pose, owned, and nothing installed off
-  a car.
+- `Server/Gadgets/GadgetItemTransitions`: server patches on vanilla's `AddItemToInstalledGadgets` and
+  `MoveFromInstalledGadgetsToWorld` commit the record into `Installed` (with its car) and out again;
+  the world index commits a saved installed gadget it meets instead of indexing its stale pose; an
+  off-train install found at load is taken off into the world.
+- The dead `Removed` item state becomes `Installed`, sent with its car; a client keeps an installed
+  item out of hands and inactive; no game reports an installed item as its own observation;
+  `ProcessChanged` skips them. `GadgetRemoverPatch` and `wasRemoved` are deleted.
+- The owner in vanilla save data (`dvmpPersistentOwner`), restored when the record is made.
+- A `WorldItemsV1` row an older build wrote for an installed gadget is ignored.
+- Vehicles only, in the player's own game: any other anchor resolves to none, so vanilla's preview
+  shows red and a message says why (moved here from 3a; it is small and stops new off-train installs
+  at once).
+- Core: only a gadget transition moves an item into or out of `Installed`, forced or not; an
+  installed item can't be recalled; move reasons `InstalledAsGadget`, `RemovedAsGadget`. Tests.
+- Not here: a car missing at load still takes vanilla's Lost and Found path. Sending the gadget to
+  its owner's Lost and Found needs ownership by identity (owned-items PR 2, then its Lost and Found
+  for everyone, PR 3).
+- Scenario **`gadget-save`** (`[Needs(Need.RestartsGames)]`): server steps install two gadgets owned
+  by the client, one on a loco and one on the ground, and save in the same frame. The loco's is
+  `Installed` on that car, owned by the client, and not loose on the client; after a restart it is
+  still installed there, once, owned, not in Lost and Found, not loose on the client; the ground's
+  was taken off into the world, owned. Deleting the loco takes its gadget off, still the client's.
 
 ### 2. Late joiners see the installed gadgets
 
