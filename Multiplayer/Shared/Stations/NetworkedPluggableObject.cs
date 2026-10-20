@@ -410,6 +410,9 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         TrainCarNetId = INVALID_NETID;
         SocketIndex = INVALID_SOCKET;
 
+        // Our player has it now, so any snap before this is over. A snap we only replayed (another
+        // player's dock) sets IsConnecting and never clears it, which would swallow our next drop.
+        IsConnecting = false;
         grabbedLocally = true;
         currentInteraction = PlugInteractionType.PickedUp;
     }
