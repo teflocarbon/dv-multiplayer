@@ -6,10 +6,10 @@
 object Of(string id)
 {
     var car = Trains.Find(id);
-    var q = car.GetComponent<Multiplayer.Shared.Trains.TrainSpeedQueue>();
+    var q = car.GetComponent<Multiplayer.Client.Trains.TrainSpeedQueue>();
     if (q == null) return new { car = id, queue = "none" };
     var args = new object[] { 0f };
-    bool hasError = (bool)typeof(Multiplayer.Shared.Trains.TrainSpeedQueue)
+    bool hasError = (bool)typeof(Multiplayer.Client.Trains.TrainSpeedQueue)
         .GetMethod("TryGetAlongTrackError", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
         .Invoke(q, args);
     float Since(float t) => float.IsNegativeInfinity(t) ? -1f : (float)Math.Round(Time.time - t, 1);
