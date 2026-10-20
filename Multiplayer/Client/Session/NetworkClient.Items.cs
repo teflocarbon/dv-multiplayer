@@ -1,7 +1,7 @@
 ﻿using DV;
 using DV.InventorySystem;
 using LiteNetLib;
-using Multiplayer.Server.Items;
+using Multiplayer.Client.Items;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -52,7 +52,7 @@ public partial class NetworkClient : IItemClient
             return debug;
         });
 
-        NetworkedItemManager.Instance.ReceiveSnapshots(packet.Items);
+        ClientItemManager.Instance?.ReceiveSnapshots(packet.Items);
     }
 
     private void OnCommonItemUpdatePacket(CommonItemUpdatePacket packet)
@@ -95,7 +95,7 @@ public partial class NetworkClient : IItemClient
                 ItemUpdateData.ItemUpdateType.Create |
                 ItemUpdateData.ItemUpdateType.Destroy))
         {
-            NetworkedItemManager.Instance.ReceiveSnapshots(
+            ClientItemManager.Instance?.ReceiveSnapshots(
                 new List<ItemUpdateData> { packet.ItemData });
             return;
         }
@@ -108,14 +108,14 @@ public partial class NetworkClient : IItemClient
         }
 
         if (packet.ItemData.MoveCause.HasValue)
-            ItemChangeCauses.OnClientSnapshot(networkedItem, packet.ItemData, PlayerId);
+            ClientItemChangeLog.OnSnapshot(networkedItem, packet.ItemData, PlayerId);
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
     private void OnClientboundItemAdoptionPacket(ClientboundItemAdoptionPacket packet)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Item", null);
-        NetworkedItemManager.Instance.ApplyItemAdoptionResult(packet.Result);
+        ClientItemManager.Instance?.ApplyItemAdoptionResult(packet.Result);
     }
 
     private void OnClientboundItemRecallResultPacket(ClientboundItemRecallResultPacket packet)
@@ -215,6 +215,12 @@ public partial class NetworkClient : IItemClient
     //    SendNetSerializablePacketToServer(new CommonItemsBulkUpdatePacket { Items = items },
     //            DeliveryMethod.ReliableOrdered);
     //}
+
+    IItemManagerClientPart IItemClient.CreateItemManagerPart(NetworkedItemManager manager) => new ClientItemManager(manager);
+
+    INetworkedItemClientPart IItemClient.CreateItemPart(NetworkedItem item) => new NetworkedItemClient(item);
+
+    IEnumerable<Dictionary<string, object>> IItemClient.LostAndFoundDebugSnapshot() => LostAndFoundList.DebugSnapshot();
 
     public void SendItemUpdatePacket(ItemUpdateData updateData)
     {
@@ -327,7 +333,7 @@ public partial class NetworkClient : IItemClient
 
     private void OnClientboundWorldItemCataloguePacket(ClientboundWorldItemCataloguePacket packet)
     {
-        NetworkedItemManager.Instance.SetAuthoredCatalogueNegotiationResult(packet?.Accepted == true);
+        ClientItemManager.Instance?.SetAuthoredCatalogueNegotiationResult(packet?.Accepted == true);
         DebugRuntime.Publish("item-world", "world-item.catalogue-result", DebugRuntimeSide.Client,
             packet?.Accepted == true ? DebugSeverity.Info : DebugSeverity.Error, data: new()
             {
@@ -340,16 +346,16 @@ public partial class NetworkClient : IItemClient
     }
 
     private void OnClientboundItemSpatialLeasePacket(ClientboundItemSpatialLeasePacket packet) =>
-        NetworkedItemManager.Instance?.ReceiveItemSpatialLease(packet);
+        ClientItemManager.Instance?.Spatial.ReceiveClientLease(packet);
 
     private void OnClientboundItemSpatialSamplePacket(ClientboundItemSpatialSamplePacket packet)
     {
         if (packet?.State != null)
-            NetworkedItemManager.Instance?.ReceiveItemSpatialSample(packet.State);
+            ClientItemManager.Instance?.Spatial.ReceiveRelayedSample(packet.State);
     }
 
     private void OnClientboundItemSpatialCommitPacket(ClientboundItemSpatialCommitPacket packet) =>
-        NetworkedItemManager.Instance?.ReceiveItemSpatialCommit(packet);
+        ClientItemManager.Instance?.Spatial.ReceiveSpatialCommit(packet);
 
     public void SendItemSpatialSample(ItemSpatialStateData state)
     {

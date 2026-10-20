@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
 using Multiplayer.Server.Session;
@@ -25,6 +26,21 @@ public static class ItemChangeLog
     public static ChangeCause<ItemRemovalReason> Removal(ItemRemovalReason reason, ServerPlayer by = null,
         string detail = null) =>
         new(reason, by?.PlayerId ?? 0, by?.Username, NetworkLifecycle.Instance?.Tick ?? 0, detail);
+
+    /// <summary>
+    /// Host: a job booklet, overview or report is about to be destroyed by the job system. Its
+    /// callers are still on the stack here, unlike in OnDestroy, so they say which job event did it.
+    /// </summary>
+    public static void NoteJobDocumentRemoval(UnityEngine.Component document, DV.Logic.Job.Job job, Type patch)
+    {
+        if (document == null || NetworkLifecycle.Instance?.IsHost() != true ||
+            !document.TryGetComponent(out NetworkedItem item) || item.NetId == 0)
+            return;
+        item.NoteRemovalCause(new ChangeCause<ItemRemovalReason>(ItemRemovalReason.JobDocumentDestroyed,
+            tick: NetworkLifecycle.Instance?.Tick ?? 0, detail: ItemChangeCauses.Detail(
+                job != null ? $"job {job.ID} {job.State}" : "no job",
+                "callers " + ItemChangeCauses.Callers(patch, typeof(ItemChangeLog)))));
+    }
 
     public static ItemWhereabouts Whereabouts(AuthoritativeItemRegistry.Record record) =>
         record == null ? default : new ItemWhereabouts((AuthorityPlacement)(byte)record.Placement,

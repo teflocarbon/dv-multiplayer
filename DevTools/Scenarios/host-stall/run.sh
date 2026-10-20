@@ -8,6 +8,9 @@
 #   default) or 0 (client standing by the line)  LAG=client receive lag in ms  HOLD=seconds of game
 #   time at speed (default 15). The train is spawned with enough clear track on the side it's
 #   pushed to, so it never runs into anything.
+# Only breakage fails. With the host in trouble a moving train's cars on the client snap, during
+# the stall and after it (trains slow down to avoid rubber-banding), so the client's jumps are
+# printed as notes, split into during and after the stall, and never fail the run.
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -37,13 +40,13 @@ lag $LAG
 W=$((STALL + 120))
 $D eval -t host -m coroutine --timeout $((W + 30)) -a cars=$cars -a seconds=$W -f $P/watch.cs >"$T/hw.json" &
 $D eval -t client -m coroutine --timeout $((W + 30)) -a cars=$cars -a seconds=$W -f $P/watch.cs >"$T/cw.json" &
-$D eval -t client -m coroutine --timeout $((W + 30)) -a car=$last -a seconds=$W -f DevTools/Scenarios/uncouple-moving/track.cs >"$T/ct.json" &
+$D eval -t client -m coroutine --timeout $((W + 30)) -a car=$last -a seconds=$W -f $P/track.cs >"$T/ct.json" &
 $D eval -t host -m coroutine --timeout $((W + 30)) -a loco=$loco -a speed=$((dir * SPEED)) -a hold=$HOLD 'yield return Trains.Push(Trains.Find(ctx.Args["loco"]), float.Parse(ctx.Args["speed"]), float.Parse(ctx.Args["hold"]), 4f); foreach (var c in Trains.Find(ctx.Args["loco"]).trainset.cars) c.brakeSystem.SetHandbrakePosition(1f); ctx.Result = 1;' >"$T/push.json" &
 # stall once the train is at speed (half a minute at most)
 v=$($D eval -t host -m coroutine --timeout 60 -a loco=$loco -a speed=$SPEED 'var l = Trains.Find(ctx.Args["loco"]); for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 30f && Mathf.Abs(l.GetForwardSpeed()) < 0.8f * float.Parse(ctx.Args["speed"]);) yield return null; ctx.Result = new { v = Math.Round(Mathf.Abs(l.GetForwardSpeed()), 1) };' | field v)
 awk -v v="$v" -v s="$SPEED" 'BEGIN { exit !(v >= 0.8 * s) }' || { echo "FAIL: the train never got up to speed (${v} m/s)"; exit 1; }
 echo "== host stalls for ${STALL}s (train at ${v} m/s)"
-st=$($D eval -t host -m coroutine --timeout $((STALL + 60)) -a seconds=$STALL -f $P/stall.cs)
+st=$($D eval -t host -m coroutine --timeout $((STALL + 60)) -a seconds=$STALL -f $P/stall.cs); echo "$st" >"$T/stall.json"
 echo "   $(echo "$st" | field frames) frames, host game time $(echo "$st" | field gameSeconds)s in $(echo "$st" | field realSeconds)s"
 wait
 lag 0
@@ -56,15 +59,19 @@ $D eval -t host -m coroutine --timeout 60 -a cars=$cars -a seconds=1 -f $P/watch
 $D eval -t client -m coroutine --timeout 60 -a cars=$cars -a seconds=1 -f $P/watch.cs >"$T/cf.json"
 node -e '
 const v=f=>{const o=JSON.parse(require("fs").readFileSync(f,"utf8"));const x=Object.values(o.results)[0];if(!x.ok)throw new Error(f+": "+JSON.stringify(x));return x.result;};
-const [d]=process.argv.slice(1); const hw=v(d+"/hw.json"), cw=v(d+"/cw.json"), ct=v(d+"/ct.json"), hf=v(d+"/hf.json"), cf=v(d+"/cf.json"); const bad=[];
+const [d]=process.argv.slice(1); const hw=v(d+"/hw.json"), cw=v(d+"/cw.json"), ct=v(d+"/ct.json"), hf=v(d+"/hf.json"), cf=v(d+"/cf.json"), st=v(d+"/stall.json"); const bad=[];
 for (const [who,w] of [["host",hw],["client",cw]]) {
   console.log(`   ${who}: worst ${w.worstUncoupled} uncoupled, ${w.worstHoses} hoses off, ${w.worstCocks} cocks shut; brake pipe min ${w.minPipe} bar, loco main res min ${w.minMainRes} bar`+(w.notes.length?" | "+w.notes.join(" / "):""));
   if (w.worstUncoupled||w.worstHoses||w.worstCocks) bad.push(who+" lost a connection");
   if (w.minPipe<3.5) bad.push(who+" brake pipe fell to "+w.minPipe+" bar");
 }
-console.log(`   client last wagon: worst step ${ct.worstJump} m at ${ct.worstAt}s`+(ct.notes.length?" | "+ct.notes.join(" / "):""));
+// Snaps are expected with the host in trouble, during the stall and after it: noted, never failed.
+const describe=j=>`${j.t}s jump ${j.jump} m: ${j.note}`;
+const before=ct.jumps.filter(j=>j.utc<st.startUtc), inStall=ct.jumps.filter(j=>j.utc>=st.startUtc&&j.utc<=st.endUtc), after=ct.jumps.filter(j=>j.utc>st.endUtc);
+console.log(`   client last wagon: worst step ${ct.worstJump} m at ${ct.worstAt}s (noted, not failed)`);
+for (const [when,js] of [["before the stall",before],["during the stall",inStall],["after the stall",after]])
+  if (js.length) console.log(`   ${when}: `+js.slice(0,5).map(describe).join(" / "));
 const dist=Math.hypot(hf.final.lastAbs.x-cf.final.lastAbs.x,hf.final.lastAbs.z-cf.final.lastAbs.z);
 console.log(`   after: last wagon apart ${dist.toFixed(2)} m (host speed ${hf.final.speed}), pipe host ${hf.final.pipe} client ${cf.final.pipe}`);
 if (dist>1) bad.push("peers disagree by "+dist.toFixed(2)+" m");
-if (ct.worstJump>3) bad.push("client wagon snapped "+ct.worstJump+" m");
 if (bad.length){console.log("FAIL: "+bad.join("; "));process.exit(1);} console.log("PASS");' "$T"

@@ -25,7 +25,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     private readonly Dictionary<NetworkedItem, WorldItemCellCoord> HostCellByItem = new();
     private readonly HashSet<NetworkedItem> HostNonSpatialItems = new();
     private readonly Dictionary<byte, HashSet<WorldItemCellCoord>> HostPlayerCells = new();
-    // TEMPORARY: delete with TemporaryClientAdoptionCompatibility after all DV runtime item
+    // TEMPORARY: delete with TemporaryHostAdoptionCompatibility after all DV runtime item
     // producers have explicit host-authoritative operations.
     private readonly HostAdoptionRegistry TemporaryHostAdoptions = new();
     private readonly AuthoredWorldItemReplenishmentManager Replenishment;

@@ -46,6 +46,7 @@ host-authority model works end to end, then points at the rest.
 | Doc | What it covers |
 |---|---|
 | [design/parallel-test-sessions.md](design/parallel-test-sessions.md) | Planned: several dvmp host+client pairs at once, to split the gate and repeat scenarios |
+| [research/harness-time-budget.md](research/harness-time-budget.md) | Where dvmp spends wall-clock time: each launch's phases, what dominates a world load, loading against scenario time in a gate batch, and what a faster launch, an in-world reset or a hot reload would save |
 
 Each design doc starts with a status line and has a dated "Implementation status" section that says
 what is built, what is partial and what is not done. Update it when you change how a system syncs.
@@ -56,6 +57,8 @@ what is built, what is partial and what is not done. Update it when you change h
 storage, item save and load, Lost and Found, PageBook, job validation and reports, the career
 manager, gadgets, train sync and test fixtures, VR items and the dev console. They were written from
 the decompiled game and describe Derail Valley itself, not the mod.
+[research/mapify-test-map.md](research/mapify-test-map.md) is the exception: how Mapify Continued
+replaces the world, where it collides with the mod, and whether a test map is worth it.
 
 ## Generated
 

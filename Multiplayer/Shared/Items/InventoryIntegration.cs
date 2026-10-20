@@ -1,6 +1,5 @@
 using DV.InventorySystem;
 using DV.UI.Inventory;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -400,8 +399,6 @@ internal static class InventoryIntegration
             authoritativeRemovalDepth = Math.Max(0, authoritativeRemovalDepth - 1);
         }
     }
-    private static uint lostItemRequestId;
-
     public static byte LocalPlayerId => runtime.LocalPlayerId;
 
     public static bool ContainsActive(GameObject item) => runtime.ContainsActive(item);
@@ -429,64 +426,10 @@ internal static class InventoryIntegration
             retrievalEligible, hasRetrievalClaim, isLostAndFound));
     }
 
-    /// <returns>True when the original Derail Valley Get handler should execute.</returns>
-    public static bool HandleGetClicked(InventoryUIController controller, int relativeSlot,
-        InventorySectionController section)
-    {
-        global::Multiplayer.Multiplayer.Log($"[Inventory Integration] Get clicked: " +
-            $"relativeSlot={relativeSlot}, section={section?.section.ToString() ?? "null"}, " +
-            $"runtimeActive={runtime.RuntimeActive}");
-        if (!runtime.RuntimeActive ||
-            !runtime.TrySnapshotSlot(controller, relativeSlot, section, out InventorySlotRuntimeSnapshot slot))
-            return true;
+    // The local player's inventory UI (Client/Items/InventoryOwnershipUiPatch) asks with these.
+    internal static bool RuntimeActive => runtime.RuntimeActive;
 
-        NetworkedItem item = slot.NetworkedItem;
-        LostItemData lost = item == null ? null : LostAndFoundList.Items
-            .FirstOrDefault(entry => entry?.NetId == item.NetId);
-        InventoryItemPresentation presentation = Project(item, lost != null);
-
-        global::Multiplayer.Multiplayer.Log($"[Inventory Integration] Slot snapshot: " +
-            $"absoluteSlot={slot.AbsoluteSlot}, dropped={slot.Dropped}, reserved={slot.Reserved}, " +
-            $"item={slot.ItemObject?.name ?? "null"}, netId={item?.NetId ?? 0}, " +
-            $"owner=P{item?.PersistentOwnerPlayerId ?? 0}, local=P{runtime.LocalPlayerId}, " +
-            $"route={presentation.RecallRoute}");
-
-        if (presentation.RecallRoute == InventoryRecallRoute.Vanilla)
-            return true;
-        if (presentation.RecallRoute == InventoryRecallRoute.BlockForeignOwner)
-        {
-            DebugRuntime.Publish("item", "item.foreign-item-recall-blocked",
-                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
-                {
-                    ["localPlayerId"] = runtime.LocalPlayerId,
-                    ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
-                    ["slot"] = slot.AbsoluteSlot
-                });
-            return false;
-        }
-        if (presentation.RecallRoute == InventoryRecallRoute.BlockNotRecallable)
-        {
-            DebugRuntime.Publish("item", "item.recall-blocked-not-eligible",
-                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
-                {
-                    ["localPlayerId"] = runtime.LocalPlayerId,
-                    ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
-                    ["isEssential"] = item.Item?.InventorySpecs?.IsEssential == true,
-                    ["slot"] = slot.AbsoluteSlot
-                });
-            return false;
-        }
-
-        if (presentation.RecallRoute == InventoryRecallRoute.LostAndFoundRetrieval &&
-            !NetworkLifecycle.Instance.IsHost())
-        {
-            uint requestId = unchecked(++lostItemRequestId);
-            ItemClient.Current?.RequestLostItemRetrieval(requestId, lost.Handle,
-                item.NetId, lost.Revision, slot.AbsoluteSlot);
-            return false;
-        }
-
-        NetworkedItemManager.Instance?.RequestItemRecall(item, slot.AbsoluteSlot);
-        return false;
-    }
+    internal static bool TrySnapshotSlot(InventoryUIController controller, int relativeSlot,
+        InventorySectionController section, out InventorySlotRuntimeSnapshot slot) =>
+        runtime.TrySnapshotSlot(controller, relativeSlot, section, out slot);
 }

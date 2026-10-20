@@ -26,7 +26,7 @@ public class APIProvider : IMultiplayerAPI
 
     public bool IsDedicatedServer => NetworkLifecycle.Instance.IsDedicatedHost;
 
-    public bool IsSinglePlayer => NetworkLifecycle.Instance.IsServerRunning && (NetworkLifecycle.Instance?.Server.IsSinglePlayer ?? false);
+    public bool IsSinglePlayer => NetworkLifecycle.Instance.IsServerRunning && NetworkLifecycle.Instance.LocalServer is IApiServer server && server.IsSinglePlayer;
 
     public event Action<uint> OnTick;
     public uint TICK_RATE => NetworkLifecycle.TICK_RATE;

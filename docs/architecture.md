@@ -269,7 +269,7 @@ Concrete cases:
   the escrow is refunded and the stock resent. The host spawns the purchase owned by the buyer.
   Depositing a money item is refused if the note is in a container, the Lost and Found, or
   someone else's hands.
-- **Explosions and hazmat.** `Shared/Trains/ExplosionPatch.cs`: clients never start an explosion
+- **Explosions and hazmat.** `Shared/Trains/ExplosionSync.cs`: clients never start an explosion
   or apply its force; the host sends which car exploded and clients play effects only, while the
   resulting train motion arrives through train sync. `Server/World/HazmatServer.cs`:
   the host sends changed hazmat tiles every half second; a client lighting a tile sends

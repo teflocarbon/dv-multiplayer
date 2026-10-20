@@ -29,7 +29,7 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
   Clients no longer auto-couple spawned cars themselves (477a94c); they wait for the host's
   snapshot. Nor do they run the steam tender auto-couplers (vanilla's
   `SteamTenderAutoCoupleMechanism` and Custom Car Loader's `CarAutoCouplerInternal`,
-  `Shared/Trains/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
+  `Client/Trains/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
   after a spawn, rerail or uncouple, which a client sent the host as its player's commands.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
@@ -460,6 +460,16 @@ calls it through `ITrainCarClientPart` at the end of `Start`, in `OnDisable`, fr
 when the host's port values land. Client code reaches it as `car.Client()`. In host-local-session
 stage 3 the host's session has to implement `ITrainClient` too, or the host's cars get no
 local-player half (no lever leases, no chain interactions reported).
+
+The car's own changes (dirty ports, fuses, handbrake, brake release, paint) go through one of the
+two, its `Role` (`ITrainCarRole`, both parts implement it): the server's half on the server, which
+commits them as the authority's, or the local player's on a client, which asks the host for them.
+The role picks which changes are this game's to send (the server: every port its simulation sets,
+less the locally fed ones and the handcar handle; a client: the controls players drive, and fuses
+and handbrakes only in reach or by remote) and takes the host's port values as they land, so the car
+doesn't ask which game it is on. On the host its player's half is still consulted for leases
+(`IsBlocked`) and for the host values being written (`WritingHostValues`); the server's half marks
+the car initialised (`Client_Initialized`: it follows nobody).
 
 What stays in the car is what both roles run: dirty tracking and the sends' common part, applying
 a coupler interaction (`Common_ReceiveCouplerInteraction`, the host for a player's request and a

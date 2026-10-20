@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
@@ -20,8 +21,17 @@ public interface IItemClient
     void SendItemSpatialSettlement(ItemSpatialStateData state);
     void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet);
 
+    /// <summary>The remote client's part of a new item manager (never asked for on the host).</summary>
+    IItemManagerClientPart CreateItemManagerPart(NetworkedItemManager manager);
+
+    /// <summary>The remote client's half of a new item (never asked for on the host).</summary>
+    INetworkedItemClientPart CreateItemPart(NetworkedItem item);
+
     void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
         uint expectedRevision, int requestedSlot = -1);
+
+    /// <summary>The local player's Lost and Found list as the server last sent it, for the in-game overlay.</summary>
+    IEnumerable<Dictionary<string, object>> LostAndFoundDebugSnapshot();
 }
 
 public static class ItemClient

@@ -36,7 +36,7 @@ namespace Multiplayer.Server.Dedicated;
 ///   -mp-autosave N           minutes between saves while anyone is online (default 10)
 ///   -mp-heartbeat PATH       rewrite PATH every 5 s with the host's state (JSON), for a watchdog
 ///   -mp-owner STEAMID64      the career's owner when the server runs under another Steam account
-///                            (PlayerIdentity.Owner); any host takes it
+///                            (CareerOwner.Id); any host takes it
 /// Server name, password, max players and details come from the mod's settings.
 /// With nobody online the game saves and pauses; admins (the owner, and Settings.Admins) have
 /// /save, /stop and /payfees in chat (ChatManager).

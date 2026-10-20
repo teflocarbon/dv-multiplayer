@@ -4,6 +4,7 @@ using DV.UI;
 using DV.UI.PresetEditors;
 using DV.UIFramework;
 using HarmonyLib;
+using Multiplayer.Menus.Controls;
 using Multiplayer.Shared.Utils;
 #if DEBUG
 #endif

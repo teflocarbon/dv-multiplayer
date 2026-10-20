@@ -35,9 +35,21 @@ public partial class NetworkClient : ITrainClient
 {
     public ITrainCarClientPart CreateCarPart(NetworkedTrainCar car) => new global::Multiplayer.Client.Trains.NetworkedTrainCarClient(car);
 
-    ChangeCause<UncoupleReason>? ITrainClient.RefusalUncoupleCause => RefusalUncoupleCause;
+    public bool TryFollowingHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
+    {
+        cause = default;
+        // The host's topology is its own (its loopback client applies none of it).
+        if (!NetworkedTrainCar.IsApplyingAuthoritativeTopology || NetworkLifecycle.Instance.IsHost())
+            return false;
+        if (RefusalUncoupleCause is ChangeCause<UncoupleReason> refused)
+            cause = refused;
+        else if (!TakeHostUncoupleCause(coupler, other, out cause))
+            cause = TrainChangeCauses.Cause(UncoupleReason.FollowingHost);
+        return true;
+    }
 
-    public bool TakeHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
+    // The host's own reason for an uncouple this client is following, if it sent one.
+    private bool TakeHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
     {
         foreach (Coupler end in new[] { coupler, other })
         {
