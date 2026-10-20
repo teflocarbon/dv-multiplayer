@@ -292,7 +292,10 @@ it, and takes away the part of its velocity going into the ground. It's left alo
   snapshot, a placement).
 
 The correction happens before the step's pose is rendered or sampled, so observers never see the
-item under the ground, and its next motion sample carries the corrected pose. The fall rescue
+item under the ground, and its next motion sample carries the corrected pose. An observer
+extrapolates the last sample by up to 0.15 s (`ApplyObservedPose`); a sample taken just before the
+item lands would carry its proxy on into the ground, so a prediction that ends under the terrain
+when the sample itself is above it is dropped and the proxy stays at the sample. The fall rescue
 (`ServerItemManager.FallRescue.cs`, `ClientItemManager.FallRescue.cs`) stays as the backstop for
 what the guard can't see. Neither touches an item under the terrain that has a floor under it within
 3 m (`HasFloorUnder`: anything but terrain and items), so items in tunnels stay there.
