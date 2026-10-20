@@ -2,13 +2,14 @@ using DV.Customization.Paint;
 using DV.Logic.Job;
 using MPAPI.Interfaces;
 using MPAPI.Types;
+using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using System;
 using System.Collections.Generic;
 
-namespace Multiplayer.Shared.Api;
+namespace Multiplayer;
 
 public class APIProvider : IMultiplayerAPI
 {
@@ -22,7 +23,7 @@ public class APIProvider : IMultiplayerAPI
 
     public bool IsConnected => NetworkLifecycle.Instance.IsSessionRunning;
 
-    public bool IsHost => NetworkLifecycle.Instance.IsHost();
+    public bool IsHost => NetworkRole.IsServer;
 
     public bool IsDedicatedServer => NetworkLifecycle.Instance.IsDedicatedHost;
 

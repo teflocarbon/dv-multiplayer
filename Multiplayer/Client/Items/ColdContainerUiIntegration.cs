@@ -406,8 +406,7 @@ internal static class ColdContainerUiIntegration
     {
         Guid operation = operationId?.Length == 16 ? new Guid(operationId) : Guid.Empty;
         DebugRuntime.Publish("inventory", eventName,
-            NetworkLifecycle.Instance?.IsHost() == true ? DebugRuntimeSide.Server :
-                DebugRuntimeSide.Client, severity, "ContainerOperation",
+            NetworkRole.DebugSide, severity, "ContainerOperation",
             operation == Guid.Empty ? string.Empty : operation.ToString("D"),
             correlationId: operation == Guid.Empty ? string.Empty : operation.ToString("D"),
             data: data);

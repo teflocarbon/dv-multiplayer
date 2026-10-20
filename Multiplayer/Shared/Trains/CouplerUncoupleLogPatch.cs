@@ -37,7 +37,7 @@ public static class CouplerUncoupleLogPatch
 
             // The server sends its causes with the next topology snapshot.
             TrainRoles.Server?.NoteUncouple(__instance, cause);
-            bool host = lifecycle.IsHost();
+            bool host = NetworkRole.IsServer;
             Multiplayer.Log($"Uncoupled {car?.ID} ({End(__instance)}) from {otherCar?.ID} ({End(other)}) " +
                 $"on the {(host ? "host" : "client")}: {cause}");
             DebugRuntime.Publish("train", "train.uncoupled", TrainChangeCauses.Side, entityType: "TrainCar",

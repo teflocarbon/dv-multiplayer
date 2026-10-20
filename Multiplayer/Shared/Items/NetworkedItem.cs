@@ -216,7 +216,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         ClientPart?.RegisterIfUnbound();
 
         EntityDebugRegistry.RegisterItem(this);
-        DebugRuntime.Publish("item", "item.registered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", "item.registered", NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: EntityDebugRegistry.ItemState(this));
     }
 
@@ -253,7 +253,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             NetworkedItemManager.Instance?.OnTrainItemRemoved(NetId);
 
         if (!suppressNetworkDestroy)
-            DebugRuntime.Publish("item", "item.destroyed", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            DebugRuntime.Publish("item", "item.destroyed", NetworkRole.DebugSide,
                 entityType: "Item", entityId: NetId.ToString(), data: EntityDebugRegistry.ItemState(this));
         EntityDebugRegistry.Unregister("Item", NetId.ToString());
         DebugDesyncDetector.Forget(NetId);
@@ -307,7 +307,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     private void OnGrabbed(ControlImplBase obj)
     {
-        playerBelongsToId = NetworkLifecycle.Instance.LocalSession.PlayerId;
+        playerBelongsToId = NetworkRole.LocalPlayerId;
         RefreshLocalVrHandAfterInteraction();
         releasedAt = -1f;
         LocallyReleasedAt = -1f;
@@ -637,7 +637,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         data["trigger"] = reason ?? string.Empty;
         data["suppressionReason"] = suppressionReason ?? string.Empty;
         DebugRuntime.Publish("item", eventName,
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: data);
     }
 

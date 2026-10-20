@@ -74,7 +74,7 @@ public partial class NetworkedItem
                 if (hadLocalPossession)
                 {
                     DebugRuntime.Publish("item", "item.local-possession-revoked",
-                        NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                        NetworkRole.DebugSide,
                         entityType: "Item", entityId: NetId.ToString(), data: new()
                         {
                             ["localPlayerId"] = localPlayerId,
@@ -268,7 +268,7 @@ public partial class NetworkedItem
             if (!plan.Accepted)
             {
                 DebugRuntime.Publish("storage", "storage.transition-rejected",
-                    NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                    NetworkRole.DebugSide,
                     DebugSeverity.Warning, "Item", NetId.ToString(), new()
                     {
                         ["reason"] = plan.Reason,
@@ -277,7 +277,7 @@ public partial class NetworkedItem
             }
             else if (plan.RepairedMultipleMembership)
                 DebugRuntime.Publish("storage", "storage.multiple-membership-repaired",
-                    NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                    NetworkRole.DebugSide,
                     DebugSeverity.Warning, "Item", NetId.ToString(), new()
                     {
                         ["removed"] = plan.Remove.ToString(),
@@ -319,7 +319,7 @@ public partial class NetworkedItem
             return;
 
         DebugRuntime.Publish("inventory", "inventory.essential-claim-repaired",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: new()
             {
                 ["slot"] = InventoryClaimSlot,
@@ -331,7 +331,7 @@ public partial class NetworkedItem
     private void PublishClaimInvariant(string code, int actualSlot, ItemState targetState)
     {
         DebugRuntime.Publish("inventory", "inventory.essential-claim-invariant-violation",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["code"] = code,
@@ -366,7 +366,7 @@ public partial class NetworkedItem
         // Only the root presentation layer is canonical for world-state validation.
         if (childLayersBefore != null)
             DebugRuntime.Publish("item", "item.world-presentation-layer-applied",
-                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                NetworkRole.DebugSide,
                 entityType: "Item", entityId: NetId.ToString(), data: new()
                 {
                     ["previousRootLayer"] = previousRootLayer,
@@ -457,7 +457,7 @@ public partial class NetworkedItem
         data["violations"] = violations.ToArray();
         Multiplayer.LogWarning($"World item {NetId} failed {stage} invariants: {string.Join(", ", violations)}");
         DebugRuntime.Publish("item", "item.world-state-invariant-violation",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             DebugSeverity.Warning, "Item", NetId.ToString(), data);
     }
 
@@ -482,7 +482,7 @@ public partial class NetworkedItem
         if (additional != null)
             foreach (KeyValuePair<string, object> value in additional)
                 data[value.Key] = value.Value;
-        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: data);
     }
 
@@ -676,7 +676,7 @@ public partial class NetworkedItem
 
             DebugRuntime.Publish("item", snapshot.TransitionReason == ItemTransitionReason.OwnerRecall
                     ? "item.recall-applied" : "item.local-authority-projection-applied",
-                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                NetworkRole.DebugSide,
                 entityType: "Item", entityId: NetId.ToString(), data: DebugUnityState());
             return;
         }
@@ -772,7 +772,7 @@ public partial class NetworkedItem
         hostStateObservationPending = false;
         DebugRuntime.Publish("item", accepted ? "item.recall-transaction-committed" :
                 "item.recall-transaction-cancelled",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             accepted ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["operationId"] = operationId,
@@ -785,7 +785,7 @@ public partial class NetworkedItem
     {
         DebugRuntime.Publish("item", succeeded ? "item.recall-prepare-succeeded" :
                 "item.recall-prepare-failed",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             succeeded ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["operationId"] = operationId,
@@ -807,7 +807,7 @@ public partial class NetworkedItem
         }
 
         DebugRuntime.Publish("inventory", "inventory.essential-claim-restored",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: new()
             {
                 ["requestedSlot"] = requestedSlot,
@@ -853,12 +853,12 @@ public partial class NetworkedItem
             violations.Add("expected-remote-hand-missing");
         if (snapshot.ItemState != ItemState.InHand && actualRemoteHolder != null)
             violations.Add("stale-remote-hand-membership");
-        if (NetworkLifecycle.Instance.IsHost() && HostPossessorPlayerId != snapshot.PlayerId)
+        if (NetworkRole.IsServer && HostPossessorPlayerId != snapshot.PlayerId)
             violations.Add("host-possessor-mismatch");
         if (violations.Count == 0)
             return;
         DebugRuntime.Publish("item", "item.holder-invariant-violation",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["expectedState"] = snapshot.ItemState.ToString(),
@@ -907,7 +907,7 @@ public partial class NetworkedItem
         if (removal.SlotBefore < 0 && removal.EquippedSlotBefore < 0 && !removal.ContainedBefore)
             return;
         DebugRuntime.Publish("inventory", "item.local-inventory-membership-revoked",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             removal.ContainedAfter || removal.SlotAfter >= 0 || removal.EquippedSlotAfter >= 0
                 ? DebugSeverity.Warning : DebugSeverity.Info,
             "Item", NetId.ToString(), new()

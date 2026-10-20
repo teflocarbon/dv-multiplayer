@@ -80,9 +80,9 @@ public partial class NetworkedItem
 
     private bool IsLocalVrReleaseAcknowledgement(ItemUpdateData snapshot)
     {
-        byte localPlayerId = NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
+        byte localPlayerId = NetworkRole.LocalPlayerId;
         return ItemSnapshotApplicationPolicy.IsLocalVrReleaseAcknowledgement(
-            NetworkLifecycle.Instance.IsHost(), localPlayerId, snapshot.OriginatingPlayerId,
+            NetworkRole.IsServer, localPlayerId, snapshot.OriginatingPlayerId,
             WireItemState.InHand, ToWireState(snapshot.ItemState),
             (byte)lastLocallyReleasedHand);
     }

@@ -187,14 +187,14 @@ public partial class NetworkedItemManager
     internal static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
     {
         if (!DebugRuntime.EnabledFor("item") || snapshot == null) return;
-        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
     }
 
     internal static void TraceItem(string eventName, NetworkedItem item, Dictionary<string, object> data)
     {
         if (!DebugRuntime.EnabledFor("item") || item == null) return;
-        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
             entityType: "Item", entityId: item.NetId.ToString(), data: data);
     }
 

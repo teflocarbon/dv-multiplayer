@@ -122,7 +122,5 @@ internal static class GrabberRecoveryPatch
             : GrabberRuntimeState.Unknown;
 
     private static DebugRuntimeSide Side() =>
-        global::Multiplayer.Shared.Session.NetworkLifecycle.Instance?.IsHost() == true
-            ? DebugRuntimeSide.Server
-            : DebugRuntimeSide.Client;
+        global::Multiplayer.Shared.Session.NetworkRole.DebugSide;
 }

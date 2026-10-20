@@ -48,11 +48,9 @@ public static class RemoteDispatchPatch
         if (!NetworkLifecycle.Instance.IsSessionRunning)
             return;
 
-        // The players as MPAPI gives them to any mod: the server's list on the host, the
-        // client's elsewhere.
-        IEnumerable<IPlayer> players = NetworkLifecycle.Instance.IsHost()
-            ? MultiplayerAPI.Server?.Players
-            : MultiplayerAPI.Client?.Players;
+        // The players as MPAPI gives them to any mod: the server's list where there is a server
+        // (registered while it runs), the client's elsewhere.
+        IEnumerable<IPlayer> players = MultiplayerAPI.Server?.Players ?? MultiplayerAPI.Client?.Players;
         if (players == null)
             return;
 

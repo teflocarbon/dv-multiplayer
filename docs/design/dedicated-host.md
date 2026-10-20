@@ -646,7 +646,7 @@ simulation**:
 | **No remote avatars on the host.** `ClientPlayerManager` creates `NetworkedPlayer`s from relayed packets. Server logic relies on them: `HasPlayers` for delete and work-train occupancy, held items attached to avatar hands, plugs following a hand. | `Client/Players/ClientPlayerManager.cs:34-65`; `NetworkedTrainCar.cs:265`; `NetworkServer.cs:2603`, `:2852`; `NetworkedItem.StateApplication.cs:45-103`; `NetworkedPluggableObject.cs:584-625` |
 | **The host's loading screen never comes down.** `DisplayLoadingInfoPatch` unhooks it, and only `RemoveLoadingScreen` to the host's own client removes it. | `Client/Session/DisplayLoadingInfoPatch.cs:8-11`; `NetworkClient.cs:889-920` |
 | **Station loco spawning never starts.** The spawner waits for `Client != null`. | `Server/Trains/StationLocoSpawnerPatch.cs:30-31` |
-| MPAPI NetId lookups aren't initialised (only the client's `Start()` calls `CheckInitialization`), and `RegisterPaintTheme` refuses. | `Shared/Session/NetworkManager.cs:65-69`; `Shared/Api/APIProvider.cs:68`, `:85` |
+| MPAPI NetId lookups aren't initialised (only the client's `Start()` calls `CheckInitialization`), and `RegisterPaintTheme` refuses. | `Shared/Session/NetworkManager.cs:65-69`; `APIProvider.cs`, `:85` |
 
 `IsHost()` alone is used about 300 times. Removing the client is a rewrite. **Keep it, and make it a
 service identity**: the host's `ServerPlayer` exists for transport and `excludeSelf`, but isn't a
@@ -705,7 +705,7 @@ they're blocked for good. A dedicated host needs a serverbound fee-payment reque
 - **Other host-local powers:** key use (`Server/World/KeyUsePatch.cs:10-13`), the weather editor
   and game parameters (broadcast by `GameParamsPatch`), and the host's mod settings (`Settings.cs:38-62`).
 - **MPAPI:** `IsDedicatedServer` is hard-coded `false //feature not implemented`
-  (`Shared/Api/APIProvider.cs:27`). `ClientPlayerWrapper` never sets `isHost`, and `ClientAPIProvider.PlayerCount`
+  (`APIProvider.cs`). `ClientPlayerWrapper` never sets `isHost`, and `ClientAPIProvider.PlayerCount`
   adds one for the local player. Other mods need these defined.
 - `Shared/Integrations/RemoteDispatchPatch.cs:49-57` shows players only while a client runs; with the
   loopback client kept, that's fine.

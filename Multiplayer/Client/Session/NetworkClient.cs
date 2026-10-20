@@ -82,6 +82,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
     public event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
     protected override string LogPrefix => "[Client]";
+    protected override DebugRuntimeSide DebugSide => DebugRuntimeSide.Client;
 
     private Action<DisconnectReason, string> onDisconnect;
     private string disconnectMessage;

@@ -33,7 +33,7 @@ internal static class RespawnOnDropPatch
         Rigidbody rigidbody = item?.ItemRigidbody;
         if (DebugRuntime.EnabledFor("inventory"))
             DebugRuntime.Publish("inventory", "item.respawn-or-destroy-scheduled",
-                NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                NetworkRole.DebugSide,
                 DebugSeverity.Warning, "Item", networked != null && networked.NetId != 0 ? networked.NetId.ToString() : $"unity:{itemObject.GetInstanceID()}",
                 new Dictionary<string, object>
                 {
