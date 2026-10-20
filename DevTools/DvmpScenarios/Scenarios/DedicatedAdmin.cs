@@ -1,8 +1,10 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using DV.ServicePenalty.UI;
+using HarmonyLib;
 using Multiplayer.Server.Dedicated;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -57,15 +59,24 @@ namespace Dvmp.Scenarios
                     Expect.Equal(s2.Fees, s3.Fees, "fees left after /payfees from a wallet that couldn't cover them");
                     Expect.That(Math.Abs(s3.Money - low) < 0.01, "a refused /payfees took no money", $"wallet {s3.Money}, was {low}");
                 }
-                // Enough, from the fees screen: paid once, and insurance clears the rest.
-                double rich = Math.Round(s2.Cost + 1000, 2);
+                // Enough, from the fees screen: paid once, and insurance clears the rest. The fees can
+                // still be rising (a job's cars taking damage: +22,000 in 10 s in one run), so the
+                // wallet has room to spare, and the check is against what the server paid.
+                double rich = Math.Round(s2.Cost * 2 + 10000, 2);
                 await pair.Host.Run(() => InGame.SetMoney(rich));
-                Report.Note("fees screen: " + await pair.Client.Run(() => InGame.PayFromFeesScreen()));
+                await pair.Host.Run(() => InGame.WatchPayments());
+                string screen = await pair.Client.Run(() => InGame.PayFromFeesScreen());
+                Report.Note("fees screen: " + screen);
+                Expect.Equal("confirmed", screen, "the client's fees screen offered to pay the fees");
                 await Task.Delay(3000);   // the server pays and answers
                 State s4 = await pair.Host.Run(() => InGame.State());
-                Report.Note($"with ${rich}: fees left {s4.Fees}, wallet ${s4.Money}");
+                Payment[] paid = await pair.Host.Run(() => InGame.Payments());
+                Report.Note($"with ${rich}: fees left {s4.Fees}, wallet ${s4.Money}; payments: {string.Join("; ", paid.Select(p => p.ToString()))}");
                 Expect.Zero(s4.Fees, "fees left after the fees screen paid them");
-                Expect.That(Math.Abs(rich - s4.Money - s2.Cost) < 0.01, "the wallet went down by the fees exactly once", $"by {rich - s4.Money}, the fees {s2.Cost}");
+                Expect.Equal(1, paid.Length, "payments the fees screen's request made");
+                double cost = paid.Length == 1 ? paid[0].Cost : 0;
+                Expect.That(cost >= s2.Cost - 0.01 && Math.Abs(rich - s4.Money - cost) < 0.01, "the wallet went down by the fees exactly once",
+                    $"by {rich - s4.Money}, the server paid {cost}, the fees were {s2.Cost} before");
             }
 
             Report.Note("the last player leaves");
@@ -97,6 +108,15 @@ namespace Dvmp.Scenarios
             public bool Paused;
             public double Money, Cost;
             public int Fees, Players;
+        }
+
+        /// <summary>A FeePayment.PayAll on the host: what it paid, or what it would have cost.</summary>
+        public sealed class Payment
+        {
+            public int Paid, Cleared;
+            public double Cost, Shortfall;
+
+            public override string ToString() => Shortfall > 0 ? $"refused, ${Shortfall} short" : $"{Paid} paid ${Cost}, {Cleared} cleared";
         }
 
         // ---- runs inside the games
@@ -142,6 +162,29 @@ namespace Dvmp.Scenarios
 
             [Step]
             public static void SetMoney(double money) => DV.InventorySystem.Inventory.Instance.SetMoney(money);
+
+            private static readonly List<Payment> payments = new();
+            private static bool watching;
+
+            /// <summary>Host: records each FeePayment.PayAll from now on (Payments), from none. The
+            /// patch stays for the life of the game.</summary>
+            [Step]
+            public static void WatchPayments()
+            {
+                payments.Clear();
+                if (watching) return;
+                new Harmony("dvmp.scenarios.dedicated-admin").Patch(
+                    AccessTools.Method(typeof(Multiplayer.Server.Career.FeePayment), nameof(Multiplayer.Server.Career.FeePayment.PayAll)),
+                    postfix: new HarmonyMethod(typeof(InGame), nameof(PaidAll)));
+                watching = true;
+            }
+
+            private static void PaidAll(Multiplayer.Server.Career.FeePayment.Result __result) =>
+                payments.Add(new Payment { Paid = __result.Paid, Cost = __result.Cost, Cleared = __result.Cleared, Shortfall = __result.Shortfall });
+
+            /// <summary>Host: the payments since WatchPayments.</summary>
+            [Step]
+            public static Payment[] Payments() => payments.ToArray();
 
             /// <summary>Client: a chat line or command, as typed.</summary>
             [Step]

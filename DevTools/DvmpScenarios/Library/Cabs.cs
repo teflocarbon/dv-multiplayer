@@ -59,6 +59,27 @@ namespace Dvmp.Scenarios
         public static IEnumerator SpawnLoco(Step<Loco> step, string livery, bool handbrake, bool tender)
         {
             TrainCar car = tender ? Trains.SpawnWithTenderNearPlayer(livery) : Trains.SpawnNearPlayer(livery);
+            return Landed(step, car, handbrake, tender);
+        }
+
+        /// <summary>
+        /// Host: as <see cref="SpawnLoco"/> with no tender, near a player: <paramref name="near"/>
+        /// "host" (the host's own player) or "client" (the host's avatar of the client). A dedicated
+        /// host's own player is its parked body, where the save left it, which can be far from the
+        /// client.
+        /// </summary>
+        [Step]
+        public static IEnumerator SpawnLocoNear(Step<Loco> step, string livery, bool handbrake, string near)
+        {
+            Transform around = near == "host" ? PlayerManager.PlayerTransform
+                : near == "client" ? UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First().transform
+                : throw new ArgumentException("near is host or client, not " + near);
+            return Landed(step, Trains.SpawnNearPlayer(livery, around: around), handbrake, false);
+        }
+
+        // A loco just spawned: recorded for the leak check, braked if asked, left 120 frames to land.
+        private static IEnumerator Landed(Step<Loco> step, TrainCar car, bool handbrake, bool tender)
+        {
             foreach (TrainCar c in car.trainset.cars) spawned.Add(c.ID);
             if (handbrake) car.brakeSystem.SetHandbrakePosition(1f);
             for (int i = 0; i < 120; i++) yield return null;

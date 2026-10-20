@@ -17,13 +17,14 @@ namespace Dvmp.Lib
             ?? throw new InvalidOperationException("no car " + id);
 
         /// <summary>Host only: spawns a car of the given livery on the track nearest a point
-        /// <paramref name="ahead"/> metres in front of the local player.</summary>
-        public static TrainCar SpawnNearPlayer(string liveryId, float ahead = 25f)
+        /// <paramref name="ahead"/> metres in front of the local player, or of <paramref name="around"/>
+        /// (a dedicated host's local player is its parked body, which can be far from every client).</summary>
+        public static TrainCar SpawnNearPlayer(string liveryId, float ahead = 25f, Transform around = null)
         {
             var livery = DV.Globals.G.Types.Liveries.FirstOrDefault(l => l.id == liveryId)
                 ?? throw new InvalidOperationException("no livery " + liveryId);
             // The nearest track can be occupied; try points around the player until one has room.
-            Transform player = PlayerManager.PlayerTransform;
+            Transform player = around != null ? around : PlayerManager.PlayerTransform;
             Vector3 flatForward = Vector3.ProjectOnPlane(player.forward, Vector3.up).normalized;
             Vector3 right = Vector3.Cross(Vector3.up, flatForward);
             foreach (float distance in new[] { ahead, ahead * 1.6f, ahead * 2.4f })

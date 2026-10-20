@@ -838,6 +838,7 @@ public class ChatManager
         FeePayment.Result result = FeePayment.PayAll();
         if (result.Shortfall > 0)
         {
+            Multiplayer.Log($"{sender.Username}'s fee payment refused: the fees come to ${result.Shortfall:N2}, the wallet has ${DV.InventorySystem.Inventory.Instance.PlayerMoney:N2}");
             Reply(sender, $"The fees come to ${result.Shortfall:N2}, more than the ${DV.InventorySystem.Inventory.Instance.PlayerMoney:N2} in the wallet.");
             return;
         }

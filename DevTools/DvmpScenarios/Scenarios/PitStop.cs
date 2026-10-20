@@ -3,6 +3,7 @@ using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
+using Multiplayer.Server.Stations;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Stations;
 using UnityEngine;
@@ -21,6 +22,9 @@ namespace Dvmp.Scenarios
     /// physics yanks it out of the hand (Server/Stations/PropHoseRopePatch): the server has nobody
     /// holding it, the client's plug was moved by the yank the host sent, and both games agree
     /// whether it ended up snapped home.
+    /// Every run starts from the plug at home and held by nobody: one that isn't (a yank run before
+    /// left it on the ground, a failed run left it held) is docked home by the server, which tells the
+    /// client, as when the hose snaps it home.
     /// </summary>
     [Scenario("pit-stop", "A player works a service station's lever and plug: the other game sees the lever and plug held and let go, and the server records who holds the plug (MODE=yank: the hose yanks it from the client)")]
     [Budget(300)]
@@ -53,6 +57,15 @@ namespace Dvmp.Scenarios
             await Until.True(async () => (await pair.Client.Run(() => InGame.State(f.Station, f.Plug, f.Resource))).Refreshed, 30, "the client got the station's state");
             Require.That((await pair.Client.Run(() => InGame.State(f.Station, f.Plug, f.Resource))).Found, "the client has the station and plug");
             Require.That((await pair.Host.Run(() => InGame.State(f.Station, f.Plug, f.Resource))).Found, "the host has the station and plug");
+            if (await pair.Host.Run(() => InGame.SendHome(f.Plug)))
+            {
+                Report.Note("the plug wasn't home and free: the server docks it home");
+                await Until.True(async () =>
+                {
+                    PeerResults<State> st = await pair.Both.Run(() => InGame.State(f.Station, f.Plug, f.Resource));
+                    return st.Host.AtHome && st.Host.HeldBy == 0 && st.Client.AtHome && st.Client.Holding == 0;
+                }, 30, "both games have the plug home and held by nobody");
+            }
             int me = (await who.Run(() => InGame.State(f.Station, f.Plug, f.Resource))).Me;
 
             Report.Note($"{o.Who} pulls the lever");
@@ -116,6 +129,8 @@ namespace Dvmp.Scenarios
             public int HeldBy, Holding;
             /// <summary>The lever is held by another player here.</summary>
             public bool RemoteGrabbed;
+            /// <summary>The plug is plugged into its own stand here.</summary>
+            public bool AtHome;
             /// <summary>This game's own player id (0 on a dedicated host).</summary>
             public int Me;
         }
@@ -130,7 +145,10 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
-            /// <summary>Host: the plug nearest an absolute x/z that belongs to a station with a resource lever.</summary>
+            /// <summary>
+            /// Host: the plug nearest an absolute x/z that belongs to a station with a resource lever, and
+            /// where its home is (players stand by that: the plug may not be there yet).
+            /// </summary>
             [Step]
             public static Found Find(float x, float z)
             {
@@ -138,7 +156,7 @@ namespace Dvmp.Scenarios
                 var plug = Dev.All<NetworkedPluggableObject>()
                     .Where(n => n != null && n.Station != null && n.Station.leverStateLookup.Count > 0 && n.PluggableObject != null && n.PluggableObject.startAttachedTo != null)
                     .OrderBy(n => Flat(Dev.Abs(n.transform.position))).First();
-                var abs = Dev.Abs(plug.transform.position);
+                var abs = Dev.Abs(plug.PluggableObject.GetSnappedWorldPositionFor(plug.PluggableObject.startAttachedTo));
                 return new Found { Plug = plug.NetId, Station = plug.Station.NetId, Resource = (int)plug.Station.leverStateLookup.Keys.First(), Name = plug.Station.StationName, X = abs.x, Z = abs.z };
             }
 
@@ -177,6 +195,22 @@ namespace Dvmp.Scenarios
                 p.OnPluggedIn(p.PluggableObject, p.PluggableObject.startAttachedTo);
             }
 
+            /// <summary>
+            /// Host: unless the plug is home and held by nobody, docks it home through the server, which
+            /// tells the players at the station (the path the hose's snap home takes). True if it had to.
+            /// </summary>
+            [Step]
+            public static bool SendHome(ushort plug)
+            {
+                NetworkedPluggableObject.Get(plug, out NetworkedPluggableObject p);
+                if (p.HeldByPlayerId == 0 && p.playerHolding == 0 && AtHome(p.PluggableObject))
+                    return false;
+                ServerPluggableObject.SnappedByRope(p);
+                return true;
+            }
+
+            private static bool AtHome(PluggableObject plug) => plug.State == PluggableObject.PluggableState.PluggedIn && plug.Socket == plug.startAttachedTo;
+
             [Step]
             public static State State(ushort station, ushort plug, int resource)
             {
@@ -188,6 +222,7 @@ namespace Dvmp.Scenarios
                     Refreshed = !s.WaitingForServerState && !p.WaitingForServerState,
                     HeldBy = p.HeldByPlayerId,
                     Holding = p.playerHolding,
+                    AtHome = AtHome(p.PluggableObject),
                     RemoteGrabbed = s.isResourceRemoteGrabbedDict.TryGetValue((DV.ThingTypes.ResourceType)resource, out bool g) && g,
                     Me = NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0
                 };
@@ -225,7 +260,7 @@ namespace Dvmp.Scenarios
                     MaxAway = (float)Math.Round(maxAway, 2),
                     SettleSeen = settleSeen,
                     Away = (float)Math.Round(Away(), 2),
-                    AtHome = plug.State == PluggableObject.PluggableState.PluggedIn && plug.Socket == plug.startAttachedTo,
+                    AtHome = AtHome(plug),
                     X = abs.x, Z = abs.z,
                     HeldBy = netPlug.HeldByPlayerId,
                     // How far from the hose origin a held plug is yanked.

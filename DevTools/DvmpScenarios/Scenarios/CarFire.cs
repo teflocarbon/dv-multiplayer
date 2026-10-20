@@ -62,6 +62,9 @@ namespace Dvmp.Scenarios
             {
                 Loco t = await pair.Host.Run<Loco>(s => InGame.SpawnTank(s, cargo));
                 pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, t.Cars)));
+                // The client next to it: the server takes a client's radio damage only within 200 m,
+                // and a dedicated host's player is a parked body far from the client.
+                await pair.Client.Run(() => Players.TeleportToGround(t.At.X + 6f, t.At.Z), 90);
                 return t;
             }
 
