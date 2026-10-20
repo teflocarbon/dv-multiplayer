@@ -38,6 +38,8 @@
         <!-- Compiled against: the exe copies it, so a run can tell whether the games run this build. -->
         <!-- Not Private: that would copy every game DLL Multiplayer depends on. Only the mod's own. -->
         <Reference Include="Multiplayer"><HintPath>$(MultiplayerAssemblyPath)</HintPath><Private>false</Private></Reference>
+        <!-- The mod's Unity-free core (ChangeCause, ItemMoveReason...): its types are in Multiplayer's signatures. -->
+        <Reference Include="Multiplayer.Core"><HintPath>$([System.IO.Path]::GetDirectoryName($(MultiplayerAssemblyPath)))\Multiplayer.Core.dll</HintPath><Private>false</Private></Reference>
         <None Include="$([System.IO.Path]::GetDirectoryName($(MultiplayerAssemblyPath)))\Multiplayer*.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
         <!-- Release: a Debug build of the agent installs itself into the game. -->
         <ProjectReference Include="..\DvmpAgent\DvmpAgent.csproj" SetConfiguration="Configuration=Release" Private="false" />
