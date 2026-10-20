@@ -29,7 +29,7 @@ public enum ItemState : byte
     InHand,         //held by player
     InInventory,    //in player's inventory
     Attached,       //attached to another object (e.g. EOT Lanterns)
-    Removed,        //Unattached from mounting point
+    Installed,      //installed on a car as a gadget: the item is inactive and its projection is on the car
 }
 
 public enum ClientItemUnboundState : byte
@@ -110,7 +110,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool hasLastSentState;
     private bool stateDirty;
     private bool wasThrown;
-    private bool wasRemoved;
     // The frame the local VR player let go of a belt-snappable item, or -1 (BeltItemPolicy).
     private int vrBeltReleaseFrame = -1;
     private ItemInteractionWindow localInteraction;
@@ -377,16 +376,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         MarkLocalStateDirty("thrown");
     }
 
-    public void OnRemove()
-    {
-        playerBelongsToId = 0;
-        playerBelongsTo = null;
-        ClearPlayerHand();
-        wasRemoved = true;
-        MarkLocalStateDirty("removed");
-    }
-
-
     public T GetTrackedItem<T>() where T : Component
     {
         return UsefulItem ? trackedItem as T : null;
@@ -516,7 +505,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         applyingRemoteSnapshot = false;
         stateDirty = false;
         wasThrown = false;
-        wasRemoved = false;
         localInteraction.Reset();
         hasLastSentState = false;
         ResetVrHandState();
@@ -566,6 +554,16 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             stateDirty = false;
             PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState,
                 reason, "recall-prepare-pending");
+            return;
+        }
+        // An installed gadget's placement is the gadget server's to commit (gadgets.md, "The
+        // installed gadget and its item"): no game reports it as its own observation.
+        if (currentState == ItemState.Installed)
+        {
+            stateDirty = false;
+            lastState = currentState;
+            PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState,
+                reason, "installed-gadget");
             return;
         }
         // A client's release grace. Stays dirty, so LateUpdate looks again each frame until it's

@@ -165,7 +165,6 @@ public partial class NetworkedItem
             createdDirty = false;
             stateDirty = false;
             wasThrown = false;
-            wasRemoved = false;
             MarkValuesClean();
             return null;
         }
@@ -222,7 +221,6 @@ public partial class NetworkedItem
             serverPart?.ClearObservation();
             stateDirty = false;
             wasThrown = false;
-            wasRemoved = false;
             return null;
         }
 
@@ -252,7 +250,6 @@ public partial class NetworkedItem
         createdDirty = false;
         stateDirty = false;
         wasThrown = false;
-        wasRemoved = false;
 
         MarkValuesClean();
 
@@ -265,7 +262,6 @@ public partial class NetworkedItem
         serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
-        wasRemoved = false;
         MarkValuesClean();
     }
 
@@ -275,7 +271,6 @@ public partial class NetworkedItem
         serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
-        wasRemoved = false;
         MarkValuesClean();
     }
 
@@ -286,7 +281,6 @@ public partial class NetworkedItem
         serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
-        wasRemoved = false;
         MarkValuesClean();
     }
 
@@ -585,8 +579,8 @@ public partial class NetworkedItem
                 case ItemState.Attached:
                     HandleAttachedState(snapshot);
                     break;
-                case ItemState.Removed:
-                    Item.GetComponent<GadgetBase>()?.Remove(true);
+                case ItemState.Installed:
+                    HandleInstalledState();
                     break;
 
                 default:
@@ -754,6 +748,13 @@ public partial class NetworkedItem
     {
         //Multiplayer.LogDebug(() => $"GetItemState() NetId: {NetId}, {name}, Parent: {Item.transform.parent} WorldMover: {WorldMover.OriginShiftParent}, wasThrown: {wasThrown}, isGrabbed: {Item.IsGrabbed()} Inventory.Contains(): {Inventory.Instance.Contains(this.gameObject, false)} Storage.Contains: {StorageController.Instance.StorageInventory.ContainsItem(Item)}");
 
+        // Vanilla keeps an installed gadget's item in its installed storage, inactive.
+        try
+        {
+            if (StorageController.Instance?.StorageInstalledGadgets?.ContainsItem(Item) == true)
+                return ItemState.Installed;
+        }
+        catch { }
 
         if (wasThrown)
         {
@@ -792,12 +793,6 @@ public partial class NetworkedItem
         {
             //Multiplayer.LogDebug(() => $"GetItemState() NetId: {NetId}, {name}, snapped! {this.transform.parent}");
             return ItemState.Attached;
-        }
-
-        if (wasRemoved)
-        {
-            //Multiplayer.LogDebug(() => $"GetItemState() NetId: {NetId}, {name}, was removed");
-            return ItemState.Removed;
         }
 
         //do we need a condition to check if it's attached to something else (last attach vs current attach)?

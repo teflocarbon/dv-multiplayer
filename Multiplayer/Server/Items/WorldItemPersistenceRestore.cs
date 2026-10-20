@@ -3,6 +3,7 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using DV.ThingTypes;
+using Multiplayer.Server.Gadgets;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -81,6 +82,14 @@ internal static partial class WorldItemPersistenceManager
         NetworkedItem item = FindOrCreateRepresentation(saved);
         if (item == null)
             return false;
+        // Older builds saved installed gadgets here as world items as well as in vanilla's installed
+        // storage. Binding the row to the installed item would make it a loose item and place it again.
+        if (GadgetItemTransitions.IsInstalled(item))
+        {
+            Multiplayer.LogWarning($"Ignoring saved world item {saved.PrefabName} ({saved.PersistentItemId:D}): " +
+                                   "it is an installed gadget, saved as a world item by an older build");
+            return false;
+        }
 
         item.transform.SetPositionAndRotation(saved.Position + WorldMover.currentMove, saved.Rotation);
 

@@ -49,7 +49,10 @@ public enum ItemTransitionReason : byte
     // the item where it lies (ItemObjectStateAuthority). Without it the host ignores such changes.
     ClientInteraction,
     // The host throwing a job overview back out of the office bin (Server/Jobs/JobReroll).
-    JobRerollRefused
+    JobRerollRefused,
+    // The server's gadget code committing an install or a removal vanilla made (Server/Gadgets).
+    GadgetInstalled,
+    GadgetRemoved
 }
 
 [Flags]
