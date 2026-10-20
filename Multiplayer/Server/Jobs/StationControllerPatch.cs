@@ -12,6 +12,7 @@ public static class StationController_Patch
     public static void Awake(StationController __instance)
     {
         __instance.gameObject.AddComponent<NetworkedStationController>();
+        __instance.gameObject.AddComponent<ServerStationController>();
     }
 
     [HarmonyPatch(nameof(StationController.ExpireAllAvailableJobsInStation))]
@@ -19,7 +20,7 @@ public static class StationController_Patch
     public static bool ExpireAllAvailableJobsInStation(StationController __instance)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsServerRunning && !lifecycle.IsClientRunning)
+        if (lifecycle == null || !lifecycle.IsSessionRunning)
             return true;
         return lifecycle.IsHost();
     }

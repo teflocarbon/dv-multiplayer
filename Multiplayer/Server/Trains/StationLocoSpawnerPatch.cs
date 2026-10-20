@@ -5,6 +5,7 @@ using DV.Logic.Job;
 using DV.ThingTypes;
 using DV.Utils;
 using HarmonyLib;
+using Multiplayer.Server.Players;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
@@ -25,7 +26,7 @@ public static class StationLocoSpawner_Start_Patch
     {
         if (!AStartGameData.carsAndJobsLoadingFinished || CarSpawner.Instance.PoolSetupInProgress)
             yield return null;
-        while (NetworkLifecycle.Instance.Client == null)
+        while (!NetworkLifecycle.Instance.IsSessionRunning)
             yield return null;
         if (!NetworkLifecycle.Instance.IsHost())
             yield break;

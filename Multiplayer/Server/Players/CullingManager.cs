@@ -48,7 +48,7 @@ public class CullingManager : IDisposable
 
         checkCoro = CoroutineManager.Instance.StartCoroutine(PlayerDistanceChecker());
 
-        NetworkLifecycle.Instance.Server.PlayerDisconnected += OnPlayerDisconnected;
+        NetworkServer.Instance.PlayerDisconnected += OnPlayerDisconnected;
     }
 
     public void Dispose()
@@ -56,8 +56,8 @@ public class CullingManager : IDisposable
         if (checkCoro != null)
             CoroutineManager.Instance.Stop(checkCoro);
 
-        if (NetworkLifecycle.Instance.Server != null)
-            NetworkLifecycle.Instance.Server.PlayerDisconnected -= OnPlayerDisconnected;
+        if (NetworkServer.Instance != null)
+            NetworkServer.Instance.PlayerDisconnected -= OnPlayerDisconnected;
     }
 
     //todo: fix when merged with ModAPI branch
@@ -81,11 +81,22 @@ public class CullingManager : IDisposable
             yield return new WaitForSeconds(_checkInterval);
 
             //if not active then there is no one close by
-            if (_referenceObject != null && _referenceObject.activeInHierarchy)
+            if (_referenceObject != null && !_referenceObject.activeInHierarchy)
             {
-                foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
+                // Everyone tracked has left, even if the object went inactive before their cull
+                // delay ran out: kept, they'd never "enter" again when they came back, and a client
+                // whose station was disabled meanwhile would wait for its state forever.
+                foreach (var player in playerToLastNearbyTime.Keys.ToList())
                 {
-                    if (player.PlayerId == NetworkLifecycle.Instance.Server.SelfId || player.LoadingState != PlayerLoadingState.Complete)
+                    playerToLastNearbyTime.Remove(player);
+                    PlayerEnteredCullingRegion?.Invoke(player);
+                }
+            }
+            else if (_referenceObject != null)
+            {
+                foreach (var player in NetworkServer.Instance.ServerPlayers)
+                {
+                    if (player.PlayerId == NetworkServer.Instance.SelfId || player.LoadingState != PlayerLoadingState.Complete)
                         continue;
 
                     float sqrDistance = (player.WorldPosition - _referenceObject.transform.position).sqrMagnitude;

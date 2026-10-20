@@ -281,7 +281,7 @@ public sealed class TrainsetSpawnPart
     {
         if (trainset == null)
         {
-            NetworkLifecycle.Instance.Server.LogWarning("TrainsetSpawnPart.FromTrainSet() trainset list is null!");
+            Multiplayer.LogWarning("[Server] TrainsetSpawnPart.FromTrainSet() trainset list is null!");
             return null;
         }
 
@@ -292,7 +292,7 @@ public sealed class TrainsetSpawnPart
 
             if (!trainset[i].TryNetworked(out networkedTrainCar))
             {
-                NetworkLifecycle.Instance.Server.LogWarning($"TrainsetSpawnPart.FromTrainSet() Failed to find NetworkedTrainCar for: {trainset[i]?.ID}");
+                Multiplayer.LogWarning($"[Server] TrainsetSpawnPart.FromTrainSet() Failed to find NetworkedTrainCar for: {trainset[i]?.ID}");
                 networkedTrainCar = trainset[i].GetOrAddComponent<NetworkedTrainCar>();
             }
 

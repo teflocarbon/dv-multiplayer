@@ -11,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Items;
 
@@ -38,13 +39,13 @@ internal sealed class AuthoredWorldItemReplenishmentManager
         public float EmptySince = -1f;
     }
 
-    private readonly NetworkedItemManager owner;
+    private readonly ServerItemManager owner;
     private readonly Dictionary<string, PendingSlot> pending = new(StringComparer.Ordinal);
     private readonly Dictionary<string, float> disturbedEmptySince = new(StringComparer.Ordinal);
     private readonly Dictionary<ushort, float> abandonedForkEmptySince = new();
     private float nextEvaluationAt;
 
-    internal AuthoredWorldItemReplenishmentManager(NetworkedItemManager owner) => this.owner = owner;
+    internal AuthoredWorldItemReplenishmentManager(ServerItemManager owner) => this.owner = owner;
 
     internal void Clear()
     {
@@ -54,16 +55,8 @@ internal sealed class AuthoredWorldItemReplenishmentManager
         nextEvaluationAt = 0f;
     }
 
-    internal static bool IsEligibleAuthoredOfficeProp(NetworkedItem item)
-    {
-        if (item?.Item?.InventorySpecs == null || !item.IsSceneAuthored ||
-            item.Item.InventorySpecs.BelongsToPlayer || item.Item.InventorySpecs.IsEssential || item.Item.IsSnapped ||
-            item.GetComponent<ItemContainer>() != null || item.GetComponent<GadgetItem>() != null ||
-            item.GetComponent<JobBooklet>() != null || item.GetComponent<JobOverview>() != null ||
-            item.GetComponent<JobReport>() != null)
-            return false;
-        return item.IsReplenishableAuthoredOfficeSlot && !item.IsAuthoredShopSlot;
-    }
+    private static bool IsEligibleAuthoredOfficeProp(NetworkedItem item) =>
+        NetworkedItemManager.IsEligibleAuthoredOfficeProp(item);
 
     internal void OnAuthoritativeTransition(NetworkedItem item, AuthoritativeItemRegistry.Record record,
         ItemPlacementKind previousPlacement, bool appliesPlacement)
@@ -84,7 +77,7 @@ internal sealed class AuthoredWorldItemReplenishmentManager
             TakenNetId = item.NetId,
             AuthoredShopSlot = item.IsAuthoredShopSlot
         };
-        owner.RemoveAuthoredItemProjection(key, item);
+        owner.Shell.RemoveAuthoredItemProjection(key, item);
         Guid persistentId = AuthoritativeItemRegistry.PromoteAuthoredToPersistent(item,
             replenishableStockFork: true);
         item.DetachAuthoredItemKey();
@@ -229,7 +222,7 @@ internal sealed class AuthoredWorldItemReplenishmentManager
     private static bool AnyPlayerInterested(Vector3 absolutePosition)
     {
         WorldItemCellCoord slotCell = WorldItemCellCoord.FromAbsolute(absolutePosition);
-        return NetworkLifecycle.Instance.Server.GameplayPlayers.Any(player => player != null &&
+        return NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
             player.LoadingState >= PlayerLoadingState.ReadyForItems &&
             WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition))
                 .Contains(slotCell));
@@ -237,7 +230,7 @@ internal sealed class AuthoredWorldItemReplenishmentManager
 
     private bool TryCreateReplacement(PendingSlot slot)
     {
-        if (!owner.TryGetItemPrefab(slot.PrefabName, out GameObject prefab))
+        if (!owner.Shell.TryGetItemPrefab(slot.PrefabName, out GameObject prefab))
         {
             Publish("world-item.authored-slot-replenishment-failed", slot,
                 new() { ["reason"] = "prefab-not-found" }, DebugSeverity.Error);

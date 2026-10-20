@@ -103,7 +103,7 @@ internal sealed class TrainTopologyAuthority
             {
                 foreach (ushort carNetId in affectedControlCars)
                     if (NetworkedTrainCar.TryGet(carNetId, out NetworkedTrainCar affectedCar))
-                        affectedCar.Server_CommitControlRevision();
+                        affectedCar.Server().CommitControlRevision();
                 revision++;
                 canonical = actual;
                 fingerprint = TrainTopologyNativeAdapter.Fingerprint(canonical);
@@ -143,7 +143,7 @@ internal sealed class TrainTopologyAuthority
             }
             foreach (ushort carNetId in affectedControlCars)
                 if (NetworkedTrainCar.TryGet(carNetId, out NetworkedTrainCar car))
-                    car.Server_CommitControlRevision();
+                    car.Server().CommitControlRevision();
             if (revision != uint.MaxValue)
                 revision++;
             canonical = actual.Clone(revision);

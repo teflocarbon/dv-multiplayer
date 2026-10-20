@@ -46,22 +46,22 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
 
     private static void Server_OnMoneyChanged(double oldAmount, double newAmount)
     {
-        NetworkLifecycle.Instance.Server.SendMoney((float)newAmount);
+        NetworkServer.Instance.SendMoney((float)newAmount);
     }
 
     private static void Server_OnLicenseAcquired(GeneralLicenseType_v2 license)
     {
-        NetworkLifecycle.Instance.Server.SendLicense(license.id, false);
+        NetworkServer.Instance.SendLicense(license.id, false);
     }
 
     private static void Server_OnJobLicenseAcquired(JobLicenseType_v2 license)
     {
-        NetworkLifecycle.Instance.Server.SendLicense(license.id, true);
+        NetworkServer.Instance.SendLicense(license.id, true);
     }
 
     private static void Server_OnGarageUnlocked(GarageType_v2 garage)
     {
-        NetworkLifecycle.Instance.Server.SendGarage(garage.id);
+        NetworkServer.Instance.SendGarage(garage.id);
     }
 
     public void Server_UpdateInternalData(SaveGameData data)
@@ -69,11 +69,10 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
         JObject root = data.GetJObject(ROOT_KEY) ?? [];
         JObject players = root.GetJObject(PLAYERS_KEY) ?? [];
 
-        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
-            // Every player by GUID, the host's own included (PerPlayerSaveFormat); a dedicated
-            // host's own client isn't a player.
-            if (player.IsServiceHost || player.LoadingState != PlayerLoadingState.Complete)
+            // Every player by GUID, the host's own included (PerPlayerSaveFormat).
+            if (player.LoadingState != PlayerLoadingState.Complete)
                 continue;
 
             JObject playerData = [];

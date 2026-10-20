@@ -1,6 +1,5 @@
 using DV;
 using DV.InventorySystem;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Serialization;
 using Multiplayer.Debugging.Protocol;
@@ -519,7 +518,10 @@ public sealed class DebugOverlayController : MonoBehaviour
     private static DebugEntityDto[] LostAndFoundEntities()
     {
         List<DebugEntityDto> entries = new();
-        foreach (Dictionary<string, object> state in NetworkedLostAndFoundManager.DebugSnapshot())
+        // A client has only its own list; the server's snapshot has that too, beside its records.
+        foreach (Dictionary<string, object> state in ItemServer.Current?.LostAndFoundDebugSnapshot() ??
+                     ItemClient.Current?.LostAndFoundDebugSnapshot()?.ToArray() ??
+                     Array.Empty<Dictionary<string, object>>())
         {
             string key = Convert.ToString(state.TryGetValue("debugKey", out object keyValue) ? keyValue : null) ?? Guid.NewGuid().ToString("N");
             string name = Convert.ToString(state.TryGetValue("displayName", out object nameValue) ? nameValue : null);
@@ -546,7 +548,7 @@ public sealed class DebugOverlayController : MonoBehaviour
     }
 
     private static DebugEntityDto[] ColdContainerEntities() =>
-        NetworkedColdContainerManager.DebugSnapshot().Select(state => new DebugEntityDto
+        (ItemServer.Current?.ColdContainerDebugSnapshot() ?? Array.Empty<Dictionary<string, object>>()).Select(state => new DebugEntityDto
         {
             EntityType = "Container",
             EntityId = Convert.ToString(state["debugKey"]),

@@ -57,20 +57,27 @@ two-game testing goes through dvmp.
 
 `Multiplayer/Multiplayer.cs` is the UMM entry point. `Load` checks the MultiplayerAPI version,
 runs `harmony.PatchAll()` (plus `SimComponent_Tick_Patch`, which is patched by hand), loads the
-asset bundle, creates the `NetworkLifecycle` object and registers the API provider.
+asset bundle, creates the session object (`MultiplayerSession.Create`) and registers the API provider.
 
-`Multiplayer/Shared/Session/NetworkLifecycle.cs` is a `DontDestroyOnLoad` singleton that
-owns the current `NetworkServer` and `NetworkClient` and runs the network tick. Hosting calls
-`StartServer`, which starts a `NetworkServer` and then a `NetworkClient` connected to loopback.
-**The host is also a player**: its own client logs in like anyone else, gets a `ServerPlayer` and
-is addressed by the server as `SelfPeer`. Most broadcasts pass `excludeSelf` because the host's
-game already has the state. Single-player games run the same way with a one-player limit.
+The session object is a `DontDestroyOnLoad` game object with two parts.
+`Multiplayer/MultiplayerSession.cs`, the composition root in the mod, owns the current
+`NetworkServer` and `NetworkClient`: it starts and stops them, registers them with MPAPI, wires up
+the dedicated host, the player list and the network stats. `Multiplayer/Shared/Session/NetworkLifecycle.cs`
+runs the network tick and answers the role queries (`IsHost()`, `IsServerRunning`,
+`IsDedicatedHost`, `IsProcessingPacket`, `LocalServer`, `LocalSession`), naming no role: the
+root attaches the server and client to it as their Shared parts. Role code reaches its own role as
+`NetworkServer.Instance` or `NetworkClient.Instance`; whether a `ServerPlayer` is the host's is
+the server's `NetworkLifecycle.Instance.IsHost(player)` extension. Hosting calls `StartServer`,
+which starts a `NetworkServer` and, unless this is a dedicated host, the host's own player: a
+`LocalPlayerSession` (`Client/Session`), a session of the server in the same process. **The host
+is also a player, but it runs no client**: the server admits its player as it starts
+(`NetworkServer.AddLocalPlayer`, player 1, the same record binding as a login) and keeps it as
+`NetworkServer.LocalPlayer`. Single-player games run the same way with a one-player limit. A remote
+player's game runs a `NetworkClient` and joins over the network.
 
-A **dedicated host** (`-mp-dedicated`, `Server/Dedicated/DedicatedHost.cs`) keeps that
-loopback client, because it carries the host's own simulation and applies relayed state to its
-world. Its `ServerPlayer` is a service identity (`IsServiceHost`), not a player: it has its own
-GUID, no avatar and no slot. Code that means "the players" uses `NetworkServer.GameplayPlayers`.
-Code that means "the host plays alone, so vanilla is right" uses
+A **dedicated host** (`-mp-dedicated`, `Server/Dedicated/DedicatedHost.cs`) has no player at all:
+no session, no avatar, no slot. Its console commands run as a console sender
+(`ServerPlayer.CreateConsole`). Code that means "the host plays alone, so vanilla is right" uses
 `NetworkLifecycle.IsHostPlayingAlone`, never `PlayerCount == 1`. See
 [design/dedicated-host.md](design/dedicated-host.md).
 
@@ -82,56 +89,43 @@ To ask what this game is, use `NetworkRole` (`Shared/Session/NetworkRole.cs`):
 
 - `IsServer`: this game is the authority (a player host, a dedicated host, or single player). The
   same as `NetworkLifecycle.Instance.IsHost()`, which most code still calls.
-- `IsRemoteClient`: this game plays on another game's server. Never true on a host, even though
-  the host runs a client of its own.
+- `IsRemoteClient`: this game plays on another game's server. Never true on a host.
 - `HasLocalPlayer`: someone plays at this keyboard (a client, or a host that isn't dedicated).
 
 Server-side code must validate through `ServerPlayer`, never through the client's own idea of who
 it is.
 
-### The host's own client
+### The host's own player
 
-The host's own client runs in the server's world, so **it never follows the host's state**.
+The host's game is the server's world, so **the host's player never follows the host's state**.
 A packet that carries the host's state for players to follow (a topology snapshot, a car spawn,
 an item correction) would make the authority apply its own state to itself: a copy at best, an
 old one at worst. On 2026-10-19 that split 29 trains in one session: each car the host spawned
-asked for a train sync from the host's client, the reply was a snapshot from before the spawn's
-auto-couple, and applying it uncoupled the new consist on the host; every client followed.
+asked for a train sync from the host's then loopback client, the reply was a snapshot from before
+the spawn's auto-couple, and applying it uncoupled the new consist on the host; every client
+followed.
 
-The rule is kept where state is applied, so it holds whichever way a packet gets there (a reply
-to a request, a broadcast without `excludeSelf`, held traffic):
+Since [host-local-session](design/host-local-session.md) stage 3 there's no client on the host to do
+that:
 
-- `Client/Session/HostOwnClient.cs` says, for every packet a client handles, whether
-  the host's own client applies it. `NetworkClient` subscribes every handler through `Handle`,
-  which drops the ignored ones on the host and logs the first of each type (the server shouldn't
-  have sent it). A protocol test fails if a `Clientbound*` packet isn't listed; subscribing a
-  handler for an unlisted packet logs an error.
-- **Ignored on the host:** rolling stock (spawns, deletes, topology snapshots, physics, brake
-  state, control commits, relocations, rerails, cargo, damage, paint), jobs, items (snapshots,
-  corrections, recalls, adoption, spatial leases), money, licences and garages, weather, sleep,
-  hazmat, shop stock, pit stops, registers, switches, and the join steps the host skips.
-- **Applied on the host:** its own session (login, loading screen, RPC answers), the other
-  players (joins, positions, ping, chat), answers to the host player's career and container UI,
-  control-authority updates (another player holding a lever blocks it for the host player too),
-  and the packets the server relays without applying itself: junction, turntable and time skip
-  changes reach the host's world only through its client.
-- **Requests.** The host's own client doesn't ask the server for state it already has:
-  `SendTrainSyncRequest` and the topology sync do nothing on the host, nor does
-  `RestoreCanonicalTrainTopology`, and the coupler-interaction fallback isn't sent. The host
-  player's own actions still go through the server where that's how the host commits and
-  broadcasts them (control writes, topology commands, which become `CommitObservedTrainTopology`).
-  The server also skips `SelfPeer` when answering the two train sync requests, but nothing relies
-  on that.
-- **No join.** The host's client goes straight to `ReadyForWorldState`, which the server treats
-  as `Complete` (see [Loading states](#2-loading-states)), so it never takes the world state or the
-  train baseline.
+- **Requests** from the host's player go to the server in-process: `LocalPlayerSession.Submit`
+  hands them to `ILocalServer.Submit`, handled at the server's next poll with the host's
+  `ServerPlayer` as the sender, through the same work as the packet handlers. The host's own
+  simulation (ports, fuses, topology it observes) is committed by the server directly.
+- **What the server sends the host's player** goes to its `LocalPeer` (`Shared/Transport`), an
+  in-process peer: every reply to `player.Peer` and every broadcast that doesn't exclude self. The
+  session reads it a poll later with its own packet processor, which subscribes **only
+  presentation**: the loading screen, chat, RPC answers, its own crew name, and what each area's
+  `LocalPlayerSession.<Area>.cs` adds (control-authority updates, Lost and Found and container
+  answers, MPAPI mods' packets). Anything else is dropped and logged once by type
+  (`LocalPlayerSession.Drop`), so the server's state for its followers can't be applied to its own
+  world.
+- **Other players' avatars** (`NetworkLifecycle.Avatars`) are kept by the server itself, on a player
+  host and a dedicated host alike; the host's player isn't sent the presence packets.
 
-When adding a packet: if it carries the host's state, list it as ignored. If the host's client
-seems to need it, check whether it's the host player's own view (fine) or the host's world, which
-the server should change directly instead of through its own client.
-
-This list is the safety net, not the end state. The plan to remove the host's loopback client in
-stages, keeping one process, is [design/host-local-session.md](design/host-local-session.md).
+When adding a clientbound packet: if the host's player should show it, subscribe it in its area's
+`LocalPlayerSession.<Area>.cs`; otherwise do nothing, and if the server sends it to the host's
+player anyway, the session drops it.
 
 ### Managers
 
@@ -145,7 +139,7 @@ stages, keeping one process, is [design/host-local-session.md](design/host-local
   clientbound handler. Observer mode (`Settings.ObserverMode`) blocks the mutation packets in
   `ObserverMutationPacketTypes` at the send boundary.
 - `Server/Chat/ChatManager.cs`, `Server/Session/LobbyServerManager.cs` (public server listing),
-  `Menus/ServerBrowser/ServerBrowserClient.cs`, `Client/Players/ClientPlayerManager.cs`.
+  `Menus/ServerBrowser/ServerBrowserClient.cs`, `Shared/Players/PlayerAvatars.cs` (other players' avatars, `NetworkLifecycle.Avatars`).
 
 ### Transports
 
@@ -189,7 +183,8 @@ Harmony patches attach to game objects (for example `Junction_Awake_Patch` adds
   `NetworkedTask`): only the host allocates; clients get the id in a spawn or create packet.
 - `false` (junctions, turntables, rail tracks, stations, pit stops, cash registers, pluggables,
   warehouse controllers): every peer allocates locally as the scene loads, which relies on the
-  same objects waking in the same order on every peer.
+  same objects waking in the same order on every peer. For tracks, junctions and turntables the
+  host checks this at join ([design/track-graph-check.md](design/track-graph-check.md)).
 
 `Multiplayer/Shared/Api/NetIdProvider.cs` maps game types (`TrainCar`, `Junction`, `Job`, `ItemBase`, ...)
 to their NetId lookups for MPAPI users.
@@ -212,7 +207,7 @@ common shapes:
   locomotive simulation on clients; `HazmatTileManagerPatch` stops tile evolution;
   `TrainCarExplosionForcePatch` stops explosion forces; `SaveGameManager.SaveAllowed` is false.
 - **Apply flags.** While a client applies host state it sets a flag (for example
-  `ExplosionSync.ApplyingHostExplosion`, `HazmatSync.ApplyingHostTiles`) so its own patches let
+  `ExplosionPlayback.ApplyingHostExplosion`, `HazmatClient.ApplyingHostTiles`) so its own patches let
   the vanilla code through instead of turning it back into a request.
 
 ## Host authority
@@ -266,14 +261,14 @@ Concrete cases:
   the escrow is refunded and the stock resent. The host spawns the purchase owned by the buyer.
   Depositing a money item is refused if the note is in a container, the Lost and Found, or
   someone else's hands.
-- **Explosions and hazmat.** `Shared/Trains/ExplosionPatch.cs`: clients never start an explosion
+- **Explosions and hazmat.** `Shared/Trains/ExplosionSync.cs`: clients never start an explosion
   or apply its force; the host sends which car exploded and clients play effects only, while the
-  resulting train motion arrives through train sync. `Shared/World/HazmatSync.cs`:
+  resulting train motion arrives through train sync. `Server/World/HazmatServer.cs`:
   the host sends changed hazmat tiles every half second; a client lighting a tile sends
   `ServerboundHazmatIgnitePacket`, accepted within 40 m of the player.
 
 Not everything is validated yet. Some `Common*` packets are still relayed as received; for
-example `OnCommonChangeJunctionPacket` rebroadcasts junction changes without checks. Check the
+example `HandleJunction` applies and rebroadcasts junction changes without checks. Check the
 handler before assuming a path is authoritative.
 
 ## Join flow
@@ -312,9 +307,9 @@ sending `ServerboundLoadStateUpdatePacket`; the server answers each step in
 is kicked. Broadcasts carry a minimum loading state, so a player only receives live traffic for a
 system once it has that system's baseline.
 
-The host's own client skips straight to `ReadyForWorldState`, which the server treats as
-`Complete`. The plan to remove that loopback client, with the host's player as a local session of
-the server in the same process, is [design/host-local-session.md](design/host-local-session.md).
+The host's own player has no join: `AddLocalPlayer` takes it straight to `ReadyForWorldState`
+(held in the join queue until the save has loaded), which the server treats as `Complete`. See
+[design/host-local-session.md](design/host-local-session.md).
 
 ```mermaid
 sequenceDiagram
@@ -324,8 +319,8 @@ sequenceDiagram
     Note over H: held in gameDataQueue until the host's save has loaded
     H->>C: GameParams, SaveGameData (money, licences, garages, position, starter kit on first join)
     Note over C: load scene, quarantine local items, send item catalogue, wait for mods
-    C->>H: ReadyForWorldState
-    Note over H: joinQueue + ServerLoading if not loaded; else peer joins broadcasts
+    C->>H: ReadyForWorldState (+ track-graph hash)
+    Note over H: joinQueue + ServerLoading if not loaded; kick on a track-graph mismatch; else peer joins broadcasts
     H->>C: weather, sleep state, shop stock, junctions/turntables, switches, customisation holes
     C->>H: ReadyForTrainSets
     H->>C: BaselineBegin, SpawnTrainSet x N, topology snapshot, BaselineComplete
@@ -363,8 +358,13 @@ Notes on the steps:
   `WorldStreamingInit.LoadingFinished`, so it stays up through the sync. `RemoveLoadingScreen` takes
   it down, and the client then makes sure it has left loading mode
   (`LoadingScreenManager.FinishLoading()`), even if the loading screen object is gone. In VR that's
-  what turns the gloves and the teleport pointer back on; the VR loading overlay closes by itself at
-  100%, so a client left in loading mode is in the world without them (#72).
+  what turns the gloves and the teleport pointer back on (#72). The VR loading view (`VrLoading`)
+  fades into the world as soon as its progress reaches 1, and the client reports 100% before the
+  sync is done (on "Complete", with the host's items and jobs still arriving, and when a mod clears
+  its ready block). `VrLoadingProgressPatch` holds that progress below 1, so only
+  `FinishLoading()` ends it, in the frame the loading screen and its camera are destroyed. Before,
+  a VR player was in the world while the desktop still showed the loading screen, with one eye
+  upside down.
 - `ReadyForCustomizers` exists in the enum but the client never sends it. The client waits a
   fixed 0.25–0.5 s between the later states; there is no completion acknowledgement for items.
 
@@ -390,7 +390,7 @@ What is sent when (host side):
 | Train topology | `NetworkServer.OnTick` | Observed host-side changes committed once per tick and broadcast if the revision changed. |
 | Brakes | `NetworkedTrainCar` | Thresholded with a heartbeat; see [design/trains.md](design/trains.md). |
 | Items | `NetworkedItemManager` | Per tick, per ready player, for items in interest. |
-| Hazmat tiles | `HazmatSync.Server_Tick` | Every 12 ticks (0.5 s), changed tiles only. |
+| Hazmat tiles | `HazmatServer.Tick` | Every 12 ticks (0.5 s), changed tiles only. |
 | Weather | `NetworkServer.OnTick` | Every 30 s, plus on join. |
 | Player position | `LocalPlayerTrackerBase` (client) | From `OnTick`, relayed by the host to complete players as `Sequenced`. |
 

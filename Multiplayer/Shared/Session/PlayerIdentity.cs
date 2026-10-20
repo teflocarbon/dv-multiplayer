@@ -1,7 +1,5 @@
 using System;
 using System.Linq;
-using Multiplayer.Server.Dedicated;
-using Multiplayer.Server.Session;
 using Steamworks;
 
 namespace Multiplayer.Shared.Session;
@@ -72,19 +70,10 @@ public static class PlayerIdentity
 
     /// <summary>
     /// The local player's ID: this game's Steam account, or the install's GUID without Steam (or
-    /// with -mp-allow-unverified). A dedicated host's own client isn't a player and uses
-    /// Settings.ServiceGuid instead.
+    /// with -mp-allow-unverified). A dedicated host has no local player.
     /// </summary>
     public static Guid Local =>
         !AllowUnverified && LocalSteamId != 0 ? FromSteamId(LocalSteamId) : Multiplayer.Settings.GetGuid();
-
-    /// <summary>
-    /// Who owns this career on this host: the account the game runs under, or -mp-owner (a
-    /// SteamID64) for a career copied to a server PC running under another account. On a dedicated
-    /// host the owner is an admin without being listed, and the one-time conversion gives them the
-    /// old host player's state.
-    /// </summary>
-    public static Guid Owner => TryParse(DedicatedHost.Arg("-mp-owner"), out Guid owner) ? owner : Local;
 
     /// <summary>
     /// A player ID typed by a person (an admin list, -mp-owner): a SteamID64, or a GUID for an ID

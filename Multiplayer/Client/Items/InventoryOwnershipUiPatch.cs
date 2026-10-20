@@ -1,11 +1,13 @@
 using DV.UI.Inventory;
 using HarmonyLib;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Session;
 using Multiplayer.Core.Items;
 using Multiplayer.Debugging.Protocol;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -20,7 +22,70 @@ internal static class InventoryOwnershipUiPatch
     [HarmonyPrefix]
     private static bool BeforeGetClicked(InventoryUIController __instance, int slotIndex,
         InventorySectionController controller) =>
-        InventoryIntegration.HandleGetClicked(__instance, slotIndex, controller);
+        HandleGetClicked(__instance, slotIndex, controller);
+
+    private static uint lostItemRequestId;
+
+    /// <returns>True when the original Derail Valley Get handler should execute.</returns>
+    private static bool HandleGetClicked(InventoryUIController controller, int relativeSlot,
+        InventorySectionController section)
+    {
+        global::Multiplayer.Multiplayer.Log($"[Inventory Integration] Get clicked: " +
+            $"relativeSlot={relativeSlot}, section={section?.section.ToString() ?? "null"}, " +
+            $"runtimeActive={InventoryIntegration.RuntimeActive}");
+        if (!InventoryIntegration.RuntimeActive ||
+            !InventoryIntegration.TrySnapshotSlot(controller, relativeSlot, section, out InventorySlotRuntimeSnapshot slot))
+            return true;
+
+        NetworkedItem item = slot.NetworkedItem;
+        LostItemData lost = item == null ? null : LostAndFoundList.Items
+            .FirstOrDefault(entry => entry?.NetId == item.NetId);
+        InventoryItemPresentation presentation = InventoryIntegration.Project(item, lost != null);
+
+        global::Multiplayer.Multiplayer.Log($"[Inventory Integration] Slot snapshot: " +
+            $"absoluteSlot={slot.AbsoluteSlot}, dropped={slot.Dropped}, reserved={slot.Reserved}, " +
+            $"item={slot.ItemObject?.name ?? "null"}, netId={item?.NetId ?? 0}, " +
+            $"owner=P{item?.PersistentOwnerPlayerId ?? 0}, local=P{InventoryIntegration.LocalPlayerId}, " +
+            $"route={presentation.RecallRoute}");
+
+        if (presentation.RecallRoute == InventoryRecallRoute.Vanilla)
+            return true;
+        if (presentation.RecallRoute == InventoryRecallRoute.BlockForeignOwner)
+        {
+            DebugRuntime.Publish("item", "item.foreign-item-recall-blocked",
+                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
+                {
+                    ["localPlayerId"] = InventoryIntegration.LocalPlayerId,
+                    ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+                    ["slot"] = slot.AbsoluteSlot
+                });
+            return false;
+        }
+        if (presentation.RecallRoute == InventoryRecallRoute.BlockNotRecallable)
+        {
+            DebugRuntime.Publish("item", "item.recall-blocked-not-eligible",
+                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
+                {
+                    ["localPlayerId"] = InventoryIntegration.LocalPlayerId,
+                    ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+                    ["isEssential"] = item.Item?.InventorySpecs?.IsEssential == true,
+                    ["slot"] = slot.AbsoluteSlot
+                });
+            return false;
+        }
+
+        if (presentation.RecallRoute == InventoryRecallRoute.LostAndFoundRetrieval &&
+            !NetworkLifecycle.Instance.IsHost())
+        {
+            uint requestId = unchecked(++lostItemRequestId);
+            ItemClient.Current?.RequestLostItemRetrieval(requestId, lost.Handle,
+                item.NetId, lost.Revision, slot.AbsoluteSlot);
+            return false;
+        }
+
+        NetworkedItemManager.Instance?.RequestItemRecall(item, slot.AbsoluteSlot);
+        return false;
+    }
 
     [HarmonyPatch(typeof(InventorySlotVisualController), "UpdateVisuals")]
     [HarmonyPostfix]
@@ -35,7 +100,7 @@ internal static class InventoryOwnershipUiPatch
             : null;
         ColdContainerItemProxy coldProxy = data?.Spec as ColdContainerItemProxy;
         InventoryItemPresentation presentation = InventoryIntegration.Project(item,
-            item != null && NetworkedLostAndFoundManager.Contains(item.NetId));
+            item != null && ItemServer.Current?.IsInLostAndFound(item.NetId) == true);
         ForeignItemInventoryMarker marker = __instance.itemImage.gameObject.GetComponent<ForeignItemInventoryMarker>() ??
             __instance.itemImage.gameObject.AddComponent<ForeignItemInventoryMarker>();
         bool foreign = coldProxy?.ForeignOwned == true || presentation.ShowForeignStyle;

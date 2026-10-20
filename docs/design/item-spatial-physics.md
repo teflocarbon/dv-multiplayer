@@ -7,7 +7,10 @@
 ## Implementation status (audited 2026-10-14)
 
 - **Implemented:** phases 1-3 below, in
-  `Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs`, with the
+  `Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs` (the leases every game holds and its
+  own simulation), `Multiplayer/Server/Items/ServerItemSpatial.cs` (the host granting, validating,
+  transferring and committing leases) and `Multiplayer/Client/Items/ClientItemSpatial.cs` (a remote
+  client receiving leases, relayed samples and commits, and sending its own samples), with the
   epoch/sequence checks in `Multiplayer.Core/Items/ItemSpatialStreamValidator.cs` and the
   save checkpoint in `Server/Items/WorldItemPersistenceSave.cs`. Loose items on trains (train-local
   samples, settlement and the kinematic freeze) are implemented, and
@@ -18,20 +21,28 @@
   192 m that has acknowledged the item, else the last accepted pose is committed.
 - **Differs, sampling:** 15 Hz above 1 m/s or 1 rad/s, otherwise 8 Hz; no extra sample on
   collisions or parent changes; one unreliable packet per item per recipient (not batched),
-  sent only to players who know the item.
+  sent only to players who know the item. Leases, samples and commits are never sent to the host's
+  own player: when the host simulates, the server's lease is the lease (its client dropped them).
+- **Who the host simulates as** (`Server/Items/HostItemActor.cs`): the host's own player on a
+  player host. A dedicated host has no player (host-local-session stage 3), so the server is the actor and simulator itself, as id 0
+  (`ItemTransitionCommand.ServerActorId`). It commits its world's changes (`ProcessChanged`),
+  simulates its own releases and throws, and witnesses its own train-item impacts. The state
+  machine lets actor 0 move items about the world but never into a hand or inventory, and never
+  makes it an owner. Before that, a dedicated host's service identity was the actor.
 - **Not implemented:** explicit lease revocation on Lost-and-Found collection or cold deposit
   (collection advances the revision, so later samples and settlements are rejected; a deposit
   needs the item in hand, which already ends the lease).
 - **Fixed (2026-10-19):** in a VR game, an item another player held stayed a live body; see
   "Observer presentation".
 - **Added:** an item that falls more than 1 m under the terrain has its lease revoked and is moved
-  back to its last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
+  back to its last safe pose (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). Host
   convergence skips items with a live lease (b601cc6).
 - **Added (playtest 2):** a gentle release is held back 0.3 s so a VR hand swap isn't a drop,
   only the holder sends object state, and object-state changes no longer void a lease; see
   "Leaving the hand" below.
 - **Runtime tests:** the old in-game scenario system is gone. The dvmp `train-items` scenario
-  covers drops and throws in a moving cab (scenarios 13-15 below), and `dvmp soak` throws and
+  covers drops and throws in a moving cab (scenarios 13-15 below), `host-throw-settles` a host's
+  own throw settling with nothing echoed to its client, and `dvmp soak` throws and
   drops items at random then runs a desync check; see [`../testing.md`](../testing.md). The other
   scenarios below are not automated.
 - The "Current behavior and exact failure" section records the bug as it was in July, before
@@ -165,7 +176,7 @@ ItemSpatialState
   itemNetId
   simulationEpoch
   sampleSequence
-  simulatorPlayerId       // 0 means host
+  simulatorPlayerId       // 0: the server itself, on a host with no player of its own
   phase                    // Settled, Held, InFlight, Sliding, Attached
   absolutePosition
   rotation
@@ -247,6 +258,48 @@ backstop for any other path that records such an item as the host player's.
    simulator sends a reliable settlement proposal.
 7. Host validates and commits the final pose, rotation, parent, and cell, then closes the epoch.
 
+The host can also throw an item itself, with a transition naming a player as actor (the job
+re-roll throws a binned job overview back out). The item may still be under the lease its drop
+opened. The new lease supersedes that one without stopping the body: its presentation sets the body
+up (a proxy goes kinematic, a local simulator keeps its motion), as a client's game does when a new
+lease replaces its old one. The host used to stop it (`RestoreLocalBodyAfterLease`), which lost the
+throw's force (`GrabHandlerItem.Throw` applies it for one physics step) when the actor was the
+host's own player.
+
+A drop from the player still in flight when the host throws arrives after the throw: it is refused
+as stale, and its correction puts the item at the record's pose at rest, ending the flight. A
+host-side throw of an item a player has just let go waits for that drop first (the job re-roll does).
+
+### Landing on the terrain
+
+A small item with a convex mesh collider, such as the mug, can go straight through DV's terrain
+heightfield in plain PhysX ([research](../research/item-terrain-tunnelling.md)): beside the track,
+about a quarter to a half of mugs thrown at 10 m/s. So the game that simulates a flight guards it
+(`NetworkedItemManager.TerrainGuard.cs`). It runs on every game, right after each physics step
+(`WaitForFixedUpdate`), over the item bodies that game simulates: dynamic, awake and not held. A
+proxy is kinematic, so only a lease's simulator, or the host for a world item with no lease, acts.
+
+An item whose centre was above the terrain surface after the last step and is under it now has
+crossed it. The guard then puts it on the surface where it crossed, with its lowest point just above
+it, and takes away the part of its velocity going into the ground. It's left alone when:
+
+- the segment it moved along doesn't hit a `TerrainCollider` (the rendered heightmap is only a
+  pre-filter, the collider is a separate object in `TerrainGrid`'s pool or the host's extra terrain);
+- the terrain collider ignores it (`Physics.GetIgnoreCollision`), or the crossing is within 10 m of
+  a tunnel portal's trigger (`TunnelCollisionIgnore`). DV's tunnel holes are only visual: what enters
+  a portal ignores the terrain, so an item thrown into a tunnel crosses the surface on purpose;
+- it rides a train, or code moved it further than its velocity could in two steps (a teleport, a
+  snapshot, a placement).
+
+The correction happens before the step's pose is rendered or sampled, so observers never see the
+item under the ground, and its next motion sample carries the corrected pose. An observer
+extrapolates the last sample by up to 0.15 s (`ApplyObservedPose`); a sample taken just before the
+item lands would carry its proxy on into the ground, so a prediction that ends under the terrain
+when the sample itself is above it is dropped and the proxy stays at the sample. The fall rescue
+(`ServerItemManager.FallRescue.cs`, `ClientItemManager.FallRescue.cs`) stays as the backstop for
+what the guard can't see. Neither touches an item under the terrain that has a floor under it within
+3 m (`HasFloorUnder`: anything but terrain and items), so items in tunnels stay there.
+
 ### Leaving the hand
 
 Playtest 2 (VR players, dedicated server) found the steps above undone in four ways: a hand swap
@@ -256,7 +309,7 @@ and one thrown onto a train vanished. What the code does now:
 - **A gentle release waits.** A VR hand swap, or grabbing an item again at another spot, lets go
   for a moment first. A release from the hand under 2 m/s (relative to the car the player is on)
   is held back for 0.3 s and sent only if no hand has the item by then; a re-grab inside that
-  sends only the hand change (`NetworkedItem.DeferLocalRelease`, `ItemReleaseGrace`). Throws,
+  sends only the hand change (`NetworkedItemClient.DefersRelease`, `ItemReleaseGrace`). Throws,
   stowing and anything faster go at once. Other players see the item leave the hand 0.3 s late.
 - **A late acceptance doesn't undo a re-grab.** If the drop did go out, the host's acceptance can
   arrive after the item is back in a hand. It is taken as a revision only
@@ -510,9 +563,14 @@ The host should:
 - never require remote terrain to be loaded merely to remember a transform; and
 - use the committed record when constructing a projection for a newly interested player.
 
-Accepted samples and commits update the cell index through `RefreshHostSpatialPosition`;
-`RefreshHostWorldItem`, which reads the host Unity transform, is still used for ordinary
-transitions.
+Accepted samples and commits update the cell index through `RefreshHostSpatialPosition`. Every
+committed transition that applies a placement re-indexes the item at the record's pose in the same
+operation (`ServerItemManager.OnAuthoritativeItemTransition`), before its caller applies the Unity
+state. Callers used to do it themselves, after the fact; one that didn't (a host transition moving
+an item from a car interior into the world, as the job re-roll and booklet summon make) left the
+item in no cell until its first spatial sample, and every player's interest retired it meanwhile
+and re-created it at rest. Callers that still call `RegisterHostWorldItem` afterwards re-index it
+from the Unity transform, now at the same pose.
 
 ## Floating origin and anchors
 
@@ -732,7 +790,7 @@ accepted pose, committed pose, committed cell, and rejection reason.
 
 In-game scenarios run through the dvmp harness
 ([`../../DevTools/README.md`](../../DevTools/README.md)); each owns the fixtures it creates. Only
-13-15 are automated (`DevTools/Scenarios/train-items`).
+13-15 are automated (`train-items`, `DevTools/DvmpScenarios/Scenarios/TrainItems.cs`).
 
 Initial scenarios:
 

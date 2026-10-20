@@ -170,12 +170,37 @@ public static class AuthoritativeItemRegistry
         ItemTransitionReason reason, bool force, out string rejectionReason,
         bool clearRetrievalClaim = false, ChangeCause<ItemMoveReason>? cause = null)
     {
-        rejectionReason = string.Empty;
-        if (item == null || snapshot == null || actor == null || item.NetId == 0)
+        if (actor == null)
         {
             rejectionReason = "invalid-transition-input";
             return false;
         }
+        return ApplyTransition(item, snapshot, actor, reason, force, out rejectionReason, clearRetrievalClaim, cause);
+    }
+
+    /// <summary>
+    /// A change the server's own world made to an item, committed by the server itself rather than
+    /// a player (<see cref="ItemTransitionCommand.ServerActorId"/>): on a host with no player of
+    /// its own (<see cref="HostItemActor.IsServer"/>). It can move the item about the world but
+    /// not into anyone's hands.
+    /// </summary>
+    public static bool TryApplyServerTransition(NetworkedItem item, ItemUpdateData snapshot,
+        ItemTransitionReason reason, bool force, out string rejectionReason,
+        ChangeCause<ItemMoveReason>? cause = null) =>
+        ApplyTransition(item, snapshot, null, reason, force, out rejectionReason, false, cause);
+
+    // actor null: the server itself.
+    private static bool ApplyTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
+        ItemTransitionReason reason, bool force, out string rejectionReason,
+        bool clearRetrievalClaim, ChangeCause<ItemMoveReason>? cause)
+    {
+        rejectionReason = string.Empty;
+        if (item == null || snapshot == null || item.NetId == 0)
+        {
+            rejectionReason = "invalid-transition-input";
+            return false;
+        }
+        byte actorId = actor?.PlayerId ?? ItemTransitionCommand.ServerActorId;
 
         // A cause a client put in its own update is never passed on: only the host's goes out.
         snapshot.MoveCause = null;
@@ -196,7 +221,7 @@ public static class AuthoritativeItemRegistry
         }
         Publish("item.transition-requested", item, record, new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actorId,
             ["requestedState"] = snapshot.ItemState.ToString(),
             ["requestedRevision"] = snapshot.AuthorityRevision,
             ["force"] = force,
@@ -216,7 +241,7 @@ public static class AuthoritativeItemRegistry
         int previousClaimSlot = record.InventoryClaimSlot;
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(currentState, new ItemTransitionCommand
         {
-            ActorPlayerId = actor.PlayerId,
+            ActorPlayerId = actorId,
             ExpectedRevision = snapshot.AuthorityRevision,
             Force = force,
             AppliesPlacement = appliesPlacement,
@@ -240,7 +265,7 @@ public static class AuthoritativeItemRegistry
             snapshot.InventoryClaimSlot >= 0 &&
             result.State.InventoryClaimSlot >= 0 &&
             result.State.InventoryClaimSlot != snapshot.InventoryClaimSlot &&
-            record.PersistentOwnerPlayerId == actor.PlayerId)
+            actor != null && record.PersistentOwnerPlayerId == actorId)
         {
             Publish("item.essential-claim-slot-move-rejected", item, record, new()
             {
@@ -257,12 +282,13 @@ public static class AuthoritativeItemRegistry
             : previousPlacementHand;
         // Object state alone (the server's copy of a flashlight a player carries) keeps the holder.
         if (appliesPlacement)
-            record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
+            record.PlacementPlayerIdentity = actor != null && record.PlacementPlayerId == actorId
                 ? actor.Guid : Guid.Empty;
         KeepRemotePossession(item, record, snapshot);
-        if (record.PersistentOwnerPlayerId == actor.PlayerId && record.PersistentOwnerIdentity == Guid.Empty)
+        // The server is never an owner (the state machine makes sure), so the rest is a player's.
+        if (actor != null && record.PersistentOwnerPlayerId == actorId && record.PersistentOwnerIdentity == Guid.Empty)
             record.PersistentOwnerIdentity = actor.Guid;
-        if (previousPersistentOwner == 0 && record.PersistentOwnerPlayerId == actor.PlayerId)
+        if (actor != null && previousPersistentOwner == 0 && record.PersistentOwnerPlayerId == actorId)
             actor.AddOwnedItem(item.NetId);
         record.Position = snapshot.ItemPosition;
         record.Rotation = snapshot.ItemRotation;
@@ -297,14 +323,14 @@ public static class AuthoritativeItemRegistry
         }
         Publish("item.transition-accepted", item, record, new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actorId,
             ["reason"] = reason.ToString()
         });
-        NetworkedItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
+        ServerItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
         // The owner's client put the item in this slot, so it keeps the slot if another of their
         // essentials claims it too (one dropped or stolen leaves its slot looking empty in DV).
-        bool ownerPlacedClaim = appliesPlacement && record.PersistentOwnerPlayerId == actor.PlayerId &&
+        bool ownerPlacedClaim = appliesPlacement && actor != null && record.PersistentOwnerPlayerId == actorId &&
             (record.InventoryClaimSlot != previousClaimSlot || record.Placement == ItemPlacementKind.PlayerInventory);
         if (HasRetrievalClaim(record))
             EnsureDistinctClaimSlots(record, ownerPlacedClaim ? record.NetId : (ushort)0, reason.ToString());
@@ -317,7 +343,7 @@ public static class AuthoritativeItemRegistry
     {
         string change = ItemChangeLog.Describe(before, after);
         if (given is { } known)
-            return known.WithDetail(ItemChangeLog.Detail(change, known.Detail));
+            return known.WithDetail(ItemChangeCauses.Detail(change, known.Detail));
         ItemMoveReason classified = reason switch
         {
             ItemTransitionReason.ClientAdoption => ItemMoveReason.Adopted,
@@ -329,12 +355,12 @@ public static class AuthoritativeItemRegistry
         {
             ItemTransitionReason.ClientState => null,
             // The host's own copy changed: on a dedicated host that is the game, not a player.
-            ItemTransitionReason.HostLocalState => string.IsNullOrEmpty(item.HostObservationTrigger)
-                ? "host's game" : "host's game, " + item.HostObservationTrigger,
+            ItemTransitionReason.HostLocalState => string.IsNullOrEmpty(item.ServerPart?.ObservationTrigger)
+                ? "host's game" : "host's game, " + item.ServerPart?.ObservationTrigger,
             _ => reason.ToString()
         };
-        return ItemChangeLog.Move(classified, actor, ItemChangeLog.Detail(change, source,
-            classified == ItemMoveReason.Unknown ? "callers " + ItemChangeLog.Callers(typeof(AuthoritativeItemRegistry)) : null));
+        return ItemChangeLog.Move(classified, actor, ItemChangeCauses.Detail(change, source,
+            classified == ItemMoveReason.Unknown ? "callers " + ItemChangeCauses.Callers(typeof(AuthoritativeItemRegistry)) : null));
     }
 
     /// <summary>
@@ -531,7 +557,7 @@ public static class AuthoritativeItemRegistry
         snapshot = prepared;
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         ChangeCause<ItemMoveReason> recalled = ItemChangeLog.Move(ItemMoveReason.Recalled, requester,
-            ItemChangeLog.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
+            ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
                 "slot " + record.InventoryClaimSlot));
         snapshot.MoveCause = recalled;
         ItemChangeLog.RecordMove(item, record, recalled);
@@ -641,7 +667,7 @@ public static class AuthoritativeItemRegistry
         created.PlayerId = requester.PlayerId;
         WriteToSnapshot(record, created, ItemTransitionReason.LostAndFoundRetrieval);
         ChangeCause<ItemMoveReason> retrieved = ItemChangeLog.Move(ItemMoveReason.RetrievedFromLostAndFound,
-            requester, ItemChangeLog.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
+            requester, ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
                 "slot " + targetSlot));
         created.MoveCause = retrieved;
         ItemChangeLog.RecordMove(item, record, retrieved);
@@ -678,7 +704,7 @@ public static class AuthoritativeItemRegistry
         ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(reason,
             detail: "in Lost and Found, owner " + (ItemChangeLog.PlayerName(ownerPlayerId) ?? "P" + ownerPlayerId) +
                     (reason == ItemMoveReason.HostCorrection ? ", retrieval rolled back" : null)));
-        if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(ownerPlayerId, out ServerPlayer owner))
+        if (NetworkServer.Instance.TryGetServerPlayer(ownerPlayerId, out ServerPlayer owner))
         {
             record.PersistentOwnerIdentity = owner.Guid;
             owner.AddOwnedItem(item.NetId);
@@ -727,7 +753,7 @@ public static class AuthoritativeItemRegistry
         };
         records[item.NetId] = record;
         if (persistentOwnerPlayerId != 0 &&
-            NetworkLifecycle.Instance.Server.TryGetServerPlayer(persistentOwnerPlayerId,
+            NetworkServer.Instance.TryGetServerPlayer(persistentOwnerPlayerId,
                 out ServerPlayer owner))
         {
             record.PersistentOwnerIdentity = owner.Guid;
@@ -735,7 +761,7 @@ public static class AuthoritativeItemRegistry
         }
         WriteToSnapshot(record, snapshot, record.LastReason);
         ChangeCause<ItemMoveReason> withdrawn = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
-            ItemChangeLog.Detail(ItemChangeLog.Describe(
+            ItemChangeCauses.Detail(ItemChangeLog.Describe(
                     new ItemWhereabouts(AuthorityPlacement.Container, 0, persistentOwnerPlayerId),
                     ItemChangeLog.Whereabouts(record)),
                 "slot " + record.InventoryClaimSlot));
@@ -1006,7 +1032,7 @@ public static class AuthoritativeItemRegistry
         bool corrected = lost
             ? NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out correction)
             : TryCreateCorrectionSnapshot(item, out correction, record.LastMove);
-        NetworkServer server = NetworkLifecycle.Instance?.Server;
+        NetworkServer server = NetworkServer.Instance;
         bool hostOwns = server != null && record.PersistentOwnerPlayerId != 0 &&
             record.PersistentOwnerPlayerId == server.SelfId;
         if (corrected && hostOwns && !lost)
@@ -1057,7 +1083,7 @@ public static class AuthoritativeItemRegistry
     {
         if (record.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory))
             return;
-        var server = NetworkLifecycle.Instance?.Server;
+        var server = NetworkServer.Instance;
         if (server == null || record.PlacementPlayerId != server.SelfId)
             return;
         byte possessor = item.playerBelongsToId;
@@ -1118,7 +1144,7 @@ public static class AuthoritativeItemRegistry
     {
         Publish("item.transition-rejected", item, record, new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actor?.PlayerId ?? ItemTransitionCommand.ServerActorId,
             ["requestedState"] = snapshot.ItemState.ToString(),
             ["requestedRevision"] = snapshot.AuthorityRevision,
             ["rejectionReason"] = reason

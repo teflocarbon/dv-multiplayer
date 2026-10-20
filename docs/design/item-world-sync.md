@@ -13,20 +13,38 @@
   stale-revision correction, two clients, office replenishment, missing-train recovery.
 - **Superseded:** cell baseline/delta packets with cell revisions. Items use per-item Create and
   Destroy in the bulk packet.
-- **Differs:** interest (`NetworkedItemManager.ServerInterest.cs`) enters at the 3 by 3
+- **Differs:** interest (`ServerItemManager.Interest.cs`) enters at the 3 by 3
   neighbourhood but only leaves outside 5 by 5 (87018fd). A player's set is rebuilt when they change
   cell or the host item index changes, otherwise four times a second; membership is only rewritten
   when it changed (fe11afa: ~4 ms to ~0.1 ms a tick near a yard; the station-arrival hitch went from
   ~605 ms to 150-260 ms). A projection is marked known when sent, not when acknowledged; a negative
   acknowledgement makes the host forget it and re-send the Create after 5 s (49d915d).
 - **Added since the design:** host convergence re-sends one resting world item per player every
-  0.1 s so drifted client copies heal (`NetworkedItemManager.Convergence.cs`, b601cc6); items more
+  0.1 s so drifted client copies heal (`ServerItemManager.Convergence.cs`, b601cc6); items more
   than 1 m under the terrain are moved back to their last safe pose
-  (`NetworkedItemManager.FallRescue.cs`, 5cf63a0, f0277de). Only the host's scan runs: the
-  client-side below-map report is called from the item tick, which is subscribed on the host
-  only, so items under a distant client's terrain are not reported. Banknote amounts sync as a
+  (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). The host scans where it has terrain;
+  a remote client reports its own items under its terrain (`ClientItemManager.FallRescue.cs`,
+  from the item tick, which until #37 was subscribed on the host only), and the server rescues
+  one only if its copy is under that ground too. An item with a floor under it (a tunnel's) is
+  never rescued. Since the terrain guard puts an item that goes through the terrain back on it the
+  same physics step ([item-spatial-physics.md](item-spatial-physics.md#landing-on-the-terrain)),
+  the rescue is a backstop. Banknote amounts sync as a
   host-authoritative tracked value and a client's spent note is deposited with the host
   (`MoneyPatch`, 89c68e6, 99a8f5c).
+- **Where the code is:** the Shared `NetworkedItemManager` keeps the queues every game runs (local
+  state observations, tracked-value finalisation), the prefab lookup, the authored catalogue and
+  the spatial store. Its server part is `ServerItemManager` (`Server/Items`); its remote client's
+  part is `ClientItemManager` (`Client/Items`, behind `IItemManagerClientPart`, made through
+  `ItemClient.Current` on a game that isn't the host): snapshot receipt, deferred world
+  projections, job-document snapshots, Lost and Found tombstones, authored-projection binding,
+  unbound items and their temporary adoption, and the fall-rescue report. Each `NetworkedItem` has
+  the same two halves: on the server, `NetworkedItemServer` (validation and commits) and
+  `NetworkedItemServerPart` (`INetworkedItemServerPart`: a change to the server's own copy waiting
+  for the dirty pass, and who holds it by the server's record); on a remote client only,
+  `NetworkedItemClient` (`INetworkedItemClientPart`): the binding gate and unbound state, the Lost
+  and Found tombstone, adoption, the reset when the host retires it, the release grace and the
+  object-state send gate, sending the local player's changes with the revision they claim, and the
+  convergence and own-drop checks on what comes back.
 - **Persistence:** saves keep other players' inventory and hand items (325c2fb, dba0837) and skip
   unowned dynamic items (faa42c0), job overviews/booklets, and, on load, "world" items above
   1,500 m left by older builds (9b59a41).

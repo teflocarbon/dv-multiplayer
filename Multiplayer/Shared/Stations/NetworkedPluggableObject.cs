@@ -1,6 +1,5 @@
 using DV.CabControls;
 using DV.Interaction;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Protocol.Data.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Session;
@@ -15,12 +14,8 @@ namespace Multiplayer.Shared.Stations;
 
 public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggableObject>
 {
-    private const float DISTANCE_TOLERANCE = 1.1f; //allow 10% tolerance for interactions coming from clients
-    private const float GRAB_SQR_DISTANCE = GrabberRaycaster.SPHERE_CAST_MAX_DIST * GrabberRaycaster.SPHERE_CAST_MAX_DIST * DISTANCE_TOLERANCE;
-    private const float DOCK_SQR_DISTANCE = 3f * 3f * DISTANCE_TOLERANCE; // 2f is hardcoded into `PluggableObject.ScanForHit()`, however this is the distance from the plug to the socket, not the distance from the player to the plug. 3f is a more reasonable distance for docking plugs.
-
-    private const sbyte INVALID_SOCKET = -1;
-    private const ushort INVALID_NETID = 0;
+    public const sbyte INVALID_SOCKET = -1;
+    public const ushort INVALID_NETID = 0;
 
     #region Lookup Cache
     private static readonly Dictionary<NetworkedPluggableObject, NetworkedPitStopStation> plugToStation = [];
@@ -43,7 +38,11 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     protected override bool IsIdServerAuthoritative => false;
 
     #region Server Variables
-    public ServerPlayer HeldBy { get; private set; }
+    /// <summary>
+    /// The server's record of the player holding this plug, 0 for nobody. Only the server keeps it
+    /// (<c>Server/Stations/ServerPluggableObject</c>); a client knows the holder as <see cref="playerHolding"/>.
+    /// </summary>
+    public byte HeldByPlayerId { get; set; }
     #endregion
 
     #region Common Variables
@@ -53,26 +52,36 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     public NetworkedPitStopStation Station { get; private set; }
     public bool IsConnecting { get; set; } = false;
 
-    public bool IsHeld => playerHolding != 0 || HeldBy != null || PluggableObject.controlGrabbed;
+    public bool IsHeld => playerHolding != 0 || HeldByPlayerId != 0 || PluggableObject.controlGrabbed;
 
     private CustomNonVrGrabAnchor nonVrGrabAnchor;
 
     private bool handlersInitialised = false;
 
-    public ushort TrainCarNetId { get; private set; } = INVALID_NETID;  //initialise to invalid TrainCar
-    public sbyte SocketIndex { get; private set; } = INVALID_SOCKET;    //initialise to invalid socket
+    public ushort TrainCarNetId { get; set; } = INVALID_NETID;  //initialise to invalid TrainCar
+    public sbyte SocketIndex { get; set; } = INVALID_SOCKET;    //initialise to invalid socket
 
     private PlugInteractionType currentInteraction = PlugInteractionType.Rejected;
 
-    private bool processingAsHost = false;
+    /// <summary>
+    /// Set by the server while it applies another player's interaction here, so this game doesn't
+    /// report it back; cleared once applied.
+    /// </summary>
+    public bool ProcessingAsHost { get; set; } = false;
+
+    /// <summary>
+    /// Set on a client by its part (<c>Client/Stations/ClientPluggableObject</c>) until the server's
+    /// state of the plug has arrived and been applied: the local player's interactions with it
+    /// aren't reported before then.
+    /// </summary>
+    public bool WaitingForServerState { get; set; } = false;
     #endregion
 
     #region Client Variables
-    private bool Refreshed = false;
     private byte playerHolding;
     // Our own player picked this plug up, so its next drop or dock is ours to report. Vanilla's
     // PluggedIn also fires when we replay the host's state (the snap into the stand after a bulk
-    // update finishes after Refreshed is set), and reporting that made the host refuse a plug
+    // update finishes after the server's state is applied), and reporting that made the host refuse a plug
     // nobody held, every time a player came into a service station's range.
     private bool grabbedLocally;
     #endregion
@@ -90,13 +99,6 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
 
         //Multiplayer.LogDebug(() => $"NetworkedPluggableObject.Awake() {PluggableObject?.controlBase?.spec?.name}, {transform.parent.name}");
         Multiplayer.LogDebug(() => $"NetworkedPluggableObject.Awake() {this.GetObjectPath()}, netId: {NetId}, PluggableObject found: {PluggableObject != null}, RB Found: {PlugRB != null}, Hose found: {Hose != null}");
-
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            NetworkLifecycle.Instance.Server.PlayerDisconnected += OnPlayerDisconnected;
-
-            Refreshed = true;
-        }
     }
 
     protected IEnumerator Start()
@@ -113,12 +115,6 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         PluggableObject.PluggedIn += OnPluggedIn;
 
         handlersInitialised = true;
-    }
-
-    protected void OnDisable()
-    {
-        if (!NetworkLifecycle.Instance.IsHost())
-            Refreshed = false;
     }
 
     protected override void OnDestroy()
@@ -141,11 +137,6 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
             PluggableObject.PluggedIn -= OnPluggedIn;
         }
 
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            NetworkLifecycle.Instance.Server.PlayerDisconnected -= OnPlayerDisconnected;
-        }
-
         base.OnDestroy();
     }
 
@@ -154,10 +145,10 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         if (currentInteraction == PlugInteractionType.Rejected)
             return;
 
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.LateUpdate()station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {processingAsHost}, refreshed: {Refreshed}, isConnecting: {IsConnecting}");
-        if (!processingAsHost)
+        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.LateUpdate()station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {ProcessingAsHost}, waiting: {WaitingForServerState}, isConnecting: {IsConnecting}");
+        if (!ProcessingAsHost)
         {
-            NetworkLifecycle.Instance.Client?.SendPitStopPlugInteractionPacket(NetId, currentInteraction, transform.position - WorldMover.currentMove, transform.rotation, TrainCarNetId, SocketIndex);
+            StationsClient.Current?.SendPitStopPlugInteractionPacket(NetId, currentInteraction, transform.position - WorldMover.currentMove, transform.rotation, TrainCarNetId, SocketIndex);
         }
         else
         {
@@ -165,323 +156,24 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
             //and the host is processing a packet
             //this should be the end of the processing, even for docking plugs, so we can clear the connecting and processing flags
             IsConnecting = false;
-            processingAsHost = false;
+            ProcessingAsHost = false;
         }
 
         currentInteraction = PlugInteractionType.Rejected;
     }
-    #endregion
-
-    #region Server
-
-    public void ProcessInteractionPacketAsHost(CommonPitStopPlugInteractionPacket packet, ServerPlayer senderPlayer)
-    {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() NetId: {NetId}, InteractionType: {packet.InteractionType}, from player: {senderPlayer.Username}");
-
-        if (ValidateInteraction(packet, senderPlayer))
-        {
-            //passed validation, set server states
-            Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() VALIDATION PASSED for NetId: {NetId}");
-
-            switch (packet.InteractionType)
-            {
-                case PlugInteractionType.PickedUp:
-                    Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() Processing {packet.InteractionType} for NetId: {NetId}");
-                    HeldBy = senderPlayer;
-                    TrainCarNetId = INVALID_NETID;
-                    SocketIndex = INVALID_SOCKET;
-
-                    break;
-
-                case PlugInteractionType.Dropped:
-                    Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() Processing {packet.InteractionType} for NetId: {NetId}");
-                    HeldBy = null;
-                    TrainCarNetId = INVALID_NETID;
-                    SocketIndex = INVALID_SOCKET;
-
-                    break;
-
-                case PlugInteractionType.Yanked:
-                    Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() Processing {packet.InteractionType} for NetId: {NetId}");
-                    //we should never reach this as Yanked is only sent by the server and should be rejected by validation
-                    HeldBy = null;
-                    TrainCarNetId = INVALID_NETID;
-                    SocketIndex = INVALID_SOCKET;
-
-                    break;
-
-                case PlugInteractionType.DockHome:
-                    Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() Processing {packet.InteractionType} for NetId: {NetId}");
-                    HeldBy = null;
-                    TrainCarNetId = INVALID_NETID;
-                    SocketIndex = INVALID_SOCKET;
-
-                    break;
-
-                case PlugInteractionType.DockSocket:
-                    Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() Processing {packet.InteractionType} for NetId: {NetId}");
-                    HeldBy = null;
-                    TrainCarNetId = packet.TrainCarNetId;
-                    SocketIndex = packet.SocketIndex;
-
-                    break;
-            }
-
-            packet.PlayerId = senderPlayer.PlayerId;
-
-            //Allow host to process packet if not from a local client
-            if (!NetworkLifecycle.Instance.IsClientRunning || (NetworkLifecycle.Instance.IsClientRunning && senderPlayer.PlayerId != NetworkLifecycle.Instance.Server.SelfId))
-            {
-                processingAsHost = true;
-                ProcessPacket(packet);
-            }
-
-            //send to all players in active area, except originator
-            if (Station == null || Station.CullingManager == null || Station.CullingManager.ActivePlayers.Count == 0)
-                return;
-
-            foreach (var player in Station.CullingManager.ActivePlayers)
-            {
-                if (player.PlayerId != senderPlayer.PlayerId)
-                {
-                    Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessInteractionPacketAsHost() Sending interaction packet to player: {player.Username}");
-                    NetworkLifecycle.Instance.Server.SendPitStopPlugInteractionPacket(player, packet);
-                }
-            }
-
-        }
-        else
-        {
-            //Failed to validate, player needs to rollback interaction
-            NetworkLifecycle.Instance.Server.SendPitStopPlugInteractionPacket(senderPlayer, new CommonPitStopPlugInteractionPacket
-            {
-                NetId = NetId,
-                InteractionType = PlugInteractionType.Rejected,
-            });
-        }
-    }
-
-    public bool ValidateInteraction(CommonPitStopPlugInteractionPacket packet, ServerPlayer player)
-    {
-        PlugInteractionType interactionType = packet.InteractionType;
-
-        if (interactionType == PlugInteractionType.Rejected || interactionType == PlugInteractionType.Yanked)
-        {
-            NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} sent an invalid interaction type ({interactionType})!");
-            return false;
-        }
-
-        //validate ownership of object
-        if (HeldBy == null && interactionType != PlugInteractionType.PickedUp)
-        {
-            NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to interact with a plug that they are not holding!");
-            return false;
-        }
-
-        //ensure the player is holding the object or no one is holding the object
-        if (HeldBy != null && HeldBy != player)
-        {
-            NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to interact with a plug that is held by {HeldBy.Username}");
-            return false;
-        }
-
-        if (interactionType == PlugInteractionType.DockSocket)
-        {
-
-            //verify TrainCar
-            if (packet.TrainCarNetId == 0 || !NetworkedTrainCar.TryGet(packet.TrainCarNetId, out NetworkedTrainCar networkedTrainCar) || networkedTrainCar == null)
-            {
-                Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ValidateInteraction() NetId: {NetId}, trainCarNetId: {packet.TrainCarNetId}, NetworkedTrainCar not found!");
-                return false;
-            }
-
-            //verify TrainCar is in station
-            if (!(Station?.Station?.pitstop?.carList?.Contains(networkedTrainCar.TrainCar) ?? false))
-            {
-                Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ValidateInteraction() NetId: {NetId}, trainCarNetId: {packet.TrainCarNetId}, Not in Pitstop car list!");
-                return false;
-            }
-
-            //verify socket exists (only locos have sockets)
-            var socket = GetTrainCarSocket(networkedTrainCar, packet.SocketIndex);
-            if (socket == null)
-            {
-                NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to insert plug that into a socket that doesn't exist!");
-                return false;
-            }
-
-            //verify socket is compatible
-            if (!socket.CanAccept(PluggableObject) && socket.Plug != PluggableObject)
-            {
-                NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to dock a {PluggableObject.connectionTag} plug into a {socket.connectionTag} socket, but socket is not compatible!");
-                return false;
-            }
-
-            //verify distance to socket
-            float sqrDistance = (socket.transform.GetWorldAbsolutePosition() - PluggableObject.transform.GetWorldAbsolutePosition()).sqrMagnitude;
-            Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ValidateInteraction() NetId: {NetId}, {interactionType}, trainCar: [{networkedTrainCar.CurrentID}, {packet.TrainCarNetId}], socket No.: {packet.SocketIndex} player pos: {player.AbsoluteWorldPosition}, plug pos: {PluggableObject.transform.GetWorldAbsolutePosition()}, socket pos: {socket.transform.GetWorldAbsolutePosition()}, sqrDistance: {sqrDistance}, Dock distance: {DOCK_SQR_DISTANCE}");
-            if (sqrDistance > DOCK_SQR_DISTANCE)
-            {
-                NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to dock a plug into {networkedTrainCar.TrainCar.ID}, but socket is too far away!");
-                return false;
-            }
-        }
-        else
-        {
-            if (interactionType == PlugInteractionType.DockHome)
-            {
-                //verify distance to socket
-                var socket = PluggableObject.startAttachedTo;
-                float sqrDistance = (socket.transform.GetWorldAbsolutePosition() - PluggableObject.transform.GetWorldAbsolutePosition()).sqrMagnitude;
-                if (sqrDistance > DOCK_SQR_DISTANCE)
-                {
-                    NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to dock a plug into the stand, but socket is too far away!");
-                    return false;
-                }
-            }
-            else if (interactionType == PlugInteractionType.Dropped)
-            {
-                // no verifications required
-            }
-            else if (interactionType == PlugInteractionType.PickedUp)
-            {
-                float sqrDistance = (player.AbsoluteWorldPosition - PluggableObject.transform.GetWorldAbsolutePosition()).sqrMagnitude;
-
-                Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ValidateInteraction() NetId: {NetId}, {interactionType}, player pos: {player.AbsoluteWorldPosition}, plug pos: {PluggableObject.transform.GetWorldAbsolutePosition()}, sqrDistance: {sqrDistance}, Raycast distance: {GRAB_SQR_DISTANCE}");
-                if (sqrDistance > GRAB_SQR_DISTANCE)
-                {
-                    NetworkLifecycle.Instance.Server.LogWarning($"{player.Username} attempted to interact with a plug that is too far away!");
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    public void YankedByRope(Vector3 force, ForceMode mode)
-    {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.YankedByRope() [{transform.parent.name}, {NetId}] station: {Station?.StationName}, force: {force}");
-
-        //cancel any client events
-        currentInteraction = PlugInteractionType.Rejected;
-
-        HeldBy = null;
-        TrainCarNetId = INVALID_NETID;
-        SocketIndex = INVALID_SOCKET;
-        IsConnecting = false;
-
-        var packet = new CommonPitStopPlugInteractionPacket
-        {
-            NetId = NetId,
-            InteractionType = PlugInteractionType.Yanked,
-            Position = transform.position - WorldMover.currentMove,
-            Rotation = transform.rotation,
-            YankForce = force,
-            YankMode = mode,
-        };
-
-        //Allow host to process packet
-        processingAsHost = true;
-        ProcessPacket(packet);
-        processingAsHost = false;
-
-        //send to all players in active area, except originator and self client
-        if (Station == null || Station.CullingManager == null || Station.CullingManager.ActivePlayers.Count == 0)
-            return;
-
-        foreach (var player in Station.CullingManager.ActivePlayers)
-            NetworkLifecycle.Instance.Server.SendPitStopPlugInteractionPacket(player, packet);
-    }
-
-    public void SnappedByRope()
-    {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.SnappedByRope() [{transform.parent.name}, {NetId}] station: {Station?.StationName}");
-
-        //cancel any client events
-        currentInteraction = PlugInteractionType.Rejected;
-
-        HeldBy = null;
-        TrainCarNetId = INVALID_NETID;
-        SocketIndex = INVALID_SOCKET;
-        IsConnecting = false;
-
-        var packet = new CommonPitStopPlugInteractionPacket
-        {
-            NetId = NetId,
-            InteractionType = PlugInteractionType.DockHome,
-        };
-
-        //Allow host to process packet
-        processingAsHost = true;
-        ProcessPacket(packet);
-        processingAsHost = false;
-
-        //send to all players in active area, except originator and self client
-        if (Station == null || Station.CullingManager == null || Station.CullingManager.ActivePlayers.Count == 0)
-            return;
-
-        foreach (var player in Station.CullingManager.ActivePlayers)
-            NetworkLifecycle.Instance.Server.SendPitStopPlugInteractionPacket(player, packet);
-    }
-
-    private void OnPlayerDisconnected(ServerPlayer disconnectedPlayer)
-    {
-        if (HeldBy == null || HeldBy != disconnectedPlayer)
-            return;
-
-        HeldBy = null;
-        DropPlug();
-
-        if (Station == null || Station.CullingManager == null || Station.CullingManager.ActivePlayers.Count == 0)
-            return;
-
-        //cache packet
-        var packet = new CommonPitStopPlugInteractionPacket
-        {
-            NetId = NetId,
-            InteractionType = PlugInteractionType.Dropped,
-        };
-
-        foreach (var player in Station.CullingManager.ActivePlayers)
-        {
-            if (player != disconnectedPlayer && player.PlayerId != NetworkLifecycle.Instance.Server.SelfId)
-                NetworkLifecycle.Instance.Server.SendPitStopPlugInteractionPacket(player, packet);
-        }
-    }
-
     #endregion
 
     #region Common
 
+    /// <summary>
+    /// Drops the local player's interaction waiting to be reported this frame: the server's hose
+    /// physics moved the plug (<c>Server/Stations/ServerPluggableObject</c>).
+    /// </summary>
+    internal void CancelLocalInteraction() => currentInteraction = PlugInteractionType.Rejected;
+
     public void ProcessPacket(CommonPitStopPlugInteractionPacket packet)
     {
         ProcessInteraction(packet.InteractionType, packet.PlayerId, packet.TrainCarNetId, packet.SocketIndex, packet.Position, packet.Rotation, packet.YankForce, packet.YankMode);
-    }
-
-    public void ProcessBulkUpdate(PitStopPlugData data)
-    {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.ProcessBulkUpdate() netId: {NetId}");
-        CoroutineManager.Instance.StartCoroutine(WaitForInit(data));
-    }
-
-    private IEnumerator WaitForInit(PitStopPlugData data)
-    {
-        yield return new WaitUntil(() => PluggableObject != null && PluggableObject.initialized);
-
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.WaitForInit() netId: {NetId} Complete");
-
-        var interaction = data.State;
-        ProcessInteraction(interaction, data.PlayerId, data.TrainCarNetId, data.SocketIndex, data.Position, data.Rotation);
-
-        //wait 1 frame for plugs that are docking
-        yield return null;
-        //clear the docking flag
-        if (interaction == PlugInteractionType.DockSocket || interaction == PlugInteractionType.DockHome)
-            IsConnecting = false;
-
-        //allow the player to interact
-        Refreshed = true;
     }
 
     public void ProcessInteraction(PlugInteractionType interaction, byte playerId, ushort trainNetId, sbyte socketIndex, Vector3? newPosition, Quaternion? newRotation, Vector3? yankForce = null, ForceMode yankMode = ForceMode.Impulse)
@@ -595,8 +287,8 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     {
         if (playerHolding != 0)
         {
-            if (NetworkLifecycle.Instance.IsClientRunning &&
-            NetworkLifecycle.Instance.Client.ClientPlayerManager.TryGetPlayer(playerHolding, out var player))
+            if (NetworkLifecycle.Instance.Avatars != null &&
+            NetworkLifecycle.Instance.Avatars.TryGetPlayer(playerHolding, out var player))
             {
                 player.DropItem();
             }
@@ -625,8 +317,8 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         SocketIndex = INVALID_SOCKET;
 
         //attach to a player
-        if (NetworkLifecycle.Instance.IsClientRunning &&
-            NetworkLifecycle.Instance.Client.ClientPlayerManager.TryGetPlayer(playerHolding, out var player))
+        if (NetworkLifecycle.Instance.Avatars != null &&
+            NetworkLifecycle.Instance.Avatars.TryGetPlayer(playerHolding, out var player))
         {
             var target = nonVrGrabAnchor?.GetGrabAnchor();
             Multiplayer.LogDebug(() => $"GrabPlug() NetId: {NetId}, player: {player.Username}, targetPos: {target?.localPos}, targetRot: {target?.localRot}");
@@ -704,7 +396,7 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     #region Client
     private void OnGrabbed(ControlImplBase control)
     {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnGrabbed() station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {processingAsHost}, refreshed: {Refreshed}, isConnecting: {IsConnecting}");
+        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnGrabbed() station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {ProcessingAsHost}, waiting: {WaitingForServerState}, isConnecting: {IsConnecting}");
 
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return;
@@ -712,25 +404,28 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         //Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnGrabbed() post [{transform.parent.name}, {NetId}] station: {Station?.StationName}");
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         TrainCarNetId = INVALID_NETID;
         SocketIndex = INVALID_SOCKET;
 
+        // Our player has it now, so any snap before this is over. A snap we only replayed (another
+        // player's dock) sets IsConnecting and never clears it, which would swallow our next drop.
+        IsConnecting = false;
         grabbedLocally = true;
         currentInteraction = PlugInteractionType.PickedUp;
     }
 
     private void OnUngrabbed(ControlImplBase control)
     {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnUngrabbed() station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {processingAsHost}, refreshed: {Refreshed}, isConnecting: {IsConnecting}");
+        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnUngrabbed() station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {ProcessingAsHost}, waiting: {WaitingForServerState}, isConnecting: {IsConnecting}");
 
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed || !grabbedLocally)
+        if (WaitingForServerState || !grabbedLocally)
             return;
 
         //Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnUngrabbed() station: {Station?.StationName}, plugging state: {PluggableObject.State}");
@@ -748,13 +443,13 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
 
     private void OnPluggedIn(PluggableObject plug, PlugSocket socket)
     {
-        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnPlugged() station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {processingAsHost}, refreshed: {Refreshed}, isConnecting: {IsConnecting}");
+        Multiplayer.LogDebug(() => $"NetworkedPluggableObject.OnPlugged() station: {Station?.StationName}, processing: {NetworkLifecycle.Instance.IsProcessingPacket}, processing as Host: {ProcessingAsHost}, waiting: {WaitingForServerState}, isConnecting: {IsConnecting}");
 
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         // Only a plug our player was holding was docked by us; anything else is the host's state

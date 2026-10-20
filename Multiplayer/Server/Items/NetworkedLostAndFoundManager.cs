@@ -26,7 +26,6 @@ public static class NetworkedLostAndFoundManager
     private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly LostItemRegistry registry = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
-    private static readonly List<LostItemData> clientItems = new();
     private static readonly List<JObject> pendingSaveImports = new();
 
     /// <summary>Prefab names of saved Lost and Found items, not yet restored, that belong to this owner.</summary>
@@ -39,8 +38,6 @@ public static class NetworkedLostAndFoundManager
     private static uint generation;
     private static bool saveImportAttempted;
 
-    public static event Action ClientListChanged;
-    public static IReadOnlyList<LostItemData> ClientItems => clientItems;
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
     public static int Count => registry.Count;
@@ -209,9 +206,9 @@ public static class NetworkedLostAndFoundManager
             return false;
         }
         generation++;
-        if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(player.PlayerId,
+        if (NetworkServer.Instance.TryGetServerPlayer(player.PlayerId,
                 out ServerPlayer owner))
-            NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
+            NetworkServer.Instance.SendLostItemsSnapshot(owner);
         Publish("item.lost-and-found-retrieved", item, new()
         {
             ["ownerPlayerId"] = player.PlayerId,
@@ -348,7 +345,7 @@ public static class NetworkedLostAndFoundManager
             return false;
         }
         ChangeCause<ItemRemovalReason> cause = CollectionCause(reason, authority.PersistentOwnerPlayerId,
-            ItemChangeLog.Detail("was " + previousPlacement, detail));
+            ItemChangeCauses.Detail("was " + previousPlacement, detail));
         ItemUpdateData destroy = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
         if (destroy != null)
         {
@@ -374,17 +371,17 @@ public static class NetworkedLostAndFoundManager
         eligibleSince.Remove(item.NetId);
         generation++;
         ItemChangeLog.RecordRemoval(item, cause);
-        foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
             player.NearbyItems.Remove(item);
             player.KnownItems.Remove(item);
             player.AcknowledgedWorldItems.Remove(item.NetId);
         }
         if (destroy != null)
-            NetworkLifecycle.Instance.Server.SendItemUpdatePacket(destroy);
-        if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(authority.PersistentOwnerPlayerId,
+            NetworkServer.Instance.SendItemUpdatePacket(destroy);
+        if (NetworkServer.Instance.TryGetServerPlayer(authority.PersistentOwnerPlayerId,
                 out ServerPlayer owner))
-            NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
+            NetworkServer.Instance.SendLostItemsSnapshot(owner);
         Publish("item.lost-and-found-collected", item, new()
         {
             ["ownerPlayerId"] = authority.PersistentOwnerPlayerId,
@@ -397,30 +394,18 @@ public static class NetworkedLostAndFoundManager
     // "CollectedToLostAndFound (OwnerDistance, owner Bentgear29; was World)".
     private static ChangeCause<ItemRemovalReason> CollectionCause(LostItemReason reason, byte ownerPlayerId,
         string detail) =>
-        ItemChangeLog.Removal(ItemRemovalReason.CollectedToLostAndFound, detail: ItemChangeLog.Detail(
+        ItemChangeLog.Removal(ItemRemovalReason.CollectedToLostAndFound, detail: ItemChangeCauses.Detail(
             reason + ", owner " + (ItemChangeLog.PlayerName(ownerPlayerId) ?? "P" + ownerPlayerId), detail));
 
-    public static void ApplyClientSnapshot(uint newGeneration, LostItemData[] items)
-    {
-        // On the host this counter is the server's own; a snapshot it was sent can be older.
-        if (!NetworkLifecycle.Instance.IsHost())
-            generation = newGeneration;
-        clientItems.Clear();
-        if (items != null)
-            clientItems.AddRange(items.Where(item => item != null));
-        ClientListChanged?.Invoke();
-    }
 
     public static void Clear()
     {
         registry.Clear();
         eligibleSince.Clear();
-        clientItems.Clear();
         pendingSaveImports.Clear();
         lastEvaluations.Clear();
         generation = 0;
         saveImportAttempted = false;
-        ClientListChanged?.Invoke();
     }
 
     /// <summary>Detached main-thread diagnostics used by the in-game observability overlay.</summary>
@@ -469,26 +454,9 @@ public static class NetworkedLostAndFoundManager
                 });
             }
         }
-        if (NetworkLifecycle.Instance?.IsClientRunning == true)
-        {
-            foreach (LostItemData item in clientItems)
-            {
-                result.Add(new Dictionary<string, object>
-                {
-                    ["debugKey"] = $"client-handle:{item.Handle}",
-                    ["source"] = "client-authoritative-list",
-                    ["status"] = "ListedByHost",
-                    ["lostHandle"] = item.Handle,
-                    ["netId"] = item.NetId,
-                    ["revision"] = item.Revision,
-                    ["prefabName"] = item.PrefabName ?? string.Empty,
-                    ["displayName"] = item.DisplayName ?? string.Empty,
-                    ["ownerPlayerId"] = DebugRuntime.Session?.PlayerId ?? 0,
-                    ["reason"] = ((LostItemReason)item.Reason).ToString(),
-                    ["lostUtc"] = FormatUtc(item.LostUtcTicks)
-                });
-            }
-        }
+        // The host player's own list, as its session has it.
+        if (ItemClient.Current?.LostAndFoundDebugSnapshot() is { } localList)
+            result.AddRange(localList);
         return result.ToArray();
     }
 
@@ -541,7 +509,7 @@ public static class NetworkedLostAndFoundManager
 
     private static void TryBindPendingSaveEntries()
     {
-        if (pendingSaveImports.Count == 0 || NetworkLifecycle.Instance?.Server == null)
+        if (pendingSaveImports.Count == 0 || NetworkServer.Instance == null)
             return;
         StorageController storage = StorageController.Instance;
         if (storage?.StorageLostAndFound == null)
@@ -582,7 +550,7 @@ public static class NetworkedLostAndFoundManager
                     $"({prefab}) with no stored item");
                 continue;
             }
-            ServerPlayer owner = NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player =>
+            ServerPlayer owner = NetworkServer.Instance.ServerPlayers.FirstOrDefault(player =>
                 string.Equals(player.Guid.ToString("D"), ownerIdentity, StringComparison.OrdinalIgnoreCase));
             if (owner == null) continue;
             ItemBase baseItem = storageIndex >= 0 && storageIndex < restoredItems.Count
@@ -644,9 +612,9 @@ public static class NetworkedLostAndFoundManager
     private static LostItemCandidate BuildCandidate(NetworkedItem item,
         AuthoritativeItemRegistry.Record authority, float now)
     {
-        bool ownerKnown = NetworkLifecycle.Instance.Server.TryGetServerPlayer(
+        bool ownerKnown = NetworkServer.Instance.TryGetServerPlayer(
             authority.PersistentOwnerPlayerId, out ServerPlayer owner);
-        List<ServerPlayer> players = NetworkLifecycle.Instance.Server.GameplayPlayers
+        List<ServerPlayer> players = NetworkServer.Instance.ServerPlayers
             .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems)
             .ToList();
         float nearest = players.Count == 0 ? float.MaxValue :
@@ -750,9 +718,9 @@ public static class NetworkedLostAndFoundManager
         eligibleSince.Remove(itemNetId);
         Multiplayer.Log($"[LostAndFound] Removed entry handle={removed.Handle}, netId={itemNetId}, " +
             $"prefab={removed.PrefabName}, owner=P{removed.OwnerPlayerId}: {reason}");
-        if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(removed.OwnerPlayerId,
+        if (NetworkServer.Instance.TryGetServerPlayer(removed.OwnerPlayerId,
                 out ServerPlayer owner))
-            NetworkLifecycle.Instance.Server.SendLostItemsSnapshot(owner);
+            NetworkServer.Instance.SendLostItemsSnapshot(owner);
         Publish("item.lost-and-found-entry-invalidated", itemNetId, new()
         {
             ["ownerPlayerId"] = removed.OwnerPlayerId,
@@ -807,7 +775,7 @@ public static class NetworkedLostAndFoundManager
     }
 
     private static string OwnerIdentity(byte id) =>
-        NetworkLifecycle.Instance.Server.TryGetServerPlayer(id, out ServerPlayer player)
+        NetworkServer.Instance.TryGetServerPlayer(id, out ServerPlayer player)
             ? player.Guid.ToString("D") : string.Empty;
 
     private static LostItemData ToData(LostItemRecord record) => new()

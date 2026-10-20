@@ -60,6 +60,14 @@
         <ProjectReference Include="..\Tools\DedicatedHost\ServerApp\ServerApp.csproj" ReferenceOutputAssembly="false" />
         <EmbeddedResource Include="$(ProtocolManifestPath)" LogicalName="Multiplayer.ProtocolManifest.json" Condition="'$(ManifestEmbedPass)' == 'true' AND Exists('$(ProtocolManifestPath)')" />
     </ItemGroup>
+    <!-- The client/server split is a compile error to cross (docs/design/code-layout.md): the role
+         analyzer fails the build on a reference across roles not in the allow-list (DVMP0001), or a
+         file whose namespace isn't its folder's (DVMP0002). -->
+    <ItemGroup>
+        <ProjectReference Include="..\Tools\RoleAnalyzer\RoleAnalyzer.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+        <AdditionalFiles Include="..\Multiplayer.Protocol.Tests\CodeLayout\role-references.allowed.txt" />
+        <CompilerVisibleProperty Include="MSBuildProjectDirectory" />
+    </ItemGroup>
     
     <!-- Derail Valley References -->
     <ItemGroup>
@@ -173,6 +181,8 @@
     <Target Name="GenerateProtocolManifest" AfterTargets="Build" Condition="'$(ManifestEmbedPass)' != 'true'">
         <Exec Command="&quot;$(MSBuildProjectDirectory)\..\Tools\ProtocolManifestGenerator\bin\$(Configuration)\net48\ProtocolManifestGenerator.exe&quot; &quot;$(TargetPath)&quot; &quot;$(DvInstallDir)\DerailValley_Data\Managed&quot; &quot;$(ProtocolManifestPath)&quot;" />
         <Copy SourceFiles="$(ProtocolManifestPath)" DestinationFolder="$(OutDir)" />
-        <Exec Command="dotnet build &quot;$(MSBuildProjectFullPath)&quot; --no-restore -p:ManifestEmbedPass=true -p:Configuration=$(Configuration)" />
+        <!-- The second pass is its own process: pass the install on, or it installs into the default
+             one (Directory.Build.targets) even when this build was pointed elsewhere (-p:DvInstallDir). -->
+        <Exec Command="dotnet build &quot;$(MSBuildProjectFullPath)&quot; --no-restore -p:ManifestEmbedPass=true -p:Configuration=$(Configuration) &quot;-p:DvInstallDir=$(DvInstallDir)&quot;" />
     </Target>
 </Project>

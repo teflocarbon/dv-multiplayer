@@ -17,13 +17,14 @@ namespace Dvmp.Lib
             ?? throw new InvalidOperationException("no car " + id);
 
         /// <summary>Host only: spawns a car of the given livery on the track nearest a point
-        /// <paramref name="ahead"/> metres in front of the local player.</summary>
-        public static TrainCar SpawnNearPlayer(string liveryId, float ahead = 25f)
+        /// <paramref name="ahead"/> metres in front of the local player, or of <paramref name="around"/>
+        /// (a dedicated host's local player is its parked body, which can be far from every client).</summary>
+        public static TrainCar SpawnNearPlayer(string liveryId, float ahead = 25f, Transform around = null)
         {
             var livery = DV.Globals.G.Types.Liveries.FirstOrDefault(l => l.id == liveryId)
                 ?? throw new InvalidOperationException("no livery " + liveryId);
             // The nearest track can be occupied; try points around the player until one has room.
-            Transform player = PlayerManager.PlayerTransform;
+            Transform player = around != null ? around : PlayerManager.PlayerTransform;
             Vector3 flatForward = Vector3.ProjectOnPlane(player.forward, Vector3.up).normalized;
             Vector3 right = Vector3.Cross(Vector3.up, flatForward);
             foreach (float distance in new[] { ahead, ahead * 1.6f, ahead * 2.4f })
@@ -36,6 +37,98 @@ namespace Dvmp.Lib
             throw new InvalidOperationException("no room to spawn " + liveryId + " near the player");
         }
 
+        /// <summary>Host only: as <see cref="SpawnNearPlayer"/>, but a steam loco that couples its own
+        /// tender comes with that tender coupled behind it (spawning one car never brings it, and a
+        /// loco without one has no coal pile). Returns the loco; delete its trainset to clean up.</summary>
+        public static TrainCar SpawnWithTenderNearPlayer(string liveryId, float ahead = 25f)
+        {
+            var livery = DV.Globals.G.Types.Liveries.FirstOrDefault(l => l.id == liveryId)
+                ?? throw new InvalidOperationException("no livery " + liveryId);
+            var tender = TenderOf(livery);
+            if (tender == null)
+                return SpawnNearPlayer(liveryId, ahead);
+            Transform player = PlayerManager.PlayerTransform;
+            Vector3 flatForward = Vector3.ProjectOnPlane(player.forward, Vector3.up).normalized;
+            Vector3 right = Vector3.Cross(Vector3.up, flatForward);
+            foreach (float distance in new[] { ahead, ahead * 1.6f, ahead * 2.4f })
+            foreach (Vector3 dir in new[] { flatForward, right, -right, -flatForward })
+            {
+                // Spawned as one consist (loco, then tender), the way a station spawns its locos:
+                // each car couples to the one before it as it lands.
+                List<TrainCar> cars = CarSpawner.Instance.SpawnCarTypesOnClosestTrack(
+                    new List<DV.ThingTypes.TrainCarLivery> { livery, tender }, player.position + dir * distance,
+                    new List<bool> { false, false }, preventAutoCoupleOnLastCars: true,
+                    applyHandbrakeOnLastCars: false, playerSpawnedCars: true);
+                if (cars != null && cars.Count > 0)
+                {
+                    // Both braked: vanilla's spawn couples a consist only if its couplers are still
+                    // touching half a second on, and on a grade the tender rolled away first (13 m in
+                    // a run), out of reach of the auto-couplers too.
+                    foreach (TrainCar car in cars)
+                        if (car.brakeSystem != null && car.brakeSystem.hasHandbrake)
+                            car.brakeSystem.SetHandbrakePosition(1f);
+                    return cars.First(c => c.carLivery == livery);
+                }
+            }
+            throw new InvalidOperationException("no room to spawn " + liveryId + " and its tender near the player");
+        }
+
+        /// <summary>Host only: waits for a loco from <see cref="SpawnWithTenderNearPlayer"/> to be coupled
+        /// to its tender (vanilla couples a spawned consist half a second on), coupling the nearest pair of
+        /// their couplers within 3 m itself if it hasn't after <paramref name="waitSeconds"/>, before
+        /// anything can drift. Throws, with every coupler gap, if they still aren't.</summary>
+        public static IEnumerator CoupleTender(TrainCar loco, float waitSeconds = 1.5f)
+        {
+            var tender = TenderOf(loco.carLivery);
+            if (tender == null)
+                yield break;
+            bool Coupled() => loco.trainset != null && loco.trainset.cars.Any(c => c.carLivery == tender);
+            for (float t0 = Time.realtimeSinceStartup; !Coupled() && Time.realtimeSinceStartup - t0 < waitSeconds; )
+                yield return null;
+            if (Coupled())
+                yield break;
+            TrainCar car = UnityEngine.Object.FindObjectsOfType<TrainCar>().Where(c => c.carLivery == tender)
+                .OrderBy(c => (c.transform.position - loco.transform.position).sqrMagnitude).FirstOrDefault()
+                ?? throw new InvalidOperationException(loco.ID + "'s tender " + tender.id + " wasn't spawned");
+            var pairs = (from a in new[] { loco.frontCoupler, loco.rearCoupler }
+                         from b in new[] { car.frontCoupler, car.rearCoupler }
+                         select (a, b, gap: Vector3.Distance(a.transform.position, b.transform.position)))
+                .OrderBy(p => p.gap).ToList();
+            if (pairs[0].gap <= 3f && !pairs[0].a.IsCoupled() && !pairs[0].b.IsCoupled())
+                pairs[0].a.CoupleTo(pairs[0].b, playAudio: false);
+            for (int i = 0; i < 10 && !Coupled(); i++)
+                yield return null;
+            if (!Coupled())
+                throw new InvalidOperationException($"{loco.ID} and its tender {car.ID} didn't couple; coupler gaps: " +
+                    string.Join(", ", pairs.Select(p => $"{(p.a.isFrontCoupler ? "front" : "rear")}-{(p.b.isFrontCoupler ? "front" : "rear")} {p.gap:F2} m")) +
+                    $"; loco on {loco.Bogies[0].track?.name}, tender on {car.Bogies[0].track?.name}");
+        }
+
+        /// <summary>The tender a steam loco couples itself (vanilla's SteamTenderAutoCoupleMechanism,
+        /// or Custom Car Loader's CarAutoCouplerInternal), or null: the tender livery whose id starts
+        /// most like the loco's (LocoS282A's is LocoS282B).</summary>
+        public static DV.ThingTypes.TrainCarLivery TenderOf(DV.ThingTypes.TrainCarLivery loco)
+        {
+            bool couplesTender = loco.prefab != null && loco.prefab.GetComponentsInChildren<MonoBehaviour>(true)
+                .Any(m => m != null && (m is DV.SteamTenderAutoCoupleMechanism || m.GetType().Name == "CarAutoCouplerInternal"));
+            if (!couplesTender)
+                return null;
+            // Characters the two ids start with in common, past a "Loco" both have.
+            int Shared(string a, string b)
+            {
+                int skip = a.StartsWith("Loco") && b.StartsWith("Loco") ? 4 : 0, n = skip;
+                while (n < a.Length && n < b.Length && a[n] == b[n]) n++;
+                return n - skip;
+            }
+            return DV.Globals.G.Types.Liveries
+                .Where(l => l != loco && l.prefab != null && DV.ThingTypes.CarTypes.IsTender(l))
+                .Select(l => (livery: l, shared: Shared(l.id, loco.id)))
+                .Where(x => x.shared >= 3)
+                .OrderByDescending(x => x.shared)
+                .Select(x => x.livery)
+                .FirstOrDefault();
+        }
+
         public static void Delete(TrainCar car)
         {
             if (car != null)
@@ -43,8 +136,12 @@ namespace Dvmp.Lib
         }
 
         /// <summary>A point on the floor inside the car's cab (locos), or on its deck.</summary>
-        public static Vector3 FloorPoint(TrainCar car)
+        public static Vector3 FloorPoint(TrainCar car) => FloorHit(car, out _);
+
+        /// <summary>As <see cref="FloorPoint"/>, and the floor's collider there (null if none was hit).</summary>
+        public static Vector3 FloorHit(TrainCar car, out Collider floor)
         {
+            floor = null;
             Transform root = car.interior != null ? car.interior : car.transform;
             int dampening = LayerMask.NameToLayer("Camera_Dampening");
             var cab = root.GetComponentsInChildren<Collider>(true).Where(c => c.gameObject.layer == dampening).ToList();
@@ -60,7 +157,10 @@ namespace Dvmp.Lib
             // Cast from inside the cab volume (below its roof) down to the floor.
             int walkable = LayerMask.GetMask("Train_Walkable", "Train_Interior");
             if (Physics.Raycast(centre, Vector3.down, out RaycastHit hit, 6f, walkable, QueryTriggerInteraction.Ignore))
+            {
+                floor = hit.collider;
                 return hit.point;
+            }
             return centre;
         }
 
@@ -73,7 +173,8 @@ namespace Dvmp.Lib
         }
 
         /// <summary>Puts the local player on the car's floor and attaches them to the car the way the
-        /// game does when a player steps on (a teleport alone doesn't attach them).</summary>
+        /// game does when a player steps on (a teleport alone doesn't attach them): parented to the
+        /// floor's reparent target, the car's interior.</summary>
         public static IEnumerator Board(TrainCar car)
         {
             // A loco's cab interior only loads with a player nearby; without it the floor search
@@ -92,18 +193,29 @@ namespace Dvmp.Lib
             if (car.IsLoco && car.transform.InverseTransformPoint(floor).y > 2.4f)
                 throw new InvalidOperationException("cab floor of " + car.ID + " not found (would board onto the roof)");
             yield return LocalPlayer.TeleportAbs(Dev.Abs(floor) + Vector3.up * 0.1f, 0.5f);
-            Type reparentType = AppDomain.CurrentDomain.GetAssemblies()
-                .Where(a => a.GetName().Name == "DV.CharacterController")
-                .SelectMany(a => a.GetTypes()).First(t => t.Name == "CharacterReparenting");
+            var characterController = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => a.GetName().Name == "DV.CharacterController").SelectMany(a => a.GetTypes()).ToList();
+            Type reparentType = characterController.First(t => t.Name == "CharacterReparenting");
+            Type targetType = characterController.First(t => t.FullName == "DV.CharacterReparentTarget");
             UnityEngine.Object reparenting = UnityEngine.Object.FindObjectOfType(reparentType);
-            reparentType.GetMethod("ReparentTo").Invoke(reparenting, new object[] { car.transform, false, null });
+            // Where the game puts a player who steps onto this floor (CharacterReparenting.
+            // TryToReparentOnFloorChange): the CharacterReparentTarget above the floor's collider,
+            // its target. That's the car's interior, which TrainCarInteriorPhysics moves after
+            // the car every frame, not the car body: parented to the body, a player on a moving
+            // train slid back through the cab and off it, ~4 m/s at speed (2026-10-20).
+            FloorHit(car, out Collider floorCollider);
+            Component reparentTarget = floorCollider != null ? floorCollider.GetComponentInParent(targetType) : null;
+            Transform parent = reparentTarget != null ? (Transform)targetType.GetField("target").GetValue(reparentTarget) : null;
+            if (parent == null)
+                parent = car.interior != null ? car.interior : car.transform;
+            reparentType.GetMethod("ReparentTo").Invoke(reparenting, new object[] { parent, false, reparentTarget });
             // A moving train travels on while the teleport settles; now that the player rides with
-            // the car (parented to it), put them on its floor in the car's own frame - a world
-            // position is stale by the time physics runs and left players at the cab's edge.
-            Vector3 floorLocal = car.transform.InverseTransformPoint(FloorPoint(car)) + Vector3.up * 0.1f; // fresh: `floor` is stale on a moving train
+            // the car (parented to it), put them on its floor in its own frame - a world position
+            // is stale by the time physics runs and left players at the cab's edge.
+            Vector3 floorLocal = parent.InverseTransformPoint(FloorPoint(car)) + Vector3.up * 0.1f; // fresh: `floor` is stale on a moving train
             for (int i = 0; i < 5; i++)
             {
-                if (PlayerManager.PlayerTransform.parent == car.transform)
+                if (PlayerManager.PlayerTransform.parent == parent)
                     PlayerManager.PlayerTransform.localPosition = floorLocal;
                 Physics.SyncTransforms();
                 yield return null;
@@ -111,7 +223,7 @@ namespace Dvmp.Lib
             for (int i = 0; i < 20; i++) yield return null;
             if (PlayerManager.Car != car)
                 throw new InvalidOperationException("player did not attach to " + car.ID);
-            float off = Vector3.Distance(car.transform.InverseTransformPoint(PlayerManager.PlayerTransform.position), floorLocal);
+            float off = Vector3.Distance(parent.InverseTransformPoint(PlayerManager.PlayerTransform.position), floorLocal);
             if (off > 3f)
                 throw new InvalidOperationException($"player ended {off:F1} m from the floor of {car.ID}");
         }

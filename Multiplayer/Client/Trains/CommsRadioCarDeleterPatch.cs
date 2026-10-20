@@ -6,6 +6,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -33,7 +34,7 @@ public static class CommsRadioCarDeleterPatch
             return false;
         }
 
-        NetworkLifecycle.Instance.Client.SendTrainDeleteRequest(networkedTrainCar.NetId);
+        TrainRoles.Client?.SendTrainDeleteRequest(networkedTrainCar.NetId);
 
         CoroutineManager.Instance.StartCoroutine(PlaySoundsLater(__instance, __instance.carToDelete.transform.position, __instance.removePrice > 0));
         __instance.ClearFlags();
@@ -42,7 +43,7 @@ public static class CommsRadioCarDeleterPatch
 
     private static IEnumerator PlaySoundsLater(CommsRadioCarDeleter __instance, Vector3 trainPosition, bool playMoneyRemovedSound = true)
     {
-        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.Client.Ping * 3f)/1000);
+        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.LocalSession.Ping * 3f)/1000);
         if (playMoneyRemovedSound && __instance.moneyRemovedSound != null)
             __instance.moneyRemovedSound.Play2D();
         // The TrainCar may already be deleted when we're done waiting, so we play the sound manually.

@@ -6,9 +6,10 @@ using LiteNetLib;
 using MPAPI;
 using Multiplayer.Menus.MainMenu;
 using Multiplayer.Shared.Api;
-using Multiplayer.Shared.Compatibility;
+using Multiplayer.Client.Compatibility;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Integrations;
+using Multiplayer.Client.Players;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
@@ -113,8 +114,10 @@ public static class Multiplayer
                 Harmony.DEBUG = true;
 #endif
             harmony.PatchAll();
-            SimComponent_Tick_Patch.Patch(harmony);
-            global::Multiplayer.Shared.Trains.TenderAutoCouplerPatch.Patch(harmony);
+            global::Multiplayer.Client.Trains.SimComponent_Tick_Patch.Patch(harmony);
+            global::Multiplayer.Client.Trains.TenderAutoCouplerPatch.Patch(harmony);
+            CustomCarLoaderRopes.Patch(harmony);
+            global::Multiplayer.Shared.Compatibility.CustomCarLoaderPorts.Patch(harmony);
 
             UnityModManager.ModEntry remoteDispatch = UnityModManager.FindMod("RemoteDispatch");
             if (remoteDispatch?.Enabled == true)
@@ -139,7 +142,7 @@ public static class Multiplayer
 
 
             Log("Creating NetworkManager...");
-            NetworkLifecycle.CreateLifecycle();
+            MultiplayerSession.Create();
 
             DebugRuntime.ApplySettings(Settings);
 
@@ -149,6 +152,10 @@ public static class Multiplayer
             Log("Loading API Provider...");
             _apiProvider = new APIProvider();
             MultiplayerAPI.RegisterAPI(_apiProvider);
+
+            // What the server and the client need from the menus, which they may not name.
+            FrontEnd.Attach(() => MainMenuControllerPatch.MenuProvider.BuildVersionString,
+                MainMenuThingsAndStuff.ReturnToMainMenu);
 
 #if DEBUG
             CheckPatches();

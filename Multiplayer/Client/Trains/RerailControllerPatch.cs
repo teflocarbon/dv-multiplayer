@@ -7,22 +7,13 @@ using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.World;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
 [HarmonyPatch(typeof(RerailController))]
 public static class RerailControllerPatch
 {
-    [HarmonyPostfix]
-    [HarmonyPatch(nameof(RerailController.Awake))]
-    private static void OnAwake_Prefix(RerailController __instance)
-    {
-        if (!NetworkLifecycle.Instance.IsHost())
-            return;
-
-        NetworkLifecycle.Instance.Server.rerailController = __instance;
-    }
-
     [HarmonyPrefix]
     [HarmonyPatch(nameof(RerailController.OnUse))]
     private static bool OnUse_Prefix(RerailController __instance)
@@ -47,7 +38,7 @@ public static class RerailControllerPatch
         }
 
 
-        NetworkLifecycle.Instance.Client.SendTrainRerailRequest(
+        TrainRoles.Client?.SendTrainRerailRequest(
             networkedTrainCar.NetId,
             NetworkedRailTrack.GetFromRailTrack(__instance.rerailTrack).NetId,
             __instance.rerailPointWorldAbsPosition,
@@ -61,7 +52,7 @@ public static class RerailControllerPatch
 
     private static IEnumerator PlayerSoundsLater(RerailController __instance)
     {
-        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.Client.Ping * 3f)/1000);
+        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.LocalSession.Ping * 3f)/1000);
         if (__instance.moneyRemovedSound != null)
             __instance.moneyRemovedSound.Play2D();
         CommsRadioController.PlayAudioFromCar(__instance.rerailingSound, __instance.carToRerail);

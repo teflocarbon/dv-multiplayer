@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -18,6 +19,7 @@ internal static class Program
                                              for a dvmp client (a later `up`) or your own game to join
           dvmp up ... --dedicated            launch the host with -mp-dedicated (a dedicated host: no avatar, no slot)
           dvmp up ... --fresh --verified     launch the host checking Steam tickets (no -mp-allow-unverified)
+          dvmp up ... --reseed --session NAME   restart with the session's user data copied afresh from your real profile
           dvmp down [--all]                          quit this session's games (--all: every session's)
           dvmp trace [-t target] [--ids 1,2] [--last N]   install/refresh tracer, show item history
           dvmp desync [-n samples] [-i seconds] [--top N]   cross-peer desync report
@@ -29,15 +31,23 @@ internal static class Program
           dvmp remote pair NAME ADDRESS[:PORT] PAIRING-CODE [--as LABEL]   pair with a game on someone else's PC (Tailscale)
           dvmp remote connect NAME SESSION-CODE      start a session with it (a new code every launch of their game)
           dvmp remote list | forget NAME             paired games; forget drops the pairing on this PC only
+          dvmp scenario list | check                 the C# scenarios, their options; check them without games
+          dvmp scenario run NAME [--arg K=V]... [--log-dir DIR]   one run against the session's pair
+                                             (exit 0 pass, 1 fail, 3 harness error; docs/design/scenarios.md)
+          dvmp probes [-t target] [--stop all|ID|NAME] [--unpatch OWNER ...]
+                                             coroutines and Harmony patches probes left running; stop/remove them
 
         target: host | client | all (default) | pid | remote:NAME (a paired remote game; never part of "all")
         --session NAME (or DVMP_SESSION): act on that host + client pair; several can run at once.
-        Without it, the default session (as before sessions existed).
+        Without it, the default session (as before sessions existed). A named session's games keep
+        their own saves and profile, copied from yours, in %LOCALAPPDATA%\dvmp\sessions\NAME\data.
         """;
 
     public static async Task<int> Main(string[] args)
     {
-        if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
+        // Anywhere on the line: `dvmp up --help` once ran a real `up` against the Steam install,
+        // replacing the user's installed mod (2026-10-20). Help never acts.
+        if (args.Length == 0 || args[0] == "help" || args.Any(a => a is "-h" or "--help" or "/?"))
         {
             Console.WriteLine(Usage);
             return args.Length == 0 ? 1 : 0;
@@ -66,7 +76,7 @@ internal static class Program
                         NewSession: Opt(args, "--new"), NewSessionName: Opt(args, "--name"),
                         BackgroundFpsCap: Opt(args, "--bg-fps") is string bg ? int.Parse(bg) : null,
                         HostOnly: args.Contains("--host-only"), Dedicated: args.Contains("--dedicated"),
-                        Verified: args.Contains("--verified")),
+                        Verified: args.Contains("--verified"), Reseed: args.Contains("--reseed")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
                 "down" => Print(await Session.DownAsync(CancellationToken.None, all: args.Contains("--all"))),
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),
@@ -81,6 +91,8 @@ internal static class Program
                 "screenshot" => await ScreenshotAsync(args),
                 "perf" => await PerfAsync(args),
                 "remote" => await RemoteAsync(args),
+                "scenario" => await ScenarioAsync(args),
+                "probes" => Print(await Operations.ProbesAsync(Opt(args, "-t"), Opt(args, "--stop"), Opts(args, "--unpatch"))),
                 "logs" => Print(await Operations.LogsAsync(Opt(args, "-t"), Opt(args, "-l") ?? "warning",
                     Opt(args, "-c"), int.Parse(Opt(args, "-n") ?? "100"), sinceLast: false)),
                 _ => Fail("unknown command: " + args[0] + "\n\n" + Usage)
@@ -153,6 +165,29 @@ internal static class Program
         }
     }
 
+    // The C# scenarios (docs/design/scenarios.md) run in their own net48 exe, built from
+    // DevTools/DvmpScenarios against the mod: this passes the command and the session on to it, and
+    // its exit code back (0 pass, 1 fail, 2 usage, 3 harness error).
+    private static async Task<int> ScenarioAsync(string[] args)
+    {
+        string? exe = Paths.ProbeSourceDir is { } probes
+            ? Path.GetFullPath(Path.Combine(probes, "..", "..", "DvmpScenarios", "bin", "Debug", "net48", "DvmpScenarios.exe"))
+            : null;
+        if (exe == null || !File.Exists(exe))
+            return Fail("the scenarios aren't built: dotnet build DevTools/DvmpScenarios/DvmpScenarios.csproj -c Debug" +
+                        (exe != null ? $" (looked for {exe})" : " (dvmp isn't running from the repo)"));
+        ProcessStartInfo start = new(exe) { UseShellExecute = false };
+        foreach (string a in args.Skip(1)) start.ArgumentList.Add(a);
+        start.ArgumentList.Add("--session");
+        start.ArgumentList.Add(Sessions.Current);
+        start.ArgumentList.Add("--dvmp");
+        start.ArgumentList.Add(Environment.ProcessPath!);
+        start.Environment["DVMP_DV_DIR"] = Paths.GameDir;
+        using Process p = Process.Start(start) ?? throw new AgentException("couldn't start " + exe);
+        await p.WaitForExitAsync();
+        return p.ExitCode;
+    }
+
     private static async Task<int> ScreenshotAsync(string[] args)
     {
         string dir = Opt(args, "-o") ?? Path.Combine(Path.GetTempPath(), "dvmp-shots");
@@ -203,6 +238,15 @@ internal static class Program
     {
         int i = Array.IndexOf(args, name);
         return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+    }
+
+    // Every value of a repeatable option.
+    private static List<string> Opts(string[] args, string name)
+    {
+        List<string> values = new();
+        for (int i = 0; i + 1 < args.Length; i++)
+            if (args[i] == name) values.Add(args[i + 1]);
+        return values;
     }
 
     // The first argument after the command that is neither an option nor an option's value.

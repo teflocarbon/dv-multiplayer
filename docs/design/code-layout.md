@@ -110,28 +110,28 @@ Paths are under `Multiplayer/`.
 |---|---|---|
 | `Multiplayer.cs`, `Settings.cs` | Mod | `Settings` mixes the player's options with the server's (`[Header("Server")]`, `Admins`, `Settings.cs:52-67`); later, a server-settings section the Server reads through an interface |
 | `Locale.cs`, `ModCompatibility/`, `Models/` | Shared (locale, mod lists), Client (player models) | |
-| `API/` | `APIProvider`, `ModCompatibilityManager`: Mod. `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
+| `API/` | `APIProvider`: Mod (`Multiplayer/APIProvider.cs`, the MPAPI facade `Multiplayer.Load` registers; it asks the server through `IApiServer`). `ModCompatibilityManager`: Shared (the mod list is checked by server, client and menus, and Server and Client can't reference the Mod; the menus show the incompatible-mods popup, `IncompatibleModsWarning`). `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
 | `Shared/Session/IdMonoBehaviour.cs`, `TrainComponentLookup.cs` | Shared | |
 | `Components/MainMenu/`, `Components/UI/{GridView,ServerBrowser,Settings}/`, `Components/Util/` | Mod | The front end: host and join |
 | `Components/UI/CareerManager/` | Client | |
-| `Shared/Session/NetworkLifecycle.cs` | Mod, with the tick clock in Shared | It owns the server and the client; everything reads `Tick` and `OnTick` |
+| `Shared/Session/NetworkLifecycle.cs` | Shared (tick clock, role queries); the server and the client's ownership to the Mod (`MultiplayerSession.cs`) | Done: see Decisions, "The lifecycle" |
 | `Components/Networking/{DedicatedHost,DedicatedHostAnchor,DedicatedHostSaveLock,Server*Coverage}.cs` | Server | |
 | `Components/Networking/{RpcManager,TickedQueue}.cs` | Client (`RpcManager` issues and resolves tickets), Shared | |
 | `Components/Networking/Jobs/` | `JobBookletSummonCoordinator`, `NetworkedTask`: Server. `NetworkedJob`: split. Lookups: Shared | |
-| `Components/Networking/Player/` | Client: trackers, `NetworkedWorldMap`. **`NetworkedPlayer`: see Decisions** | |
+| `Components/Networking/Player/` | Client: trackers, `NetworkedWorldMap`, `NetworkedPlayerNameTag` (name tag and ping). **`NetworkedPlayer`: see Decisions** (its model and animation are still in it: the VR IK handler the model adds gates the hand smoothing that places held items) | |
 | `Components/Networking/Train/` | `TrainTopologyAuthority`, `NetworkedLocoRestorationController`: Server. `TrainPortPresenter`, `TrainTopologyReconciler`, `NetworkedCarSpawner`: Client. Lookups, `TrainTopologyNativeAdapter`, `NetworkedBogie`, `NetworkedRigidbody`: Shared. **`NetworkedTrainCar`, `NetworkTrainsetWatcher`, `TrainSpeedQueue`, `TrainChangeCauses`: split** | |
 | `Components/Networking/UI/` | Client (`NetworkStatsGui`: Shared) | |
 | `Components/Networking/World/` (items) | `AuthoritativeItemRegistry`, `NetworkedItem.Server`, `NetworkedItemManager.{ServerInterest,Convergence}`, `NetworkedLostAndFoundManager`, `OwnedItemsSummary`, `Containers/NetworkedColdContainerManager`, `WorldItems/{Persistence*,AuthoredWorldItemReplenishmentManager}`: Server. `NetworkedItem.{StateApplication,VrHand}`, `NetworkedItemManager.ClientProjection`: Client. Identities and records: Shared. **`NetworkedItem`, `NetworkedItem.Snapshots`, `NetworkedItemManager.{ProjectionAndCompatibility,WorldIntegration,FallRescue}`, `WorldItems/{NetworkedItemSpatialManager,NetworkedTrainItemWakeManager}`: split** | Items are already split into role partials; the split here is finishing that |
 | `Components/Networking/World/` (stations and world) | `NetworkedJunction`, `NetworkedTurntable`: Client today, Server after [host-local-session](host-local-session.md) stage 2 makes the server apply them. **`NetworkedPitStopStation`, `NetworkedPluggableObject`, `NetworkedCashRegisterWithModules`, `NetworkedGenericSwitch`, `NetworkedStationController`, `HazmatSync`, `NetworkedPageBookState`: split** | Each has its server processing (`ProcessInteractionPacketAsHost`, `Server_Process*`) next to its client side |
 | `Components/SaveGame/` | `NetworkedSaveGameManager`, `InstallGuidRekey`, `PerPlayerSaveFormat`, `NetworkedCareerManagerDebtController`: Server. `Client_GameSession`, `StartGameData_ServerSave`: Client | |
 | `Debugging/` | Shared (`DebugDiagnostics`' server half: Server) | |
-| `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons, storage: Shared | |
+| `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons (`DVSeasonsIntegration`, only `/season`): Server. Storage: Shared | |
 | `Networking/Data/`, `Networking/Packets/`, `Networking/Serialization/`, `Networking/TransportLayers/` | Shared, except `ServerPlayer.cs`: Server | `PlayerIdentity` is used by both (login and authentication): Shared, once its server reference goes |
 | `Shared/Session/NetworkManager.cs` | Shared | |
 | `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,934 lines) could also split by area (trains, items, world, career) while it moves |
 | `Networking/Managers/Client/` | Client | `NetworkClient.cs` (3,079 lines), likewise |
 | `Patches/` | Per file: see Patches | |
-| `Utils/` | Shared. `DvExtensions`: split (`AnyPlayerSqrMag` is the server's) | |
+| `Utils/` | Shared. `DvExtensions`: split; its server rules are `Server/Players/PlayerDistance` (`AnyPlayerSqrMag`, `PlayerCanReach`) and `NetworkServer.Pause` (`AllowsPause`, read through `IPauseServer`) | |
 
 ### Patches
 
@@ -161,9 +161,12 @@ remote-client patch plus a server patch that calls the server directly, which is
   [dedicated-host.md, Keep the loopback client](dedicated-host.md#keep-the-loopback-client-it-isnt-only-a-player)).
   Proposal: a player's **presence** in the world (body, hands, the car they're on) is Shared and
   owned by the server where there is one; the model, name tag and world-map marker are Client.
-- **The lifecycle.** `NetworkLifecycle` owns both roles and the tick, and about everything reads
-  it. It stays in the mod as the composition root; Shared gets the tick clock and `NetworkRole`;
-  the roles reach each other only through interfaces it hands them.
+- **The lifecycle** (done 2026-10-20). `NetworkLifecycle` (Shared) keeps the tick clock and the
+  role queries and names no role; `MultiplayerSession` (the mod's composition root) owns the
+  server and the client, starts and stops them, registers MPAPI and wires up the dedicated host and
+  the player list and stats UI, and attaches the roles to the lifecycle as `NetworkManager`,
+  `ILocalServer` and `ILocalPlayerSession`. Role code reaches its own role by
+  `NetworkServer.Instance` / `NetworkClient.Instance`.
 - **One `Settings` or two.** Server settings (name, visibility, port, admins, password) could be
   their own class the Server reads. Not needed for the boundary; worth doing when it moves.
 
@@ -206,7 +209,7 @@ Built as `Multiplayer.Protocol.Tests/CodeLayoutTests.cs`, two tests:
 
 - **`EveryFileIsInARoleFolderWithItsNamespace`** reads the source: every file under
   `Multiplayer/` is in `Shared/`, `Server/`, `Client/` or `Menus/` (or is `Multiplayer.cs`,
-  `Settings.cs` or `Locale.cs` at the root) and declares the namespace of its folder.
+  `Settings.cs`, `Locale.cs` or `APIProvider.cs` at the root) and declares the namespace of its folder.
 - **`RolesOnlyReferenceWhatTheyMay`** reads the built DLL: base types, interfaces, fields,
   properties, events, method signatures, locals, every type, method and field an instruction
   names, and `typeof` in attributes, each counted against the outermost type. Server ↛ Client,
@@ -218,6 +221,31 @@ The allow-list is `Multiplayer.Protocol.Tests/CodeLayout/role-references.allowed
 split removes references, delete their lines, or rewrite the file with
 `MULTIPLAYER_WRITE_ROLE_ALLOWLIST=1 dotnet test Multiplayer.Protocol.Tests` and check the diff
 only removes lines. Both tests run in CI's required "Build and protocol tests" job.
+
+### The compile-time check
+
+The same rules are a compile error. `Tools/RoleAnalyzer` is a Roslyn analyzer the Multiplayer
+project loads (`OutputItemType="Analyzer"`, with the allow-list as an `AdditionalFiles` item), so
+the build fails at the line that crosses the split, in the IDE as you type, locally and in CI:
+
+- **DVMP0001:** a reference across roles that isn't in the allow-list. The message names the type
+  and what to do instead (a Shared interface such as `I<Area>Server` / `I<Area>Client`, or moving
+  the code).
+- **DVMP0002:** a file outside `Shared/`, `Server/`, `Client/` and `Menus/`, or whose namespace
+  isn't its folder's.
+
+The analyzer counts what the DLL test counts: every name that binds to a type, member or method in
+`Multiplayer.dll`, with a member's declaring type and the types of its signature, against the
+outermost type on both sides. It skips what the compiled code doesn't keep (`using` directives,
+`nameof`, doc comments, generic constraints, and the type in `Type.SOME_CONSTANT`, since a constant
+is compiled to its value), so it never flags a reference the DLL test would let through. The DLL
+test stays as the backstop: it sees what only the compiled code has (implicit conversions,
+inferred lambda types) and it fails on stale allow-list lines, which the analyzer can't see.
+Its own tests are `Multiplayer.Core.Tests/Layout/RoleAnalyzerTests.cs`.
+
+Constants still cross the split without either check noticing: `Client/Session/NetworkClient`
+uses `DedicatedHost.ServiceName` and `Client/UI/ChatGUI` uses `ChatManager`'s command names.
+Those constants belong in Shared.
 
 ## Steps
 
@@ -285,4 +313,19 @@ Steps 2-3 are mechanical and change no behaviour; the regression gate on one pai
   13, Server → Client 7, and 15 into `Menus` from elsewhere. The most come from
   `NetworkLifecycle`, `NetworkedItemManager`, `NetworkedItem`, `NetworkClient` and
   `NetworkedTrainCar`.
-- Steps 4-5: not started.
+- **Step 4 has started** on `split/client-server`, the integration branch for the splits
+  (protected like `beta`, built by CI on every push). Done there first:
+  - `NetworkServer` and `NetworkClient` are split into partial files by area
+    (`NetworkServer.Trains.cs`, `.Items.cs`, `.World.cs`, `.Stations.cs`, `.Jobs.cs`, `.Career.cs`,
+    and the same for `NetworkClient`), so each area's work touches its own files;
+  - the machinery for [host-local-session](host-local-session.md) stage 2.
+
+  Each area then shrinks its own lines of the allow-list, one PR at a time into that branch, which
+  merges into `beta` when a full gate run and a playtest look good.
+- **The allow-list is empty** (2026-10-20, on `split/stage-3`). The last lines went with the server
+  browser's contract (`ServerVisibility`, `IServerBrowserGameDetails`) moving to `Shared/Protocol/Data`,
+  the joiner's save packet built in `Server/Career/SaveGameDataPacketBuilder`, the RPC response
+  type table in `Shared/Protocol/Data/RPCs/RpcResponseTypes`, and the build version and back-to-menu
+  handed to the roles through `Shared/Session/FrontEnd` (the mod root fills it from the menus at
+  load). Any new cross-role reference now fails the build.
+- Step 5: not started.

@@ -18,6 +18,23 @@ namespace Multiplayer.Client.UI;
 [RequireComponent(typeof(RectTransform))]
 public class ChatGUI : MonoBehaviour
 {
+    /// <summary>
+    ///     Builds the chat window in the game's UI for the player at this keyboard, once its world is
+    ///     loaded. Null where there's nobody to read it: single player and a dedicated host (building
+    ///     it also pauses the game).
+    /// </summary>
+    public static ChatGUI Create(bool singlePlayer)
+    {
+        if (singlePlayer || NetworkLifecycle.Instance.IsDedicatedHost)
+            return null;
+        GameObject common = GameObject.Find("[MAIN]/[GameUI]/[NewCanvasController]/Auxiliary Canvas, EventSystem, Input Module");
+        if (common == null)
+            return null;
+        GameObject chat = new("Chat GUI", typeof(ChatGUI));
+        chat.transform.SetParent(common.transform, false);
+        return chat.GetComponent<ChatGUI>();
+    }
+
     private const float PANEL_LEFT_MARGIN = 20f;    //How far to inset the chat window from the left edge of the screen
     private const float PANEL_BOTTOM_MARGIN = 50f;  //How far to inset the chat window from the bottom of the screen
     private const float PANEL_FADE_DURATION = 1f;
@@ -226,7 +243,7 @@ public class ChatGUI : MonoBehaviour
             sendHistory.Add(text);
 
             //send to server
-            NetworkLifecycle.Instance.Client.SendChat(text);
+            NetworkLifecycle.Instance.LocalSession.SendChat(text);
 
             //reset any timeouts
             timeOut = 0;
@@ -257,7 +274,7 @@ public class ChatGUI : MonoBehaviour
             if (localMessage == null || localMessage == string.Empty)
             {
                 
-                string closestMatch = NetworkLifecycle.Instance.Client.ClientPlayerManager.Players
+                string closestMatch = NetworkLifecycle.Instance.LocalSession.RemotePlayers
                                                 .Where(player => player.Username.ToLower().StartsWith(recipient.ToLower()))
                                                 .OrderBy(player => player.Username.Length)
                                                 .ThenByDescending(player => player.Username)

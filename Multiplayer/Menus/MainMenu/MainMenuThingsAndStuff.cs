@@ -2,6 +2,8 @@ using DV.UI;
 using DV.UIFramework;
 using DV.Utils;
 using JetBrains.Annotations;
+using Multiplayer.Menus.Controls;
+using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using System;
 using UnityEngine;
@@ -61,6 +63,27 @@ namespace Multiplayer.Menus.MainMenu
             }
 
             Destroy(this);
+        }
+
+        /// <summary>
+        /// The session ended under the player (the client lost its server): back to the main menu,
+        /// through the lifecycle's main-menu event once it's loaded. Handed to the client as
+        /// <see cref="FrontEnd.ReturnToMainMenu"/>.
+        /// </summary>
+        public static void ReturnToMainMenu()
+        {
+            if (Instance != null)
+            {
+                //Instance.SwitchToDefaultMenu();
+                Multiplayer.LogDebug(() => $"ReturnToMainMenu() queuing GoBackToMainMenu via NetworkLifecycle");
+                NetworkLifecycle.Instance.TriggerMainMenuEventLater();
+            }
+            else
+            {
+                Multiplayer.LogDebug(() => $"ReturnToMainMenu() {nameof(Instance)} is null, calling GoBackToMainMenu directly");
+                global::DV.UI.MainMenu.GoBackToMainMenu();
+                NetworkLifecycle.Instance.TriggerMainMenuEventLater();
+            }
         }
 
         // Switch to the default menu

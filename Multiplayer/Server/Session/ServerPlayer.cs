@@ -7,6 +7,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
+using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
@@ -38,10 +39,26 @@ public class ServerPlayer : IDisposable
     public byte PlayerId { get; private set; }
 
     /// <summary>
-    /// The dedicated host's own loopback client: a service identity, not a player. Use
-    /// <see cref="global::Multiplayer.Server.Session.NetworkServer.GameplayPlayers"/> wherever "the players" are meant.
+    /// The sender of a dedicated host's console commands (it has no player of its own,
+    /// docs/design/host-local-session.md, stage 3): not a player, never in the server's list, no id
+    /// and no peer. Made by <see cref="CreateConsole"/> only.
     /// </summary>
-    public bool IsServiceHost => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.IsHost(this);
+    public bool IsConsole { get; private set; }
+
+    /// <summary>A console sender (<see cref="IsConsole"/>) named <paramref name="username"/>.</summary>
+    public static ServerPlayer CreateConsole(string username) => new(username);
+
+    private ServerPlayer(string username)
+    {
+        IsConsole = true;
+        LastLogin = DateTime.UtcNow;
+        Username = username;
+        OriginalUsername = username;
+        Inventory = new StorageBase
+        {
+            storageType = DV.ThingTypes.StorageType.Inventory
+        };
+    }
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     public DateTime LastLogin { get; set; }
     private float PreviousPlayTime { get; set; }
@@ -53,7 +70,7 @@ public class ServerPlayer : IDisposable
     // The GUID of the install they play from, which their data was saved under before player IDs
     // were Steam accounts.
     public Guid LegacyGuid { get; set; }
-    // Their verified Steam account, or 0 (the host's own client, or a host with -mp-allow-unverified).
+    // Their verified Steam account, or 0 (the host's own player, or a host with -mp-allow-unverified).
     public ulong SteamId { get; set; }
     public string CharacterId { get; set; }
     public bool IsVR { get; }
@@ -95,7 +112,7 @@ public class ServerPlayer : IDisposable
                 { PlayerPreference.CrewName, _crewName }
             };
 
-            NetworkLifecycle.Instance.Server.SendPlayerPreferencesUpdate(this, preferences);
+            NetworkServer.Instance.SendPlayerPreferencesUpdate(this, preferences);
         }
     }
 
@@ -121,6 +138,9 @@ public class ServerPlayer : IDisposable
     // (sent, not yet acknowledged), delivered in order once they acknowledge it.
     internal bool TrainBaselinePending { get; set; }
     internal List<(byte[] Data, LiteNetLib.DeliveryMethod Delivery)> PendingTrainTraffic { get; } = new();
+    // The track graph this player reported with ReadyForWorldState, kept because a join that
+    // waits for the host to load is replayed without the packet.
+    internal TrackGraphFingerprint TrackGraph { get; set; }
     public bool WorldItemCatalogueAccepted { get; internal set; }
     public StorageBase Inventory { get; private set; }
 
@@ -235,27 +255,27 @@ public class ServerPlayer : IDisposable
     public void AddOwnedItem(ushort itemNetId)
     {
         OwnedItems.Add(itemNetId);
-        NetworkLifecycle.Instance.Server.LogDebug(() => $"Player {Username} now owns item {itemNetId}");
+        NetworkServer.Instance.LogDebug(() => $"Player {Username} now owns item {itemNetId}");
     }
 
     public void AddOwnedItems(IEnumerable<ushort> itemNetIds)
     {
         OwnedItems.UnionWith(itemNetIds);
-        NetworkLifecycle.Instance.Server.LogDebug(() => $"Player {Username} batch added items: {string.Join(", ", itemNetIds)}");
+        NetworkServer.Instance.LogDebug(() => $"Player {Username} batch added items: {string.Join(", ", itemNetIds)}");
     }
 
     public void RemoveOwnedItem(ushort itemNetId)
     {
         if (OwnedItems.Remove(itemNetId))
         {
-            NetworkLifecycle.Instance.Server.LogDebug(() => $"Player {Username} no longer owns item {itemNetId}");
+            NetworkServer.Instance.LogDebug(() => $"Player {Username} no longer owns item {itemNetId}");
         }
     }
 
     public void ClearOwnedItems()
     {
         OwnedItems.Clear();
-        NetworkLifecycle.Instance.Server.LogDebug(() => $"Cleared all owned items for player {Username}");
+        NetworkServer.Instance.LogDebug(() => $"Cleared all owned items for player {Username}");
     }
 
     public bool TryGetOwnedItem(ushort itemNetId, out NetworkedItem item)

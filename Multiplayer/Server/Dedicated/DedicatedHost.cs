@@ -3,8 +3,6 @@ using DV.Common;
 using DV.UI;
 using DV.UI.PresetEditors;
 using DV.UserManagement;
-using Multiplayer.Menus.MainMenu;
-using Multiplayer.Menus.ServerBrowser;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
@@ -13,14 +11,14 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Dedicated;
 
 /// <summary>
 /// Dedicated-host mode, started with <c>-mp-dedicated</c>: the game hosts with nobody playing it.
-/// The host keeps its loopback client, which carries its own simulation and applies relayed state
-/// to its world, but that client's player is a service identity rather than a player: it has its
-/// own GUID, isn't announced or shown, takes no player slot and doesn't count as "a player nearby".
+/// The server has no player of its own (docs/design/host-local-session.md, stage 3): nobody is
+/// announced or shown for it, it takes no player slot and nothing counts it as "a player nearby".
 /// DV's own player object stays in the world, because DV can't load or save without one; it is
 /// parked where the save left it and sends no position.
 /// See docs/design/dedicated-host.md.
@@ -36,7 +34,7 @@ namespace Multiplayer.Server.Dedicated;
 ///   -mp-autosave N           minutes between saves while anyone is online (default 10)
 ///   -mp-heartbeat PATH       rewrite PATH every 5 s with the host's state (JSON), for a watchdog
 ///   -mp-owner STEAMID64      the career's owner when the server runs under another Steam account
-///                            (PlayerIdentity.Owner); any host takes it
+///                            (CareerOwner.Id); any host takes it
 /// Server name, password, max players and details come from the mod's settings.
 /// With nobody online the game saves and pauses; admins (the owner, and Settings.Admins) have
 /// /save, /stop and /payfees in chat (ChatManager).
@@ -45,7 +43,7 @@ public static class DedicatedHost
 {
     public const string ModeArg = "-mp-dedicated";
 
-    /// <summary>The service identity's name. It's never shown to clients.</summary>
+    /// <summary>The name the console's commands run under (ChatManager.RunConsoleCommand).</summary>
     public const string ServiceName = "Dedicated host";
 
     // At or above NetworkLifecycle.TICK_RATE (24), so ticks and polls aren't throttled.
@@ -87,14 +85,14 @@ public static class DedicatedHost
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (!lifecycle.IsDedicatedHost)
             return;
-        if (lifecycle.Server.GameplayPlayerCount > 0)
+        if (NetworkServer.Instance.PlayerCount > 0)
             AppUtil.Instance.RemovePauseRequest(emptyServerPause);
         else
             lifecycle.StartCoroutine(SaveAndPauseWhenEmpty(someoneLeft));
     }
 
     /// <summary>Whether the game may pause: only while a dedicated host has nobody online.</summary>
-    public static bool AllowsPause => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.Server.GameplayPlayerCount == 0;
+    public static bool AllowsPause => NetworkLifecycle.Instance.IsDedicatedHost && NetworkServer.Instance.PlayerCount == 0;
 
     private static IEnumerator SaveAndPauseWhenEmpty(bool save)
     {
@@ -147,9 +145,10 @@ public static class DedicatedHost
         {
             if (save is not DV.UserManagement.Data.SaveGameSnapshot snapshot || string.IsNullOrEmpty(snapshot.BasePath))
                 return;
-            // Save paths are relative to the user storage's base, the game's persistent data folder.
-            string file = System.IO.Path.Combine(Application.persistentDataPath, snapshot.BasePath);
-            if (!System.IO.File.Exists(file))
+            // Save paths are relative to the user storage's base: the game's persistent data folder,
+            // or a test game's own (the dev harness moves it).
+            string file = UserManager.Instance?.Storage?.GetFilesystemPath(snapshot.BasePath);
+            if (file == null || !System.IO.File.Exists(file))
                 return;
             string careerDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(file));
             string backups = System.IO.Path.Combine(careerDir, "DedicatedBackups");
@@ -180,7 +179,7 @@ public static class DedicatedHost
             return;
         Stopping = true;
         bool saved = Save(reason);
-        NetworkLifecycle.Instance.Server.ChatManager.ServerMessage(
+        NetworkServer.Instance.ChatManager.ServerMessage(
             saved ? "The server is shutting down; the game is saved." : "The server is shutting down (saving failed).", null);
         Multiplayer.Log($"Dedicated host: stopping ({reason})");
         WriteHeartbeat();
@@ -226,7 +225,7 @@ public static class DedicatedHost
         foreach (string line in lines.Select(line => line.Trim()).Where(line => line.Length > 0))
         {
             Multiplayer.Log($"[Console] > {line}");
-            NetworkLifecycle.Instance.Server?.ChatManager.RunConsoleCommand(line);
+            NetworkServer.Instance?.ChatManager.RunConsoleCommand(line);
         }
     }
 
@@ -244,7 +243,7 @@ public static class DedicatedHost
                 tick = lifecycle.Tick,
                 // Unscaled: while paused the scaled frame time is zero.
                 fps = Math.Round(1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f), 1),
-                players = lifecycle.IsServerRunning ? lifecycle.Server.GameplayPlayers.Select(player => player.Username).ToArray() : new string[0],
+                players = lifecycle.IsServerRunning ? NetworkServer.Instance.ServerPlayers.Select(player => player.Username).ToArray() : new string[0],
                 paused = AppUtil.Instance.IsTimePaused,
                 stopping = Stopping,
                 lastSave = LastSave?.ToString("o"),
@@ -305,7 +304,7 @@ public static class DedicatedHost
         int port = int.TryParse(Arg("-mp-port"), out int p) ? p : Multiplayer.Settings.Port;
         ServerVisibility visibility = Enum.TryParse(Arg("-mp-visibility"), true, out ServerVisibility v) ? v : Multiplayer.Settings.Visibility;
         string password = Multiplayer.Settings.Password ?? string.Empty;
-        NetworkLifecycle.Instance.serverData = new LobbyServerData
+        MultiplayerSession.Instance.serverData = new LobbyServerData
         {
             port = port,
             Name = string.IsNullOrWhiteSpace(Multiplayer.Settings.ServerName) ? "Dedicated server" : Multiplayer.Settings.ServerName,
@@ -317,11 +316,11 @@ public static class DedicatedHost
             CurrentPlayers = 0,
             MaxPlayers = Multiplayer.Settings.MaxPlayers,
             RequiredMods = ModCompatibilityManager.Instance.GetLocalMods(),
-            GameVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
+            GameVersion = FrontEnd.BuildVersion,
             MultiplayerVersion = Multiplayer.Ver,
             ServerDetails = Multiplayer.Settings.Details,
         };
-        NetworkLifecycle.Instance.IsSinglePlayer = false;
+        MultiplayerSession.Instance.IsSinglePlayer = false;
 
         Multiplayer.Log($"Dedicated host: hosting '{save.ParentSession?.Name}/{save.Name}' on port {port} ({visibility})");
         launcher.OnRunClicked();
@@ -363,7 +362,7 @@ public sealed class DedicatedHostMode : MonoBehaviour
         float now = Time.realtimeSinceStartup;
 
         // Timed saves while anyone is online; the last player leaving saves too.
-        if (lifecycle.Server.GameplayPlayerCount == 0 || AppUtil.Instance.IsTimePaused)
+        if (NetworkServer.Instance.PlayerCount == 0 || AppUtil.Instance.IsTimePaused)
             nextSave = 0f;
         else if (nextSave == 0f)
             nextSave = now + DedicatedHost.AutosaveMinutes * 60f;

@@ -19,7 +19,7 @@
   with `NetworkServer.StarterKitsGiven`, 2962fa7).
 - **Disconnect:** the departing player's hand item, and any item in their inventory that another
   player owns, is dropped where it is (`DropHeldItemsOfDepartingPlayer` in
-  `NetworkedItemManager.ProjectionAndCompatibility.cs`, 2d52799). Items they own stay keyed to
+  `Server/Items/ServerItemManager.PlayerItems.cs`, 2d52799). Items they own stay keyed to
   their identity. A dropped borrowed item reaches its owner's Lost and Found only through
   ordinary distance collection, which needs the owner connected. If the owner is offline when the
   borrower leaves, the item is not recognised as borrowed and stays with the borrower (see
@@ -38,8 +38,8 @@
 - **Host saves** keep other players' inventories and the item in their hand (325c2fb, dba0837).
   Unowned dynamic items are not saved (faa42c0), which includes dropped stock forks.
 - **Recovery:** host convergence re-sends resting world items so drifted client copies heal
-  (`NetworkedItemManager.Convergence.cs`, b601cc6); items that fall through the terrain are put
-  back at their last safe pose (`NetworkedItemManager.FallRescue.cs`, 5cf63a0).
+  (`ServerItemManager.Convergence.cs`, b601cc6); items that fall through the terrain are put
+  back at their last safe pose (`ServerItemManager.FallRescue.cs`, 5cf63a0).
 - **Change causes (2026-10-19):** every change of an item's placement, holder or owner, and every
   removal, has a recorded reason (`ItemMoveReason`, `ItemRemovalReason`), logged in one line on the
   host and sent with the update to clients. See "Why an item changed" below. Not yet checked in
@@ -151,7 +151,8 @@ has no retrieval claim. If a player puts it in their inventory:
 The adoption compatibility path is not valid for an already catalogued scene-authored bin. It is
 also not part of the target lifecycle: the host must ultimately create receipts, starting items,
 and every other runtime item through explicit operations, as it now does for client shop
-purchases. `TemporaryClientAdoptionCompatibility` and
+purchases. `TemporaryClientAdoptionCompatibility` (with its host half,
+`TemporaryHostAdoptionCompatibility`) and
 its packets must be removed when those producers are converted. If a future code path nevertheless
 gives a stock fork a persistent owner or retrieval claim, cleanup fails safe: the item is no longer
 disposable and recovery/persistence takes precedence.
@@ -429,7 +430,7 @@ Item Scanner (netId 812) moved: Purchased by Bentgear29 (at ShopHarbor, 1 of 1, 
   `lastMove`). A caller that knows why passes the cause (a disconnect drop, a rejoin restore, an
   admin grant, a booklet summon, an adoption, a deposit's possession repair). Otherwise
   `ItemMoveClassifier.Classify` names it from what changed, and a change made by the host's own
-  copy says "host's game" and what last changed that copy (`NetworkedItem.HostObservationTrigger`,
+  copy says "host's game" and what last changed that copy (`INetworkedItemServerPart.ObservationTrigger`,
   such as `inventory.AddItemToInventory`). A change the classifier can't name has `Unknown` and the
   calling methods in its detail. The registry's own transitions record their cause too: recall,
   Lost-and-Found retrieval and its rollback, cold withdrawal, a settlement that lands an item in a
@@ -461,7 +462,7 @@ carries a change, never on interest creates or convergence, and drops any cause 
 its own update. Corrections carry one too: a refused change (`HostCorrection`, "your change was
 refused: stale-authority-revision"), a cancelled recall, a claim slot move and a fall rescue.
 
-The client logs each cause it receives (`ItemChangeLog.OnClientSnapshot`) in the same format and
+The client logs each cause it receives (`ClientItemChangeLog.OnSnapshot`) in the same format and
 keeps it on the item (`NetworkedItem.LastMoveCause`, `LastRemovalCause`, shown in the entity debug
 state). Changes to the local player's own or held items go to the log; everyone else's, and items
 that only left the player's interest (`LeftInterest`), go to the debug log.

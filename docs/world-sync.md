@@ -41,9 +41,11 @@ sends world state at these steps:
 | `ReadyForGameData` | `ClientboundGameParamsPacket`, `ClientboundSaveGameDataPacket` (wallet, licences, garages, debt flag, job clock) |
 | `ReadyForWorldState` | `ClientboundWeatherPacket`, `ClientboundSleepStatePacket`, `ClientboundShopStockPacket`, `ClientboundRailwayStatePacket`, one `CommonGenericSwitchStatePacket` per switch, `ClientboundCustomizationsPacket` |
 | `ReadyForTrainSets` | Train baseline, which carries each car's exploded flag and cargo |
-| `ReadyForTiles` | Every hazmat tile (`HazmatSync.Server_SendAll`) |
+| `ReadyForTiles` | Every hazmat tile (`HazmatServer.SendAll`) |
 
-The player is added to the server's `peers` table at `ReadyForWorldState`, and every broadcast
+At `ReadyForWorldState` the host first checks the client's track graph and kicks it with a reason
+if it differs ([design/track-graph-check.md](design/track-graph-check.md)). The player is then
+added to the server's `peers` table, and every broadcast
 (`SendPacketToAll`) only walks `peers`. Anything broadcast between `ReadyForGameData` and
 `ReadyForWorldState` (while the client loads the scene) never reaches that client; see Known gaps.
 
@@ -70,13 +72,17 @@ differences, such as the host setting the time, are applied.
 
 ### Fast travel time skip
 
-`Client/World/TimeAdvancePatch.cs` prefixes `TimeAdvance.AdvanceTime`. With other players
+Two prefixes on `TimeAdvance.AdvanceTime`, each doing nothing outside its role: `Client/World/TimeAdvancePatch.cs` on a
+remote client, `Server/World/TimeAdvanceServerPatch.cs` on the host. With other players
 connected, fast travel only skips time when the host's `FastTravelAdvancesTime` mod setting is on
-(sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
-player who travelled advances locally and sends `ServerboundTimeAdvancePacket`; the host relays it
-to everyone else as `ClientboundTimeAdvancePacket`. A relayed advance is applied without being sent
-on again (`IsProcessingPacket`), so the traveller doesn't skip twice. The host checks only the
-setting, not the amount.
+(the server's `NetworkServer.FastTravelAdvancesTime`; sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
+player who travelled advances locally and sends `ServerboundTimeAdvancePacket` (the host submits it to the server in-process). The server advances
+its own world's clock for a client's request (the host's own has already advanced), then relays it
+to everyone else as `ClientboundTimeAdvancePacket`, never to the host's own client
+(`NetworkServer.HandleTimeAdvance`). An advance applied for another player is not sent on again
+(`IsProcessingPacket`, which includes the server's `ApplyingRemoteChange` scope), so the traveller
+doesn't skip twice. The host checks only the setting, not the amount. The `/time` chat command
+advances the server's clock the same way and sends the skip to every player.
 
 `Client/UI/FastTravelUIControllerPatch.cs` disables "fast travel with loco" while others are
 connected.
@@ -92,13 +98,14 @@ everyone's jobs late. There is now one cooldown, kept by the host.
   `ClientboundSleepStatePacket` (`LastWakeTimeOADate`, `LastSleepDurationSeconds`): on join and
   after every accepted sleep. A client's bed menu therefore shows the shared cooldown.
 - A sleeping player skips time locally and sends `ServerboundTimeAdvancePacket` with `IsSleep`
-  set (`TimeAdvancePatch` tells sleep from fast travel by `BedSleepingController.IsSleeping`).
-- `NetworkServer.OnSleepRequest` ignores amounts outside (0, 24 h]. The host's own sleep has
-  already passed vanilla's check, so it is relayed and the new sleep state broadcast. A client's
-  sleep is rejected when `GameParams.SleepCooldownInHours < 0` or the shared cooldown hasn't run
-  out; the host then sends that client the sleep state and the weather, whose clock is far behind
-  the client's and puts it back. An accepted sleep is relayed to everyone else, the host sets
-  `lastWakeTime` to now plus the skip, and broadcasts the sleep state.
+  set (both patches tell sleep from fast travel by `BedSleepingController.IsSleeping`).
+- `NetworkServer.HandleSleep` ignores amounts outside (0, 24 h]. The host's own sleep has
+  already passed vanilla's check and advanced the host's clock, so it is relayed and the new sleep
+  state broadcast. A client's sleep is rejected when `GameParams.SleepCooldownInHours < 0` or the
+  shared cooldown hasn't run out; the host then sends that client the sleep state and the weather,
+  whose clock is far behind the client's and puts it back. An accepted sleep advances the server's
+  clock (in `ApplyingRemoteChange`), is relayed to everyone else, the host sets `lastWakeTime` to
+  now plus the skip, and broadcasts the sleep state.
 
 `Client/World/BedSleepingControllerPatch.cs` stops sleep from turning off locos and setting
 handbrakes (`TurnOffAndEngageHandbrakeOnAllLocos`, `EngageHandbrakesOnCurrentTrain`) unless the
@@ -162,6 +169,11 @@ from `CareerManagerDebtControllerPatch.HasDebt`, set from the save-game packet o
 `ClientboundDebtStatusPacket` afterwards. `Server/Career/
 NetworkedCareerManagerDebtController.cs` sends that packet when "has debt" changes (it used to go
 out only at exactly 0 or 1 debts, so going from none to two left clients thinking there was none).
+It checks on `DebtListsUpdated` and after every `RefreshExistingDebtsState`
+(`CareerManagerDebtControllerServerPatch.cs`): a refresh moves a debt between the zero-priced and
+priced lists, a loco taking damage or being refuelled, without raising `DebtListsUpdated`, so a
+loco damaged after a client joined left its fees screen saying there were no fees. Vanilla
+refreshes every 60 s, and whenever the fees are read.
 
 A client has no fee list, so `CareerManagerFeesScreenPatch.cs` replaces its fees screen with "Pay
 all fees?". Confirming sends `ServerboundPayFeesRequestPacket`, and the server pays them for an
@@ -188,8 +200,9 @@ exist on that client. `NetworkServer.OnServerboundShopPaymentPacket` rejects NaN
 above `MaxShopPayment` (1,000,000). A payment takes what the wallet has, up to the amount, and adds
 it to that player's escrow (`ServerPlayer.ShopCashInRegisters`); a refund is capped by the escrow.
 
-Purchase (`Server/World/GlobalShopControllerPatch.cs`): a client's `AddItemToInstantiationQueue`
-sends `ServerboundShopPurchasePacket` (shop index, item prefab, amount) instead of spawning, and
+Purchase (`Client/World/GlobalShopControllerClientPatch.cs`; the host's stock sends are in
+`Server/World/GlobalShopControllerPatch.cs`): a client's `AddItemToInstantiationQueue` sends
+`ServerboundShopPurchasePacket` (shop index, item prefab, amount) instead of spawning, and
 bumps its local stock count so the shelf updates at once. The host rejects an unknown shop or item,
 an escrow short of the price by more than 0.5, too little stock, or a buyer more than 50 m from
 `shop.itemSpawnTransform`. A rejection refunds the price from escrow and resends the stock to the
@@ -214,19 +227,26 @@ drops; cancelled basket refunds without a banknote).
 A service station is a `PitStopStation` (car selector, resource levers, faucet), its plugs
 (`PluggableObject` on a `PropHose`) and a `CashRegisterWithModules`. Code:
 `Shared/Stations/NetworkedPitStopStation.cs`, `NetworkedPluggableObject.cs`,
-`NetworkedCashRegisterWithModules.cs`, `Shared/Stations/PluggableObjectPatch.cs`, `PropHosePatch.cs`,
-`CashRegisterWithModulesPatch.cs`, `CashRegisterBasePatch.cs`.
+`NetworkedCashRegisterWithModules.cs` (what both games run: ids, controls, applying a change,
+sending the local player's requests through `IStationsClient`), their server parts in
+`Server/Stations/` (`ServerPitStopStation`, `ServerPluggableObject`, `ServerCashRegister`: range,
+validation, relays, the bulk update, the register's requests),
+`Shared/Stations/PluggableObjectPatch.cs`, `Server/Stations/PropHoseRopePatch.cs` (the hose's
+rope), `Client/Stations/{PluggableObjectClientPatch,PropHoseClientPatch}.cs` (no snapping home on a
+client), `CashRegisterWithModulesPatch.cs`, `CashRegisterBasePatch.cs`.
 
 Ids: stations and registers are numbered by sorting them by position
-(`InitialisePitStops`, `InitialiseCashRegisters`, both run on the host in `OnLoaded` and on the
-client in `SyncWorldState`). Ids are not sent; both games must have the same objects.
+(`InitialisePitStops`, `InitialiseCashRegisters`, run on the host in `OnLoaded` through
+`NetworkServer.InitialiseStations`, which also adds the server parts, and on the client in
+`SyncWorldState`). Ids are not sent; both games must have the same objects.
 
 Range: the host gives each station a `CullingManager` sized from the station's
 `PlayerDistanceGameObjectsDisabler` (500 m by default), with the activation region at half the
 squared distance. When a player enters it, the host sends `ClientboundPitStopBulkUpdatePacket`
 (car count, selected car, faucet notch, each resource module's data, each plug's state) and the
 register's deposited cash. That is the join sync for stations. Updates go only to players in the
-activation region.
+activation region. A player leaves it after 3 s beyond the culling distance, or at once when the
+host's disabler turns the station off (nobody is within 500 m), so coming back sends the state again.
 
 Station controls: car selector, levers and faucet send `CommonPitStopInteractionPacket`. The host
 applies it and relays it to the other players in range. `ValidateInteraction` is a TODO that
@@ -248,9 +268,10 @@ uses 2 m plug-to-socket; the host's limit was raised from that to 3 m (commit `a
 for lag.
 
 A failure sends `Rejected` back to the sender. The hose's rope physics runs on the host only:
-`PropHosePatch` transpiles `PropHose.Update` so a stretched hose yanks the plug out of the holder's
-hand (`YankedByRope`, sent as `Yanked`) or snaps it home (`SnappedByRope`, sent as `DockHome`) on
-the host's say. Clients don't snap plugs home on `Awake`/`OnEnable`.
+`PropHoseRopePatch` transpiles `PropHose.Update` so a stretched hose yanks the plug out of the holder's
+hand (`ServerPluggableObject.YankedByRope`, sent as `Yanked`) or snaps it home (`SnappedByRope`, sent
+as `DockHome`) on the host's say; elsewhere the rope's unplug, yank, force and snap do nothing.
+Remote clients don't snap plugs home on `Awake`/`OnEnable`.
 
 A client reports a plug's drop or dock only after its own player grabbed it (`grabbedLocally`);
 any state applied from the network ends that. Vanilla fires `PluggedIn` for every snap, including
@@ -260,11 +281,15 @@ to interact with a plug that they are not holding" and refuse each plug, every t
 arrived (49 times in one 2026-10-19 session).
 
 Register: every deposit at a service-station register, the host's included, goes through
-`CommonCashRegisterWithModulesActionPacket`. `Server_ProcessCashRegisterAction` requires the
+`CommonCashRegisterWithModulesActionPacket`. `ServerCashRegister.ProcessAction` requires the
 player within reach plus 1 m. `AddCash` moves what is still owed (or what the wallet has) from the
 wallet into the register and sends `SetFunds`; `Buy` needs units in the basket and enough deposited
 cash; `Cancel` cancels. Results go to players in range; rejections (`RejectFunds`,
-`RejectedNoItems`, `RejectGeneric`) to the sender. Registers' `OnEnable`/`OnDisable` run on the host
+`RejectedNoItems`, `RejectGeneric`) to the sender, carrying the server's deposited cash, which the
+sender keeps (`RejectedNoItems` used to set it to 0 there). The host's own Buy and Cancel run
+vanilla and are then sent to every player (`CashRegisterWithModulesPatch`); a Buy only when
+vanilla's `Buy` succeeded (a refused one used to empty the clients' registers too). Registers'
+`OnEnable`/`OnDisable` run on the host
 only, so a client loading or walking away doesn't cancel and refund the basket. Vanilla's
 walk-away refund check measures distance to the nearest player
 (`CashRegisterBaseReturnMoneyToPlayerCheckPatch`).
@@ -272,20 +297,44 @@ walk-away refund check measures distance to the nearest player
 `PlayerDistanceGameObjectsDisablerPatch.cs` keeps refill stations and warehouse machines active on
 the host while any player is near them, not only the host.
 
-No scenario covers service stations.
+The host player's own station and plug interactions reach the server in-process (`RegisterLocalStations`).
+The host's are submitted by its local player session (`LocalPlayerSession.Stations.cs`, which
+implements `IStationsClient`). The server validates and relays them like
+anyone's, doesn't apply them again (the host's world has them), and sends the host no
+rejection. The host's register deposit (`AddCash`) is answered in-process on every path
+(`NetworkedCashRegisterWithModules.AnswerLocalRequest`), so its coroutine finishes on the answer
+instead of a loopback `RPC_Timeout` of about 0 s.
+
+`pit-stop` (`WHO=client`, `WHO=host`) covers a lever and a plug; nothing covers refuelling a car
+or the register yet.
 
 ## Junctions and turntables
 
 `Shared/World/JunctionPatch.cs` and `TurntableControllerPatch.cs` add `NetworkedJunction` and
 `NetworkedTurntable`. Ids are assigned locally in `Awake` order (`IsIdServerAuthoritative` is
-false): `ushort` for junctions, `byte` for turntables.
+false): `ushort` for junctions, `byte` for turntables. These components, and
+`NetworkedGenericSwitch`, are Shared: on a remote client they send through `IWorldClient`
+(`WorldClient.Current`, implemented by `NetworkClient.World.cs`); on the server they broadcast
+through `IWorldServer` (`WorldServer.Current`, `NetworkServer.World.cs`).
 
-- A junction switched locally sends `CommonChangeJunctionPacket` (id, branch, switch mode).
+- A junction switched on a client sends `CommonChangeJunctionPacket` (id, branch, switch mode).
 - A turntable sends `CommonRotateTurntablePacket` from `OnTick` whenever its `targetYRotation`
   changes, so every tick while someone turns it.
-- The host relays both to every other player at `ReadyForWorldState` or later
-  (`OnCommonChangeJunctionPacket`, `OnCommonRotateTurntablePacket`). Nothing is checked: not the
-  player, distance, or whether a train is on the junction. The last packet wins.
+- The server switches the junction or turns the turntable in its own world for another player's
+  change, inside `ApplyingRemoteChange` so the server doesn't send it back, then relays it to every
+  other player at `ReadyForWorldState` or later (`HandleJunction`, `HandleTurntable`).
+- A junction or turntable that moves in the server's own world any other way (the host's player,
+  a train, a mod, nobody at all on a dedicated host) is broadcast by the server itself
+  (`BroadcastJunctionSwitched`, `BroadcastTurntableRotation`), with no player and no request.
+  It used to go through the host's own client as a request, so with no client on the host
+  (host-local-session stage 3) it would have reached nobody.
+- None of these goes to the host's own player, which shares the server's world. Nothing is checked: not the player,
+  distance, or whether a train is on the junction. The last packet wins; a junction or turntable
+  the server doesn't have is dropped with a warning.
+
+Before any of that, the client's `ReadyForWorldState` carries a hash of its NetId → name tables for
+tracks, junctions and turntables, and the host refuses a client whose hash differs from its own
+with a reason ([design/track-graph-check.md](design/track-graph-check.md)).
 
 On join, `ClientboundRailwayStatePacket` carries every junction's selected branch and every
 turntable's rotation, by index. The client waits up to 30 s for it
@@ -317,7 +366,9 @@ at different times on each screen, each pushing and derailing its own copies of 
 Engine-failure explosions come from the loco simulation, which runs only on the host, so clients
 saw none.
 
-`Shared/Trains/ExplosionPatch.cs` makes the host decide. Three kinds (`ExplosionSync.Kind`):
+The host decides (`Server/Trains/ExplosionServerPatch.cs`), clients play it
+(`Client/Trains/ExplosionClientPatch.cs`), and `Shared/Trains/ExplosionSync.cs` (`ExplosionSync`)
+is how both name an explosion. Three kinds (`ExplosionSync.Kind`):
 
 | Kind | Vanilla trigger |
 | --- | --- |
@@ -325,14 +376,14 @@ saw none.
 | `Resource` | `ResourceExplosionBase.ExplodeResource` |
 | `Signal` | `ExplosionActivationOnSignal.OnExplosionSignalChanged` reaching 1 (only sent once cars and jobs have loaded) |
 
-- Host: postfixes on all three call `ExplosionSync.HostExploded`, which finds the component's index
+- Host: postfixes on all three call `ExplosionServer.Exploded`, which finds the component's index
   among the car's components of that kind and broadcasts `ClientboundExplosionPacket` (car NetId,
   kind, index) to players at `ReadyForTrainSets` or later. The host's physics pushes and derails
   the trains; the result reaches clients through the train sync.
 - Client: all three are blocked unless the client is playing the host's explosion. When a client's
   own cargo countdown runs out it clears `aboutToExplode` and does nothing.
   `TrainCarExplosion.ApplyExplosionForceToTrains` never runs on a client.
-- `ExplosionSync.ClientPlay` runs the same component (index clamped): effects, sound, burnt-out
+- `ExplosionPlayback.Play` runs the same component (index clamped): effects, sound, burnt-out
   model and the push on the client's own player. If the car's interior isn't loaded it still
   switches to the exploded model (`TrainCarExplosion.UpdateModelToExploded`).
 
@@ -345,7 +396,7 @@ were already set for it (the far layer still carries a few km, like the loco exp
 Other world sounds were checked in a live game: train, loco and station sounds are already 3D, the
 2D ones are ambience, weather and local UI.
 
-Scenario: `DevTools/Scenarios/explosion` (a client can't set off loco or tank-car explosions; a host
+Scenario: `explosion` (`DevTools/DvmpScenarios/Scenarios/Explosion.cs`: a client can't set off loco or tank-car explosions; a host
 explosion leaves both peers with the same burnt car, derailments and positions).
 
 ## Car cargo fires
@@ -355,7 +406,9 @@ or flare, a burning ground tile, a random roll for self-ignition, being put out.
 on its own, so a car could burn on one screen only, and a client's burning car never exploded: its
 countdown is blocked, and the host's car wasn't burning.
 
-`Shared/Trains/CargoFirePatch.cs` (`CargoFireSync`) makes the host decide:
+The host decides: `Server/Trains/CargoFireServerPatch.cs` (`CargoFireServer`) sends and lights,
+`Client/Trains/CargoFireClientPatch.cs` (`CargoFirePlayback`) holds and forwards, and
+`Shared/Trains/CargoFireSync.cs` (`CargoFireSync`) is how both name a fire:
 
 - Host: after each reaction's `Update`, if its state (burning, about to explode) changed since it
   was last sent, it sends `ClientboundCargoFirePacket` (car NetId, the reaction's index among the
@@ -379,20 +432,22 @@ biohazard and radiation flags, fed by leaking cars and evolved by a cellular aut
 used to run its own, fed by its own copy of the leaks, so fires and spills were in different places
 on each screen and a late joiner saw none.
 
-`Shared/World/HazmatSync.cs` and `Client/World/HazmatTileManagerPatch.cs`:
+`Server/World/HazmatServer.cs` (the host), `Client/World/HazmatClient.cs` and
+`Client/World/HazmatTileManagerPatch.cs` (clients), and `Shared/World/HazmatSync.cs` (the tile
+format):
 
-- Host: `HazmatSync.Server_Tick` runs every 12 ticks (half a second at 24 ticks/s). It compares
+- Host: `HazmatServer.Tick` runs every 12 ticks (half a second at 24 ticks/s). It compares
   each tile's visible state (the four flags, and each liquid rounded to 20 L) with what it last
   sent, and sends the tiles that changed plus the ones that disappeared as
   `ClientboundHazmatTilesPacket`, up to 256 tiles per packet, in vanilla's own tile format
   (`HazmatGridTile.SerializeData`), to players at `ReadyForTiles` or later.
-- Join: at `ReadyForTiles` the host sends every tile (`Server_SendAll`).
+- Join: at `ReadyForTiles` the host sends every tile (`HazmatServer.SendAll`).
 - Client: doesn't simulate. `EvolveLiquidCellularAutomaton`, `PrepareReaction` and `ProcessReaction`
   are skipped, and `UpdateTileLiquidContentExternal` drops the local leak queues (the host's leaks
-  feed the host's tiles). `HazmatSync.Client_Apply` replaces each tile's content and spawns or
+  feed the host's tiles). `HazmatClient.Apply` replaces each tile's content and spawns or
   removes fire, corrosion and biohazard effects as flags change, as vanilla does when loading a
   save; removed tiles are reset to empty. The radiation effect follows.
-- Client ignition: `IgniteTerrainTile` on a client calls `HazmatSync.Client_ForwardIgnite`, which
+- Client ignition: `IgniteTerrainTile` on a client calls `HazmatClient.ForwardIgnite`, which
   sends `ServerboundHazmatIgnitePacket` (tile, strength) if the tile isn't burning and holds
   something, at most once a second per tile. The host ignores tiles it doesn't have or that are more
   than 40 m (horizontally) from the sender, clamps the strength to [0, 100000] and calls

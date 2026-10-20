@@ -7,6 +7,7 @@ using Multiplayer.Shared.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -78,11 +79,13 @@ public static class DecouplerDeviceLogicPatch
     private static void Report(Before before)
     {
         before?.Batch?.Dispose();
-        var client = NetworkLifecycle.Instance?.Client;
-        if (client == null || before == null)
+        if (before == null || !NetworkRole.HasLocalPlayer)
             return;
+        // A client reports what changed; the host's decoupler works in the server's world, which
+        // observes it (the couplers' events, Server/Trains/TopologyObservationPatch).
+        NetworkClient client = NetworkRole.IsRemoteClient ? NetworkClient.Instance : null;
 
-        using IDisposable remote = client.BeginRemoteTopologyCommands();
+        using IDisposable remote = client?.BeginRemoteTopologyCommands();
         HashSet<TrainCar> touched = new();
         foreach (KeyValuePair<Coupler, (Coupler CoupledTo, bool Hose)> entry in before.Couplers)
         {
@@ -98,18 +101,18 @@ public static class DecouplerDeviceLogicPatch
                 Coupler other = coupler.coupledTo;
                 touched.Add(other.train);
                 bool hose = coupler.GetAirHoseConnectedTo() == other;
-                client.SendCouplerInteraction(CouplerInteractionType.CoupleViaUI |
+                client?.SendCouplerInteraction(CouplerInteractionType.CoupleViaUI |
                     (hose ? CouplerInteractionType.HoseConnect | CouplerInteractionType.CockOpen : 0), coupler, other);
                 if (coupler.state == ChainCouplerInteraction.State.Attached_Tight)
-                    client.SendCouplerInteraction(CouplerInteractionType.CouplerTighten, coupler, null);
+                    client?.SendCouplerInteraction(CouplerInteractionType.CouplerTighten, coupler, null);
                 if (TrainTopologyNativeAdapter.TryGetMuCable(coupler, out MultipleUnitCable cable) && cable.IsConnected &&
                     TrainTopologyNativeAdapter.TryGetMuCable(other, out MultipleUnitCable otherCable))
-                    client.SendMuConnected(cable, otherCable, true);
+                    client?.SendMuConnected(cable, otherCable, true);
             }
             else
             {
                 bool hoseDropped = entry.Value.Hose && coupler.GetAirHoseConnectedTo() == null;
-                client.SendCouplerInteraction(CouplerInteractionType.UncoupleViaUI |
+                client?.SendCouplerInteraction(CouplerInteractionType.UncoupleViaUI |
                     (hoseDropped ? CouplerInteractionType.HoseDisconnect | CouplerInteractionType.CockClose : 0),
                     coupler, null);
             }

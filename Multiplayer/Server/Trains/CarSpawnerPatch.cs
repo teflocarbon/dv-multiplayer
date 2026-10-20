@@ -7,6 +7,7 @@ using Multiplayer.Core.Trains;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -88,7 +89,7 @@ public static class CarSpawner_Patch
             cause = RemovalCause();
         removalCauses.Remove(trainCar);
         TrainChangeCauses.RecordRemoval(networkedTrainCar, cause);
-        NetworkLifecycle.Instance.Server?.SendDestroyTrainCar(networkedTrainCar, cause);
+        NetworkServer.Instance?.SendDestroyTrainCar(networkedTrainCar, cause);
 
         // Vanilla uncouples the car here; those uncouples are this removal's.
         __state = TrainChangeCauses.Scope(new ChangeCause<UncoupleReason>(UncoupleReason.CarRemoved,
@@ -128,7 +129,7 @@ public static class CarSpawner_Patch
 
         // Coupling is delayed by AutoCouple(), so a true trainset for the entire consist doesn't exist yet
         Multiplayer.LogDebug(() => $"SpawnCars() {__result?.Count} cars spawned, sending to players");
-        NetworkLifecycle.Instance.Server.SendSpawnTrainset(__result, true, true);
+        NetworkServer.Instance.SendSpawnTrainset(__result, true, true);
     }
 
     [HarmonyPatch(nameof(CarSpawner.SpawnCarFromRemote))]
@@ -145,7 +146,7 @@ public static class CarSpawner_Patch
             return;
 
         Multiplayer.LogDebug(() => $"SpawnCarFromRemote() {__result?.carLivery?.name} spawned, sending to players");
-        NetworkLifecycle.Instance.Server.SendSpawnTrainset([__result], true, true);
+        NetworkServer.Instance.SendSpawnTrainset([__result], true, true);
 
     }
 
@@ -163,7 +164,46 @@ public static class CarSpawner_Patch
             return;
 
         Multiplayer.LogDebug(() => $"SpawnCarOnClosestTrack() {__result?.carLivery?.name} spawned, sending to players");
-        NetworkLifecycle.Instance.Server.SendSpawnTrainset([__result], true, true);
+        NetworkServer.Instance.SendSpawnTrainset([__result], true, true);
 
     }
+
+    [HarmonyPatch(nameof(CarSpawner.SpawnCar))]
+    [HarmonyPostfix]
+    private static void SpawnCar(TrainCar __result)
+    {
+        if (CarSpawnerOuterSpawnPatch.Depth > 0 || UnloadWatcher.isUnloading || __result == null)
+            return;
+
+        if (!NetworkLifecycle.Instance.IsHost() || NetworkServer.Instance == null)
+            return;
+
+        Multiplayer.LogDebug(() => $"SpawnCar() {__result.carLivery?.name} spawned directly, sending to players");
+        NetworkServer.Instance.SendSpawnTrainset([__result], true, true);
+    }
+}
+
+// Every vanilla spawn goes through SpawnCar; these methods send their own cars (SpawnCrewVehicle's
+// caller sends its car itself), so CarSpawner_Patch.SpawnCar sends only a car spawned through
+// SpawnCar directly: another mod, a test, vanilla's caboose on load. Unsent, the server had the car
+// and no client ever did. One patch class per set of targets: stacked [HarmonyPatch] attributes on
+// one patch method apply only one of them.
+[HarmonyPatch]
+public static class CarSpawnerOuterSpawnPatch
+{
+    public static int Depth { get; private set; }
+
+    private static IEnumerable<MethodBase> TargetMethods() =>
+    [
+        AccessTools.Method(typeof(CarSpawner), nameof(CarSpawner.SpawnCars)),
+        AccessTools.Method(typeof(CarSpawner), nameof(CarSpawner.SpawnCarFromRemote)),
+        AccessTools.Method(typeof(CarSpawner), nameof(CarSpawner.SpawnCarOnClosestTrack)),
+        AccessTools.Method(typeof(CarSpawner), nameof(CarSpawner.SpawnCrewVehicle)),
+    ];
+
+    [HarmonyPrefix]
+    private static void Enter() => Depth++;
+
+    [HarmonyFinalizer]
+    private static void Leave() => Depth--;
 }

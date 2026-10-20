@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using GridCell = DV.TerrainSystem.TerrainGrid.GridCell;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Coverage;
 
@@ -151,7 +152,7 @@ public sealed class ServerTerrainCoverage : MonoBehaviour
         }
 
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        List<Vector2Int> players = lifecycle.Server.GameplayPlayers
+        List<Vector2Int> players = NetworkServer.Instance.ServerPlayers
             .Where(player => !lifecycle.IsHost(player) && player.TrackingData.Position.HasValue)
             .Select(player => grid.ToGridCoords(player.WorldPosition))
             .ToList();

@@ -84,15 +84,15 @@ public class NetworkedTask : IdMonoBehaviour<ushort, NetworkedTask>
             taskToNetworkedTask.Remove(Task);
     }
 
-    public void SetState(TaskState newState)
+    /// <summary>Records the task's state and times; false if they're what was last recorded.</summary>
+    public bool RecordState(TaskState newState)
     {
         if (lastState == newState && lastStartTime == Task.taskStartTime && lastFinishTime == Task.taskFinishTime)
-            return;
+            return false;
 
         lastState = newState;
         lastStartTime = Task.taskStartTime;
         lastFinishTime = Task.taskFinishTime;
-
-        NetworkLifecycle.Instance.Server.SendTaskUpdate(NetId, newState, Task.taskStartTime, Task.taskFinishTime);
+        return true;
     }
 }

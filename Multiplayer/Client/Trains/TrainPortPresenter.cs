@@ -52,7 +52,7 @@ public sealed class TrainPortPresenter
     {
         get
         {
-            NetworkClient client = NetworkLifecycle.Instance?.Client;
+            NetworkClient client = NetworkClient.Instance;
             if (clock == null || !ReferenceEquals(client, clockOwner))
             {
                 clockOwner = client;
@@ -291,6 +291,26 @@ public sealed class TrainPortPresenter
     /// change: <c>NetworkedTrainCar.Common_OnPortUpdated</c> ignores it, as it does a packet's.</summary>
     internal static bool Writing { get; private set; }
 
+    /// <summary>Writes the host's value to a port now, as the playout does: not taken for the local
+    /// player's change.</summary>
+    public static void ShowHostValue(Port port, float value)
+    {
+        if (port.Value == value)
+            return;
+        Writing = true;
+        try
+        {
+            if (port.type == PortType.EXTERNAL_IN)
+                port.ExternalValueUpdate(value);
+            else
+                port.Value = value;
+        }
+        finally
+        {
+            Writing = false;
+        }
+    }
+
     private static PlayoutBlend BlendOf(PortValueType type) => type switch
     {
         // Typed STATE are many continuous values too (a bell's, a dynamo's or cylinder cocks'
@@ -362,7 +382,7 @@ public sealed class TrainPortPresenter
         if (!tracks.TryGetValue(port, out Track track) || track.Values.IsEmpty || !Clock.Started)
             return false;
         value = track.Values.Latest;
-        float pingMs = NetworkLifecycle.Instance?.Client?.Ping ?? 0;
+        float pingMs = NetworkLifecycle.Instance?.LocalSession?.Ping ?? 0;
         ageSeconds = Math.Max(0, (Clock.HostTickAt(Now) - track.Values.LatestTick) * TICK_SECONDS) + pingMs / 2000.0;
         return true;
     }
@@ -393,7 +413,7 @@ public sealed class TrainPortPresenter
         if (Time.frameCount != lastPlayoutFrame)
         {
             lastPlayoutFrame = Time.frameCount;
-            bool driving = car.Client_IsLocalPlayerDrivingTrain(DRIVING_HOLD_SECONDS);
+            bool driving = car.Client()?.IsLocalPlayerDrivingTrain(DRIVING_HOLD_SECONDS) == true;
             UpdatePredicting(driving);
             Play(driving);
         }

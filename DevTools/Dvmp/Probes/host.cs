@@ -9,7 +9,6 @@ using DV.Common;
 using DV.UI;
 using HarmonyLib;
 using Multiplayer.Menus.MainMenu;
-using Multiplayer.Menus.ServerBrowser;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Protocol.Data;
@@ -91,7 +90,7 @@ public static class Probe
         // settings (shared by every game) are left alone.
         int port = ctx.Args.TryGetValue("port", out string p) ? int.Parse(p) : MP.Settings.Port;
         string password = MP.Settings.Password ?? string.Empty;
-        lifecycle.serverData = new LobbyServerData
+        global::Multiplayer.MultiplayerSession.Instance.serverData = new LobbyServerData
         {
             port = port,
             Name = "DVMP harness",
@@ -107,7 +106,7 @@ public static class Probe
             MultiplayerVersion = MP.Ver,
             ServerDetails = "Automated DVMP harness session"
         };
-        lifecycle.IsSinglePlayer = false;
+        global::Multiplayer.MultiplayerSession.Instance.IsSinglePlayer = false;
 
         launcher.OnRunClicked();
 

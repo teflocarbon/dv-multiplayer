@@ -1,7 +1,6 @@
 using DV.CabControls;
 using DV.ThingTypes;
 using HarmonyLib;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Shared.Items;
@@ -9,7 +8,7 @@ namespace Multiplayer.Shared.Items;
 internal static class MultiplayerStoragePatchGuard
 {
     internal static bool Active => NetworkLifecycle.Instance != null &&
-        (NetworkLifecycle.Instance.IsServerRunning || NetworkLifecycle.Instance.IsClientRunning);
+        NetworkLifecycle.Instance.IsSessionRunning;
 
     internal static bool IsManaged(ItemBase item, out NetworkedItem networked)
     {
@@ -17,9 +16,8 @@ internal static class MultiplayerStoragePatchGuard
         if (!Active || item == null || !NetworkedItem.TryGetNetworkedItem(item, out networked) ||
             networked == null || networked.NetId == 0)
             return false;
-        if (NetworkLifecycle.Instance.IsHost() &&
-            AuthoritativeItemRegistry.TryGet(networked.NetId, out AuthoritativeItemRegistry.Record authority))
-            return authority.PersistentOwnerPlayerId != 0;
+        if (ItemServer.Current?.TryGetPersistentOwner(networked.NetId, out byte ownerPlayerId) == true)
+            return ownerPlayerId != 0;
         return networked.PersistentOwnerPlayerId != 0;
     }
 }

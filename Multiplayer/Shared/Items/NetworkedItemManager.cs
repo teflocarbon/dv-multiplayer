@@ -3,16 +3,10 @@ using System.Linq;
 using DV.Utils;
 using UnityEngine;
 using JetBrains.Annotations;
-using Multiplayer.Server.Items;
-using Multiplayer.Server.Session;
-using Multiplayer.Shared.Protocol.Data.Items;
+
 using Multiplayer.Shared.Session;
 using System;
 using DV;
-using DV.InventorySystem;
-using Multiplayer.Debugging.Protocol;
-using Multiplayer.Core.Items;
-using Multiplayer.Core.Replication;
 using DV.Booklets;
 
 namespace Multiplayer.Shared.Items;
@@ -22,7 +16,9 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
 {
     public const float TrackedValueFinalizationGraceSeconds = 0.75f;
     /*
-     * Server 
+     * Server: the server's part is ServerItemManager (Server/Items), created on the server only.
+     * Client: the remote client's part is ClientItemManager (Client/Items), created on a remote
+     * client only.
      */
 
     //Culling distance for items
@@ -30,67 +26,47 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     public const float MAX_DISTANCE_TO_ITEM_SQR = MAX_DISTANCE_TO_ITEM * MAX_DISTANCE_TO_ITEM;
     public const float NEARBY_REMOVAL_DELAY = 3f; // 3 seconds delay
 
-    //caches for item snapshots
-    private readonly List<ItemUpdateData> DestroyedItems = new(64);
-    private readonly Dictionary<ItemUpdateData, HashSet<byte>> DestroyRecipients = new();
+    private IItemManagerServerPart serverPart;
+
+    /// <summary>The server's part of the manager; null on a client.</summary>
+    public IItemManagerServerPart ServerPart => serverPart ??= ItemServer.Current?.CreateItemManagerPart(this);
+
+    private IItemManagerClientPart clientPart;
+
+    /// <summary>
+    ///     The remote client's part of the manager; null on the host. Made the first time it's asked
+    ///     for; the host's <c>LocalPlayerSession</c> makes none.
+    /// </summary>
+    public IItemManagerClientPart ClientPart =>
+        clientPart ??= ItemClient.Current?.CreateItemManagerPart(this);
 
     /*
-     * Client
+     * Common
      */
 
-    // Exact scene-authored Unity objects remain dormant while outside host interest. They are
-    // rebound only by stable authored key; dynamic projections are never pooled or reused.
-    private readonly HashSet<NetworkedItem> DormantAuthoredClientProjections = new();
-    private readonly Queue<NetworkedItem> PendingUnboundClientItems = new();
-    private readonly HashSet<NetworkedItem> PendingUnboundClientItemSet = new();
     private readonly Dictionary<string, InventoryItemSpec> ItemPrefabs = new(1024);   //Item prefabs
     private readonly Queue<NetworkedItem> PendingLocalStateObservations = new();
     private readonly HashSet<NetworkedItem> PendingLocalStateObservationSet = new();
     private readonly Dictionary<NetworkedItem, string> PendingLocalStateReasons = new();
-    // TEMPORARY: delete these coordinators with TemporaryClientAdoptionCompatibility after all DV
-    // runtime item producers have explicit host-authoritative operations.
-    private readonly AdoptionCoordinator<NetworkedItem> TemporaryClientAdoptions = new();
-    private readonly HostAdoptionRegistry TemporaryHostAdoptions = new();
     private readonly Dictionary<NetworkedItem, float> PendingTrackedValueFinalizations = new();
-    private readonly Dictionary<ushort, ItemUpdateData> PendingSpecialItemSnapshots = new();
-    private readonly Dictionary<ushort, PendingWorldProjection> PendingWorldProjections = new();
-    private readonly HashSet<ushort> ClientLostAndFoundTombstones = new();
-    private readonly HashSet<string> ClientDetachedAuthoredSlots = new(StringComparer.Ordinal);
-    private bool ClientInitialised = false;
     private readonly AuthoredWorldItemCatalogue AuthoredCatalogue = new();
     private bool authoredCatalogueBuilt;
-    private readonly Dictionary<WorldItemCellCoord, HashSet<NetworkedItem>> HostItemsByCell = new();
-    private readonly Dictionary<NetworkedItem, WorldItemCellCoord> HostCellByItem = new();
-    private readonly HashSet<NetworkedItem> HostNonSpatialItems = new();
-    private readonly Dictionary<byte, HashSet<WorldItemCellCoord>> HostPlayerCells = new();
-    private bool authoredCatalogueAccepted;
-    private NetworkedItemSpatialManager Spatial;
-    private NetworkedTrainItemWakeManager TrainItemWake;
-    private AuthoredWorldItemReplenishmentManager Replenishment;
-
-    private sealed class PendingWorldProjection
-    {
-        public ItemUpdateData Create;
-        public readonly List<ItemUpdateData> Updates = new(8);
-    }
-
-
-    /* 
-     * Common
-     */
+    internal NetworkedItemSpatialManager Spatial { get; private set; }
 
     protected override void Awake()
     {
         base.Awake();
-        Spatial = new NetworkedItemSpatialManager(this);
-        TrainItemWake = new NetworkedTrainItemWakeManager(this, Spatial);
-        Replenishment = new AuthoredWorldItemReplenishmentManager(this);
+        Spatial = new NetworkedItemSpatialManager();
+
+        serverPart = ItemServer.Current?.CreateItemManagerPart(this);
     }
 
     protected void Start()
     {
-        if (NetworkLifecycle.Instance.IsHost())
-            NetworkLifecycle.Instance.OnTick += Common_OnTick;
+        // The host's tick runs the server's part; a remote client's runs the client part, whose
+        // fall-rescue scan reports its items under the map (#37: it was subscribed on the host only).
+        NetworkLifecycle.Instance.OnTick += Common_OnTick;
+        StartCoroutine(GuardItemsAgainstTerrainTunnelling());
 
         BuildPrefabLookup();
     }
@@ -99,50 +75,11 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     {
         ProcessTrackedValueFinalizations();
         ProcessPendingLocalStateObservations();
-        TrainItemWake?.Update();
-        Spatial?.Update();
-        Replenishment?.Update();
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
-
-        if (!ClientInitialised)
-            return;
-
-        ProcessPendingWorldProjections();
-
-        int remainingBudget = 16;
-        while (remainingBudget-- > 0 && PendingUnboundClientItems.Count > 0)
-        {
-            NetworkedItem item = PendingUnboundClientItems.Dequeue();
-            PendingUnboundClientItemSet.Remove(item);
-            if (item == null || item.NetId != 0)
-                continue;
-
-            if (item.IsSceneAuthored)
-            {
-                if (!DormantAuthoredClientProjections.Contains(item))
-                {
-                    TraceItem("item.unbound-authored-item-dormant", item,
-                        new() { ["reason"] = "late-authored-activation" });
-                    RetireClientProjection(item, "late-authored-activation");
-                }
-                else
-                {
-                    item.GateAsSceneObjectAwaitingHostCreate();
-                    item.gameObject.SetActive(false);
-                }
-            }
-            else if (IsTemporaryClientAdoptionAllowed(item, out _))
-            {
-                item.AllowUnboundLocalInteraction();
-            }
-            else
-            {
-                TraceItem("item.unbound-client-object-destroyed", item,
-                    new() { ["reason"] = "not-host-authorized" });
-                RetireClientProjection(item, "not-host-authorized");
-            }
-        }
+        // The server's part first: its train-wake manager, the host's leases, replenishment.
+        ServerPart?.Update();
+        // A remote client's: its side of the spatial stream, deferred world projections and the
+        // unbound items it classifies.
+        ClientPart?.Update();
     }
 
     internal void QueueLocalStateObservation(NetworkedItem item, string reason)
@@ -154,9 +91,6 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
             return;
         PendingLocalStateObservations.Enqueue(item);
     }
-
-    internal bool IsClientLostAndFoundTombstoned(ushort itemNetId) =>
-        itemNetId != 0 && ClientLostAndFoundTombstones.Contains(itemNetId);
 
     internal void QueueInventoryStateObservations(string reason)
     {
@@ -215,112 +149,36 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         }
     }
 
+    /// <summary>The session's items are gone (the manager is destroyed): presentation holding onto them lets go.</summary>
+    internal static event Action Cleared;
+
     protected override void OnDestroy()
     {
         base.OnDestroy();
         if (UnloadWatcher.isQuitting)
             return;
 
-        if (NetworkLifecycle.Instance.IsHost())
-            NetworkLifecycle.Instance.OnTick -= Common_OnTick;
-        NetworkedLostAndFoundManager.Clear();
-        NetworkedColdContainerManager.Clear();
-        TrainItemWake?.Clear();
+        // Whatever this game was: the server may be gone already (NetworkLifecycle.Stop).
+        NetworkLifecycle.Instance.OnTick -= Common_OnTick;
+        // Only a part made this session: the server may be gone already.
+        serverPart?.Clear();
+        Cleared?.Invoke();
+
         Spatial?.Clear();
-        Replenishment?.Clear();
-        ClientDetachedAuthoredSlots.Clear();
-        WorldItemPersistenceManager.Clear();
-        AuthoritativeItemRegistry.Clear();
+        clientPart?.Clear();
     }
-
-    public void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)
-    {
-        DestroyedItems.Add(snapshot);
-        HashSet<byte> recipients = new();
-        DestroyRecipients[snapshot] = recipients;
-        UnregisterHostWorldItem(netItem);
-
-        foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
-        {
-            if (player.KnownItems.ContainsKey(netItem))
-            {
-                recipients.Add(player.PlayerId);
-                player.KnownItems.Remove(netItem);
-            }
-
-            player.AcknowledgedWorldItems.Remove(netItem.NetId);
-
-            if (player.NearbyItems.ContainsKey(netItem))
-                player.NearbyItems.Remove(netItem);
-        }
-    }
-
-    //public void ReceiveSnapshots(List<ItemUpdateData> snapshots)
-    //{
-    //    if (snapshots == null)
-    //        return;
-
-    //    foreach (var snapshot in snapshots)
-    //        ReceivedSnapshots.Enqueue(snapshot);
-
-    //    Multiplayer.LogDebug(() => $"NetworkItemManager.ReceiveSnapshots() count: {ReceivedSnapshots.Count}, from: ");
-    //}
-
 
     private void Common_OnTick(uint tick)
     {
-        //ProcessReceived();
-
-        if (NetworkLifecycle.Instance.IsHost())
+        // A remote client builds the authored catalogue when it first looks an item up; the server
+        // builds it at once, to register the scene's items.
+        if (ServerPart is { } server)
         {
             EnsureAuthoredCatalogue();
-            NetworkedLostAndFoundManager.HostTick(tick);
-            NetworkedColdContainerManager.HostTick(tick);
-            WorldItemPersistenceManager.HostTick();
-            UpdatePlayerItemLists();
-            ProcessChanged(tick);
-            RunConvergence();
-            RunFallRescue();
+            server.Tick(tick);
         }
-        else
-        {
-            //ProcessClientChanges(tick);
-            RunFallRescue();
-        }
+        ClientPart?.Tick(tick);
     }
-
-    public void ReceiveSnapshots(List<ItemUpdateData> snapshots)
-    {
-        foreach (var snapshot in snapshots)
-        {
-            //var snapshot = ReceivedSnapshots.Dequeue();
-            try
-            {
-                //Multiplayer.LogDebug(() => $"ProcessReceived: {snapshot.UpdateType}");
-
-                if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
-                {
-                    Multiplayer.LogError($"NetworkedItemManager.ProcessReceived() Invalid Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
-                    continue;
-                }
-
-                //if (NetworkLifecycle.Instance.IsHost())
-                //{
-                //    NetworkLifecycle.Instance.Server.TryGetServerPlayer(snapshot.Player, out ServerPlayer player);
-                //    ProcessReceivedAsHost(snapshot, player);
-                //}
-                //else
-                //{
-                    ProcessReceivedAsClient(snapshot);
-                //}
-            }
-            catch (Exception ex)
-            {
-                Multiplayer.LogError($"NetworkedItemManager.ProcessReceived() Error! {ex.Message}\r\n{ex.StackTrace}");
-            }
-        }
-    }
-
 
     public bool DoNotCreateItem(NetworkedItem item)
     {
@@ -342,6 +200,11 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
 
         return false;
     }
+
+    internal static bool IsJobDocumentPrefab(string prefabName) =>
+        string.Equals(prefabName, nameof(JobOverview), StringComparison.Ordinal) ||
+        string.Equals(prefabName, nameof(JobBooklet), StringComparison.Ordinal) ||
+        string.Equals(prefabName, nameof(JobReport), StringComparison.Ordinal);
 
     [UsedImplicitly]
     public new static string AllowAutoCreate()

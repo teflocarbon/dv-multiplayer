@@ -1,13 +1,15 @@
 using Multiplayer.Shared.Protocol.Data.Player;
+using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using System;
 using System.Collections;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Players;
 
-public abstract class LocalPlayerTrackerBase : MonoBehaviour
+public abstract class LocalPlayerTrackerBase : MonoBehaviour, ILocalPlayerTracker
 {
     internal const float ROTATION_THRESHOLD = 0.2f;
 
@@ -55,6 +57,7 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
             : "CustomFirstPersonController found. Continuing initialisation.");
 
         NetworkLifecycle.Instance.OnTick += OnTick;
+        LocalPlayerTracker.Register(this);
 
         PlayerManager.CarChanged += OnCarChanged;
         CustomFirstPersonControllerPatch.OnJump += OnJump;
@@ -68,6 +71,7 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
 
     protected virtual void OnDestroy()
     {
+        LocalPlayerTracker.Unregister(this);
         if (UnloadWatcher.isQuitting)
             return;
 
@@ -79,8 +83,21 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
 
     protected void OnTick(uint tick)
     {
-        if (UnloadWatcher.isUnloading)
+        // On the host the server samples this player itself, right before it handles the host's
+        // requests (ILocalPlayerTracker), so its position is current for their range checks.
+        if (NetworkRole.IsServer)
             return;
+
+        ServerboundPlayerPositionPacket packet = Sample(out bool reliable);
+        if (packet != null)
+            NetworkClient.Instance.SendPlayerPosition(packet, reliable);
+    }
+
+    public ServerboundPlayerPositionPacket Sample(out bool reliable)
+    {
+        reliable = false;
+        if (UnloadWatcher.isUnloading)
+            return null;
 
         if (isOnCar && car == null)
         {
@@ -88,7 +105,13 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
             isOnCar = car != null;
         }
 
-        Vector3 position = isOnCar ? PlayerManager.PlayerTransform.localPosition : PlayerManager.PlayerTransform.GetWorldAbsolutePosition();
+        // On a car: relative to the car's transform, the frame the server and the other players
+        // place it in. Not the player's localPosition: the game says the player entered a car
+        // before it parents them to it (and on a rolling car that can take seconds), and until then
+        // localPosition is a scene position, which put the avatar hundreds of metres off.
+        Vector3 position = isOnCar
+            ? car.transform.InverseTransformPoint(PlayerManager.PlayerTransform.position)
+            : PlayerManager.PlayerTransform.GetWorldAbsolutePosition();
         float rotationY = PlayerManager.PlayerCamera.transform.eulerAngles.y;
 
         float rawHeadPitch = GetHeadPitch();
@@ -156,7 +179,7 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
         bool hasChanges = positionOrRotationChanged || lookPositionChanged || heightChanged || trackingData.HasAdditionalData;
 
         if (!hasChanges && sentFinalPosition)
-            return;
+            return null;
 
         lastSitHeight = sitHeight;
         lastOnCar = isOnCar;
@@ -167,8 +190,15 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour
         lastPosture = posture;
         sentFinalPosition = !moved;
 
-        NetworkLifecycle.Instance.Client.SendPlayerPosition(trackingData, posture, isOnCar, carNetID, isJumping || sentFinalPosition);
+        reliable = isJumping || sentFinalPosition;
         isJumping = false;
+        return new ServerboundPlayerPositionPacket
+        {
+            TrackingData = trackingData,
+            Posture = posture,
+            IsOnCar = isOnCar,
+            CarID = carNetID
+        };
     }
 
     /// <summary>

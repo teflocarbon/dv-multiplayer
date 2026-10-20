@@ -3,6 +3,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -15,7 +16,8 @@ public static class MultipleUnitCable_Connect_Patch
             NetworkedTrainCar.IsApplyingAuthoritativeTopology ||
             NetworkedTrainCar.IsBatchingLocalTopology)
             return;
-        NetworkLifecycle.Instance.Client?.SendMuConnected(__instance, other, playAudio);
+        if (NetworkRole.IsRemoteClient) // the server observes its own world's (TopologyObservationPatch)
+            NetworkClient.Instance?.SendMuConnected(__instance, other, playAudio);
     }
 }
 
@@ -32,6 +34,7 @@ public static class MultipleUnitCable_Disconnect_Patch
         if (!__instance.muModule.train.TryNetworked(out NetworkedTrainCar networkedTrainCar) ||
             networkedTrainCar == null || networkedTrainCar.IsDestroying)
             return;
-        NetworkLifecycle.Instance.Client?.SendMuDisconnected(networkedTrainCar.NetId, __instance, playAudio);
+        if (NetworkRole.IsRemoteClient) // the server observes its own world's (TopologyObservationPatch)
+            NetworkClient.Instance?.SendMuDisconnected(networkedTrainCar.NetId, __instance, playAudio);
     }
 }

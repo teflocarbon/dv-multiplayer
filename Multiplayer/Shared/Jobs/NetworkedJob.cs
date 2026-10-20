@@ -1,7 +1,6 @@
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.Logic.Job;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Session;
@@ -275,24 +274,21 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
-        if (NetworkLifecycle.Instance?.IsHost() == true)
-            DestroyJobBooklets();
+        JobServer.Current?.OnJobEnded(this);
     }
 
     private void OnJobCompleted(Job job)
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
-        if (NetworkLifecycle.Instance?.IsHost() == true)
-            DestroyJobBooklets();
+        JobServer.Current?.OnJobEnded(this);
     }
 
     private void OnJobExpired(Job job)
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
-        if (NetworkLifecycle.Instance?.IsHost() == true)
-            DestroyJobBooklets();
+        JobServer.Current?.OnJobEnded(this);
     }
 
     public void AddReport(NetworkedItem item)
@@ -375,10 +371,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     public void ClearReports()
     {
         foreach (var report in JobReports)
-        {
-            ItemChangeLog.NoteJobDocumentRemoval(report, Job, typeof(NetworkedJob));
             Destroy(report.gameObject);
-        }
 
         JobReports.Clear();
     }

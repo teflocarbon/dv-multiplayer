@@ -1,6 +1,7 @@
 using DV.ServicePenalty;
 using DV.Utils;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Career;
 
@@ -26,14 +27,19 @@ public class NetworkedCareerManagerDebtController : SingletonBehaviour<Networked
 
     private bool? lastSentHasDebt;
 
+    private void Server_OnDebtListsUpdated() => SendDebtStatusIfChanged();
+
     // Sent when "has debt" changes. It used to go out only at exactly 0 or 1 debts, so going from
-    // none to two (a derail with two locos) left clients thinking there was no debt.
-    private void Server_OnDebtListsUpdated()
+    // none to two (a derail with two locos) left clients thinking there was no debt. Also checked
+    // after each refresh of the debts (CareerManagerDebtControllerServerPatch).
+    public void SendDebtStatusIfChanged()
     {
+        if (controller == null || !NetworkLifecycle.Instance.IsHost())
+            return;
         bool hasDebt = controller.NumberOfNonZeroPricedDebts > 0;
         if (lastSentHasDebt == hasDebt)
             return;
         lastSentHasDebt = hasDebt;
-        NetworkLifecycle.Instance.Server.SendDebtStatus(hasDebt);
+        NetworkServer.Instance.SendDebtStatus(hasDebt);
     }
 }

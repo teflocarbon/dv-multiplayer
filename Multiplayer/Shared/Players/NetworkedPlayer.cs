@@ -48,8 +48,6 @@ public partial class NetworkedPlayer : MonoBehaviour
 
     private GameObject playerModel;
     private AnimationHandler animationHandler;
-    private NameTag nameTag;
-    private int ping;
     private NetworkedPlayerIKHandler ikHandler;
 
     private string username;
@@ -60,9 +58,12 @@ public partial class NetworkedPlayer : MonoBehaviour
         set
         {
             username = value;
-            nameTag?.SetUsername(value);
+            UsernameChanged?.Invoke(value);
         }
     }
+
+    /// <summary>The username changed (the client's name tag shows it).</summary>
+    public event Action<string> UsernameChanged;
 
     public string DisplayName
     {
@@ -130,19 +131,6 @@ public partial class NetworkedPlayer : MonoBehaviour
         inventoryRoot = new GameObject("Inventory");
         inventoryRoot.transform.SetParent(transform);
 
-        nameTag = GetComponentInChildren<NameTag>();
-
-        nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
-        // A named handler so OnDestroy can remove it: the static event otherwise kept every
-        // departed player's avatar alive and threw on their destroyed name tag at each camera change.
-        PlayerManager.CameraChanged += OnCameraChanged;
-
-        if (name != null)
-            nameTag.SetUsername(name);
-
-        OnSettingsUpdated(Multiplayer.Settings);
-        Settings.OnSettingsUpdated += OnSettingsUpdated;
-
         selfTransform = transform;
         targetPos = selfTransform.position;
         targetRotation = selfTransform.rotation;
@@ -166,24 +154,6 @@ public partial class NetworkedPlayer : MonoBehaviour
                 CustomFirstPersonController.MAX_PLAYER_SITTING_HEIGHT,
                 clampedSitHeight
             );
-    }
-
-    protected void OnDestroy()
-    {
-        Settings.OnSettingsUpdated -= OnSettingsUpdated;
-        PlayerManager.CameraChanged -= OnCameraChanged;
-    }
-
-    private void OnCameraChanged()
-    {
-        if (nameTag != null && PlayerManager.ActiveCamera != null)
-            nameTag.LookTarget = PlayerManager.ActiveCamera.transform;
-    }
-
-    private void OnSettingsUpdated(Settings settings)
-    {
-        nameTag.ShowUsername(settings.ShowNameTags);
-        nameTag.ShowPing(settings.ShowNameTags && settings.ShowPingInNameTags);
     }
 
     public void ChangeModel(GameObject newModel)
@@ -243,17 +213,6 @@ public partial class NetworkedPlayer : MonoBehaviour
             headBaseWorldRotation = Quaternion.Inverse(selfTransform.rotation) * headTransform.rotation;
 
         SetPosture(currentPosture);
-    }
-
-    public void SetPing(int ping)
-    {
-        nameTag?.SetPing(ping);
-        this.ping = ping;
-    }
-
-    public int GetPing()
-    {
-        return ping;
     }
 
     protected void Update()

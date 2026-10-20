@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.19-dev.2343+f637380c81f235ec05edf29c9f66d94840a5504f",
-  "Fingerprint": "f78fe0f0b661384a75c3093fedcc12bd671d9270dc209b6f4335b6d26be664d7",
+  "BuildVersion": "2026.10.20-dev.1311+93fef452ae031a91865a08d6259a4317b0376224",
+  "Fingerprint": "f3943b96a05f506568cffd1c36cce2eb2a82014506779247a2a2ec134dfe4c15",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1093,6 +1093,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "FC3370D1BA85F69F",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs.ServerboundJobRerollRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "FE39586FFEE7454F",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Train.ClientboundDestroyTrainCarPacket",
       "Direction": "Clientbound",
@@ -1275,7 +1284,8 @@
       "JobBookletSummoned": 20,
       "ClaimSlotMoved": 21,
       "RescuedFromBelowMap": 22,
-      "HostCorrection": 23
+      "HostCorrection": 23,
+      "ThrownOutOfBin": 24
     },
     "Multiplayer.Core.Items.ItemRemovalReason": {
       "Unknown": 0,
@@ -1297,7 +1307,8 @@
       "Despawned": 3,
       "JobGeneration": 4,
       "LocoRestoration": 5,
-      "SaveLoad": 6
+      "SaveLoad": 6,
+      "JobRerolled": 7
     },
     "Multiplayer.Core.Trains.DerailReason": {
       "Unknown": 0,
@@ -1409,7 +1420,8 @@
       "PersistenceRestore": 13,
       "SpatialSettlement": 14,
       "Convergence": 15,
-      "ClientInteraction": 16
+      "ClientInteraction": 16,
+      "JobRerollRefused": 17
     },
     "Multiplayer.Shared.Protocol.Data.Items.ItemUpdateData+ItemUpdateType": {
       "None": 0,

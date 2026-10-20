@@ -699,7 +699,7 @@ against what's loaded. They have no anchor term.
 | System | Code | Patch |
 |---|---|---|
 | `ItemDisablerGrid` | 3×3 cells of 128 m around `ActiveCamera` (`DV/ItemDisablerGrid.cs:22-43`), driving `ItemDisabler.OnItemDisablePositionUpdated` (`DV/ItemDisabler.cs:156-190`) | Postfix `IsCoordActive` to true near any anchor's cell; postfix `Update` to raise `PositionUpdated` (event field) when any anchor's cell changes |
-| `RespawnOnDrop.CheckDistances` | `farFromPlayer` uses `PlayerTransform`, the parked body; `farFromActiveCamera` makes items kinematic (`RespawnOnDrop.cs:326-355`, `:357-369`; 200 m / 1 km at `:11-13`, `:88`). The mod already suppresses `RespawnOrDestroy` for managed items (`Multiplayer/Shared/Items/RespawnOnDropDebugPatch.cs:19-32`), but the kinematic flag isn't suppressed. | Postfix the tuple to use the nearest gameplay player and anchor |
+| `RespawnOnDrop.CheckDistances` | `farFromPlayer` uses `PlayerTransform`, the parked body; `farFromActiveCamera` makes items kinematic (`RespawnOnDrop.cs:326-355`, `:357-369`; 200 m / 1 km at `:11-13`, `:88`). The mod already suppresses `RespawnOrDestroy` for managed items (`Multiplayer/Shared/Items/RespawnOnDropPatch.cs:19-32`), but the kinematic flag isn't suppressed. | Postfix the tuple to use the nearest gameplay player and anchor. **Built for `farFromPlayer`** (`Server/Items/RespawnOnDropRangePatch.cs`): nearest server player, networked items only; `farFromActiveCamera` not yet |
 | `ChainCouplerVisibilityOptimizer.Update` | Disables the chain and the `CouplingScanner` when not visible and more than 50 m from `ActiveCamera` (`ChainCouplerVisibilityOptimizer.cs:80-117`). It's only enabled by renderer visibility (`:101-107`), which no host camera provides for remote cars. The scanner drives buffer pairing (`TrainBufferController.cs:35-63`) and chain interaction. Mostly visual on the host. | Low priority: nearest-anchor distance, plus enabling within 50 m of any player |
 | `PlayerDistanceMultipleGameObjectsOptimizer.CheckDistance` | 500 m from `ActiveCamera` (`DV.Optimizers/PlayerDistanceMultipleGameObjectsOptimizer.cs:15`, `:82-86`) | Not patched by the mod. Nearest anchor |
 | Mod: host as item simulator | Eligible only if the **service host's** position is within 192 m (`Multiplayer/Shared/Items/NetworkedItemSpatialManager.cs:39`, `:566-578`, `:656-667`). The service host has no tracked position, so it never qualifies far from the parked body. | Make host eligibility "item active and `IsSceneAndTerrainCellLoaded(item)`" instead of the host's distance, so the host can simulate and validate near any player |
@@ -861,7 +861,7 @@ measurement (M5).
 
 ### 7.4 Tests (dvmp, `DevTools/Scenarios`)
 
-`far-derail` (`DevTools/Scenarios/far-derail/run.sh`, `state.cs`) is the single-anchor template.
+`far-derail` (`DevTools/DvmpScenarios/Scenarios/FarDerail.cs`, with `Cars.Rest` in `Library/Trains.cs`) is the single-anchor template.
 It derails next to the client 4-8 km from the parked body, then checks on the host:
 
 - `IsSceneAndTerrainCellLoaded` true;

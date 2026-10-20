@@ -3,6 +3,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -30,7 +31,7 @@ public static class WindowsBreakingController_BreakWindowsFromCollision_Patch
             return; 
         }
 
-        NetworkLifecycle.Instance.Server.SendWindowsBroken(netId, forceDirection);
+        NetworkServer.Instance.SendWindowsBroken(netId, forceDirection);
     }
 
     [HarmonyPostfix]
@@ -50,6 +51,6 @@ public static class WindowsBreakingController_BreakWindowsFromCollision_Patch
         }
 
         Multiplayer.LogDebug(()=>$"RepairWindows_Postfix, {car.name}");
-        NetworkLifecycle.Instance.Server.SendWindowsRepaired(netId);
+        NetworkServer.Instance.SendWindowsRepaired(netId);
     }
 }

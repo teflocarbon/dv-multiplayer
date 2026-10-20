@@ -10,15 +10,17 @@ namespace Dvmp;
 /// <param name="BackgroundFpsCap">Frame cap while unfocused; null keeps the agent's default (20).</param>
 /// <param name="HostOnly">Start only a host, with its own identity, for a client that joins later
 /// (a later <c>up</c> in the same session, or the user's own game).</param>
-/// <param name="Dedicated">Launch the host as a dedicated host (<c>-mp-dedicated</c>): its own
-/// client is a service identity, not a player, so it has no avatar and takes no player slot.</param>
+/// <param name="Dedicated">Launch the host as a dedicated host (<c>-mp-dedicated</c>): it has no
+/// player of its own, so no avatar and no player slot.</param>
 /// <param name="Verified">Launch the host without <c>-mp-allow-unverified</c>, so it checks each
 /// client's Steam ticket. The harness's games share one Steam account, so only a dedicated host
-/// (whose own client isn't a player) can then tell its client apart from itself.</param>
+/// (which has no player of its own) can then tell its client apart from itself.</param>
+/// <param name="Reseed">Restart the session's games with their user data copied afresh from the
+/// real profile (<see cref="UserData"/>); named sessions only.</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
     bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false,
     string? NewSession = null, string? NewSessionName = null, int? BackgroundFpsCap = null, bool HostOnly = false,
-    bool Dedicated = false, bool Verified = false);
+    bool Dedicated = false, bool Verified = false, bool Reseed = false);
 
 /// <summary>
 /// Brings up (or reuses) a host + client pair of real game instances joined to each other.
@@ -37,12 +39,24 @@ internal static class Session
     private const int HostOnlyBackgroundFps = 30;
 
     private static readonly object gate = new();
-    private static Task<JsonObject>? running;
-    private static string stage = "idle";
-    private static readonly List<JsonObject> timeline = new();
-    private static Stopwatch clock = new();
 
-    public static string Stage { get { lock (gate) return stage; } }
+    // One up operation per session, so an MCP server can bring up p1 and d1 side by side; the
+    // session flows into the operation (Sessions.Current is an AsyncLocal, and Task.Run keeps it).
+    private sealed class UpState
+    {
+        public Task<JsonObject>? Running;
+        public string Stage = "idle";
+        public readonly List<JsonObject> Timeline = new();
+        public Stopwatch Clock = new();
+    }
+    private static readonly Dictionary<string, UpState> states = new();
+
+    // The current session's state; call with the gate held.
+    private static UpState State => states.TryGetValue(Sessions.Current, out UpState? state)
+        ? state
+        : states[Sessions.Current] = new UpState();
+
+    public static string Stage { get { lock (gate) return State.Stage; } }
 
     /// <summary>Starts an up operation unless one is already running, then waits up to <paramref name="wait"/>.</summary>
     public static async Task<JsonObject> UpAsync(UpOptions options, TimeSpan wait, CancellationToken ct)
@@ -50,13 +64,14 @@ internal static class Session
         Task<JsonObject> task;
         lock (gate)
         {
-            if (running == null || running.IsCompleted)
+            UpState state = State;
+            if (state.Running == null || state.Running.IsCompleted)
             {
-                timeline.Clear();
-                clock = Stopwatch.StartNew();
-                running = Task.Run(() => RunUpAsync(options));
+                state.Timeline.Clear();
+                state.Clock = Stopwatch.StartNew();
+                state.Running = Task.Run(() => RunUpAsync(options));
             }
-            task = running;
+            task = state.Running;
         }
 
         Task finished = await Task.WhenAny(task, Task.Delay(wait, ct));
@@ -71,20 +86,79 @@ internal static class Session
             return new JsonObject
             {
                 ["done"] = done,
-                ["stage"] = stage,
-                ["elapsedSeconds"] = Math.Round(clock.Elapsed.TotalSeconds, 1),
-                ["timeline"] = new JsonArray(timeline.Select(t => (JsonNode)t.DeepClone()).ToArray()),
+                ["session"] = Sessions.Current,
+                ["stage"] = State.Stage,
+                ["elapsedSeconds"] = Math.Round(State.Clock.Elapsed.TotalSeconds, 1),
+                ["timeline"] = new JsonArray(State.Timeline.Select(t => (JsonNode)t.DeepClone()).ToArray()),
                 ["hint"] = done ? null : "still starting; call dvmp_up again to keep waiting"
             };
         }
+    }
+
+    private static JsonObject Failed(string error)
+    {
+        Mark("failed: " + error);
+        JsonObject failed = Progress(done: true);
+        failed["ok"] = false;
+        failed["error"] = error;
+        return failed;
+    }
+
+    // With the session's games down: the next launches copy the real profile again.
+    private static void ReseedUserData()
+    {
+        Mark("dropping the session's user data (reseed)");
+        UserData.Reset();
+    }
+
+    /// <summary>A named session's game must keep its user data in the session's own folder, or it
+    /// would write the real profile and the other pairs' saves. Checked at the main menu, where
+    /// DV's storage exists and nothing has been saved yet.</summary>
+    private static async Task CheckUserDataAsync(Agent agent)
+    {
+        if (await WrongUserDataAsync(agent) is { } actual)
+            throw new Exception($"{agent.Label} keeps its user data in '{actual}', not the session's own '{UserData.Dir(LaunchRole(agent))}'. " +
+                                "Its saves would land in the real profile: is the installed dev agent older than -dvmp-userdata " +
+                                "(rebuild DevTools/DvmpAgent)? See the game log for 'dvmp: user data'.");
+    }
+
+    /// <summary>Where a named session's game keeps its user data if that isn't the session's own
+    /// folder (a game launched by an older dvmp, say); null when it is, or for the default session.</summary>
+    private static async Task<string?> WrongUserDataAsync(Agent agent)
+    {
+        if (UserData.Dir(LaunchRole(agent)) is not { } expected) return null;
+        JsonObject r = await Operations.EvalAsync(
+            "(DV.UserManagement.UserManager.Instance?.Storage as DV.UserManagement.Storage.Implementation.FileSystemStorage)?.GetFilesystemPath(\"\")",
+            agent.Pid.ToString(), "expression", null, null, 10);
+        JsonNode? value = r["results"]?.AsObject().FirstOrDefault().Value?["result"];
+        string? actual = value is JsonValue v && v.TryGetValue(out string? s) ? s : null;
+        return actual != null && UserData.Same(actual, expected) ? null : actual ?? "?";
+    }
+
+    // The role a harness game was launched as (-dvmp-role), which names its user data folder: at the
+    // main menu, before it hosts or joins, a game reports its role as "offline".
+    private static string LaunchRole(Agent agent)
+    {
+        string[]? args = agent.Info.Args;
+        int i = args == null ? -1 : Array.IndexOf(args, "-dvmp-role");
+        return i >= 0 && i + 1 < args!.Length ? args[i + 1] : agent.Role;
+    }
+
+    // A running game is only reused if it keeps the session's own user data.
+    private static async Task<Agent?> ReusableAsync(Agent? agent)
+    {
+        if (agent == null || await WrongUserDataAsync(agent) is not { } actual) return agent;
+        Mark($"{agent.Label} uses user data in '{actual}', not the session's own; restarting it");
+        return null;
     }
 
     private static void Mark(string next)
     {
         lock (gate)
         {
-            stage = next;
-            timeline.Add(new JsonObject { ["t"] = Math.Round(clock.Elapsed.TotalSeconds, 1), ["stage"] = next });
+            UpState state = State;
+            state.Stage = next;
+            state.Timeline.Add(new JsonObject { ["t"] = Math.Round(state.Clock.Elapsed.TotalSeconds, 1), ["stage"] = next });
         }
     }
 
@@ -106,15 +180,26 @@ internal static class Session
 
     private static async Task<JsonObject> RunUpAsync(UpOptions o)
     {
+        if (o.Reseed)
+        {
+            if (Sessions.IsDefault)
+                return Failed("--reseed needs a named session (--session NAME): the default session uses your real profile");
+            o = o with { Fresh = true };
+        }
         if (o.HostOnly) return await RunHostOnlyAsync(o);
         try
         {
             Mark("checking existing games");
-            List<Agent> agents = await Agents.DiscoverAsync();
+            List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
             // --dedicated only reuses a dedicated host; without it, either kind is reused (a client joining
             // a dedicated host-only host goes through here).
             Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
             Agent? client = agents.FirstOrDefault(a => a.Role == "client" && WorldLoaded(a));
+            if (!o.Fresh)
+            {
+                host = await ReusableAsync(host);
+                client = await ReusableAsync(client);
+            }
             if (!o.Fresh && host != null && client != null)
             {
                 Mark("reusing running session");
@@ -142,17 +227,27 @@ internal static class Session
                 await DownAsync(CancellationToken.None);
             }
 
+            if (o.Reseed) ReseedUserData();
             DeployStaleBuild();
             Mark("launching host");
             Process hostProcess = await LaunchAsync("host", o);
             Agent hostAgent = await WaitForAgentAsync(hostProcess, TimeSpan.FromSeconds(90));
             // Unity Mod Manager touches shared cache files while loading; LaunchAsync starts the
             // client only once the host's mods are loaded (and staggers other sessions' launches).
+            // The host loads its save meanwhile: waiting for the client's agent first left it idle
+            // at the menu for 67 s (median; docs/research/harness-time-budget.md).
+            Task<(Agent, JsonObject)> hosting = HostAsync(hostAgent, o, identity: null);
             Mark("launching client");
-            Process clientProcess = await LaunchAsync("client", o);
+            Process clientProcess;
+            try { clientProcess = await LaunchAsync("client", o); }
+            catch
+            {
+                _ = hosting.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                throw;
+            }
+            if (o.Arrange && !o.Background) Arrange(hostProcess, clientProcess, o);
 
-            (hostAgent, JsonObject hosted) = await HostAsync(hostAgent, o, identity: null,
-                beforeWorldWait: () => { if (o.Arrange && !o.Background) Arrange(hostProcess, clientProcess, o); });
+            (hostAgent, JsonObject hosted) = await hosting;
             int port = hosted["port"]?.GetValue<int>() ?? 7777;
             string password = hosted["password"]?.GetValue<string>() ?? string.Empty;
 
@@ -167,11 +262,7 @@ internal static class Session
         }
         catch (Exception e)
         {
-            Mark("failed: " + e.Message);
-            JsonObject failed = Progress(done: true);
-            failed["ok"] = false;
-            failed["error"] = e.Message;
-            return failed;
+            return Failed(e.Message);
         }
     }
 
@@ -187,8 +278,9 @@ internal static class Session
                 throw new Exception("--host-only needs a named session (--session NAME), so it never touches the default session's games");
 
             Mark("checking existing games");
-            List<Agent> agents = await Agents.DiscoverAsync();
+            List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
             Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
+            if (!o.Fresh) host = await ReusableAsync(host);
             if (!o.Fresh && host != null)
             {
                 Mark("reusing running host");
@@ -204,6 +296,7 @@ internal static class Session
                 await DownAsync(CancellationToken.None);
             }
 
+            if (o.Reseed) ReseedUserData();
             DeployStaleBuild();
             Mark("launching host");
             Process hostProcess = await LaunchAsync("host", o with { BackgroundFpsCap = o.BackgroundFpsCap ?? HostOnlyBackgroundFps });
@@ -217,21 +310,17 @@ internal static class Session
         }
         catch (Exception e)
         {
-            Mark("failed: " + e.Message);
-            JsonObject failed = Progress(done: true);
-            failed["ok"] = false;
-            failed["error"] = e.Message;
-            return failed;
+            return Failed(e.Message);
         }
     }
 
     // From the host's main menu to a loaded, hosted world: loads the save through the host probe
     // and checks the host owns its port. identity gives the host's player its own name and GUID.
-    private static async Task<(Agent, JsonObject)> HostAsync(Agent hostAgent, UpOptions o, (string Name, string Guid)? identity,
-        Action? beforeWorldWait = null)
+    private static async Task<(Agent, JsonObject)> HostAsync(Agent hostAgent, UpOptions o, (string Name, string Guid)? identity)
     {
         Mark("host: waiting for main menu");
         await WaitForMenuAsync(hostAgent, TimeSpan.FromSeconds(120));
+        await CheckUserDataAsync(hostAgent);
         if (o.Trace) await InstallTracerAsync(hostAgent);
         Mark("host: loading save");
         Dictionary<string, string> hostArgs = new();
@@ -246,8 +335,6 @@ internal static class Session
         }
         JsonObject hosted = await RunProbeAsync(hostAgent, "host", hostArgs);
         int port = hosted["port"]?.GetValue<int>() ?? 7777;
-
-        beforeWorldWait?.Invoke();
 
         Mark("host: waiting for world + server");
         hostAgent = await WaitUntilAsync(hostAgent.Pid, a => a.Role == "host" && WorldLoaded(a), TimeSpan.FromSeconds(300), "host world load");
@@ -278,6 +365,7 @@ internal static class Session
         Agent clientAgent = await WaitForAgentAsync(clientProcess, TimeSpan.FromSeconds(90));
         Mark("client: waiting for main menu");
         await WaitForMenuAsync(clientAgent, TimeSpan.FromSeconds(120));
+        await CheckUserDataAsync(clientAgent);
         if (o.Trace) await InstallTracerAsync(clientAgent);
         Mark("client: joining");
         await RunProbeAsync(clientAgent, "join", new()
@@ -332,7 +420,9 @@ internal static class Session
     /// <summary>Quits the current session's games, or every session's with <paramref name="all"/>.</summary>
     public static async Task<JsonObject> DownAsync(CancellationToken ct, bool all = false)
     {
-        List<Agent> agents = await Agents.DiscoverAsync(ct, all);
+        // Only games dvmp launched: never one the user started (see Agent.LaunchedByDvmp).
+        List<Agent> found = await Agents.DiscoverAsync(ct, all);
+        List<Agent> agents = found.Where(a => a.LaunchedByDvmp).ToList();
         JsonArray stopped = new();
         await Task.WhenAll(agents.Select(async agent =>
         {
@@ -345,7 +435,8 @@ internal static class Session
             }
             lock (stopped) stopped.Add(new JsonObject { ["pid"] = agent.Pid, ["role"] = agent.Role, ["session"] = agent.Session, ["killed"] = !exited });
         }));
-        return new JsonObject { ["stopped"] = stopped };
+        JsonArray left = new(found.Where(a => !a.LaunchedByDvmp).Select(a => (JsonNode)new JsonObject { ["pid"] = a.Pid, ["role"] = a.Role }).ToArray());
+        return new JsonObject { ["stopped"] = stopped, ["leftRunning"] = left, ["note"] = left.Count > 0 ? "games not launched by dvmp were left running" : null };
     }
 
     // ------------------------------------------------------------------ helpers
@@ -387,6 +478,8 @@ internal static class Session
         string launchId = $"{DateTime.Now:yyyyMMdd-HHmmss}-{(Sessions.IsDefault ? "default" : Sessions.Current)}-{role}";
         string log = Path.Combine(logs, launchId + ".log");
         PruneLogs(logs);
+        // A named session's games keep their saves, preferences and profile in its own folders.
+        string? userData = UserData.Prepare(role);
         string args = string.Join(" ",
             "-nonvr",
             "-screen-fullscreen 0",
@@ -396,6 +489,7 @@ internal static class Session
             $"-dvmp-role {role}",
             $"-dvmp-launch {launchId}",
             Sessions.IsDefault ? string.Empty : $"-dvmp-session {Sessions.Current}",
+            userData == null ? string.Empty : $"-dvmp-userdata \"{userData}\"",
             $"-dvmp-fps {o.FpsCap}",
             o.BackgroundFpsCap is int bgFps ? $"-dvmp-bg-fps {bgFps}" : string.Empty,
             role == "host" && o.Dedicated ? DedicatedArg : string.Empty,
@@ -485,6 +579,7 @@ internal static class Session
     private static bool IsVerified(Agent agent) => agent.Info.Args?.Contains("-mp-allow-unverified") != true;
 
     private const string DedicatedArg = "-mp-dedicated";
+
 
     private static bool WorldLoaded(Agent agent) => agent.Status?["worldLoaded"]?.GetValue<bool?>() == true;
 

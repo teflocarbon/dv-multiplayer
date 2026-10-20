@@ -1,0 +1,132 @@
+using System;
+using System.Collections;
+using System.Linq;
+using System.Threading.Tasks;
+using Dvmp.Agent;
+using Dvmp.Lib;
+using Multiplayer.Client.Items;
+using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using UnityEngine;
+
+namespace Dvmp.Scenarios
+{
+    /// <summary>
+    /// Lost and Found round trip: the client claims a personal item, drops it and walks away; the
+    /// host collects it into Lost and Found; the client retrieves it into their inventory. The
+    /// policy is tightened for the run (owner distance 50 m, grace 1 s) and restored afterwards.
+    /// While it is tightened, other personal items both players walk away from are collected too.
+    /// WHO=host: the host's own player does it instead, through its own Lost and Found requests,
+    /// which the server handles in-process (checked); needs a player host.
+    /// </summary>
+    [Scenario("lost-and-found", "A personal item left behind is collected into Lost and Found by the host and retrieved into its owner's inventory (WHO=host: the host's own, its requests handled in-process)")]
+    public sealed class LostAndFound : Scenario<LostAndFound.Options>
+    {
+        public sealed class Options
+        {
+            /// <summary>The item's prefab.</summary>
+            public string Prefab = "Mug";
+            /// <summary>Whose item it is: client or host.</summary>
+            public string Who = "client";
+        }
+
+        protected override async Task Run(Pair pair, Options o)
+        {
+            if (o.Who == "host" && pair.Dedicated) throw new HarnessException("WHO=host needs a player host: a dedicated host has no player to own the item");
+            Peer owner = o.Who == "host" ? pair.Host : pair.Client;
+            Policy old = await pair.Host.Run(() => InGame.SetPolicy(new Policy { Owner = 50, Nearby = 10, Grace = 1 }));
+            pair.Cleanup(() => pair.Host.Run(() => InGame.SetPolicy(old)));
+
+            ushort item = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, o.Who));
+            Report.Note($"a personal {o.Prefab} {item} at the {o.Who} (as a purchase makes one)");
+            await owner.Run(() => InGame.Claim(item), 60);
+            ItemRecord r = await pair.Host.Run(() => Items.Record(item));
+            int id = o.Who == "host" ? r.HostId : r.ClientId;
+            Require.Equal(id, r.Owner, $"the item's owner (the {o.Who}'s number)");
+
+            // Both players walk 300 m away (a dedicated host has no player to move).
+            await pair.Client.Run<Abs>(s => Walk.Away(s, 300, 0));
+            if (!pair.Dedicated) await pair.Host.Run<Abs>(s => Walk.Away(s, 300, 20));
+            r = await Until.Value(() => pair.Host.Run(() => Items.Record(item)), v => v.Lost, 30, "the host collects the item into Lost and Found");
+            Report.Note($"collected: placement {r.Placement}");
+
+            int slot = await owner.Run<int>(s => InGame.Retrieve(s, item), 60);
+            if (o.Who == "host")
+                Expect.Empty(await pair.Host.Run(() => ServerRequests.NotHandledLocally(new[] { "ServerboundLostItemsRequestPacket", "ServerboundLostItemRetrievePacket" })),
+                    "the host's Lost and Found requests that go over loopback");
+            await Task.Delay(2000);   // the retrieval's record settles on the host
+            r = await pair.Host.Run(() => Items.Record(item));
+            Report.Note($"retrieved into slot {slot}; host {r}");
+            Expect.That(!r.Lost, "no longer listed as lost on the host");
+            Expect.Equal("PlayerInventory", r.Placement, "host record placement");
+            Expect.Equal(id, r.PlacementPlayer, $"the player the host has it with (the {o.Who})");
+        }
+
+        public sealed class Policy
+        {
+            public float Owner, Nearby, Grace;
+        }
+
+        // ---- runs inside the games
+        public static class InGame
+        {
+            /// <summary>Host: sets the Lost and Found policy (owner distance, nearby-player
+            /// protection distance, grace seconds). Result: what it was.</summary>
+            [Step]
+            public static Policy SetPolicy(Policy p)
+            {
+                var s = Multiplayer.Multiplayer.Settings;
+                var old = new Policy { Owner = s.LostItemOwnerDistance, Nearby = s.LostItemNearbyPlayerProtectionDistance, Grace = s.LostItemCollectionGraceSeconds };
+                s.LostItemOwnerDistance = p.Owner;
+                s.LostItemNearbyPlayerProtectionDistance = p.Nearby;
+                s.LostItemCollectionGraceSeconds = p.Grace;
+                return old;
+            }
+
+            /// <summary>Picks the item up (making it this player's) and drops it at their feet.</summary>
+            [Step]
+            public static IEnumerator Claim(ushort id)
+            {
+                yield return Items.Arrive(id);
+                NetworkedItem.TryGet(id, out NetworkedItem item);
+                if (Hands.Held != null) yield return Hands.Drop();
+                yield return LocalPlayer.GoTo(item);
+                yield return Hands.Pickup(id);
+                for (int i = 0; i < 30; i++) yield return null;
+                yield return Hands.Drop();
+                for (int i = 0; i < 120; i++) yield return null;
+            }
+
+            /// <summary>Waits for the item in this player's Lost and Found list, retrieves it, and
+            /// checks it lands in the inventory. Result: its slot.</summary>
+            [Step]
+            public static IEnumerator Retrieve(Step<int> step, ushort id)
+            {
+                LostItemData entry = null;
+                float t0 = Time.realtimeSinceStartup;
+                while (entry == null && Time.realtimeSinceStartup - t0 < 30f)
+                {
+                    LocalSessionCalls.Call("RequestLostItems", 1u);
+                    for (int i = 0; i < 30; i++) yield return null;
+                    entry = LostAndFoundList.Items.FirstOrDefault(e => e.NetId == id);
+                }
+                if (entry == null) throw new Exception("item " + id + " never appeared in this player's Lost and Found list");
+                ClientboundLostItemRetrieveResultPacket result = null;
+                using (LocalSessionCalls.On<ClientboundLostItemRetrieveResultPacket>("LostItemRetrieveCompleted", p => { if (p.LostHandle == entry.Handle) result = p; }))
+                {
+                    ItemClient.Current.RequestLostItemRetrieval(77, entry.Handle, entry.NetId, entry.Revision);
+                    t0 = Time.realtimeSinceStartup;
+                    while (result == null && Time.realtimeSinceStartup - t0 < 15f) yield return null;
+                }
+                if (result == null) throw new Exception("no retrieval result");
+                if (!result.Accepted) throw new Exception("retrieval rejected: " + result.RejectionReason);
+                var inventory = DV.InventorySystem.Inventory.Instance;
+                NetworkedItem item = null;
+                yield return Wait.Until(() => NetworkedItem.TryGet(id, out item) && item != null && inventory.IndexOf(item.gameObject) >= 0, 15f, $"retrieved item {id} in the inventory");
+                step.Note($"listed {LostAndFoundList.Items.Count(e => e.NetId == id)} time(s) after retrieval");
+                step.Result = inventory.IndexOf(item.gameObject);
+            }
+        }
+    }
+}

@@ -1,25 +1,22 @@
-using DV.Scenarios.Common;
 using DV.Utils;
-using LiteNetLib;
-using MPAPI;
-using Multiplayer.Client.Api;
-using Multiplayer.Client.Session;
-using Multiplayer.Client.UI;
-using Multiplayer.Server.Api;
-using Multiplayer.Server.Dedicated;
-using Multiplayer.Server.Session;
-using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Utils;
 using System.Collections.Generic;
 using System.Collections;
-using System.Net;
 using System;
 using UnityEngine.SceneManagement;
 using UnityEngine;
 
 namespace Multiplayer.Shared.Session;
 
+/// <summary>
+///     The session as every role sees it: the tick clock, and what this game is in the session (the
+///     role queries). It names no role: the session root (<c>Multiplayer.MultiplayerSession</c>, in
+///     the mod) starts and stops the server and the client and attaches them here as their shared
+///     parts (<see cref="NetworkManager"/>, <see cref="ILocalServer"/>,
+///     <see cref="ILocalPlayerSession"/>). Role code reaches its own role as
+///     <c>NetworkServer.Instance</c> or <c>NetworkClient.Instance</c> (docs/design/code-layout.md).
+/// </summary>
 // https://revenantx.github.io/LiteNetLib/index.html
 public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 {
@@ -29,102 +26,121 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     // that passed (up to this many) to keep tick time in step with real time.
     private const int MAX_TICKS_PER_STEP = TICK_RATE * 2;
 
-    public LobbyServerData serverData;
-    public bool IsPublicGame { get; set; } = false;
-    public bool IsSinglePlayer { get; set; } = true;
-
-
-    public NetworkServer Server { get; private set; }
-    public NetworkClient Client { get; private set; }
-
     public uint Tick { get; internal set; }
     public Action<uint> OnTick;
 
-    public bool IsServerRunning => Server?.IsRunning ?? false;
-    public bool IsClientRunning => Client?.IsRunning ?? false;
+    // The roles running in this game, attached by the session root.
+    private NetworkManager server;
+    private NetworkManager client;
 
-    public bool IsProcessingPacket => Client?.IsProcessingPacket ?? false;
+    public bool IsServerRunning => server?.IsRunning ?? false;
+
+    /// <summary>
+    ///     A <c>NetworkClient</c> runs here: this game plays on another game's server (a host has no
+    ///     client of its own). Not "multiplayer is on" (<see cref="IsSessionRunning"/>) nor
+    ///     "someone plays here" (<see cref="NetworkRole.HasLocalPlayer"/>, <see cref="LocalSession"/>).
+    /// </summary>
+    public bool IsClientRunning => client?.IsRunning ?? false;
+
+    /// <summary>Multiplayer is on in this game: it runs a server, a client, or both.</summary>
+    public bool IsSessionRunning => IsServerRunning || IsClientRunning;
+
+    /// <summary>
+    ///     The other players' avatars in this game's world; null when no session runs. A dedicated
+    ///     host has them too. Attached by the session root.
+    /// </summary>
+    public PlayerAvatars Avatars { get; private set; }
+
+    /// <summary>
+    ///     True while this game applies another player's change: the client handling a received
+    ///     packet, or the server applying a change to its own world
+    ///     (<see cref="ILocalServer.IsApplyingRemoteChange"/>). Code that would send that change on must not.
+    /// </summary>
+    public bool IsProcessingPacket => (client?.IsProcessingPacket ?? (LocalSession as IPolledSession)?.IsProcessingPacket ?? false) || (LocalServer?.IsApplyingRemoteChange ?? false);
+
+    /// <summary>The server as the host's own player reaches it, in-process; null when this game isn't the server.</summary>
+    public ILocalServer LocalServer { get; private set; }
+
+    /// <summary>
+    ///     The player at this keyboard (id, name, ping, the other players' avatars, chat); null when
+    ///     nobody plays here (a dedicated host). A remote client's <c>NetworkClient</c>, or a host's
+    ///     in-process session: code that runs for the host's player too reads this, never <c>NetworkClient</c>.
+    /// </summary>
+    public ILocalPlayerSession LocalSession { get; private set; }
 
     public bool IsReturningToMenu { get; private set; } = false;
 
-    private PlayerListGUI playerList;
-    private NetworkStatsGui Stats;
-    private readonly ExecutionTimer tickWatchdog = new(0.25f);
-
     /// <summary>
-    ///     Whether the provided ITransportPeer is the host.
-    ///     Note that this does NOT check authority, and should only be used for client-only logic.
-    /// </summary>
-    public bool IsHost(ServerPlayer player)
-    {
-        return Server?.IsRunning == true && Client?.IsRunning == true && Client.PlayerId == player.PlayerId;
-    }
-
-    /// <summary>
-    ///     Whether the caller is the host.
-    ///     Note that this does NOT check authority, and should only be used for client-only logic.
+    ///     Whether this game runs the server: a player host, a dedicated host or single player. A host
+    ///     runs no client of its own, so while a session runs this is also "not a remote client".
+    ///     New code says which it means: <see cref="NetworkRole.IsServer"/> or
+    ///     <see cref="NetworkRole.IsRemoteClient"/>. Whether a <c>ServerPlayer</c> is the host's is
+    ///     the server's extension <c>IsHost(player)</c> (Server/Session/NetworkLifecycleServerExtensions).
     /// </summary>
     public bool IsHost()
     {
-        return Server?.IsRunning == true;
+        return IsServerRunning;
     }
 
     /// <summary>
-    ///     Whether this game is a dedicated host (<see cref="DedicatedHost"/>): hosting with nobody
-    ///     playing it, so the local player is a parked body and the host's own client is a service
-    ///     identity, not a player.
+    ///     Whether this game was started as a dedicated host (<c>-mp-dedicated</c>), set by the
+    ///     session root from <c>DedicatedHost.Requested</c> before anything starts.
     /// </summary>
-    public bool IsDedicatedHost => DedicatedHost.Requested && IsServerRunning;
+    public static bool DedicatedHostRequested { get; internal set; }
+
+    /// <summary>
+    ///     Whether this game is a dedicated host (<c>DedicatedHost</c>): hosting with nobody
+    ///     playing it: the local player is a parked body, and the server has no player of its own.
+    /// </summary>
+    public bool IsDedicatedHost => DedicatedHostRequested && IsServerRunning;
 
     /// <summary>
     ///     Whether the host's own player is the only player, so vanilla code that acts on the local
     ///     player is right. Never on a dedicated host, whose local player is a parked body.
     /// </summary>
-    public bool IsHostPlayingAlone => IsServerRunning && !IsDedicatedHost && Server.PlayerCount == 1;
+    public bool IsHostPlayingAlone => IsServerRunning && !IsDedicatedHost && LocalServer.PlayerCount == 1;
 
     private readonly Queue<Action> mainMenuLoadedQueue = new();
+    private readonly ExecutionTimer tickWatchdog = new(0.25f);
 
     protected override void Awake()
     {
         base.Awake();
-        playerList = gameObject.AddComponent<PlayerListGUI>();
-        Stats = gameObject.AddComponent<NetworkStatsGui>();
-        //RegisterPackets();
-        WorldStreamingInit.LoadingFinished += () => { playerList.RegisterListeners(); };
-        Settings.OnSettingsUpdated += OnSettingsUpdated;
         SceneSwitcher.SceneRequested += OnSceneSwitchRequested;
         SceneManager.sceneLoaded += (scene, _) =>
         {
-            if (scene.buildIndex != (int)DVScenes.MainMenu)
-                return;
-
-            playerList.UnRegisterListeners();
-            TriggerMainMenuEventLater();
-            DedicatedHost.OnMainMenu();
+            if (scene.buildIndex == (int)DVScenes.MainMenu)
+                TriggerMainMenuEventLater();
         };
-        if (DedicatedHost.Requested)
-        {
-            gameObject.AddComponent<DedicatedHostMode>();
-            // The mod can load after the menu scene already has.
-            if (SceneManager.GetActiveScene().buildIndex == (int)DVScenes.MainMenu)
-                DedicatedHost.OnMainMenu();
-        }
         StartCoroutine(PollEvents());
+    }
+
+    /// <summary>The session root attaches the server it started (null when it stops it).</summary>
+    internal void AttachServer(NetworkManager manager, ILocalServer local)
+    {
+        server = manager;
+        LocalServer = local;
+    }
+
+    /// <summary>The session root attaches the avatar registry when a session starts (null when it ends).</summary>
+    internal void AttachAvatars(PlayerAvatars avatars)
+    {
+        Avatars = avatars;
+    }
+
+    /// <summary>
+    ///     The session root attaches the client it started, or a host's local player session with no
+    ///     manager (an <see cref="IPolledSession"/>, polled here); nulls when it stops it.
+    /// </summary>
+    internal void AttachClient(NetworkManager manager, ILocalPlayerSession session)
+    {
+        client = manager;
+        LocalSession = session;
     }
 
     private void OnSceneSwitchRequested(DVScenes scene)
     {
         IsReturningToMenu = scene == DVScenes.MainMenu;
-    }
-
-    private void OnSettingsUpdated(Settings settings)
-    {
-        if (!IsClientRunning && !IsServerRunning)
-            return;
-        if (settings.ShowStats)
-            Stats.Show(Client.Statistics, Server?.Statistics);
-        else
-            Stats.Hide();
     }
 
     public void TriggerMainMenuEventLater()
@@ -142,65 +158,6 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     public void QueueMainMenuEvent(Action action)
     {
         mainMenuLoadedQueue.Enqueue(action);
-    }
-
-    public bool StartServer(IDifficulty difficulty)
-    {
-        int port = Multiplayer.Settings.Port;
-
-        if (Server != null)
-            throw new InvalidOperationException("NetworkManager already exists!");
-
-        // A dedicated host is never a single-player game, however hosting was started.
-        if (DedicatedHost.Requested)
-            IsSinglePlayer = false;
-
-        if (!IsSinglePlayer)
-        {
-            if (serverData != null)
-            {
-                port = serverData.port;
-            }
-        }
-
-        Multiplayer.Log($"Starting server on port {port}");
-        NetworkServer server = new(difficulty, Multiplayer.Settings, IsSinglePlayer, serverData);
-
-        if (!server.Start(port))
-            return false;
-
-        Server = server;
-        DebugRuntime.SetRole("host", Multiplayer.Settings.GetUserName());
-
-        // Register server API
-        var serverAPI = new ServerAPIProvider(server);
-        MultiplayerAPI.RegisterServer(serverAPI);
-
-        StartClient(IPAddress.Loopback.ToString(), port, Multiplayer.Settings.Password, IsSinglePlayer, null);
-
-        //reset for next game
-        IsSinglePlayer = true;
-        serverData = null;
-
-        return true;
-    }
-
-    public void StartClient(string address, int port, string password, bool isSinglePlayer, Action<DisconnectReason, string> onDisconnect)
-    {
-        if (Client != null)
-            throw new InvalidOperationException("NetworkManager already exists!");
-        NetworkClient client = new(Multiplayer.Settings, isSinglePlayer);
-        client.Start(address, port, password, isSinglePlayer, onDisconnect);
-
-        Client = client;
-        if (Server == null)
-            DebugRuntime.SetRole("client", client.Username);
-
-        // Register client API
-        var clientAPI = new ClientAPIProvider(client);
-        MultiplayerAPI.RegisterClient(clientAPI);
-
-        OnSettingsUpdated(Multiplayer.Settings); // Show stats if enabled
     }
 
     private IEnumerator PollEvents()
@@ -254,14 +211,33 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
                 tickWatchdog.Stop(time => Multiplayer.LogWarning($"OnTick took {time} ms!"));
             }
 
-            if (Client != null)
-                TickManager(Client);
+            if (client != null)
+                TickManager(client);
+            else if (LocalSession is IPolledSession polled)
+                TickLocalSession(polled);
 
-            if (Server != null)
-                TickManager(Server);
+            if (server != null)
+                TickManager(server);
 
             float remainingTime = nextTickAt - Time.realtimeSinceStartup;
             yield return remainingTime < 0.001f ? null : new WaitForSecondsRealtime(remainingTime);
+        }
+    }
+
+    private void TickLocalSession(IPolledSession session)
+    {
+        tickWatchdog.Start();
+        try
+        {
+            session.PollEvents();
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogError($"Exception while polling the local player session: {e}");
+        }
+        finally
+        {
+            tickWatchdog.Stop(time => Multiplayer.LogWarning($"Local player session poll took {time} ms!"));
         }
     }
 
@@ -285,38 +261,4 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
             tickWatchdog.Stop(time => manager.LogWarning($"PollEvents took {time} ms!"));
         }
     }
-
-    public void Stop()
-    {
-        Stats?.Hide();
-
-        if (Server != null)
-        {
-            Server?.Stop();
-            MultiplayerAPI.ClearServer();
-            Server = null;
-        }
-
-        if (Client != null)
-        {
-            Client?.Stop();
-            MultiplayerAPI.ClearClient();
-            Client = null;
-        }
-    }
-
-    protected void OnApplicationQuit()
-    {
-        Stop();
-    }
-
-    public static void CreateLifecycle()
-    {
-        if (FindObjectOfType<NetworkLifecycle>() != null)
-            throw new InvalidOperationException($"{nameof(NetworkLifecycle)} already exists!");
-        GameObject gameObject = new($"[{nameof(NetworkLifecycle)}]");
-        gameObject.AddComponent<NetworkLifecycle>();
-        DontDestroyOnLoad(gameObject);
-    }
-
 }

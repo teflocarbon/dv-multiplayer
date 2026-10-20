@@ -10,7 +10,6 @@ using DV.JObjectExtstensions;
 using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items;
-using Multiplayer.Client.Items;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -48,7 +47,6 @@ public static class NetworkedColdContainerManager
 
     public static void Clear()
     {
-        ColdContainerUiIntegration.Reset();
         compatibility.Clear();
         graph = new ColdContainerGraph(compatibility: compatibility);
         shellByNetId.Clear();
@@ -221,13 +219,13 @@ public static class NetworkedColdContainerManager
             // Publish it immediately on the reliable ordered channel before the Unity object
             // is torn down; waiting for the next item-manager tick can lose the Destroy after
             // the representation and its interest membership have already been removed.
-            foreach (ServerPlayer player in NetworkLifecycle.Instance.Server.ServerPlayers)
+            foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
             {
                 player.NearbyItems.Remove(item);
                 player.KnownItems.Remove(item);
                 player.AcknowledgedWorldItems.Remove(item.NetId);
             }
-            NetworkLifecycle.Instance.Server.SendItemUpdatePacket(destroy);
+            NetworkServer.Instance.SendItemUpdatePacket(destroy);
             item.Item.ForceEndInteraction();
             InventoryIntegration.RevokeMembership(item.gameObject, item.NetId);
             InventoryIntegration.PurgeContainerMembership(item.gameObject);
@@ -373,7 +371,7 @@ public static class NetworkedColdContainerManager
             // The item was indexed by its spawn position when it woke, before it had a record;
             // re-index it as held. Left in that cell, it was never sent to the holder again
             // (after a rejoin, the withdrawn item was missing from their inventory).
-            NetworkedItemManager.Instance?.RegisterHostWorldItem(item);
+            ServerItemManager.Instance?.RegisterHostWorldItem(item);
             if (actor.PlayerId == InventoryIntegration.LocalPlayerId &&
                 !InventoryIntegration.ContainsActive(instance))
                 throw new InvalidOperationException("withdraw-local-inventory-projection-failed");
@@ -405,16 +403,16 @@ public static class NetworkedColdContainerManager
     private static void PublishMaterializedItem(ItemUpdateData snapshot, NetworkedItem item)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle?.Server == null || snapshot == null || item == null)
+        if (NetworkServer.Instance == null || snapshot == null || item == null)
             return;
         snapshot.UpdateType = ItemUpdateData.ItemUpdateType.Create;
         snapshot.PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name;
-        foreach (ServerPlayer recipient in lifecycle.Server.ServerPlayers)
+        foreach (ServerPlayer recipient in NetworkServer.Instance.ServerPlayers)
         {
-            if (recipient.Peer == lifecycle.Server.SelfPeer ||
+            if (recipient.Peer == NetworkServer.Instance.SelfPeer ||
                 recipient.LoadingState < PlayerLoadingState.ReadyForItems)
                 continue;
-            lifecycle.Server.SendItemsBulkUpdatePacket(new List<ItemUpdateData> { snapshot },
+            NetworkServer.Instance.SendItemsBulkUpdatePacket(new List<ItemUpdateData> { snapshot },
                 recipient);
             recipient.KnownItems[item] = lifecycle.Tick;
         }
@@ -529,14 +527,14 @@ public static class NetworkedColdContainerManager
         authority.PersistentOwnerPlayerId == actor.PlayerId;
 
     private static string ResolveOwnerIdentity(byte playerId) =>
-        playerId != 0 && NetworkLifecycle.Instance.Server.TryGetServerPlayer(playerId,
+        playerId != 0 && NetworkServer.Instance.TryGetServerPlayer(playerId,
             out ServerPlayer player) ? player.Guid.ToString("D") : null;
 
     private static byte ResolvePlayerId(string identity)
     {
-        if (!Guid.TryParse(identity, out Guid guid) || NetworkLifecycle.Instance?.Server == null)
+        if (!Guid.TryParse(identity, out Guid guid) || NetworkServer.Instance == null)
             return 0;
-        ServerPlayer player = NetworkLifecycle.Instance.Server.ServerPlayers
+        ServerPlayer player = NetworkServer.Instance.ServerPlayers
             .FirstOrDefault(candidate => candidate != null && candidate.Guid == guid);
         return player?.PlayerId ?? 0;
     }

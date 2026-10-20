@@ -158,6 +158,10 @@ internal sealed class AgentServer
                 return null;
             }
             if (request.Path == "/v1/quit") throw new HttpError(403, "quit is not available remotely");
+            // Scenario assemblies aren't audited like probes (source and hash per request), and
+            // scenarios never target a remote game.
+            if (request.Path is "/v1/load" or "/v1/invoke" or "/v1/cancel")
+                throw new HttpError(403, "scenarios are not available remotely");
             return RemoteAccess.CheckSession(request.Header("x-dvmp-pairing"), presented, peer);
         }
 

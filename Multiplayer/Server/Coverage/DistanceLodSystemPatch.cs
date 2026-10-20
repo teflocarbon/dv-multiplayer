@@ -53,9 +53,9 @@ public static class DistanceLodSystemPatch
         // NativeList is a handle: adding through this copy adds to the system's own list.
         NativeList<float3> positions = system.referenceWorldPositions;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle != null && lifecycle.IsHost() && !lifecycle.Server.IsSinglePlayer)
+        if (lifecycle != null && lifecycle.IsHost() && !NetworkServer.Instance.IsSinglePlayer)
         {
-            foreach (ServerPlayer player in lifecycle.Server.GameplayPlayers)
+            foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
                 if (player.TrackingData.Position.HasValue)
                     positions.Add(player.WorldPosition);
         }

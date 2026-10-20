@@ -107,11 +107,30 @@ public sealed class ControlPortWritersTests
     }
 
     [Test]
-    public void Unleased_NotWhenBlockedOutOfReachOrNeverHeardFromTheHost()
+    public void Unleased_NotWhenNeverHeardFromTheHost()
+    {
+        Assert.That(DE6().Unleased("throttle.EXT_IN", false, true, 1f, null, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.No));
+    }
+
+    [Test]
+    public void Unleased_PutsBackAChangeTheSenderCantMake()
+    {
+        // #159: a client left behind by its rolling loco set its valves; dropping the change left
+        // them open on that game only, for good.
+        ControlPortWriters<string> ports = DE6();
+        Assert.That(ports.Unleased("throttle.EXT_IN", false, false, 1f, 0f, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.PutBack));
+        Assert.That(ports.Unleased("throttle.EXT_IN", true, true, 1f, 0f, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.PutBack));
+        // Even while the host's value settles: it's the value the control is heading for.
+        Assert.That(ports.Unleased("throttle.EXT_IN", false, false, 1f, 0f, 0.5f, Tolerance, Settle), Is.EqualTo(UnleasedChange.PutBack));
+    }
+
+    [Test]
+    public void Unleased_NothingToPutBackWhenItMatchesTheHost()
     {
         ControlPortWriters<string> ports = DE6();
-        Assert.That(ports.Unleased("throttle.EXT_IN", true, true, 1f, 0f, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.No));
-        Assert.That(ports.Unleased("throttle.EXT_IN", false, false, 1f, 0f, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.No));
-        Assert.That(ports.Unleased("throttle.EXT_IN", false, true, 1f, null, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.No));
+        Assert.That(ports.Unleased("throttle.EXT_IN", false, false, 0.51f, 0.5f, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.No));
+        Assert.That(ports.Unleased("throttle.EXT_IN", true, true, 0.5f, 0.5f, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.No));
+        // Not a control players drive: never sent, never put back.
+        Assert.That(ports.Unleased("horn.HORN", false, false, 1f, 0f, 10f, Tolerance, Settle), Is.EqualTo(UnleasedChange.No));
     }
 }

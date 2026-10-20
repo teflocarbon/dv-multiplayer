@@ -15,6 +15,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Core.Containers;
 using Multiplayer.Debugging.Protocol;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Items;
 
@@ -112,7 +113,7 @@ internal static class ColdContainerUiIntegration
 
     public static void Open(AItemContainer container)
     {
-        if (container == null || NetworkLifecycle.Instance?.Client == null ||
+        if (container == null || ItemClient.Current == null ||
             !NetworkedItem.TryGetNetworkedItem(container.GetComponent<ItemBase>(), out NetworkedItem shell) ||
             shell.NetId == 0)
             return;
@@ -124,16 +125,16 @@ internal static class ColdContainerUiIntegration
         global::Multiplayer.Multiplayer.Log($"[Cold Container] Browse requested: " +
             $"request={pendingRequestId}, shellNetId={requestedShellNetId}, " +
             $"containerId={container.ContainerId}");
-        NetworkLifecycle.Instance.Client.RequestContainerView(pendingRequestId,
+        ItemClient.Current.RequestContainerView(pendingRequestId,
             requestedShellNetId);
     }
 
     public static void OpenChild(uint containerHandle)
     {
-        if (containerHandle == 0 || NetworkLifecycle.Instance?.Client == null) return;
+        if (containerHandle == 0 || ItemClient.Current == null) return;
         EnsureInitialized();
         pendingRequestId = ++requestId;
-        NetworkLifecycle.Instance.Client.RequestContainerView(pendingRequestId, 0,
+        ItemClient.Current.RequestContainerView(pendingRequestId, 0,
             containerHandle);
     }
 
@@ -189,7 +190,7 @@ internal static class ColdContainerUiIntegration
             ["sourceSlot"] = packet.SourceSlot,
             ["destinationSlot"] = packet.DestinationSlot
         });
-        NetworkLifecycle.Instance.Client.RequestContainerMutation(packet);
+        ItemClient.Current.RequestContainerMutation(packet);
         return true;
     }
 
@@ -228,7 +229,7 @@ internal static class ColdContainerUiIntegration
             ["sourceSlot"] = packet.SourceSlot,
             ["destinationSlot"] = packet.DestinationSlot
         });
-        NetworkLifecycle.Instance.Client.RequestContainerMutation(packet);
+        ItemClient.Current.RequestContainerMutation(packet);
         return true;
     }
 
@@ -246,7 +247,7 @@ internal static class ColdContainerUiIntegration
         packet.ExpectedDestinationRevision = ActiveRevision;
         packet.SourceSlot = from;
         packet.DestinationSlot = to;
-        NetworkLifecycle.Instance.Client.RequestContainerMutation(packet);
+        ItemClient.Current.RequestContainerMutation(packet);
         return true;
     }
 
@@ -263,10 +264,11 @@ internal static class ColdContainerUiIntegration
 
     private static void EnsureInitialized()
     {
-        if (initialized || NetworkLifecycle.Instance?.Client == null) return;
+        if (initialized || ItemClient.Current == null) return;
         initialized = true;
-        NetworkLifecycle.Instance.Client.ContainerViewReceived += OnView;
-        NetworkLifecycle.Instance.Client.ContainerMutationCompleted += OnMutation;
+        NetworkedItemManager.Cleared += Reset;
+        ItemClient.Current.ContainerViewReceived += OnView;
+        ItemClient.Current.ContainerMutationCompleted += OnMutation;
     }
 
     private static void OnMutation(ClientboundContainerMutationResultPacket result)
@@ -294,7 +296,7 @@ internal static class ColdContainerUiIntegration
             }, result.Accepted ? DebugSeverity.Info : DebugSeverity.Warning);
         if (activeShellNetId == 0) return;
         pendingRequestId = ++requestId;
-        NetworkLifecycle.Instance.Client.RequestContainerView(pendingRequestId, 0,
+        ItemClient.Current.RequestContainerView(pendingRequestId, 0,
             ActiveHandle);
     }
 
@@ -377,12 +379,13 @@ internal static class ColdContainerUiIntegration
         proxies.Clear();
     }
 
-    public static void Reset()
+    private static void Reset()
     {
-        if (initialized && NetworkLifecycle.Instance?.Client != null)
+        NetworkedItemManager.Cleared -= Reset;
+        if (initialized && ItemClient.Current != null)
         {
-            NetworkLifecycle.Instance.Client.ContainerViewReceived -= OnView;
-            NetworkLifecycle.Instance.Client.ContainerMutationCompleted -= OnMutation;
+            ItemClient.Current.ContainerViewReceived -= OnView;
+            ItemClient.Current.ContainerMutationCompleted -= OnMutation;
         }
         initialized = false;
         activeView = null;
@@ -403,8 +406,7 @@ internal static class ColdContainerUiIntegration
     {
         Guid operation = operationId?.Length == 16 ? new Guid(operationId) : Guid.Empty;
         DebugRuntime.Publish("inventory", eventName,
-            NetworkLifecycle.Instance?.IsHost() == true ? DebugRuntimeSide.Server :
-                DebugRuntimeSide.Client, severity, "ContainerOperation",
+            NetworkRole.DebugSide, severity, "ContainerOperation",
             operation == Guid.Empty ? string.Empty : operation.ToString("D"),
             correlationId: operation == Guid.Empty ? string.Empty : operation.ToString("D"),
             data: data);

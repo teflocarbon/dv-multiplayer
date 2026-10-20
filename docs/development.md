@@ -107,7 +107,7 @@ involved (see the notes in [DevTools/README.md](../DevTools/README.md)). The sce
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every pull request and every push to `beta`:
+`.github/workflows/ci.yml` runs on every pull request and every push to `beta` and to `split/client-server` (the integration branch for the client/server split, see [design/code-layout.md](design/code-layout.md)):
 
 - **Core tests** (Linux): `Multiplayer.Core.Tests`. Core doesn't reference the game, so this runs
   anywhere, including on pull requests from forks.

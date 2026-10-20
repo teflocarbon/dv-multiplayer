@@ -36,7 +36,7 @@
     - the session ends on disconnect, and a reconnect replaces the old one.
   - A refused login gets `dr/auth_failed`.
   - `Settings.Admins` (SteamID64s, or GUIDs) replaces `AdminGuids`, and the dedicated host's owner
-    is `PlayerIdentity.Owner`.
+    is `CareerOwner.Id`.
   - dvmp starts every host with `-mp-allow-unverified`, so the gate doesn't exercise verified
     logins.
 
@@ -61,10 +61,10 @@
     records, unrestored Lost and Found entries and cold containers (`OwnedItemsSummary`, two new
     fields in `ClientboundSaveGameDataPacket`).
   - The client counts them as present when DV's starting-item and licence safeguards check what's
-    missing (`StartingItemsControllerPatch`, a postfix on `CombineAndResolveIllegalDuplicates`,
+    missing (`StartingItemsClientPatch`, a postfix on `CombineAndResolveIllegalDuplicates`,
     whose result only those safeguards use).
-  - A player host does the same from its own save. A dedicated host skips both safeguards, so its
-    parked body stays empty.
+  - A player host does the same from its own save (`StartingItemsServerPatch`). A dedicated host
+    skips both safeguards, so its parked body stays empty.
   - `rejoin`, `rejoin-crash` and `inventory-persist` passed. After a restart, the client's inventory
     held each item once.
   - This is narrower than "the server gives starting items": a genuinely missing item is still made
@@ -83,7 +83,11 @@
   - **Conversion:** a save without the marker `Multiplayer.PlayerStateFormat = 2` has its
     `Player_position`, rotation and `Storage_Inventory` turned into `Players.<owner>` and item
     records owned by the owner's player ID. The owner is the Steam account the game runs under, or
-    `-mp-owner` (`PlayerIdentity.Owner`). Then the marker is set.
+    `-mp-owner` (`CareerOwner.Id`). Then the marker is set. Converting the same save twice
+    changes nothing the second time (an inventory item without a persistent ID gets one derived
+    from the owner, its place in the inventory and its prefab, not a random one), and so does
+    re-keying: `SaveFormatConversionTests` (`Multiplayer.Protocol.Tests`) checks both lose and
+    duplicate nothing. This is the JSON only; `career-convert` in a real game is still to do.
   - **Each load:**
     - a player host's own state saved under the install's GUID moves to its Steam ID, once
       (`InstallGuidRekey.RekeySave`); other players' moves at their login;
@@ -173,9 +177,8 @@ transport already uses.
 - **The host's own player:** no ticket. It's the loopback client in the same process, so the
   server trusts it, as it trusts `IsHost(player)` today. Its ID comes from the Steam account the
   game runs under.
-- **The service identity:** a dedicated host's own client stays a reserved non-Steam ID
-  (`Settings.ServiceGuid`), never a SteamID. A dedicated host and its owner's client on the same PC
-  share a Steam account, so the service identity must not be derived from it.
+- **No service identity** (since host-local-session stage 3): a dedicated host has no player of its
+  own, so its owner's client on the same PC, sharing its Steam account, is the only player with it.
 - **The owner:** on a dedicated host, the owner is the Steam account running the server. That's
   verified, which a guessable GUID isn't. It decides who the one-time conversion gives the old host
   player's state to, and who is an admin without being listed. `-mp-owner <SteamID64>` overrides it

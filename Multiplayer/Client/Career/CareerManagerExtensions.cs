@@ -1,5 +1,6 @@
 using DV.ServicePenalty.UI;
-using Multiplayer.Server.Items;
+using Multiplayer.Client.Items;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Session;
@@ -8,6 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Career;
 
@@ -209,20 +211,20 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     public override void Activate(IDisplayScreen previousScreen)
     {
         Previous = previousScreen;
-        NetworkedLostAndFoundManager.ClientListChanged += OnListChanged;
-        if (NetworkLifecycle.Instance.Client != null)
-            NetworkLifecycle.Instance.Client.LostItemRetrieveCompleted += OnRetrieveCompleted;
+        LostAndFoundList.Changed += OnListChanged;
+        if (ItemClient.Current != null)
+            ItemClient.Current.LostItemRetrieveCompleted += OnRetrieveCompleted;
         loading = true;
         message = "LOADING...";
-        NetworkLifecycle.Instance.Client?.RequestLostItems(++requestId);
+        ItemClient.Current?.RequestLostItems(++requestId);
         RefreshFromModel();
     }
 
     public override void Disable()
     {
-        NetworkedLostAndFoundManager.ClientListChanged -= OnListChanged;
-        if (NetworkLifecycle.Instance?.Client != null)
-            NetworkLifecycle.Instance.Client.LostItemRetrieveCompleted -= OnRetrieveCompleted;
+        LostAndFoundList.Changed -= OnListChanged;
+        if (ItemClient.Current != null)
+            ItemClient.Current.LostItemRetrieveCompleted -= OnRetrieveCompleted;
         Clear();
     }
 
@@ -241,7 +243,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
             LostItemData item = items[Selected];
             pending = true;
             message = "RETRIEVING...";
-            NetworkLifecycle.Instance.Client?.RequestLostItemRetrieval(++requestId,
+            ItemClient.Current?.RequestLostItemRetrieval(++requestId,
                 item.Handle, item.NetId, item.Revision);
         }
         else if (input == InputAction.PrintInfo)
@@ -276,7 +278,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     {
         uint selectedHandle = items.Count > 0 && Selected < items.Count ? items[Selected].Handle : 0;
         items.Clear();
-        items.AddRange(NetworkedLostAndFoundManager.ClientItems.OrderBy(item => item.LostUtcTicks));
+        items.AddRange(LostAndFoundList.Items.OrderBy(item => item.LostUtcTicks));
         int preserved = selectedHandle == 0 ? -1 : items.FindIndex(item => item.Handle == selectedHandle);
         Selected = preserved >= 0 ? preserved : Mathf.Clamp(Selected, 0, Math.Max(0, items.Count - 1));
         EnsureVisible();

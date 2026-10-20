@@ -3,7 +3,7 @@ using DV.JObjectExtstensions;
 using DV.LocoRestoration;
 using DV.Simulation.Brake;
 using DV.ThingTypes;
-using Multiplayer.Shared.Compatibility;
+using Multiplayer.Client.Compatibility;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Data.Train;
 using Multiplayer.Shared.Session;
@@ -15,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -76,7 +77,7 @@ public static class NetworkedCarSpawner
 
             // Update speed queue data
             for (int i = 0; i < cars.Length; i++)
-                cars[i].Client_trainSpeedQueue.ReceiveSnapshot(parts[i].Speed, NetworkLifecycle.Instance.Tick);
+                cars[i].Client()?.trainSpeedQueue?.ReceiveSnapshot(parts[i].Speed, NetworkLifecycle.Instance.Tick);
 
             return true;
         }
@@ -206,7 +207,7 @@ public static class NetworkedCarSpawner
             HandleCoupling(parts[index].FrontCoupling, cars[index].TrainCar.frontCoupler);
             HandleCoupling(parts[index].RearCoupling, cars[index].TrainCar.rearCoupler);
             SetBrakeParams(parts[index].BrakeData, cars[index].TrainCar);
-            cars[index].Client_ResetRelocationBaseline(parts[index].Speed, hostTick);
+            cars[index].Client()?.ResetRelocationBaseline(parts[index].Speed, hostTick);
             cars[index].TrainCar.interior?.GetComponent<TrainCarInteriorPhysics>()?.SyncPosition();
         }
         Physics.SyncTransforms();
@@ -229,19 +230,19 @@ public static class NetworkedCarSpawner
     {
         if (!NetworkedRailTrack.TryGet(spawnPart.Bogie1.TrackNetId, out NetworkedRailTrack bogie1Track) && spawnPart.Bogie1.TrackNetId != 0)
         {
-            NetworkLifecycle.Instance.Client.LogDebug(() => $"Tried spawning car but couldn't find track with index {spawnPart.Bogie1.TrackNetId}");
+            NetworkClient.Instance.LogDebug(() => $"Tried spawning car but couldn't find track with index {spawnPart.Bogie1.TrackNetId}");
             return null;
         }
 
         if (!NetworkedRailTrack.TryGet(spawnPart.Bogie2.TrackNetId, out NetworkedRailTrack bogie2Track) && spawnPart.Bogie2.TrackNetId != 0)
         {
-            NetworkLifecycle.Instance.Client.LogDebug(() => $"Tried spawning car but couldn't find track with index {spawnPart.Bogie2.TrackNetId}");
+            NetworkClient.Instance.LogDebug(() => $"Tried spawning car but couldn't find track with index {spawnPart.Bogie2.TrackNetId}");
             return null;
         }
 
         if (!TrainComponentLookup.Instance.LiveryFromId(spawnPart.LiveryId, out TrainCarLivery livery))
         {
-            NetworkLifecycle.Instance.Client.LogDebug(() => $"Tried spawning car but couldn't find TrainCarLivery with ID {spawnPart.LiveryId}");
+            NetworkClient.Instance.LogDebug(() => $"Tried spawning car but couldn't find TrainCarLivery with ID {spawnPart.LiveryId}");
             return null;
         }
 

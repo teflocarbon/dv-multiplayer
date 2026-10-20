@@ -42,6 +42,9 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         return false;
     }
 
+    public static IEnumerable<KeyValuePair<ushort, string>> NetIdTable =>
+        Registered.Select(entry => new KeyValuePair<ushort, string>(entry.Key, entry.Value.name));
+
     #endregion
 
     protected override bool IsIdServerAuthoritative => false;
@@ -56,14 +59,13 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         Junction.Switched += Junction_Switched;
         junctionToNetworkedJunction[Junction] = this;
 
-        if (NetworkLifecycle.Instance?.Server?.IsRunning ?? false)
-            initialised = NetworkLifecycle.Instance.IsHost();
+        initialised = NetworkRole.IsServer;
     }
 
     protected void Start()
     {
         if (!initialised)
-            initialised = NetworkLifecycle.Instance.IsHost();
+            initialised = NetworkRole.IsServer;
     }
 
     protected override void OnDestroy()
@@ -81,7 +83,12 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         if (NetworkLifecycle.Instance.IsProcessingPacket || !initialised)
             return;
 
-        NetworkLifecycle.Instance.Client.SendJunctionSwitched(NetId, (byte)branch, switchMode);
+        // The server's world: tell everyone, whoever or whatever threw it (on a dedicated host, nobody
+        // plays here to ask). A client's: ask the server.
+        if (WorldServer.Current is { } server)
+            server.BroadcastJunctionSwitched(NetId, (byte)branch, switchMode);
+        else
+            WorldClient.Current?.SendJunctionSwitched(NetId, (byte)branch, switchMode);
     }
 
     public void Switch(byte mode, byte selectedBranch, bool initialising = false)

@@ -3,6 +3,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Session;
 using System;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Jobs;
 
@@ -27,7 +28,9 @@ public static class TaskPatch
             return;
         }
 
-        networkedTask.SetState(newState);
+        if (networkedTask.RecordState(newState))
+            NetworkServer.Instance.SendTaskUpdate(networkedTask.NetId, newState,
+                __instance.taskStartTime, __instance.taskFinishTime);
     }
 
     [HarmonyPatch(nameof(Task.SetJobBelonging))]

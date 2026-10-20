@@ -1,6 +1,5 @@
 using DV.Logic.Job;
 using HarmonyLib;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Items;
 
 
@@ -29,10 +28,7 @@ public static class JobBooklet_Patch
     [HarmonyPrefix]
     private static void DestroyJobBooklet(JobBooklet __instance)
     {
-        if (__instance == null)
-            return;
-        ItemChangeLog.NoteJobDocumentRemoval(__instance, __instance.job, typeof(JobBooklet_Patch));
-        if (__instance.job == null)
+        if (__instance == null || __instance.job == null)
             return;
 
         if (!NetworkedJob.TryGetFromJob(__instance?.job, out NetworkedJob networkedJob))

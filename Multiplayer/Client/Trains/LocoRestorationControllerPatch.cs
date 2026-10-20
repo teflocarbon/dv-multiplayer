@@ -1,13 +1,13 @@
 using DV.LocoRestoration;
 using DV.ThingTypes;
 using HarmonyLib;
-using Multiplayer.Server.Trains;
 using Multiplayer.Shared.Session;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -55,19 +55,7 @@ public static class LocoRestorationControllerStartPatch
         if (NetworkLifecycle.Instance.IsHost())
             return AStartGameData.carsAndJobsLoadingFinished;
 
-        return NetworkLifecycle.Instance.Client.LoadingState == global::Multiplayer.Shared.Protocol.Data.PlayerLoadingState.Complete;
-    }
-}
-
-[HarmonyPatch(typeof(LocoRestorationController))]
-public static class LocoRestorationControllerStartPostfixPatch
-{
-    [HarmonyPatch(nameof(LocoRestorationController.Start))]
-    [HarmonyPostfix]
-    private static void Start(LocoRestorationController __instance)
-    {
-        if (NetworkLifecycle.Instance.IsHost())
-            NetworkRestorationWatcher.Instance.AddController(__instance);
+        return NetworkClient.Instance.LoadingState == global::Multiplayer.Shared.Protocol.Data.PlayerLoadingState.Complete;
     }
 }
 

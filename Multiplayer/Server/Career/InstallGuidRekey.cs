@@ -55,7 +55,7 @@ public static class InstallGuidRekey
          AuthoritativeItemRegistry.HasIdentity(id) ||
          NetworkedLostAndFoundManager.HasOwner(id) ||
          NetworkedColdContainerManager.Graph.HasOwner(id.ToString("D")) ||
-         NetworkLifecycle.Instance?.Server?.StarterKitsGiven.Contains(id) == true);
+         NetworkServer.Instance?.StarterKitsGiven.Contains(id) == true);
 
     /// <summary>Re-keys the save root and the imported state. Returns how many records changed.</summary>
     public static int Rekey(JObject root, Guid from, Guid to)
@@ -64,7 +64,7 @@ public static class InstallGuidRekey
         changed += AuthoritativeItemRegistry.RekeyIdentity(from, to);
         changed += NetworkedLostAndFoundManager.RekeyOwner(from, to);
         changed += NetworkedColdContainerManager.Graph.RekeyOwner(from.ToString("D"), to.ToString("D"));
-        var kits = NetworkLifecycle.Instance?.Server?.StarterKitsGiven;
+        var kits = NetworkServer.Instance?.StarterKitsGiven;
         if (kits != null && kits.Remove(from))
         {
             kits.Add(to);

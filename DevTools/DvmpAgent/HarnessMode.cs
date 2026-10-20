@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using HarmonyLib;
 using UnityEngine;
+using UnityModManagerNet;
 
 namespace Dvmp.Agent;
 
@@ -23,6 +24,14 @@ public sealed class HarnessMode : MonoBehaviour
 
     /// <summary>Frame cap while unfocused or minimised.</summary>
     public static int BackgroundFpsCap { get; set; } = 20;
+
+    /// <summary>
+    /// Frame cap while the game loads (its loading screen is up, or a world is streaming in), in
+    /// the foreground or not; 0 lifts the cap. Loading steps take a frame each, so the background
+    /// cap made a host's world load take 26.6 s instead of 14.5 s at 60 fps
+    /// (docs/research/harness-time-budget.md). Never below the cap that applies otherwise.
+    /// </summary>
+    public static int LoadingFpsCap { get; set; } = 60;
 
     public static bool Muted { get; set; } = true;
     public static bool LowGraphics { get; set; } = true;
@@ -50,6 +59,7 @@ public sealed class HarnessMode : MonoBehaviour
         AccessTools.FieldRefAccess<WorldStreamingInit, Streamer>("farScenesStreamer");
     private static WorldStreamingInit streamingInit;
     private float nextStreamingCheck;
+    private static bool loading;
 
     /// <summary>
     /// Whether real keyboard/mouse input reaches the game. Off by default so an accidental click
@@ -74,6 +84,7 @@ public sealed class HarnessMode : MonoBehaviour
         Active = true;
         FpsCap = IntArg(args, "-dvmp-fps", FpsCap);
         BackgroundFpsCap = IntArg(args, "-dvmp-bg-fps", BackgroundFpsCap);
+        LoadingFpsCap = IntArg(args, "-dvmp-loading-fps", LoadingFpsCap);
         Muted = !args.Contains("-dvmp-sound");
         LowGraphics = !args.Contains("-dvmp-full-graphics");
         TextureLimit = IntArg(args, "-dvmp-texture-limit", TextureLimit);
@@ -84,6 +95,21 @@ public sealed class HarnessMode : MonoBehaviour
         // Before the world loads, so textures are read at the reduced size in the first place.
         if (LowGraphics) ApplyTextureSettings();
         host.AddComponent<HarnessMode>();
+    }
+
+    private void Start()
+    {
+        // Unity Mod Manager saves every mod's settings (OnSaveGUI) when the game quits, into files
+        // all games share, such as Multiplayer's Settings.xml. Probes change settings in memory
+        // only, so a harness game has nothing to save. Every mod has loaded by the first frame.
+        KeepModSettings();
+        Application.quitting += KeepModSettings;
+    }
+
+    private static void KeepModSettings()
+    {
+        foreach (UnityModManager.ModEntry mod in UnityModManager.modEntries)
+            mod.OnSaveGUI = null;
     }
 
     private void LateUpdate()
@@ -100,7 +126,9 @@ public sealed class HarnessMode : MonoBehaviour
         ApplyInputOwnership();
 
         QualitySettings.vSyncCount = 0;
-        Application.targetFrameRate = foreground ? FpsCap : BackgroundFpsCap;
+        int cap = foreground ? FpsCap : BackgroundFpsCap;
+        if (loading) cap = LoadingFpsCap <= 0 ? -1 : Math.Max(cap, LoadingFpsCap);
+        Application.targetFrameRate = cap;
         if (Muted) AudioListener.volume = 0f;
 
         // Graphics options are re-applied periodically because DV re-applies its own
@@ -121,7 +149,22 @@ public sealed class HarnessMode : MonoBehaviour
         {
             nextStreamingCheck = Time.unscaledTime + 0.25f;
             ApplyStreamingRanges();
+            loading = IsLoading();
         }
+    }
+
+    // The loading screen is up (a host's or a client's world load, until the client is taken out of
+    // loading mode), or a world exists that hasn't finished streaming in.
+    private static bool IsLoading()
+    {
+        try
+        {
+            if (LoadingScreenManager.IsLoading) return true;
+            // A new WorldStreamingInit comes with every world load (e.g. a save reload).
+            if (streamingInit == null) streamingInit = FindObjectOfType<WorldStreamingInit>();
+            return streamingInit != null && !WorldStreamingInit.IsLoaded;
+        }
+        catch { return false; }
     }
 
     private static void ApplyTextureSettings()
@@ -180,12 +223,13 @@ public sealed class HarnessMode : MonoBehaviour
     internal static object Snapshot() => Active
         ? new
         {
-            active = true, fpsCap = FpsCap, backgroundFpsCap = BackgroundFpsCap, muted = Muted, lowGraphics = LowGraphics, userInput = UserInput, targetFrameRate = Application.targetFrameRate,
+            active = true, fpsCap = FpsCap, backgroundFpsCap = BackgroundFpsCap, loadingFpsCap = LoadingFpsCap, loading, muted = Muted, lowGraphics = LowGraphics, userInput = UserInput, targetFrameRate = Application.targetFrameRate,
             textureLimit = QualitySettings.masterTextureLimit,
             textureBudgetMb = QualitySettings.streamingMipmapsMemoryBudget,
             textureMemoryMb = Texture.currentTextureMemory / (1024 * 1024),
             nearStreamer = streamingInit == null ? null : StreamerSnapshot(nearStreamer(streamingInit)),
-            farStreamer = streamingInit == null ? null : StreamerSnapshot(farStreamer(streamingInit))
+            farStreamer = streamingInit == null ? null : StreamerSnapshot(farStreamer(streamingInit)),
+            userData = UserDataRedirect.Dir
         }
         : (object)new { active = false };
 

@@ -20,6 +20,9 @@ public static class AgentMain
             // A minimised or unfocused test instance must keep ticking or every request stalls.
             Application.runInBackground = true;
             LogBuffer.Install();
+            // Before DV creates its storage (when its first scene loads), and logged, so dvmp_logs shows it.
+            try { UserDataRedirect.InstallIfRequested(); }
+            catch (Exception e) { modEntry.Logger.Error("dvmp: user data: " + e); }
             try { ModLoggerHook.Install(); }
             catch (Exception e) { modEntry.Logger.Warning("dvmp: could not mirror mod logs: " + e.Message); }
 

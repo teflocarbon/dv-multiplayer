@@ -100,7 +100,7 @@ internal static partial class WorldItemPersistenceManager
         if (saved.State != null)
             DeferItemStateRestore(item, saved);
         else if (!waitingForOwner)
-            NetworkedItemManager.Instance.RegisterHostWorldItem(item);
+            ServerItemManager.Instance?.RegisterHostWorldItem(item);
 
         return true;
     }
@@ -201,14 +201,14 @@ internal static partial class WorldItemPersistenceManager
     private static void DeferUntilHolderConnects(NetworkedItem item)
     {
         pendingOwnerRepresentations.Add(item);
-        NetworkedItemManager.Instance.UnregisterHostWorldItem(item);
+        ServerItemManager.Instance?.UnregisterHostWorldItem(item);
         item.gameObject.SetActive(false);
     }
 
     private static void DeferItemStateRestore(NetworkedItem item, WorldItemPersistenceRecord saved)
     {
         pendingRepresentations.Add(item);
-        NetworkedItemManager.Instance.UnregisterHostWorldItem(item);
+        ServerItemManager.Instance?.UnregisterHostWorldItem(item);
         pendingStateRestores.Add(new PendingStateRestore
         {
             Item = item,
@@ -263,7 +263,7 @@ internal static partial class WorldItemPersistenceManager
     private static void CompletePendingStateRestore(PendingStateRestore pending)
     {
         RemovePendingStateRestore(pending);
-        NetworkedItemManager.Instance.RegisterHostWorldItem(pending.Item);
+        ServerItemManager.Instance?.RegisterHostWorldItem(pending.Item);
         DebugRuntime.Publish("item-world", "world-item.persistence-state-restored", DebugRuntimeSide.Server,
             entityType: "Item", entityId: pending.Item.NetId.ToString(), data: new Dictionary<string, object>
             {
@@ -275,7 +275,7 @@ internal static partial class WorldItemPersistenceManager
     private static void FailPendingStateRestore(PendingStateRestore pending, Exception error)
     {
         RemovePendingStateRestore(pending);
-        NetworkedItemManager.Instance.RegisterHostWorldItem(pending.Item);
+        ServerItemManager.Instance?.RegisterHostWorldItem(pending.Item);
         Multiplayer.LogError($"World item state restore permanently failed for {pending.Prefab}: {error.Message}");
         DebugRuntime.Publish("item-world", "world-item.persistence-state-restore-failed",
             DebugRuntimeSide.Server, DebugSeverity.Error, "Item", pending.Item.NetId.ToString(),
@@ -300,7 +300,7 @@ internal static partial class WorldItemPersistenceManager
             item == null)
             return false;
 
-        NetworkedItemManager.Instance.UnregisterHostWorldItem(item);
+        ServerItemManager.Instance?.UnregisterHostWorldItem(item);
         item.gameObject.SetActive(false);
         ReplaceAuthoredTombstone((JObject)source.DeepClone());
 
@@ -345,6 +345,6 @@ internal static partial class WorldItemPersistenceManager
     {
         if (identity == Guid.Empty)
             return null;
-        return NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player => player.Guid == identity);
+        return NetworkServer.Instance.ServerPlayers.FirstOrDefault(player => player.Guid == identity);
     }
 }

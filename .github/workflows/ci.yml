@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [beta]
+    branches: [beta, split/client-server]
   pull_request:
   workflow_dispatch:
 
@@ -111,6 +111,11 @@ jobs:
           dotnet build DevTools/DvmpAgent/DvmpAgent.csproj -c Debug
           dotnet build DevTools/Dvmp/Dvmp.csproj -c Debug
 
+      # The C# scenarios compile against the mod just built: one that uses a moved or renamed type
+      # fails here, not halfway through a gate run (docs/design/scenarios.md).
+      - name: Build the scenarios
+        run: dotnet build DevTools/DvmpScenarios/DvmpScenarios.csproj -c Debug
+
       - name: Protocol tests
         shell: pwsh
         run: dotnet test Multiplayer.Protocol.Tests -c Debug "-p:DerailValleyManagedDir=$env:GITHUB_WORKSPACE\gamelibs\DerailValley_Data\Managed"
@@ -132,6 +137,8 @@ jobs:
           $version = (Get-Content build/info.json -Raw | ConvertFrom-Json).Version
           $sha = "${{ github.event.pull_request.head.sha || github.sha }}".Substring(0, 8)
           $source = if ('${{ github.event_name }}' -eq 'pull_request') { "pr${{ github.event.pull_request.number }}" } else { '${{ github.ref_name }}' }
+          # An artifact name can't hold / \ " : < > | * ? (a branch like split/client-server has a slash).
+          $source = $source -replace '[\\/":<>|*?]', '-'
           "name=Multiplayer $version $source $sha" >> $env:GITHUB_OUTPUT
 
       - name: Upload the Debug build

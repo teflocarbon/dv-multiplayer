@@ -50,6 +50,7 @@ it. See [architecture.md](architecture.md) for the host/client model in general.
 | `ServerboundJobValidateRequestPacket` | client → host | An overview or booklet put in a validator: job, station, item NetId, `ValidationType`. |
 | `ClientboundJobValidateResponsePacket` | host → requester | Rejections only: `Invalid`, and `JobMissing` when the host has no such job. |
 | `ServerboundJobBookletSummonRequestPacket` | client → host | The validator's reprint button. |
+| `ServerboundJobRerollRequestPacket` | client → host | An offered job's overview dropped in the office bin: job, overview NetId, bin position. See [Re-rolling an offered job](#re-rolling-an-offered-job). |
 | `ClientboundJobReportArtifactPacket` | host → one client | Compressed render recipe for one `JobReport`, sent just before its item Create. |
 | `ServerboundWarehouseMachineControllerRequestPacket` | client → host | Warehouse Load / Unload button. |
 | `ClientboundWarehouseControllerUpdatePacket` | host → clients | Warehouse screen text, job, car and cargo. |
@@ -64,6 +65,11 @@ an FNV-1a hash of the station ID, so it's the same on every peer without negotia
 station also finds its `JobValidator` (queued from `JobValidator.Start`) by matching the
 validator's parent name against the station's `<name>_office_anchor`.
 
+`NetworkedStationController` (`Shared/Jobs`) is the part every game has: the lookups, the
+validator and the station's `NetworkedJob`s. The host's part is `ServerStationController`
+(`Server/Jobs`), added beside it, which removes itself on a client; a client's part is
+`ClientStationJobs` (`Client/Jobs`), which builds the client's jobs from the host's packets.
+
 On the host:
 
 - `StationProceduralJobsController.TryToGenerateJobs` and
@@ -71,15 +77,15 @@ On the host:
   `IsHost()` when a session is up, and run normally in single player).
 - `StationJobGenerationRange` distance getters return the distance to the nearest player of any
   peer (`AnyPlayerSqrMag`), so a station generates and keeps jobs when anyone is near it.
-- `Station.AddJobToStation` registers the job (`RegisterOrQueueHostJob`). If the station's
-  networked controller isn't ready yet, the job is queued and drained when it is;
-  `ReconcileExistingHostJobs` also picks up anything already in the station's
+- `Station.AddJobToStation` registers the job (`ServerStationController.RegisterOrQueueJob`). If
+  the station's networked controller isn't ready yet, the job is queued and drained when it is;
+  `ReconcileExistingJobs` also picks up anything already in the station's
   available/taken/abandoned/completed lists (jobs restored from the save).
 - `Task.SetJobBelonging` gives each task a `NetworkedTask` (queued until the job's
   `NetworkedJob` exists).
 - `BookletCreator.CreateJobOverview` gives the overview a host-assigned item NetId and links it to
   the job (`BindExistingJobOverview` does the same for an overview printed before registration).
-- Each tick `Server_OnTick` sends new jobs as one `ClientboundJobsCreatePacket` and dirty jobs as
+- Each tick `ServerStationController` sends new jobs as one `ClientboundJobsCreatePacket` and dirty jobs as
   one `ClientboundJobsUpdatePacket` per station.
 
 `JobData` carries the job ID and type, all tasks (`TaskNetworkData`, including nested tasks, cars,
@@ -87,7 +93,7 @@ tracks and cargo), chain origin/destination, required licences, start/finish tim
 time limit, the overview's NetId and position, and every live booklet copy (NetId, issued player,
 position).
 
-On a client, `NetworkedStationController.AddJobs`:
+On a client, `ClientStationJobs.AddJobs`:
 
 - waits up to 120 frames for every car the job references to exist and be initialised, then
   gives up with a warning;
@@ -106,13 +112,15 @@ sent earlier in the save-game data (`ClientboundSaveGameDataPacket.JobManagerTim
 
 ## Taking a job
 
-`JobValidator_Patch.ProcessJobOverview` (prefix) runs on every peer:
+`JobValidator.ProcessJobOverview` has a prefix per role: `JobValidator_ServerPatch` on the host
+(`Server/Jobs`) and `JobValidator_ClientPatch` on a client (`Client/Jobs`). Both start with the
+same checks (`JobValidator_Patch.TryGetOverviewJob`, `Shared/Jobs`):
 
 - printer on cooldown: error sound, nothing else;
 - no `NetworkedJob` for the overview, or the local job isn't `Available`: error sound and the
   overview is destroyed locally;
-- host: records the validator and the player the booklet will be issued to (the host itself if
-  nobody else set it), then lets vanilla run;
+- host: records the validator and the player the booklet will be issued to (the host's own
+  player, `NetworkServer.LocalPlayer`, if a client's request didn't set it), then lets vanilla run;
 - client: sends `ServerboundJobValidateRequestPacket` with the overview's item NetId, unless a
   request for this job is already in flight, and skips vanilla.
 
@@ -170,7 +178,11 @@ Works:
 - **Booklets**: one job, any number of physical copies, one issued copy per player. A late joiner
   rebuilds every live copy from `JobData.JobBooklets`. Incremental updates add copies by NetId
   without duplicating ones the client has.
-- **Reprint** (`SummonAllActiveJobBooklets`) is replaced: the host's
+- **Reprint** (`SummonAllActiveJobBooklets`) is replaced by `ServerboundJobBookletSummonRequestPacket`
+  from every player, sent through the player's session (`IJobsClient`, `Client/Jobs`); the host's
+  own player's is handled in-process ([host-local-session](design/host-local-session.md), stages 2-3:
+  `LocalPlayerSession.Jobs.cs` submits it). With no player session (multiplayer off, or a dedicated
+  host), vanilla's summon runs. The host's
   `JobBookletSummonCoordinator`, for every in-progress job, moves the requester's issued copy to
   the printer through an authoritative item transition (`ItemTransitionReason.JobBookletSummon`,
   clearing any retrieval claim) or prints a new copy if they have none. Other players' copies
@@ -240,22 +252,92 @@ broadcast; the real check runs in the host's vanilla validator.
   the overview.
 
 On complete, abandon and expire the host destroys every booklet copy and clears the issuance index
-(`DestroyJobBooklets`); the item destroys replicate. Reports are kept.
+(`DestroyJobBooklets`, from `NetworkedJob` through `IJobServer.OnJobEnded`); the item destroys
+replicate. Reports are kept.
+
+### Re-rolling an offered job
+
+Vanilla has no way to swap an offered job you don't want: a station generates jobs only when a
+player enters its zone, up to its `jobsCapacity`, and expires them all when every player has left.
+In multiplayer a player can drop an offered job's **overview** in the station office bin to replace
+the job. A taken job's booklet in the bin still abandons the job (vanilla's path).
+
+The bin is vanilla's `JobAbandoner`: its `OnTriggerEnter` abandons a `JobBooklet` and ignores
+everything else. `JobAbandoner_ClientPatch` (`Client/Jobs`) adds overviews: when an `Available`
+job's overview enters the trigger, the game whose player let go of it sends
+`ServerboundJobRerollRequestPacket` (job NetId, overview NetId, bin position). Every peer's copy of
+the paper falls into the bin, so only one game may ask: the paper is this player's if it is in their
+hand or inventory, if this game simulates it (its physics lease), or if they let go of it in the
+last 5 s, before the lease arrives (`NetworkedItem.LocallyReleasedAt`). A game asks once per job
+every 2 s, since the paper has several colliders and can bounce. The request goes through the
+player's session (`IJobsClient`); the host's own player's is handled in-process
+([host-local-session](design/host-local-session.md), stages 2-3:
+`LocalPlayerSession.Jobs.cs` submits it).
+
+The host (`Server/Jobs/JobReroll`) ignores a request for a job that is no longer `Available` or an
+item that isn't the job's overview: a second request for the same paper finds the job expired, so
+two players binning it can't race. Otherwise it decides:
+
+- **Re-roll** when nobody is in or on any of the job's cars (`NetworkedTrainCar.HasPlayers`, or a
+  player's `CarId`). All its cars go, even ones coupled to a locomotive (the loco stays). The host
+  removes and destroys the overview, expires the job (`Job.ExpireJob`: the chain controller releases its
+  track reservations and marks the cars for vanilla's `UnusedTrainCarDeleter`), deletes the cars
+  at once (`CarSpawner.DeleteTrainCars(..., forceInstantDestroy: true)`, removal cause
+  `CarRemovalReason.JobRerolled`) instead of leaving them for the deleter, which waits until every
+  player is far away, and calls `StationProceduralJobsController.TryToGenerateJobs`
+  (`JobReroll.GenerateReplacement`). That refills the station to `jobsCapacity`; vanilla forces the
+  first job it generates to be one the players are licensed for. Track space
+  (`YardTracksOrganizer`) is the real limit, and the freed cars give it back. A paper carried to
+  another station's bin re-rolls its own station's job; if no player is in that station's zone,
+  nothing is generated there until one arrives (vanilla generates on arrival).
+- **Throw the paper back out** when someone is in or on one of the job's cars (standing on it,
+  riding it, in a cab). That is the only refusal. The host applies an authoritative `Thrown`
+  transition (`ItemTransitionReason.JobRerollRefused`, move cause `ItemMoveReason.ThrownOutOfBin`)
+  from just above the bin, at 3.5 m/s up and 2.5 m/s towards the requester. The requester is the
+  transition's actor, so their game gets the physics lease and simulates the flight. The paper
+  visibly comes back, which is the player's answer: nothing else is sent. Three things the throw
+  has to get right (each lost it in testing):
+  - `GrabHandlerItem.Throw` applies `ThrowDirection × mass × 140` as a force for one physics
+    step, so the direction is the wanted velocity divided by `140 × Time.fixedDeltaTime`.
+  - A gentle drop is held back for 0.3 s (`ItemReleaseGrace`), and the paper can be in the bin
+    before the drop reaches the host. The host waits (up to 1.5 s) until its record no longer has
+    the paper in a hand or inventory; thrown earlier, the late drop was refused and its correction
+    put the paper back at the throw's start, at rest.
+  - The host registers the paper in its world cell right after the transition
+    (`ServerItemManager.RegisterHostWorldItem`). A paper let go on a car is recorded in the car's
+    interior; moved into the world, it was in no cell until its flight was sampled, so every
+    player's interest retired it and re-created it at rest.
+
+  When the host's own player binned it, the host simulates the flight, and granting that lease
+  ends the one its drop had, which stops the body (`RestoreLocalBodyAfterLease`): the host sets
+  the paper's velocity once the new lease exists.
+
+Every peer sees the result through the usual sync: the `Expired` job update, the item destroy, the
+car deletes, and a `ClientboundJobsCreatePacket` for the replacement. Debug events:
+`job.reroll-accepted`, `job.reroll-refused` (with the reason).
+
+Generation goes through `GenerateReplacement` and vanilla's generator, so a later add-on that wants
+to claim some generated jobs before their overviews print hooks the generator, not the re-roll.
 
 ### Save, load and rejoin
 
 The host's save is the only job save. DV saves and restores the host's jobs; restored jobs are
-registered by `ReconcileExistingHostJobs` and `OnJobTaken` ignores the load-game take, so a load
+registered by `ReconcileExistingJobs` and `OnJobTaken` ignores the load-game take, so a load
 doesn't broadcast spurious state changes. A client keeps nothing between sessions: on every join
 or rejoin it gets the active jobs afresh at `ReadyForJobs`, with all live booklet copies.
+
+Booklets aren't saved, so on load DV prints a replacement for each taken job into the local
+player's inventory (`JobSaveManager.CreateAndInitializeJobBookletForJob`). On a player host that is
+the host's player; a dedicated host has none, and `JobBookletRecoveryPatch` skips it there. Players
+who took a job reprint its booklet at a validator.
 
 ## Tasks and warehouses
 
 `Task.SetState` on the host (except to `InProgress`) sends `ClientboundTaskUpdatePacket`, which
 clients apply with `Task.SetState` plus the times. Warehouse Load/Unload buttons on a client send
-`ServerboundWarehouseMachineControllerRequestPacket`; the host runs the sequence and
-`WarehouseMachineController.SetScreen` broadcasts the screen (idle and train-in-range presets are
-left to each peer).
+`ServerboundWarehouseMachineControllerRequestPacket` (`WarehouseMachineControllerClientPatch`); the
+host runs the sequence and its `WarehouseMachineController.SetScreen` broadcasts the screen
+(`WarehouseMachineControllerServerPatch`; idle and train-in-range presets are left to each peer).
 
 ## Career Manager
 
@@ -272,7 +354,7 @@ flag above and licences, which are host-owned and broadcast on purchase.
 
 ## Testing
 
-The `jobs` scenario (`DevTools/Scenarios/jobs/run.sh`, needs a running pair from `dvmp up`) runs
+The `jobs` scenario (`DevTools/DvmpScenarios/Scenarios/JobsRoundTrip.cs`, needs a running pair from `dvmp up`) runs
 a transport or empty-haul job at a station from start to finish: one peer takes it, the host
 stands in for the drive by moving the cars to the destination track, one peer hands the booklet
 in, and the client banks the payment. Both peers must agree on the job state and booklets after
@@ -280,11 +362,23 @@ each step, the client must see the banknotes, and the shared wallet must go up b
 exactly once.
 
 ```bash
-ACCEPT=host HANDIN=client DevTools/Scenarios/jobs/run.sh   # what gate.sh runs
-ACCEPT=client HANDIN=client STATION=FM DevTools/Scenarios/jobs/run.sh   # the defaults
+dvmp scenario run jobs --session NAME --arg ACCEPT=host --arg HANDIN=client   # what gate.sh runs
+dvmp scenario run jobs --session NAME   # the defaults: ACCEPT=client HANDIN=client STATION=FM
 ```
 
-`ACCEPT` and `HANDIN` take `host` or `client`. Unit tests: `JobBookletIssuanceIndexTests`
+`ACCEPT` and `HANDIN` take `host` or `client`.
+
+The `job-reroll` scenario bins an offered job's overview with nobody on its cars (the job and cars
+go and a replacement is offered, the same on both peers), then has the client board a car of
+another job and bins that one (the paper comes back out and lands at the same spot on both peers).
+`WHO=client` (the default, also on a dedicated host) or `WHO=host` bins the paper.
+
+```bash
+dvmp scenario run job-reroll --session NAME                     # WHO=client
+dvmp scenario run job-reroll --session NAME --arg WHO=host     # a player host
+```
+
+Unit tests: `JobBookletIssuanceIndexTests`
 (`Multiplayer.Core.Tests`), `JobBookletProtocolTests` and `JobReportArtifactTests`
 (`Multiplayer.Protocol.Tests`). See [testing.md](testing.md).
 
@@ -311,7 +405,7 @@ Also open:
   timeout even when the hand-in worked. Clients also don't play the printer animation for a
   hand-in.
 - `JobMissing` destroys only the `NetworkedJob` GameObject. The local `Job` stays in the station
-  lists and its paperwork stays; `NetworkedStationController.RemoveJob`, which would clean up, is
+  lists and its paperwork stays; `ClientStationJobs.RemoveJob`, which would clean up, is
   never called.
 - When the local job state disagrees, the validator prefixes destroy the offered overview or
   booklet locally on a client, without asking the host.

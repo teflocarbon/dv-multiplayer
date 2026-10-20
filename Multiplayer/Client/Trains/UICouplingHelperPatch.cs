@@ -49,8 +49,10 @@ public static class UICouplingHelperPatch
         __state?.Batch?.Dispose();
         Multiplayer.LogDebug(() => $"UICouplingHelper.HandleCoupling({coupler?.train?.ID}, {advanced})");
 
-        var client = NetworkLifecycle.Instance?.Client;
-        if (coupler == null || client == null || __state == null)
+        // The fixes below are for any local player; the sends only for a client's. The host's couple is
+        // in the server's world, which observes it (Server/Trains/TopologyObservationPatch).
+        NetworkClient client = NetworkRole.IsRemoteClient ? NetworkClient.Instance : null;
+        if (coupler == null || __state == null || !NetworkRole.HasLocalPlayer)
             return;
 
         if (coupler.IsCoupled())
@@ -69,10 +71,13 @@ public static class UICouplingHelperPatch
                 // Already coupled to this car: the press only completed the connections (an
                 // advanced couple after hooking the chain). Sending a Couple here was rejected as
                 // "endpoint occupied" and rolled the client's hoses back.
-                SendCompletedConnections(client, coupler, otherCoupler, __state);
+                if (client != null)
+                    SendCompletedConnections(client, coupler, otherCoupler, __state);
                 return;
             }
 
+            if (client == null)
+                return;
             CouplerInteractionType interaction = CouplerInteractionType.CoupleViaUI;
             if (advanced)
                 interaction |= CouplerInteractionType.HoseConnect | CouplerInteractionType.CockOpen;
@@ -100,7 +105,7 @@ public static class UICouplingHelperPatch
         RefreshChainScript(coupler);
         /* end fix for bug */
 
-        client.SendCouplerInteraction(uncouple, coupler, null);
+        client?.SendCouplerInteraction(uncouple, coupler, null);
     }
 
     [HarmonyPatch(nameof(UICouplingHelper.HandleCoupling))]

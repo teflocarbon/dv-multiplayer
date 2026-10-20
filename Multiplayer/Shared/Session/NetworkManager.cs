@@ -14,7 +14,8 @@ namespace Multiplayer.Shared.Session;
 
 public abstract class NetworkManager
 {
-    protected const int LATENCY_FLAG = 150;
+    // Round trip, in ms: the same 150 ms one-way it was when the transports reported half the round trip.
+    protected const int LATENCY_FLAG = 300;
 
     protected readonly NetPacketProcessor netPacketProcessor;
     protected readonly NetDataWriter cachedWriter = new();
@@ -50,7 +51,7 @@ public abstract class NetworkManager
         transport?.UpdateSettings(settings);
     }
 
-    public void PollEvents()
+    public virtual void PollEvents()
     {
         //netManager.PollEvents();
         transport?.PollEvents();
@@ -90,7 +91,7 @@ public abstract class NetworkManager
     {
         cachedWriter.Reset();
         netPacketProcessor.Write(cachedWriter, packet);
-        DebugTrace.PacketSerialized(cachedWriter, GetDebugSide(), packet);
+        DebugTrace.PacketSerialized(cachedWriter, DebugSide, packet);
         return cachedWriter;
     }
 
@@ -98,21 +99,21 @@ public abstract class NetworkManager
     {
         cachedWriter.Reset();
         netPacketProcessor.WriteNetSerializable(cachedWriter, ref packet);
-        DebugTrace.PacketSerialized(cachedWriter, GetDebugSide(), packet);
+        DebugTrace.PacketSerialized(cachedWriter, DebugSide, packet);
         return cachedWriter;
     }
 
     protected void SendPacket<T>(ITransportPeer peer, T packet, DeliveryMethod deliveryMethod) where T : class, new()
     {
         NetDataWriter writer = WritePacket(packet);
-        DebugTrace.PacketSending(peer, writer, deliveryMethod, GetDebugSide(), typeof(T).Name);
+        DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugSide, typeof(T).Name);
         peer?.Send(writer, deliveryMethod);
     }
 
     protected void SendNetSerializablePacket<T>(ITransportPeer peer, T packet, DeliveryMethod deliveryMethod) where T : INetSerializable, new()
     {
         NetDataWriter writer = WriteNetSerializablePacket(packet);
-        DebugTrace.PacketSending(peer, writer, deliveryMethod, GetDebugSide(), typeof(T).Name);
+        DebugTrace.PacketSending(peer, writer, deliveryMethod, DebugSide, typeof(T).Name);
         peer?.Send(writer, deliveryMethod);
     }
 
@@ -149,7 +150,7 @@ public abstract class NetworkManager
         //LogDebug(() => $"NetworkManager.OnNetworkReceive()");
         try
         {
-            DebugTrace.PacketReceived(peer, reader, channel, deliveryMethod, GetDebugSide());
+            DebugTrace.PacketReceived(peer, reader, channel, deliveryMethod, DebugSide);
             IsProcessingPacket = true;
             netPacketProcessor.ReadAllPackets(reader, peer);
         }
@@ -201,7 +202,8 @@ public abstract class NetworkManager
 
     #endregion
 
-    protected DebugRuntimeSide GetDebugSide() => GetType().Name == "NetworkServer" ? DebugRuntimeSide.Server : DebugRuntimeSide.Client;
+    /// <summary>Which side this manager's packet traces are labelled with.</summary>
+    protected abstract DebugRuntimeSide DebugSide { get; }
 
     #region Logging
 

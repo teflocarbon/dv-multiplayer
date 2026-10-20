@@ -114,7 +114,7 @@ public class ServerBrowserPane : MonoBehaviour
     public void OnEnable()
     {
         //ensure no incompatible mods are loaded
-        incompatibleMods = ModCompatibilityManager.Instance.CheckModCompatibility();
+        incompatibleMods = IncompatibleModsWarning.Show();
 
         this.SetupListeners(true);
 
@@ -907,7 +907,7 @@ public class ServerBrowserPane : MonoBehaviour
         {
             connectionState = ConnectionState.AttemptingSteamRelay;
             string hostId = ((Lobby)joinedLobby).Owner.Id.Value.ToString();
-            NetworkLifecycle.Instance.StartClient(hostId, -1, password, false, OnDisconnect);
+            MultiplayerSession.Instance.StartClient(hostId, -1, password, false, OnDisconnect);
             return;
         }
 
@@ -946,7 +946,7 @@ public class ServerBrowserPane : MonoBehaviour
 
         Multiplayer.Log($"AttemptIPv6() starting attempt");
         connectionState = ConnectionState.AttemptingIPv6;
-        SingletonBehaviour<NetworkLifecycle>.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
+        MultiplayerSession.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
 
     }
 
@@ -963,7 +963,7 @@ public class ServerBrowserPane : MonoBehaviour
 
     //    //punching not implemented we'll just try again for now
     //    connectionState = ConnectionState.AttemptingIPv6Punch;
-    //    SingletonBehaviour<NetworkLifecycle>.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
+    //    MultiplayerSession.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
 
     //}
     private void AttemptIPv4()
@@ -997,7 +997,7 @@ public class ServerBrowserPane : MonoBehaviour
             {
                 Multiplayer.Log($"AttemptIPv4() starting attempt");
                 connectionState = ConnectionState.AttemptingIPv4;
-                SingletonBehaviour<NetworkLifecycle>.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
+                MultiplayerSession.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
                 return;
             }
         }
@@ -1021,7 +1021,7 @@ public class ServerBrowserPane : MonoBehaviour
 
     //    //punching not implemented we'll just try again for now
     //    connectionState = ConnectionState.AttemptingIPv4Punch;
-    //    SingletonBehaviour<NetworkLifecycle>.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
+    //    MultiplayerSession.Instance.StartClient(address, portNumber, password, false, OnDisconnect);
     //}
 
     private void AttemptFail()

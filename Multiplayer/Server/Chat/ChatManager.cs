@@ -1,5 +1,6 @@
 using Multiplayer.Server.Career;
 using Multiplayer.Server.Dedicated;
+using Multiplayer.Server.Players;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Session;
 using DV.Utils;
@@ -281,12 +282,12 @@ public class ChatManager
         }
 
         message = $"<alpha=#50>{sender.DisplayName}:</color> <noparse>{message}</noparse>";
-        NetworkLifecycle.Instance.Server.SendChat(message, sender);
+        NetworkServer.Instance.SendChat(message, sender);
     }
 
     /// <summary>
     /// Whether a player may use the admin commands: the host's own player; on a dedicated host, its
-    /// owner (PlayerIdentity.Owner: the Steam account running it, or -mp-owner); and anyone in
+    /// owner (CareerOwner.Id: the Steam account running it, or -mp-owner); and anyone in
     /// Settings.Admins. Player IDs are verified Steam accounts (PlayerAuthentication), except on a
     /// host with -mp-allow-unverified.
     /// </summary>
@@ -294,12 +295,12 @@ public class ChatManager
     {
         if (player == null)
             return false;
-        // The server's own service player sends only what was typed in its console.
-        if (player.IsServiceHost)
+        // The server's console sends only what was typed in it.
+        if (IsConsole(player))
             return runningConsoleCommand;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         return lifecycle.IsHost(player) ||
-               (lifecycle.IsDedicatedHost && player.Guid == PlayerIdentity.Owner) ||
+               (lifecycle.IsDedicatedHost && player.Guid == CareerOwner.Id) ||
                Multiplayer.Settings.IsListedAdmin(player.Guid);
     }
 
@@ -309,26 +310,32 @@ public class ChatManager
     // A whisper, or for the console its log, where the watchdog's window shows it.
     private static void Tell(string message, ServerPlayer player)
     {
-        if (runningConsoleCommand && player != null && player.IsServiceHost)
+        if (runningConsoleCommand && IsConsole(player))
         {
             string plain = Regex.Replace(message ?? string.Empty, "<[^>]+>", string.Empty)
                 .Replace("\r\n\t\t", "  ").Replace("\r\n\t", "\n  ").Replace("\r\n", "\n");
             Multiplayer.Log("[Console] " + plain);
             return;
         }
-        NetworkLifecycle.Instance.Server.SendWhisper(message, player);
+        NetworkServer.Instance.SendWhisper(message, player);
     }
 
     private static bool runningConsoleCommand;
 
+    // Sends a dedicated host's console commands (it has no player of its own).
+    private ServerPlayer consoleSender;
+
+    private static bool IsConsole(ServerPlayer player) => player != null && player.IsConsole;
+
     /// <summary>
     /// A line typed in a dedicated host's console (DedicatedHost.RunConsoleCommands). It runs as the
-    /// server's own service player, which is an admin for it, and the replies go to the log. A line
-    /// without a slash is said in chat as the server.
+    /// server's console sender (<see cref="ServerPlayer.CreateConsole"/>), which is an admin for it,
+    /// and the replies go to the log. A line without a slash is said in chat as the server.
     /// </summary>
     public void RunConsoleCommand(string line)
     {
-        ServerPlayer console = NetworkLifecycle.Instance.Server?.ServerPlayers.FirstOrDefault(player => player.IsServiceHost);
+        NetworkServer server = NetworkServer.Instance;
+        ServerPlayer console = server != null ? consoleSender ??= ServerPlayer.CreateConsole(DedicatedHost.ServiceName) : null;
         if (console == null)
         {
             Multiplayer.LogWarning($"[Console] the server isn't ready for commands yet: {line}");
@@ -362,7 +369,7 @@ public class ChatManager
     {
         if (string.IsNullOrEmpty(name))
             return null;
-        var players = NetworkLifecycle.Instance.Server.GameplayPlayers.ToList();
+        var players = NetworkServer.Instance.ServerPlayers.ToList();
         ServerPlayer exact = players.FirstOrDefault(p => string.Equals(p.Username, name, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
             return exact;
@@ -469,7 +476,7 @@ public class ChatManager
             Reply(sender, $"/{COMMAND_WEATHER} clear|rain|storm [hours], or auto, or new");
             return;
         }
-        NetworkLifecycle.Instance.Server.SendWeatherState();
+        NetworkServer.Instance.SendWeatherState();
         Multiplayer.Log(said);
         ServerMessage(said, null);
     }
@@ -514,8 +521,8 @@ public class ChatManager
             Reply(sender, "Time skips forward by at least a minute and at most a day.");
             return;
         }
-        // To every game, the server's own client included: that one advances the server's world.
-        NetworkLifecycle.Instance.Server.SendTimeAdvance((float)seconds);
+        // Advances the server's world, then every other game.
+        NetworkServer.Instance.SendTimeAdvance((float)seconds);
         string said = $"{sender.Username} skipped the time to {now.AddSeconds(seconds):HH:mm} ({seconds / 3600:0.#} h on).";
         Multiplayer.Log(said);
         ServerMessage(said, null);
@@ -529,7 +536,7 @@ public class ChatManager
             return;
         List<string> parts = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).ToList();
         bool wholeTrain = parts.RemoveAll(part => string.Equals(part, "all", StringComparison.OrdinalIgnoreCase)) > 0;
-        ServerPlayer player = parts.Count > 0 ? FindPlayer(parts[0]) : sender.IsServiceHost ? null : sender;
+        ServerPlayer player = parts.Count > 0 ? FindPlayer(parts[0]) : IsConsole(sender) ? null : sender;
         if (player == null)
         {
             Reply(sender, parts.Count > 0 ? $"No player called {parts[0]}." : $"/{COMMAND_REPAIR} <player> [all]");
@@ -568,7 +575,7 @@ public class ChatManager
     {
         if (!IsAdmin(sender))
             return;
-        if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.Installed)
+        if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.Installed)
         {
             Reply(sender, "The Dynamic Seasons mod isn't installed on the server.");
             return;
@@ -579,11 +586,11 @@ public class ChatManager
         switch (arg)
         {
             case "":
-                string current = global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.Current() ?? "an unknown season";
+                string current = global::Multiplayer.Server.Integrations.DVSeasonsIntegration.Current() ?? "an unknown season";
                 Reply(sender, $"It's {current}. /{COMMAND_SEASON} spring|summer|autumn|winter|next|blizzard|calm");
                 return;
             case "next":
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TryCall("AdvanceToNextSeason", out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TryCall("AdvanceToNextSeason", out error))
                 {
                     Reply(sender, error);
                     return;
@@ -591,7 +598,7 @@ public class ChatManager
                 said = $"{sender.Username} moved the season on.";
                 break;
             case "blizzard":
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TryCall("ScheduleBlizzard", out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TryCall("ScheduleBlizzard", out error))
                 {
                     Reply(sender, error);
                     return;
@@ -599,7 +606,7 @@ public class ChatManager
                 said = $"{sender.Username} called up a blizzard (it only comes in winter).";
                 break;
             case "calm":
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TryCall("EndBlizzard", out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TryCall("EndBlizzard", out error))
                 {
                     Reply(sender, error);
                     return;
@@ -607,7 +614,7 @@ public class ChatManager
                 said = $"{sender.Username} ended the blizzard.";
                 break;
             default:
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TrySetSeason(arg, out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TrySetSeason(arg, out error))
                 {
                     Reply(sender, error);
                     return;
@@ -660,7 +667,7 @@ public class ChatManager
             return;
 
         message = $"<color=#{MESSAGE_COLOUR_SERVER}>{message}</color>";
-        NetworkLifecycle.Instance.Server.SendChat(message, exclude);
+        NetworkServer.Instance.SendChat(message, exclude);
     }
 
     private void WhisperMessage(string message, ServerPlayer sender)
@@ -735,7 +742,7 @@ public class ChatManager
         {
             whisper = $"<color=#{MESSAGE_COLOUR_SERVER}>{Locale.Get(Locale.CHAT_KICK_KICKED_KEY, [playerName])}</color>";
 
-            NetworkLifecycle.Instance.Server.KickPlayer(playerToKick);
+            NetworkServer.Instance.KickPlayer(playerToKick);
         }
 
         Tell(whisper, sender);
@@ -788,7 +795,7 @@ public class ChatManager
         {
             string announce = $"<color=#{MESSAGE_COLOUR_SERVER}>{Locale.Get(Locale.CHAT_SET_CREW_JOINED_MSG_KEY, [playerToSet.Username, playerToSet.CrewName])}</color>";
 
-            NetworkLifecycle.Instance.Server.SendChat(announce);
+            NetworkServer.Instance.SendChat(announce);
         }
     }
 
@@ -824,13 +831,14 @@ public class ChatManager
     {
         if (!IsAdmin(sender))
         {
-            if (sender != null && !sender.IsServiceHost)
+            if (sender != null && !IsConsole(sender))
                 Reply(sender, "Only the host or an admin can pay the fees.");
             return;
         }
         FeePayment.Result result = FeePayment.PayAll();
         if (result.Shortfall > 0)
         {
+            Multiplayer.Log($"{sender.Username}'s fee payment refused: the fees come to ${result.Shortfall:N2}, the wallet has ${DV.InventorySystem.Inventory.Instance.PlayerMoney:N2}");
             Reply(sender, $"The fees come to ${result.Shortfall:N2}, more than the ${DV.InventorySystem.Inventory.Instance.PlayerMoney:N2} in the wallet.");
             return;
         }
@@ -891,6 +899,6 @@ public class ChatManager
         if (string.IsNullOrEmpty(playerName))
             return null;
 
-        return NetworkLifecycle.Instance.Server.ServerPlayers.Where(p => p.Username == playerName).FirstOrDefault();
+        return NetworkServer.Instance.ServerPlayers.Where(p => p.Username == playerName).FirstOrDefault();
     }
 }

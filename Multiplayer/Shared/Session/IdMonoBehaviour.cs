@@ -28,9 +28,12 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
         return false;
     }
 
+    /// <summary>Every object holding a NetId of this type, by NetId.</summary>
+    protected static IEnumerable<KeyValuePair<T, IdMonoBehaviour<T, I>>> Registered => indexToObject;
+
     protected virtual void Awake()
     {
-        if (IsIdServerAuthoritative && !NetworkLifecycle.Instance.IsHost())
+        if (IsIdServerAuthoritative && !NetworkRole.IsServer)
             return;
         if (!idAllocator.TryAllocate(out T id))
             throw new InvalidOperationException($"No network IDs remain for {typeof(I).Name}");

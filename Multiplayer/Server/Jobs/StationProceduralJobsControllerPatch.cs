@@ -9,7 +9,7 @@ public static class StationProceduralJobsController_TryToGenerateJobs_Patch
     private static bool Prefix()
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsServerRunning && !lifecycle.IsClientRunning)
+        if (lifecycle == null || !lifecycle.IsSessionRunning)
             return true;
         return lifecycle.IsHost();
     }

@@ -2,7 +2,6 @@ using DV.Platform.Steam;
 using DV.WeatherSystem;
 using LiteNetLib.Utils;
 using LiteNetLib;
-using Multiplayer.Menus.ServerBrowser;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Packets.Unconnected;
 using Multiplayer.Shared.Session;
@@ -61,7 +60,7 @@ public class LobbyServerManager : MonoBehaviour
     {
         bool destroy = false;
 
-        server = NetworkLifecycle.Instance.Server;
+        server = NetworkServer.Instance;
 
         if (server == null)
         {
@@ -162,10 +161,10 @@ public class LobbyServerManager : MonoBehaviour
         {
             timePassed += Time.deltaTime;
 
-            if (timePassed > UPDATE_TIME || (server.ServerData.CurrentPlayers != server.GameplayPlayerCount && timePassed > PLAYER_CHANGE_TIME))
+            if (timePassed > UPDATE_TIME || (server.ServerData.CurrentPlayers != server.PlayerCount && timePassed > PLAYER_CHANGE_TIME))
             {
                 timePassed = 0f;
-                server.ServerData.CurrentPlayers = server.GameplayPlayerCount;
+                server.ServerData.CurrentPlayers = server.PlayerCount;
                 StartCoroutine(UpdateLobbyServer($"{Multiplayer.Settings.LobbyServerAddress}/{ENDPOINT_UPDATE_SERVER}"));
 
                 if(lobby != null)
@@ -175,7 +174,7 @@ public class LobbyServerManager : MonoBehaviour
             }
         }else if (server?.ServerData?.Visibility == ServerVisibility.Private || !sendUpdates)
         {
-            server.ServerData.CurrentPlayers = server.GameplayPlayerCount;
+            server.ServerData.CurrentPlayers = server.PlayerCount;
         }
 
         //Keep LAN discovery running

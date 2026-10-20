@@ -6,6 +6,10 @@
 > - stage 2: built and tested. An admin client's fees screen pays all the fees at once, not one
 >   by one, since clients have no fee list;
 > - stage 4 isn't built.
+> - since host-local-session stage 3 ([host-local-session.md](host-local-session.md), on
+>   `split/stage-3`) a dedicated host has no loopback client and no service identity: no player at
+>   all, its console commands run as a console sender, and "the players" are `ServerPlayers`. The
+>   sections below that describe the service identity are history.
 >
 > The work every host needs (per-player state, multi-anchor streaming) is now planned in
 > [server-player-split.md](server-player-split.md). See
@@ -300,6 +304,9 @@ Still open:
 
 ### Stage 1: the service-identity host (`-mp-dedicated`)
 
+> Superseded in part by host-local-session stage 3: the loopback client and its service identity
+> are gone (see the status above). The rest of this stage stands.
+
 Without the flag nothing changes. With it, the game is a dedicated host:
 
 - **The loopback client stays.** Its `ServerPlayer` is a service identity,
@@ -307,7 +314,7 @@ Without the flag nothing changes. With it, the game is a dedicated host:
   `NetworkLifecycle.IsDedicatedHost` and `IsHost(player)`, so a client can't claim it. It logs in
   as "Dedicated host" with `Settings.ServiceGuid`, so the player's own game on the same install
   joins as itself (`NetworkClient`).
-- **It isn't a player.** `NetworkServer.GameplayPlayers` and `GameplayPlayerCount` leave it out.
+- **It isn't a player.** `NetworkServer.ServerPlayers` and `PlayerCount` leave it out.
   They're used for:
   - `MaxPlayers` at login;
   - `AnyPlayerSqrMag` (job generation, loco spawners, the car deleter, cash registers, refill
@@ -573,7 +580,7 @@ Then the host's player was teleported 4 km away from a DE2:
 | Cab interiors | Local player in the car (LOD -1) | Only loaded for the host's own player | `TrainPhysicsLod.cs:135-147`, `:174-191` |
 | Origin shift | Same tracker | One origin for everyone | `WorldStreamer: WorldMover` (shift past `moveRange`) |
 | World items | `ActiveCamera`, 128 m cells | Items outside the 3x3 cells are deactivated | `DV/ItemDisablerGrid.cs:9-50`, `DV/ItemDisabler.cs:158-210` |
-| Dropped-item respawn | `PlayerTransform`, `ActiveCamera` | Respawn or Lost and Found beyond 200 m / 1 km; kinematic far from the camera | `RespawnOnDrop.cs:11-13`, `:86-89`, `:300-368` |
+| Dropped-item respawn | `PlayerTransform`, `ActiveCamera` | Respawn or Lost and Found beyond 200 m / 1 km; kinematic far from the camera. Distance to the player patched to the nearest player for networked items on the server (`Server/Items/RespawnOnDropRangePatch.cs`): an unowned personal item beside a client went to the host's own Lost and Found; the kinematic flag still follows the camera | `RespawnOnDrop.cs:11-13`, `:86-89`, `:300-368` |
 | Station job generation | `PlayerTransform` | Already patched to any player (`StationJobGenerationRangePatch.cs`) | `StationJobGenerationRange.cs:5-57`, `StationController.cs:190` |
 | Loco spawners | Player distance | Already patched (`StationLocoSpawnerPatch.cs`) | `StationLocoSpawner.cs:75-99` |
 | Garage car respawn | Player distance | **Not patched** | `GarageCarSpawner.cs:96-115` |
@@ -622,6 +629,9 @@ Paths are under `Multiplayer/`. Line numbers are from the working tree on 2026-1
 
 ### Keep the loopback client: it isn't only a player
 
+> History: host-local-session stages 2 and 3 took each of these jobs off the loopback client, and
+> stage 3 removed it ([host-local-session.md](host-local-session.md)).
+
 The obvious design, starting the server without `NetworkLifecycle.StartServer`'s loopback client
 (`Shared/Session/NetworkLifecycle.cs:125-160`, client at `:153`), breaks the host itself.
 That client is how the host **applies relayed state to its own world** and **sends its own
@@ -636,7 +646,7 @@ simulation**:
 | **No remote avatars on the host.** `ClientPlayerManager` creates `NetworkedPlayer`s from relayed packets. Server logic relies on them: `HasPlayers` for delete and work-train occupancy, held items attached to avatar hands, plugs following a hand. | `Client/Players/ClientPlayerManager.cs:34-65`; `NetworkedTrainCar.cs:265`; `NetworkServer.cs:2603`, `:2852`; `NetworkedItem.StateApplication.cs:45-103`; `NetworkedPluggableObject.cs:584-625` |
 | **The host's loading screen never comes down.** `DisplayLoadingInfoPatch` unhooks it, and only `RemoveLoadingScreen` to the host's own client removes it. | `Client/Session/DisplayLoadingInfoPatch.cs:8-11`; `NetworkClient.cs:889-920` |
 | **Station loco spawning never starts.** The spawner waits for `Client != null`. | `Server/Trains/StationLocoSpawnerPatch.cs:30-31` |
-| MPAPI NetId lookups aren't initialised (only the client's `Start()` calls `CheckInitialization`), and `RegisterPaintTheme` refuses. | `Shared/Session/NetworkManager.cs:65-69`; `Shared/Api/APIProvider.cs:68`, `:85` |
+| MPAPI NetId lookups aren't initialised (only the client's `Start()` calls `CheckInitialization`), and `RegisterPaintTheme` refuses. | `Shared/Session/NetworkManager.cs:65-69`; `APIProvider.cs`, `:85` |
 
 `IsHost()` alone is used about 300 times. Removing the client is a rewrite. **Keep it, and make it a
 service identity**: the host's `ServerPlayer` exists for transport and `excludeSelf`, but isn't a
@@ -651,7 +661,7 @@ stop doing.
 | `NetworkServer.cs:1612` | `MaxPlayers` counts the host | Count remote players only |
 | `NetworkServer.cs:1764-1769`, `:1957-1983` | The host's player completes loading, is announced (`PlayerJoined`, "joined the game" chat, `PlayerReady`) | Complete it silently: no announcement, no avatar, not in player lists |
 | `Shared/Utils/DvExtensions.cs:122-137` (`AnyPlayerSqrMag`) | Every `ServerPlayer` is a player, the host included | Skip the service identity. Otherwise the parked body keeps its own station's jobs, spawners and registers alive (users: `StationJobGenerationRangePatch.cs`, `StationLocoSpawnerPatch.cs:41`, `PlayerDistanceGameObjectsDisablerPatch.cs:128`, `UnusedTrainCarDeleterPatch.cs:46`, `CashRegisterBasePatch.cs:128`) |
-| Item interest, Lost and Found, cold containers, culling (`NetworkedItemManager.ServerInterest.cs:68`, `:113`, `:255`; `NetworkedLostAndFoundManager.cs:326`, `:512`, `:567`; `NetworkedColdContainerManager.cs:405`; `CullingManager.cs:85`) | Some skip `SelfPeer`, some don't | One `GameplayPlayers` view used everywhere |
+| Item interest, Lost and Found, cold containers, culling (`NetworkedItemManager.ServerInterest.cs:68`, `:113`, `:255`; `NetworkedLostAndFoundManager.cs:326`, `:512`, `:567`; `NetworkedColdContainerManager.cs:405`; `CullingManager.cs:85`) | Some skip `SelfPeer`, some don't | One `ServerPlayers` view used everywhere |
 | `Client/Players/LocalPlayerTrackerBase.cs:170`, `Client/Players/CustomFirstPersonControllerPatch.cs:15-23` | The host's body sends its position every tick | Don't attach the tracker to the parked body |
 | `Shared/Items/NetworkedItemSpatialManager.cs:243`, `:537-541`, `:620-628`, `:660-663` | The host's player can simulate a released item and is the fallback simulator | The host can still simulate under the service identity, but only where it has the world loaded (section 2) |
 | `NetworkServer.cs:2406`, `:2533`; `NetworkedTrainCar.cs:1072` | The host's own control and topology commands skip range checks | Fine: only the host's own simulation goes through them |
@@ -695,7 +705,7 @@ they're blocked for good. A dedicated host needs a serverbound fee-payment reque
 - **Other host-local powers:** key use (`Server/World/KeyUsePatch.cs:10-13`), the weather editor
   and game parameters (broadcast by `GameParamsPatch`), and the host's mod settings (`Settings.cs:38-62`).
 - **MPAPI:** `IsDedicatedServer` is hard-coded `false //feature not implemented`
-  (`Shared/Api/APIProvider.cs:27`). `ClientPlayerWrapper` never sets `isHost`, and `ClientAPIProvider.PlayerCount`
+  (`APIProvider.cs`). `ClientPlayerWrapper` never sets `isHost`, and `ClientAPIProvider.PlayerCount`
   adds one for the local player. Other mods need these defined.
 - `Shared/Integrations/RemoteDispatchPatch.cs:49-57` shows players only while a client runs; with the
   loopback client kept, that's fine.
@@ -810,7 +820,7 @@ This plan keeps what's specific to running without a local player.
 | Stage | Work | Size |
 |---|---|---|
 | **0. Harness light host** (DevTools only) | **Built.** `dvmp up --host-only` in a named session, a distinct host GUID, a background cap of 30, and `dvmp perf`. #78 no longer needs it as a split test: its cause, a VR client leak, is fixed in PR #89. A light or dedicated host is now worth having for convenience and for not having to play as the host, not for performance. | Done |
-| **1. Service-identity host** (shipped, behind `-mp-dedicated`) | **Built** (see [Implementation status](#implementation-status-2026-10-17)). Keep the loopback client and flag its `ServerPlayer`. Add a `GameplayPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
+| **1. Service-identity host** (shipped, behind `-mp-dedicated`) | **Built** (see [Implementation status](#implementation-status-2026-10-17)). Keep the loopback client and flag its `ServerPlayer`. Add a `ServerPlayers` view and use it in `AnyPlayerSqrMag`, interest, Lost and Found, culling, `MaxPlayers`, `PlayerJoined` and player lists. Replace the `PlayerCount == 1` heuristics. Park the vanilla body: kinematic, no tracker, no chat UI. Use a distinct GUID. Set MPAPI's `IsDedicatedServer`. Port HarnessMode's non-persisting reductions, with a cap of at least 30. Auto-host from command-line arguments (port of `host.cs`). | Medium |
 | **2. Unattended operation** | A timed save, save on stop, backups and a save lock. Owner and admin identities with chat commands (save, stop, kick, ban, pay fees, game parameters). A serverbound fee and debt payment. Pause when empty. A heartbeat file and a watchdog. (Migrating the old host body's state is replaced by the version-1 conversion in [server-player-split.md](server-player-split.md#save-format).) | Medium |
 | **3. Anchor the world on clients** | **(a) and (b) built** (see [Implementation status](#implementation-status-2026-10-17)). (a) Add remote players to `DistanceLodSystem`'s reference positions (one transpiler). (b) Move the parked body, or DV's external camera, to the single connected client, or to the players' centroid. That brings streaming, terrain and the origin to where play is. (c) For several players far apart: multi-anchor `TerrainGrid` and one streamer loading the union of tiles around every player, with a centred origin. Heightmap proxies are rejected. See [multi-anchor-streaming.md](multi-anchor-streaming.md). Also fixes the freeze that exists today when the host's player is far from a client. | (a, b) small to medium, (c) medium |
 | **4. GPU-less host** (optional) | The five render stubs and three silenced systems from section 1, gated on `-nographics`. Tested against each mod in use. | Small, plus per-mod testing |
