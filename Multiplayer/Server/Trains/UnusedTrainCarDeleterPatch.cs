@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Multiplayer.Server.Players;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
@@ -46,7 +47,7 @@ public static class UnusedTrainCarDeleterPatch
                 if (instruction.opcode == OpCodes.Call)
                 {
                     complete = true;
-                    yield return CodeInstruction.Call(typeof(DvExtensions), "AnyPlayerSqrMag", [typeof(Vector3)], null); //inject our method
+                    yield return CodeInstruction.Call(typeof(PlayerDistance), nameof(PlayerDistance.AnyPlayerSqrMag), [typeof(Vector3)], null); //inject our method
                     continue;
                 }
             }else if (complete && skipCtr < TARGET_SKIPS)
