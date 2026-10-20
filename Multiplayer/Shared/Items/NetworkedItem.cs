@@ -123,9 +123,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private Quaternion thrownRotation;
     private Vector3 throwDirection;
 
-    private bool processingAsHost = false;
-    /// <summary>The server is applying its own snapshot to this item: what changes isn't sent on.</summary>
-    internal bool ProcessingAsHost { get => processingAsHost; set => processingAsHost = value; }
     private bool applyingRemoteSnapshot;
     private bool recallPreparationPending;
     private uint recallPreparationOperationId;
@@ -138,10 +135,10 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     /// <summary>
     ///     The remote client's half of the item (Client/Items/NetworkedItemClient); null on the host.
-    ///     Made the first time it's asked for on a game that isn't the host.
+    ///     Made the first time it's asked for; the host's <c>LocalPlayerSession</c> makes none.
     /// </summary>
     internal INetworkedItemClientPart ClientPart =>
-        clientPart ??= NetworkLifecycle.Instance.IsHost() ? null : ItemClient.Current?.CreateItemPart(this);
+        clientPart ??= ItemClient.Current?.CreateItemPart(this);
 
     internal ClientItemUnboundState UnboundState => ClientPart?.UnboundState ?? ClientItemUnboundState.None;
 
@@ -426,8 +423,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         if (netId != 0)
         {
-            if (!NetworkLifecycle.Instance.IsHost())
-                NetworkedItemManager.Instance?.ClientPart?.ResolveAuthoritativeBindingCollision(this, netId, typeof(T));
+            NetworkedItemManager.Instance?.ClientPart?.ResolveAuthoritativeBindingCollision(this, netId, typeof(T));
             NetId = netId;
             ClientPart?.SetNetworkBinding(true);
         }
@@ -477,8 +473,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
             initialised = true;
             NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
-            if (NetworkLifecycle.Instance.IsHost())
-                NetworkedItemManager.Instance?.RegisterHostWorldItem(this);
+            NetworkedItemManager.Instance?.RegisterHostWorldItem(this);
             return true;
         }
         catch (Exception ex)
@@ -495,7 +490,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (!WorldItemStableIdentity.IsValid(AuthoredItemKey) && Item != null &&
             WorldItemStableIdentity.IsLikelyAuthoredAtAwake(Item))
             AuthoredItemKey = WorldItemStableIdentity.Capture(Item);
-        if (NetworkLifecycle.Instance.IsHost() && IsSceneAuthored)
+        if (IsSceneAuthored)
             ItemServer.Current?.MarkAuthoredIdentity(this);
     }
 
@@ -614,9 +609,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         PublishLocalState(networkStateChanged ? "item.local-state-changed" : "item.local-state-unchanged",
             currentState, previousObservedState, reason, string.Empty);
 
-        // Host-local interactions are authoritative already. Leave the dirty state for
-        // NetworkedItemManager.ProcessChanged() instead of sending a client packet back
-        // through the host's validation handler.
+        // The host's player's change is the server's world already: leave the dirty state for the
+        // server item manager's ProcessChanged, which sends it to the other players.
         if (NetworkLifecycle.Instance.IsHost())
         {
             hostStateObservationPending = true;

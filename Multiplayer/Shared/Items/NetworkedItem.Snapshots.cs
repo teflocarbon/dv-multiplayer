@@ -157,7 +157,7 @@ public partial class NetworkedItem
             return null;
         }
 
-        if (NetworkLifecycle.Instance.IsHost() && NetId != 0 &&
+        if (NetId != 0 &&
             ItemServer.Current?.TryGetPlacement(NetId, out ItemPlacementKind placement) == true &&
             placement == ItemPlacementKind.LostAndFound)
         {

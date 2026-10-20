@@ -179,12 +179,7 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
             return;
         }
 
-        if (!item.ProcessingAsHost)
-        {
-            ItemClient.Current?.SendItemUpdatePacket(snapshot);
-        }
-        else
-            item.ProcessingAsHost = false;
+        ItemClient.Current?.SendItemUpdatePacket(snapshot);
     }
 
     public uint ReserveRevision() => outboundRevisionPipeline.Reserve(item.AuthorityRevision);

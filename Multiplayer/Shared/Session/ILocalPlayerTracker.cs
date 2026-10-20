@@ -4,10 +4,9 @@ namespace Multiplayer.Shared.Session;
 
 /// <summary>
 ///     The body of the player at this keyboard, as the server reads it on the host
-///     (docs/design/host-local-session.md, "Position read from the tracker"): instead of the host's
-///     tracker sending its position through the loopback client a poll or more late, the server
-///     samples it right before it handles the host's requests, so every range check sees where the
-///     host's player is now. On a client the tracker samples itself each tick and sends the result.
+///     (docs/design/host-local-session.md, "Position read from the tracker"): the host's player has
+///     no client to send its position, so the server samples it right before it handles the host's
+///     requests, and every range check sees where the host's player is now. On a client the tracker samples itself each tick and sends the result.
 ///     Implemented by the client's <c>LocalPlayerTrackerBase</c>; none on a dedicated host.
 /// </summary>
 public interface ILocalPlayerTracker

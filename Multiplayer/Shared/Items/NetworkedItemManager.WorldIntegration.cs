@@ -33,7 +33,7 @@ public partial class NetworkedItemManager
             return;
         AuthoredCatalogue.Rebuild();
         authoredCatalogueBuilt = true;
-        if (NetworkLifecycle.Instance.IsHost() && ServerPart is { } server)
+        if (ServerPart is { } server)
         {
             foreach (NetworkedItem item in NetworkedItem.GetAll().Where(value => value != null).Distinct().ToArray())
                 server.RegisterHostWorldItem(item);

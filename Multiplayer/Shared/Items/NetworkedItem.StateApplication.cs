@@ -628,8 +628,7 @@ public partial class NetworkedItem
 
     private void HandleInventoryOrHandState(ItemUpdateData snapshot)
     {
-        if (!NetworkLifecycle.Instance.IsHost())
-            NetworkedItemManager.Instance?.ClientPart?.DetachAuthoredProjectionForPossession(this, snapshot);
+        NetworkedItemManager.Instance?.ClientPart?.DetachAuthoredProjectionForPossession(this, snapshot);
         Multiplayer.LogDebug(() => $"NetworkedItem.HandleInventoryOrHandState() ItemNetId: {snapshot?.ItemNetId} State: {snapshot?.ItemState}. Player: {snapshot?.PlayerId}, Position: {snapshot?.ItemPosition}");
 
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
@@ -656,8 +655,7 @@ public partial class NetworkedItem
                 // way, otherwise essentials are dropped (DV allows one of each) and everything
                 // else is duplicated. The original takes the copy's slot, so the inventory keeps
                 // its layout across a rejoin.
-                int freedSlot = NetworkLifecycle.Instance.IsHost() ? -1 :
-                    NetworkedItemManager.Instance?.ClientPart?.DiscardUnboundLocalDuplicate(this) ?? -1;
+                int freedSlot = NetworkedItemManager.Instance?.ClientPart?.DiscardUnboundLocalDuplicate(this) ?? -1;
 
                 // Retrieval claims reserve an exact silhouette slot. Ordinary inventory
                 // possession uses DV's normal free-slot insertion. A slot without a retrieval

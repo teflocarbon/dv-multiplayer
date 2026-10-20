@@ -16,8 +16,7 @@ internal static class MultiplayerStoragePatchGuard
         if (!Active || item == null || !NetworkedItem.TryGetNetworkedItem(item, out networked) ||
             networked == null || networked.NetId == 0)
             return false;
-        if (NetworkLifecycle.Instance.IsHost() &&
-            ItemServer.Current?.TryGetPersistentOwner(networked.NetId, out byte ownerPlayerId) == true)
+        if (ItemServer.Current?.TryGetPersistentOwner(networked.NetId, out byte ownerPlayerId) == true)
             return ownerPlayerId != 0;
         return networked.PersistentOwnerPlayerId != 0;
     }
