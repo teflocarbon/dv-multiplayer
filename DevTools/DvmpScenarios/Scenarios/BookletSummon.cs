@@ -148,10 +148,22 @@ namespace Dvmp.Scenarios
                     yield return LocalPlayer.GoTo(Items.Find(booklet));
                     yield return Hands.Pickup(booklet);
                 }
-                yield return LocalPlayer.TeleportToGround(x, z);
+                // On bare ground: a spot with a parked car would put the booklet on the car, which DV
+                // switches off out of the players' range (the run then found no booklet at all).
+                (float x, float z) spot = new[] { (0f, 0f), (0f, 20f), (0f, -20f), (20f, 0f), (20f, 20f), (20f, -20f), (40f, 0f) }
+                    .Select(o => (x: x + o.Item1, z: z + o.Item2))
+                    .FirstOrDefault(s => !Object.FindObjectsOfType<TrainCar>().Any(c =>
+                    {
+                        Vector3 p = c.transform.position - WorldMover.currentMove;
+                        return new Vector2(p.x - s.x, p.z - s.z).magnitude < 15f;
+                    }));
+                if (spot == default) throw new System.Exception($"no spot clear of cars near ({x:F0}, {z:F0})");
+                yield return LocalPlayer.TeleportToGround(spot.x, spot.z);
                 yield return Hands.Drop();
                 yield return new WaitForSecondsRealtime(2f);
                 Hands.ReleaseControl();
+                if (Items.Find(booklet)?.GetComponentInParent<TrainCar>() != null)
+                    throw new System.Exception($"booklet {booklet} landed on a train car at ({spot.x:F0}, {spot.z:F0})");
             }
 
             /// <summary>This player: presses the station validator's reprint button.</summary>
@@ -164,7 +176,10 @@ namespace Dvmp.Scenarios
             public static Booklets BookletState(string jobId, string station, ushort watched)
             {
                 Job job = Resources.FindObjectsOfTypeAll<NetworkedJob>().FirstOrDefault(n => n.Job?.ID == jobId)?.Job;
-                JobBooklet[] booklets = Object.FindObjectsOfType<JobBooklet>().Where(b => job != null && b.job == job).ToArray();
+                // Inactive ones too: a booklet left on a train car far from every player is switched
+                // off by DV's train LOD (TrainItemActivityHandler) but still exists.
+                JobBooklet[] booklets = Resources.FindObjectsOfTypeAll<JobBooklet>()
+                    .Where(b => b.gameObject.scene.IsValid() && job != null && b.job == job).ToArray();
                 NetworkedItem item = booklets.Select(b => b.GetComponent<NetworkedItem>()).FirstOrDefault(n => n != null && n.NetId == watched);
                 Vector3 printer = Validator(station).bookletPrinter.spawnAnchor.position;
                 return new Booklets
