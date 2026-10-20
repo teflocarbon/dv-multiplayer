@@ -4,7 +4,7 @@ TrainCar Find(string id) { try { return Trains.Find(id); } catch { return null; 
 float seconds = ctx.Args.TryGetValue("seconds", out var s) ? float.Parse(s) : 30f;
 float every = ctx.Args.TryGetValue("every", out var e) ? float.Parse(e) : 1f;
 var cars = ctx.Args["cars"].Split(',').Select(Find).Where(c => c != null).ToList();
-var Q = typeof(Multiplayer.Shared.Trains.TrainSpeedQueue);
+var Q = typeof(Multiplayer.Client.Trains.TrainSpeedQueue);
 var F = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
 bool all = ctx.Args.TryGetValue("all", out var al) && al == "1";
 var tryError = Q.GetMethod("TryGetAlongTrackError", F);

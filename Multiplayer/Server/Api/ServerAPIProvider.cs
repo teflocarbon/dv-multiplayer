@@ -2,6 +2,7 @@ using MPAPI.Interfaces;
 using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
 using Multiplayer.Server.Chat;
+using Multiplayer.Server.Players;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Shared.Utils;
@@ -83,9 +84,9 @@ public class ServerAPIProvider : IServer
     #endregion
 
     #region Server Util
-    public float AnyPlayerSqrMag(GameObject item) => DvExtensions.AnyPlayerSqrMag(item);
+    public float AnyPlayerSqrMag(GameObject item) => PlayerDistance.AnyPlayerSqrMag(item);
 
-    public float AnyPlayerSqrMag(Vector3 anchor) => DvExtensions.AnyPlayerSqrMag(anchor);
+    public float AnyPlayerSqrMag(Vector3 anchor) => PlayerDistance.AnyPlayerSqrMag(anchor);
     #endregion
 
     #region Player Management
