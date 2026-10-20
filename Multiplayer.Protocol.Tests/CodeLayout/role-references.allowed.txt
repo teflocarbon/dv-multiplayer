@@ -3,7 +3,6 @@
 # split the code instead of adding a line. See docs/design/code-layout.md.
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
-Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Client.Session.NetworkClient -> Multiplayer.Server.Session.PlayerAuthentication
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.ServerBrowser.ServerVisibility
