@@ -51,7 +51,7 @@ public static class RerailControllerPatch
 
     private static IEnumerator PlayerSoundsLater(RerailController __instance)
     {
-        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.Client.Ping * 3f)/1000);
+        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.LocalSession.Ping * 3f)/1000);
         if (__instance.moneyRemovedSound != null)
             __instance.moneyRemovedSound.Play2D();
         CommsRadioController.PlayAudioFromCar(__instance.rerailingSound, __instance.carToRerail);

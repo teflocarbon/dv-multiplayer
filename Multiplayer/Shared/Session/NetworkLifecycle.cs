@@ -53,7 +53,11 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     /// <summary>The server as the host's own player reaches it, in-process; null when this game isn't the server.</summary>
     public ILocalServer LocalServer => Server;
 
-    /// <summary>The player at this keyboard: id and the other players' avatars; null when no client is running.</summary>
+    /// <summary>
+    ///     The player at this keyboard (id, name, ping, the other players' avatars, chat); null when
+    ///     no client is running. Code that runs for the host's player too reads this, not
+    ///     <see cref="Client"/>: in host-local-session stage 3 the host has no client.
+    /// </summary>
     public ILocalPlayerSession LocalSession => Client;
 
     public bool IsReturningToMenu { get; private set; } = false;

@@ -4,7 +4,7 @@ using Multiplayer.Shared.World;
 using System.Collections;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Trains;
+namespace Multiplayer.Client.Trains;
 
 public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
 {

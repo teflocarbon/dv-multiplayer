@@ -12,9 +12,6 @@ namespace Multiplayer.Shared.Items;
 /// </summary>
 public interface IItemServer
 {
-    /// <summary>The host's own player's id; 0 until its loopback login has been accepted.</summary>
-    byte LocalPlayerId { get; }
-
     /// <summary>Whether the item is in the server's Lost and Found.</summary>
     bool IsInLostAndFound(ushort itemNetId);
 
