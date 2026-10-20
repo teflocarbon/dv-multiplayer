@@ -12,7 +12,10 @@ on the server and in every client, are made to agree with it.
 
 ## Implementation status
 
-Not started (2026-10-21). See the [plan](#plan).
+- **PR 1a, the ledger in Core: built (2026-10-21)**, unit tested, not yet wired to the server.
+  - Built: `OwnedItemLedger`, `OwnedItemEntry` and `OwnedItemReconciler` in `Multiplayer.Core/Items/`.
+  - Tests: 31 tests in `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`.
+- **Everything else: not started.** See the [plan](#plan).
 
 ## Why
 
@@ -158,11 +161,11 @@ item's save data carries it.
 
 **Duplicates.** Random GUIDs don't collide in practice. The real risk is one id being copied: a
 copied save, a dupe bug, or an object cloned with its identity. `PersistentWorldItemIdentity` is a
-serialized field, so `Instantiate` copies it. The ledger refuses a second live item with an id it
-already has:
+serialized field, so `Instantiate` copies it. The ledger refuses a second item with an id it already
+has, live or ended, since an id is never reused:
 
 - The first item keeps the id. The copy gets a new GUID and is born `Duplicate`, with the original's id
-  in its lineage and the original's owner.
+  in its lineage. It keeps the owner it was registered with, which is normally the original's.
 - It is logged as an error (`item.duplicate-persistent-id`, with both NetIds, the prefab, the owner
   and where each one is), because it means a bug or an edited save.
 - Lost and Found's existing `LostItemRegistryResult.DuplicatePersistentItemId` becomes the same check.
@@ -328,6 +331,8 @@ live entry against the stores:
 | In exactly one other store | that store wins (it has the state). `where` is corrected and logged: the ledger was stale, for example after a build without the ledger played the save. |
 | In more than one store | the copy in the store `where` names is kept, or else the first by priority: Lost and Found, container, installed, a player's possession, world. The others are destroyed and logged as duplicates. |
 | Nowhere | `Missing`: kept, shown in the owner's list as lost track of, and checked again at each load. An admin can `/give` a new one. |
+| An ended entry's item, in a store | it lives again where the store has it, and is logged: a build without the ledger played the save |
+| Another player's item in a saved possession | sent to its owner's Lost and Found (`SaveRecovery`). Nobody is connected at load, so it breaks the rule that a player carries off only their own and unowned items. |
 | An owned item in a store with no entry | registered, born `Migrated` |
 
 Lost and Found entries bind by the item id inside the inert item's save data, for every owner, online
@@ -535,19 +540,21 @@ branches made from `beta`, in small PRs, in order, each from a branch `items/<wh
   [`item-ownership-open-questions.md`](item-ownership-open-questions.md);
 - keeps every file under the size limit. `AuthoritativeItemRegistry.cs` is 1,166 lines and must not
   grow, so ownership moves out of it into new files:
-  - `Multiplayer.Core/Items/OwnedItems/` (the ledger, its reconcile planner, `ItemAccess`);
+  - `Multiplayer.Core/Items/OwnedItem*.cs` (the ledger, its reconcile planner, `ItemAccess`), flat
+    like the rest of Core's `Items`;
   - `Multiplayer/Server/Items/OwnedItems/` (the server's ledger, its persistence, retrieval, issuing);
   - `Multiplayer/Client/Career/OwnedItemsScreen.cs`.
 
 It runs beside the gadget work ([gadgets.md](gadgets.md#pr-plan), PR #273). The two plans meet at
 four points, and both docs state them the same way:
 
-- **Gadget PR 1 goes before either track.** The ledger counts installed gadgets as one of its stores,
-  and its migration reads `dvmpPersistentOwner`. Both come from gadget PR 1.
-- **`AuthoritativeItemRegistry.cs` is shared.** Owned-items PR 1 hooks the ledger into every registry
+- **Gadget PR 1 goes before owned-items PR 1b.** The ledger counts installed gadgets as one of its
+  stores, and its migration reads `dvmpPersistentOwner`. Both come from gadget PR 1. PR 1a (pure
+  Core) touches neither track and goes ahead now.
+- **`AuthoritativeItemRegistry.cs` is shared.** Owned-items PR 1b hooks the ledger into every registry
   commit and moves ownership out of that file. Gadget PR 3a adds the install and remove transitions,
   in a file of their own that calls the registry. The two are never in flight at once.
-- **Gadget PR 3a comes after owned-items PR 2** (ownership by identity), so a deleted car's gadgets
+- **Gadget PR 3a comes after owned-items PR 2a** (ownership by identity), so a deleted car's gadgets
   reach an offline owner's Lost and Found.
 - **Gadget PRs 4, 5 and 9 come before owned-items PR 7.** Those PRs make tape, spools and labels
   server-side, and PR 7 (lineage) records what they replace. Owned-items PR 8 (retrieving installed
@@ -580,8 +587,29 @@ player host only, and say so.
 ### 1. The ledger, in shadow, and one id in every store
 
 The ledger is built and saved, with nothing reading it yet. The stores move to the item's own id in
-the same PR. That fixes the [cold-withdrawal bug](#known-bugs-the-ledger-removes) as part of the
-redesign, not as a separate fix (decided by the user 2026-10-21).
+the same work. That fixes the [cold-withdrawal bug](#known-bugs-the-ledger-removes) as part of the
+redesign, not as a separate fix (decided by the user 2026-10-21). It is two PRs.
+
+#### 1a. The ledger in Core
+
+Pure logic and unit tests, no game. It touches nothing the gadget or shops work does.
+
+- `OwnedItemEntry.cs`: the entry, `OwnedItemWhere`, born and ended.
+- `OwnedItemLedger.cs`:
+  - registration with the duplicate check (an id taken, live or ended, is re-minted);
+  - moves, ends, replacements, revival;
+  - claim slots unique by construction, and the one-off clash repair for old saves;
+  - `shopStocked` with `CountLive`, and the `Changed` event;
+  - pruning of ended entries;
+  - the starter-kit markers;
+  - restoring a save.
+- `OwnedItemReconciler.cs`: the [load table](#the-ledger) as a plan of steps. Migration is the same
+  plan run against an empty ledger.
+- Tests: `Multiplayer.Core.Tests/Items/OwnedItemLedgerTests.cs` and `OwnedItemReconcilerTests.cs`.
+
+#### 1b. The ledger on the server
+
+After gadget PR 1, which touches the same server files.
 
 - One id in every store:
   - `RegisterMaterializedColdItem` takes the item's `PersistentWorldItemIdentity` and authored key,
@@ -590,9 +618,6 @@ redesign, not as a separate fix (decided by the user 2026-10-21).
   - Lost and Found binds saved entries by the id in the inert item's save data, with today's index
     and prefab as the fallback for old saves.
   - `LostItemRegistry.Restore`'s duplicate result is logged at its callers.
-- Core: `OwnedItemLedger` (entries, `where`, born/ended, lineage, duplicate check, claim slots
-  unique by construction) and `OwnedItemReconciler` (the load table). Unit tests in
-  `Multiplayer.Core.Tests/Items/OwnedItemLedgerTests.cs`.
 - Server: the ledger is updated at each registry commit point. `OwnedItemsV1` is saved and loaded.
   Migration is described [below](#migration). The duplicate check is at registration.
 - The debug-build check that vanilla's lists agree.
@@ -623,20 +648,30 @@ redesign, not as a separate fix (decided by the user 2026-10-21).
 
 ### 2. Ownership by identity
 
+Two PRs, so the protocol change is one small PR of its own.
+
+#### 2a. Identity on the server
+
 The ledger becomes the owner's source. `PersistentOwnerPlayerId` is derived, every server check uses
-the identity, and Unbind/Rebind go (see [What goes away](#joining-and-rejoining)).
+the identity, and Unbind/Rebind go (see [What goes away](#joining-and-rejoining)). The wire doesn't
+change. Gadget PR 3a waits for this one.
 
 - The first-taker rule checks the ledger, so an offline owner's item is never taken over.
 - Lost and Found binds every entry at load. Cold containers take the owner from the ledger and
   withdraw while the owner is offline.
-- The owner bit on the wire and red for every foreign-owned item.
 - Scenario **`absent-owner`** (`[Needs(Need.RestartsGames)]`, both hosts):
   1. The host gives a personal item to a made-up identity.
-  2. The client picks it up: the owner is still the absent identity, not the client, and the client
-     shows it red.
+  2. The client picks it up: the owner is still the absent identity, not the client.
   3. The client drops it. Before a restart a Lost and Found entry is made for the absent identity
      (server step); after the restart it is bound at load, not pending.
   4. `owned-items` still passes, with its explanation updated: there is no number to shift any more.
+
+#### 2b. Red for every item someone else owns
+
+- The "owned by someone not here" bit in item updates, and `InventoryPresentationPlanner` showing red
+  for any owner but the local player. The protocol fingerprint moves.
+- `absent-owner` gains: the client shows the absent identity's item red. On a player host the host's
+  item shows red in the client's hand.
 
 ### 3. Lost and Found for everyone
 
