@@ -492,7 +492,7 @@ pages, matched to the classes above:
 The brake LED bar, digital clock and digital speedometer exist in code with no manual page. Tools:
 electric hand drill, duct tape, hammer, filler gun, soldering gun and wire, crimping tool (the wiring
 tool), label maker. The manual also says gadgets on a despawned company (DVRT) vehicle "return to a
-tool shed"; the code for that hasn't been found yet.
+tool shed": the car's force-removal drops them as world items, and `RespawnOnDrop` sends owned items far from the player to Lost and Found (`RespawnOnDrop.cs:288-314`); unused cars despawn only far from the player.
 
 Almost every gadget needs soldering into a vehicle's electrics, and only vehicles have a fuse, so off
 a train only the unpowered cosmetics and the clinometer do anything.

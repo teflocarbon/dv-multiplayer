@@ -359,7 +359,7 @@ Everyone near a player using a gadget tool sees and hears it, as they would in o
 
 | Trigger | Server | Remote clients |
 | --- | --- | --- |
-| Car deleted | native: each gadget force-removed, items become world items at the gadget's pose; the change log records them. The manual says gadgets on a despawned company (DVRT) vehicle "return to a tool shed"; the code doing that isn't found yet, and PR 3 finds it and keeps that behaviour | runs natively when the client applies the car's despawn, in the apply scope; the `Removed` entries are then already applied and skipped |
+| Car deleted | native: each gadget force-removed, items become world items at the gadget's pose; the change log records them. The manual's "gadgets on a despawned DVRT vehicle return to a tool shed" is this plus vanilla's `RespawnOnDrop` sending owned items far from the player to Lost and Found; the mod's Lost and Found policy does the same for owned world items whose owner is away | runs natively when the client applies the car's despawn, in the apply scope; the `Removed` entries are then already applied and skipped |
 | Window glass broken | native, from the server's damage | runs natively when the client applies `ClientboundWindowsBrokenPacket`, in the apply scope |
 | Collision dislodge (random) | native: the server's roll is the only roll | `TrainCarCustomization.OnCollisionEnter` off |
 | Hanger flips | native | `Dangler`'s forced unsnap off |
