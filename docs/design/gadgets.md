@@ -163,7 +163,9 @@ It checks what decides authority and sanity:
   tool's remaining units, to what the gadget still needs, and to what the elapsed time allows (twice
   vanilla's 32768 units per second);
 - the feature flags are the requester's and are not checked (only the tutorial or the console deny
-  them).
+  them);
+- permissions: none yet, anyone may do anything to any car's gadgets. This is where the planned
+  access-control system will plug in (see [Decisions](#decisions-for-the-user)).
 
 Then it applies the change natively in the apply scope: `GadgetItem.Place` (and `Mount.MountGadget`),
 `GadgetBase.Remove`, `Drillable.SetMountPointState`, `Customization.RemoveHole`, `WireLinkPort.Wire`,
@@ -433,15 +435,18 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 
 ## Decisions for the user
 
-1. **Who may remove a gadget someone else installed?** Proposed: anyone, as trains are shared (the
-   company model); the item keeps its persistent owner, and whoever removes it holds it like any
-   picked-up item. The alternative is owner-only removal.
-2. **The defect detector's snooze** is proposed per player (presentation), not shared.
+1. **The defect detector's snooze** is proposed per player (presentation), not shared.
 
 Decided:
 
 - **Vehicles only** (2026-10-21). No gadgets on the world, the house, the shed or the paint station;
   see [Off-train installs](#off-train-installs).
+- **Anyone may remove anyone's gadget** (2026-10-21), for now. The item keeps its persistent owner, and
+  whoever removes it holds it like any picked-up item. **Future: permissions.** An access-control
+  system is planned; when it lands, who may install on, remove from, wire, solder or change the
+  settings of gadgets on a car becomes its rule. The server's request checks
+  ([What the server checks](#what-the-server-checks)) are the one place it plugs in; nothing on the
+  client decides it.
 
 ## PR plan
 
