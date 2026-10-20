@@ -146,6 +146,21 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     public readonly ClientPlayerManager ClientPlayerManager;
     IReadOnlyCollection<NetworkedPlayer> ILocalPlayerSession.RemotePlayers => ClientPlayerManager.Players;
     bool ILocalPlayerSession.TryGetRemotePlayer(byte playerId, out NetworkedPlayer player) => ClientPlayerManager.TryGetPlayer(playerId, out player);
+    event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerConnected
+    {
+        add => ClientPlayerManager.OnPlayerConnected += value;
+        remove => ClientPlayerManager.OnPlayerConnected -= value;
+    }
+    event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerDisconnected
+    {
+        add => ClientPlayerManager.OnPlayerDisconnected += value;
+        remove => ClientPlayerManager.OnPlayerDisconnected -= value;
+    }
+    event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerPrefsUpdated
+    {
+        add => ClientPlayerManager.OnPlayerPrefsUpdated += value;
+        remove => ClientPlayerManager.OnPlayerPrefsUpdated -= value;
+    }
     public readonly Dictionary<byte, ClientPlayerWrapper> PlayerWrapperCache = [];
     public IReadOnlyCollection<ClientPlayerWrapper> ClientPlayerWrappers => PlayerWrapperCache.Values;
 

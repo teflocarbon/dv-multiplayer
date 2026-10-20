@@ -118,7 +118,7 @@ Paths are under `Multiplayer/`.
 | `Components/Networking/{DedicatedHost,DedicatedHostAnchor,DedicatedHostSaveLock,Server*Coverage}.cs` | Server | |
 | `Components/Networking/{RpcManager,TickedQueue}.cs` | Client (`RpcManager` issues and resolves tickets), Shared | |
 | `Components/Networking/Jobs/` | `JobBookletSummonCoordinator`, `NetworkedTask`: Server. `NetworkedJob`: split. Lookups: Shared | |
-| `Components/Networking/Player/` | Client: trackers, `NetworkedWorldMap`. **`NetworkedPlayer`: see Decisions** | |
+| `Components/Networking/Player/` | Client: trackers, `NetworkedWorldMap`, `NetworkedPlayerNameTag` (name tag and ping). **`NetworkedPlayer`: see Decisions** (its model and animation are still in it: the VR IK handler the model adds gates the hand smoothing that places held items) | |
 | `Components/Networking/Train/` | `TrainTopologyAuthority`, `NetworkedLocoRestorationController`: Server. `TrainPortPresenter`, `TrainTopologyReconciler`, `NetworkedCarSpawner`: Client. Lookups, `TrainTopologyNativeAdapter`, `NetworkedBogie`, `NetworkedRigidbody`: Shared. **`NetworkedTrainCar`, `NetworkTrainsetWatcher`, `TrainSpeedQueue`, `TrainChangeCauses`: split** | |
 | `Components/Networking/UI/` | Client (`NetworkStatsGui`: Shared) | |
 | `Components/Networking/World/` (items) | `AuthoritativeItemRegistry`, `NetworkedItem.Server`, `NetworkedItemManager.{ServerInterest,Convergence}`, `NetworkedLostAndFoundManager`, `OwnedItemsSummary`, `Containers/NetworkedColdContainerManager`, `WorldItems/{Persistence*,AuthoredWorldItemReplenishmentManager}`: Server. `NetworkedItem.{StateApplication,VrHand}`, `NetworkedItemManager.ClientProjection`: Client. Identities and records: Shared. **`NetworkedItem`, `NetworkedItem.Snapshots`, `NetworkedItemManager.{ProjectionAndCompatibility,WorldIntegration,FallRescue}`, `WorldItems/{NetworkedItemSpatialManager,NetworkedTrainItemWakeManager}`: split** | Items are already split into role partials; the split here is finishing that |
@@ -131,7 +131,7 @@ Paths are under `Multiplayer/`.
 | `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,934 lines) could also split by area (trains, items, world, career) while it moves |
 | `Networking/Managers/Client/` | Client | `NetworkClient.cs` (3,079 lines), likewise |
 | `Patches/` | Per file: see Patches | |
-| `Utils/` | Shared. `DvExtensions`: split (`AnyPlayerSqrMag` is the server's) | |
+| `Utils/` | Shared. `DvExtensions`: split; its server rules are `Server/Players/PlayerDistance` (`AnyPlayerSqrMag`, `PlayerCanReach`) and `NetworkServer.Pause` (`AllowsPause`, read through `IPauseServer`) | |
 
 ### Patches
 
