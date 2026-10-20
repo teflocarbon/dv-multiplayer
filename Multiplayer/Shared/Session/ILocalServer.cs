@@ -11,8 +11,8 @@ public interface ILocalServer
     /// <summary>
     ///     Hands a request from the host's own player to the server, which handles it at its next
     ///     poll, in order, with that player as the sender: the same work as the request's packet
-    ///     handler. False, and nothing queued, if the server doesn't handle this request type
-    ///     in-process yet: send it through the loopback client as before.
+    ///     handler. False, and nothing queued, if the server has no in-process handler for this
+    ///     request type.
     /// </summary>
     bool Submit<TRequest>(TRequest request) where TRequest : class;
 
@@ -29,6 +29,6 @@ public interface ILocalServer
     /// </summary>
     bool IsApplyingRemoteChange { get; }
 
-    /// <summary>Players logged in, the host's own (or a dedicated host's service identity) included.</summary>
+    /// <summary>Players logged in, the host's own included (a dedicated host has none).</summary>
     int PlayerCount { get; }
 }

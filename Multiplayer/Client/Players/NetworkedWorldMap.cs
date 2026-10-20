@@ -12,8 +12,8 @@ public class NetworkedMapMarkersController : MonoBehaviour
     private MapMarkersController markersController;
     private GameObject textPrefab;
     private readonly Dictionary<NetworkedPlayer, WorldMapIndicatorRefs> playerIndicators = [];
-    // The map is the local player's: a game nobody plays at (a dedicated host with no loopback
-    // client) has no session, and marks nobody.
+    // The map is the local player's: a game nobody plays at (a dedicated host) has
+    // no session, and marks nobody.
     private ILocalPlayerSession session;
 
     private void Awake()

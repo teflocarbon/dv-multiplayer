@@ -2,10 +2,10 @@
 # The host throws an item itself (no hand-off to a client): the host simulates it under its own
 # spatial lease and commits where it comes to rest. It must settle at the same spot in both games,
 # with the same revision, no lease left open, and the host's copy's revision never going back.
-# Nothing about it may reach the host's own client: the server leaves that client out of the
-# lease, samples and commit (HostOwnClient drops them if they come, and counts as a failure here).
-# This is the host-follower family (docs/design/host-local-session.md, stage 1): the host's
-# loopback client applying what the server sent for remote players to the host's own world.
+# Nothing about it may reach the host's own player: the server leaves it out of the lease, samples
+# and commit (its session drops them if they come, LocalPlayerSession.Drop, and that counts as a
+# failure here). This is the host-follower family (docs/design/host-local-session.md, stages 1-3):
+# the host applying what the server sent for remote players to the host's own world.
 #   PREFAB=item prefab (default Mug)
 # Exit code 0 = pass. Needs a running pair (dvmp up). Works on a dedicated host only if its parked
 # body can throw, so it isn't run there.

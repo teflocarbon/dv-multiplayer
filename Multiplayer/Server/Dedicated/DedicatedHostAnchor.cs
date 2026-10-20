@@ -69,7 +69,7 @@ public sealed class DedicatedHostAnchor : MonoBehaviour
 
         if (followed == null || !IsFollowable(followed))
         {
-            ServerPlayer next = NetworkServer.Instance.GameplayPlayers
+            ServerPlayer next = NetworkServer.Instance.ServerPlayers
                 .Where(IsFollowable)
                 .OrderBy(player => player.LastLogin)
                 .FirstOrDefault();

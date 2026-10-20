@@ -24,8 +24,7 @@
   sent only to players who know the item. Leases, samples and commits are never sent to the host's
   own player: when the host simulates, the server's lease is the lease (its client dropped them).
 - **Who the host simulates as** (`Server/Items/HostItemActor.cs`): the host's own player on a
-  player host. A dedicated host with no local player session (host-local-session stage 3,
-  `-mp-local-session`) has no player, so the server is the actor and simulator itself, as id 0
+  player host. A dedicated host has no player (host-local-session stage 3), so the server is the actor and simulator itself, as id 0
   (`ItemTransitionCommand.ServerActorId`). It commits its world's changes (`ProcessChanged`),
   simulates its own releases and throws, and witnesses its own train-item impacts. The state
   machine lets actor 0 move items about the world but never into a hand or inventory, and never

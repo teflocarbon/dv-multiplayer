@@ -393,17 +393,16 @@ hold narrowly scoped control authority; the resulting mutation still executes in
 In the code, motion is sent unreliably (reliably when a bogie changed track) and has no epochs,
 and simulation is the brake-state packet only; see "Motion" and "Brake and locomotive simulation".
 
-### The host's own client
+### The host's own player
 
-The host's own client runs in the host's world, so it is never a follower of any layer: what the
-host sends players to follow (spawns, deletes, topology snapshots, physics, brake state, control
-commits, relocations, rerails, cargo, damage, paint, restoration) is dropped by that client
-(`HostOwnClient`, see "The host's own client" in [architecture.md](../architecture.md)). Its
-`TrainTopologyReconciler` stays empty: it never takes a baseline (the host skips the join), and
-`SendTrainSyncRequest`, `RequestTrainTopologySync` and `RestoreCanonicalTrainTopology` do nothing
-on the host. Couplings made in the host's world reach clients by the server observing them
-(`CommitObservedTrainTopology`), not by a round trip through its client: couples and uncouples from
-the couplers' events, chains settling (hooked on, parked, left hanging, screwed tight or loose)
+The host runs no client (host-local-session stage 3): its player is a `LocalPlayerSession` in the
+host's world, so it is never a follower of any layer. What the host sends players to follow (spawns,
+deletes, topology snapshots, physics, brake state, control commits, relocations, rerails, cargo,
+damage, paint, restoration) isn't presented by that session, which drops it if it comes (see "The
+host's own player" in [architecture.md](../architecture.md#the-hosts-own-player)). There is no
+`TrainTopologyReconciler` on the host, no baseline and no sync request. Couplings made in the
+host's world reach clients by the server observing them (`CommitObservedTrainTopology`):
+couples and uncouples from the couplers' events, chains settling (hooked on, parked, left hanging, screwed tight or loose)
 from their `StateChanged` (`NetworkedTrainCarServer`), and hoses, cocks, MU cables and the coupling
 menu from patches on the vanilla calls (`Server/Trains/TopologyObservationPatch.cs`). The client
 patches that report these send only from a remote client. Until 2026-10-20 the host's own client
@@ -441,8 +440,8 @@ no reason of its own); the host player's answer goes back through its peer to wh
 radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in its own world.
 
 The host's player makes these requests through `ITrainClient` (`TrainRoles.Client`), never through
-`NetworkClient`: on a client it's `NetworkClient`, which sends them; on a player host with
-`-mp-local-session` (host-local-session stage 3) it's the host's `LocalPlayerSession`
+`NetworkClient`: on a client it's `NetworkClient`, which sends them; on a player host (host-local-session
+stage 3) it's the host's `LocalPlayerSession`
 (`LocalPlayerSession.Trains.cs`), which hands the same packets to the server in-process and
 subscribes the lease updates its cab needs (`ClientboundTrainControlAuthorityUpdatePacket`), the
 one train packet the host's player is sent; until stage 3 ends, the loopback client still does both
@@ -471,7 +470,7 @@ port values, motion, derail and rerail, brake state, commits). The car makes it 
 session (`ITrainClient.CreateCarPart`, `TrainRoles.Client` = `LocalSession as ITrainClient`) and
 calls it through `ITrainCarClientPart` at the end of `Start`, in `OnDisable`, from its sends, and
 when the host's port values land. Client code reaches it as `car.Client()`. On a player host
-with `-mp-local-session` the host's `LocalPlayerSession` implements `ITrainClient` and makes the
+the host's `LocalPlayerSession` implements `ITrainClient` and makes the
 same part, its follower half off; a dedicated host has none.
 
 The car's own changes (dirty ports, fuses, handbrake, brake release, paint) go through one of the

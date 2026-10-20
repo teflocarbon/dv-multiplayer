@@ -198,8 +198,8 @@ public partial class NetworkServer : IItemServer
     }
 
     // The spatial stream is for the players following an item. The host's own player is the
-    // server's own world: when it simulates, the server's lease is the lease, and its client
-    // would only drop these (HostOwnClient), so it isn't sent them.
+    // server's own world: when it simulates, the server's lease is the lease, and its session
+    // presents none of these, so it isn't sent them.
     public void SendItemSpatialLease(NetworkedItem item, ClientboundItemSpatialLeasePacket packet)
     {
         if (item == null || packet?.State == null)
@@ -633,8 +633,8 @@ public partial class NetworkServer : IItemServer
     }
 
     // The Lost and Found screen's and the container UI's requests. The host's own player's are
-    // handled in-process (RegisterLocalItems); the answers go to its client like anyone's, which
-    // shows them (HostOwnClient applies them).
+    // handled in-process (RegisterLocalItems); the answers go to its peer like anyone's, and its
+    // session shows them (LocalPlayerSession.Items).
     partial void RegisterLocalItems()
     {
         HandleLocal<ServerboundLostItemsRequestPacket>(HandleLostItemsRequest);

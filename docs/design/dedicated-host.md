@@ -6,6 +6,10 @@
 > - stage 2: built and tested. An admin client's fees screen pays all the fees at once, not one
 >   by one, since clients have no fee list;
 > - stage 4 isn't built.
+> - since host-local-session stage 3 ([host-local-session.md](host-local-session.md), on
+>   `split/stage-3`) a dedicated host has no loopback client and no service identity: no player at
+>   all, its console commands run as a console sender, and "the players" are `ServerPlayers`. The
+>   sections below that describe the service identity are history.
 >
 > The work every host needs (per-player state, multi-anchor streaming) is now planned in
 > [server-player-split.md](server-player-split.md). See
@@ -299,6 +303,9 @@ Still open:
   its own change.
 
 ### Stage 1: the service-identity host (`-mp-dedicated`)
+
+> Superseded in part by host-local-session stage 3: the loopback client and its service identity
+> are gone (see the status above). The rest of this stage stands.
 
 Without the flag nothing changes. With it, the game is a dedicated host:
 
@@ -621,6 +628,9 @@ Paths are under `Multiplayer/`. Line numbers are from the working tree on 2026-1
 `ee77d557` plus #87).
 
 ### Keep the loopback client: it isn't only a player
+
+> History: host-local-session stages 2 and 3 took each of these jobs off the loopback client, and
+> stage 3 removed it ([host-local-session.md](host-local-session.md)).
 
 The obvious design, starting the server without `NetworkLifecycle.StartServer`'s loopback client
 (`Shared/Session/NetworkLifecycle.cs:125-160`, client at `:153`), breaks the host itself.

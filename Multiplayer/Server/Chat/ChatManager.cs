@@ -295,7 +295,7 @@ public class ChatManager
     {
         if (player == null)
             return false;
-        // The server's console (or its service player) sends only what was typed in the console.
+        // The server's console sends only what was typed in it.
         if (IsConsole(player))
             return runningConsoleCommand;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
@@ -322,24 +322,20 @@ public class ChatManager
 
     private static bool runningConsoleCommand;
 
-    // Sends a dedicated host's console commands when it has no service player (stage 3, -mp-local-session).
+    // Sends a dedicated host's console commands (it has no player of its own).
     private ServerPlayer consoleSender;
 
-    // The console: a dedicated host's service player, or with none the console sender.
-    private static bool IsConsole(ServerPlayer player) => player != null && (player.IsServiceHost || player.IsConsole);
+    private static bool IsConsole(ServerPlayer player) => player != null && player.IsConsole;
 
     /// <summary>
     /// A line typed in a dedicated host's console (DedicatedHost.RunConsoleCommands). It runs as the
-    /// server's own service player, or a console sender where there is none (stage 3), which is an
-    /// admin for it, and the replies go to the log. A line without a slash is said in chat as the server.
+    /// server's console sender (<see cref="ServerPlayer.CreateConsole"/>), which is an admin for it,
+    /// and the replies go to the log. A line without a slash is said in chat as the server.
     /// </summary>
     public void RunConsoleCommand(string line)
     {
         NetworkServer server = NetworkServer.Instance;
-        ServerPlayer console = server?.ServerPlayers.FirstOrDefault(player => player.IsServiceHost) ??
-            (server != null && NetworkLifecycle.LocalSessionRequested
-                ? consoleSender ??= ServerPlayer.CreateConsole(DedicatedHost.ServiceName)
-                : null);
+        ServerPlayer console = server != null ? consoleSender ??= ServerPlayer.CreateConsole(DedicatedHost.ServiceName) : null;
         if (console == null)
         {
             Multiplayer.LogWarning($"[Console] the server isn't ready for commands yet: {line}");
@@ -373,7 +369,7 @@ public class ChatManager
     {
         if (string.IsNullOrEmpty(name))
             return null;
-        var players = NetworkServer.Instance.GameplayPlayers.ToList();
+        var players = NetworkServer.Instance.ServerPlayers.ToList();
         ServerPlayer exact = players.FirstOrDefault(p => string.Equals(p.Username, name, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
             return exact;

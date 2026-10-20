@@ -162,10 +162,10 @@ public class LobbyServerManager : MonoBehaviour
         {
             timePassed += Time.deltaTime;
 
-            if (timePassed > UPDATE_TIME || (server.ServerData.CurrentPlayers != server.GameplayPlayerCount && timePassed > PLAYER_CHANGE_TIME))
+            if (timePassed > UPDATE_TIME || (server.ServerData.CurrentPlayers != server.PlayerCount && timePassed > PLAYER_CHANGE_TIME))
             {
                 timePassed = 0f;
-                server.ServerData.CurrentPlayers = server.GameplayPlayerCount;
+                server.ServerData.CurrentPlayers = server.PlayerCount;
                 StartCoroutine(UpdateLobbyServer($"{Multiplayer.Settings.LobbyServerAddress}/{ENDPOINT_UPDATE_SERVER}"));
 
                 if(lobby != null)
@@ -175,7 +175,7 @@ public class LobbyServerManager : MonoBehaviour
             }
         }else if (server?.ServerData?.Visibility == ServerVisibility.Private || !sendUpdates)
         {
-            server.ServerData.CurrentPlayers = server.GameplayPlayerCount;
+            server.ServerData.CurrentPlayers = server.PlayerCount;
         }
 
         //Keep LAN discovery running

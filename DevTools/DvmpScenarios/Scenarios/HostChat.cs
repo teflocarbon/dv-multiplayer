@@ -12,7 +12,7 @@ namespace Dvmp.Scenarios
 {
     /// <summary>
     /// What the server sends the host's own player reaches it (docs/design/host-local-session.md,
-    /// stage 3: with `--local-session` through its LocalPeer, without it through the loopback client).
+    /// stage 3: through its LocalPeer).
     /// On a player host: the client's chat line and its whisper show in the host's chat; the host's
     /// `/help` is answered to the host alone; the host sets its own crew name with `/crew` and its
     /// player list row shows it, as do the client's avatar of the host and the client's player list
@@ -83,8 +83,8 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
-            /// <summary>Host: the host's own player (a dedicated host's service identity without
-            /// --local-session, none with it) and the client's, the one other player, from the server.</summary>
+            /// <summary>Host: the host's own player (none on a dedicated host) and the
+            /// client's, the one other player, from the server.</summary>
             [Step]
             public static Names Names()
             {

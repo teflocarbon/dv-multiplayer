@@ -1,5 +1,5 @@
-// class probe, host. Counts the packets the host's own client drops (NetworkClient.IgnoreOnHost:
-// the server sent the host's client something it must never follow), by type.
+// class probe, host. Counts the packets the host's own player's session drops (LocalPlayerSession.Drop:
+// the server sent the host's player something it must never follow), by type.
 // Args: action=install|read|remove.
 using HarmonyLib;
 public static class Probe
@@ -14,11 +14,11 @@ public static class Probe
             return c;
         }
     }
-    public static void Post(Type packetType)
+    public static void Post(ulong hash)
     {
         lock (Counts)
         {
-            string name = packetType?.Name ?? "null";
+            string name = Multiplayer.Shared.Protocol.Serialization.PacketNames.Describe(hash);
             Counts.TryGetValue(name, out int n);
             Counts[name] = n + 1;
         }
@@ -30,7 +30,7 @@ public static class Probe
         {
             case "install":
                 h.UnpatchAll(Slot);
-                h.Patch(AccessTools.Method(typeof(Multiplayer.Client.Session.NetworkClient), "IgnoreOnHost"),
+                h.Patch(AccessTools.Method(typeof(Multiplayer.Client.Session.LocalPlayerSession), "Drop"),
                     postfix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(Post))));
                 lock (Counts) Counts.Clear();
                 return new { installed = true };

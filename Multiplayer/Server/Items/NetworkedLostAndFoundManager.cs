@@ -614,7 +614,7 @@ public static class NetworkedLostAndFoundManager
     {
         bool ownerKnown = NetworkServer.Instance.TryGetServerPlayer(
             authority.PersistentOwnerPlayerId, out ServerPlayer owner);
-        List<ServerPlayer> players = NetworkServer.Instance.GameplayPlayers
+        List<ServerPlayer> players = NetworkServer.Instance.ServerPlayers
             .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems)
             .ToList();
         float nearest = players.Count == 0 ? float.MaxValue :

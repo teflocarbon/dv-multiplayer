@@ -22,7 +22,7 @@ public static class NetworkRole
 
     /// <summary>
     ///     This game plays on another game's server, so the world here follows the host's. Never true
-    ///     on a host, even though the host runs a client of its own.
+    ///     on a host.
     /// </summary>
     public static bool IsRemoteClient
     {
@@ -51,7 +51,7 @@ public static class NetworkRole
     /// <summary>
     ///     The id of the player at this keyboard (<see cref="ILocalPlayerSession.PlayerId"/>), the same
     ///     on a host and a client; 0 when there's no session or its login hasn't been accepted yet.
-    ///     On a dedicated host, today, its service identity's id. Use this, not
+    ///     0 on a dedicated host, which has no player. Use this, not
     ///     <c>IsHost() ? server id : client id</c>.
     /// </summary>
     public static byte LocalPlayerId => NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0;

@@ -39,14 +39,8 @@ public class ServerPlayer : IDisposable
     public byte PlayerId { get; private set; }
 
     /// <summary>
-    /// The dedicated host's own loopback client: a service identity, not a player. Use
-    /// <see cref="global::Multiplayer.Server.Session.NetworkServer.GameplayPlayers"/> wherever "the players" are meant.
-    /// </summary>
-    public bool IsServiceHost => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.IsHost(this);
-
-    /// <summary>
-    /// The sender of a dedicated host's console commands when it has no service identity
-    /// (docs/design/host-local-session.md, stage 3): not a player, never in the server's list, no id
+    /// The sender of a dedicated host's console commands (it has no player of its own,
+    /// docs/design/host-local-session.md, stage 3): not a player, never in the server's list, no id
     /// and no peer. Made by <see cref="CreateConsole"/> only.
     /// </summary>
     public bool IsConsole { get; private set; }
@@ -76,7 +70,7 @@ public class ServerPlayer : IDisposable
     // The GUID of the install they play from, which their data was saved under before player IDs
     // were Steam accounts.
     public Guid LegacyGuid { get; set; }
-    // Their verified Steam account, or 0 (the host's own client, or a host with -mp-allow-unverified).
+    // Their verified Steam account, or 0 (the host's own player, or a host with -mp-allow-unverified).
     public ulong SteamId { get; set; }
     public string CharacterId { get; set; }
     public bool IsVR { get; }

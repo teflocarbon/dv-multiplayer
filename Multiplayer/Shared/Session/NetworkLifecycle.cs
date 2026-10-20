@@ -36,8 +36,8 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     public bool IsServerRunning => server?.IsRunning ?? false;
 
     /// <summary>
-    ///     A <c>NetworkClient</c> runs here: a remote client, or (until host-local-session stage 3)
-    ///     the host's loopback client. Not "multiplayer is on" (<see cref="IsSessionRunning"/>) nor
+    ///     A <c>NetworkClient</c> runs here: this game plays on another game's server (a host has no
+    ///     client of its own). Not "multiplayer is on" (<see cref="IsSessionRunning"/>) nor
     ///     "someone plays here" (<see cref="NetworkRole.HasLocalPlayer"/>, <see cref="LocalSession"/>).
     /// </summary>
     public bool IsClientRunning => client?.IsRunning ?? false;
@@ -63,8 +63,8 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
     /// <summary>
     ///     The player at this keyboard (id, name, ping, the other players' avatars, chat); null when
-    ///     no client is running. Code that runs for the host's player too reads this, not
-    ///     <c>NetworkClient</c>: in host-local-session stage 3 the host has no client.
+    ///     nobody plays here (a dedicated host). A remote client's <c>NetworkClient</c>, or a host's
+    ///     in-process session: code that runs for the host's player too reads this, never <c>NetworkClient</c>.
     /// </summary>
     public ILocalPlayerSession LocalSession { get; private set; }
 
@@ -88,17 +88,8 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     public static bool DedicatedHostRequested { get; internal set; }
 
     /// <summary>
-    ///     Whether this game was started with <c>-mp-local-session</c>: as the host it starts no loopback
-    ///     client. A player host's player is then an in-process session of its server and a dedicated
-    ///     host has no player at all (docs/design/host-local-session.md, stage 3). Set by the session
-    ///     root before anything starts; goes when stage 3 is finished and that is the only way.
-    /// </summary>
-    public static bool LocalSessionRequested { get; internal set; }
-
-    /// <summary>
     ///     Whether this game is a dedicated host (<c>DedicatedHost</c>): hosting with nobody
-    ///     playing it, so the local player is a parked body and the host's own client is a service
-    ///     identity, not a player.
+    ///     playing it: the local player is a parked body, and the server has no player of its own.
     /// </summary>
     public bool IsDedicatedHost => DedicatedHostRequested && IsServerRunning;
 

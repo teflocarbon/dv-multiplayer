@@ -71,9 +71,8 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
 
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
-            // Every player by GUID, the host's own included (PerPlayerSaveFormat); a dedicated
-            // host's own client isn't a player.
-            if (player.IsServiceHost || player.LoadingState != PlayerLoadingState.Complete)
+            // Every player by GUID, the host's own included (PerPlayerSaveFormat).
+            if (player.LoadingState != PlayerLoadingState.Complete)
                 continue;
 
             JObject playerData = [];

@@ -1,7 +1,8 @@
 # Host local session: the host's player without a loopback client
 
 > Status (2026-10-20): stage 1 built and released, stage 2 built on `split/client-server`, stage 3
-> being built on `split/stage-3` behind `-mp-local-session`. See [Implementation status](#implementation-status).
+> built on `split/stage-3`: a host runs no client of its own. Not yet tested in the game. See
+> [Implementation status](#implementation-status).
 >
 > Line numbers in the sections below are from `beta` at `6da65843` (2026-10-19).
 
@@ -26,9 +27,9 @@ The stages remove that class step by step:
 
 | Stage | What it does | What it fixes | Status |
 |---|---|---|---|
-| **1. The gate** | `HostOwnClient` classifies every packet a client handles. On the host, the ones that carry the host's own state are dropped before its client applies them. A protocol test fails on any packet that isn't classified. | The host following itself, for every packet known today. It's a gate, so it has to be kept up as packets are added. | **Built**, #117, in release 2026.10.19.5 |
-| **2. Direct requests** | The host player's requests call the server's handlers in-process, with the host's own `ServerPlayer` (`HandleLocal`, `LocalRequestQueue`), instead of going out through its client. The server stops sending the host's client anything but other players' presentation. | The host checked like a stranger: no stale positions, no round trips, no refusals meant for remote players. | **Mostly built** on `split/client-server` (below) |
-| **3. No client on the host** | `StartServer` no longer starts a `NetworkClient` on the host. A local player session, the host's player as a session of the server in the same process, takes its place behind the seams stage 2 added (`ILocalPlayerSession`, the `I<Area>Client` interfaces). A client game keeps `NetworkClient` as it is. | The whole class, structurally: with no client on the host there is nothing to follow the host's state and nothing to gate. Stage 1's gate is removed with it. | **Not started** |
+| **1. The gate** | `HostOwnClient` classifies every packet a client handles. On the host, the ones that carry the host's own state are dropped before its client applies them. A protocol test fails on any packet that isn't classified. | The host following itself, for every packet known today. It's a gate, so it has to be kept up as packets are added. | **Built**, #117, in release 2026.10.19.5; **removed** with the client in stage 3 |
+| **2. Direct requests** | The host player's requests call the server's handlers in-process, with the host's own `ServerPlayer` (`HandleLocal`, `LocalRequestQueue`), instead of going out through its client. The server stops sending the host's client anything but other players' presentation. | The host checked like a stranger: no stale positions, no round trips, no refusals meant for remote players. | **Built** on `split/client-server` (below) |
+| **3. No client on the host** | `StartServer` no longer starts a `NetworkClient` on the host. A local player session, the host's player as a session of the server in the same process, takes its place behind the seams stage 2 added (`ILocalPlayerSession`, the `I<Area>Client` interfaces). A client game keeps `NetworkClient` as it is. | The whole class, structurally: with no client on the host there is nothing to follow the host's state and nothing to gate. Stage 1's gate is removed with it. | **Built** on `split/stage-3` (below), not yet tested in the game |
 
 The dedicated host is the same server with no local player session at all (see
 [The dedicated host](#the-dedicated-host)).
@@ -36,8 +37,8 @@ The dedicated host is the same server with no local player session at all (see
 ## Why
 
 On 2026-10-19 the host's own client applied a topology snapshot that the server had sent for
-followers, and uncoupled 29 trains in one session (see "The host's own client" in
-[architecture.md](../architecture.md#the-hosts-own-client), and
+followers, and uncoupled 29 trains in one session (see "The host's own player" in
+[architecture.md](../architecture.md#the-hosts-own-player), and
 [trains.md](trains.md)). The cause wasn't one bad send. It's the shape: the host's game is the
 server's world, and it also runs a client that the server addresses like any other, so every
 packet a client handles is a chance for the authority to follow itself.
@@ -316,6 +317,13 @@ exactly the presentation list stage 3 moves.
 
 ## Stage 3: no client on the host
 
+> As built (see [Implementation status](#implementation-status)), one thing differs from this plan:
+> the host's player keeps a peer. Its `ServerPlayer.Peer` is a `LocalPeer`, an in-process peer whose
+> sends the session reads a poll later through a processor that subscribes only presentation, so
+> `SelfPeer`, `excludeSelf` and every reply to `player.Peer` work unchanged instead of each send site
+> calling the session. The other players' avatars are the server's (`NetworkLifecycle.Avatars`), fed
+> from its own events on any host.
+
 `StartServer` stops starting a client (`NetworkLifecycle.cs:178`). A `LocalPlayerSession` takes
 its place: the host's player as a session of the server in the same process. A client game keeps
 `NetworkClient` exactly as it is.
@@ -365,6 +373,11 @@ Single player runs the same way (a one-player server), and gets cheaper: no loop
 at all.
 
 ## The dedicated host
+
+> Built in stage 3: a dedicated host has no player, no session and no service identity (no
+> `IsServiceHost`, no `ServiceGuid` login, no host token; `GameplayPlayers` is `ServerPlayers`), and
+> its console commands run as a console sender (`ServerPlayer.CreateConsole`). What follows was the
+> plan, written when it still had them.
 
 Today a dedicated host keeps the loopback client as a **service identity**: its `ServerPlayer` is
 `IsServiceHost` (`Server/Session/ServerPlayer.cs:44`), logs in with `Settings.ServiceGuid`,
@@ -473,8 +486,8 @@ As of 2026-10-20, on `split/client-server` (not yet in `beta`):
     The host's fast travel and sleep go through `Server/World/TimeAdvanceServerPatch`, which reads
     the server's own `FastTravelAdvancesTime`; `Client/World/TimeAdvancePatch` is remote-client
     only, so `NetworkServer` no longer sets it. Scenario: `host-session`.
-- **Stage 3: being built** on `split/stage-3`, behind `-mp-local-session` (dvmp `up --local-session`)
-  until every area has its part; without it the host still runs its loopback client. Built so far:
+- **Stage 3: built** on `split/stage-3`, not yet tested in the game: `StartServer` starts no
+  `NetworkClient`. Built, in order (until the last, behind a `-mp-local-session` switch):
   - the server knows its own player itself (`NetworkServer.LocalPlayer`, set at admission;
     `AdmitPlayer` and `CompleteLoading` shared by every login), #221;
   - the other players' avatars are `NetworkLifecycle.Avatars` (`Shared/Players/PlayerAvatars`) on
@@ -488,12 +501,20 @@ As of 2026-10-20, on `split/client-server` (not yet in `beta`):
     the areas add theirs in `LocalPlayerSession.<Area>.cs`), so nothing can make the host follow its
     own state. The server keeps the avatars itself and leaves the host's player out of the presence
     packets. A dedicated host has no player and leaves its loading screen itself. Scenario:
-    `local-session` (C#).
+    `local-session` (C#), #223;
   - MPAPI's client API on the host is the session's (`IClientApiSession`): mods' packets reach it and
     leave it serialised, through the `LocalPeer` and `ILocalServer.ReceiveFromLocalPlayer`. Scenario:
-    `mpapi-roundtrip` (C#).
-  - A dedicated host's console commands run with a console sender (`ServerPlayer.CreateConsole`, never
-    in the player list) when there's no service player.
+    `mpapi-roundtrip` (C#), #224;
+  - a dedicated host's console commands run with a console sender (`ServerPlayer.CreateConsole`,
+    never in the player list), #225;
+  - each area's half of the session, `LocalPlayerSession.<Area>.cs`, and its host call sites off
+    `NetworkClient`: items #228, #232; players #229; world, stations and jobs #226, #227, #230, #234;
+    trains #231, #233;
+  - the switch-over: the switch, the loopback path, the host token, the service identity
+    (`IsServiceHost`, `Settings.ServiceGuid`; `GameplayPlayers` is now `ServerPlayers`) and stage 1's
+    `HostOwnClient` with its protocol test are gone. A dedicated host has no player at all; its first
+    client is player 1.
 
-  Left: each area's `I<Area>Client` on the session and its host call sites off `NetworkClient`; then
-  the loopback path, the switch, the service identity and `HostOwnClient` removed.
+  Not done: the in-game test pass (each PR's In-game line, on a player host and a dedicated host),
+  trains' removal of the host branches left in `NetworkClient.Trains.cs` (s3-trains), and the optional
+  sweep of `SelfId`/`SelfPeer` to `LocalPlayer` in the server.

@@ -19,12 +19,9 @@ public static class PlayerDistance
         float result = float.MaxValue;
         //string origin = new StackTrace().GetFrame(1).GetMethod().Name;
 
-        //Loop through all of the players and return the one thats closest to the anchor (a
-        //dedicated host's parked body isn't a player)
+        //Loop through all of the players and return the one thats closest to the anchor
         foreach (ServerPlayer serverPlayer in NetworkServer.Instance.ServerPlayers)
         {
-            if (serverPlayer.IsServiceHost)
-                continue;
             float sqDist = (serverPlayer.WorldPosition - anchor).sqrMagnitude;
 
             if (sqDist < result)

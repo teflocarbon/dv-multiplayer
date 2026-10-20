@@ -105,14 +105,6 @@ public partial class NetworkServer : NetworkManager
     public IReadOnlyCollection<ServerPlayerWrapper> ServerPlayerWrappers => PlayerWrapperCache.Values;
     public int PlayerCount => ServerPlayers.Count;
 
-    /// <summary>
-    /// The players: every <see cref="ServerPlayers"/> entry except a dedicated host's service
-    /// identity. The same as ServerPlayers when the host plays.
-    /// </summary>
-    public IEnumerable<ServerPlayer> GameplayPlayers =>
-        NetworkLifecycle.Instance.IsDedicatedHost ? ServerPlayers.Where(player => !player.IsServiceHost) : ServerPlayers;
-    public int GameplayPlayerCount =>
-        NetworkLifecycle.Instance.IsDedicatedHost ? ServerPlayers.Count(player => !player.IsServiceHost) : ServerPlayers.Count;
 
     /// <summary>The host's own player's peer (<see cref="LocalPlayer"/>); null until it's admitted.</summary>
     public ITransportPeer SelfPeer => LocalPlayer?.Peer;
@@ -386,9 +378,9 @@ public partial class NetworkServer : NetworkManager
                 LogDebug(() => $"Dropped queued join from peer {peer.Id}: no longer connected");
         }
 
-        // Without a loopback client a dedicated host has no player to finish loading: it leaves the
+        // A dedicated host has no player to finish loading: it leaves the
         // loading screen itself (a player host's own player does, in CompleteLoading).
-        if (NetworkLifecycle.LocalSessionRequested && LocalPlayer == null)
+        if (LocalPlayer == null)
         {
             Log("Dedicated host loaded");
             LoadingScreen.Finish();
@@ -511,10 +503,9 @@ public partial class NetworkServer : NetworkManager
             },
             DeliveryMethod.ReliableUnordered,
             PlayerLoadingState.Complete,
-            excludeSelf: ServerFeedsAvatars
+            excludeSelf: true
         );
-        if (ServerFeedsAvatars)
-            RunDisconnectStep("avatar", () => NetworkLifecycle.Instance.Avatars?.RemovePlayer(player.PlayerId));
+        RunDisconnectStep("avatar", () => NetworkLifecycle.Instance.Avatars?.RemovePlayer(player.PlayerId));
 
         // One subscriber throwing must not skip the others (cars release control leases here).
         if (PlayerDisconnected != null)
@@ -553,9 +544,8 @@ public partial class NetworkServer : NetworkManager
         };
 
         SendPacketToAll(clientboundPingUpdatePacket, DeliveryMethod.ReliableUnordered, PlayerLoadingState.None, peer,
-            excludeSelf: ServerFeedsAvatars);
-        if (ServerFeedsAvatars)
-            NetworkLifecycle.Instance.Avatars?.UpdatePing(player.PlayerId, latency);
+            excludeSelf: true);
+        NetworkLifecycle.Instance.Avatars?.UpdatePing(player.PlayerId, latency);
 
         if (latency > LATENCY_FLAG)
         {
@@ -757,7 +747,7 @@ public partial class NetworkServer : NetworkManager
 
         // To the sender too: a player's own crew name is how it learns it.
         SendPacketToAll(packet, DeliveryMethod.ReliableUnordered, PlayerLoadingState.Complete);
-        if (ServerFeedsAvatars && player != LocalPlayer)
+        if (player != LocalPlayer)
             NetworkLifecycle.Instance.Avatars?.UpdatePreferences(player.PlayerId, preferences);
     }
 
@@ -883,7 +873,7 @@ public partial class NetworkServer : NetworkManager
         if (uniqueName > 0)
             overrideUsername += uniqueName;
 
-        if (GameplayPlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
+        if (PlayerCount >= Multiplayer.Settings.MaxPlayers || IsSinglePlayer && PlayerCount >= 1)
         {
             LogWarning("Denied login due to server being full!");
             authentication.Abandon(identity);
@@ -902,7 +892,7 @@ public partial class NetworkServer : NetworkManager
         ITransportPeer peer = request.Accept();
 
         ServerPlayer serverPlayer = AdmitPlayer(peer, overrideUsername, packet.Username, playerId, guid,
-            identity.SteamId, packet.CharacterId, packet.IsVR, identity.IsLocalPlayer);
+            identity.SteamId, packet.CharacterId, packet.IsVR, isLocalPlayer: false);
         authentication.Admit(identity, serverPlayer);
 
         ClientboundLoginResponsePacket acceptPacket = new()
@@ -1242,70 +1232,60 @@ public partial class NetworkServer : NetworkManager
 
     /// <summary>
     ///     A player has finished loading: the others are told and it's sent them, then its loading
-    ///     screen comes down. A dedicated host's service identity is only taken out of loading mode.
+    ///     screen comes down.
     /// </summary>
     private void CompleteLoading(ServerPlayer player)
     {
         ITransportPeer peer = player.Peer;
-        if (player.IsServiceHost)
+        Log($"Player {player.Username} has completed loading");
+
+        // Send the new player to all other players
+        ClientboundPlayerJoinedPacket clientboundPlayerJoinedPacket = new()
         {
-            // A dedicated host's own client: nobody is told about it and it gets no avatar, but
-            // only this takes its game out of loading mode.
-            Log("Dedicated host loaded");
-            SendPacket(peer, new ClientboundRemoveLoadingScreenPacket(), DeliveryMethod.ReliableOrdered);
-        }
-        else
+            PlayerId = player.PlayerId,
+            Username = player.Username,
+            IsVR = player.IsVR,
+            CharacterId = player.CharacterId,
+            CrewName = player.CrewName,
+            TrackingData = player.TrackingData,
+            Posture = player.Posture,
+            IsOnCar = player.CarId != 0,
+            CarID = player.CarId,
+        };
+
+        SendPacketToAll(clientboundPlayerJoinedPacket, DeliveryMethod.ReliableOrdered, PlayerLoadingState.Complete, peer,
+            excludeSelf: true);
+        if (player != LocalPlayer)
         {
-            Log($"Player {player.Username} has completed loading");
-
-            // Send the new player to all other players
-            ClientboundPlayerJoinedPacket clientboundPlayerJoinedPacket = new()
-            {
-                PlayerId = player.PlayerId,
-                Username = player.Username,
-                IsVR = player.IsVR,
-                CharacterId = player.CharacterId,
-                CrewName = player.CrewName,
-                TrackingData = player.TrackingData,
-                Posture = player.Posture,
-                IsOnCar = player.CarId != 0,
-                CarID = player.CarId,
-            };
-
-            SendPacketToAll(clientboundPlayerJoinedPacket, DeliveryMethod.ReliableOrdered, PlayerLoadingState.Complete, peer,
-                excludeSelf: ServerFeedsAvatars);
-            if (ServerFeedsAvatars && player != LocalPlayer)
-            {
-                NetworkLifecycle.Instance.Avatars?.AddPlayer(player.PlayerId, player.Username, player.CrewName, player.CharacterId, player.IsVR);
-                NetworkLifecycle.Instance.Avatars?.UpdatePosition(player.PlayerId, player.TrackingData, player.Posture, player.CarId != 0, player.CarId);
-            }
-
-            // Announce player joined
-            ChatManager.ServerMessage(player.Username + " joined the game", null, player);
-
-            // Send existing players (the host's own player has their avatars already)
-            foreach (ServerPlayer otherPlayer in GameplayPlayers)
-            {
-                if (player.PlayerId == otherPlayer.PlayerId || ServerFeedsAvatars && player == LocalPlayer)
-                    continue;
-
-                SendPacket(peer, new ClientboundPlayerJoinedPacket
-                {
-                    PlayerId = otherPlayer.PlayerId,
-                    Username = otherPlayer.Username,
-                    CharacterId = otherPlayer.CharacterId,
-                    IsVR = otherPlayer.IsVR,
-                    CrewName = otherPlayer.CrewName,
-                    CarID = otherPlayer.CarId,
-                    TrackingData = otherPlayer.TrackingData,  // full merged state
-                    Posture = otherPlayer.Posture,
-                    IsOnCar = otherPlayer.CarId != 0,
-                }, DeliveryMethod.ReliableOrdered);
-            }
-
-            SendPacket(peer, new ClientboundRemoveLoadingScreenPacket(), DeliveryMethod.ReliableOrdered);
-            PlayerReady?.Invoke(player);
+            NetworkLifecycle.Instance.Avatars?.AddPlayer(player.PlayerId, player.Username, player.CrewName, player.CharacterId, player.IsVR);
+            NetworkLifecycle.Instance.Avatars?.UpdatePosition(player.PlayerId, player.TrackingData, player.Posture, player.CarId != 0, player.CarId);
         }
+
+        // Announce player joined
+        ChatManager.ServerMessage(player.Username + " joined the game", null, player);
+
+        // Send existing players (the host's own player has their avatars already)
+        foreach (ServerPlayer otherPlayer in ServerPlayers)
+        {
+            if (player.PlayerId == otherPlayer.PlayerId || player == LocalPlayer)
+                continue;
+
+            SendPacket(peer, new ClientboundPlayerJoinedPacket
+            {
+                PlayerId = otherPlayer.PlayerId,
+                Username = otherPlayer.Username,
+                CharacterId = otherPlayer.CharacterId,
+                IsVR = otherPlayer.IsVR,
+                CrewName = otherPlayer.CrewName,
+                CarID = otherPlayer.CarId,
+                TrackingData = otherPlayer.TrackingData,  // full merged state
+                Posture = otherPlayer.Posture,
+                IsOnCar = otherPlayer.CarId != 0,
+            }, DeliveryMethod.ReliableOrdered);
+        }
+
+        SendPacket(peer, new ClientboundRemoveLoadingScreenPacket(), DeliveryMethod.ReliableOrdered);
+        PlayerReady?.Invoke(player);
     }
 
     // The host's own player's preferences and chat are handled in-process (stage 2 of
@@ -1373,8 +1353,8 @@ public partial class NetworkServer : NetworkManager
             Posture = packet.Posture,
             IsOnCar = packet.IsOnCar,
             CarID = packet.CarID
-        }, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, player.Peer, excludeSelf: ServerFeedsAvatars);
-        if (ServerFeedsAvatars && player != LocalPlayer)
+        }, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, player.Peer, excludeSelf: true);
+        if (player != LocalPlayer)
             NetworkLifecycle.Instance.Avatars?.UpdatePosition(player.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 

@@ -16,12 +16,12 @@ fail() { echo "FAIL: $*"; exit 1; }
 host() { $D eval -t host -m body -u "$U" "$1"; }
 # The command goes without its slash: Git Bash would turn "/save" into a Windows path.
 chat() { $D eval -t client -m body -u "$U" -a cmd="$1" 'Multiplayer.Client.Session.NetworkClient.Instance.SendChat("/" + ctx.Args["cmd"]); return 0;' >/dev/null; sleep 3; }
-state='var debts = DV.ServicePenalty.CareerManagerDebtController.Instance; debts.RefreshExistingDebtsState(); var payable = debts.currentNonZeroPricedDebts.Where(d => d.IsPayable).ToList(); var q = debts.feeQuota; double cost = 0; if (!(q.InsuranceUsed && q.QuotaReached)) foreach (double p in payable.Select(d => (double)d.GetTotalPrice()).OrderBy(p => p)) { if (q.InsuranceUsed && cost >= q.LeftToReachQuota) break; cost += p; } return new { saved = (DedicatedHost.LastSave?.ToString("o") ?? "never") + " " + DedicatedHost.LastSaveReason, paused = DV.AppUtil.Instance.IsTimePaused, money = DV.InventorySystem.Inventory.Instance.PlayerMoney, fees = payable.Count, cost, players = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayerCount };'
+state='var debts = DV.ServicePenalty.CareerManagerDebtController.Instance; debts.RefreshExistingDebtsState(); var payable = debts.currentNonZeroPricedDebts.Where(d => d.IsPayable).ToList(); var q = debts.feeQuota; double cost = 0; if (!(q.InsuranceUsed && q.QuotaReached)) foreach (double p in payable.Select(d => (double)d.GetTotalPrice()).OrderBy(p => p)) { if (q.InsuranceUsed && cost >= q.LeftToReachQuota) break; cost += p; } return new { saved = (DedicatedHost.LastSave?.ToString("o") ?? "never") + " " + DedicatedHost.LastSaveReason, paused = DV.AppUtil.Instance.IsTimePaused, money = DV.InventorySystem.Inventory.Instance.PlayerMoney, fees = payable.Count, cost, players = Multiplayer.Server.Session.NetworkServer.Instance.PlayerCount };'
 money() { host "DV.InventorySystem.Inventory.Instance.SetMoney($1); return 0;" >/dev/null; }
 
 [ "$(host 'return new { d = NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = "true" ] ||
   { echo "SKIP: needs a dedicated host (dvmp up --dedicated)"; exit 0; }
-guid=$(host 'return new { g = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayers.First().Guid.ToString() };' | field g)
+guid=$(host 'return new { g = Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers.First().Guid.ToString() };' | field g)
 restore() { host 'Multiplayer.Multiplayer.Settings.Admins = ""; return 0;' >/dev/null 2>&1 || true; }
 trap restore EXIT
 

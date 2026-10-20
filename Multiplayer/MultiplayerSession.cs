@@ -13,8 +13,6 @@ using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
 using System;
-using System.Linq;
-using System.Net;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -40,7 +38,6 @@ public class MultiplayerSession : MonoBehaviour
     private PlayerListGUI playerList;
     private NetworkStatsGui Stats;
     private LocalPlayerSession localSession;
-    private const string LocalSessionArg = "-mp-local-session";
 
     private void Awake()
     {
@@ -111,11 +108,10 @@ public class MultiplayerSession : MonoBehaviour
         var serverAPI = new ServerAPIProvider(server);
         MultiplayerAPI.RegisterServer(serverAPI);
 
-        if (!NetworkLifecycle.LocalSessionRequested)
-            StartClient(IPAddress.Loopback.ToString(), port, Multiplayer.Settings.Password, IsSinglePlayer, null);
-        else if (!DedicatedHost.Requested)
+        // The host's player, if someone plays here: a dedicated host has none
+        // (docs/design/host-local-session.md, stage 3).
+        if (!DedicatedHost.Requested)
             StartLocalPlayerSession(server, IsSinglePlayer);
-        // else a dedicated host with no player at all (docs/design/host-local-session.md, stage 3).
 
         //reset for next game
         IsSinglePlayer = true;
@@ -134,8 +130,7 @@ public class MultiplayerSession : MonoBehaviour
         NetworkClient.Instance = client;
         NetworkLifecycle.Instance.AttachClient(client, client);
         AttachAvatars();
-        if (NetworkServer.Instance == null)
-            DebugRuntime.SetRole("client", client.Username);
+        DebugRuntime.SetRole("client", client.Username);
 
         // Register client API
         var clientAPI = new ClientAPIProvider(client);
@@ -144,8 +139,8 @@ public class MultiplayerSession : MonoBehaviour
         OnSettingsUpdated(Multiplayer.Settings); // Show stats if enabled
     }
 
-    // The host's own player as a session of its server, instead of a loopback client
-    // (docs/design/host-local-session.md, stage 3; -mp-local-session until that's the only way).
+    // The host's own player, as a session of its server in this process (docs/design/host-local-session.md,
+    // stage 3): a host runs no client of its own.
     private void StartLocalPlayerSession(NetworkServer server, bool isSinglePlayer)
     {
         LocalPlayerSession session = new(isSinglePlayer);
@@ -211,7 +206,6 @@ public class MultiplayerSession : MonoBehaviour
         if (FindObjectOfType<NetworkLifecycle>() != null)
             throw new InvalidOperationException($"{nameof(NetworkLifecycle)} already exists!");
         NetworkLifecycle.DedicatedHostRequested = DedicatedHost.Requested;
-        NetworkLifecycle.LocalSessionRequested = Environment.GetCommandLineArgs().Contains(LocalSessionArg);
         GameObject gameObject = new($"[{nameof(NetworkLifecycle)}]");
         gameObject.AddComponent<NetworkLifecycle>();
         gameObject.AddComponent<MultiplayerSession>();

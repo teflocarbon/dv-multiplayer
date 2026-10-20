@@ -23,7 +23,7 @@ public static class CarVisitCheckerPatch
             __result = true; //Pretend there's a player in the car
             return false;   //don't run our vanilla game code
         }
-        if (NetworkServer.Instance.GameplayPlayerCount == 0)
+        if (NetworkServer.Instance.PlayerCount == 0)
         {
 
             //no server players (this should only apply to a dedicated server), don't despawn
@@ -33,7 +33,7 @@ public static class CarVisitCheckerPatch
         }
 
         //We are the host, check all players against this car
-        foreach (ServerPlayer player in NetworkServer.Instance.GameplayPlayers)
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
             if (NetworkedTrainCar.TryGetFromTrainCar(__instance.car, out NetworkedTrainCar netTC))
             {
