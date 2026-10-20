@@ -15,12 +15,15 @@ namespace Dvmp;
 /// <param name="Verified">Launch the host without <c>-mp-allow-unverified</c>, so it checks each
 /// client's Steam ticket. The harness's games share one Steam account, so only a dedicated host
 /// (whose own client isn't a player) can then tell its client apart from itself.</param>
+/// <param name="LocalSession">Launch the host with <c>-mp-local-session</c>: it starts its in-process local player
+/// session instead of a loopback client (docs/design/host-local-session.md, stage 3). A host is only
+/// reused if it was started the same way.</param>
 /// <param name="Reseed">Restart the session's games with their user data copied afresh from the
 /// real profile (<see cref="UserData"/>); named sessions only.</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
     bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false,
     string? NewSession = null, string? NewSessionName = null, int? BackgroundFpsCap = null, bool HostOnly = false,
-    bool Dedicated = false, bool Verified = false, bool Reseed = false);
+    bool Dedicated = false, bool Verified = false, bool Reseed = false, bool LocalSession = false);
 
 /// <summary>
 /// Brings up (or reuses) a host + client pair of real game instances joined to each other.
@@ -193,7 +196,7 @@ internal static class Session
             List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
             // --dedicated only reuses a dedicated host; without it, either kind is reused (a client joining
             // a dedicated host-only host goes through here).
-            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified && IsLocalSession(a) == o.LocalSession);
             Agent? client = agents.FirstOrDefault(a => a.Role == "client" && WorldLoaded(a));
             if (!o.Fresh)
             {
@@ -279,7 +282,7 @@ internal static class Session
 
             Mark("checking existing games");
             List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
-            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified);
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified && IsLocalSession(a) == o.LocalSession);
             if (!o.Fresh) host = await ReusableAsync(host);
             if (!o.Fresh && host != null)
             {
@@ -493,6 +496,7 @@ internal static class Session
             $"-dvmp-fps {o.FpsCap}",
             o.BackgroundFpsCap is int bgFps ? $"-dvmp-bg-fps {bgFps}" : string.Empty,
             role == "host" && o.Dedicated ? DedicatedArg : string.Empty,
+            role == "host" && o.LocalSession ? LocalSessionArg : string.Empty,
             // The harness's games share one Steam account, so a host verifying Steam tickets
             // would see every client as its own player.
             role == "host" && !o.Verified ? "-mp-allow-unverified" : string.Empty,
@@ -579,6 +583,10 @@ internal static class Session
     private static bool IsVerified(Agent agent) => agent.Info.Args?.Contains("-mp-allow-unverified") != true;
 
     private const string DedicatedArg = "-mp-dedicated";
+
+    private static bool IsLocalSession(Agent agent) => agent.Info.Args?.Contains(LocalSessionArg) == true;
+
+    private const string LocalSessionArg = "-mp-local-session";
 
     private static bool WorldLoaded(Agent agent) => agent.Status?["worldLoaded"]?.GetValue<bool?>() == true;
 

@@ -1,6 +1,9 @@
 using System;
 using Multiplayer.Core.Session;
+using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Transport;
 
 namespace Multiplayer.Server.Session;
 
@@ -17,6 +20,35 @@ public partial class NetworkServer : ILocalServer
     ///     it is; null before that and after it leaves.
     /// </summary>
     public ServerPlayer LocalPlayer { get; private set; }
+
+    /// <summary>
+    ///     Whether this server keeps the other players' avatars itself (<see cref="NetworkLifecycle.Avatars"/>):
+    ///     when the host runs no loopback client to follow them from its packets (stage 3,
+    ///     <c>-mp-local-session</c>), on a player host and a dedicated host alike. The host's own
+    ///     player then isn't sent the other players' presence packets.
+    /// </summary>
+    private static bool ServerFeedsAvatars => NetworkLifecycle.LocalSessionRequested;
+
+    /// <summary>
+    ///     Admits the host's own player as a session in this process, with no connection
+    ///     (docs/design/host-local-session.md, stage 3): the same admission and record binding as a
+    ///     login, then the same loading as the loopback client's, which skipped to the world state
+    ///     (held until the save has loaded). What the server sends it arrives through
+    ///     <paramref name="peer"/>. Called as the server starts, so it gets the first player id.
+    /// </summary>
+    public ServerPlayer AddLocalPlayer(string username, string characterId, bool isVr, ITransportPeer peer)
+    {
+        if (LocalPlayer != null)
+            throw new InvalidOperationException("The host's own player is already logged in");
+
+        ServerPlayer player = AdmitPlayer(peer, username, username, PlayerIdentity.Local,
+            Multiplayer.Settings.GetGuid(), 0, characterId, isVr, isLocalPlayer: true);
+        Log($"The host's own player {player.Username} is player {player.PlayerId}, in-process");
+        // Never fired for the host's loopback client, which skipped ReadyForGameData.
+        PlayerConnected?.Invoke(player);
+        OnServerboundLoadStateUpdatePacket(new ServerboundLoadStateUpdatePacket { LoadState = PlayerLoadingState.ReadyForWorldState }, peer);
+        return player;
+    }
 
     /// <summary>
     ///     True while the server applies another player's change to its own world (a junction, a

@@ -56,7 +56,7 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     ///     packet, or the server applying a change to its own world
     ///     (<see cref="ILocalServer.IsApplyingRemoteChange"/>). Code that would send that change on must not.
     /// </summary>
-    public bool IsProcessingPacket => (client?.IsProcessingPacket ?? false) || (LocalServer?.IsApplyingRemoteChange ?? false);
+    public bool IsProcessingPacket => (client?.IsProcessingPacket ?? (LocalSession as IPolledSession)?.IsProcessingPacket ?? false) || (LocalServer?.IsApplyingRemoteChange ?? false);
 
     /// <summary>The server as the host's own player reaches it, in-process; null when this game isn't the server.</summary>
     public ILocalServer LocalServer { get; private set; }
@@ -86,6 +86,14 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     ///     session root from <c>DedicatedHost.Requested</c> before anything starts.
     /// </summary>
     public static bool DedicatedHostRequested { get; internal set; }
+
+    /// <summary>
+    ///     Whether this game was started with <c>-mp-local-session</c>: as the host it starts no loopback
+    ///     client. A player host's player is then an in-process session of its server and a dedicated
+    ///     host has no player at all (docs/design/host-local-session.md, stage 3). Set by the session
+    ///     root before anything starts; goes when stage 3 is finished and that is the only way.
+    /// </summary>
+    public static bool LocalSessionRequested { get; internal set; }
 
     /// <summary>
     ///     Whether this game is a dedicated host (<c>DedicatedHost</c>): hosting with nobody
@@ -128,7 +136,10 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
         Avatars = avatars;
     }
 
-    /// <summary>The session root attaches the client it started (null when it stops it).</summary>
+    /// <summary>
+    ///     The session root attaches the client it started, or a host's local player session with no
+    ///     manager (an <see cref="IPolledSession"/>, polled here); nulls when it stops it.
+    /// </summary>
     internal void AttachClient(NetworkManager manager, ILocalPlayerSession session)
     {
         client = manager;
@@ -210,12 +221,31 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
             if (client != null)
                 TickManager(client);
+            else if (LocalSession is IPolledSession polled)
+                TickLocalSession(polled);
 
             if (server != null)
                 TickManager(server);
 
             float remainingTime = nextTickAt - Time.realtimeSinceStartup;
             yield return remainingTime < 0.001f ? null : new WaitForSecondsRealtime(remainingTime);
+        }
+    }
+
+    private void TickLocalSession(IPolledSession session)
+    {
+        tickWatchdog.Start();
+        try
+        {
+            session.PollEvents();
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogError($"Exception while polling the local player session: {e}");
+        }
+        finally
+        {
+            tickWatchdog.Stop(time => Multiplayer.LogWarning($"Local player session poll took {time} ms!"));
         }
     }
 
