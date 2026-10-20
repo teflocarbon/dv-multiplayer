@@ -484,7 +484,11 @@ internal static class TrainTopologyNativeAdapter
                 deferred[state.MechanicalPartner.Value] = gap;
                 continue;
             }
-            bool wrongJointOwner = correctPair && IsAttached(
+            // With both chains attached (#285) the snapshot doesn't say which end has the joint,
+            // so either will do: recoupling would only jolt the cars.
+            bool bothAttached = IsAttached(state.ChainState) &&
+                IsAttached(partnerState?.ChainState ?? TrainChainState.Parked);
+            bool wrongJointOwner = correctPair && !bothAttached && IsAttached(
                 secondOwnsChain ? partnerState.ChainState : state.ChainState) &&
                 owner.rigidCJ == null && other.rigidCJ != null;
             if (wrongJointOwner)
@@ -544,12 +548,15 @@ internal static class TrainTopologyNativeAdapter
         }
     }
 
+    // SetChainTight changes only the joint's coupler: on the other end of a coupling it does
+    // nothing. Vanilla can still leave that end's chain attached too: a spawned car auto-couples
+    // (its own coupler takes the joint), and the parked car's chain, switched on because a player
+    // is near, hooks itself on when told of the coupling (#285). Its state is then set as is.
     private static void ApplyChainState(Coupler coupler, TrainChainState state)
     {
         if (coupler == null || ToCore(coupler.state) == state)
             return;
-        if (coupler.IsCoupled() && (state == TrainChainState.AttachedLoose ||
-                                    state == TrainChainState.AttachedTight))
+        if (coupler.IsCoupled() && coupler.rigidCJ != null && IsAttached(state))
             coupler.SetChainTight(state == TrainChainState.AttachedTight);
         else
             coupler.state = ToNative(state);

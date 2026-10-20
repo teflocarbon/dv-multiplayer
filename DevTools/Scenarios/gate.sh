@@ -86,6 +86,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "hazmat|hazmat|"
   "rejoin|rejoin|"
   "rejoin-crash|rejoin|CRASH=1"
+  "rejoin-autocouple|rejoin-autocouple|"
   "save-reload|save-reload|CYCLES=2"
   "inventory-persist|inventory-persist|"
   "host-player-persist|host-player-persist||player"
