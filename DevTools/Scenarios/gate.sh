@@ -91,6 +91,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "host-player-persist|host-player-persist||player"
   "gadget-save|gadget-save|"
   "gadget-join|gadget-join|"
+  "gadget-settings|gadget-settings|"
   "borrowed-disconnect|borrowed-disconnect||player"
   "host-actions|host-actions|"
   "host-actions-host|host-actions|WHO=host"

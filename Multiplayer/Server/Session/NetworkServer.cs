@@ -45,6 +45,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Common.Train;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
+using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Train;
 using Multiplayer.Shared.Protocol.Packets.Unconnected;
@@ -289,6 +290,7 @@ public partial class NetworkServer : NetworkManager
         // Items
         //netPacketProcessor.SubscribeNetSerializable<CommonItemsBulkUpdatePacket, ITransportPeer>(OnCommonItemChangePacket);
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket, ITransportPeer>(OnCommonItemUpdatePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundGadgetSettingPacket, ITransportPeer>(OnServerboundGadgetSettingPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemAdoptionPacket, ITransportPeer>(OnServerboundItemAdoptionPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
@@ -400,6 +402,7 @@ public partial class NetworkServer : NetworkManager
             return;
 
         HazmatServer.Tick(tick);
+        global::Multiplayer.Server.Gadgets.GadgetStateServer.Tick(tick, this);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)
         {
