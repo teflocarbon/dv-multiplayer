@@ -42,6 +42,9 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         return false;
     }
 
+    public static IEnumerable<KeyValuePair<ushort, string>> NetIdTable =>
+        Registered.Select(entry => new KeyValuePair<ushort, string>(entry.Key, entry.Value.name));
+
     #endregion
 
     protected override bool IsIdServerAuthoritative => false;

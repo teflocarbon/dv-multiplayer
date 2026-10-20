@@ -28,6 +28,9 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
         return false;
     }
 
+    /// <summary>Every object holding a NetId of this type, by NetId.</summary>
+    protected static IEnumerable<KeyValuePair<T, IdMonoBehaviour<T, I>>> Registered => indexToObject;
+
     protected virtual void Awake()
     {
         if (IsIdServerAuthoritative && !NetworkLifecycle.Instance.IsHost())
