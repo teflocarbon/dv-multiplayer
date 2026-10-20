@@ -13,7 +13,7 @@ namespace Dvmp.Scenarios
     /// The comms radio's car tools as a player uses them, through the game's own radio modes
     /// (CommsRadioCarDeleter, CommsRadioCrewVehicle) and so through the mod's patches on them: by the
     /// client, or by the host's own player (radio-tools-host: its requests are handled in-process,
-    /// docs/design/host-local-session.md). A car spawned near the host is deleted with the radio: it's
+    /// docs/design/host-local-session.md). A car spawned near that player is deleted with the radio: it's
     /// gone on both games. Then a work train is summoned: an invalid request (no such track) is
     /// answered, not left to time out, and a valid one where the deleted car stood is answered Success
     /// and the car is there on both games. The radio refuses a track that doesn't exist before it
@@ -38,7 +38,10 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             Peer who = o.Who == "host" ? pair.Host : o.Who == "client" ? pair.Client : throw new ArgumentException("WHO is client or host, not " + o.Who);
-            Loco car = await pair.Host.Run<Loco>(s => Cars.SpawnLoco(s, o.Livery, false, false));
+            // Near the radio's user: the server refuses a summon further than the radio's range
+            // (100 m) from the requester, and a dedicated host's own player is a parked body that
+            // can be anywhere from the client.
+            Loco car = await pair.Host.Run<Loco>(s => Cars.SpawnLocoNear(s, o.Livery, false, o.Who));
             pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, car.Cars)));
             Spot spot = await pair.Host.Run(() => InGame.Under(car.Id));
             Report.Note($"== spawned {o.Livery} {car.Id} (net {car.NetId}) on track {spot.Track}, point {spot.Index}");
