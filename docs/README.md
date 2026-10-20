@@ -21,6 +21,7 @@ host-authority model works end to end, then points at the rest.
 | Doc | What it covers |
 |---|---|
 | [world-sync.md](world-sync.md) | Time, weather and sleep, difficulty, money, licences and debt, shops, service stations, junctions, explosions, hazmat, the sandbox cargo loader |
+| [design/track-graph-check.md](design/track-graph-check.md) | The join check that host and client numbered their tracks, junctions and turntables the same way |
 | [jobs.md](jobs.md) | Job generation, taking jobs, booklets and reports, validation and hand-in, save and rejoin |
 | [design/trains.md](design/trains.md) | Train sync: canonical topology (couplers, hoses, cocks, MU cables), control commits, motion and corrections |
 | [design/train-item-wake.md](design/train-item-wake.md) | Items inside moving trains: settlement and the host-side wake simulation |
