@@ -225,8 +225,22 @@ namespace Dvmp.Scenarios
                     X = abs.x, Z = abs.z,
                     HeldBy = netPlug.HeldByPlayerId,
                     // How far from the hose origin a held plug is yanked.
-                    Limit = netPlug.Hose == null ? -1 : (float)Math.Round(netPlug.Hose.rope.ropeParams.ropeLength * netPlug.Hose.maxLengthMultiplier, 2)
+                    Limit = netPlug.Hose == null ? -1 : (float)Math.Round(RopeLength(netPlug.Hose) * netPlug.Hose.maxLengthMultiplier, 2)
                 };
+            }
+
+            // The hose's rope.ropeParams.ropeLength, by reflection: the rope's type is in VerletRope.dll,
+            // which the game assemblies CI builds against don't include. -1 if it isn't there.
+            private static float RopeLength(object hose)
+            {
+                object Member(object o, string name)
+                {
+                    if (o == null) return null;
+                    var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                    var t = o.GetType();
+                    return t.GetField(name, flags)?.GetValue(o) ?? t.GetProperty(name, flags)?.GetValue(o);
+                }
+                return Member(Member(Member(hose, "rope"), "ropeParams"), "ropeLength") is float length ? length : -1;
             }
         }
     }
