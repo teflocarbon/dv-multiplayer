@@ -2,6 +2,7 @@ using DV.Localization;
 using DV.UI;
 using DV.UIFramework;
 using HarmonyLib;
+using Multiplayer.Menus.Controls;
 using Multiplayer.Shared.Utils;
 using System;
 using System.Text;

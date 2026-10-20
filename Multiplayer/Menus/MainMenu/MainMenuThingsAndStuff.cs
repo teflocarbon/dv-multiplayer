@@ -2,6 +2,7 @@ using DV.UI;
 using DV.UIFramework;
 using DV.Utils;
 using JetBrains.Annotations;
+using Multiplayer.Menus.Controls;
 using Multiplayer.Shared.Utils;
 using System;
 using UnityEngine;
