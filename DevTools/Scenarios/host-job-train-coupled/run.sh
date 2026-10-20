@@ -11,8 +11,8 @@
 #  3. The host loads the loco's cab RELOADS times from beside it, then boards it.
 #  4. For HOLD seconds, the host's and the client's coupling of the train (and the loco) must stay
 #     exactly as it was after step 2, and match each other.
-# The host's own client must also never have been sent a train packet (the server-side half of the
-# same rule: HostOwnClient logs one it drops).
+# The host's own player must also never have been sent a train packet (the server-side half of the
+# same rule: its session logs each type it drops, LocalPlayerSession.Drop).
 #   STATION=FM  LOCO=LocoDE2  RELOADS=3  HOLD=60
 # Exit code 0 = pass. Needs a running pair with a player host (a dedicated host has no player to
 # take the job).
@@ -38,10 +38,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The train packets the host's own client has dropped so far this session (it logs each type once).
+# The train packets the host's own player's session has dropped so far (it logs each type once).
 dropped_train_packets() {
-  "$dvmp_bin" logs -t host -c "sent to the host's own client" -n 2000 2>/dev/null |
-    grep -o 'Ignored Clientbound[A-Za-z]*' | grep -E 'Train|Topology|Coupl|Car' | sort -u | tr '\n' ' ' || true
+  "$dvmp_bin" logs -t host -c "sent to the host's own player" -n 2000 2>/dev/null |
+    grep -o 'Dropped Clientbound[A-Za-z]*' | grep -E 'Train|Topology|Coupl|Car' | sort -u | tr '\n' ' ' || true
 }
 # Prints "topology|couplings|trainsets|pairs" from the host; fails if the two games disagree or a
 # car is missing. The cars needn't be one train (a shunting job's may stand apart): the checks are

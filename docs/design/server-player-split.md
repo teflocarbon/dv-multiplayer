@@ -177,9 +177,8 @@ transport already uses.
 - **The host's own player:** no ticket. It's the loopback client in the same process, so the
   server trusts it, as it trusts `IsHost(player)` today. Its ID comes from the Steam account the
   game runs under.
-- **The service identity:** a dedicated host's own client stays a reserved non-Steam ID
-  (`Settings.ServiceGuid`), never a SteamID. A dedicated host and its owner's client on the same PC
-  share a Steam account, so the service identity must not be derived from it.
+- **No service identity** (since host-local-session stage 3): a dedicated host has no player of its
+  own, so its owner's client on the same PC, sharing its Steam account, is the only player with it.
 - **The owner:** on a dedicated host, the owner is the Steam account running the server. That's
   verified, which a guessable GUID isn't. It decides who the one-time conversion gives the old host
   player's state to, and who is an admin without being listed. `-mp-owner <SteamID64>` overrides it

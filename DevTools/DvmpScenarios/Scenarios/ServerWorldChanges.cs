@@ -16,8 +16,8 @@ namespace Dvmp.Scenarios
     /// client to another branch in code and turns the nearest turntable half round by setting its
     /// target; the client's junction ends on the same branch having switched exactly once, the
     /// host's switched exactly once (nothing came back), and the client's turntable has the host's
-    /// rotation. Both are put back afterwards the same way. On a player host and a dedicated host,
-    /// with or without `--local-session`: before the server broadcast these itself they went out
+    /// rotation. Both are put back afterwards the same way. On a player host and a dedicated host:
+    /// before the server broadcast these itself they went out
     /// through the host's own client, so with no client on the host nothing reached the client.
     /// `host-actions` covers a player's throw (the client's, or the host player's).
     /// </summary>

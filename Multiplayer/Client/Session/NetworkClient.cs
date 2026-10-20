@@ -27,8 +27,6 @@ using Multiplayer.Client.Trains;
 using Multiplayer.Client.UI;
 using Multiplayer.Client.World;
 using Multiplayer.Menus.MainMenu;
-using Multiplayer.Server.Dedicated;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -74,9 +72,9 @@ namespace Multiplayer.Client.Session;
 public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClientApiSession
 {
     /// <summary>
-    ///     The client this game runs (on a host, its loopback client until host-local-session stage 3);
-    ///     null when none runs. Set by the session root. Code that runs for the host's player too
-    ///     reads <see cref="NetworkLifecycle.LocalSession"/> instead.
+    ///     The client this game runs when it plays on another game's server (a host has none: its
+    ///     player is a <see cref="LocalPlayerSession"/>); null when none runs. Set by the session root.
+    ///     Code that runs for the host's player too reads <see cref="NetworkLifecycle.LocalSession"/>.
     /// </summary>
     public static NetworkClient Instance { get; internal set; }
 
@@ -90,7 +88,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
 
     private ITransportPeer selfPeer;
     private readonly HashSet<Type> observerBlockedPacketWarnings = new();
-    private readonly HashSet<Type> hostIgnoredPacketWarnings = new();
     private int lastTrainTopologyCommandFrame = -1;
     private string lastTrainTopologyCommandSignature = string.Empty;
 
@@ -202,7 +199,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     private ChatGUI chatGUI;
     private readonly bool isSinglePlayer;
 
-    private bool isAlsoHost;
     IGameSession originalSession;
     // Proves this game's Steam account to the server; Steam keeps it valid until cancelled.
     private Steamworks.AuthTicket authTicket;
@@ -215,9 +211,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     {
         Log($"Client created for {(singlePlayer ? "single player" : "multiplayer")} game");
         isSinglePlayer = singlePlayer;
-
-        // A dedicated host's own client is a service identity, not the install's player.
-        Username = NetworkLifecycle.Instance.IsDedicatedHost ? DedicatedHost.ServiceName : Multiplayer.Settings.GetUserName();
+        Username = Multiplayer.Settings.GetUserName();
         characterModelId = Multiplayer.Settings.CharacterId;
 
         Settings.OnSettingsUpdated += OnSettingsUpdated;
@@ -231,9 +225,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         //netManager.Start();
         base.Start();
 
-        // The host's own client is trusted by its token and needs no ticket.
-        bool hosting = NetworkLifecycle.Instance.IsServerRunning;
-        ulong steamId = hosting ? 0 : PlayerIdentity.LocalSteamId;
+        ulong steamId = PlayerIdentity.LocalSteamId;
         byte[] ticket = [];
         if (steamId != 0)
         {
@@ -253,10 +245,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         ServerboundClientLoginPacket serverboundClientLoginPacket = new()
         {
             Username = this.Username,
-            Guid = (NetworkLifecycle.Instance.IsDedicatedHost ? Multiplayer.Settings.GetServiceGuid() : Multiplayer.Settings.GetGuid()).ToByteArray(),
+            Guid = Multiplayer.Settings.GetGuid().ToByteArray(),
             SteamId = ticket.Length > 0 ? steamId : 0,
             AuthTicket = ticket,
-            HostToken = hosting ? global::Multiplayer.Server.Session.PlayerAuthentication.HostToken : [],
             Password = password,
             BuildVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
             Mods = ModCompatibilityManager.Instance.GetLocalMods(),
@@ -271,10 +262,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         netPacketProcessor.Write(loginWriter, serverboundClientLoginPacket);
         selfPeer = Connect(address, port, loginWriter);
 
-        isAlsoHost = NetworkLifecycle.Instance.IsServerRunning;
         originalSession = UserManager.Instance.CurrentUser.CurrentSession;
 
-        LogDebug(() => $"NetworkClient.Start() isAlsoHost: {isAlsoHost}, Original session is Null: {originalSession == null}");
+        LogDebug(() => $"NetworkClient.Start() Original session is Null: {originalSession == null}");
     }
 
     public override void Stop()
@@ -282,7 +272,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Log("Stopping client");
         trainsetRelocationRevisions.Clear();
         pendingTrainsetRelocationRevisions.Clear();
-        if (!isAlsoHost && originalSession != null)
+        if (originalSession != null)
         {
             LogDebug(() => $"NetworkClient.Stop() destroying session... Original session is Null: {originalSession == null}");
             Client_GameSession.SetCurrent(originalSession);
@@ -415,38 +405,11 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<CommonChatPacket>(OnCommonChatPacket);
     }
 
-    // Every handler is subscribed through these, so the host's own client drops the packets
-    // HostOwnClient lists however they reach it: a reply, a broadcast or held traffic.
     private void Handle<T>(Action<T> onReceive) where T : class, new() =>
-        netPacketProcessor.SubscribeReusable(HostGated(onReceive));
+        netPacketProcessor.SubscribeReusable(onReceive);
 
     private void HandleNetSerializable<T>(Action<T> onReceive) where T : INetSerializable, new() =>
-        netPacketProcessor.SubscribeNetSerializable(HostGated(onReceive));
-
-    private Action<T> HostGated<T>(Action<T> onReceive)
-    {
-        if (!HostOwnClient.Classifies(typeof(T)))
-            LogError($"{typeof(T).Name} doesn't say whether the host's own client applies it: add it to HostOwnClient");
-        if (!HostOwnClient.Ignores(typeof(T)))
-            return onReceive;
-        return packet =>
-        {
-            if (NetworkLifecycle.Instance.IsHost())
-                IgnoreOnHost(typeof(T));
-            else
-                onReceive(packet);
-        };
-    }
-
-    private void IgnoreOnHost(Type packetType)
-    {
-        // The server leaves its own client out of these, so one arriving is a server bug: say so.
-        if (hostIgnoredPacketWarnings.Add(packetType))
-            LogWarning($"Ignored {packetType.Name} sent to the host's own client (further ones are " +
-                       "dropped silently): the host never follows its own state");
-        DebugRuntime.Publish("host-client", "host-client.packet-ignored", DebugRuntimeSide.Client,
-            DebugSeverity.Warning, "Packet", packetType.Name);
-    }
+        netPacketProcessor.SubscribeNetSerializable(onReceive);
 
     // Allow mods to register their own packets
     public void RegisterExternalPacket<T>(ClientPacketHandler<T> handler) where T : class, IPacket, new()
@@ -752,14 +715,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
                 Username = packet.OverrideUsername;
             }
 
-            DebugRuntime.SetRole(NetworkLifecycle.Instance.IsHost() ? "host" : "client", Username, PlayerId);
-
-            if (NetworkLifecycle.Instance.IsHost())
-            {
-                // Host can skip straight to world state sync as they already have the world loaded
-                SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState);
-                return;
-            }
+            DebugRuntime.SetRole("client", Username, PlayerId);
 
             // Request Game Params and Save Game Data
             SendLoadStateUpdate(PlayerLoadingState.ReadyForGameData);
@@ -946,8 +902,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         LoadingScreen.Finish();
 
         // Starting items this game made itself are only this game's until the server adopts them.
-        if (!isAlsoHost)
-            ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
+        ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
 
         chatGUI = ChatGUI.Create(isSinglePlayer);
     }
@@ -963,10 +918,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     {
         if (ShouldBlockObserverMutation(packet))
             return;
-        // On the host, a request the server handles in-process goes straight to it instead of over
-        // loopback (docs/design/host-local-session.md, stage 2). Elsewhere LocalServer is null.
-        if (NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true)
-            return;
         SendPacket(serverPeer, packet, deliveryMethod);
     }
 
@@ -979,8 +930,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
 
     private bool ShouldBlockObserverMutation<T>(T packet)
     {
-        if (Multiplayer.Settings?.ObserverMode != true ||
-            NetworkLifecycle.Instance.IsHost() || ReferenceEquals(packet, null))
+        if (Multiplayer.Settings?.ObserverMode != true || ReferenceEquals(packet, null))
             return false;
         Type packetType = packet.GetType();
         if (!ObserverMutationPacketTypes.Contains(packetType))

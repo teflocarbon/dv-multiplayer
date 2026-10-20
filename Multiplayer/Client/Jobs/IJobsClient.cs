@@ -20,7 +20,7 @@ public static class JobsClient
 {
     /// <summary>
     ///     This game's player session, or null when there's none (no session running, or a dedicated
-    ///     host with no local session, <c>-mp-local-session</c>).
+    ///     host, which has no player).
     /// </summary>
     public static IJobsClient Current => NetworkLifecycle.Instance?.LocalSession as IJobsClient;
 }

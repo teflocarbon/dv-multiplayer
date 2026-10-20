@@ -16,9 +16,9 @@ using Multiplayer.Shared.Transport;
 namespace Multiplayer.Client.Session;
 
 /// <summary>
-///     The host's own player as a session of its server in the same process, instead of a loopback
-///     <see cref="NetworkClient"/> (docs/design/host-local-session.md, stage 3; started with
-///     <c>-mp-local-session</c> until that's the only way).
+///     The host's own player as a session of its server in the same process: a host runs no
+///     <see cref="NetworkClient"/> of its own (docs/design/host-local-session.md, stage 3). A dedicated
+///     host has none.
 ///     <list type="bullet">
 ///         <item>Requests go to the server in-process (<see cref="Submit{T}"/>), never as packets.</item>
 ///         <item>What the server sends the host's player arrives through its <see cref="LocalPeer"/> and
@@ -131,12 +131,8 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
             }
             catch (ParseException)
             {
-                // The packet's type hash leads it. A type no area presents is the server's state for
-                // its other players, never applied here.
-                ulong hash = data.Length >= sizeof(ulong) ? BitConverter.ToUInt64(data, 0) : 0;
-                if (droppedPacketWarnings.Add(hash))
-                    Multiplayer.LogWarning($"[LocalPlayer] Dropped {PacketNames.Describe(hash)} sent to the host's own player " +
-                                           "(further ones are dropped silently): it presents nothing for it");
+                // The packet's type hash leads it.
+                Drop(data.Length >= sizeof(ulong) ? BitConverter.ToUInt64(data, 0) : 0);
             }
             catch (Exception e)
             {
@@ -147,6 +143,15 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
                 IsProcessingPacket = false;
             }
         }
+    }
+
+    // A packet type no area presents: the server's state for its other players, never applied here.
+    // Its own method so a probe can count them (host-throw-settles).
+    private void Drop(ulong hash)
+    {
+        if (droppedPacketWarnings.Add(hash))
+            Multiplayer.LogWarning($"[LocalPlayer] Dropped {PacketNames.Describe(hash)} sent to the host's own player " +
+                                   "(further ones are dropped silently): it presents nothing for it");
     }
 
     private void OnRemoveLoadingScreen(ClientboundRemoveLoadingScreenPacket packet)

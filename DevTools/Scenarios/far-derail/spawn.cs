@@ -3,7 +3,7 @@
 // the background after a load). Coroutine; result: car ID, the player, whether there's ground, how
 // long it waited.
 var lifecycle = NetworkLifecycle.Instance;
-var player = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayers.First(p => p != Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer);
+var player = Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers.First(p => p != Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer);
 var livery = DV.Globals.G.Types.Liveries.First(l => l.id == "TankChrome");
 var car = CarSpawner.Instance.SpawnCarOnClosestTrack(player.WorldPosition, livery, false, true, false) ?? throw new Exception("no room to spawn next to the client's player");
 car.brakeSystem.SetHandbrakePosition(1f);

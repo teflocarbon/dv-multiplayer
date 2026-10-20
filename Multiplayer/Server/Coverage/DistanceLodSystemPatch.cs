@@ -55,7 +55,7 @@ public static class DistanceLodSystemPatch
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (lifecycle != null && lifecycle.IsHost() && !NetworkServer.Instance.IsSinglePlayer)
         {
-            foreach (ServerPlayer player in NetworkServer.Instance.GameplayPlayers)
+            foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
                 if (player.TrackingData.Position.HasValue)
                     positions.Add(player.WorldPosition);
         }

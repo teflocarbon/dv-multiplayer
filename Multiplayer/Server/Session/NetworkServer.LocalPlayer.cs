@@ -18,25 +18,16 @@ public partial class NetworkServer : ILocalServer
     private int applyingRemoteChange;
 
     /// <summary>
-    ///     The host's own player: a player host's, or a dedicated host's service identity. Set when
-    ///     its login is admitted (the host token proves it), so the server never asks the client who
-    ///     it is; null before that and after it leaves.
+    ///     The host's own player, a session in this process (<see cref="AddLocalPlayer"/>); null on a
+    ///     dedicated host, which has no player, and before the server has started.
     /// </summary>
     public ServerPlayer LocalPlayer { get; private set; }
 
     /// <summary>
-    ///     Whether this server keeps the other players' avatars itself (<see cref="NetworkLifecycle.Avatars"/>):
-    ///     when the host runs no loopback client to follow them from its packets (stage 3,
-    ///     <c>-mp-local-session</c>), on a player host and a dedicated host alike. The host's own
-    ///     player then isn't sent the other players' presence packets.
-    /// </summary>
-    private static bool ServerFeedsAvatars => NetworkLifecycle.LocalSessionRequested;
-
-    /// <summary>
     ///     Admits the host's own player as a session in this process, with no connection
     ///     (docs/design/host-local-session.md, stage 3): the same admission and record binding as a
-    ///     login, then the same loading as the loopback client's, which skipped to the world state
-    ///     (held until the save has loaded). What the server sends it arrives through
+    ///     login, then it skips to the world state, since its game has the world (held until the save
+    ///     has loaded). What the server sends it arrives through
     ///     <paramref name="peer"/>. Called as the server starts, so it gets the first player id.
     /// </summary>
     public ServerPlayer AddLocalPlayer(string username, string characterId, bool isVr, ITransportPeer peer)

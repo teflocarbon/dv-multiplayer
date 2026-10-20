@@ -23,8 +23,8 @@
   grid through lightweight `ColdContainerItemProxy` objects (hidden `GameObject`s implementing
   `IInventoryItemSpec`, not item prefabs) and route moves, adds and nested access to host requests.
   They reach the server through the local player's session (`ItemClient.Current`): a remote
-  client's `NetworkClient` sends them as packets; the host's own player, with
-  `-mp-local-session`, has a `LocalPlayerSession` that submits them in-process and gets the views
+  client's `NetworkClient` sends them as packets; the host's own player has a
+  `LocalPlayerSession` that submits them in-process and gets the views
   and results back through its `LocalPeer` (`LocalPlayerSession.Items.cs`). The career manager's
   Lost Items screen does the same, with `LostAndFoundExchange` building the retrieval and applying
   the list.

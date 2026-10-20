@@ -10,8 +10,8 @@ namespace Dvmp.Scenarios
     /// MPAPI mods' own packets, as a mod registers and sends them, on both games: the host's
     /// broadcast reaches the client's handler and (unless excluded) the host's own client handler;
     /// the client's and the host's own packets to the server reach its handler with the right
-    /// sender. In stage 3 of docs/design/host-local-session.md (`dvmp up --local-session`) the
-    /// host's client API is its in-process session's, and this must hold just the same. On a
+    /// sender. The host's client API is its in-process session's
+    /// (stage 3 of docs/design/host-local-session.md). On a
     /// dedicated host there's no client API on the host: only the client's side is checked.
     /// </summary>
     [Scenario("mpapi-roundtrip", "A mod's packets between the games through MPAPI: broadcast to the client and the host's own client API, and to the server from both, with the right sender")]

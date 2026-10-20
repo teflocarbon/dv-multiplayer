@@ -16,8 +16,8 @@ namespace Dvmp.Scenarios
     /// 60 m away and leaves it there, comes back and presses the validator's reprint button. On both
     /// games the booklet is back at the printer within 15 s, with the same NetId, and the job has as
     /// many booklets as before (moved, not printed again). The press is a request to the server
-    /// from every player, the host's own included (`IJobsClient`): with `--local-session` and no
-    /// client on the host, the host's press ran vanilla's summon instead, which moved the booklet on
+    /// from every player, the host's own included (`IJobsClient`): with no client on the
+    /// host (stage 3), the host's press once ran vanilla's summon instead, which moved the booklet on
     /// the host only. The job is abandoned afterwards.
     ///   WHO=client (default) or host: who takes the job and presses the button; host needs a player
     ///   host. STATION=FM.

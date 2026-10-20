@@ -7,7 +7,7 @@ using Multiplayer.Shared.Session;
 namespace Multiplayer.Menus.MainMenu;
 
 /// <summary>
-/// Loading a save from the main menu starts the server (and the host's own client) before the
+/// Loading a save from the main menu starts the server (and the host's own player) before the
 /// world loads, or goes back to the menu with a popup if it can't.
 /// </summary>
 [HarmonyPatch(typeof(SaveGameManager), nameof(SaveGameManager.FindStartGameData))]

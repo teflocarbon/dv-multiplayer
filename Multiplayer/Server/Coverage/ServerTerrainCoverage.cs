@@ -152,7 +152,7 @@ public sealed class ServerTerrainCoverage : MonoBehaviour
         }
 
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        List<Vector2Int> players = NetworkServer.Instance.GameplayPlayers
+        List<Vector2Int> players = NetworkServer.Instance.ServerPlayers
             .Where(player => !lifecycle.IsHost(player) && player.TrackingData.Position.HasValue)
             .Select(player => grid.ToGridCoords(player.WorldPosition))
             .ToList();

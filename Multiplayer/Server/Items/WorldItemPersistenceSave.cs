@@ -127,7 +127,7 @@ internal static partial class WorldItemPersistenceManager
             return Guid.Empty;
         NetworkServer server = NetworkServer.Instance;
         ServerPlayer holder = server?.ServerPlayers.FirstOrDefault(player => player.PlayerId == record.PlacementPlayerId);
-        return holder == null || holder.IsServiceHost ? Guid.Empty : holder.Guid;
+        return holder?.Guid ?? Guid.Empty;
     }
 
     private static bool ShouldPersist(AuthoritativeItemRegistry.Record record)

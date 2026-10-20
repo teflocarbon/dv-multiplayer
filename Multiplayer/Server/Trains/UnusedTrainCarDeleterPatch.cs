@@ -92,8 +92,6 @@ public static class UnusedTrainCarDeleterPatch
         int placed = 0;
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
-            if (player.IsServiceHost)
-                continue;
             players++;
             if (player.LoadingState == PlayerLoadingState.Complete && player.TrackingData.Position.HasValue)
                 placed++;

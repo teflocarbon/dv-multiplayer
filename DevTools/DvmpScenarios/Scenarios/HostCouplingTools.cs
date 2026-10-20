@@ -15,7 +15,7 @@ namespace Dvmp.Scenarios
     /// and whether the chain is tight. The server commits the host's hoses, cocks, MU cables and
     /// chains by watching its own world (Server/Trains/TopologyObservationPatch,
     /// NetworkedTrainCarServer.ChainStateChanged); before that the host's own client reported each
-    /// as a command, which a host with no client (stage 3, --local-session) doesn't have. A player
+    /// as a command, which a host with no client (stage 3) doesn't have. A player
     /// host only: a dedicated host has no player to work the coupling.
     /// </summary>
     [Scenario("host-coupling-tools", "The host's player works hoses, cocks, an MU cable and the coupling menu between two DE2s: the client has the same coupling after each")]

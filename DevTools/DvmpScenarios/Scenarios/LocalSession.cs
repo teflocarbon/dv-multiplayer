@@ -8,12 +8,10 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// The host's own player in stage 3 of docs/design/host-local-session.md (a pair started with
-    /// `dvmp up --local-session`): a player host's player is an in-process session of its server,
-    /// with player id 1 and a LocalPeer, no loopback client, its loading screen down and its chat
-    /// window built; a dedicated host has no player at all, and its first client is player 1. Either
-    /// way each game has an avatar for the other's player and none for its own. Without
-    /// --local-session it checks what holds for the loopback client too, and says so.
+    /// The host's own player (stage 3 of docs/design/host-local-session.md): a player host's player
+    /// is an in-process session of its server, with player id 1 and a LocalPeer, no client of its
+    /// own, its loading screen down and its chat window built; a dedicated host has no player at all.
+    /// Either way each game has an avatar for the other's player and none for its own.
     /// </summary>
     [Scenario("local-session", "The host's player is an in-process session (or none on a dedicated host): ids, loading screen, chat window and avatars on both games")]
     [Budget(120)]
@@ -23,9 +21,6 @@ namespace Dvmp.Scenarios
 
         protected override async Task Run(Pair pair, Options o)
         {
-            if (!pair.LocalSession)
-                Report.Note("the host runs its loopback client (no --local-session): checking only what holds for both");
-
             HostState host = await pair.Host.Run(() => InGame.Host());
             ClientState client = await pair.Client.Run(() => InGame.Client());
             Report.Note($"host: local player {host.LocalPlayerId} ({host.LocalPeer}), session {host.SessionPlayerId}, " +
@@ -40,12 +35,9 @@ namespace Dvmp.Scenarios
             {
                 Expect.That(!client.Avatars.Contains(host.LocalPlayerId) || host.LocalPlayerId == 0, "the client has no avatar for a dedicated host");
                 Expect.That(!host.ChatWindow, "a dedicated host builds no chat window");
-                if (pair.LocalSession)
-                {
-                    Expect.Equal<byte>(0, host.LocalPlayerId, "a dedicated host has no player of its own");
-                    Expect.That(!host.HasSession, "a dedicated host has no local player session");
-                    Expect.Equal<byte>(1, client.PlayerId, "the first client of a dedicated host is player 1");
-                }
+                Expect.Equal<byte>(0, host.LocalPlayerId, "a dedicated host has no player of its own");
+                Expect.That(!host.HasSession, "a dedicated host has no local player session");
+                Expect.That(!host.ClientRunning, "a dedicated host runs no client");
                 return;
             }
 
@@ -53,12 +45,9 @@ namespace Dvmp.Scenarios
             Expect.Equal(host.LocalPlayerId, host.SessionPlayerId, "the host's session and its server agree on its player id");
             Expect.That(client.Avatars.Contains(host.LocalPlayerId), "the client has an avatar for the host's player");
             Expect.That(host.ChatWindow, "the host's chat window is built");
-            if (pair.LocalSession)
-            {
-                Expect.Equal<byte>(1, host.LocalPlayerId, "the host's player is player 1");
-                Expect.That(host.LocalPeer == nameof(LocalPeer), "the host's player's peer is in-process");
-                Expect.That(!host.ClientRunning, "the host runs no loopback client");
-            }
+            Expect.Equal<byte>(1, host.LocalPlayerId, "the host's player is player 1");
+            Expect.That(host.LocalPeer == nameof(LocalPeer), "the host's player's peer is in-process");
+            Expect.That(!host.ClientRunning, "the host runs no client of its own");
         }
 
         public sealed class HostState

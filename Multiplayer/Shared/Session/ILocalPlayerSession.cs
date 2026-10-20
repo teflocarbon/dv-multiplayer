@@ -6,9 +6,9 @@ namespace Multiplayer.Shared.Session;
 
 /// <summary>
 ///     The player at this keyboard, as Shared and role code reach it without naming the client:
-///     who it is, its ping, the other players' avatars and its chat. Today the game's
-///     <c>NetworkClient</c> (on a host, its loopback client); in host-local-session stage 3, the
-///     host's local player session, so code that runs for the host's player too (presentation,
+///     who it is, its ping, the other players' avatars and its chat. A remote client's
+///     <c>NetworkClient</c>, or a host's in-process <c>LocalPlayerSession</c> (host-local-session
+///     stage 3), so code that runs for the host's player too (presentation,
 ///     the player list, chat, the map) reads this, never <c>NetworkClient</c>. Reached as
 ///     <see cref="NetworkLifecycle.LocalSession"/>; null when nobody plays here. Area requests
 ///     are on the areas' own interfaces (<c>IItemClient</c>, <c>IStationsClient</c>, ...; see

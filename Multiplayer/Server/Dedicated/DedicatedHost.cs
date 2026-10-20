@@ -19,9 +19,8 @@ namespace Multiplayer.Server.Dedicated;
 
 /// <summary>
 /// Dedicated-host mode, started with <c>-mp-dedicated</c>: the game hosts with nobody playing it.
-/// The host keeps its loopback client, which carries its own simulation and applies relayed state
-/// to its world, but that client's player is a service identity rather than a player: it has its
-/// own GUID, isn't announced or shown, takes no player slot and doesn't count as "a player nearby".
+/// The server has no player of its own (docs/design/host-local-session.md, stage 3): nobody is
+/// announced or shown for it, it takes no player slot and nothing counts it as "a player nearby".
 /// DV's own player object stays in the world, because DV can't load or save without one; it is
 /// parked where the save left it and sends no position.
 /// See docs/design/dedicated-host.md.
@@ -46,7 +45,7 @@ public static class DedicatedHost
 {
     public const string ModeArg = "-mp-dedicated";
 
-    /// <summary>The service identity's name. It's never shown to clients.</summary>
+    /// <summary>The name the console's commands run under (ChatManager.RunConsoleCommand).</summary>
     public const string ServiceName = "Dedicated host";
 
     // At or above NetworkLifecycle.TICK_RATE (24), so ticks and polls aren't throttled.
@@ -88,14 +87,14 @@ public static class DedicatedHost
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (!lifecycle.IsDedicatedHost)
             return;
-        if (NetworkServer.Instance.GameplayPlayerCount > 0)
+        if (NetworkServer.Instance.PlayerCount > 0)
             AppUtil.Instance.RemovePauseRequest(emptyServerPause);
         else
             lifecycle.StartCoroutine(SaveAndPauseWhenEmpty(someoneLeft));
     }
 
     /// <summary>Whether the game may pause: only while a dedicated host has nobody online.</summary>
-    public static bool AllowsPause => NetworkLifecycle.Instance.IsDedicatedHost && NetworkServer.Instance.GameplayPlayerCount == 0;
+    public static bool AllowsPause => NetworkLifecycle.Instance.IsDedicatedHost && NetworkServer.Instance.PlayerCount == 0;
 
     private static IEnumerator SaveAndPauseWhenEmpty(bool save)
     {
@@ -246,7 +245,7 @@ public static class DedicatedHost
                 tick = lifecycle.Tick,
                 // Unscaled: while paused the scaled frame time is zero.
                 fps = Math.Round(1f / Mathf.Max(Time.unscaledDeltaTime, 0.0001f), 1),
-                players = lifecycle.IsServerRunning ? NetworkServer.Instance.GameplayPlayers.Select(player => player.Username).ToArray() : new string[0],
+                players = lifecycle.IsServerRunning ? NetworkServer.Instance.ServerPlayers.Select(player => player.Username).ToArray() : new string[0],
                 paused = AppUtil.Instance.IsTimePaused,
                 stopping = Stopping,
                 lastSave = LastSave?.ToString("o"),
@@ -365,7 +364,7 @@ public sealed class DedicatedHostMode : MonoBehaviour
         float now = Time.realtimeSinceStartup;
 
         // Timed saves while anyone is online; the last player leaving saves too.
-        if (NetworkServer.Instance.GameplayPlayerCount == 0 || AppUtil.Instance.IsTimePaused)
+        if (NetworkServer.Instance.PlayerCount == 0 || AppUtil.Instance.IsTimePaused)
             nextSave = 0f;
         else if (nextSave == 0f)
             nextSave = now + DedicatedHost.AutosaveMinutes * 60f;

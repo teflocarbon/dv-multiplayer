@@ -49,7 +49,7 @@ public class ServerPluggableObject : MonoBehaviour
 
         if (!ValidateInteraction(packet, senderPlayer))
         {
-            //Failed to validate, player needs to rollback interaction (the host's own client ignores it)
+            //Failed to validate, player needs to rollback interaction (the host's own player has nothing to roll back)
             if (senderPlayer != Server.LocalPlayer)
                 Server.SendPitStopPlugInteractionPacket(senderPlayer, new CommonPitStopPlugInteractionPacket
                 {
