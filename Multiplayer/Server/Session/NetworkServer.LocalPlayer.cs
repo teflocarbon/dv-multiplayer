@@ -1,6 +1,12 @@
 using System;
+using System.Collections.Generic;
+using LiteNetLib;
+using LiteNetLib.Utils;
 using Multiplayer.Core.Session;
+using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Transport;
 
 namespace Multiplayer.Server.Session;
 
@@ -12,10 +18,31 @@ public partial class NetworkServer : ILocalServer
     private int applyingRemoteChange;
 
     /// <summary>
-    ///     The host's own player: a player host's, or a dedicated host's service identity. Null until
-    ///     its loopback login has been accepted.
+    ///     The host's own player, a session in this process (<see cref="AddLocalPlayer"/>); null on a
+    ///     dedicated host, which has no player, and before the server has started.
     /// </summary>
-    public ServerPlayer LocalPlayer => SelfId != 0 && TryGetServerPlayer(SelfId, out ServerPlayer player) ? player : null;
+    public ServerPlayer LocalPlayer { get; private set; }
+
+    /// <summary>
+    ///     Admits the host's own player as a session in this process, with no connection
+    ///     (docs/design/host-local-session.md, stage 3): the same admission and record binding as a
+    ///     login, then it skips to the world state, since its game has the world (held until the save
+    ///     has loaded). What the server sends it arrives through
+    ///     <paramref name="peer"/>. Called as the server starts, so it gets the first player id.
+    /// </summary>
+    public ServerPlayer AddLocalPlayer(string username, string characterId, bool isVr, ITransportPeer peer)
+    {
+        if (LocalPlayer != null)
+            throw new InvalidOperationException("The host's own player is already logged in");
+
+        ServerPlayer player = AdmitPlayer(peer, username, username, PlayerIdentity.Local,
+            Multiplayer.Settings.GetGuid(), 0, characterId, isVr, isLocalPlayer: true);
+        Log($"The host's own player {player.Username} is player {player.PlayerId}, in-process");
+        // Never fired for the host's loopback client, which skipped ReadyForGameData.
+        PlayerConnected?.Invoke(player);
+        OnServerboundLoadStateUpdatePacket(new ServerboundLoadStateUpdatePacket { LoadState = PlayerLoadingState.ReadyForWorldState }, peer);
+        return player;
+    }
 
     /// <summary>
     ///     True while the server applies another player's change to its own world (a junction, a
@@ -32,6 +59,11 @@ public partial class NetworkServer : ILocalServer
     }
 
     public bool Submit<TRequest>(TRequest request) where TRequest : class => localRequests.Submit(request);
+
+    private readonly Queue<byte[]> localPlayerPackets = new();
+    private readonly NetDataReader localPlayerReader = new();
+
+    public void ReceiveFromLocalPlayer(byte[] data) => localPlayerPackets.Enqueue(data);
 
     /// <summary>Registers the in-process handler for a request type: the same work as its packet handler.</summary>
     private void HandleLocal<TRequest>(Action<TRequest, ServerPlayer> handler) where TRequest : class =>
@@ -69,6 +101,16 @@ public partial class NetworkServer : ILocalServer
                 else
                     LogError($"Handling the host's {type.Name} threw: {e}");
             });
+
+        // MPAPI mods' packets from the host's player, read as from its peer like any player's.
+        while (localPlayerPackets.Count > 0)
+        {
+            byte[] data = localPlayerPackets.Dequeue();
+            if (LocalPlayer?.Peer == null)
+                continue;
+            localPlayerReader.SetSource(data);
+            OnNetworkReceive(LocalPlayer.Peer, localPlayerReader, 0, DeliveryMethod.ReliableOrdered);
+        }
     }
 
     private sealed class ScopeExit : IDisposable

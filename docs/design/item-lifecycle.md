@@ -430,7 +430,7 @@ Item Scanner (netId 812) moved: Purchased by Bentgear29 (at ShopHarbor, 1 of 1, 
   `lastMove`). A caller that knows why passes the cause (a disconnect drop, a rejoin restore, an
   admin grant, a booklet summon, an adoption, a deposit's possession repair). Otherwise
   `ItemMoveClassifier.Classify` names it from what changed, and a change made by the host's own
-  copy says "host's game" and what last changed that copy (`NetworkedItem.HostObservationTrigger`,
+  copy says "host's game" and what last changed that copy (`INetworkedItemServerPart.ObservationTrigger`,
   such as `inventory.AddItemToInventory`). A change the classifier can't name has `Unknown` and the
   calling methods in its detail. The registry's own transitions record their cause too: recall,
   Lost-and-Found retrieval and its rollback, cold withdrawal, a settlement that lands an item in a

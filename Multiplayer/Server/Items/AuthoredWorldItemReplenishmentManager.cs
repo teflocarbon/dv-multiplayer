@@ -222,7 +222,7 @@ internal sealed class AuthoredWorldItemReplenishmentManager
     private static bool AnyPlayerInterested(Vector3 absolutePosition)
     {
         WorldItemCellCoord slotCell = WorldItemCellCoord.FromAbsolute(absolutePosition);
-        return NetworkServer.Instance.GameplayPlayers.Any(player => player != null &&
+        return NetworkServer.Instance.ServerPlayers.Any(player => player != null &&
             player.LoadingState >= PlayerLoadingState.ReadyForItems &&
             WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition))
                 .Contains(slotCell));

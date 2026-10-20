@@ -182,7 +182,7 @@ public sealed class NetworkedPageBookState : MonoBehaviour
     {
         if (!DebugRuntime.EnabledFor("item")) return;
         DebugRuntime.Publish("item", eventName,
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             severity, "Item", networkedItem?.NetId.ToString() ?? "0", data);
     }
 }

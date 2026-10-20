@@ -23,7 +23,7 @@ public static class FireboxTransferCoalPatch
     private static void Postfix(FireboxSimController __instance, float coalMass)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsClientRunning || lifecycle.IsHost() || lifecycle.IsProcessingPacket)
+        if (lifecycle == null || !NetworkRole.IsRemoteClient || lifecycle.IsProcessingPacket)
             return;
         if (coalMass <= 0 || __instance.coalConsumptionMultiplier == 0)
             return;

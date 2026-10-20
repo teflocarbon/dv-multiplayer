@@ -39,7 +39,9 @@ public static class JobValidator_ClientPatch
     [HarmonyPrefix]
     private static bool SummonAllActiveJobBooklets(JobValidator __instance)
     {
-        if (NetworkLifecycle.Instance == null || !NetworkLifecycle.Instance.IsClientRunning)
+        // No player session here: vanilla.
+        IJobsClient jobs = JobsClient.Current;
+        if (jobs == null)
             return true;
         if (!NetworkedStationController.GetFromJobValidator(__instance,
                 out NetworkedStationController station))
@@ -47,7 +49,7 @@ public static class JobValidator_ClientPatch
             __instance.bookletPrinter.PlayErrorSound();
             return false;
         }
-        NetworkClient.Instance.SendJobBookletSummonRequest(station.NetId);
+        jobs.SendJobBookletSummonRequest(station.NetId);
         return false;
     }
 

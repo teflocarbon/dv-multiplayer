@@ -3,9 +3,7 @@ using DV.ThingTypes;
 using HarmonyLib;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
-using Multiplayer.Shared.Session;
 using UnityEngine;
-using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Jobs;
 
@@ -28,8 +26,8 @@ public static class JobAbandoner_ClientPatch
 
     private static void Postfix(JobAbandoner __instance, Collider other)
     {
-        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsClientRunning || other == null)
+        IJobsClient jobs = JobsClient.Current;
+        if (jobs == null || other == null)
             return;
         JobOverview overview = other.GetComponentInParent<JobOverview>();
         if (overview == null || overview.job == null || overview.job.State != JobState.Available ||
@@ -43,7 +41,7 @@ public static class JobAbandoner_ClientPatch
         lastRequestAt[job.NetId] = now;
 
         Multiplayer.Log($"Job overview {job.Job.ID} dropped in the bin; asking for a re-roll");
-        NetworkClient.Instance.SendJobRerollRequest(job.NetId, item.NetId,
+        jobs.SendJobRerollRequest(job.NetId, item.NetId,
             __instance.transform.position - WorldMover.currentMove);
     }
 

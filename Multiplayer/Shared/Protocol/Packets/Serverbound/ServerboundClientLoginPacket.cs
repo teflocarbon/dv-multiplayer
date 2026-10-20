@@ -12,9 +12,6 @@ public class ServerboundClientLoginPacket
     // Empty without Steam.
     public ulong SteamId { get; set; }
     public byte[] AuthTicket { get; set; }
-    // The host's own client, in the same process as the server: PlayerAuthentication.HostToken.
-    // Empty from everyone else.
-    public byte[] HostToken { get; set; }
     public string Password { get; set; }
     public string BuildVersion { get; set; }
     public ModInfo[] Mods { get; set; }

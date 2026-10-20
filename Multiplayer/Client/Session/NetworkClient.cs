@@ -26,9 +26,6 @@ using Multiplayer.Client.Players;
 using Multiplayer.Client.Trains;
 using Multiplayer.Client.UI;
 using Multiplayer.Client.World;
-using Multiplayer.Menus.MainMenu;
-using Multiplayer.Server.Dedicated;
-using Multiplayer.Server.Items;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -71,12 +68,12 @@ using Object = UnityEngine.Object;
 
 namespace Multiplayer.Client.Session;
 
-public partial class NetworkClient : NetworkManager, ILocalPlayerSession
+public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClientApiSession
 {
     /// <summary>
-    ///     The client this game runs (on a host, its loopback client until host-local-session stage 3);
-    ///     null when none runs. Set by the session root. Code that runs for the host's player too
-    ///     reads <see cref="NetworkLifecycle.LocalSession"/> instead.
+    ///     The client this game runs when it plays on another game's server (a host has none: its
+    ///     player is a <see cref="LocalPlayerSession"/>); null when none runs. Set by the session root.
+    ///     Code that runs for the host's player too reads <see cref="NetworkLifecycle.LocalSession"/>.
     /// </summary>
     public static NetworkClient Instance { get; internal set; }
 
@@ -84,13 +81,13 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
     public event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
     protected override string LogPrefix => "[Client]";
+    protected override DebugRuntimeSide DebugSide => DebugRuntimeSide.Client;
 
     private Action<DisconnectReason, string> onDisconnect;
     private string disconnectMessage;
 
     private ITransportPeer selfPeer;
     private readonly HashSet<Type> observerBlockedPacketWarnings = new();
-    private readonly HashSet<Type> hostIgnoredPacketWarnings = new();
     private int lastTrainTopologyCommandFrame = -1;
     private string lastTrainTopologyCommandSignature = string.Empty;
 
@@ -152,26 +149,25 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     public string CrewName { get; private set; }
     public string DisplayName => string.IsNullOrEmpty(CrewName) ? Username : $"[{CrewName}] {Username}";
 
-    public readonly ClientPlayerManager ClientPlayerManager;
-    IReadOnlyCollection<NetworkedPlayer> ILocalPlayerSession.RemotePlayers => ClientPlayerManager.Players;
-    bool ILocalPlayerSession.TryGetRemotePlayer(byte playerId, out NetworkedPlayer player) => ClientPlayerManager.TryGetPlayer(playerId, out player);
+    // The other players' avatars, which this client fills from the server's packets.
+    private static PlayerAvatars Avatars => NetworkLifecycle.Instance.Avatars;
+    IReadOnlyCollection<NetworkedPlayer> ILocalPlayerSession.RemotePlayers => Avatars.Players;
+    bool ILocalPlayerSession.TryGetRemotePlayer(byte playerId, out NetworkedPlayer player) => Avatars.TryGetPlayer(playerId, out player);
     event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerConnected
     {
-        add => ClientPlayerManager.OnPlayerConnected += value;
-        remove => ClientPlayerManager.OnPlayerConnected -= value;
+        add => Avatars.OnPlayerConnected += value;
+        remove => Avatars.OnPlayerConnected -= value;
     }
     event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerDisconnected
     {
-        add => ClientPlayerManager.OnPlayerDisconnected += value;
-        remove => ClientPlayerManager.OnPlayerDisconnected -= value;
+        add => Avatars.OnPlayerDisconnected += value;
+        remove => Avatars.OnPlayerDisconnected -= value;
     }
     event Action<NetworkedPlayer> ILocalPlayerSession.RemotePlayerPrefsUpdated
     {
-        add => ClientPlayerManager.OnPlayerPrefsUpdated += value;
-        remove => ClientPlayerManager.OnPlayerPrefsUpdated -= value;
+        add => Avatars.OnPlayerPrefsUpdated += value;
+        remove => Avatars.OnPlayerPrefsUpdated -= value;
     }
-    public readonly Dictionary<byte, ClientPlayerWrapper> PlayerWrapperCache = [];
-    public IReadOnlyCollection<ClientPlayerWrapper> ClientPlayerWrappers => PlayerWrapperCache.Values;
 
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     internal uint trainSetsToSpawn = uint.MaxValue;
@@ -198,11 +194,11 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     public int Ping { get; private set; }
     private ITransportPeer serverPeer;
     public float RPC_Timeout => (Ping * 8f) / 1000;
+    float ILocalPlayerSession.RpcTimeout => RPC_Timeout;
 
     private ChatGUI chatGUI;
     private readonly bool isSinglePlayer;
 
-    private bool isAlsoHost;
     IGameSession originalSession;
     // Proves this game's Steam account to the server; Steam keeps it valid until cancelled.
     private Steamworks.AuthTicket authTicket;
@@ -215,14 +211,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         Log($"Client created for {(singlePlayer ? "single player" : "multiplayer")} game");
         isSinglePlayer = singlePlayer;
-        ClientPlayerManager = new ClientPlayerManager();
-
-        // A static method, so re-subscribing on every new client replaces instead of piling up.
-        WorldStreamingInit.LoadingFinished -= NetworkedPlayer.CaptureItemAnchorOffset;
-        WorldStreamingInit.LoadingFinished += NetworkedPlayer.CaptureItemAnchorOffset;
-
-        // A dedicated host's own client is a service identity, not the install's player.
-        Username = NetworkLifecycle.Instance.IsDedicatedHost ? DedicatedHost.ServiceName : Multiplayer.Settings.GetUserName();
+        Username = Multiplayer.Settings.GetUserName();
         characterModelId = Multiplayer.Settings.CharacterId;
 
         Settings.OnSettingsUpdated += OnSettingsUpdated;
@@ -236,9 +225,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         //netManager.Start();
         base.Start();
 
-        // The host's own client is trusted by its token and needs no ticket.
-        bool hosting = NetworkLifecycle.Instance.IsServerRunning;
-        ulong steamId = hosting ? 0 : PlayerIdentity.LocalSteamId;
+        ulong steamId = PlayerIdentity.LocalSteamId;
         byte[] ticket = [];
         if (steamId != 0)
         {
@@ -258,12 +245,11 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         ServerboundClientLoginPacket serverboundClientLoginPacket = new()
         {
             Username = this.Username,
-            Guid = (NetworkLifecycle.Instance.IsDedicatedHost ? Multiplayer.Settings.GetServiceGuid() : Multiplayer.Settings.GetGuid()).ToByteArray(),
+            Guid = Multiplayer.Settings.GetGuid().ToByteArray(),
             SteamId = ticket.Length > 0 ? steamId : 0,
             AuthTicket = ticket,
-            HostToken = hosting ? global::Multiplayer.Server.Session.PlayerAuthentication.HostToken : [],
             Password = password,
-            BuildVersion = MainMenuControllerPatch.MenuProvider.BuildVersionString,
+            BuildVersion = FrontEnd.BuildVersion,
             Mods = ModCompatibilityManager.Instance.GetLocalMods(),
             CharacterId = Multiplayer.Settings.CharacterId,
             IsVR = VRManager.IsVREnabled()
@@ -276,10 +262,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         netPacketProcessor.Write(loginWriter, serverboundClientLoginPacket);
         selfPeer = Connect(address, port, loginWriter);
 
-        isAlsoHost = NetworkLifecycle.Instance.IsServerRunning;
         originalSession = UserManager.Instance.CurrentUser.CurrentSession;
 
-        LogDebug(() => $"NetworkClient.Start() isAlsoHost: {isAlsoHost}, Original session is Null: {originalSession == null}");
+        LogDebug(() => $"NetworkClient.Start() Original session is Null: {originalSession == null}");
     }
 
     public override void Stop()
@@ -287,7 +272,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         Log("Stopping client");
         trainsetRelocationRevisions.Clear();
         pendingTrainsetRelocationRevisions.Clear();
-        if (!isAlsoHost && originalSession != null)
+        if (originalSession != null)
         {
             LogDebug(() => $"NetworkClient.Stop() destroying session... Original session is Null: {originalSession == null}");
             Client_GameSession.SetCurrent(originalSession);
@@ -420,38 +405,11 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         Handle<CommonChatPacket>(OnCommonChatPacket);
     }
 
-    // Every handler is subscribed through these, so the host's own client drops the packets
-    // HostOwnClient lists however they reach it: a reply, a broadcast or held traffic.
     private void Handle<T>(Action<T> onReceive) where T : class, new() =>
-        netPacketProcessor.SubscribeReusable(HostGated(onReceive));
+        netPacketProcessor.SubscribeReusable(onReceive);
 
     private void HandleNetSerializable<T>(Action<T> onReceive) where T : INetSerializable, new() =>
-        netPacketProcessor.SubscribeNetSerializable(HostGated(onReceive));
-
-    private Action<T> HostGated<T>(Action<T> onReceive)
-    {
-        if (!HostOwnClient.Classifies(typeof(T)))
-            LogError($"{typeof(T).Name} doesn't say whether the host's own client applies it: add it to HostOwnClient");
-        if (!HostOwnClient.Ignores(typeof(T)))
-            return onReceive;
-        return packet =>
-        {
-            if (NetworkLifecycle.Instance.IsHost())
-                IgnoreOnHost(typeof(T));
-            else
-                onReceive(packet);
-        };
-    }
-
-    private void IgnoreOnHost(Type packetType)
-    {
-        // The server leaves its own client out of these, so one arriving is a server bug: say so.
-        if (hostIgnoredPacketWarnings.Add(packetType))
-            LogWarning($"Ignored {packetType.Name} sent to the host's own client (further ones are " +
-                       "dropped silently): the host never follows its own state");
-        DebugRuntime.Publish("host-client", "host-client.packet-ignored", DebugRuntimeSide.Client,
-            DebugSeverity.Warning, "Packet", packetType.Name);
-    }
+        netPacketProcessor.SubscribeNetSerializable(onReceive);
 
     // Allow mods to register their own packets
     public void RegisterExternalPacket<T>(ClientPacketHandler<T> handler) where T : class, IPacket, new()
@@ -473,7 +431,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     }
 
     // Allow mods to register ready blocks
-    internal void RegisterReadyBlock(string modName)
+    public void RegisterReadyBlock(string modName)
     {
         Log($"Ready Block has been registered by {modName}");
 
@@ -483,7 +441,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         readyBlocks.Add(modName);
     }
 
-    internal void CancelReadyBlock(string modName)
+    public void CancelReadyBlock(string modName)
     {
         Log($"Ready Block has been cleared by {modName}");
 
@@ -681,16 +639,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         yield return new WaitForSeconds(0.25f);
     }
 
-    public ClientPlayerWrapper GetWrapper(NetworkedPlayer networkedPlayer)
-    {
-        if (!PlayerWrapperCache.TryGetValue(networkedPlayer.PlayerId, out var wrapper))
-        {
-            wrapper = new ClientPlayerWrapper(networkedPlayer);
-            PlayerWrapperCache[networkedPlayer.PlayerId] = wrapper;
-        }
-        return wrapper;
-    }
-
 
     public override void OnPeerConnected(ITransportPeer peer)
     {
@@ -706,18 +654,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
 
         TrainStress.globalIgnoreStressCalculation = false;
 
-        if (MainMenuThingsAndStuff.Instance != null)
-        {
-            //MainMenuThingsAndStuff.Instance.SwitchToDefaultMenu();
-            LogDebug(() => $"OnPeerDisconnected() queuing GoBackToMainMenu via NetworkLifecycle");
-            NetworkLifecycle.Instance.TriggerMainMenuEventLater();
-        }
-        else
-        {
-            LogDebug(() => $"OnPeerDisconnected() {nameof(MainMenuThingsAndStuff.Instance)} is null, calling GoBackToMainMenu directly");
-            MainMenu.GoBackToMainMenu();
-            NetworkLifecycle.Instance.TriggerMainMenuEventLater();
-        }
+        FrontEnd.ReturnToMainMenu();
 
         LogDebug(() => $"OnPeerDisconnected() calling onDisconnect({disconnectReason}, {disconnectMessage})");
         InvokeOnDisconnect(disconnectReason, disconnectMessage);
@@ -767,14 +704,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
                 Username = packet.OverrideUsername;
             }
 
-            DebugRuntime.SetRole(NetworkLifecycle.Instance.IsHost() ? "host" : "client", Username, PlayerId);
-
-            if (NetworkLifecycle.Instance.IsHost())
-            {
-                // Host can skip straight to world state sync as they already have the world loaded
-                SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState);
-                return;
-            }
+            DebugRuntime.SetRole("client", Username, PlayerId);
 
             // Request Game Params and Save Game Data
             SendLoadStateUpdate(PlayerLoadingState.ReadyForGameData);
@@ -857,9 +787,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
         Log($"Received player joined packet for player id: {packet.PlayerId}, username: {packet.Username}");
-        ClientPlayerManager.AddPlayer(packet.PlayerId, packet.Username, packet.CrewName, packet.CharacterId, packet.IsVR);
+        Avatars.AddPlayer(packet.PlayerId, packet.Username, packet.CrewName, packet.CharacterId, packet.IsVR);
 
-        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
+        Avatars.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
     //For other player left the game
@@ -867,7 +797,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
         Log($"Received player disconnect packet for player id: {packet.PlayerId}");
-        ClientPlayerManager.RemovePlayer(packet.PlayerId);
+        Avatars.RemovePlayer(packet.PlayerId);
     }
 
     //For server shutting down / player kicked
@@ -888,7 +818,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     private void OnClientboundPlayerPositionPacket(ClientboundPlayerPositionPacket packet)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Player", packet.PlayerId.ToString());
-        ClientPlayerManager.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
+        Avatars.UpdatePosition(packet.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
     private void OnClientboundPlayerPreferencesUpdatePacket(ClientboundPlayerPreferencesUpdatePacket packet)
@@ -901,12 +831,12 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
                 CrewName = crewName;
         }
 
-        ClientPlayerManager.UpdatePreferences(packet.PlayerId, packet.GetPreferencesDictionary());
+        Avatars.UpdatePreferences(packet.PlayerId, packet.GetPreferencesDictionary());
     }
 
     private void OnClientboundPingUpdatePacket(ClientboundPingUpdatePacket packet)
     {
-        ClientPlayerManager.UpdatePing(packet.PlayerId, packet.Ping);
+        Avatars.UpdatePing(packet.PlayerId, packet.Ping);
     }
 
     private void OnClientboundTickSyncPacket(ClientboundTickSyncPacket packet)
@@ -958,39 +888,12 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     private void OnClientboundRemoveLoadingScreen(ClientboundRemoveLoadingScreenPacket packet)
     {
         Log("World sync finished, removing loading screen");
-
-        DisplayLoadingInfo displayLoadingInfo = Object.FindObjectOfType<DisplayLoadingInfo>();
-        if (displayLoadingInfo != null)
-            displayLoadingInfo.OnLoadingFinished();
-        else
-            LogWarning($"Received {nameof(ClientboundRemoveLoadingScreenPacket)} but couldn't find {nameof(DisplayLoadingInfo)}");
-
-        // Only FinishLoading() leaves loading mode. Without it a VR player is left in the world (the
-        // VR loading overlay closes by itself at 100%) with the hand controllers switched off, their
-        // own controllers showing and no teleport (#72).
-        if (LoadingScreenManager.IsLoading)
-        {
-            LogWarning("Still in loading mode after removing the loading screen, finishing it");
-            LoadingScreenManager.Instance.FinishLoading();
-        }
+        LoadingScreen.Finish();
 
         // Starting items this game made itself are only this game's until the server adopts them.
-        if (!isAlsoHost)
-            ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
+        ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
 
-        //if not single player, add in chat (nobody reads it on a dedicated host, and building it
-        //pauses the game)
-        if (!isSinglePlayer && !NetworkLifecycle.Instance.IsDedicatedHost)
-        {
-            GameObject common = GameObject.Find("[MAIN]/[GameUI]/[NewCanvasController]/Auxiliary Canvas, EventSystem, Input Module");
-            if (common != null)
-            {
-                //
-                GameObject chat = new("Chat GUI", typeof(ChatGUI));
-                chat.transform.SetParent(common.transform, false);
-                chatGUI = chat.GetComponent<ChatGUI>();
-            }
-        }
+        chatGUI = ChatGUI.Create(isSinglePlayer);
     }
 
     private void OnCommonChatPacket(CommonChatPacket packet)
@@ -1004,10 +907,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         if (ShouldBlockObserverMutation(packet))
             return;
-        // On the host, a request the server handles in-process goes straight to it instead of over
-        // loopback (docs/design/host-local-session.md, stage 2). Elsewhere LocalServer is null.
-        if (NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true)
-            return;
         SendPacket(serverPeer, packet, deliveryMethod);
     }
 
@@ -1020,8 +919,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
 
     private bool ShouldBlockObserverMutation<T>(T packet)
     {
-        if (Multiplayer.Settings?.ObserverMode != true ||
-            NetworkLifecycle.Instance.IsHost() || ReferenceEquals(packet, null))
+        if (Multiplayer.Settings?.ObserverMode != true || ReferenceEquals(packet, null))
             return false;
         Type packetType = packet.GetType();
         if (!ObserverMutationPacketTypes.Contains(packetType))

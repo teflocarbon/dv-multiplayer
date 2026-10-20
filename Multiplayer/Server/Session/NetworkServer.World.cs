@@ -21,13 +21,13 @@ public partial class NetworkServer : IWorldServer
 {
     // Junctions, turntables and time skips (docs/world-sync.md): the server applies another
     // player's change to its own world, inside ApplyingRemoteChange so the code that would send it
-    // on doesn't, then relays it to the other players. The host's own changes have already happened
-    // in its world, and arrive in-process (RegisterLocalWorld) only to be relayed. The host's own
-    // client is never sent them: it shares the server's world.
+    // on doesn't, then relays it to the other players. A junction or turntable that moves in the
+    // server's own world, whoever or whatever moved it (the host's player, a mod, nobody at all on a
+    // dedicated host), is broadcast from here (IWorldServer) with no player behind it. The host's
+    // own time skips arrive in-process (RegisterLocalWorld) only to be relayed. The host's own
+    // player is never sent any of them: it shares the server's world.
     partial void RegisterLocalWorld()
     {
-        HandleLocal<CommonChangeJunctionPacket>(HandleJunction);
-        HandleLocal<CommonRotateTurntablePacket>(HandleTurntable);
         HandleLocal<ServerboundTimeAdvancePacket>(HandleTimeAdvance);
     }
 
@@ -178,18 +178,19 @@ public partial class NetworkServer : IWorldServer
 
     private void HandleJunction(CommonChangeJunctionPacket packet, ServerPlayer player)
     {
-        if (!IsLocal(player))
+        if (!NetworkedJunction.Get(packet.NetId, out NetworkedJunction junction))
         {
-            if (!NetworkedJunction.Get(packet.NetId, out NetworkedJunction junction))
-            {
-                LogWarning($"{player.Username} switched junction {packet.NetId}, which doesn't exist here");
-                return;
-            }
-            using (ApplyingRemoteChange())
-                junction.Switch(packet.Mode, packet.SelectedBranch);
+            LogWarning($"{player.Username} switched junction {packet.NetId}, which doesn't exist here");
+            return;
         }
+        using (ApplyingRemoteChange())
+            junction.Switch(packet.Mode, packet.SelectedBranch);
         SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, player.Peer, excludeSelf: true);
     }
+
+    void IWorldServer.BroadcastJunctionSwitched(ushort netId, byte selectedBranch, Junction.SwitchMode mode) =>
+        SendPacketToAll(new CommonChangeJunctionPacket { NetId = netId, SelectedBranch = selectedBranch, Mode = (byte)mode },
+            DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, excludeSelf: true);
 
     private void OnCommonRotateTurntablePacket(CommonRotateTurntablePacket packet, ITransportPeer peer)
     {
@@ -199,18 +200,19 @@ public partial class NetworkServer : IWorldServer
 
     private void HandleTurntable(CommonRotateTurntablePacket packet, ServerPlayer player)
     {
-        if (!IsLocal(player))
+        if (!NetworkedTurntable.Get(packet.NetId, out NetworkedTurntable turntable))
         {
-            if (!NetworkedTurntable.Get(packet.NetId, out NetworkedTurntable turntable))
-            {
-                LogWarning($"{player.Username} turned turntable {packet.NetId}, which doesn't exist here");
-                return;
-            }
-            using (ApplyingRemoteChange())
-                turntable.SetRotation(packet.rotation);
+            LogWarning($"{player.Username} turned turntable {packet.NetId}, which doesn't exist here");
+            return;
         }
+        using (ApplyingRemoteChange())
+            turntable.SetRotation(packet.rotation);
         SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, player.Peer, excludeSelf: true);
     }
+
+    void IWorldServer.BroadcastTurntableRotation(byte netId, float rotation) =>
+        SendPacketToAll(new CommonRotateTurntablePacket { NetId = netId, rotation = rotation },
+            DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForWorldState, excludeSelf: true);
 
     private void OnCommonGenericSwitchStatePacket(CommonGenericSwitchStatePacket packet, ITransportPeer peer)
     {

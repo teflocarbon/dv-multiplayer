@@ -1,7 +1,9 @@
-using Multiplayer.Shared.Protocol.Data;
 using System;
 
-namespace Multiplayer.Menus.ServerBrowser;
+namespace Multiplayer.Shared.Protocol.Data;
+
+// The server browser's view of a game (LobbyServerData), shared because the server fills it in
+// and advertises it, and the menus list it.
 
 public enum ServerVisibility : int
 {

@@ -2,16 +2,17 @@ using DV.Scenarios.Common;
 using LiteNetLib;
 using MPAPI;
 using Multiplayer.Client.Api;
+using Multiplayer.Client.Players;
 using Multiplayer.Client.Session;
 using Multiplayer.Client.UI;
 using Multiplayer.Server.Api;
 using Multiplayer.Server.Dedicated;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
 using System;
-using System.Net;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -36,6 +37,7 @@ public class MultiplayerSession : MonoBehaviour
 
     private PlayerListGUI playerList;
     private NetworkStatsGui Stats;
+    private LocalPlayerSession localSession;
 
     private void Awake()
     {
@@ -64,10 +66,10 @@ public class MultiplayerSession : MonoBehaviour
     private void OnSettingsUpdated(Settings settings)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (!lifecycle.IsClientRunning && !lifecycle.IsServerRunning)
+        if (!lifecycle.IsSessionRunning)
             return;
         if (settings.ShowStats)
-            Stats.Show(NetworkClient.Instance.Statistics, NetworkServer.Instance?.Statistics);
+            Stats.Show(NetworkClient.Instance?.Statistics, NetworkServer.Instance?.Statistics);
         else
             Stats.Hide();
     }
@@ -99,13 +101,17 @@ public class MultiplayerSession : MonoBehaviour
 
         NetworkServer.Instance = server;
         NetworkLifecycle.Instance.AttachServer(server, server);
+        AttachAvatars();
         DebugRuntime.SetRole("host", Multiplayer.Settings.GetUserName());
 
         // Register server API
         var serverAPI = new ServerAPIProvider(server);
         MultiplayerAPI.RegisterServer(serverAPI);
 
-        StartClient(IPAddress.Loopback.ToString(), port, Multiplayer.Settings.Password, IsSinglePlayer, null);
+        // The host's player, if someone plays here: a dedicated host has none
+        // (docs/design/host-local-session.md, stage 3).
+        if (!DedicatedHost.Requested)
+            StartLocalPlayerSession(server, IsSinglePlayer);
 
         //reset for next game
         IsSinglePlayer = true;
@@ -123,13 +129,29 @@ public class MultiplayerSession : MonoBehaviour
 
         NetworkClient.Instance = client;
         NetworkLifecycle.Instance.AttachClient(client, client);
-        if (NetworkServer.Instance == null)
-            DebugRuntime.SetRole("client", client.Username);
+        AttachAvatars();
+        DebugRuntime.SetRole("client", client.Username);
 
         // Register client API
         var clientAPI = new ClientAPIProvider(client);
         MultiplayerAPI.RegisterClient(clientAPI);
 
+        OnSettingsUpdated(Multiplayer.Settings); // Show stats if enabled
+    }
+
+    // The host's own player, as a session of its server in this process (docs/design/host-local-session.md,
+    // stage 3): a host runs no client of its own.
+    private void StartLocalPlayerSession(NetworkServer server, bool isSinglePlayer)
+    {
+        LocalPlayerSession session = new(isSinglePlayer);
+        localSession = session;
+        NetworkLifecycle.Instance.AttachClient(null, session);
+        ServerPlayer player = server.AddLocalPlayer(session.Username, Multiplayer.Settings.CharacterId, VRManager.IsVREnabled(), session.Peer);
+        session.OnAdmitted(player.PlayerId, player.Username);
+        DebugRuntime.SetRole("host", player.Username, player.PlayerId);
+
+        // Register client API: mods see the host's player as they see a client's
+        MultiplayerAPI.RegisterClient(new ClientAPIProvider(session));
         OnSettingsUpdated(Multiplayer.Settings); // Show stats if enabled
     }
 
@@ -154,6 +176,23 @@ public class MultiplayerSession : MonoBehaviour
             NetworkClient.Instance = null;
             NetworkLifecycle.Instance.AttachClient(null, null);
         }
+
+        if (localSession != null)
+        {
+            localSession.Stop();
+            MultiplayerAPI.ClearClient();
+            localSession = null;
+            NetworkLifecycle.Instance.AttachClient(null, null);
+        }
+
+        NetworkLifecycle.Instance.AttachAvatars(null);
+    }
+
+    // One avatar registry per session, whichever role starts first (a host starts both).
+    private static void AttachAvatars()
+    {
+        if (NetworkLifecycle.Instance.Avatars == null)
+            NetworkLifecycle.Instance.AttachAvatars(new PlayerAvatars(new AvatarPresentation()));
     }
 
     protected void OnApplicationQuit()

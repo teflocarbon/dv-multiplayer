@@ -116,6 +116,8 @@ public static class Multiplayer
             harmony.PatchAll();
             global::Multiplayer.Client.Trains.SimComponent_Tick_Patch.Patch(harmony);
             global::Multiplayer.Client.Trains.TenderAutoCouplerPatch.Patch(harmony);
+            CustomCarLoaderRopes.Patch(harmony);
+            global::Multiplayer.Shared.Compatibility.CustomCarLoaderPorts.Patch(harmony);
 
             UnityModManager.ModEntry remoteDispatch = UnityModManager.FindMod("RemoteDispatch");
             if (remoteDispatch?.Enabled == true)
@@ -150,6 +152,10 @@ public static class Multiplayer
             Log("Loading API Provider...");
             _apiProvider = new APIProvider();
             MultiplayerAPI.RegisterAPI(_apiProvider);
+
+            // What the server and the client need from the menus, which they may not name.
+            FrontEnd.Attach(() => MainMenuControllerPatch.MenuProvider.BuildVersionString,
+                MainMenuThingsAndStuff.ReturnToMainMenu);
 
 #if DEBUG
             CheckPatches();

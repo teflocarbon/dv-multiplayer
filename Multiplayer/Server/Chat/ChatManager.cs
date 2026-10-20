@@ -295,8 +295,8 @@ public class ChatManager
     {
         if (player == null)
             return false;
-        // The server's own service player sends only what was typed in its console.
-        if (player.IsServiceHost)
+        // The server's console sends only what was typed in it.
+        if (IsConsole(player))
             return runningConsoleCommand;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         return lifecycle.IsHost(player) ||
@@ -310,7 +310,7 @@ public class ChatManager
     // A whisper, or for the console its log, where the watchdog's window shows it.
     private static void Tell(string message, ServerPlayer player)
     {
-        if (runningConsoleCommand && player != null && player.IsServiceHost)
+        if (runningConsoleCommand && IsConsole(player))
         {
             string plain = Regex.Replace(message ?? string.Empty, "<[^>]+>", string.Empty)
                 .Replace("\r\n\t\t", "  ").Replace("\r\n\t", "\n  ").Replace("\r\n", "\n");
@@ -322,14 +322,20 @@ public class ChatManager
 
     private static bool runningConsoleCommand;
 
+    // Sends a dedicated host's console commands (it has no player of its own).
+    private ServerPlayer consoleSender;
+
+    private static bool IsConsole(ServerPlayer player) => player != null && player.IsConsole;
+
     /// <summary>
     /// A line typed in a dedicated host's console (DedicatedHost.RunConsoleCommands). It runs as the
-    /// server's own service player, which is an admin for it, and the replies go to the log. A line
-    /// without a slash is said in chat as the server.
+    /// server's console sender (<see cref="ServerPlayer.CreateConsole"/>), which is an admin for it,
+    /// and the replies go to the log. A line without a slash is said in chat as the server.
     /// </summary>
     public void RunConsoleCommand(string line)
     {
-        ServerPlayer console = NetworkServer.Instance?.ServerPlayers.FirstOrDefault(player => player.IsServiceHost);
+        NetworkServer server = NetworkServer.Instance;
+        ServerPlayer console = server != null ? consoleSender ??= ServerPlayer.CreateConsole(DedicatedHost.ServiceName) : null;
         if (console == null)
         {
             Multiplayer.LogWarning($"[Console] the server isn't ready for commands yet: {line}");
@@ -363,7 +369,7 @@ public class ChatManager
     {
         if (string.IsNullOrEmpty(name))
             return null;
-        var players = NetworkServer.Instance.GameplayPlayers.ToList();
+        var players = NetworkServer.Instance.ServerPlayers.ToList();
         ServerPlayer exact = players.FirstOrDefault(p => string.Equals(p.Username, name, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
             return exact;
@@ -530,7 +536,7 @@ public class ChatManager
             return;
         List<string> parts = message.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).ToList();
         bool wholeTrain = parts.RemoveAll(part => string.Equals(part, "all", StringComparison.OrdinalIgnoreCase)) > 0;
-        ServerPlayer player = parts.Count > 0 ? FindPlayer(parts[0]) : sender.IsServiceHost ? null : sender;
+        ServerPlayer player = parts.Count > 0 ? FindPlayer(parts[0]) : IsConsole(sender) ? null : sender;
         if (player == null)
         {
             Reply(sender, parts.Count > 0 ? $"No player called {parts[0]}." : $"/{COMMAND_REPAIR} <player> [all]");
@@ -825,7 +831,7 @@ public class ChatManager
     {
         if (!IsAdmin(sender))
         {
-            if (sender != null && !sender.IsServiceHost)
+            if (sender != null && !IsConsole(sender))
                 Reply(sender, "Only the host or an admin can pay the fees.");
             return;
         }

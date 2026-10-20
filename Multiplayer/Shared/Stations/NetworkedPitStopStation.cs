@@ -536,7 +536,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     /// </summary>
     private void CarSelectorGrabbed(ControlImplBase _)
     {
-        if (NetworkLifecycle.Instance.IsProcessingPacket || (NetworkLifecycle.Instance.IsHost() && ProcessingAsHost))
+        if (NetworkLifecycle.Instance.IsProcessingPacket || ProcessingAsHost)
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
@@ -552,7 +552,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     /// </summary>
     private void CarSelectorUnGrabbed(ControlImplBase _)
     {
-        if (NetworkLifecycle.Instance.IsProcessingPacket || (NetworkLifecycle.Instance.IsHost() && ProcessingAsHost))
+        if (NetworkLifecycle.Instance.IsProcessingPacket || ProcessingAsHost)
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
@@ -570,7 +570,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     {
         Multiplayer.LogDebug(() => $"CarSelected() [{StationName}, {NetId}]  selected: {Station.pitstop.SelectedIndex}");
 
-        if (NetworkLifecycle.Instance.IsProcessingPacket || (NetworkLifecycle.Instance.IsHost() && ProcessingAsHost))
+        if (NetworkLifecycle.Instance.IsProcessingPacket || ProcessingAsHost)
             return;
 
         // Prevent new players/players entering the area from sending packets until initalised
@@ -612,7 +612,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     /// </summary>
     private void FaucetCrankGrabbed(ControlImplBase _)
     {
-        if (NetworkLifecycle.Instance.IsProcessingPacket || (NetworkLifecycle.Instance.IsHost() && ProcessingAsHost))
+        if (NetworkLifecycle.Instance.IsProcessingPacket || ProcessingAsHost)
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
@@ -635,7 +635,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     /// </summary>
     private void FaucetCrankUnGrabbed(ControlImplBase _)
     {
-        if (NetworkLifecycle.Instance.IsProcessingPacket || (NetworkLifecycle.Instance.IsHost() && ProcessingAsHost))
+        if (NetworkLifecycle.Instance.IsProcessingPacket || ProcessingAsHost)
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
@@ -658,7 +658,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     {
         Multiplayer.LogDebug(() => $"FaucetCrankPositionChanged() {StationName}, oldValue: {args.oldValue}, newValue: {args.newValue}, delta: {args.delta}");
 
-        if (NetworkLifecycle.Instance.IsProcessingPacket || (NetworkLifecycle.Instance.IsHost() && ProcessingAsHost))
+        if (NetworkLifecycle.Instance.IsProcessingPacket || ProcessingAsHost)
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised

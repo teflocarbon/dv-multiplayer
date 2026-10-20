@@ -44,8 +44,8 @@ public sealed class RoleAnalyzer : DiagnosticAnalyzer
         "{0} See docs/design/code-layout.md.",
         "Layout", DiagnosticSeverity.Error, isEnabledByDefault: true);
 
-    // The root namespace's files: UMM's entry point (Multiplayer.Multiplayer.Load), the session root, the settings and the locale.
-    private static readonly string[] RootFiles = { "Multiplayer.cs", "MultiplayerSession.cs", "Settings.cs", "Locale.cs" };
+    // The root namespace's files: UMM's entry point (Multiplayer.Multiplayer.Load), the session root, the settings, the locale and the MPAPI facade.
+    private static readonly string[] RootFiles = { "Multiplayer.cs", "MultiplayerSession.cs", "Settings.cs", "Locale.cs", "APIProvider.cs" };
     private static readonly string[] RoleFolders = { "Shared", "Server", "Client", "Menus" };
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(RoleReference, FolderNamespace);

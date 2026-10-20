@@ -123,12 +123,9 @@ public static class NetworkedItemServer
             item.UpdateHostPossessor(snapshot.PlayerId);
         }
 
-        // Allow host to process packet if not from a local client
-        if (!NetworkLifecycle.Instance.IsClientRunning || (NetworkLifecycle.Instance.IsClientRunning && senderPlayer != NetworkServer.Instance.LocalPlayer))
-        {
-            item.ProcessingAsHost = true;
+        // The host's own player's change has happened in this world already
+        if (senderPlayer != NetworkServer.Instance.LocalPlayer)
             item.ReceiveSnapshot(snapshot);
-        }
 
         // Placement is part of canonical authority, so the host interest index must change in
         // the same operation. Waiting for ProcessChanged leaves a window where inventory/hand
@@ -340,13 +337,14 @@ public static class NetworkedItemServer
         !float.IsNaN(value.z) && !float.IsInfinity(value.z) &&
         !float.IsNaN(value.w) && !float.IsInfinity(value.w);
 
+    // actor null: the server itself (HostItemActor.IsServer).
     internal static void ApplyHostLocalCanonicalTransition(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor)
     {
-        if (snapshot == null || actor == null)
+        if (snapshot == null)
             return;
         item.PublishUnityState("item.ownership-transition.before", new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actor?.PlayerId ?? 0,
             ["targetState"] = snapshot.ItemState.ToString(),
             ["transitionReason"] = snapshot.TransitionReason.ToString(),
             ["unityStateAlreadyApplied"] = true
@@ -362,7 +360,7 @@ public static class NetworkedItemServer
         item.ApplyAuthorityMetadata(snapshot);
         item.PublishUnityState("item.ownership-transition.after", new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actor?.PlayerId ?? 0,
             ["targetState"] = snapshot.ItemState.ToString(),
             ["transitionReason"] = snapshot.TransitionReason.ToString(),
             ["unityStateAlreadyApplied"] = true
@@ -379,9 +377,7 @@ public static class NetworkedItemServer
             return;
         item.UpdateHostPossessor(snapshot.PlayerId);
         item.ApplyAuthorityMetadata(snapshot);
-        item.ProcessingAsHost = true;
         item.ReceiveSnapshot(snapshot);
-        item.ProcessingAsHost = false;
     }
 
     /// <summary>
@@ -430,7 +426,7 @@ public static class NetworkedItemServer
             "parent " + parent,
             item.gameObject.scene.isLoaded ? null : "scene unloaded",
             record != null && record.LastMove.Reason != ItemMoveReason.Unknown ? "last move " + record.LastMove : null,
-            string.IsNullOrEmpty(item.HostObservationTrigger) ? null : "last host trigger " + item.HostObservationTrigger,
+            string.IsNullOrEmpty(item.ServerPart?.ObservationTrigger) ? null : "last host trigger " + item.ServerPart?.ObservationTrigger,
             item.PendingRemovalCause.HasValue ? "stale note " + item.PendingRemovalCause.Value : null,
             callers == "an unknown caller" ? null : "callers " + callers));
     }

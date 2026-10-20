@@ -11,10 +11,17 @@ public interface ILocalServer
     /// <summary>
     ///     Hands a request from the host's own player to the server, which handles it at its next
     ///     poll, in order, with that player as the sender: the same work as the request's packet
-    ///     handler. False, and nothing queued, if the server doesn't handle this request type
-    ///     in-process yet: send it through the loopback client as before.
+    ///     handler. False, and nothing queued, if the server has no in-process handler for this
+    ///     request type.
     /// </summary>
     bool Submit<TRequest>(TRequest request) where TRequest : class;
+
+    /// <summary>
+    ///     A packet from the host's own player, as bytes the way a connection carries them: only for
+    ///     MPAPI mods' packets (<c>IClient.SendPacketToServer</c> on the host), which have no in-process
+    ///     handler. The server reads it at its next poll as from that player's peer.
+    /// </summary>
+    void ReceiveFromLocalPlayer(byte[] data);
 
     /// <summary>
     ///     True while the server applies another player's change to its own world (a junction, a
@@ -22,6 +29,6 @@ public interface ILocalServer
     /// </summary>
     bool IsApplyingRemoteChange { get; }
 
-    /// <summary>Players logged in, the host's own (or a dedicated host's service identity) included.</summary>
+    /// <summary>Players logged in, the host's own included (a dedicated host has none).</summary>
     int PlayerCount { get; }
 }

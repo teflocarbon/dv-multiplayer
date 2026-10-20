@@ -70,8 +70,7 @@ public static class PlayerIdentity
 
     /// <summary>
     /// The local player's ID: this game's Steam account, or the install's GUID without Steam (or
-    /// with -mp-allow-unverified). A dedicated host's own client isn't a player and uses
-    /// Settings.ServiceGuid instead.
+    /// with -mp-allow-unverified). A dedicated host has no local player.
     /// </summary>
     public static Guid Local =>
         !AllowUnverified && LocalSteamId != 0 ? FromSteamId(LocalSteamId) : Multiplayer.Settings.GetGuid();

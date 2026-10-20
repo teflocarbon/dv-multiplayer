@@ -59,14 +59,13 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         Junction.Switched += Junction_Switched;
         junctionToNetworkedJunction[Junction] = this;
 
-        if (NetworkLifecycle.Instance?.IsServerRunning ?? false)
-            initialised = NetworkLifecycle.Instance.IsHost();
+        initialised = NetworkRole.IsServer;
     }
 
     protected void Start()
     {
         if (!initialised)
-            initialised = NetworkLifecycle.Instance.IsHost();
+            initialised = NetworkRole.IsServer;
     }
 
     protected override void OnDestroy()
@@ -84,7 +83,12 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         if (NetworkLifecycle.Instance.IsProcessingPacket || !initialised)
             return;
 
-        WorldClient.Current?.SendJunctionSwitched(NetId, (byte)branch, switchMode);
+        // The server's world: tell everyone, whoever or whatever threw it (on a dedicated host, nobody
+        // plays here to ask). A client's: ask the server.
+        if (WorldServer.Current is { } server)
+            server.BroadcastJunctionSwitched(NetId, (byte)branch, switchMode);
+        else
+            WorldClient.Current?.SendJunctionSwitched(NetId, (byte)branch, switchMode);
     }
 
     public void Switch(byte mode, byte selectedBranch, bool initialising = false)

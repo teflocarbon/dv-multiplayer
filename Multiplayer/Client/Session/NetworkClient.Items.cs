@@ -152,48 +152,12 @@ public partial class NetworkClient : IItemClient
         }, DeliveryMethod.ReliableOrdered);
     }
 
-    private void OnClientboundLostItemsSnapshotPacket(ClientboundLostItemsSnapshotPacket packet)
-    {
-        int count = new[]
-        {
-            packet.Handles?.Length ?? 0,
-            packet.NetIds?.Length ?? 0,
-            packet.Revisions?.Length ?? 0,
-            packet.PrefabNames?.Length ?? 0,
-            packet.DisplayNames?.Length ?? 0,
-            packet.Reasons?.Length ?? 0,
-            packet.LostUtcTicks?.Length ?? 0
-        }.Min();
-        LostItemData[] items = new LostItemData[count];
-        for (int i = 0; i < count; i++)
-            items[i] = new LostItemData
-            {
-                Handle = packet.Handles[i],
-                NetId = packet.NetIds[i],
-                Revision = packet.Revisions[i],
-                PrefabName = packet.PrefabNames[i],
-                DisplayName = packet.DisplayNames[i],
-                Reason = packet.Reasons[i],
-                LostUtcTicks = packet.LostUtcTicks[i]
-            };
-        LostAndFoundList.Apply(items);
-    }
+    private void OnClientboundLostItemsSnapshotPacket(ClientboundLostItemsSnapshotPacket packet) =>
+        LostAndFoundExchange.ApplySnapshot(packet);
 
     private void OnClientboundLostItemRetrieveResultPacket(ClientboundLostItemRetrieveResultPacket packet)
     {
-        Log($"[LostAndFound Recall] Lost item retrieval result received: request={packet.RequestId}, " +
-            $"handle={packet.LostHandle}, accepted={packet.Accepted}, revision={packet.AuthorityRevision}, " +
-            $"reason={packet.RejectionReason ?? string.Empty}");
-        DebugRuntime.Publish("item", packet.Accepted ? "item.lost-and-found-recall-confirmed" :
-            "item.lost-and-found-recall-rejected", DebugRuntimeSide.Client,
-            packet.Accepted ? DebugSeverity.Info : DebugSeverity.Warning,
-            "LostItem", packet.LostHandle.ToString(), new()
-            {
-                ["requestId"] = packet.RequestId,
-                ["lostHandle"] = packet.LostHandle,
-                ["authorityRevision"] = packet.AuthorityRevision,
-                ["rejectionReason"] = packet.RejectionReason ?? string.Empty
-            });
+        LostAndFoundExchange.ReportRetrieveResult(packet);
         LostItemRetrieveCompleted?.Invoke(packet);
     }
 
@@ -293,32 +257,9 @@ public partial class NetworkClient : IItemClient
     }
 
     public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
-        uint expectedRevision, int requestedSlot = -1)
-    {
-        Inventory inventory = Inventory.Instance;
-        int capacity = inventory?.Capacity ?? 0;
-        int existingItemSlot = -1;
-        if (NetworkedItem.TryGet(currentNetId, out NetworkedItem existingItem) && existingItem != null)
-            existingItemSlot = inventory?.IndexOf(existingItem.gameObject) ?? -1;
-        List<int> occupied = new();
-        for (int slot = 0; slot < capacity; slot++)
-            if (inventory.PeekItemAtSlot(slot, true) != null)
-                occupied.Add(slot);
-        Log($"[LostAndFound Recall] Preparing retrieval packet: request={requestId}, " +
-            $"handle={lostHandle}, currentNetId={currentNetId}, " +
-            $"revision={expectedRevision}, requestedSlot={requestedSlot}, existingSlot={existingItemSlot}, " +
-            $"capacity={capacity}, occupied=[{string.Join(",", occupied)}]");
-        SendPacketToServer(new ServerboundLostItemRetrievePacket
-        {
-            RequestId = requestId,
-            LostHandle = lostHandle,
-            ExpectedRevision = expectedRevision,
-            RequestedSlot = requestedSlot,
-            ExistingItemSlot = existingItemSlot,
-            InventoryCapacity = capacity,
-            OccupiedSlots = occupied.ToArray()
-        }, DeliveryMethod.ReliableOrdered);
-    }
+        uint expectedRevision, int requestedSlot = -1) =>
+        SendPacketToServer(LostAndFoundExchange.Retrieval(requestId, lostHandle, currentNetId,
+            expectedRevision, requestedSlot), DeliveryMethod.ReliableOrdered);
 
     private void SendWorldItemCatalogue()
     {

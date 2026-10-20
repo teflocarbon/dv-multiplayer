@@ -38,7 +38,7 @@ The join:
 2. The server keeps it on the `ServerPlayer` (a join held in `joinQueue` while the host loads is
    replayed without the packet). Once loaded, before anything else at `ReadyForWorldState` (before
    the player joins `peers`, so before any world state, broadcast or train baseline), it computes
-   its own fingerprint and compares (`NetworkServer.CheckTrackGraph`). The host's own client
+   its own fingerprint and compares (`NetworkServer.CheckTrackGraph`). The host's own player
    shares the server's world and is skipped.
 3. On a mismatch the server logs both fingerprints and kicks the player with
    `ClientboundDisconnectPacket { Kicked = true, Reason = ... }`. The client shows the reason

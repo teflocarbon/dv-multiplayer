@@ -123,7 +123,7 @@ internal sealed partial class ClientItemManager
     private IEnumerator AdoptUnboundInventoryItems()
     {
         yield return new WaitForSecondsRealtime(UnboundInventoryAdoptionDelaySeconds);
-        if (NetworkLifecycle.Instance == null || NetworkLifecycle.Instance.IsHost() || !NetworkLifecycle.Instance.IsClientRunning)
+        if (NetworkLifecycle.Instance == null || !NetworkRole.IsRemoteClient)
             yield break;
         int requested = 0;
         foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null && item.NetId == 0).ToArray())

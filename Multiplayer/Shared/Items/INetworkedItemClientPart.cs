@@ -28,6 +28,32 @@ public interface INetworkedItemClientPart
     /// </summary>
     void SetNetworkBinding(bool isBound);
 
+    /// <summary>
+    ///     The local player marked the item changed: the item manager looks at it in its next pass
+    ///     rather than at the item's LateUpdate.
+    /// </summary>
+    void QueueObservation(string reason);
+
+    /// <summary>The local player let go of the item (VRTK's Ungrabbed), at <paramref name="releasedAt"/> (realtime).</summary>
+    void NoteReleased(float releasedAt);
+
+    /// <summary>The local player took the item (VRTK's Grabbed).</summary>
+    void NoteGrabbed();
+
+    /// <summary>
+    ///     Holds back a gentle release for <c>ItemReleaseGrace.GraceSeconds</c>: a VR hand swap or a
+    ///     re-grab at another spot lets go for a moment, and sent at once that became a drop, with
+    ///     the new hold arriving as a change to an item the player no longer had. True while held back.
+    /// </summary>
+    bool DefersRelease(ItemState currentState);
+
+    /// <summary>
+    ///     Whether this game may send the item's object state now (<c>ItemObjectStateAuthority</c>): as
+    ///     its holder, or as a player working it where it lies (<paramref name="worldInteraction"/>), or
+    ///     turning a book's pages (<paramref name="pageOnly"/>, the pages alone).
+    /// </summary>
+    bool MaySendObjectState(ItemState currentState, out bool worldInteraction, out bool pageOnly);
+
     /// <summary>The local player changed the item: ask for adoption, or send the change to the host.</summary>
     void SendLocalObservation(ItemState currentState, ItemState previousObservedState, string reason);
 

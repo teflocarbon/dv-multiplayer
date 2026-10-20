@@ -52,6 +52,8 @@ namespace Dvmp.Scenarios
                     "the host's container requests that go over loopback");
                 return;
             }
+            // A dedicated host has no player of its own (stage 3) to try browsing with.
+            if (pair.Dedicated) return;
             Browse h = await pair.Host.Run(() => InGame.HostBrowse(box));
             Report.Note($"owner {h.Owner}, host browse: {h.Status} {h.Reason}");
             Expect.That(h.Owner != h.HostId, "the client's container isn't the host's", $"owner {h.Owner}, the host is {h.HostId}");

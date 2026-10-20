@@ -1,5 +1,4 @@
 using LiteNetLib.Utils;
-using Multiplayer.Client.Session;
 using Multiplayer.Shared.Protocol.Data.RPCs;
 
 namespace Multiplayer.Shared.Protocol.Packets.Clientbound;
@@ -18,7 +17,7 @@ public class ClientboundRpcResponsePacket : INetSerializable
         writer.Put(TicketId);
 
         // Find the response type hash/id for this packet type
-        ResponseType = RpcManager.Instance.GetResponseTypeHash(Response);
+        ResponseType = RpcResponseTypes.GetResponseTypeHash(Response);
 
         writer.Put(ResponseType);
         Response?.Serialize(writer);
@@ -30,7 +29,7 @@ public class ClientboundRpcResponsePacket : INetSerializable
         ResponseType = reader.GetUInt();
 
         // Get a new instance of the correct response type based on the hash/id, then deserialise it
-        Response = RpcManager.Instance.CreateResponseInstance(ResponseType);
+        Response = RpcResponseTypes.CreateResponseInstance(ResponseType);
         Response.Deserialize(reader);
     }
 }

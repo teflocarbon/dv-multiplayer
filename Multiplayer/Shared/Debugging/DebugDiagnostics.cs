@@ -354,7 +354,7 @@ public static class DebugDiagnostics
             issues.Add(new IdentityIssue { Code = "duplicate-network-id", EntityId = group.Key.ToString(), Severity = DebugSeverity.Error, Detail = string.Join(", ", group.Select(item => $"{item.name}#{item.gameObject.GetInstanceID()}")) });
         foreach (NetworkedItem item in items)
         {
-            if (!NetworkLifecycle.Instance.IsHost() && item.NetId == 0 && item.gameObject.activeInHierarchy)
+            if (NetworkRole.IsRemoteClient && item.NetId == 0 && item.gameObject.activeInHierarchy)
             {
                 bool awaitingFirstInteraction = item.UnboundState == ClientItemUnboundState.None;
                 issues.Add(new IdentityIssue

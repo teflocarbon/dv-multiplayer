@@ -12,8 +12,7 @@ namespace Multiplayer.Server.Session;
 /// the Steam account they claim and a session ticket; the server checks the ticket with Steam and
 /// admits them under that account's player ID (<see cref="PlayerIdentity"/>).
 ///
-/// - The host's own client, in the same process, proves itself with <see cref="HostToken"/>
-///   instead: it is the host's player, or the service identity on a dedicated host.
+/// - The host's own player isn't a login: it's admitted in-process (NetworkServer.AddLocalPlayer).
 /// - With -mp-allow-unverified (the test harness) everyone else is admitted under the GUID they
 ///   claim, as before Steam identities.
 /// - Steam answers a ticket in two steps: BeginAuthSession checks it at once, and
@@ -22,9 +21,6 @@ namespace Multiplayer.Server.Session;
 /// </summary>
 internal sealed class PlayerAuthentication : IDisposable
 {
-    /// <summary>A secret of this process, which only the host's own client can send.</summary>
-    public static readonly byte[] HostToken = Guid.NewGuid().ToByteArray();
-
     public readonly struct Identity
     {
         public readonly Guid PlayerId;
@@ -58,14 +54,6 @@ internal sealed class PlayerAuthentication : IDisposable
     public bool TryResolve(ServerboundClientLoginPacket packet, Guid claimedGuid, out Identity identity)
     {
         identity = default;
-
-        if (packet.HostToken != null && packet.HostToken.SequenceEqual(HostToken))
-        {
-            identity = new Identity(NetworkLifecycle.Instance.IsDedicatedHost
-                ? Multiplayer.Settings.GetServiceGuid()
-                : PlayerIdentity.Local, 0);
-            return true;
-        }
 
         if (PlayerIdentity.AllowUnverified)
         {

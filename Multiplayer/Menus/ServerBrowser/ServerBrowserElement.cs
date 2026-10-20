@@ -1,3 +1,4 @@
+using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Menus.Controls;
 using Multiplayer.Shared.Utils;
 using TMPro;

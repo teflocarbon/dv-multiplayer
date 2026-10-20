@@ -6,8 +6,8 @@ namespace Multiplayer.Shared.Items;
 /// <summary>
 ///     The remote client's part of <see cref="NetworkedItemManager"/> (<c>Client/Items/ClientItemManager</c>),
 ///     as the Shared manager drives it and Shared item code reaches it. It exists on a remote client
-///     only; <see cref="NetworkedItemManager.ClientPart"/> is null on the host, whose own client keeps
-///     none of this (the server's records are its items).
+///     only; <see cref="NetworkedItemManager.ClientPart"/> is null on the host, which keeps none of
+///     this (the server's records are its items).
 /// </summary>
 public interface IItemManagerClientPart
 {

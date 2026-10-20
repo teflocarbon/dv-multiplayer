@@ -16,7 +16,8 @@ public static class MultipleUnitCable_Connect_Patch
             NetworkedTrainCar.IsApplyingAuthoritativeTopology ||
             NetworkedTrainCar.IsBatchingLocalTopology)
             return;
-        NetworkClient.Instance?.SendMuConnected(__instance, other, playAudio);
+        if (NetworkRole.IsRemoteClient) // the server observes its own world's (TopologyObservationPatch)
+            NetworkClient.Instance?.SendMuConnected(__instance, other, playAudio);
     }
 }
 
@@ -33,6 +34,7 @@ public static class MultipleUnitCable_Disconnect_Patch
         if (!__instance.muModule.train.TryNetworked(out NetworkedTrainCar networkedTrainCar) ||
             networkedTrainCar == null || networkedTrainCar.IsDestroying)
             return;
-        NetworkClient.Instance?.SendMuDisconnected(networkedTrainCar.NetId, __instance, playAudio);
+        if (NetworkRole.IsRemoteClient) // the server observes its own world's (TopologyObservationPatch)
+            NetworkClient.Instance?.SendMuDisconnected(networkedTrainCar.NetId, __instance, playAudio);
     }
 }

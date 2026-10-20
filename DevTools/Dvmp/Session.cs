@@ -10,11 +10,11 @@ namespace Dvmp;
 /// <param name="BackgroundFpsCap">Frame cap while unfocused; null keeps the agent's default (20).</param>
 /// <param name="HostOnly">Start only a host, with its own identity, for a client that joins later
 /// (a later <c>up</c> in the same session, or the user's own game).</param>
-/// <param name="Dedicated">Launch the host as a dedicated host (<c>-mp-dedicated</c>): its own
-/// client is a service identity, not a player, so it has no avatar and takes no player slot.</param>
+/// <param name="Dedicated">Launch the host as a dedicated host (<c>-mp-dedicated</c>): it has no
+/// player of its own, so no avatar and no player slot.</param>
 /// <param name="Verified">Launch the host without <c>-mp-allow-unverified</c>, so it checks each
 /// client's Steam ticket. The harness's games share one Steam account, so only a dedicated host
-/// (whose own client isn't a player) can then tell its client apart from itself.</param>
+/// (which has no player of its own) can then tell its client apart from itself.</param>
 /// <param name="Reseed">Restart the session's games with their user data copied afresh from the
 /// real profile (<see cref="UserData"/>); named sessions only.</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
@@ -579,6 +579,7 @@ internal static class Session
     private static bool IsVerified(Agent agent) => agent.Info.Args?.Contains("-mp-allow-unverified") != true;
 
     private const string DedicatedArg = "-mp-dedicated";
+
 
     private static bool WorldLoaded(Agent agent) => agent.Status?["worldLoaded"]?.GetValue<bool?>() == true;
 

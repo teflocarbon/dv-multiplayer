@@ -99,7 +99,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static Under TerrainUnderClient()
             {
-                var player = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayers.First(p => p != Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer);
+                var player = Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers.First(p => p != Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer);
                 var hits = Physics.RaycastAll(player.WorldPosition + Vector3.up * 30f, Vector3.down, 80f, ~0, QueryTriggerInteraction.Ignore)
                     .Where(h => h.collider.attachedRigidbody == null).OrderBy(h => h.distance).ToList();
                 var far = WorldStreamingInit.Instance.farScenesStreamer;

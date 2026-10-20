@@ -23,6 +23,12 @@
   collisions or parent changes; one unreliable packet per item per recipient (not batched),
   sent only to players who know the item. Leases, samples and commits are never sent to the host's
   own player: when the host simulates, the server's lease is the lease (its client dropped them).
+- **Who the host simulates as** (`Server/Items/HostItemActor.cs`): the host's own player on a
+  player host. A dedicated host has no player (host-local-session stage 3), so the server is the actor and simulator itself, as id 0
+  (`ItemTransitionCommand.ServerActorId`). It commits its world's changes (`ProcessChanged`),
+  simulates its own releases and throws, and witnesses its own train-item impacts. The state
+  machine lets actor 0 move items about the world but never into a hand or inventory, and never
+  makes it an owner. Before that, a dedicated host's service identity was the actor.
 - **Not implemented:** explicit lease revocation on Lost-and-Found collection or cold deposit
   (collection advances the revision, so later samples and settlements are rejected; a deposit
   needs the item in hand, which already ends the lease).
@@ -170,7 +176,7 @@ ItemSpatialState
   itemNetId
   simulationEpoch
   sampleSequence
-  simulatorPlayerId       // 0 means host
+  simulatorPlayerId       // 0: the server itself, on a host with no player of its own
   phase                    // Settled, Held, InFlight, Sliding, Attached
   absolutePosition
   rotation
@@ -273,7 +279,7 @@ and one thrown onto a train vanished. What the code does now:
 - **A gentle release waits.** A VR hand swap, or grabbing an item again at another spot, lets go
   for a moment first. A release from the hand under 2 m/s (relative to the car the player is on)
   is held back for 0.3 s and sent only if no hand has the item by then; a re-grab inside that
-  sends only the hand change (`NetworkedItem.DeferLocalRelease`, `ItemReleaseGrace`). Throws,
+  sends only the hand change (`NetworkedItemClient.DefersRelease`, `ItemReleaseGrace`). Throws,
   stowing and anything faster go at once. Other players see the item leave the hand 0.3 s late.
 - **A late acceptance doesn't undo a re-grab.** If the drop did go out, the host's acceptance can
   arrive after the item is back in a hand. It is taken as a revision only

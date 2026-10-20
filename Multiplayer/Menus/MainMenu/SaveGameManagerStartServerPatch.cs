@@ -7,7 +7,7 @@ using Multiplayer.Shared.Session;
 namespace Multiplayer.Menus.MainMenu;
 
 /// <summary>
-/// Loading a save from the main menu starts the server (and the host's own client) before the
+/// Loading a save from the main menu starts the server (and the host's own player) before the
 /// world loads, or goes back to the menu with a popup if it can't.
 /// </summary>
 [HarmonyPatch(typeof(SaveGameManager), nameof(SaveGameManager.FindStartGameData))]
@@ -15,7 +15,7 @@ public static class SaveGameManager_FindStartGameData_Patch
 {
     private static void Postfix(AStartGameData __result)
     {
-        if (NetworkLifecycle.Instance.IsServerRunning || NetworkLifecycle.Instance.IsClientRunning)
+        if (NetworkLifecycle.Instance.IsSessionRunning)
             return;
         StartServer(__result.DifficultyToUse);
         // Before DV places the player or loads any item: every player's state is by GUID.
