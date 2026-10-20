@@ -1,11 +1,15 @@
 # Makes (or refreshes) a test copy of Derail Valley that test builds install into, so they never
 # touch the game the user plays or runs their own servers from. Nothing in the real install is
-# written to: big folders are directory junctions to it, the two mods the harness installs
-# (Multiplayer, MultiplayerDevTools) are real copies, every other mod is a junction.
+# written to: big folders are directory junctions to it, and the two mods the harness installs
+# (Multiplayer, MultiplayerDevTools) are real copies. No other mod is loaded: Unity Mod Manager
+# took 32 s per launch with the user's 21 mods against 10 s with these two (docs/research/
+# harness-time-budget.md), and tests should see the mod alone. -AllMods links every other mod
+# too, for a mod-compatibility pass; without it, a refresh removes those links again.
 param(
     [string]$GameDir = 'C:\Program Files (x86)\Steam\steamapps\common\Derail Valley',
     [string]$TestDir = (Join-Path $env:LOCALAPPDATA 'dvmp\test-install'),
-    [string[]]$OwnMods = @('Multiplayer', 'MultiplayerDevTools')
+    [string[]]$OwnMods = @('Multiplayer', 'MultiplayerDevTools'),
+    [switch]$AllMods
 )
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path (Join-Path $GameDir 'DerailValley.exe'))) { throw "no game at $GameDir" }
@@ -34,9 +38,16 @@ foreach ($mod in Get-ChildItem (Join-Path $GameDir 'Mods') -Directory) {
     if ($OwnMods -contains $mod.Name) {
         # The harness's own mods: real copies (only on first creation; builds keep them current).
         if (-not (Test-Path $dest)) { Copy-Item $mod.FullName $dest -Recurse }
-    } elseif (-not (Test-Path $dest)) {
+    } elseif ($AllMods -and -not (Test-Path $dest)) {
         New-Item -ItemType Junction -Path $dest -Target $mod.FullName | Out-Null
     }
 }
+if (-not $AllMods) {
+    # Links to other mods left by an earlier run. Only junctions go: Directory.Delete without
+    # recursion removes the link itself, never what it points to. A real folder is left alone.
+    foreach ($link in Get-ChildItem $mods -Directory | Where-Object { $_.LinkType -eq 'Junction' -and $OwnMods -notcontains $_.Name }) {
+        [System.IO.Directory]::Delete($link.FullName, $false)
+    }
+}
 Get-ChildItem $TestDir | Select-Object Name, LinkType, Target | Format-Table -AutoSize | Out-String -Width 200
-Get-ChildItem $mods | Where-Object { $OwnMods -contains $_.Name } | Select-Object Name, LinkType | Format-Table -AutoSize | Out-String
+Get-ChildItem $mods | Select-Object Name, LinkType, Target | Format-Table -AutoSize | Out-String -Width 200
