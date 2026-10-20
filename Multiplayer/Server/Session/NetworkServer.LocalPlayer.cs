@@ -12,10 +12,11 @@ public partial class NetworkServer : ILocalServer
     private int applyingRemoteChange;
 
     /// <summary>
-    ///     The host's own player: a player host's, or a dedicated host's service identity. Null until
-    ///     its loopback login has been accepted.
+    ///     The host's own player: a player host's, or a dedicated host's service identity. Set when
+    ///     its login is admitted (the host token proves it), so the server never asks the client who
+    ///     it is; null before that and after it leaves.
     /// </summary>
-    public ServerPlayer LocalPlayer => SelfId != 0 && TryGetServerPlayer(SelfId, out ServerPlayer player) ? player : null;
+    public ServerPlayer LocalPlayer { get; private set; }
 
     /// <summary>
     ///     True while the server applies another player's change to its own world (a junction, a

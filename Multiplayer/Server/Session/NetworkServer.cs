@@ -114,20 +114,11 @@ public partial class NetworkServer : NetworkManager
     public int GameplayPlayerCount =>
         NetworkLifecycle.Instance.IsDedicatedHost ? ServerPlayers.Count(player => !player.IsServiceHost) : ServerPlayers.Count;
 
-    private ITransportPeer _selfPeer;
-    public ITransportPeer SelfPeer
-    {
-        get
-        {
-            if (_selfPeer != null)
-                return _selfPeer;
+    /// <summary>The host's own player's peer (<see cref="LocalPlayer"/>); null until it's admitted.</summary>
+    public ITransportPeer SelfPeer => LocalPlayer?.Peer;
 
-            peers.TryGetValue(SelfId, out _selfPeer);
-            return _selfPeer;
-        }
-    }
-
-    public byte SelfId => NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
+    /// <summary>The host's own player's id (<see cref="LocalPlayer"/>); 0 until it's admitted.</summary>
+    public byte SelfId => LocalPlayer?.PlayerId ?? 0;
 
     public readonly IDifficulty Difficulty;
     private bool IsLoaded;
@@ -519,6 +510,8 @@ public partial class NetworkServer : NetworkManager
 
         RunDisconnectStep("authentication", () => authentication.OnDisconnected(player));
         player.Dispose();
+        if (player == LocalPlayer)
+            LocalPlayer = null;
         RunDisconnectStep("dedicated host", () => DedicatedHost.OnPlayersChanged(someoneLeft: true));
     }
 
@@ -889,28 +882,9 @@ public partial class NetworkServer : NetworkManager
 
         ITransportPeer peer = request.Accept();
 
-        ServerPlayer serverPlayer = new
-        (
-            peer,
-            overrideUsername,
-            packet.Username,
-            playerId,
-            packet.CharacterId,
-            packet.IsVR
-        )
-        {
-            LegacyGuid = guid,
-            SteamId = identity.SteamId,
-        };
-
-        serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
-        peerToPlayer.Add(peer, serverPlayer);
+        ServerPlayer serverPlayer = AdmitPlayer(peer, overrideUsername, packet.Username, playerId, guid,
+            identity.SteamId, packet.CharacterId, packet.IsVR, identity.IsLocalPlayer);
         authentication.Admit(identity, serverPlayer);
-        global::Multiplayer.Server.Career.InstallGuidRekey.OnLogin(serverPlayer);
-        AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
-        NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
-        WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
-        DedicatedHost.OnPlayersChanged(someoneLeft: false);
 
         ClientboundLoginResponsePacket acceptPacket = new()
         {
@@ -921,6 +895,33 @@ public partial class NetworkServer : NetworkManager
         };
 
         SendPacket(peer, acceptPacket, DeliveryMethod.ReliableUnordered);
+    }
+
+    /// <summary>
+    ///     Admits a player whose login has been accepted: creates their <see cref="ServerPlayer"/>
+    ///     and binds their saved records to it (their ID, items, Lost and Found and world items), as
+    ///     every login must, the host's own player's included (host-player-persist). The local
+    ///     player becomes <see cref="LocalPlayer"/> before the records are bound.
+    /// </summary>
+    private ServerPlayer AdmitPlayer(ITransportPeer peer, string username, string originalUsername, Guid playerId,
+        Guid legacyGuid, ulong steamId, string characterId, bool isVr, bool isLocalPlayer)
+    {
+        ServerPlayer serverPlayer = new(peer, username, originalUsername, playerId, characterId, isVr)
+        {
+            LegacyGuid = legacyGuid,
+            SteamId = steamId,
+        };
+
+        serverPlayers.Add(serverPlayer.PlayerId, serverPlayer);
+        peerToPlayer.Add(peer, serverPlayer);
+        if (isLocalPlayer)
+            LocalPlayer = serverPlayer;
+        global::Multiplayer.Server.Career.InstallGuidRekey.OnLogin(serverPlayer);
+        AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
+        NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
+        WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
+        DedicatedHost.OnPlayersChanged(someoneLeft: false);
+        return serverPlayer;
     }
 
     private void RejectForMods(ServerboundClientLoginPacket packet, ModValidationResult validation, IConnectionRequest request)
@@ -1216,14 +1217,25 @@ public partial class NetworkServer : NetworkManager
         if (advanceLoadingState)
             player.LoadingState = packet.LoadState;
 
-        if (packet.LoadState == PlayerLoadingState.Complete && player.IsServiceHost)
+        if (packet.LoadState == PlayerLoadingState.Complete)
+            CompleteLoading(player);
+    }
+
+    /// <summary>
+    ///     A player has finished loading: the others are told and it's sent them, then its loading
+    ///     screen comes down. A dedicated host's service identity is only taken out of loading mode.
+    /// </summary>
+    private void CompleteLoading(ServerPlayer player)
+    {
+        ITransportPeer peer = player.Peer;
+        if (player.IsServiceHost)
         {
             // A dedicated host's own client: nobody is told about it and it gets no avatar, but
             // only this takes its game out of loading mode.
             Log("Dedicated host loaded");
             SendPacket(peer, new ClientboundRemoveLoadingScreenPacket(), DeliveryMethod.ReliableOrdered);
         }
-        else if (packet.LoadState == PlayerLoadingState.Complete)
+        else
         {
             Log($"Player {player.Username} has completed loading");
 
