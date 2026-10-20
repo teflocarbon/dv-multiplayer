@@ -71,10 +71,11 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     public bool IsReturningToMenu { get; private set; } = false;
 
     /// <summary>
-    ///     Whether the caller is the host.
-    ///     Note that this does NOT check authority, and should only be used for client-only logic.
-    ///     Whether a <c>ServerPlayer</c> is the host's is the server's extension
-    ///     <c>IsHost(player)</c> (Server/Session/NetworkLifecycleServerExtensions).
+    ///     Whether this game runs the server: a player host, a dedicated host or single player. A host
+    ///     runs no client of its own, so while a session runs this is also "not a remote client".
+    ///     New code says which it means: <see cref="NetworkRole.IsServer"/> or
+    ///     <see cref="NetworkRole.IsRemoteClient"/>. Whether a <c>ServerPlayer</c> is the host's is
+    ///     the server's extension <c>IsHost(player)</c> (Server/Session/NetworkLifecycleServerExtensions).
     /// </summary>
     public bool IsHost()
     {

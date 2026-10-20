@@ -123,12 +123,9 @@ public static class NetworkedItemServer
             item.UpdateHostPossessor(snapshot.PlayerId);
         }
 
-        // Allow host to process packet if not from a local client
+        // The host's own player's change has happened in this world already
         if (senderPlayer != NetworkServer.Instance.LocalPlayer)
-        {
-            item.ProcessingAsHost = true;
             item.ReceiveSnapshot(snapshot);
-        }
 
         // Placement is part of canonical authority, so the host interest index must change in
         // the same operation. Waiting for ProcessChanged leaves a window where inventory/hand
@@ -380,9 +377,7 @@ public static class NetworkedItemServer
             return;
         item.UpdateHostPossessor(snapshot.PlayerId);
         item.ApplyAuthorityMetadata(snapshot);
-        item.ProcessingAsHost = true;
         item.ReceiveSnapshot(snapshot);
-        item.ProcessingAsHost = false;
     }
 
     /// <summary>

@@ -34,11 +34,11 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
     private IItemManagerClientPart clientPart;
 
     /// <summary>
-    ///     The remote client's part of the manager; null on the host, whose own client keeps none of
-    ///     it. Made the first time it's asked for on a game that isn't the host.
+    ///     The remote client's part of the manager; null on the host. Made the first time it's asked
+    ///     for; the host's <c>LocalPlayerSession</c> makes none.
     /// </summary>
     public IItemManagerClientPart ClientPart =>
-        clientPart ??= NetworkLifecycle.Instance.IsHost() ? null : ItemClient.Current?.CreateItemManagerPart(this);
+        clientPart ??= ItemClient.Current?.CreateItemManagerPart(this);
 
     /*
      * Common
@@ -169,15 +169,14 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
 
     private void Common_OnTick(uint tick)
     {
-        if (NetworkLifecycle.Instance.IsHost())
+        // A remote client builds the authored catalogue when it first looks an item up; the server
+        // builds it at once, to register the scene's items.
+        if (ServerPart is { } server)
         {
             EnsureAuthoredCatalogue();
-            ServerPart?.Tick(tick);
+            server.Tick(tick);
         }
-        else
-        {
-            ClientPart?.Tick(tick);
-        }
+        ClientPart?.Tick(tick);
     }
 
     public bool DoNotCreateItem(NetworkedItem item)

@@ -245,13 +245,9 @@ public class NetworkedCashRegisterWithModules : IdMonoBehaviour<ushort, Networke
         }
     }
 
-    // On the host the server answers in-process at its next poll (AnswerLocalRequest), and its
-    // loopback ping makes RPC_Timeout about 0: wait for the answer, with a backstop.
-    private const float LocalAnswerTimeout = 2f;
-
-    private static float RequestTimeout => NetworkLifecycle.Instance.IsHost()
-        ? LocalAnswerTimeout
-        : StationsClient.Current?.RPC_Timeout ?? 0f;
+    // On the host the server answers in-process at its next poll (AnswerLocalRequest); its player's
+    // session waits for that with a backstop of its own (LocalPlayerSession.RPC_Timeout).
+    private static float RequestTimeout => StationsClient.Current?.RPC_Timeout ?? 0f;
 
     public IEnumerator Buy()
     {
