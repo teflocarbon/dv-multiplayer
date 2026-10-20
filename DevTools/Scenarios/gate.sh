@@ -62,7 +62,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "car-pool-reuse|car-pool-reuse|"
   "car-delete|car-delete|"
   "radio-tools|radio-tools|"
-  "radio-tools-host|radio-tools|WHO=host"
+  "radio-tools-host|radio-tools-host||player"
   "cab-controls|cab-controls|"
   "cab-controls-authority|cab-controls-authority||player"
   "cab-controls-no-grab|cab-controls-no-grab|"
