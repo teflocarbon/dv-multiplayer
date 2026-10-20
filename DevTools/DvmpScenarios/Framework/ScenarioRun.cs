@@ -121,16 +121,52 @@ namespace Dvmp.Scenarios
                 throw new HarnessException($"dvmp {string.Join(" ", args)} failed ({p.ExitCode}): {(await stderr).Trim()} {Tail(await stdout)}");
         }
 
-        /// <summary>Before a run: the host forgets cars an earlier run's spawn steps made.</summary>
-        public Task ForgetSpawnedAsync() => Pair.Host.Quiet(() => Cars.TakeSpawned());
-
-        /// <summary>After a run's cleanups, for the leak check: the cars its spawn steps made that
-        /// each game still has. A run leaves none behind.</summary>
-        public async Task<PeerResults<string[]>> SpawnedLeftAsync()
+        /// <summary>
+        /// Before a run: both players where every run starts, empty-handed, no test mugs about, the
+        /// wallet topped up to $MONEY (default 100000, 0 leaves it), and the host forgets what an
+        /// earlier run's spawn steps made. In process, where gate.sh's teleport_home took six dvmp
+        /// calls (14 to 40 s a run, docs/research/harness-time-budget.md).
+        /// </summary>
+        public async Task ResetAsync()
         {
-            string[] ids = await Pair.Host.Quiet(() => Cars.TakeSpawned());
-            if (ids.Length == 0) return new PeerResults<string[]>(ids, ids);
-            return new PeerResults<string[]>(await Pair.Host.Quiet(() => Cars.Existing(ids)), await Pair.Client.Quiet(() => Cars.Existing(ids)));
+            int money = int.TryParse(Environment.GetEnvironmentVariable("MONEY"), out int m) ? m : 100000;
+            List<Task> players = new() { Pair.Client.Quiet(() => World.ResetPlayer(7190f, 6880f)) };
+            if (!Agent("host").Dedicated) players.Add(Pair.Host.Quiet(() => World.ResetPlayer(7194f, 6873f)));
+            await Task.WhenAll(players);
+            await Pair.Host.Quiet(() => World.ResetWorld(money));
+            await Pair.Host.Quiet(() => Cars.TakeSpawned());
+            await Pair.Host.Quiet(() => Items.TakeSpawned());
+        }
+
+        /// <summary>
+        /// After a run's cleanups: what its spawn steps made is removed, and must then be gone from
+        /// both games; no cab control lease is still held. Each is a failure: a car that can't be
+        /// deleted, or a lease never given back, is a bug the next run would trip over.
+        /// </summary>
+        public async Task LeakCheckAsync()
+        {
+            string[] cars = await Pair.Host.Quiet(() => Cars.TakeSpawned());
+            ushort[] items = await Pair.Host.Quiet(() => Items.TakeSpawned());
+            if (cars.Length > 0) await Pair.Host.Quiet<string[]>(s => Cars.Delete(s, cars));
+            if (items.Length > 0) await Pair.Host.Quiet<ushort[]>(s => Items.Destroy(s, items));
+            foreach (Peer peer in new[] { Pair.Host, Pair.Client })
+            {
+                if (cars.Length > 0) Expect.Empty(await peer.Quiet(() => Cars.Existing(cars)), $"{peer.Name}: cars the run spawned that couldn't be deleted");
+                if (items.Length > 0) Expect.Empty(await peer.Quiet(() => Items.Existing(items)), $"{peer.Name}: items the run spawned that couldn't be destroyed");
+                Expect.Empty(await peer.Quiet(() => World.HeldLeases()), $"{peer.Name}: cab control leases still held");
+            }
+        }
+
+        /// <summary>A game is gone (quit, killed): its agent is forgotten until the next discovery.</summary>
+        public void Forget(string role) => agents.Remove(role);
+
+        /// <summary>A client joined again into the session's running host (dvmp up's client-only path).</summary>
+        public async Task RejoinAsync()
+        {
+            Stopwatch clock = Stopwatch.StartNew();
+            await DvmpAsync("up");
+            await DiscoverAsync();
+            Out.Line("client", "Rejoin", "ok", clock.Elapsed);
         }
 
         /// <summary>Cancels steps the scenario started and didn't wait for.</summary>
@@ -206,9 +242,24 @@ namespace Dvmp.Scenarios
     {
         private readonly Stopwatch clock = Stopwatch.StartNew();
         private readonly object gate = new();
+        // Per async flow: an Until's reads are muted while steps running beside it still print.
+        private readonly System.Threading.AsyncLocal<bool> muted = new();
+
+        public IDisposable Mute()
+        {
+            bool was = muted.Value;
+            muted.Value = true;
+            return new Unmute(() => muted.Value = was);
+        }
+
+        private sealed class Unmute(Action undo) : IDisposable
+        {
+            public void Dispose() => undo();
+        }
 
         public void Line(string who, string what, string result, TimeSpan? took = null, IEnumerable<string> notes = null)
         {
+            if (muted.Value && result != "FAIL") return;
             lock (gate)
             {
                 Console.WriteLine($"[{T(clock.Elapsed)}] {who,-7} {what,-34} {result,-7}{(took is { } d ? T(d) : string.Empty)}");

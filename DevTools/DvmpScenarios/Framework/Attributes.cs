@@ -16,6 +16,15 @@ namespace Dvmp.Scenarios
     [AttributeUsage(AttributeTargets.Method)]
     public sealed class StepAttribute : Attribute { }
 
+    /// <summary>
+    /// A [Step] that runs only on a remote client, so it may use the game's NetworkClient (the
+    /// analyzer's DVMP0103 allows it here): a remote client keeps its client in stage 3, only the
+    /// host loses its own. For what no player action sends, such as a request the vanilla UI would
+    /// refuse before it leaves the game. Running it on the host fails the call.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class ClientOnlyAttribute : Attribute { }
+
     public enum Need
     {
         /// <summary>The host is a player (not a dedicated host): host steps act as a player.</summary>
