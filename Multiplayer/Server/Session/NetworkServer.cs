@@ -122,7 +122,7 @@ public partial class NetworkServer : NetworkManager
         }
     }
 
-    public byte SelfId => NetworkLifecycle.Instance.Client?.PlayerId ?? 0;
+    public byte SelfId => NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
 
     public readonly IDifficulty Difficulty;
     private bool IsLoaded;
@@ -291,6 +291,7 @@ public partial class NetworkServer : NetworkManager
         // Jobs
         netPacketProcessor.SubscribeReusable<ServerboundJobValidateRequestPacket, ITransportPeer>(OnServerboundJobValidateRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundJobBookletSummonRequestPacket, ITransportPeer>(OnServerboundJobBookletSummonRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundJobRerollRequestPacket, ITransportPeer>(OnServerboundJobRerollRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWarehouseMachineControllerRequestPacket, ITransportPeer>(OnServerboundWarehouseMachineControllerRequestPacket);
 
         // Items

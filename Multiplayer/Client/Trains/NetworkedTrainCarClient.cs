@@ -278,96 +278,111 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     {
         Multiplayer.LogDebug(() => $"OnTrainCarInteriorLoaded() {CurrentID}, interior is null: {interior == null}");
 
-        StartCoroutine(WaitForInterior());
+        // Vanilla raises it with null once the interior is unloaded (OnTrainCarInteriorUnloaded
+        // handles that): waiting for an interior then only logged "failed to load an interior".
+        if (interior != null)
+            StartCoroutine(HookInteriorControls(interior));
     }
 
-    private IEnumerator WaitForInterior()
+    // Wires the cab's controls, each once it's set up, for as long as this interior is the car's.
+    // Vanilla sets them up within a frame or two of the cab's controls manager starting; one that
+    // takes longer (a mod's, or one under an inactive object) is hooked when it is, rather than
+    // left unhooked for good after a 2 s give-up (no lease, never blocked for another player's
+    // hold), and logged once INTERIOR_CONTROLS_TIMEOUT has passed. A cab unloaded meanwhile is
+    // left alone: hooking its destroyed controls threw, and put them back in the maps the unload
+    // had just cleared.
+    private IEnumerator HookInteriorControls(GameObject interior)
     {
-        float time = Time.time;
+        bool Current() => interior != null && TrainCar != null && TrainCar.loadedInterior == interior;
+        float start = Time.realtimeSinceStartup;
+        bool slowLogged = false;
+        void LogIfSlow(string waitingFor)
+        {
+            if (slowLogged || Time.realtimeSinceStartup - start <= INTERIOR_CONTROLS_TIMEOUT)
+                return;
+            slowLogged = true;
+            Multiplayer.LogWarning($"The cab of {CurrentID} is slow to set up: {waitingFor} after {Time.realtimeSinceStartup - start:F1} s; still waiting");
+        }
+
         interiorControlsManager = null;
-
-        yield return new WaitUntil
-        (
-            () =>
-            {
-                return TrainCar?.loadedInterior != null || Time.time - time > INTERIOR_CONTROLS_TIMEOUT;
-            }
-        );
-
         yield return new WaitForFixedUpdate();
-
-        if (TrainCar?.loadedInterior == null)
-        {
-            Multiplayer.LogError($"TrainCar {CurrentID} failed to load an interior");
+        // On the cab's prefab, or not at all.
+        if (!Current() || !interior.TryGetComponent(out InteriorControlsManager manager))
             yield break;
+        while (Current() && !manager.Initialized)
+        {
+            LogIfSlow("controls manager not initialized");
+            yield return null;
         }
+        if (!Current())
+            yield break;
+        interiorControlsManager = manager;
+        Multiplayer.LogDebug(() => $"HookInteriorControls() Hooking controls for car {CurrentID}, found {manager.controls?.Count} controls");
 
-        time = Time.time;
-
-        yield return new WaitUntil
-        (
-            () =>
+        // Read afresh each time: the references are structs, filled in as the controls are set up.
+        List<InteriorControlsManager.ControlType> pending = manager.controls.Keys.ToList();
+        while (Current())
+        {
+            int hooked = pending.RemoveAll(key =>
             {
-                return TrainCar.loadedInterior.TryGetComponent<InteriorControlsManager>(out interiorControlsManager) || Time.time - time > INTERIOR_CONTROLS_TIMEOUT;
+                if (!manager.controls.TryGetValue(key, out InteriorControlsManager.ControlReference control))
+                    return true;
+                if (!ControlReady(control))
+                    return false;
+                HookListedControl(key, control);
+                return true;
+            });
+            if (hooked > 0)
+            {
+                HookUnlistedControls(manager);
+                // The initial car-state refresh can arrive before a streamed cabin and its
+                // physical controls exist. Request the authoritative state again now so
+                // default-engaged handbrakes and all SimFlow-backed levers are projected onto
+                // the newly loaded interior instead of retaining their prefab defaults.
+                RequestInteriorResync();
             }
-        );
-
-        CoroutineManager.Instance.StartCoroutine(HookControls(interiorControlsManager));
+            if (pending.Count == 0)
+                yield break;
+            if (Time.realtimeSinceStartup - start > INTERIOR_CONTROLS_TIMEOUT)
+                LogIfSlow($"{pending.Count} control(s) not set up ({string.Join(", ", pending)})");
+            yield return null;
+        }
     }
 
-    private IEnumerator HookControls(InteriorControlsManager interiorControlsManager)
+    private void HookListedControl(InteriorControlsManager.ControlType key, InteriorControlsManager.ControlReference control)
     {
-        yield return new WaitUntil(() => interiorControlsManager.Initialized);
+        var controlPortId = ControlPortId(control);
 
-        Multiplayer.LogDebug(() => $"HookControls() Hooking controls for car {CurrentID}, found {interiorControlsManager?.controls?.Count} controls");
-
-        // Controls finish setting up over the first frames. Wait for them all at once, up to the
-        // timeout: waiting for each in turn let every control with no port (handbrake, fuses) use up
-        // the whole timeout, holding up the ones after it by seconds.
-        float timeOut = Time.time;
-        yield return new WaitUntil
-        (
-            () =>
-                interiorControlsManager.controls.Values.All(ControlReady) ||
-                Time.time - timeOut > INTERIOR_CONTROLS_TIMEOUT
-        );
-
-        // Find all control overrides
-        foreach (var kvp in interiorControlsManager.controls)
+        if (string.IsNullOrEmpty(controlPortId))
         {
-            var control = kvp.Value;
-            var key = kvp.Key;
-
-            var controlPortId = ControlPortId(control);
-
-            if (string.IsNullOrEmpty(controlPortId))
-            {
-                Multiplayer.LogWarning($"Unable to hook control {control.overridableBaseControl?.name ?? control.controlImplBase?.spec?.name} ({key}), has no controlPortId on car [{CurrentID}, {NetId}]");
-                continue;
-            }
-
-            Multiplayer.LogDebug(() => $"HookControls() Control [{controlPortId}] found on car {CurrentID}");
-            var netId = GetPortNetId(controlPortId);
-
-            if (control.controlImplBase == null)
-            {
-                Multiplayer.LogWarning($"Unable to hook control [{controlPortId}, {netId}], no control implementation on car {CurrentID}");
-                continue;
-            }
-
-            HookControl(control.controlImplBase, netId);
-
-            // Handle scroll events for scrollable controls
-            if (control.scrollable != null)
-            {
-                void ScrollChanged(ValueChangedEventArgs args) => ControlScrolled(control);
-                scrollableControlDelegates[control.controlImplBase] = ScrollChanged;
-                control.controlImplBase.ValueChanged += ScrollChanged;
-            }
+            Multiplayer.LogWarning($"Unable to hook control {control.overridableBaseControl?.name ?? control.controlImplBase?.spec?.name} ({key}), has no controlPortId on car [{CurrentID}, {NetId}]");
+            return;
         }
 
+        Multiplayer.LogDebug(() => $"HookInteriorControls() Control [{controlPortId}] found on car {CurrentID}");
+        var netId = GetPortNetId(controlPortId);
+
+        if (control.controlImplBase == null)
+        {
+            Multiplayer.LogWarning($"Unable to hook control [{controlPortId}, {netId}], no control implementation on car {CurrentID}");
+            return;
+        }
+
+        HookControl(control.controlImplBase, netId);
+
+        // Handle scroll events for scrollable controls
+        if (control.scrollable != null)
+        {
+            void ScrollChanged(ValueChangedEventArgs args) => ControlScrolled(control);
+            scrollableControlDelegates[control.controlImplBase] = ScrollChanged;
+            control.controlImplBase.ValueChanged += ScrollChanged;
+        }
+    }
+
+    private void HookUnlistedControls(InteriorControlsManager manager)
+    {
         // Controls that drive a sim port but aren't in the manager's list, like the DE2's cab fan.
-        foreach (InteractablePortFeeder feeder in interiorControlsManager.GetComponentsInChildren<InteractablePortFeeder>(true))
+        foreach (InteractablePortFeeder feeder in manager.GetComponentsInChildren<InteractablePortFeeder>(true))
         {
             ControlImplBase implementation = feeder.GetComponent<ControlImplBase>();
             if (implementation == null || string.IsNullOrEmpty(feeder.portId) || controlToPortNetId.ContainsKey(implementation))
@@ -377,15 +392,9 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             if (portNetIdToControl.ContainsKey(netId))
                 continue;
 
-            Multiplayer.LogDebug(() => $"HookControls() Unlisted control [{feeder.portId}] found on car {CurrentID}");
+            Multiplayer.LogDebug(() => $"HookInteriorControls() Unlisted control [{feeder.portId}] found on car {CurrentID}");
             HookControl(implementation, netId);
         }
-
-        // The initial car-state refresh can arrive before a streamed cabin and its
-        // physical controls exist. Request the authoritative state again now so
-        // default-engaged handbrakes and all SimFlow-backed levers are projected onto
-        // the newly loaded interior instead of retaining their prefab defaults.
-        RequestInteriorResync();
     }
 
     private const float INTERIOR_RESYNC_INTERVAL = 10f;
@@ -427,14 +436,12 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         return control.controlImplBase != null ? control.controlImplBase.GetComponent<InteractablePortFeeder>()?.portId : null;
     }
 
-    // Set up, or never going to have a port: no overrider and no feeder (a handbrake, a fuse).
-    private static bool ControlReady(InteriorControlsManager.ControlReference control)
-    {
-        if (control.controlImplBase == null)
-            return false;
-        return !string.IsNullOrEmpty(ControlPortId(control)) ||
-            (control.overridableBaseControl == null && control.controlImplBase.GetComponent<InteractablePortFeeder>() == null);
-    }
+    // Set up: its spec has added its implementation (ControlSpec.Awake, as the cab is made). Its
+    // port, if it has one, is in the prefab already. One with no port (a handbrake, a fuse) used to
+    // count as never ready, so every cab with one waited out the whole timeout before hooking any
+    // control: a lever grabbed in those 2 s took no lease.
+    private static bool ControlReady(InteriorControlsManager.ControlReference control) =>
+        control.controlImplBase != null;
 
     private void HookControl(ControlImplBase implementation, uint netId)
     {

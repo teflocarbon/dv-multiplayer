@@ -1,7 +1,7 @@
 using UnityEngine;
 using Multiplayer.Shared.Session;
 
-namespace Multiplayer.Shared.Trains;
+namespace Multiplayer.Client.Trains;
 
 /// <summary>
 /// Client motion for an on-rail car. Every physics step the car runs at the host's speed plus a
