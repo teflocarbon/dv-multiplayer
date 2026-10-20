@@ -138,7 +138,7 @@ public class SteamWorksTransport : ITransport
             var connection = kvp.Key;
 
             if(peer != null && connection != null)
-                OnNetworkLatencyUpdate?.Invoke(peer, connection.QuickStatus().Ping / 2); //nromalise to match LiteNetLib's implementation
+                OnNetworkLatencyUpdate?.Invoke(peer, connection.QuickStatus().Ping); // round trip, as players expect "ping" to mean
         }
     }
 
