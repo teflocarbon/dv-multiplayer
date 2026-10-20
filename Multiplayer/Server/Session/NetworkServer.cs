@@ -54,11 +54,13 @@ using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.World;
 using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Trains;
+using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
 using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
@@ -135,6 +137,7 @@ public partial class NetworkServer : NetworkManager
     {
         Log($"Server created for {(singlePlayer ? "single player" : "multiplayer")} game");
         HazmatServer.Reset();
+        ShopShelfLayout.Reset();
         global::Multiplayer.Server.Trains.CargoFireServer.Clear();
 
         IsSinglePlayer = singlePlayer;
@@ -361,6 +364,7 @@ public partial class NetworkServer : NetworkManager
 
         //We should initialise object here for dedicated servers, rather than relying on the existance of a client
         InitialiseStations();
+        InitialiseShopShelves();
 
         while (gameDataQueue.Count > 0)
         {
@@ -730,7 +734,6 @@ public partial class NetworkServer : NetworkManager
         KickPlayer(player, mismatch);
         return false;
     }
-
     // Why couplings came apart since the last broadcast topology snapshot, sent with the next one.
     private const int MaxPendingUncoupleCauses = 256;
     private readonly List<TrainUncoupleCauseData> pendingUncoupleCauses = new();
@@ -1021,6 +1024,8 @@ public partial class NetworkServer : NetworkManager
                 // The join queue replays this state with an empty packet: keep the first report.
                 if (packet.TrackGraphHash != 0)
                     player.TrackGraph = new TrackGraphFingerprint(packet.TrackGraphHash, packet.TrackCount, packet.JunctionCount, packet.TurntableCount);
+                if (packet.ShopCatalogueHash != 0)
+                    player.ShopCatalogue = new ShopCatalogueFingerprint(packet.ShopCatalogueHash, packet.ShopCount, packet.ShopItemCount);
 
                 if (!IsLoaded)
                 {
@@ -1038,8 +1043,8 @@ public partial class NetworkServer : NetworkManager
 
                 // Tracks, junctions and turntables are numbered as they wake in each game, so a
                 // client whose railway differs would put every car on the wrong track. Refuse it
-                // before it gets any world state or train baseline.
-                if (!NetworkLifecycle.Instance.IsHost(player) && !CheckTrackGraph(player))
+                // before it gets any world state or train baseline. Shops are named by index too.
+                if (!NetworkLifecycle.Instance.IsHost(player) && (!CheckTrackGraph(player) || !CheckShopCatalogue(player)))
                     return;
 
                 // Unpause physics
@@ -1060,6 +1065,7 @@ public partial class NetworkServer : NetworkManager
                 SendWeatherState(peer);
                 SendSleepState(peer);
                 SendShopStock(peer);
+                SendShopLayout(peer);
 
                 // Send junctions and turntables
                 SendPacket(peer, new ClientboundRailwayStatePacket
