@@ -31,7 +31,7 @@ public partial class NetworkClient
             return;
         }
 
-        networkedWarehouseMachineController.ClientProcessUpdate(packet);
+        WarehouseMachineScreen.ProcessUpdate(networkedWarehouseMachineController, packet);
     }
 
     private void OnClientboundJobsCreatePacket(ClientboundJobsCreatePacket packet)
