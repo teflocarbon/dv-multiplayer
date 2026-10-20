@@ -10,8 +10,8 @@ namespace Dvmp.Scenarios
     /// <summary>
     /// Every game lays a shop's shelves out the same way (docs/design/shops.md, gap 2). Vanilla's
     /// <c>ShopShelves</c> picks its seed with <c>UnityEngine.Random</c>, so each game put the items
-    /// in different places. Both players stand at the shop, and every display that both games have
-    /// laid out must be in the same place, within 1 cm.
+    /// in different places. Both players stand at the shop, and every display at a shop within 1 km
+    /// of the client must be in the same place on both games, within 1 cm.
     /// </summary>
     [Scenario("shop-layout", "Both games lay the shop's shelves out the same way: every display at the same place")]
     [Budget(180)]
@@ -28,12 +28,14 @@ namespace Dvmp.Scenarios
             await Places.Shop(pair, 3f);
             Display[] host = await pair.Host.Run(() => InGame.Displays());
             Display[] client = await pair.Client.Run(() => InGame.Displays());
-            Report.Note($"host has {host.Length} displays, client {client.Length}");
+            Report.Note($"host has {host.Length} displays, client {client.Length}, {client.Count(d => d.Near)} of them at shops within 1 km of the client");
 
             var hostByKey = host.ToDictionary(d => (d.Shop, d.Module));
             int compared = 0, moved = 0;
             float worst = 0f;
-            foreach (Display c in client)
+            // Only the shops the client has loaded: a far shop's displays sit where its unloaded scene
+            // left them, and nobody sees them there.
+            foreach (Display c in client.Where(d => d.Near))
             {
                 if (!hostByKey.TryGetValue((c.Shop, c.Module), out Display h))
                     continue;
@@ -56,6 +58,7 @@ namespace Dvmp.Scenarios
         public sealed class Display
         {
             public int Shop, Module;
+            public bool Near;
             public string Name;
             public float X, Y, Z;
         }
@@ -74,12 +77,15 @@ namespace Dvmp.Scenarios
                     ScanItemCashRegisterModule[] modules = shops[s]?.scanItemResourceModules;
                     if (modules == null)
                         continue;
+                    // Within 1 km of this game's player (always, on a dedicated host: it has none).
+                    bool near = PlayerManager.PlayerTransform == null ||
+                                Vector3.Distance(shops[s].cashRegister.transform.position, PlayerManager.PlayerTransform.position) < 1000f;
                     for (int m = 0; m < modules.Length; m++)
                     {
                         if (modules[m] == null)
                             continue;
                         Vector3 at = Dev.Abs(modules[m].transform.position);
-                        result.Add(new Display { Shop = s, Module = m, Name = modules[m].name, X = at.x, Y = at.y, Z = at.z });
+                        result.Add(new Display { Shop = s, Module = m, Name = modules[m].name, X = at.x, Y = at.y, Z = at.z, Near = near });
                     }
                 }
                 return result.ToArray();
