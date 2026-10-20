@@ -167,4 +167,38 @@ public static class CarSpawner_Patch
         NetworkServer.Instance.SendSpawnTrainset([__result], true, true);
 
     }
+
+    // Every vanilla spawn goes through SpawnCar; the methods above (and SpawnCrewVehicle, whose
+    // caller sends the car itself) send their own cars, so SpawnCar sends only a car spawned
+    // through it directly: another mod, a test, vanilla's caboose on load. Unsent, the server had
+    // the car and no client ever did.
+    private static int outerSpawns;
+
+    [HarmonyPatch(nameof(CarSpawner.SpawnCars))]
+    [HarmonyPatch(nameof(CarSpawner.SpawnCarFromRemote))]
+    [HarmonyPatch(nameof(CarSpawner.SpawnCarOnClosestTrack))]
+    [HarmonyPatch(nameof(CarSpawner.SpawnCrewVehicle))]
+    [HarmonyPrefix]
+    private static void EnterOuterSpawn() => outerSpawns++;
+
+    [HarmonyPatch(nameof(CarSpawner.SpawnCars))]
+    [HarmonyPatch(nameof(CarSpawner.SpawnCarFromRemote))]
+    [HarmonyPatch(nameof(CarSpawner.SpawnCarOnClosestTrack))]
+    [HarmonyPatch(nameof(CarSpawner.SpawnCrewVehicle))]
+    [HarmonyFinalizer]
+    private static void LeaveOuterSpawn() => outerSpawns--;
+
+    [HarmonyPatch(nameof(CarSpawner.SpawnCar))]
+    [HarmonyPostfix]
+    private static void SpawnCar(TrainCar __result)
+    {
+        if (outerSpawns > 0 || UnloadWatcher.isUnloading || __result == null)
+            return;
+
+        if (!NetworkLifecycle.Instance.IsHost() || NetworkServer.Instance == null)
+            return;
+
+        Multiplayer.LogDebug(() => $"SpawnCar() {__result.carLivery?.name} spawned directly, sending to players");
+        NetworkServer.Instance.SendSpawnTrainset([__result], true, true);
+    }
 }
