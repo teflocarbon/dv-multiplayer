@@ -65,6 +65,14 @@ public sealed class ItemAuthorityState
 
 public sealed class ItemTransitionCommand
 {
+    /// <summary>
+    /// The actor id of the server itself: a host with no player of its own (a dedicated host with
+    /// no local player session) committing what its own world did to an item, such as physics
+    /// settling it, its own throws and the items it makes. It moves items about the world, but
+    /// never holds one and never becomes an owner.
+    /// </summary>
+    public const byte ServerActorId = 0;
+
     public byte ActorPlayerId { get; set; }
     public uint ExpectedRevision { get; set; }
     public bool Force { get; set; }
@@ -116,8 +124,12 @@ public static class ItemAuthorityStateMachine
 {
     public static ItemAuthorityResult Apply(ItemAuthorityState current, ItemTransitionCommand command)
     {
-        if (current == null || command == null || current.NetId == 0 || command.ActorPlayerId == 0)
+        if (current == null || command == null || current.NetId == 0)
             return ItemAuthorityResult.Reject(current, "invalid-transition-input");
+        bool serverActor = command.ActorPlayerId == ItemTransitionCommand.ServerActorId;
+        if (serverActor && (command.EstablishPersistentOwner ||
+                            command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement)))
+            return ItemAuthorityResult.Reject(current, "server-cannot-possess");
         if (!command.Force && current.Placement == AuthorityPlacement.LostAndFound)
             return ItemAuthorityResult.Reject(current, "item-in-lost-and-found");
         // A transition made against an older revision still holds if only object state changed
@@ -138,9 +150,9 @@ public static class ItemAuthorityStateMachine
         bool requestedRetrievalClaim = command.InventoryClaimSlot >= 0 &&
             HasRetrievalFlag(command.InventoryClaimFlags);
         // An unowned personal item (a purchase, for one) belongs to whoever first takes it.
-        bool establishesOwner = command.EstablishPersistentOwner ||
+        bool establishesOwner = !serverActor && (command.EstablishPersistentOwner ||
             command.MayEstablishPersistentOwner &&
-            (requestedRetrievalClaim || command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement));
+            (requestedRetrievalClaim || command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement)));
         if (command.AppliesPlacement && next.PersistentOwnerPlayerId == 0 && establishesOwner)
         {
             next.PersistentOwnerPlayerId = command.ActorPlayerId;

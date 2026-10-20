@@ -222,7 +222,7 @@ internal sealed partial class ServerItemManager
     {
         if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) ||
             snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
-            snapshot.PlayerId == 0 || snapshot.PlayerId == hostPlayer.PlayerId)
+            snapshot.PlayerId == 0 || snapshot.PlayerId == hostPlayer?.PlayerId)
             return true;
         snapshot.UpdateType &= ItemUpdateData.ItemUpdateType.ObjectState;
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
@@ -235,7 +235,10 @@ internal sealed partial class ServerItemManager
     {
         List<ItemUpdateData> dirtyItems = [];
         float timeStamp = Time.time;
-        ServerPlayer hostPlayer = NetworkServer.Instance.LocalPlayer;
+        // Null with nobody to commit the host's changes yet, or on a host with no player of its own,
+        // where the server commits them itself (HostItemActor).
+        ServerPlayer hostPlayer = HostItemActor.Player;
+        bool hostActs = hostPlayer != null || HostItemActor.IsServer;
 
         foreach (var item in NetworkedItem.GetAll())
         {
@@ -249,12 +252,17 @@ internal sealed partial class ServerItemManager
                 existingRecord.Placement == ItemPlacementKind.Destroyed)
                 continue;
             ItemUpdateData snapshot = item.GetSnapshot();
-            if (snapshot != null && hostPlayer != null && !TryKeepRemotePossession(item, snapshot, hostPlayer))
+            if (snapshot != null && hostActs && !TryKeepRemotePossession(item, snapshot, hostPlayer))
                 continue;
-            if (snapshot != null && hostPlayer != null)
+            if (snapshot != null && hostActs)
             {
-                if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, hostPlayer,
-                        ItemTransitionReason.HostLocalState, true, out string rejectionReason))
+                string rejectionReason;
+                bool accepted = hostPlayer != null
+                    ? AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, hostPlayer,
+                        ItemTransitionReason.HostLocalState, true, out rejectionReason)
+                    : AuthoritativeItemRegistry.TryApplyServerTransition(item, snapshot,
+                        ItemTransitionReason.HostLocalState, true, out rejectionReason);
+                if (!accepted)
                 {
                     DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
                         rejectionReason, DebugRuntimeSide.Server);
@@ -309,7 +317,7 @@ internal sealed partial class ServerItemManager
                     //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) New item for: {player.Username}, itemNetID{nearbyItem.NetId}");
 
                     ItemUpdateData snapshot = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
-                    if (snapshot != null && hostPlayer != null)
+                    if (snapshot != null && hostActs)
                     {
                         AuthoritativeItemRegistry.Record record =
                             AuthoritativeItemRegistry.Ensure(nearbyItem, hostPlayer, snapshot);

@@ -170,12 +170,37 @@ public static class AuthoritativeItemRegistry
         ItemTransitionReason reason, bool force, out string rejectionReason,
         bool clearRetrievalClaim = false, ChangeCause<ItemMoveReason>? cause = null)
     {
-        rejectionReason = string.Empty;
-        if (item == null || snapshot == null || actor == null || item.NetId == 0)
+        if (actor == null)
         {
             rejectionReason = "invalid-transition-input";
             return false;
         }
+        return ApplyTransition(item, snapshot, actor, reason, force, out rejectionReason, clearRetrievalClaim, cause);
+    }
+
+    /// <summary>
+    /// A change the server's own world made to an item, committed by the server itself rather than
+    /// a player (<see cref="ItemTransitionCommand.ServerActorId"/>): on a host with no player of
+    /// its own (<see cref="HostItemActor.IsServer"/>). It can move the item about the world but
+    /// not into anyone's hands.
+    /// </summary>
+    public static bool TryApplyServerTransition(NetworkedItem item, ItemUpdateData snapshot,
+        ItemTransitionReason reason, bool force, out string rejectionReason,
+        ChangeCause<ItemMoveReason>? cause = null) =>
+        ApplyTransition(item, snapshot, null, reason, force, out rejectionReason, false, cause);
+
+    // actor null: the server itself.
+    private static bool ApplyTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
+        ItemTransitionReason reason, bool force, out string rejectionReason,
+        bool clearRetrievalClaim, ChangeCause<ItemMoveReason>? cause)
+    {
+        rejectionReason = string.Empty;
+        if (item == null || snapshot == null || item.NetId == 0)
+        {
+            rejectionReason = "invalid-transition-input";
+            return false;
+        }
+        byte actorId = actor?.PlayerId ?? ItemTransitionCommand.ServerActorId;
 
         // A cause a client put in its own update is never passed on: only the host's goes out.
         snapshot.MoveCause = null;
@@ -196,7 +221,7 @@ public static class AuthoritativeItemRegistry
         }
         Publish("item.transition-requested", item, record, new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actorId,
             ["requestedState"] = snapshot.ItemState.ToString(),
             ["requestedRevision"] = snapshot.AuthorityRevision,
             ["force"] = force,
@@ -216,7 +241,7 @@ public static class AuthoritativeItemRegistry
         int previousClaimSlot = record.InventoryClaimSlot;
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(currentState, new ItemTransitionCommand
         {
-            ActorPlayerId = actor.PlayerId,
+            ActorPlayerId = actorId,
             ExpectedRevision = snapshot.AuthorityRevision,
             Force = force,
             AppliesPlacement = appliesPlacement,
@@ -240,7 +265,7 @@ public static class AuthoritativeItemRegistry
             snapshot.InventoryClaimSlot >= 0 &&
             result.State.InventoryClaimSlot >= 0 &&
             result.State.InventoryClaimSlot != snapshot.InventoryClaimSlot &&
-            record.PersistentOwnerPlayerId == actor.PlayerId)
+            actor != null && record.PersistentOwnerPlayerId == actorId)
         {
             Publish("item.essential-claim-slot-move-rejected", item, record, new()
             {
@@ -257,12 +282,13 @@ public static class AuthoritativeItemRegistry
             : previousPlacementHand;
         // Object state alone (the server's copy of a flashlight a player carries) keeps the holder.
         if (appliesPlacement)
-            record.PlacementPlayerIdentity = record.PlacementPlayerId == actor.PlayerId
+            record.PlacementPlayerIdentity = actor != null && record.PlacementPlayerId == actorId
                 ? actor.Guid : Guid.Empty;
         KeepRemotePossession(item, record, snapshot);
-        if (record.PersistentOwnerPlayerId == actor.PlayerId && record.PersistentOwnerIdentity == Guid.Empty)
+        // The server is never an owner (the state machine makes sure), so the rest is a player's.
+        if (actor != null && record.PersistentOwnerPlayerId == actorId && record.PersistentOwnerIdentity == Guid.Empty)
             record.PersistentOwnerIdentity = actor.Guid;
-        if (previousPersistentOwner == 0 && record.PersistentOwnerPlayerId == actor.PlayerId)
+        if (actor != null && previousPersistentOwner == 0 && record.PersistentOwnerPlayerId == actorId)
             actor.AddOwnedItem(item.NetId);
         record.Position = snapshot.ItemPosition;
         record.Rotation = snapshot.ItemRotation;
@@ -297,14 +323,14 @@ public static class AuthoritativeItemRegistry
         }
         Publish("item.transition-accepted", item, record, new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actorId,
             ["reason"] = reason.ToString()
         });
         ServerItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
         // The owner's client put the item in this slot, so it keeps the slot if another of their
         // essentials claims it too (one dropped or stolen leaves its slot looking empty in DV).
-        bool ownerPlacedClaim = appliesPlacement && record.PersistentOwnerPlayerId == actor.PlayerId &&
+        bool ownerPlacedClaim = appliesPlacement && actor != null && record.PersistentOwnerPlayerId == actorId &&
             (record.InventoryClaimSlot != previousClaimSlot || record.Placement == ItemPlacementKind.PlayerInventory);
         if (HasRetrievalClaim(record))
             EnsureDistinctClaimSlots(record, ownerPlacedClaim ? record.NetId : (ushort)0, reason.ToString());
@@ -1118,7 +1144,7 @@ public static class AuthoritativeItemRegistry
     {
         Publish("item.transition-rejected", item, record, new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actor?.PlayerId ?? ItemTransitionCommand.ServerActorId,
             ["requestedState"] = snapshot.ItemState.ToString(),
             ["requestedRevision"] = snapshot.AuthorityRevision,
             ["rejectionReason"] = reason

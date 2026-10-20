@@ -340,13 +340,14 @@ public static class NetworkedItemServer
         !float.IsNaN(value.z) && !float.IsInfinity(value.z) &&
         !float.IsNaN(value.w) && !float.IsInfinity(value.w);
 
+    // actor null: the server itself (HostItemActor.IsServer).
     internal static void ApplyHostLocalCanonicalTransition(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor)
     {
-        if (snapshot == null || actor == null)
+        if (snapshot == null)
             return;
         item.PublishUnityState("item.ownership-transition.before", new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actor?.PlayerId ?? 0,
             ["targetState"] = snapshot.ItemState.ToString(),
             ["transitionReason"] = snapshot.TransitionReason.ToString(),
             ["unityStateAlreadyApplied"] = true
@@ -362,7 +363,7 @@ public static class NetworkedItemServer
         item.ApplyAuthorityMetadata(snapshot);
         item.PublishUnityState("item.ownership-transition.after", new()
         {
-            ["actorPlayerId"] = actor.PlayerId,
+            ["actorPlayerId"] = actor?.PlayerId ?? 0,
             ["targetState"] = snapshot.ItemState.ToString(),
             ["transitionReason"] = snapshot.TransitionReason.ToString(),
             ["unityStateAlreadyApplied"] = true
