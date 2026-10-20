@@ -87,6 +87,11 @@ public sealed class ItemTransitionCommand
     /// </summary>
     public bool EstablishPersistentOwner { get; set; }
     public bool MayEstablishPersistentOwner { get; set; } = true;
+    /// <summary>
+    /// The server's gadget code committing what vanilla did to an installed gadget's item: the
+    /// only transition that may move an item into or out of <see cref="AuthorityPlacement.Installed"/>.
+    /// </summary>
+    public bool GadgetTransition { get; set; }
     public int InventoryClaimSlot { get; set; } = -1;
     public AuthorityClaimFlags InventoryClaimFlags { get; set; }
 }
@@ -132,6 +137,13 @@ public static class ItemAuthorityStateMachine
             return ItemAuthorityResult.Reject(current, "server-cannot-possess");
         if (!command.Force && current.Placement == AuthorityPlacement.LostAndFound)
             return ItemAuthorityResult.Reject(current, "item-in-lost-and-found");
+        // An installed gadget's item changes only with its gadget, forced or not: Lost and Found,
+        // a recall or a player's own observation of it would leave its projection on the car.
+        if (!command.GadgetTransition && command.AppliesPlacement &&
+            (current.Placement == AuthorityPlacement.Installed ||
+             command.RequestedPlacement == AuthorityPlacement.Installed))
+            return ItemAuthorityResult.Reject(current, current.Placement == AuthorityPlacement.Installed
+                ? "item-installed" : "installed-only-by-gadgets");
         // A transition made against an older revision still holds if only object state changed
         // since: the server's copy of a lantern flickering mustn't refuse its holder's drop, nor
         // the re-grab of an item whose flame changed as it fell.
@@ -225,6 +237,8 @@ public static class ItemAuthorityStateMachine
             return ItemAuthorityResult.Reject(current, "requester-not-persistent-owner");
         if (current.InventoryClaimSlot < 0 || !HasRetrievalFlag(current.InventoryClaimFlags))
             return ItemAuthorityResult.Reject(current, "item-not-recallable");
+        if (current.Placement == AuthorityPlacement.Installed)
+            return ItemAuthorityResult.Reject(current, "item-installed");
         if (command.ExpectedRevision != current.Revision)
             return ItemAuthorityResult.Reject(current, "stale-authority-revision");
         if (current.Revision == uint.MaxValue)

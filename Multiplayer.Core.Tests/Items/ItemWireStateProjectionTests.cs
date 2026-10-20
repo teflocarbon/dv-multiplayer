@@ -13,7 +13,7 @@ public sealed class ItemWireStateProjectionTests
         WireItemState.InInventory,
         WireItemState.InHand,
         WireItemState.Attached,
-        WireItemState.Removed
+        WireItemState.Installed
     };
 
     [TestCaseSource(nameof(States))]
@@ -38,7 +38,7 @@ public sealed class ItemWireStateProjectionTests
 
     [TestCase(WireItemState.Dropped)]
     [TestCase(WireItemState.Thrown)]
-    [TestCase(WireItemState.Removed)]
+    [TestCase(WireItemState.Installed)]
     public void WorldLikeStates_IgnoreUnusedHolderAndAttachmentFields(WireItemState state)
     {
         ItemWireStateProjection previous = new(state, placementPlayerId: 1,
@@ -131,7 +131,7 @@ public sealed class ItemWireStateProjectionTests
     [TestCase(WireItemState.InHand)]
     [TestCase(WireItemState.InInventory)]
     [TestCase(WireItemState.Attached)]
-    [TestCase(WireItemState.Removed)]
+    [TestCase(WireItemState.Installed)]
     public void StableStatesRemainTheirOwnBaseline(WireItemState state)
     {
         ItemWireStateProjection sent = Projection(state);

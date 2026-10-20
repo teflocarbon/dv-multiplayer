@@ -252,7 +252,7 @@ a different railway ([design/track-graph-check.md](design/track-graph-check.md))
 Scenarios: `shop` (a player scans, pays and buys: the wallet pays once, one NetId on both, owned by
 the buyer, stock drops; a cancelled basket's cash is one banknote on both; `WHO=host` for the host's
 own player), `shop-basket` (the shared basket matches on server and client; each item is owned by
-whoever scanned it), `shop-layout`.
+whoever scanned it), `shop-layout`, `shop-restock` (a deposit through a container doesn't restock; destroying the item does).
 
 ## Service stations
 

@@ -147,6 +147,8 @@ public static class DebugPacketProjectorRegistry
                     result["playerId"] = item.PlayerId; break;
                 case ItemState.Attached:
                     result["carNetId"] = item.CarNetId; result["attachedFront"] = item.AttachedFront; break;
+                case ItemState.Installed:
+                    result["carNetId"] = item.CarNetId; break;
             }
         }
         if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState))
@@ -183,6 +185,7 @@ public static class DebugPacketProjectorRegistry
             ItemState.InHand => $"{prefix} InHand player={item.PlayerId}",
             ItemState.InInventory => $"{prefix} InInventory player={item.PlayerId}",
             ItemState.Attached => $"{prefix} Attached car={item.CarNetId} front={item.AttachedFront}",
+            ItemState.Installed => $"{prefix} Installed car={item.CarNetId}",
             _ => $"{prefix} {item.ItemState}"
         };
     }

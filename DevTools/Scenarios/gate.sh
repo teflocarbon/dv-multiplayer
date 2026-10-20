@@ -89,6 +89,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "save-reload|save-reload|CYCLES=2"
   "inventory-persist|inventory-persist|"
   "host-player-persist|host-player-persist||player"
+  "gadget-save|gadget-save|"
   "borrowed-disconnect|borrowed-disconnect||player"
   "host-actions|host-actions|"
   "host-actions-host|host-actions|WHO=host"

@@ -3,6 +3,11 @@
 > Status: canonical description of the implemented item lifecycle. This document defines how
 > identity, placement, possession, ownership, projections, persistence, recovery, and cleanup fit
 > together. Feature-specific documents remain authoritative for their detailed protocols.
+>
+> Planned (2026-10-21, not built): [`owned-items.md`](owned-items.md) rebuilds ownership,
+> inventories, rejoin and Lost and Found on a server-owned ledger of owned items, with one id per
+> item for life, keyed by identity instead of per-session player numbers. Where it changes a rule
+> below, the section says so.
 
 ## Implementation status (audited 2026-10-14)
 
@@ -15,8 +20,8 @@
   buyer (`NetworkServer.SpawnShopPurchase`, f796ca8). The host's own purchases still go through
   vanilla and are unowned until someone takes them. `AuthoritativeItemRegistry.Ensure` no longer
   throws for a host-created item registered without a seed snapshot (e827ce8).
-- **Starter kit:** given on a player's first join only (`ClientboundSaveGameDataPacket.CreatePacket`
-  with `NetworkServer.StarterKitsGiven`, 2962fa7).
+- **Starter kit:** given on a player's first join only (`SaveGameDataPacketBuilder.Create`
+  with `NetworkServer.StarterKitsGiven`, 2962fa7). `StarterKitsGiven` is in memory only.
 - **Disconnect:** the departing player's hand item, and any item in their inventory that another
   player owns, is dropped where it is (`DropHeldItemsOfDepartingPlayer` in
   `Server/Items/ServerItemManager.PlayerItems.cs`, 2d52799). Items they own stay keyed to
@@ -44,6 +49,13 @@
   removal, has a recorded reason (`ItemMoveReason`, `ItemRemovalReason`), logged in one line on the
   host and sent with the update to clients. See "Why an item changed" below. Not yet checked in
   game.
+- **Identity gaps (read from the code 2026-10-21, not run in game):**
+  - An item withdrawn from a cold container is registered without its persistent id
+    (`RegisterMaterializedColdItem`), so it is not saved. The id is still on the object.
+  - Lost and Found and cold-container records mint ids of their own instead of using the item's.
+  - Owner numbers are unbound while an owner is offline, so many checks treat their items as unowned.
+
+  All three are fixed by [`owned-items.md`](owned-items.md) (PRs 1 and 2).
 - **Not implemented:** revoking a spatial lease on Lost-and-Found collection (the revision
   advance makes late samples fail instead), the container retirement retry, and per-recipient
   projection state in the debug snapshot.
@@ -116,6 +128,12 @@ Cold-container contents and Lost-and-Found records retain durable identity and s
 do not require an ordinary world NetId or Unity object. Materialization allocates a fresh NetId and
 binds it to the same durable record.
 
+Today each of those records has an id of its own, minted at deposit or collection. The item's own id
+travels inside its serialized state. Planned ([`owned-items.md`](owned-items.md#one-id-for-life)):
+the record's id is the item's id, and that one id is kept for the item's whole life, through every
+placement and save. A second live item with an id already registered keeps the first and re-mints
+the copy.
+
 ## Ownership establishment
 
 Persistent ownership changes only through a named, host-authenticated transition. The implemented
@@ -133,6 +151,14 @@ authority state machine establishes an owner in these cases:
 Dropping, throwing, projection creation, or interest re-entry does **not** establish ownership,
 and nothing makes a nonpersonal item owned. Pickup or inventory insertion never transfers an
 existing owner: ownership is retained when another player possesses the item.
+
+Planned ([`owned-items.md`](owned-items.md#what-an-owned-item-is)):
+
+- the server makes the starter kit, essentials and licence papers, and the host's own purchases go
+  through the server like everyone's, which retires the `ClientAdoption` path;
+- a replacement vanilla makes while using an item up is owned by the used item's owner;
+- job documents are never owned;
+- nonpersonal items stay unowned even when carried (decided 2026-10-21).
 
 ### Explicit office-bin example
 
@@ -245,6 +271,15 @@ must validate that the item is not held, inventoried, contained, installed, snap
 nearby player, or already governed by a newer transition. The owner ID is unbound while the owner
 is offline, so an offline owner's items are not collected.
 
+Planned ([`owned-items.md`](owned-items.md#lost-and-found-for-every-owned-item), decided
+2026-10-21):
+
+- An offline owner counts as far away. Their items are collected under the same nearby-player and
+  grace rules, from train interiors, shelves and attachments as well as the world.
+- A departing borrower's items go straight to their owner's Lost and Found.
+- An owner can retrieve any owned item into their Lost and Found from their owned-items list.
+- Nothing expires.
+
 On collection:
 
 - any simulation lease is superseded: the revision advances, so late samples and settlements are
@@ -353,6 +388,11 @@ Only one subsystem saves each logical form:
 - cold descendants: versioned cold-container graph;
 - Lost-and-Found entries: owner recovery registry;
 - ordinary scene defaults: Derail Valley scene content, unless overridden or tombstoned.
+
+Planned ([`owned-items.md`](owned-items.md#the-ledger)): an owned-items ledger (`OwnedItemsV1`, in
+the same `Multiplayer` section). It holds each owned item's owner, which store holds it, and how its
+life began and ended. It is the index the stores above must agree with at load. It doesn't replace
+them.
 
 Vanilla storage serialization must not also save a multiplayer-owned detached or authoritative
 record. Save/load rebuilds identity bindings and placement indexes before allowing interaction.

@@ -2,6 +2,7 @@ using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using System;
 using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Protocol.Data.Items;
 
 namespace Multiplayer.Server.Items;
 
@@ -11,6 +12,7 @@ internal static class PersistentWorldItemIdentityPatch
     internal const string Key = "dvmpPersistentWorldItemId";
     internal const string ManagedWorldKey = "dvmpManagedWorldItem";
     internal const string AuthoredKey = "dvmpAuthoredWorldItemKey";
+    internal const string OwnerKey = "dvmpPersistentOwner";
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(ItemSaveData), nameof(ItemSaveData.SaveItemData))]
@@ -30,6 +32,12 @@ internal static class PersistentWorldItemIdentityPatch
             if (networked.IsSceneAuthored)
                 __result[AuthoredKey] = networked.AuthoredItemKey;
         }
+        // An installed gadget is saved only in vanilla's installed storage, so its owner goes there
+        // too (gadgets.md, "Persistence").
+        if (networked != null && AuthoritativeItemRegistry.TryGet(networked.NetId,
+                out AuthoritativeItemRegistry.Record record) &&
+            record.Placement == ItemPlacementKind.Installed && record.PersistentOwnerIdentity != Guid.Empty)
+            __result[OwnerKey] = record.PersistentOwnerIdentity.ToString("D");
     }
 
     [HarmonyPrefix]
@@ -41,5 +49,7 @@ internal static class PersistentWorldItemIdentityPatch
         PersistentWorldItemIdentity identity = __instance.GetComponent<PersistentWorldItemIdentity>() ??
                                                __instance.gameObject.AddComponent<PersistentWorldItemIdentity>();
         identity.Value = id;
+        if (Guid.TryParse((string)data[OwnerKey], out Guid owner))
+            identity.Owner = owner;
     }
 }

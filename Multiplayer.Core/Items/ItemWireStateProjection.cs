@@ -7,7 +7,7 @@ public enum WireItemState : byte
     InInventory,
     InHand,
     Attached,
-    Removed
+    Installed
 }
 
 /// <summary>
