@@ -30,6 +30,11 @@ public class ClientPitStopStation : MonoBehaviour
     {
         Station = GetComponent<NetworkedPitStopStation>();
         Station.WaitingForServerState = true;
+
+        // The station finds its plugs as its resource modules initialise, after this.
+        Station.PlugInitialised += OnPlugInitialised;
+        foreach (NetworkedPluggableObject plug in Station.Plugs)
+            OnPlugInitialised(plug);
     }
 
     protected void OnDisable()
@@ -38,6 +43,15 @@ public class ClientPitStopStation : MonoBehaviour
         if (Station != null)
             Station.WaitingForServerState = true;
     }
+
+    protected void OnDestroy()
+    {
+        if (Station != null)
+            Station.PlugInitialised -= OnPlugInitialised;
+    }
+
+    private static void OnPlugInitialised(NetworkedPluggableObject plug) =>
+        plug.GetOrAddComponent<ClientPluggableObject>().Setup();
 
     public void ProcessBulkUpdate(ClientboundPitStopBulkUpdatePacket packet)
     {
@@ -110,7 +124,8 @@ public class ClientPitStopStation : MonoBehaviour
             var result = NetworkedPluggableObject.Get(plug.NetId, out var netPlug);
             Multiplayer.LogDebug(() => $"ClientPitStopStation.ProcessBulkUpdate_Internal() [{stationName}, {netId}] Plugs netId: {plug.NetId}, found: {result}");
 
-            netPlug?.ProcessBulkUpdate(plug);
+            if (netPlug != null && netPlug.TryGetComponent(out ClientPluggableObject clientPlug))
+                clientPlug.ProcessBulkUpdate(plug);
         }
 
         Multiplayer.LogDebug(() => $"ClientPitStopStation.ProcessBulkUpdate_Internal() [{stationName}, {netId}] Plugs synced");
