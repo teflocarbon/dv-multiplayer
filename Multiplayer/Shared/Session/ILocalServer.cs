@@ -17,6 +17,13 @@ public interface ILocalServer
     bool Submit<TRequest>(TRequest request) where TRequest : class;
 
     /// <summary>
+    ///     A packet from the host's own player, as bytes the way a connection carries them: only for
+    ///     MPAPI mods' packets (<c>IClient.SendPacketToServer</c> on the host), which have no in-process
+    ///     handler. The server reads it at its next poll as from that player's peer.
+    /// </summary>
+    void ReceiveFromLocalPlayer(byte[] data);
+
+    /// <summary>
     ///     True while the server applies another player's change to its own world (a junction, a
     ///     turntable, a time skip): part of <see cref="NetworkLifecycle.IsProcessingPacket"/>.
     /// </summary>

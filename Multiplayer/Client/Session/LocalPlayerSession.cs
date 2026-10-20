@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using LiteNetLib.Utils;
+using Multiplayer.Client.Api;
 using Multiplayer.Client.UI;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data.Player;
@@ -27,7 +28,7 @@ namespace Multiplayer.Client.Session;
 ///         <item>The other players' avatars are the server's to keep (<see cref="NetworkLifecycle.Avatars"/>).</item>
 ///     </list>
 /// </summary>
-public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession
+public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, IClientApiSession
 {
     private readonly NetPacketProcessor processor = new();
     private readonly NetDataReader reader = new();
@@ -46,6 +47,9 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession
 
     /// <summary>The host's player is on its server: no latency.</summary>
     public int Ping => 0;
+
+    /// <summary>The server answers the host's player at its next poll: a floor, for a frame-rate drop.</summary>
+    public float RpcTimeout => 2f;
 
     public bool IsProcessingPacket { get; private set; }
 
