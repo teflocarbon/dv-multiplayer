@@ -108,7 +108,7 @@ public partial class NetworkClient : IItemClient
         }
 
         if (packet.ItemData.MoveCause.HasValue)
-            ItemChangeCauses.OnClientSnapshot(networkedItem, packet.ItemData, PlayerId);
+            ClientItemChangeLog.OnSnapshot(networkedItem, packet.ItemData, PlayerId);
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
@@ -217,6 +217,8 @@ public partial class NetworkClient : IItemClient
     //}
 
     IItemManagerClientPart IItemClient.CreateItemManagerPart(NetworkedItemManager manager) => new ClientItemManager(manager);
+
+    IEnumerable<Dictionary<string, object>> IItemClient.LostAndFoundDebugSnapshot() => LostAndFoundList.DebugSnapshot();
 
     public void SendItemUpdatePacket(ItemUpdateData updateData)
     {
