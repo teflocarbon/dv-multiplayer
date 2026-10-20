@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 
 namespace Multiplayer.Client.Items;
@@ -56,7 +57,7 @@ public static class RemoteControllerModulePatch
     static void RemoteControllerCouple(Before __state)
     {
         __state?.Batch?.Dispose();
-        var client = NetworkLifecycle.Instance?.Client;
+        var client = NetworkClient.Instance;
         if (client == null || __state == null)
             return;
 
@@ -102,7 +103,7 @@ public static class RemoteControllerModulePatch
     static void Uncouple(Before __state)
     {
         __state?.Batch?.Dispose();
-        var client = NetworkLifecycle.Instance?.Client;
+        var client = NetworkClient.Instance;
         if (client == null || __state == null)
             return;
 

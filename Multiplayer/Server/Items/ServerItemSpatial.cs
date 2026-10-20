@@ -57,7 +57,7 @@ internal sealed class ServerItemSpatial
     {
         if (!spatial.TrySampleLocalLease(item, lease, host: true, out ItemSpatialStateData state, out bool settled))
             return;
-        ServerPlayer actor = NetworkLifecycle.Instance.Server.LocalPlayer;
+        ServerPlayer actor = NetworkServer.Instance.LocalPlayer;
         string rejection = "unknown-host-simulator";
         if (settled)
         {
@@ -74,7 +74,7 @@ internal sealed class ServerItemSpatial
         if (actor != null && TryAcceptHostSample(state, actor, settlement: false, out _, out _, out rejection))
         {
             ApplyAcceptedHostSample(item, lease, state);
-            NetworkLifecycle.Instance.Server.SendItemSpatialSample(item,
+            NetworkServer.Instance.SendItemSpatialSample(item,
                 new ClientboundItemSpatialSamplePacket { State = state.Clone() }, lease.SimulatorPlayerId);
             Publish("item.spatial-sample-relayed", item.NetId, SpatialDebug(state), highFrequency: true);
         }
@@ -162,7 +162,7 @@ internal sealed class ServerItemSpatial
             body.angularVelocity = Vector3.zero;
             body.Sleep();
         }
-        NetworkLifecycle.Instance.Server.SendItemSpatialCommit(item,
+        NetworkServer.Instance.SendItemSpatialCommit(item,
             new ClientboundItemSpatialCommitPacket { State = state });
         return true;
     }
@@ -224,9 +224,9 @@ internal sealed class ServerItemSpatial
         };
         leases[item.NetId] = lease;
 
-        bool localSimulator = simulatorPlayerId == NetworkLifecycle.Instance.Server.SelfId;
+        bool localSimulator = simulatorPlayerId == NetworkServer.Instance.SelfId;
         ConfigureLeasePresentation(item, localSimulator, baseline);
-        NetworkLifecycle.Instance.Server.SendItemSpatialLease(item, new ClientboundItemSpatialLeasePacket
+        NetworkServer.Instance.SendItemSpatialLease(item, new ClientboundItemSpatialLeasePacket
         {
             Active = true,
             Reason = "world-release",
@@ -253,7 +253,7 @@ internal sealed class ServerItemSpatial
         if (restoreBody)
             RestoreLocalBodyAfterLease(lease);
         if (notify && NetworkedItem.TryGet(itemNetId, out NetworkedItem item) && item != null)
-            NetworkLifecycle.Instance.Server.SendItemSpatialLease(item, new ClientboundItemSpatialLeasePacket
+            NetworkServer.Instance.SendItemSpatialLease(item, new ClientboundItemSpatialLeasePacket
             {
                 Active = false,
                 Reason = reason ?? string.Empty,
@@ -277,7 +277,7 @@ internal sealed class ServerItemSpatial
             return;
         }
         ApplyAcceptedHostSample(item, lease, state);
-        NetworkLifecycle.Instance.Server.SendItemSpatialSample(item,
+        NetworkServer.Instance.SendItemSpatialSample(item,
             new ClientboundItemSpatialSamplePacket { State = state.Clone() }, sender.PlayerId);
         Publish("item.spatial-sample-relayed", item.NetId, SpatialDebug(state), highFrequency: true);
     }
@@ -380,11 +380,11 @@ internal sealed class ServerItemSpatial
         };
         leases[itemNetId] = lease;
         simulatorPlayerId = simulator.PlayerId;
-        bool localHost = simulator.PlayerId == NetworkLifecycle.Instance.Server.SelfId;
+        bool localHost = simulator.PlayerId == NetworkServer.Instance.SelfId;
         ConfigureLeasePresentation(item, localHost, baseline);
         if (localHost)
             ApplySimulationVelocity(item, baseline);
-        NetworkLifecycle.Instance.Server.SendItemSpatialLease(item,
+        NetworkServer.Instance.SendItemSpatialLease(item,
             new ClientboundItemSpatialLeasePacket
             {
                 Active = true,
@@ -402,19 +402,19 @@ internal sealed class ServerItemSpatial
         AuthoritativeItemRegistry.Record record, byte preferredPlayerId, out ServerPlayer selected)
     {
         selected = null;
-        if (NetworkLifecycle.Instance?.Server == null || item == null || record == null)
+        if (NetworkServer.Instance == null || item == null || record == null)
             return false;
         Vector3 absolute = record.Position;
         if (NetworkedTrainCar.TryGet(record.WorldParentNetId, out TrainCar parentCar) &&
             parentCar != null)
             absolute = (parentCar.interior ?? parentCar.transform)
                 .TransformPoint(record.ParentLocalPosition) - WorldMover.currentMove;
-        IEnumerable<ServerPlayer> eligible = NetworkLifecycle.Instance.Server.ServerPlayers
+        IEnumerable<ServerPlayer> eligible = NetworkServer.Instance.ServerPlayers
             .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems &&
                 (player.CarId == record.WorldParentNetId ||
                  (player.AbsoluteWorldPosition - absolute).sqrMagnitude <=
                     MaximumSimulatorDistance * MaximumSimulatorDistance))
-            .Where(player => player.PlayerId == NetworkLifecycle.Instance.Server.SelfId
+            .Where(player => player.PlayerId == NetworkServer.Instance.SelfId
                 ? item.gameObject.activeInHierarchy
                 : player.KnownItems.ContainsKey(item) &&
                   player.AcknowledgedWorldItems.Contains(item.NetId));
@@ -437,7 +437,7 @@ internal sealed class ServerItemSpatial
             if (!leases.TryGetValue(itemNetId, out Lease lease) || lease.LastAccepted == null ||
                 !NetworkedItem.TryGet(itemNetId, out NetworkedItem item) || item == null)
                 continue;
-            NetworkLifecycle.Instance.Server.SendItemSpatialLease(player,
+            NetworkServer.Instance.SendItemSpatialLease(player,
                 new ClientboundItemSpatialLeasePacket
                 {
                     Active = true,
@@ -450,7 +450,7 @@ internal sealed class ServerItemSpatial
     private void UpdateHostLeases()
     {
         float now = Time.realtimeSinceStartup;
-        byte hostId = NetworkLifecycle.Instance.Server.SelfId;
+        byte hostId = NetworkServer.Instance.SelfId;
         foreach (Lease lease in leases.Values.ToArray())
         {
             if (!NetworkedItem.TryGet(lease.ItemNetId, out NetworkedItem item) || item?.Item == null)
@@ -485,15 +485,15 @@ internal sealed class ServerItemSpatial
             !AuthoritativeItemRegistry.PlacementUnchangedSince(record, previous.AuthorityRevision))
             return false;
 
-        ServerPlayer candidate = NetworkLifecycle.Instance.Server.ServerPlayers
+        ServerPlayer candidate = NetworkServer.Instance.ServerPlayers
             .Where(player => player != null && player.PlayerId != previous.SimulatorPlayerId &&
                              player.LoadingState >= PlayerLoadingState.ReadyForItems &&
                              (player.AbsoluteWorldPosition - previous.LastAccepted.AbsolutePosition).sqrMagnitude <=
                              MaximumSimulatorDistance * MaximumSimulatorDistance)
-            .OrderByDescending(player => player.PlayerId == NetworkLifecycle.Instance.Server.SelfId &&
+            .OrderByDescending(player => player.PlayerId == NetworkServer.Instance.SelfId &&
                                          item.gameObject.activeInHierarchy)
             .ThenBy(player => (player.AbsoluteWorldPosition - previous.LastAccepted.AbsolutePosition).sqrMagnitude)
-            .FirstOrDefault(player => player.PlayerId == NetworkLifecycle.Instance.Server.SelfId
+            .FirstOrDefault(player => player.PlayerId == NetworkServer.Instance.SelfId
                 ? item.gameObject.activeInHierarchy
                 : player.KnownItems.ContainsKey(item) && player.AcknowledgedWorldItems.Contains(item.NetId));
         if (candidate == null)
@@ -523,11 +523,11 @@ internal sealed class ServerItemSpatial
             Target = baseline.Clone()
         };
         leases[item.NetId] = transferred;
-        bool localHost = candidate.PlayerId == NetworkLifecycle.Instance.Server.SelfId;
+        bool localHost = candidate.PlayerId == NetworkServer.Instance.SelfId;
         ConfigureLeasePresentation(item, localHost, baseline);
         if (localHost)
             ApplySimulationVelocity(item, baseline);
-        NetworkLifecycle.Instance.Server.SendItemSpatialLease(item,
+        NetworkServer.Instance.SendItemSpatialLease(item,
             new ClientboundItemSpatialLeasePacket
             {
                 Active = true,
@@ -663,7 +663,7 @@ internal sealed class ServerItemSpatial
         lease.LastAcceptedAt = Time.realtimeSinceStartup;
         lease.LastAccepted = state.Clone();
         lease.Target = state.Clone();
-        if (lease.SimulatorPlayerId == NetworkLifecycle.Instance.Server.SelfId)
+        if (lease.SimulatorPlayerId == NetworkServer.Instance.SelfId)
             ApplyPose(item, state, immediate: true);
         else
             SetProxyKinematic(item, true);
@@ -700,10 +700,10 @@ internal sealed class ServerItemSpatial
             body.angularVelocity = Vector3.zero;
             body.Sleep();
             if (state.WorldParentKind == ItemWorldParentKind.TrainInterior ||
-                lease.SimulatorPlayerId != NetworkLifecycle.Instance.Server.SelfId)
+                lease.SimulatorPlayerId != NetworkServer.Instance.SelfId)
                 body.isKinematic = true;
         }
-        NetworkLifecycle.Instance.Server.SendItemSpatialCommit(item,
+        NetworkServer.Instance.SendItemSpatialCommit(item,
             new ClientboundItemSpatialCommitPacket { State = state });
         manager.TrainItemWake.OnSpatialSettled(item, state, record);
         Publish("item.spatial-commit-accepted", item.NetId, new(SpatialDebug(state))

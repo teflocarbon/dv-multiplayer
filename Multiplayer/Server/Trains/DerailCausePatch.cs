@@ -8,6 +8,7 @@ using Multiplayer.Shared.Trains;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -72,7 +73,7 @@ public static class DerailCausePatch
             if (car != null && (host || cause.Reason != DerailReason.FollowingHost))
                 car.LastDerail = cause;
             if (host && car != null)
-                lifecycle.Server.SendDerailCause(car, cause);
+                NetworkServer.Instance.SendDerailCause(car, cause);
             Multiplayer.Log($"{__instance.ID} derailed on the {(host ? "host" : "client")}: {cause}");
             DebugRuntime.Publish("train", "train.derailed", TrainChangeCauses.Side, entityType: "TrainCar",
                 entityId: (car?.NetId ?? 0).ToString(), data: TrainChangeCauses.Data(cause, ("car", __instance.ID)));

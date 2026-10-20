@@ -15,4 +15,13 @@ public interface ILocalServer
     ///     in-process yet: send it through the loopback client as before.
     /// </summary>
     bool Submit<TRequest>(TRequest request) where TRequest : class;
+
+    /// <summary>
+    ///     True while the server applies another player's change to its own world (a junction, a
+    ///     turntable, a time skip): part of <see cref="NetworkLifecycle.IsProcessingPacket"/>.
+    /// </summary>
+    bool IsApplyingRemoteChange { get; }
+
+    /// <summary>Players logged in, the host's own (or a dedicated host's service identity) included.</summary>
+    int PlayerCount { get; }
 }

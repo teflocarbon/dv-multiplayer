@@ -1,7 +1,7 @@
 // Client (or the host, for its own item): wait for the item in the Lost & Found list, retrieve it,
 // check it lands in the inventory.
 ushort id = ushort.Parse(ctx.Args["item"]);
-var client = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Client;
+var client = Multiplayer.Client.Session.NetworkClient.Instance;
 LostItemData entry = null;
 float t0 = Time.realtimeSinceStartup;
 while (entry == null && Time.realtimeSinceStartup - t0 < 30f)

@@ -3,6 +3,7 @@ using DV.Hazmat;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -51,7 +52,7 @@ public static class CargoFirePlayback
     {
         if (!LocalIgniter || !CargoFireSync.TryLocate(reaction, out NetworkedTrainCar networked, out byte index))
             return false;
-        NetworkLifecycle.Instance.Client.SendCargoIgnite(networked.NetId, index, strength, explode);
+        NetworkClient.Instance.SendCargoIgnite(networked.NetId, index, strength, explode);
         return false;
     }
 }

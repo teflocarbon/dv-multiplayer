@@ -115,7 +115,7 @@ namespace Dvmp.Scenarios
         {
             private static Multiplayer.Server.Session.ServerPlayer Client()
             {
-                var server = NetworkLifecycle.Instance.Server;
+                var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 return server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
             }
 

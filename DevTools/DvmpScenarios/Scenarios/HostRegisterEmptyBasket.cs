@@ -138,7 +138,7 @@ namespace Dvmp.Scenarios
             {
                 var reg = Get(register);
                 reg.CashRegister.SetCash(amount);
-                NetworkLifecycle.Instance.Server.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
+                Multiplayer.Server.Session.NetworkServer.Instance.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
                 {
                     NetId = reg.NetId,
                     Action = CashRegisterAction.SetFunds,

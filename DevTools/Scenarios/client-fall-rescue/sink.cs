@@ -9,7 +9,7 @@ Vector3 under = Dev.World(new Vector3(abs.x, surface - 4f, abs.z));
 Rigidbody body = item.Item.ItemRigidbody;
 if (body != null) { body.isKinematic = true; body.position = under; }
 item.transform.position = under;
-var server = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server;
+var server = Multiplayer.Server.Session.NetworkServer.Instance;
 int sent = 0;
 foreach (var player in server.ServerPlayers)
 {

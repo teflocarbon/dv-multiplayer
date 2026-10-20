@@ -125,7 +125,7 @@ public static class JobBookletSummonCoordinator
             return;
         }
         item.ApplyServerCanonicalSnapshot(snapshot);
-        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
     }
 
     private static void Publish(string eventName, NetworkedJob job, NetworkedItem item,

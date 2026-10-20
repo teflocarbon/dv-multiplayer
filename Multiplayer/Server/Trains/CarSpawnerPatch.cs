@@ -7,6 +7,7 @@ using Multiplayer.Core.Trains;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -88,7 +89,7 @@ public static class CarSpawner_Patch
             cause = RemovalCause();
         removalCauses.Remove(trainCar);
         TrainChangeCauses.RecordRemoval(networkedTrainCar, cause);
-        NetworkLifecycle.Instance.Server?.SendDestroyTrainCar(networkedTrainCar, cause);
+        NetworkServer.Instance?.SendDestroyTrainCar(networkedTrainCar, cause);
 
         // Vanilla uncouples the car here; those uncouples are this removal's.
         __state = TrainChangeCauses.Scope(new ChangeCause<UncoupleReason>(UncoupleReason.CarRemoved,
@@ -128,7 +129,7 @@ public static class CarSpawner_Patch
 
         // Coupling is delayed by AutoCouple(), so a true trainset for the entire consist doesn't exist yet
         Multiplayer.LogDebug(() => $"SpawnCars() {__result?.Count} cars spawned, sending to players");
-        NetworkLifecycle.Instance.Server.SendSpawnTrainset(__result, true, true);
+        NetworkServer.Instance.SendSpawnTrainset(__result, true, true);
     }
 
     [HarmonyPatch(nameof(CarSpawner.SpawnCarFromRemote))]
@@ -145,7 +146,7 @@ public static class CarSpawner_Patch
             return;
 
         Multiplayer.LogDebug(() => $"SpawnCarFromRemote() {__result?.carLivery?.name} spawned, sending to players");
-        NetworkLifecycle.Instance.Server.SendSpawnTrainset([__result], true, true);
+        NetworkServer.Instance.SendSpawnTrainset([__result], true, true);
 
     }
 
@@ -163,7 +164,7 @@ public static class CarSpawner_Patch
             return;
 
         Multiplayer.LogDebug(() => $"SpawnCarOnClosestTrack() {__result?.carLivery?.name} spawned, sending to players");
-        NetworkLifecycle.Instance.Server.SendSpawnTrainset([__result], true, true);
+        NetworkServer.Instance.SendSpawnTrainset([__result], true, true);
 
     }
 }
