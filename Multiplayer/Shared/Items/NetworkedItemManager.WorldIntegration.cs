@@ -159,9 +159,7 @@ public partial class NetworkedItemManager
             targetState.WorldParentNetId != sourceState.WorldParentNetId)
             return;
 
-        byte localPlayerId = NetworkLifecycle.Instance.IsHost()
-            ? ItemServer.Current?.LocalPlayerId ?? 0
-            : NetworkLifecycle.Instance.LocalSession.PlayerId;
+        byte localPlayerId = NetworkRole.LocalPlayerId;
         if (simulator != localPlayerId)
             return;
         Vector3 relativeVelocity = collision.relativeVelocity;
