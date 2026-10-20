@@ -5,6 +5,7 @@ using HarmonyLib;
 using Multiplayer.Client.Session;
 using Multiplayer.Shared.Protocol.Data.RPCs;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.World;
 using TMPro;
 using UnityEngine;
@@ -46,7 +47,7 @@ public static class CommsRadioCrewVehiclePatch
         }
 
         var ticket = RpcManager.Instance
-            .CreateTicket(Mathf.Max(NetworkClient.Instance.RPC_Timeout, 2f))
+            .CreateTicket(Mathf.Max(NetworkLifecycle.Instance.LocalSession.RpcTimeout, 2f))
             .OnResolve
             (
                 response =>
@@ -89,7 +90,7 @@ public static class CommsRadioCrewVehiclePatch
                 }
             );
 
-        NetworkClient.Instance.SendWorkTrainRequest
+        TrainRoles.Client?.SendWorkTrainRequest
         (
             ticket.TicketId,
             __instance.selectedCar.livery.id,

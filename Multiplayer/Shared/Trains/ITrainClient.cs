@@ -1,17 +1,30 @@
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
+using UnityEngine;
 
 namespace Multiplayer.Shared.Trains;
 
 /// <summary>
-///     What Shared train code asks of the local player's session, which it can't reference
-///     (docs/design/code-layout.md; contract 4 of the split). <c>NetworkClient</c> implements it
-///     (Client/Session/NetworkClient.Trains.cs), reached as <see cref="TrainRoles.Client"/>.
+///     What train code asks of the local player's session (docs/design/code-layout.md; contract 4
+///     of the split), and the requests a player makes of trains that the host's player makes too.
+///     <c>NetworkClient</c> implements it on a client (Client/Session/NetworkClient.Trains.cs), the
+///     host's <c>LocalPlayerSession</c> on a player host (LocalPlayerSession.Trains.cs: the same
+///     requests, handed to the server in-process). Reached as <see cref="TrainRoles.Client"/>; null
+///     on a dedicated host, where nobody plays.
 /// </summary>
 public interface ITrainClient
 {
-    /// <summary>The local player's name, for the causes of the changes they make.</summary>
-    string Username { get; }
+    /// <summary>Take or give back the lease on a control's port: the player grabbed or let go of it.</summary>
+    void SendTrainControlAuthorityRequest(ushort netId, uint portNetId, bool requestAuthority);
+
+    /// <summary>The comms radio deletes a car.</summary>
+    void SendTrainDeleteRequest(ushort netId);
+
+    /// <summary>The comms radio puts a car back on the rails.</summary>
+    void SendTrainRerailRequest(ushort netId, ushort trackId, Vector3 position, Vector3 forward);
+
+    /// <summary>The comms radio summons a work train; the answer resolves <paramref name="ticketId"/>.</summary>
+    void SendWorkTrainRequest(uint ticketId, string liveryId, ushort trackNetId, int position, bool withTrackDirection);
 
     /// <summary>
     ///     Why a coupling comes apart while a client applies the host's topology: a refused

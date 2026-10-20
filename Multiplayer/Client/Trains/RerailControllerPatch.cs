@@ -38,7 +38,7 @@ public static class RerailControllerPatch
         }
 
 
-        NetworkClient.Instance.SendTrainRerailRequest(
+        TrainRoles.Client?.SendTrainRerailRequest(
             networkedTrainCar.NetId,
             NetworkedRailTrack.GetFromRailTrack(__instance.rerailTrack).NetId,
             __instance.rerailPointWorldAbsPosition,

@@ -45,7 +45,7 @@ public static class TrainRoles
     /// <summary>The server, when this game is one; null otherwise.</summary>
     public static ITrainServer Server => NetworkLifecycle.Instance?.LocalServer as ITrainServer;
 
-    /// <summary>The local player's session, when it does trains; null otherwise (expect it on a host
-    /// in host-local-session stage 3 until its session implements <see cref="ITrainClient"/>).</summary>
+    /// <summary>The local player's session, when it does trains; null when nobody plays here (none
+    /// on a dedicated host).</summary>
     public static ITrainClient Client => NetworkLifecycle.Instance?.LocalSession as ITrainClient;
 }

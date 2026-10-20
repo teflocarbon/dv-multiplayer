@@ -32,7 +32,7 @@ sleep 2
 [ "$(val "$(near client $LIVERY $id)" count)" = 1 ] || { echo "FAIL: the client doesn't have $id"; exit 1; }
 
 echo "== $WHO deletes it with the radio's request"
-$D eval -t $WHO -m body -a net=$netId 'Multiplayer.Client.Session.NetworkClient.Instance.SendTrainDeleteRequest(ushort.Parse(ctx.Args["net"])); return 0;' >/dev/null
+$D eval -t $WHO -m body -a net=$netId 'Multiplayer.Shared.Trains.TrainRoles.Client.SendTrainDeleteRequest(ushort.Parse(ctx.Args["net"])); return 0;' >/dev/null
 sleep 3
 for t in host client; do
   n=$(val "$(near $t $LIVERY $id)" count)
