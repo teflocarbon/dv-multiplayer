@@ -291,9 +291,11 @@ walk-away refund check measures distance to the nearest player
 `PlayerDistanceGameObjectsDisablerPatch.cs` keeps refill stations and warehouse machines active on
 the host while any player is near them, not only the host.
 
-The host player's own station and plug interactions reach the server in-process (`RegisterLocalStations`;
-the plug's at `NetworkClient.SendPitStopPlugInteractionPacket`, since
-`SendNetSerializablePacketToServer` has no hook). The server validates and relays them like
+The host player's own station and plug interactions reach the server in-process (`RegisterLocalStations`).
+With the host's loopback client they're submitted by its send hook (the plug's at
+`NetworkClient.SendPitStopPlugInteractionPacket`, since `SendNetSerializablePacketToServer` has no
+hook); with the host's local player session (`-mp-local-session`) by `LocalPlayerSession.Stations.cs`,
+which implements `IStationsClient`. The server validates and relays them like
 anyone's, doesn't apply them again (the host's world has them), and sends the host no
 rejection. The host's register deposit (`AddCash`) is answered in-process on every path
 (`NetworkedCashRegisterWithModules.AnswerLocalRequest`), so its coroutine finishes on the answer
