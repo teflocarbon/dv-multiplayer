@@ -32,7 +32,7 @@ namespace Dvmp.Scenarios
             FarCar car = await pair.Host.Run<FarCar>(s => Cars.SpawnByClient(s, "TankChrome"), 150);
             pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, new[] { car.Id })));
             Report.Note($"spawned {car.Id} next to {car.Player}; ground under it on the host after {car.Waited} s; dedicated host: {car.Dedicated}");
-            Require.That(car.Ground, "ground under the car on the host", $"none after {car.Waited} s (server world coverage: {car.Coverage})");
+            Require.That(car.Ground, "ground under the car on the host", car.Ground ? $"after {car.Waited} s" : $"none after {car.Waited} s (server world coverage: {car.Coverage})");
 
             Report.Note($"the host derails {car.Id}");
             await pair.Host.Run(() => Cars.Derail(car.Id));
@@ -41,7 +41,7 @@ namespace Dvmp.Scenarios
             CarRest c = await pair.Client.Run(() => Cars.Rest(car.Id));
             float apart = Peers.Distance(h.Abs, c.Abs);
             Report.Note($"host: derailed {h.Derailed}, kinematic {h.Kinematic}, whole cell loaded {h.Loaded}, ground {h.GroundCollider}, speed {h.Speed}, {h.FromHostBody} m from its body");
-            Report.Note($"client: derailed {c.Derailed}, kinematic {c.Kinematic}, {apart:0.00} m from the host's");
+            Report.Note($"client: derailed {c.Derailed}, kinematic {c.Kinematic}, {apart:0.00} m from the host's (host at {h.Abs}, client at {c.Abs})");
             Expect.That(h.Derailed, "the test derail happened on the host");
             Expect.That(!h.Kinematic, "the host didn't freeze the derailed car (kinematic)");
             Expect.That(h.Loaded, "the host has the car's whole cell loaded (Near and Far tiles, terrain)");

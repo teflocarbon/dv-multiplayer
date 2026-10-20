@@ -36,7 +36,7 @@ namespace Dvmp.Scenarios
 
         private static async Task Explode(Pair pair, string car, bool cargo, string[] cars)
         {
-            string kind = cargo ? "cargo explosion" : "explosion";
+            string kind = cargo ? "cargo explosion" : "fuel explosion";
             await pair.Client.Run<bool>(s => InGame.Boom(s, car, cargo));
             await Task.Delay(2000);
             bool host = (await pair.Host.Run(() => InGame.State(new[] { car })))[0].Exploded;
