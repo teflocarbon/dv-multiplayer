@@ -81,7 +81,18 @@ public class CullingManager : IDisposable
             yield return new WaitForSeconds(_checkInterval);
 
             //if not active then there is no one close by
-            if (_referenceObject != null && _referenceObject.activeInHierarchy)
+            if (_referenceObject != null && !_referenceObject.activeInHierarchy)
+            {
+                // Everyone tracked has left, even if the object went inactive before their cull
+                // delay ran out: kept, they'd never "enter" again when they came back, and a client
+                // whose station was disabled meanwhile would wait for its state forever.
+                foreach (var player in playerToLastNearbyTime.Keys.ToList())
+                {
+                    playerToLastNearbyTime.Remove(player);
+                    PlayerEnteredCullingRegion?.Invoke(player);
+                }
+            }
+            else if (_referenceObject != null)
             {
                 foreach (var player in NetworkServer.Instance.ServerPlayers)
                 {
