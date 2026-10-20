@@ -125,7 +125,7 @@ Paths are under `Multiplayer/`.
 | `Components/Networking/World/` (stations and world) | `NetworkedJunction`, `NetworkedTurntable`: Client today, Server after [host-local-session](host-local-session.md) stage 2 makes the server apply them. **`NetworkedPitStopStation`, `NetworkedPluggableObject`, `NetworkedCashRegisterWithModules`, `NetworkedGenericSwitch`, `NetworkedStationController`, `HazmatSync`, `NetworkedPageBookState`: split** | Each has its server processing (`ProcessInteractionPacketAsHost`, `Server_Process*`) next to its client side |
 | `Components/SaveGame/` | `NetworkedSaveGameManager`, `InstallGuidRekey`, `PerPlayerSaveFormat`, `NetworkedCareerManagerDebtController`: Server. `Client_GameSession`, `StartGameData_ServerSave`: Client | |
 | `Debugging/` | Shared (`DebugDiagnostics`' server half: Server) | |
-| `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons, storage: Shared | |
+| `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons (`DVSeasonsIntegration`, only `/season`): Server. Storage: Shared | |
 | `Networking/Data/`, `Networking/Packets/`, `Networking/Serialization/`, `Networking/TransportLayers/` | Shared, except `ServerPlayer.cs`: Server | `PlayerIdentity` is used by both (login and authentication): Shared, once its server reference goes |
 | `Shared/Session/NetworkManager.cs` | Shared | |
 | `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,934 lines) could also split by area (trains, items, world, career) while it moves |
