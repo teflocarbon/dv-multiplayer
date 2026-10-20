@@ -64,6 +64,7 @@ server can drive several pairs: p1, p2, d1. Remote games: `dvmp_remote` / `dvmp 
 | `dvmp_soak` | `dvmp soak [-t client\|host\|all] [-n 15] [--seed 1] [--filter JobOverview]` | Seeded bot doing random carry/throw/drop/wander actions, then a desync check. Same seed replays the same choices. |
 | `dvmp_trace` | `dvmp trace [--ids 12,34]` | Mutation tracer: which code froze/moved/reparented/hid/destroyed an item, with the calling method. `dvmp up --trace` installs it before the world loads. |
 | `dvmp_up` `dedicated` | `dvmp up --dedicated` | The host as a dedicated server: no avatar, no player slot. |
+| `dvmp_up` `localSession` | `dvmp up --local-session` | The host starts its player as an in-process session, no loopback client (host-local-session stage 3). |
 | `dvmp_up` `hostOnly` | `dvmp up --host-only --session NAME` | Start (or reuse) only a host; see [Host-only sessions](#host-only-sessions). |
 | `dvmp_up` `reseed` | `dvmp up --reseed --session NAME` | Restart a named session with its user data copied afresh from your profile; see [Session user data](#session-user-data). |
 | `dvmp_perf` | `dvmp perf [-t ...] [-s 10]` | Frame-time percentiles, tick rate, memory (with the retained Mono heap), awake rigidbodies, cars, items, players, and packets per type per second, over a window. |
@@ -98,6 +99,11 @@ dvmp down --session light
 - `--dedicated` launches the host as a dedicated host (`-mp-dedicated`). Its own client is then a
   service identity, not a player: no avatar for the client to see, no slot, not a nearby player.
   A plain `dvmp up` reuses either kind of host; `--dedicated` only reuses a dedicated one.
+- `--local-session` launches the host with `-mp-local-session` (stage 3 of
+  [host-local-session](../docs/design/host-local-session.md)): a player host's player is an
+  in-process session of its server instead of a loopback client, and a dedicated host has no player at
+  all. A host is only reused if it was started the same way. Until stage 3 is finished, only the
+  scenarios whose area has landed its stage 3 part pass on such a pair.
 - Not in the MCP tools yet: they have no `session` argument, so use the CLI.
 
 ## Session user data

@@ -1,7 +1,7 @@
 # Host local session: the host's player without a loopback client
 
-> Status (2026-10-20): stage 1 built and released, stage 2 mostly built on `split/client-server`,
-> stage 3 not started. See [Implementation status](#implementation-status).
+> Status (2026-10-20): stage 1 built and released, stage 2 built on `split/client-server`, stage 3
+> being built on `split/stage-3` behind `-mp-local-session`. See [Implementation status](#implementation-status).
 >
 > Line numbers in the sections below are from `beta` at `6da65843` (2026-10-19).
 
@@ -473,9 +473,23 @@ As of 2026-10-20, on `split/client-server` (not yet in `beta`):
     The host's fast travel and sleep go through `Server/World/TimeAdvanceServerPatch`, which reads
     the server's own `FastTravelAdvancesTime`; `Client/World/TimeAdvancePatch` is remote-client
     only, so `NetworkServer` no longer sets it. Scenario: `host-session`.
-- **Stage 3: not started.** It needs the rest of stage 2, then a local player session implementing
-  `ILocalPlayerSession` and each area's `I<Area>Client` (for trains, the host's cars must get their
-  local-player half, lever leases and chain reports, from it, as `TrainRoles.Client` does for a
-  client), and `HostOwnClient` removed. An audit of Shared for code that's one role's but sits
-  there behind `IsHost` checks (started 2026-10-20) comes first: those checks are where the host
-  still behaves like a client.
+- **Stage 3: being built** on `split/stage-3`, behind `-mp-local-session` (dvmp `up --local-session`)
+  until every area has its part; without it the host still runs its loopback client. Built so far:
+  - the server knows its own player itself (`NetworkServer.LocalPlayer`, set at admission;
+    `AdmitPlayer` and `CompleteLoading` shared by every login), #221;
+  - the other players' avatars are `NetworkLifecycle.Avatars` (`Shared/Players/PlayerAvatars`) on
+    every game in a session, a dedicated host's too, dressed by the client side
+    (`IAvatarPresentation`); `IsSessionRunning` beside a narrower `IsClientRunning`, #222;
+  - the host's player as `Client/Session/LocalPlayerSession`, admitted by
+    `NetworkServer.AddLocalPlayer` as the server starts (player 1, the login's record binding,
+    `PlayerConnected` now fires for it). Its server reaches it through a `LocalPeer`, an in-process
+    peer: what the server sends the host's player is read a poll later by the session, which
+    subscribes only presentation packets (loading screen, chat, RPC answers, its own crew name;
+    the areas add theirs in `LocalPlayerSession.<Area>.cs`), so nothing can make the host follow its
+    own state. The server keeps the avatars itself and leaves the host's player out of the presence
+    packets. A dedicated host has no player and leaves its loading screen itself. Scenario:
+    `local-session` (C#).
+
+  Left: each area's `I<Area>Client` on the session and its host call sites off `NetworkClient`;
+  MPAPI's client API on the host; the dedicated host's console without a service player; then the
+  loopback path, the switch and `HostOwnClient` removed.

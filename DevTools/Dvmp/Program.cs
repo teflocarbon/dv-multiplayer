@@ -18,6 +18,7 @@ internal static class Program
           dvmp up --host-only --session NAME [--save ...]   start/reuse only a host, with its own identity,
                                              for a dvmp client (a later `up`) or your own game to join
           dvmp up ... --dedicated            launch the host with -mp-dedicated (a dedicated host: no avatar, no slot)
+          dvmp up ... --local-session        launch the host with -mp-local-session (stage 3: its player in-process, no loopback client)
           dvmp up ... --fresh --verified     launch the host checking Steam tickets (no -mp-allow-unverified)
           dvmp up ... --reseed --session NAME   restart with the session's user data copied afresh from your real profile
           dvmp down [--all]                          quit this session's games (--all: every session's)
@@ -72,7 +73,8 @@ internal static class Program
                         NewSession: Opt(args, "--new"), NewSessionName: Opt(args, "--name"),
                         BackgroundFpsCap: Opt(args, "--bg-fps") is string bg ? int.Parse(bg) : null,
                         HostOnly: args.Contains("--host-only"), Dedicated: args.Contains("--dedicated"),
-                        Verified: args.Contains("--verified"), Reseed: args.Contains("--reseed")),
+                        Verified: args.Contains("--verified"), Reseed: args.Contains("--reseed"),
+                        LocalSession: args.Contains("--local-session")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
                 "down" => Print(await Session.DownAsync(CancellationToken.None, all: args.Contains("--all"))),
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),

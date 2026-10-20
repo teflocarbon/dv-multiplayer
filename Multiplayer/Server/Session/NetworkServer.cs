@@ -386,6 +386,14 @@ public partial class NetworkServer : NetworkManager
                 LogDebug(() => $"Dropped queued join from peer {peer.Id}: no longer connected");
         }
 
+        // Without a loopback client a dedicated host has no player to finish loading: it leaves the
+        // loading screen itself (a player host's own player does, in CompleteLoading).
+        if (NetworkLifecycle.LocalSessionRequested && LocalPlayer == null)
+        {
+            Log("Dedicated host loaded");
+            LoadingScreen.Finish();
+        }
+
         lastTick = NetworkLifecycle.Instance.Tick;
         NetworkLifecycle.Instance.OnTick += OnTick;
     }
@@ -502,8 +510,11 @@ public partial class NetworkServer : NetworkManager
                 PlayerId = player.PlayerId
             },
             DeliveryMethod.ReliableUnordered,
-            PlayerLoadingState.Complete
+            PlayerLoadingState.Complete,
+            excludeSelf: ServerFeedsAvatars
         );
+        if (ServerFeedsAvatars)
+            RunDisconnectStep("avatar", () => NetworkLifecycle.Instance.Avatars?.RemovePlayer(player.PlayerId));
 
         // One subscriber throwing must not skip the others (cars release control leases here).
         if (PlayerDisconnected != null)
@@ -541,7 +552,10 @@ public partial class NetworkServer : NetworkManager
             Ping = latency
         };
 
-        SendPacketToAll(clientboundPingUpdatePacket, DeliveryMethod.ReliableUnordered, PlayerLoadingState.None, peer);
+        SendPacketToAll(clientboundPingUpdatePacket, DeliveryMethod.ReliableUnordered, PlayerLoadingState.None, peer,
+            excludeSelf: ServerFeedsAvatars);
+        if (ServerFeedsAvatars)
+            NetworkLifecycle.Instance.Avatars?.UpdatePing(player.PlayerId, latency);
 
         if (latency > LATENCY_FLAG)
         {
@@ -741,7 +755,10 @@ public partial class NetworkServer : NetworkManager
             PreferenceValues = preferences.Values.ToArray()
         };
 
+        // To the sender too: a player's own crew name is how it learns it.
         SendPacketToAll(packet, DeliveryMethod.ReliableUnordered, PlayerLoadingState.Complete);
+        if (ServerFeedsAvatars && player != LocalPlayer)
+            NetworkLifecycle.Instance.Avatars?.UpdatePreferences(player.PlayerId, preferences);
     }
 
     private static Dictionary<string, object> Merge(Dictionary<string, object> target, Dictionary<string, object> additions)
@@ -1255,15 +1272,21 @@ public partial class NetworkServer : NetworkManager
                 CarID = player.CarId,
             };
 
-            SendPacketToAll(clientboundPlayerJoinedPacket, DeliveryMethod.ReliableOrdered, PlayerLoadingState.Complete, peer);
+            SendPacketToAll(clientboundPlayerJoinedPacket, DeliveryMethod.ReliableOrdered, PlayerLoadingState.Complete, peer,
+                excludeSelf: ServerFeedsAvatars);
+            if (ServerFeedsAvatars && player != LocalPlayer)
+            {
+                NetworkLifecycle.Instance.Avatars?.AddPlayer(player.PlayerId, player.Username, player.CrewName, player.CharacterId, player.IsVR);
+                NetworkLifecycle.Instance.Avatars?.UpdatePosition(player.PlayerId, player.TrackingData, player.Posture, player.CarId != 0, player.CarId);
+            }
 
             // Announce player joined
             ChatManager.ServerMessage(player.Username + " joined the game", null, player);
 
-            // Send existing players
+            // Send existing players (the host's own player has their avatars already)
             foreach (ServerPlayer otherPlayer in GameplayPlayers)
             {
-                if (player.PlayerId == otherPlayer.PlayerId)
+                if (player.PlayerId == otherPlayer.PlayerId || ServerFeedsAvatars && player == LocalPlayer)
                     continue;
 
                 SendPacket(peer, new ClientboundPlayerJoinedPacket
@@ -1350,7 +1373,9 @@ public partial class NetworkServer : NetworkManager
             Posture = packet.Posture,
             IsOnCar = packet.IsOnCar,
             CarID = packet.CarID
-        }, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, player.Peer);
+        }, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, player.Peer, excludeSelf: ServerFeedsAvatars);
+        if (ServerFeedsAvatars && player != LocalPlayer)
+            NetworkLifecycle.Instance.Avatars?.UpdatePosition(player.PlayerId, packet.TrackingData, packet.Posture, packet.IsOnCar, packet.CarID);
     }
 
     private void OnServerboundPlayerPreferenceUpdatePacket(ServerboundPlayerPreferenceUpdatePacket packet, ITransportPeer peer)

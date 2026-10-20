@@ -31,6 +31,9 @@ namespace Dvmp.Scenarios
         /// <summary>Whether the host is a dedicated host: no player, no avatar, no slot.</summary>
         public bool Dedicated => run.Agent("host").Dedicated;
 
+        /// <summary>Whether the host runs its player as an in-process session (stage 3), not a loopback client.</summary>
+        public bool LocalSession => run.Agent("host").LocalSession;
+
         /// <summary>Runs after the scenario, pass or fail, last registered first.</summary>
         public void Cleanup(Func<Task> cleanup) => run.Cleanups.Push(cleanup);
 

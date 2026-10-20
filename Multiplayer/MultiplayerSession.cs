@@ -13,6 +13,7 @@ using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
 using System;
+using System.Linq;
 using System.Net;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -38,6 +39,8 @@ public class MultiplayerSession : MonoBehaviour
 
     private PlayerListGUI playerList;
     private NetworkStatsGui Stats;
+    private LocalPlayerSession localSession;
+    private const string LocalSessionArg = "-mp-local-session";
 
     private void Awake()
     {
@@ -108,7 +111,11 @@ public class MultiplayerSession : MonoBehaviour
         var serverAPI = new ServerAPIProvider(server);
         MultiplayerAPI.RegisterServer(serverAPI);
 
-        StartClient(IPAddress.Loopback.ToString(), port, Multiplayer.Settings.Password, IsSinglePlayer, null);
+        if (!NetworkLifecycle.LocalSessionRequested)
+            StartClient(IPAddress.Loopback.ToString(), port, Multiplayer.Settings.Password, IsSinglePlayer, null);
+        else if (!DedicatedHost.Requested)
+            StartLocalPlayerSession(server, IsSinglePlayer);
+        // else a dedicated host with no player at all (docs/design/host-local-session.md, stage 3).
 
         //reset for next game
         IsSinglePlayer = true;
@@ -137,6 +144,19 @@ public class MultiplayerSession : MonoBehaviour
         OnSettingsUpdated(Multiplayer.Settings); // Show stats if enabled
     }
 
+    // The host's own player as a session of its server, instead of a loopback client
+    // (docs/design/host-local-session.md, stage 3; -mp-local-session until that's the only way).
+    private void StartLocalPlayerSession(NetworkServer server, bool isSinglePlayer)
+    {
+        LocalPlayerSession session = new(isSinglePlayer);
+        localSession = session;
+        NetworkLifecycle.Instance.AttachClient(null, session);
+        ServerPlayer player = server.AddLocalPlayer(session.Username, Multiplayer.Settings.CharacterId, VRManager.IsVREnabled(), session.Peer);
+        session.OnAdmitted(player.PlayerId, player.Username);
+        DebugRuntime.SetRole("host", player.Username, player.PlayerId);
+        OnSettingsUpdated(Multiplayer.Settings); // Show stats if enabled
+    }
+
     public void Stop()
     {
         Stats?.Hide();
@@ -156,6 +176,13 @@ public class MultiplayerSession : MonoBehaviour
             client.Stop();
             MultiplayerAPI.ClearClient();
             NetworkClient.Instance = null;
+            NetworkLifecycle.Instance.AttachClient(null, null);
+        }
+
+        if (localSession != null)
+        {
+            localSession.Stop();
+            localSession = null;
             NetworkLifecycle.Instance.AttachClient(null, null);
         }
 
@@ -180,6 +207,7 @@ public class MultiplayerSession : MonoBehaviour
         if (FindObjectOfType<NetworkLifecycle>() != null)
             throw new InvalidOperationException($"{nameof(NetworkLifecycle)} already exists!");
         NetworkLifecycle.DedicatedHostRequested = DedicatedHost.Requested;
+        NetworkLifecycle.LocalSessionRequested = Environment.GetCommandLineArgs().Contains(LocalSessionArg);
         GameObject gameObject = new($"[{nameof(NetworkLifecycle)}]");
         gameObject.AddComponent<NetworkLifecycle>();
         gameObject.AddComponent<MultiplayerSession>();

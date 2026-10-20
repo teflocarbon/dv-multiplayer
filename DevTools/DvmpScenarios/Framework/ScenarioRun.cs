@@ -94,12 +94,14 @@ namespace Dvmp.Scenarios
         public async Task RestartAsync(string save)
         {
             bool dedicated = Agent("host").Dedicated;
+            bool localSession = Agent("host").LocalSession;
             Out.Note($"restarting the pair{(save != null ? " on " + save : string.Empty)}");
             Stopwatch clock = Stopwatch.StartNew();
             await DvmpAsync("down");
             List<string> up = new() { "up" };
             if (save != null) up.AddRange(new[] { "--save", save });
             if (dedicated) up.Add("--dedicated");
+            if (localSession) up.Add("--local-session");
             await DvmpAsync(up.ToArray());
             await DiscoverAsync();
             Out.Line("pair", "Restart", "ok", clock.Elapsed);
