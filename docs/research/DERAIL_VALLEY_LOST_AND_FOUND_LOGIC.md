@@ -216,14 +216,14 @@ The new registry should extend this authority model rather than create an unrela
 
 The vocabulary exists, but Lost and Found is not yet an authoritative runtime transition:
 
-- `RespawnOnDropDebugPatch` only observes `RespawnOrDestroy`; it does not stop the base component from making process-local decisions.
+- `RespawnOnDropPatch` only observes `RespawnOrDestroy`; it does not stop the base component from making process-local decisions.
 - `StorageControllerPatch` contains old tracing experiments but is commented out, so shed activation and bulk world collection still run as base-game behavior.
 - `AuthoritativeItemRegistry.PlacementFrom()` currently derives only world, hand, inventory, and attached placements from `ItemState`; no normal item snapshot can presently select `LostAndFound`.
 - `ItemTransitionReason` has no explicit Lost and Found store/retrieve reasons.
 - Career Manager integration currently patches fees and license purchasing only; there is no custom list/detail screen or controller input path for lost items.
 - `PersistentOwnerPlayerId` is currently established from a retrieval claim. Items without a reserved/locked claim may therefore remain owner `0` even when humans would describe them as "the player's item." Lost-item eligibility must not guess an owner from `BelongsToPlayer`.
 
-The existing `StorageControllerPatch` is entirely commented out, and `RespawnOnDropDebugPatch` is
+The existing `StorageControllerPatch` is entirely commented out, and `RespawnOnDropPatch` is
 observational only. The former generic client cache and its `RespawnOnDrop` destruction were removed.
 Current client projection retirement either makes the exact authored object dormant or destroys a
 dynamic projection; neither operation is an authoritative Lost and Found transition and must not be

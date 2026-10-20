@@ -2,11 +2,12 @@ using DV.Localization;
 using DV.UI;
 using DV.UIFramework;
 using Multiplayer.Menus.MainMenu;
+using Multiplayer.Shared.Utils;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Utils;
+namespace Multiplayer.Menus.Controls;
 
 public static class UIHelpers
 {

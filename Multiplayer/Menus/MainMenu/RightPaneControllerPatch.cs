@@ -101,12 +101,12 @@ public static class RightPaneController_Patch
         //SteamMatchmaking.OnLobbyDataChanged += SteamworksUtils.OnLobbyDataChanged;
         // The pane is enabled every time the main menu shows it; remove first so the handlers are
         // only registered once (they used to pile up, and one invite started several joins).
-        SteamMatchmaking.OnLobbyInvite -= SteamworksUtils.OnLobbyInviteRequest;
-        SteamMatchmaking.OnLobbyInvite += SteamworksUtils.OnLobbyInviteRequest;
-        SteamFriends.OnGameLobbyJoinRequested -= SteamworksUtils.OnLobbyJoinRequest;
-        SteamFriends.OnGameLobbyJoinRequested += SteamworksUtils.OnLobbyJoinRequest;
+        SteamMatchmaking.OnLobbyInvite -= SteamLobbyInvites.OnLobbyInviteRequest;
+        SteamMatchmaking.OnLobbyInvite += SteamLobbyInvites.OnLobbyInviteRequest;
+        SteamFriends.OnGameLobbyJoinRequested -= SteamLobbyInvites.OnLobbyJoinRequest;
+        SteamFriends.OnGameLobbyJoinRequested += SteamLobbyInvites.OnLobbyJoinRequest;
 
         if (Environment.GetCommandLineArgs().Contains("+connect_lobby"))
-            __instance.StartCoroutine(SteamworksUtils.JoinFromCommandLine());
+            __instance.StartCoroutine(SteamLobbyInvites.JoinFromCommandLine());
     }
 }
