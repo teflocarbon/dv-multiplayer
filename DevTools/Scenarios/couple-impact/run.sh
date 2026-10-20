@@ -28,6 +28,14 @@ agree() { # label: compare host and client coupling and wagon position
     const d=Math.hypot(h.wagonAbs.x-c.wagonAbs.x,h.wagonAbs.z-c.wagonAbs.z);
     if (d>1) bad.push("wagon apart "+d.toFixed(2)+" m");
     console.log((bad.length?"FAIL ":"ok ")+process.argv[3]+": coupled "+h.coupled+", gap host "+h.gap+" client "+c.gap+", chain host "+h.chain+" client "+c.chain+", wagon apart "+d.toFixed(2)+" m"+(bad.length?" - "+bad.join("; "):""));' "$T/host.json" "$T/client.json" "$1"; }
+# Off the host's: how the client is holding each car (#175), now and 12 s later (past a give-up's retry).
+hold() {
+  for t in 0 12; do
+    sleep $t
+    echo "   client hold, +${t} s: $($D eval -t client -m body $A -f $P/hold.cs | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];console.log(x&&x.ok?JSON.stringify(x.result):(o.compileError||JSON.stringify(x)))')"
+  done
+  state host; state client; o2=$(agree "12 s later"); echo "   $o2"
+}
 for speed in ${SPEEDS//,/ }; do
   s=$($D eval -t host -m coroutine --timeout 90 -f $P/setup.cs)
   L=$(echo "$s" | field loco); W=$(echo "$s" | field wagon); cars="$L $W"
@@ -40,10 +48,10 @@ for speed in ${SPEEDS//,/ }; do
   # let the bounce and any roll die out (the peers are read one after the other)
   for i in $(seq 1 12); do sleep 2; state host; [ "$(field speed <"$T/host.json")" = "0" ] && break; done
   sleep 2; state host; state client
-  o=$(agree "after impact"); echo "   $o"; case "$o" in FAIL*) fails=$((fails+1));; esac
+  o=$(agree "after impact"); echo "   $o"; case "$o" in FAIL*) fails=$((fails+1)); hold;; esac
   $D eval -t host -m coroutine --timeout 60 $A -f $P/pull.cs >/dev/null
   sleep 3; state host; state client
-  o=$(agree "after pulling away"); echo "   $o"; case "$o" in FAIL*) fails=$((fails+1));; esac
+  o=$(agree "after pulling away"); echo "   $o"; case "$o" in FAIL*) fails=$((fails+1)); hold;; esac
   for c in $cars; do $D eval -t host -m body -a id=$c 'Trains.Delete(Trains.Find(ctx.Args["id"])); return 0;' >/dev/null 2>&1 || true; done; cars=""
 done
 [ $fails -eq 0 ] && echo PASS || { echo "FAIL: $fails checks"; exit 1; }
