@@ -114,7 +114,7 @@ Paths are under `Multiplayer/`.
 | `Shared/Session/IdMonoBehaviour.cs`, `TrainComponentLookup.cs` | Shared | |
 | `Components/MainMenu/`, `Components/UI/{GridView,ServerBrowser,Settings}/`, `Components/Util/` | Mod | The front end: host and join |
 | `Components/UI/CareerManager/` | Client | |
-| `Shared/Session/NetworkLifecycle.cs` | Mod, with the tick clock in Shared | It owns the server and the client; everything reads `Tick` and `OnTick` |
+| `Shared/Session/NetworkLifecycle.cs` | Shared (tick clock, role queries); the server and the client's ownership to the Mod (`MultiplayerSession.cs`) | Done: see Decisions, "The lifecycle" |
 | `Components/Networking/{DedicatedHost,DedicatedHostAnchor,DedicatedHostSaveLock,Server*Coverage}.cs` | Server | |
 | `Components/Networking/{RpcManager,TickedQueue}.cs` | Client (`RpcManager` issues and resolves tickets), Shared | |
 | `Components/Networking/Jobs/` | `JobBookletSummonCoordinator`, `NetworkedTask`: Server. `NetworkedJob`: split. Lookups: Shared | |
@@ -161,9 +161,12 @@ remote-client patch plus a server patch that calls the server directly, which is
   [dedicated-host.md, Keep the loopback client](dedicated-host.md#keep-the-loopback-client-it-isnt-only-a-player)).
   Proposal: a player's **presence** in the world (body, hands, the car they're on) is Shared and
   owned by the server where there is one; the model, name tag and world-map marker are Client.
-- **The lifecycle.** `NetworkLifecycle` owns both roles and the tick, and about everything reads
-  it. It stays in the mod as the composition root; Shared gets the tick clock and `NetworkRole`;
-  the roles reach each other only through interfaces it hands them.
+- **The lifecycle** (done 2026-10-20). `NetworkLifecycle` (Shared) keeps the tick clock and the
+  role queries and names no role; `MultiplayerSession` (the mod's composition root) owns the
+  server and the client, starts and stops them, registers MPAPI and wires up the dedicated host and
+  the player list and stats UI, and attaches the roles to the lifecycle as `NetworkManager`,
+  `ILocalServer` and `ILocalPlayerSession`. Role code reaches its own role by
+  `NetworkServer.Instance` / `NetworkClient.Instance`.
 - **One `Settings` or two.** Server settings (name, visibility, port, admins, password) could be
   their own class the Server reads. Not needed for the boundary; worth doing when it moves.
 

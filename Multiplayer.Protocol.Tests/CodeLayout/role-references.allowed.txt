@@ -25,15 +25,6 @@ Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundRpcResponsePacket -> 
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Career.NetworkedSaveGameManager
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket -> Multiplayer.Server.Session.ServerPlayer
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Client.Api.ClientAPIProvider
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Client.UI.NetworkStatsGui
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Client.UI.PlayerListGUI
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Api.ServerAPIProvider
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Dedicated.DedicatedHost
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Dedicated.DedicatedHostMode
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.NetworkServer
-Multiplayer.Shared.Session.NetworkLifecycle -> Multiplayer.Server.Session.ServerPlayer
 Multiplayer.Shared.Session.PlayerIdentity -> Multiplayer.Server.Dedicated.DedicatedHost
 Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Dedicated.DedicatedHost
 Multiplayer.Shared.Utils.DvExtensions -> Multiplayer.Server.Session.NetworkServer

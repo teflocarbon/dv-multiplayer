@@ -39,7 +39,7 @@ seen() { $D eval -t $1 -m body -a text="$2" -f $P/chat-seen.cs | field seen; }
 if want chat; then
   nonce="hs$RANDOM$RANDOM"
   echo "== the host says $nonce"
-  $D eval -t host -m body -u "$U" -a text="$nonce" 'Multiplayer.Client.Session.NetworkClient.Instance.SendChat(ctx.Args["text"]); return 0;' >/dev/null
+  $D eval -t host -m body -u "$U" -a text="$nonce" 'NetworkLifecycle.Instance.LocalSession.SendChat(ctx.Args["text"]); return 0;' >/dev/null
   sleep 2
   [ "$(seen client "$nonce")" = true ] || fail "the client's chat doesn't show the host's line"
   echo "   the client sees it"
@@ -48,7 +48,7 @@ if want chat; then
   echo "== the host whispers $name"
   # The command goes without its slash: Git Bash would turn "/w" into a Windows path.
   $D eval -t host -m body -u "$U" -a to="$name" -a text="w$nonce" \
-    'string to = ctx.Args["to"]; Multiplayer.Client.Session.NetworkClient.Instance.SendChat("/w " + (to.Contains(" ") ? "\"" + to + "\"" : to) + " " + ctx.Args["text"]); return 0;' >/dev/null
+    'string to = ctx.Args["to"]; NetworkLifecycle.Instance.LocalSession.SendChat("/w " + (to.Contains(" ") ? "\"" + to + "\"" : to) + " " + ctx.Args["text"]); return 0;' >/dev/null
   sleep 2
   [ "$(seen client "w$nonce")" = true ] || fail "the client's chat doesn't show the host's whisper"
   echo "   the client sees it"

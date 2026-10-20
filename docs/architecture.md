@@ -57,10 +57,17 @@ two-game testing goes through dvmp.
 
 `Multiplayer/Multiplayer.cs` is the UMM entry point. `Load` checks the MultiplayerAPI version,
 runs `harmony.PatchAll()` (plus `SimComponent_Tick_Patch`, which is patched by hand), loads the
-asset bundle, creates the `NetworkLifecycle` object and registers the API provider.
+asset bundle, creates the session object (`MultiplayerSession.Create`) and registers the API provider.
 
-`Multiplayer/Shared/Session/NetworkLifecycle.cs` is a `DontDestroyOnLoad` singleton that
-owns the current `NetworkServer` and `NetworkClient` and runs the network tick. Hosting calls
+The session object is a `DontDestroyOnLoad` game object with two parts.
+`Multiplayer/MultiplayerSession.cs`, the composition root in the mod, owns the current
+`NetworkServer` and `NetworkClient`: it starts and stops them, registers them with MPAPI, wires up
+the dedicated host, the player list and the network stats. `Multiplayer/Shared/Session/NetworkLifecycle.cs`
+runs the network tick and answers the role queries (`IsHost()`, `IsServerRunning`,
+`IsDedicatedHost`, `IsProcessingPacket`, `LocalServer`, `LocalSession`), naming no role: the
+root attaches the server and client to it as their Shared parts. Role code reaches its own role as
+`NetworkServer.Instance` or `NetworkClient.Instance`; whether a `ServerPlayer` is the host's is
+the server's `NetworkLifecycle.Instance.IsHost(player)` extension. Hosting calls
 `StartServer`, which starts a `NetworkServer` and then a `NetworkClient` connected to loopback.
 **The host is also a player**: its own client logs in like anyone else, gets a `ServerPlayer` and
 is addressed by the server as `SelfPeer`. Most broadcasts pass `excludeSelf` because the host's
