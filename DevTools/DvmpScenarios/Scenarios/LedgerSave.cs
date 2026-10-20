@@ -85,6 +85,9 @@ namespace Dvmp.Scenarios
                 await pair.Host.Run(() => LostAndFound.InGame.Claim(hostDropped), 60);
                 await Own("the host's mug on the ground", hostDropped, host, "World");
             }
+            // Back beside the mug on the ground, so the client comes back from the restart next to it:
+            // an owner more than 200 m from their item gets it collected into Lost and Found.
+            await pair.Client.Run(() => Owned.GoTo(dropped), 60);
             await Task.Delay(2000);   // the last moves reach the ledger
             await CheckAll(pair, items, "before the save", null);
 
@@ -131,7 +134,7 @@ namespace Dvmp.Scenarios
                 if (born != null)
                     Expect.Equal(born, got.Born, $"{want.What}: how its entry was born {when}");
             }
-            Expect.Empty(await pair.Host.Run(() => Owned.Audit()), $"what the ledger disagrees with {when}");
+            Expect.Empty(await pair.Host.Run<string[]>(s => Owned.AuditFor(s, items.Select(i => i.Id).ToArray())), $"what the ledger disagrees with {when}");
         }
     }
 }

@@ -228,7 +228,7 @@ public static class OwnedItemsServer
                 AuthoritativeItemRegistry.TryGet(networked.NetId, out AuthoritativeItemRegistry.Record record) &&
                 record.PersistentOwnerIdentity != Guid.Empty && record.Placement != ItemPlacementKind.LostAndFound &&
                 !pendingLost.Contains(record.PersistentItemId))
-                problems.Add($"{item.name} (netId {networked.NetId}) is in vanilla's Lost and Found, but its record says {record.Placement}");
+                problems.Add($"{item.name} (netId {networked.NetId}, {record.PersistentItemId:D}) is in vanilla's Lost and Found, but its record says {record.Placement}");
         // A dedicated host's own inventory belongs to its parked body and stays empty (#261).
         if (NetworkLifecycle.Instance?.IsDedicatedHost == true)
             foreach (ItemBase item in storage.StorageInventory?.GetStorageItemList() ?? new List<ItemBase>())

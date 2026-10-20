@@ -96,7 +96,7 @@ namespace Dvmp.Scenarios
             }
             else
                 Expect.Equal(where, entry.Place, $"where the ledger has it {when}");
-            Expect.Empty(await pair.Host.Run(() => Owned.Audit()), $"what the ledger disagrees with {when}");
+            Expect.Empty(await pair.Host.Run<string[]>(s => Owned.AuditFor(s, new[] { id })), $"what the ledger disagrees with {when}");
         }
     }
 }

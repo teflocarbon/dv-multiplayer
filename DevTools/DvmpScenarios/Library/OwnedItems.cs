@@ -5,6 +5,7 @@ using System;
 using System.Collections;
 using System.Linq;
 using Dvmp.Agent;
+using Dvmp.Lib;
 using Multiplayer.Core.Items;
 using Multiplayer.Server.Items;
 using Multiplayer.Shared.Items;
@@ -76,6 +77,22 @@ namespace Dvmp.Scenarios
         [Step]
         public static string[] Audit() => OwnedItemsServer.Audit().ToArray();
 
+        /// <summary>
+        /// Host: what the audit says about these ids only. A test career collects debris from earlier
+        /// runs (an inert Lost and Found item whose entry an older build dropped) that a scenario
+        /// didn't make; it is noted, not failed on.
+        /// </summary>
+        [Step]
+        public static IEnumerator AuditFor(Step<string[]> step, string[] ids)
+        {
+            string[] all = OwnedItemsServer.Audit().ToArray();
+            string[] mine = all.Where(line => ids.Any(id => line.Contains(id))).ToArray();
+            foreach (string other in all.Except(mine))
+                step.Note("audit, not this scenario's: " + other);
+            step.Result = mine;
+            yield break;
+        }
+
         /// <summary>Host: whether the ledger has been loaded and checked against the stores since this game started.</summary>
         [Step]
         public static bool Loaded() => OwnedItemsServer.Loaded;
@@ -139,6 +156,16 @@ namespace Dvmp.Scenarios
             if (DV.InventorySystem.Inventory.Instance.DropItemFromHandsOrInventory(item.gameObject) == null)
                 throw new Exception($"item {netId} could not be dropped from the inventory");
             for (int i = 0; i < 120; i++) yield return null;
+        }
+
+        /// <summary>This game's player walks to the item.</summary>
+        [Step]
+        public static IEnumerator GoTo(ushort netId)
+        {
+            yield return Items.Arrive(netId);
+            NetworkedItem.TryGet(netId, out NetworkedItem item);
+            yield return LocalPlayer.GoTo(item);
+            for (int i = 0; i < 30; i++) yield return null;
         }
 
         /// <summary>Whether this game's player has the item in their inventory.</summary>

@@ -710,13 +710,25 @@ public static class NetworkedLostAndFoundManager
             Multiplayer.Settings.LostItemNearbyPlayerProtectionDistance,
             Multiplayer.Settings.LostItemCollectionGraceSeconds);
 
+    private static bool HasPosition(ServerPlayer player) =>
+        player.TrackingData.Position.HasValue || NetworkLifecycle.Instance.IsHost(player);
+
+    private static bool HasSettledPosition(ServerPlayer player, float now) =>
+        NetworkLifecycle.Instance.IsHost(player) || player.TrackingData.Position.HasValue &&
+        player.LoadingState == PlayerLoadingState.Complete && player.CompletedLoadingAt >= 0f &&
+        now - player.CompletedLoadingAt >= Multiplayer.Settings.LostItemCollectionGraceSeconds;
+
     private static LostItemCandidate BuildCandidate(NetworkedItem item,
         AuthoritativeItemRegistry.Record authority, float now)
     {
+        // A just-joined owner's items were collected seconds after they loaded (ledger-save on a
+        // dedicated host, 2026-10-21): before their game sends a position it reads as the origin, and
+        // its first ones can be from before it put the player at their saved spot. An owner's
+        // position counts once they have been loaded for a grace period.
         bool ownerKnown = NetworkServer.Instance.TryGetServerPlayer(
-            authority.PersistentOwnerPlayerId, out ServerPlayer owner);
+            authority.PersistentOwnerPlayerId, out ServerPlayer owner) && HasSettledPosition(owner, now);
         List<ServerPlayer> players = NetworkServer.Instance.ServerPlayers
-            .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems)
+            .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems && HasPosition(player))
             .ToList();
         float nearest = players.Count == 0 ? float.MaxValue :
             players.Min(player => (player.WorldPosition - item.transform.position).sqrMagnitude);

@@ -60,6 +60,8 @@ public class ServerPlayer : IDisposable
         };
     }
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
+    /// <summary>When this player finished loading (Time.realtimeSinceStartup), or -1.</summary>
+    internal float CompletedLoadingAt { get; set; } = -1f;
     public DateTime LastLogin { get; set; }
     private float PreviousPlayTime { get; set; }
     public float TotalPlaytime => PreviousPlayTime + (DateTime.UtcNow - LastLogin).Minutes;
