@@ -97,7 +97,7 @@ public partial class NetworkedItem
             return trackedValues.Any(tv => ((dynamic)tv).IsDirty);
     }
 
-    private bool IsTrackedValueDirty(string key) =>
+    internal bool IsTrackedValueDirty(string key) =>
         trackedValues.Any(tv => ((dynamic)tv).Key == key && ((dynamic)tv).IsDirty);
 
     private Dictionary<string, object> GetDirtyStateData()
@@ -141,7 +141,7 @@ public partial class NetworkedItem
     {
         if (coldStorageRetirement || coldMaterializationPending)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             stateDirty = false;
             MarkValuesClean();
             return null;
@@ -153,7 +153,7 @@ public partial class NetworkedItem
 
         if (Item == null && Register() == false)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             return null;
         }
 
@@ -161,7 +161,7 @@ public partial class NetworkedItem
             ItemServer.Current?.TryGetPlacement(NetId, out ItemPlacementKind placement) == true &&
             placement == ItemPlacementKind.LostAndFound)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             createdDirty = false;
             stateDirty = false;
             wasThrown = false;
@@ -172,7 +172,7 @@ public partial class NetworkedItem
 
         if (!stateDirty && !hasDirtyVals)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             return null;
         }
 
@@ -203,30 +203,23 @@ public partial class NetworkedItem
         // it where it lies (a set-down lantern's knob, lighting it). A thrown lantern's flame
         // flickers in every game it flies through; each of them reporting it was refused by the
         // host, and the correction set the copy off again, several times a second (playtest 2).
-        // A book lying in the world is the other exception: anyone may turn its pages.
+        // A book lying in the world is the other exception: anyone may turn its pages. The client
+        // part decides (the server's own copy is the truth).
         bool pageOnlyWorldState = false;
         bool worldInteraction = false;
-        if (!NetworkLifecycle.Instance.IsHost() &&
-            updateType == ItemUpdateData.ItemUpdateType.ObjectState &&
-            !ItemObjectStateAuthority.ClientMaySend(ToWireState(currentState), pageOnly: false,
-                localInteraction: false))
+        if (updateType == ItemUpdateData.ItemUpdateType.ObjectState && ClientPart is { } client &&
+            !client.MaySendObjectState(currentState, out worldInteraction, out pageOnlyWorldState))
         {
-            worldInteraction = IsLocalInteractionOpen;
-            pageOnlyWorldState = !worldInteraction &&
-                IsTrackedValueDirty(NetworkedPageBookState.TrackedValueKey);
-            if (!worldInteraction && !pageOnlyWorldState)
-            {
-                PublishLocalState("item.snapshot-suppressed", currentState, lastState, "object-state",
-                    "object-state-not-holder");
-                updateType = ItemUpdateData.ItemUpdateType.None;
-                MarkValuesClean();
-            }
+            PublishLocalState("item.snapshot-suppressed", currentState, lastState, "object-state",
+                "object-state-not-holder");
+            updateType = ItemUpdateData.ItemUpdateType.None;
+            MarkValuesClean();
         }
 
         //no changes this snapshot
         if (updateType == ItemUpdateData.ItemUpdateType.None)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             stateDirty = false;
             wasThrown = false;
             wasRemoved = false;
@@ -269,7 +262,7 @@ public partial class NetworkedItem
     internal void BeginColdStorageRetirement()
     {
         coldStorageRetirement = true;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
@@ -279,7 +272,7 @@ public partial class NetworkedItem
     internal void BeginColdMaterialization()
     {
         coldMaterializationPending = true;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
@@ -290,7 +283,7 @@ public partial class NetworkedItem
     {
         coldMaterializationPending = false;
         coldStorageRetirement = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
@@ -516,7 +509,7 @@ public partial class NetworkedItem
         createdDirty = false;
         stateDirty = false;
         wasThrown = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         CompleteLocalVrReleaseAcknowledgement();
         MarkValuesClean();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
@@ -629,7 +622,7 @@ public partial class NetworkedItem
         stateDirty = false;
 
         MarkValuesClean();
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
         if (appliesItemState)
             PublishHolderInvariant(snapshot);
@@ -818,11 +811,9 @@ public partial class NetworkedItem
 
     internal bool IsRemotePlayerAuthoritative()
     {
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            byte hostPlayerId = NetworkRole.LocalPlayerId;
-            return HostPossessorPlayerId != 0 && HostPossessorPlayerId != hostPlayerId;
-        }
+        // The server goes by its record of the holder; a client by the placement it was last given.
+        if (ServerPart is { } server)
+            return server.HeldByAnotherPlayer;
 
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         return playerBelongsToId != 0 && playerBelongsToId != localPlayerId;

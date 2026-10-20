@@ -16,8 +16,9 @@ namespace Multiplayer.Client.Items;
 /// <summary>
 /// The remote client's half of one <see cref="NetworkedItem"/> (<see cref="INetworkedItemClientPart"/>):
 /// whether it is bound to a host-issued id and so usable, its Lost and Found tombstone, its
-/// temporary adoption, the end of its network lifetime when the host retires it, and sending the
-/// local player's changes to the host (with the revision they claim). Made by the item from the local
+/// temporary adoption, the end of its network lifetime when the host retires it, the release grace
+/// and object-state send gate, and sending the local player's changes to the host (with the revision
+/// they claim). Made by the item from the local
 /// session (<see cref="Session.NetworkClient"/>) on a remote client only; client code reaches it as
 /// <c>item.Client()</c>.
 /// </summary>
@@ -34,6 +35,12 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
     private bool clientBindingGateApplied;
     private bool interactionAllowedBeforeBindingGate;
     private readonly ItemOutboundRevisionPipeline outboundRevisionPipeline = new();
+
+    // The release grace (DefersRelease).
+    private float releasedAt = -1f;     // when a local hand last let go, until it's sent or re-grabbed
+    private float releaseSpeed = -1f;
+    private int releasedFrame;
+    private bool releaseDeferralPublished;
 
     public ClientItemUnboundState UnboundState { get; private set; }
 
@@ -94,6 +101,9 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         // a partial retirement may otherwise leave the old dictionary key pointing at it.
         outboundRevisionPipeline.Reset();
         UnboundState = ClientItemUnboundState.None;
+        releasedAt = -1f;
+        releaseSpeed = -1f;
+        releaseDeferralPublished = false;
         item.ForgetNetworkLifetime();
     }
 
@@ -149,6 +159,55 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
             Rotation = transform.rotation,
             Snapshot = snapshot
         };
+    }
+
+    public void QueueObservation(string reason) =>
+        NetworkedItemManager.Instance?.QueueLocalStateObservation(item, reason);
+
+    public void NoteReleased(float releasedAt)
+    {
+        this.releasedAt = releasedAt;
+        releasedFrame = Time.frameCount;
+        releaseSpeed = -1f;
+    }
+
+    public void NoteGrabbed() => releasedAt = -1f;
+
+    public bool DefersRelease(ItemState currentState)
+    {
+        if (releasedAt < 0f)
+            return false;
+        float now = Time.realtimeSinceStartup;
+        // VRTK gives a thrown body its velocity as it lets go, not necessarily before the
+        // Ungrabbed event: measure from the next frame.
+        if (releaseSpeed < 0f && Time.frameCount > releasedFrame)
+            releaseSpeed = item.RelativeReleaseSpeed();
+        if (ItemReleaseGrace.ShouldDefer(item.LastSentWireState, NetworkedItem.ToWireState(currentState), item.WasThrown,
+                Mathf.Max(releaseSpeed, 0f), now - releasedAt))
+        {
+            if (!releaseDeferralPublished && releaseSpeed >= 0f)
+            {
+                releaseDeferralPublished = true;
+                item.PublishLocalState("item.release-deferred", currentState, item.LastObservedState, "released",
+                    $"release-grace speed={releaseSpeed:F2}");
+            }
+            return true;
+        }
+        releasedAt = -1f;
+        releaseDeferralPublished = false;
+        return false;
+    }
+
+    public bool MaySendObjectState(ItemState currentState, out bool worldInteraction, out bool pageOnly)
+    {
+        worldInteraction = false;
+        pageOnly = false;
+        if (ItemObjectStateAuthority.ClientMaySend(NetworkedItem.ToWireState(currentState), pageOnly: false,
+                localInteraction: false))
+            return true;
+        worldInteraction = item.IsLocalInteractionOpen;
+        pageOnly = !worldInteraction && item.IsTrackedValueDirty(NetworkedPageBookState.TrackedValueKey);
+        return worldInteraction || pageOnly;
     }
 
     public void SendLocalObservation(ItemState currentState, ItemState previousObservedState, string reason)

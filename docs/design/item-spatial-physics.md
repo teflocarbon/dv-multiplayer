@@ -279,7 +279,7 @@ and one thrown onto a train vanished. What the code does now:
 - **A gentle release waits.** A VR hand swap, or grabbing an item again at another spot, lets go
   for a moment first. A release from the hand under 2 m/s (relative to the car the player is on)
   is held back for 0.3 s and sent only if no hand has the item by then; a re-grab inside that
-  sends only the hand change (`NetworkedItem.DeferLocalRelease`, `ItemReleaseGrace`). Throws,
+  sends only the hand change (`NetworkedItemClient.DefersRelease`, `ItemReleaseGrace`). Throws,
   stowing and anything faster go at once. Other players see the item leave the hand 0.3 s late.
 - **A late acceptance doesn't undo a re-grab.** If the drop did go out, the host's acceptance can
   arrive after the item is back in a hand. It is taken as a revision only

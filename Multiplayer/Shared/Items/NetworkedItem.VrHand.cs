@@ -105,7 +105,7 @@ public partial class NetworkedItem
         createdDirty = false;
         stateDirty = false;
         wasThrown = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         MarkValuesClean();
         CompleteLocalVrReleaseAcknowledgement();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(),

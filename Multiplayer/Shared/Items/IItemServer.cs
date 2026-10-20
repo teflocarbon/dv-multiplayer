@@ -40,6 +40,9 @@ public interface IItemServer
     /// <summary>The server's part of a new item manager.</summary>
     IItemManagerServerPart CreateItemManagerPart(NetworkedItemManager manager);
 
+    /// <summary>The server's half of a new item.</summary>
+    INetworkedItemServerPart CreateItemPart(NetworkedItem item);
+
     /// <summary>
     ///     What a player already owns anywhere the server keeps items (prefab, and the inventory
     ///     slot it holds or -1), sent with their join (OwnedItemsSummary).

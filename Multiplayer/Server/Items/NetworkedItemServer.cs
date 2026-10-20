@@ -426,7 +426,7 @@ public static class NetworkedItemServer
             "parent " + parent,
             item.gameObject.scene.isLoaded ? null : "scene unloaded",
             record != null && record.LastMove.Reason != ItemMoveReason.Unknown ? "last move " + record.LastMove : null,
-            string.IsNullOrEmpty(item.HostObservationTrigger) ? null : "last host trigger " + item.HostObservationTrigger,
+            string.IsNullOrEmpty(item.ServerPart?.ObservationTrigger) ? null : "last host trigger " + item.ServerPart?.ObservationTrigger,
             item.PendingRemovalCause.HasValue ? "stale note " + item.PendingRemovalCause.Value : null,
             callers == "an unknown caller" ? null : "callers " + callers));
     }
