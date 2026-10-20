@@ -1,8 +1,8 @@
-using Multiplayer.Shared.Items;
 using DV.InventorySystem;
 using DV.Items;
 using DV.UI.Inventory;
 using HarmonyLib;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
