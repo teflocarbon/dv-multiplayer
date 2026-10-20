@@ -72,7 +72,7 @@ internal sealed class AuthoredWorldItemCatalogue
         BaselineDigest = Digest();
 
         DebugRuntime.Publish("item-world", "world-item.catalogue-built",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             collisions.Count == 0 ? DebugSeverity.Info : DebugSeverity.Error,
             data: new Dictionary<string, object>
             {

@@ -40,7 +40,7 @@ public partial class NetworkedItemManager
             return false;
         byte localPlayerId = NetworkRole.LocalPlayerId;
         DebugRuntime.Publish("item", "item.recall-requested",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: item.NetId.ToString(), data: new()
             {
                 ["requestingPlayerId"] = localPlayerId,

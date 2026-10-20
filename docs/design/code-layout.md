@@ -110,7 +110,7 @@ Paths are under `Multiplayer/`.
 |---|---|---|
 | `Multiplayer.cs`, `Settings.cs` | Mod | `Settings` mixes the player's options with the server's (`[Header("Server")]`, `Admins`, `Settings.cs:52-67`); later, a server-settings section the Server reads through an interface |
 | `Locale.cs`, `ModCompatibility/`, `Models/` | Shared (locale, mod lists), Client (player models) | |
-| `API/` | `APIProvider`, `ModCompatibilityManager`: Shared (the mod list is checked by server, client and menus; the menus show the incompatible-mods popup, `IncompatibleModsWarning`, and `APIProvider` asks the server through `IApiServer`). `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
+| `API/` | `APIProvider`: Mod (`Multiplayer/APIProvider.cs`, the MPAPI facade `Multiplayer.Load` registers; it asks the server through `IApiServer`). `ModCompatibilityManager`: Shared (the mod list is checked by server, client and menus, and Server and Client can't reference the Mod; the menus show the incompatible-mods popup, `IncompatibleModsWarning`). `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
 | `Shared/Session/IdMonoBehaviour.cs`, `TrainComponentLookup.cs` | Shared | |
 | `Components/MainMenu/`, `Components/UI/{GridView,ServerBrowser,Settings}/`, `Components/Util/` | Mod | The front end: host and join |
 | `Components/UI/CareerManager/` | Client | |
@@ -209,7 +209,7 @@ Built as `Multiplayer.Protocol.Tests/CodeLayoutTests.cs`, two tests:
 
 - **`EveryFileIsInARoleFolderWithItsNamespace`** reads the source: every file under
   `Multiplayer/` is in `Shared/`, `Server/`, `Client/` or `Menus/` (or is `Multiplayer.cs`,
-  `Settings.cs` or `Locale.cs` at the root) and declares the namespace of its folder.
+  `Settings.cs`, `Locale.cs` or `APIProvider.cs` at the root) and declares the namespace of its folder.
 - **`RolesOnlyReferenceWhatTheyMay`** reads the built DLL: base types, interfaces, fields,
   properties, events, method signatures, locals, every type, method and field an instruction
   names, and `typeof` in attributes, each counted against the outermost type. Server ↛ Client,

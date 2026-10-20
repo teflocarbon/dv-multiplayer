@@ -108,8 +108,9 @@ public class NetworkedGenericSwitch : MonoBehaviour
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return;
 
-        if (NetworkLifecycle.Instance.IsHost())
-            WorldServer.Current?.BroadcastGenericSwitchState(NetId, Switch.IsOn);
+        // The server's world: tell everyone, whoever or whatever flipped it. A client's: ask the server.
+        if (WorldServer.Current is { } server)
+            server.BroadcastGenericSwitchState(NetId, Switch.IsOn);
         else
             WorldClient.Current?.SendGenericSwitchState(NetId, Switch.IsOn);
     }

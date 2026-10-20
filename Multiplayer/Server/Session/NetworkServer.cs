@@ -83,6 +83,7 @@ public partial class NetworkServer : NetworkManager
     public Action<ServerPlayer> PlayerDisconnected;
     public Action<ServerPlayer> PlayerReady;
     protected override string LogPrefix => "[Server]";
+    protected override DebugRuntimeSide DebugSide => DebugRuntimeSide.Server;
 
     private readonly Queue<ITransportPeer> joinQueue = new();   //Queue for players attempting to join while server is loading
     private readonly Queue<ITransportPeer> gameDataQueue = new(); // players waiting for game data while the server loads

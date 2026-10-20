@@ -33,7 +33,7 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
 
     protected virtual void Awake()
     {
-        if (IsIdServerAuthoritative && !NetworkLifecycle.Instance.IsHost())
+        if (IsIdServerAuthoritative && !NetworkRole.IsServer)
             return;
         if (!idAllocator.TryAllocate(out T id))
             throw new InvalidOperationException($"No network IDs remain for {typeof(I).Name}");

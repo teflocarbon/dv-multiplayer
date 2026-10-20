@@ -1,8 +1,10 @@
+using Multiplayer.Debugging.Protocol;
+
 namespace Multiplayer.Shared.Session;
 
 /// <summary>
-///     What this game is in the session. <see cref="NetworkLifecycle.IsHost()"/> is used for all three
-///     of these today; code that means one of them should ask for it by name. See
+///     What this game is in the session. <see cref="NetworkLifecycle.IsHost()"/> answers
+///     <see cref="IsServer"/>; Shared code that means one of these asks for it by name. See
 ///     docs/design/code-layout.md.
 /// </summary>
 public static class NetworkRole
@@ -55,4 +57,10 @@ public static class NetworkRole
     ///     <c>IsHost() ? server id : client id</c>.
     /// </summary>
     public static byte LocalPlayerId => NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0;
+
+    /// <summary>
+    ///     Which side a debug event from shared code is labelled with: the server's on a host,
+    ///     the client's otherwise (and when no session runs).
+    /// </summary>
+    public static DebugRuntimeSide DebugSide => IsServer ? DebugRuntimeSide.Server : DebugRuntimeSide.Client;
 }
