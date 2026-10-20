@@ -33,7 +33,7 @@ S=DevTools/Scenarios
 LOG_DIR=${LOG_DIR:-$(mktemp -d)}; mkdir -p "$LOG_DIR"
 runs=( # name | scenario | variables | pair kind it prefers (default player)
   "train-items|train-items|"
-  "train-items-host-throw-moving|train-items|WHO=host MODE=throw WHEN=moving"
+  "train-items-host-throw-moving|train-items|WHO=host MODE=throw WHEN=moving|player"
   "host-throw-settles|host-throw-settles|"
   "server-throw|server-throw||player"
   "server-throw-client|server-throw|ACTOR=client"
