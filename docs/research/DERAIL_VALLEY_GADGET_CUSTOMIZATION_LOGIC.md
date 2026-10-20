@@ -456,13 +456,46 @@ raise `ValueChanged`, which calls the setter again.
 | Flag marker | `GadgetFlagMarker` | none | none | none | none | none |
 | Hanger | `GadgetWithSnapPoint`, `SnapPointGadget`, `Dangler` | items snapped onto it | on the snapped item | train velocity | forced unsnap when upside-down | swing, random kick; `OnSnap` reads `PlayerManager.ActiveCamera` |
 | Shelf, shovel mount, sliding snap points | `SnapPointGadget`, `SnapPointGadgetSliding` | snap an item; the sliding anchor offset comes from sphere casts | not saved separately | none | none | local physics casts |
+| Remote signal booster | `RemoteControllerSignalBooster` | none | none | none | while its object is enabled (presumably switched by power through `EnableOnGadgetPower`; unconfirmed) it is in a static list; a `LocomotiveRemoteController` within its `range` (2000 m) of a booster gets the extra range (`LocomotiveRemoteController.cs:859-861`), checked in the game of the player holding the remote | none |
 
-Not found in Assembly-CSharp as classes of their own: googly eyes, sun visor, checklist, sticker,
-nameplate, radio relay. They are probably plain `GadgetBase` prefabs with generic components; the
-prefabs themselves need inspecting in game.
+Sun visors, nameplates and the other purely cosmetic gadgets have no class of their own: they are
+plain `GadgetBase` prefabs with generic components. The prefabs themselves (requirements,
+`requireSoldering`, removal methods) can only be listed in game.
 
 The battery charger (`ChargerBatteryPowerProvider`) charges any `Battery` in its trigger every 0.1 s
 in every game.
+
+### The game's own list
+
+The game ships its manual offline (`DerailValley_Data/StreamingAssets/manual/<lang>.json`). Its gadget
+pages, matched to the classes above:
+
+| Manual name | Class | Needs soldering (manual) |
+| --- | --- | --- |
+| Amp Limiter | `GadgetAmpLimiter` | yes |
+| Anti-wheelslip Computer | `GadgetAntiSlip` | yes |
+| Automatic Train Stop | `GadgetATS` | yes |
+| Battery Charger | `ChargerBatteryPowerProvider` | yes |
+| Clinometer | `GadgetClinometerLOD` | no |
+| Defect Detector | `GadgetDefectDetectorLOD` | yes |
+| Distance Tracker | `GadgetRoadrunner` | yes |
+| Infrared Thermometer | `GadgetBrakesThermometerLOD` | yes |
+| Overheating Protection | `GadgetOverheatProtection` | yes |
+| Remote Signal Booster | `RemoteControllerSignalBooster` | yes |
+| Switch Setter | `GadgetSwitchSetter` | yes |
+| Universal Control Stand | `GadgetControlPanel` | yes (MU vehicles only; malfunctions when wet) |
+| Wireless MU Controller | `GadgetDPU` | yes (MU vehicles only; the MU licence to buy) |
+| Proximity Sensor and Proximity Reader | `ProximitySensor` (coupler item), `GadgetProximityScreen` | the reader |
+| Controllers: button, rotary, lever, slider, analog, alternating | `GadgetSwitch`, `AlternatingController` | yes |
+| Cosmetic: lights (head, tail, ditch, lightbars, beacons), shelves, sun visors, hangers, nameplates, flags, labels | `GadgetLight`, `GadgetBeacon`, `GadgetOscillatingLight`, `SnapPointGadget`, `GadgetWithSnapPoint`, `GadgetFlagMarker`, `TextGadget` | lights yes, the rest no |
+
+The brake LED bar, digital clock and digital speedometer exist in code with no manual page. Tools:
+electric hand drill, duct tape, hammer, filler gun, soldering gun and wire, crimping tool (the wiring
+tool), label maker. The manual also says gadgets on a despawned company (DVRT) vehicle "return to a
+tool shed"; the code for that hasn't been found yet.
+
+Almost every gadget needs soldering into a vehicle's electrics, and only vehicles have a fuse, so off
+a train only the unpowered cosmetics and the clinometer do anything.
 
 ## Presentation and train lifecycle
 

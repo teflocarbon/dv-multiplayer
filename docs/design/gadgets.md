@@ -6,10 +6,15 @@
 > this doc refers to its sections rather than repeating them.
 
 Gadgets are the installable customization items: switches, lights, displays, ATS, DPU, amp limiter,
-anti-slip and the rest, mounted on a car (or the world, the house, the shed, the paint station) with
-a drill or tape, wired together, soldered to the car's electronics. They were left until the
-client/server split was done, because almost every gadget action changes the world in one game only
-and has to become a request to the server.
+anti-slip and the rest, mounted on a car with a drill or tape, wired together, soldered to the car's
+electronics. They were left until the client/server split was done, because almost every gadget
+action changes the world in one game only and has to become a request to the server.
+
+**Vehicles only.** Vanilla also lets gadgets be installed on the world, the player house, the Lost and
+Found shed and the paint station, but nothing in the game is made for them: almost every gadget needs
+soldering into a vehicle's electrics, which only vehicles have, and those anchors are half-finished
+(no saved holes except the world's, and the shed's anchor jumps between sheds). In multiplayer a
+gadget installs on a car or not at all (decided 2026-10-21); see [Off-train installs](#off-train-installs).
 
 ## Today
 
@@ -45,7 +50,7 @@ The server owns every gadget fact. Players ask; nobody else changes anything.
 | Settings (switch values, modes, regimes, channels, text) | server | [gadget state](#gadget-state); the player who turned a knob predicts |
 | Running state of server-run gadgets (ATS timer, roadrunner count, alternating phase, anti-slip active) | server | gadget state, rate-limited |
 | Anything a gadget writes to a train (ports, controls, MU radio) | server, by running the gadget | the existing port, control and fuse sync |
-| Displays, lamps, lights, power, outputs of wired switches | derived in every game from synced inputs | nothing extra |
+| Displays, lamps, lights, power, outputs of wired switches, the remote signal booster's range | derived in every game from synced inputs | nothing extra |
 | Previews, highlights, wire lines, sounds, work animations, tool progress, popups | the acting player | local only |
 
 Every change works the same on a player host and a dedicated host: the host's player is a
@@ -56,9 +61,8 @@ Every change works the same on a player host and a dedicated host: the host's pl
 
 - **A gadget is its item.** The item's NetId names the gadget in every packet; its persistent item id
   names it in the save. The projection has no identity of its own.
-- **Anchors.** A `GadgetAnchorRef` is the car's NetId for a car, or the singleton's identification key
-  (`:global:`, `:player_house:`, `:storage:`, `:paint_station:`). The durable anchor is vanilla's
-  `placedOn` (the `CarGUID`), which the server's save keeps.
+- **Anchors are cars.** On the wire an anchor is the car's NetId; in the save it is vanilla's
+  `placedOn`, the `CarGUID`.
 - **UIDs are the server's.** Vanilla's customizer UID is what wires, mounts and hanger snaps refer to,
   and every process allocates it from its own counter, so two games disagree after the first install.
   The server lets vanilla allocate it; every install it sends carries the UID; a client sets it with
@@ -74,9 +78,8 @@ Every change works the same on a player host and a dedicated host: the host's pl
 `AuthorityPlacement.Installed`), is already non-spatial, not persisted by the mod's own records and
 not eligible for Lost and Found. Nothing assigns it. Gadgets make it real:
 
-- **The record.** `Installed` gains the anchor: the car NetId and `CarGUID` (as `Attached` keeps them
-  for EOT lanterns), or the singleton key. Pose, UID and gadget data are the gadget's, not the item
-  record's.
+- **The record.** `Installed` gains the anchor: the car NetId and `CarGUID`, as `Attached` keeps them
+  for EOT lanterns. Pose, UID and gadget data are the gadget's, not the item record's.
 - **Transitions.** Only the gadget server moves an item into or out of `Installed`, with change
   reasons `gadget-installed`, `gadget-removed`, `gadget-car-deleted`, `gadget-glass-broken`,
   `gadget-dislodged`. Installing needs the item in the requester's hand. Removing puts it in the
@@ -121,6 +124,19 @@ A client keeps one pending request per item; further intents on that item are ig
 arrives, and the preview stays hidden. Every request carries an operation id; the result is either the
 change-log entry that echoes it or a rejection with a reason (shown as interaction text).
 
+### Off-train installs
+
+`Customization.Resolve` finds the world (terrain and anything without a rigidbody), the house (any
+plain item static parent), the shed or the paint station when the hit isn't a car. The install patch
+refuses those itself, without a request: nothing is placed, the item stays in hand, and the interaction
+text says gadgets go on vehicles. The label maker is refused the same way off a car (its labels on item
+containers are `LabelableItem`, not gadgets, and unaffected). The server rejects a non-car anchor too.
+
+A save from before multiplayer may hold gadgets installed off-train. When the server loads it, it
+removes each of them natively into the world at its pose, as an ordinary item with its owner; nothing
+installed off a car exists in a multiplayer session. World holes keep their join-only sync
+(`ClientboundCustomizationsPacket`); no new ones can be made.
+
 ### What the server checks
 
 The server does not rerun vanilla's physics checks: on a dedicated host, and on a listen host whose
@@ -131,7 +147,7 @@ It checks what decides authority and sanity:
 - the player is loaded past `ReadyForCustomizers`;
 - the item exists and is in the requester's hand (install), or is installed (everything else); the tool
   item (drill, tape, hammer, wiring tool, soldering iron, label maker) is in the requester's hand;
-- the anchor resolves, and for a car, the car isn't being deleted;
+- the anchor is a car that exists and isn't being deleted;
 - reach: the target pose is within 5 m of the requester (vanilla's reach is 3 m), measured in the car's
   frame when the requester rides that car;
 - the pose is inside the anchor's placement bounds: the union of the `Gadget_Mesh_Placing` meshes'
@@ -295,7 +311,7 @@ from the server.
 
 | Trigger | Server | Remote clients |
 | --- | --- | --- |
-| Car deleted | native: each gadget force-removed, items become world items at the gadget's pose; the change log records them | runs natively when the client applies the car's despawn, in the apply scope; the `Removed` entries are then already applied and skipped |
+| Car deleted | native: each gadget force-removed, items become world items at the gadget's pose; the change log records them. The manual says gadgets on a despawned company (DVRT) vehicle "return to a tool shed"; the code doing that isn't found yet, and PR 3 finds it and keeps that behaviour | runs natively when the client applies the car's despawn, in the apply scope; the `Removed` entries are then already applied and skipped |
 | Window glass broken | native, from the server's damage | runs natively when the client applies `ClientboundWindowsBrokenPacket`, in the apply scope |
 | Collision dislodge (random) | native: the server's roll is the only roll | `TrainCarCustomization.OnCollisionEnter` off |
 | Hanger flips | native | `Dangler`'s forced unsnap off |
@@ -355,10 +371,9 @@ Gadgets use it:
 
 1. The client reaches `ReadyForCustomizers` after the train baseline, so every car exists.
 2. The server sends a Create (placement `Installed`) for every installed item, then one
-   `ClientboundGadgetAnchorSnapshotPacket` per anchor with gadgets or holes: the anchor's revision, its
-   holes, and each gadget's item, pose, UID and `gadgetData`. World holes move here from
-   `ReadyForWorldState`. Car holes stay in `TrainsetSpawnPart` for cars spawned later and are repeated
-   here for the snapshot to be whole.
+   `ClientboundGadgetAnchorSnapshotPacket` per car with gadgets or holes: the car's revision, its
+   holes, and each gadget's item, pose, UID and `gadgetData`. Car holes stay in `TrainsetSpawnPart`
+   for cars spawned later and are repeated here for the snapshot to be whole.
 3. The client applies each anchor as vanilla loads a save: holes (`ClearHoles` then `AddHole`); then
    every gadget (`AssignUID`, `Place`, `SaveDataLoaded`); then every gadget's
    `AfterSaveDataLoaded` (mounts, the alternating order, text, hanger snaps). Wiring tolerates any order
@@ -421,10 +436,12 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 1. **Who may remove a gadget someone else installed?** Proposed: anyone, as trains are shared (the
    company model); the item keeps its persistent owner, and whoever removes it holds it like any
    picked-up item. The alternative is owner-only removal.
-2. **Off-train anchors.** Proposed: the world, the player house, the shed and the paint station are
-   one shared space each, as in vanilla, through the same code; their holes are saved only where
-   vanilla saves them (the world).
-3. **The defect detector's snooze** is proposed per player (presentation), not shared.
+2. **The defect detector's snooze** is proposed per player (presentation), not shared.
+
+Decided:
+
+- **Vehicles only** (2026-10-21). No gadgets on the world, the house, the shed or the paint station;
+  see [Off-train installs](#off-train-installs).
 
 ## PR plan
 
@@ -439,8 +456,8 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 
 - Registration of installed-storage items as `Installed` with their anchor; the anchor on the record;
   relevance and the client apply that keeps them inactive; never destroyed; `WorldItemsV1` and the
-  dedupe; the owner in vanilla save data; `GadgetDestinationMissing` recovery. Delete
-  `GadgetRemoverPatch` and the dead `Removed` branch.
+  dedupe; the owner in vanilla save data; `GadgetDestinationMissing` recovery; off-train installs in
+  a loaded save removed into the world. Delete `GadgetRemoverPatch` and the dead `Removed` branch.
 - Core: the `Installed` transitions and their reasons in the item state machine, with tests.
 - Files: `Multiplayer.Core/Items/`, `Server/Items/` (`AuthoritativeItemRegistry`,
   `ServerItemManager.Interest`, `WorldItemPersistence*`, `PersistentWorldItemIdentityPatch`),
@@ -449,12 +466,14 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
   restarts (`[Needs(Need.RestartsGames)]`). The item is `Installed` on that car with its owner on the
   server; no client has a loose copy at its old pose; it is not in `WorldItemsV1` and not in Lost and
   Found. Then the car is deleted and restarted again with the car gone: the item reaches its owner's
-  Lost and Found.
+  Lost and Found. A save with a gadget installed on the ground (written by a server step before the
+  restart) comes back with that gadget as a world item at its pose, owned, and nothing installed off
+  a car.
 
 ### 2. Late joiners see the installed gadgets
 
 - `ReadyForCustomizers` on both sides, item Creates for installed items, the anchor snapshot and its
-  apply, world holes moved there, `AssignUID` before `Place`. The server-only patches (amp limiter,
+  apply, `AssignUID` before `Place`. The server-only patches (amp limiter,
   anti-slip, overheat, ATS, roadrunner, alternating, collision dislodge, dangler) go in here, because
   clients now have live gadgets. The gadget digest for `dvmp_desync`.
 - Core: `GadgetAnchorModel` (snapshot, apply plan), tests.
@@ -483,8 +502,9 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
   both. The client removes the other by hand: it is in the client's hand in both. The client installs
   on a mounted plate; removing the plate is refused while mounted. A request from 30 m
   (`[ClientOnly]` step) is rejected and the item stays in hand. The car is deleted with a gadget on it:
-  a world item at its pose in both games, digests equal. `MODE=moving` repeats the install and the
-  hand removal with the client riding the car at 10 m/s.
+  a world item at its pose in both games, digests equal. Installing on the ground is refused in the
+  client's own game, with no request sent. `MODE=moving` repeats the install and the hand removal with
+  the client riding the car at 10 m/s.
 
 ### 4. Mount points, holes, tape
 
@@ -543,13 +563,14 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
   label maker left no item of its own; cancelling the popup leaves nothing anywhere; removing the label
   destroys it and spawns its replacement once.
 
-### 10. Off-train anchors and hangers
+### 10. Hangers and shelves
 
-- World, house, shed and paint station anchors; items hung on gadget hangers as `SnappedAttachment`
-  placement keyed by `(anchor, UID)`.
-- Scenario **`gadget-world`**: the client installs a gadget on the ground, on the shed and on the
-  house; both games agree, and after a server restart the world one is back with its holes. A mug hung
-  on a hanger on a moving car stays hung in both games.
+- Items hung on gadget hangers and put on gadget shelves as `SnappedAttachment` placement keyed by
+  `(car, UID)`; the dangler's forced unsnap decided by the server; the sliding anchor offset sent with
+  the snap.
+- Scenario **`gadget-hangers`**: a mug hung on a hanger on a moving car stays hung in both games; the
+  hanger can't be removed while the mug is on it; a forced unsnap on the server (a step) drops the mug
+  in both games.
 
 ## Implementation status
 
