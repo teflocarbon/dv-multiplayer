@@ -226,7 +226,7 @@ public class ChatGUI : MonoBehaviour
             sendHistory.Add(text);
 
             //send to server
-            NetworkLifecycle.Instance.Client.SendChat(text);
+            NetworkLifecycle.Instance.LocalSession.SendChat(text);
 
             //reset any timeouts
             timeOut = 0;
@@ -257,7 +257,7 @@ public class ChatGUI : MonoBehaviour
             if (localMessage == null || localMessage == string.Empty)
             {
                 
-                string closestMatch = NetworkLifecycle.Instance.Client.ClientPlayerManager.Players
+                string closestMatch = NetworkLifecycle.Instance.LocalSession.RemotePlayers
                                                 .Where(player => player.Username.ToLower().StartsWith(recipient.ToLower()))
                                                 .OrderBy(player => player.Username.Length)
                                                 .ThenByDescending(player => player.Username)

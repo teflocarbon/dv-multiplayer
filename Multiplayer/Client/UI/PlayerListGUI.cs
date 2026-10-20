@@ -19,7 +19,7 @@ public class PlayerListGUI : MonoBehaviour
     }
 
     private bool showPlayerList;
-    private string LocalPlayerUsername => NetworkLifecycle.Instance?.Client?.DisplayName ?? Multiplayer.Settings.GetUserName();
+    private string LocalPlayerUsername => NetworkLifecycle.Instance?.LocalSession?.DisplayName ?? Multiplayer.Settings.GetUserName();
 
     public void RegisterListeners()
     {
@@ -73,7 +73,7 @@ public class PlayerListGUI : MonoBehaviour
         if (!NetworkLifecycle.Instance.IsClientRunning)
             return new[] { "Not in game" };
 
-        IReadOnlyCollection<NetworkedPlayer> players = NetworkLifecycle.Instance.Client.ClientPlayerManager.Players;
+        IReadOnlyCollection<NetworkedPlayer> players = NetworkLifecycle.Instance.LocalSession.RemotePlayers;
         string[] playerList = new string[players.Count + 1];
         int i = 0;
         foreach (NetworkedPlayer player in players)
@@ -83,7 +83,7 @@ public class PlayerListGUI : MonoBehaviour
         }
 
         // The Player of the Client is not in the PlayerManager, so we need to add it separately
-        playerList[playerList.Length - 1] = $"{LocalPlayerUsername} ({NetworkLifecycle.Instance.Client.Ping}ms)";
+        playerList[playerList.Length - 1] = $"{LocalPlayerUsername} ({NetworkLifecycle.Instance.LocalSession.Ping}ms)";
         return playerList;
     }
 }
