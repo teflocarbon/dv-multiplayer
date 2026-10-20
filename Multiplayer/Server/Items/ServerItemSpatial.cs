@@ -203,7 +203,10 @@ internal sealed class ServerItemSpatial
     {
         if (item == null || record == null || simulatorPlayerId == 0)
             return;
-        RevokeHostLease(item.NetId, "superseded", notify: false);
+        // The new lease's presentation sets the body up (a proxy is stopped, a local simulator keeps
+        // its motion), as a client's game and a lease transfer do. Stopping it here lost the force
+        // of a throw the host made of an item still under its last lease (one just dropped).
+        RevokeHostLease(item.NetId, "superseded", notify: false, restoreBody: false);
         uint epoch = epochs.TryGetValue(item.NetId, out uint previous) ? previous + 1 : 1;
         epochs[item.NetId] = epoch;
         ItemSpatialStateData baseline = Capture(item, record.Revision, epoch, 0, simulatorPlayerId, phase);
@@ -242,12 +245,13 @@ internal sealed class ServerItemSpatial
     // Ends a physics lease from outside (e.g. the item fell through the map), telling its simulator.
     internal void RevokeLease(ushort itemNetId, string reason) => RevokeHostLease(itemNetId, reason);
 
-    private void RevokeHostLease(ushort itemNetId, string reason, bool notify = true)
+    private void RevokeHostLease(ushort itemNetId, string reason, bool notify = true, bool restoreBody = true)
     {
         if (!leases.TryGetValue(itemNetId, out Lease lease))
             return;
         leases.Remove(itemNetId);
-        RestoreLocalBodyAfterLease(lease);
+        if (restoreBody)
+            RestoreLocalBodyAfterLease(lease);
         if (notify && NetworkedItem.TryGet(itemNetId, out NetworkedItem item) && item != null)
             NetworkLifecycle.Instance.Server.SendItemSpatialLease(item, new ClientboundItemSpatialLeasePacket
             {

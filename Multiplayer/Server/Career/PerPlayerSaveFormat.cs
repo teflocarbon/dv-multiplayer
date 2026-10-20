@@ -3,6 +3,7 @@ using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using DV.ThingTypes;
 using Multiplayer.Server.Items;
+using Multiplayer.Server.Players;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -49,7 +50,7 @@ public static class PerPlayerSaveFormat
     /// Who a career saved before this format belongs to: the Steam account the game runs under, or
     /// -mp-owner, for a career copied to a server PC running under another account.
     /// </summary>
-    private static Guid ConversionOwner => PlayerIdentity.Owner;
+    private static Guid ConversionOwner => CareerOwner.Id;
 
     public static void PrepareLoad(SaveGameData data)
     {
@@ -138,7 +139,7 @@ public static class PerPlayerSaveFormat
             index++;
             if (item == null || string.IsNullOrEmpty(item.itemPrefabName) || WorldItemPersistenceManager.IsJobSystemDocument(item.itemPrefabName))
                 continue;
-            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Shared.Items.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
+            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Server.Items.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
                 ? saved : ConvertedItemId(owner, index, item);
             if (!known.Add(id))
                 continue;   // already a record: nothing to move

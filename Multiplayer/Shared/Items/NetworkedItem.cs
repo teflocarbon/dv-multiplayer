@@ -260,8 +260,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             Multiplayer.LogWarning($"NetworkedItem.OnDestroy({name}, {NetId}) Item is null!");
         }
 
-        if (NetworkLifecycle.Instance.IsHost())
-            JobReportArtifactRegistry.Remove(NetId);
         base.OnDestroy();
     }
 

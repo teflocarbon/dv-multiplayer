@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Players;
+namespace Multiplayer.Client.Players;
 
 public class PlayerModelRegistry
 {

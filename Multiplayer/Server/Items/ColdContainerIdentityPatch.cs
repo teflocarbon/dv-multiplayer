@@ -3,8 +3,9 @@ using DV.InventorySystem;
 using HarmonyLib;
 using Multiplayer.Shared.Utils;
 using Newtonsoft.Json.Linq;
+using Multiplayer.Shared.Items;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
 [HarmonyPatch]
 public static class ColdContainerIdentityPatch

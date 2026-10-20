@@ -3,7 +3,7 @@ using DV.JObjectExtstensions;
 using DV.LocoRestoration;
 using DV.Simulation.Brake;
 using DV.ThingTypes;
-using Multiplayer.Shared.Compatibility;
+using Multiplayer.Client.Compatibility;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Data.Train;
 using Multiplayer.Shared.Session;
