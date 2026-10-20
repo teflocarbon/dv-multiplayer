@@ -39,7 +39,7 @@ sends world state at these steps:
 | State | Sent by the host |
 | --- | --- |
 | `ReadyForGameData` | `ClientboundGameParamsPacket`, `ClientboundSaveGameDataPacket` (wallet, licences, garages, debt flag, job clock) |
-| `ReadyForWorldState` | `ClientboundWeatherPacket`, `ClientboundSleepStatePacket`, `ClientboundShopStockPacket`, `ClientboundRailwayStatePacket`, one `CommonGenericSwitchStatePacket` per switch, `ClientboundCustomizationsPacket` |
+| `ReadyForWorldState` | `ClientboundWeatherPacket`, `ClientboundSleepStatePacket`, `ClientboundShopStockPacket`, `ClientboundShopLayoutPacket`, `ClientboundRailwayStatePacket`, one `CommonGenericSwitchStatePacket` per switch, `ClientboundCustomizationsPacket` |
 | `ReadyForTrainSets` | Train baseline, which carries each car's exploded flag and cargo |
 | `ReadyForTiles` | Every hazmat tile (`HazmatServer.SendAll`) |
 
@@ -214,6 +214,20 @@ Found when the host isn't near), one item every 0.5 s, each with a persistent ow
 Stock: `NetworkServer.SendShopStock` sends `ClientboundShopStockPacket` (prefab names and
 `purchasedItems`) on join, after every purchase and after `Restock`. `Restock` runs on the host
 only, so a client destroying its copy of a bought item doesn't restock.
+
+Shelves: vanilla's `ShopShelves.Start` seeds each shop's layout from `UnityEngine.Random`, so every
+game put the shelf items in different places (38 of 244 displays at the shop by the shop scenario's
+station, up to 5.6 m apart). The server picks a seed per session once its world has loaded
+(`NetworkServer.InitialiseShopShelves`, in `Server/Session/NetworkServer.Shops.cs`) and sends it at
+`ReadyForWorldState` (`ClientboundShopLayoutPacket`). `Shared/Shops/ShopShelfLayout.cs` makes every
+game, the host's included, pick the shop's verified seed from it and the shop's index
+(`Multiplayer.Core/Shops/ShopShelfSeed.cs`), and lays out again any shelves already laid out
+before the seed arrived. Outside a session vanilla's random layout is unchanged.
+
+Shop check at join: shops and their items are named by index, so the client sends a
+`ShopCatalogueFingerprint` (`Multiplayer.Core/Shops/`: the stock table's prefabs, then each shop's,
+in order) with `ReadyForWorldState`. The server refuses a client whose shops differ, as it refuses
+a different railway ([design/track-graph-check.md](design/track-graph-check.md)).
 
 The host's own purchases run vanilla and broadcast the stock afterwards.
 `CashRegisterWithModulesPatch` doesn't replay the host's shop buy or cancel on clients: each

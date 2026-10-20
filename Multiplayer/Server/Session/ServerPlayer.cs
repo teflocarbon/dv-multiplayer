@@ -7,6 +7,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
+using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
 using System;
@@ -141,6 +142,8 @@ public class ServerPlayer : IDisposable
     // The track graph this player reported with ReadyForWorldState, kept because a join that
     // waits for the host to load is replayed without the packet.
     internal TrackGraphFingerprint TrackGraph { get; set; }
+    // Its shops, reported and kept the same way.
+    internal ShopCatalogueFingerprint ShopCatalogue { get; set; }
     public bool WorldItemCatalogueAccepted { get; internal set; }
     public StorageBase Inventory { get; private set; }
 

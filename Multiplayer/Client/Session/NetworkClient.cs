@@ -53,9 +53,11 @@ using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.World;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
+using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using Multiplayer.Debugging.Protocol;
 using Newtonsoft.Json.Linq;
@@ -270,6 +272,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     public override void Stop()
     {
         Log("Stopping client");
+        ShopShelfLayout.Reset();
         trainsetRelocationRevisions.Clear();
         pendingTrainsetRelocationRevisions.Clear();
         if (originalSession != null)
@@ -318,6 +321,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundSleepStatePacket>(OnClientboundSleepStatePacket);
         Handle<ClientboundHazmatTilesPacket>(OnClientboundHazmatTilesPacket);
         Handle<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
+        Handle<ClientboundShopLayoutPacket>(OnClientboundShopLayoutPacket);
         Handle<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
 
 
@@ -537,7 +541,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         // ready-blocks, so a mod that adds track has done so.
         TrackGraphFingerprint trackGraph = TrackGraph.Compute();
         Log($"Track graph: {trackGraph}");
-        SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState, trackGraph);
+        ShopCatalogueFingerprint shops = ShopCatalogue.Compute();
+        Log($"Shops: {shops}");
+        SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState, trackGraph, shops);
         displayLoadingInfo.OnLoadingStatusChanged(Locale.LOADING_INFO__SYNC_WORLD_STATE, false, ((float)LoadingState / (float)PlayerLoadingState.Complete) * 100);
 
         float railwayDeadline = Time.realtimeSinceStartup + RailwayStateTimeoutSeconds;
@@ -946,7 +952,8 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         SendNetSerializablePacketToServer(wrapper, deliveryMethod);
     }
 
-    private void SendLoadStateUpdate(PlayerLoadingState newState, TrackGraphFingerprint trackGraph = default)
+    private void SendLoadStateUpdate(PlayerLoadingState newState, TrackGraphFingerprint trackGraph = default,
+        ShopCatalogueFingerprint shops = default)
     {
         Log($"Sending Load State {newState}");
         SendPacketToServer(new ServerboundLoadStateUpdatePacket
@@ -956,6 +963,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
             TrackCount = (ushort)trackGraph.Tracks,
             JunctionCount = (ushort)trackGraph.Junctions,
             TurntableCount = (ushort)trackGraph.Turntables,
+            ShopCatalogueHash = shops.Hash,
+            ShopCount = (ushort)shops.Shops,
+            ShopItemCount = (ushort)shops.Items,
         }, DeliveryMethod.ReliableOrdered);
         LoadingState = newState;
     }
