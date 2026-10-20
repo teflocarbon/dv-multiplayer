@@ -39,6 +39,7 @@ using Multiplayer.Shared.Protocol.Data.Player;
 using Multiplayer.Shared.Protocol.Data.Train;
 using Multiplayer.Shared.Protocol.Data.World;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.SaveGame;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
@@ -330,6 +331,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundShopRegisterStatePacket>(OnClientboundShopRegisterStatePacket);
         Handle<ClientboundShopRequestResultPacket>(OnClientboundShopRequestResultPacket);
         Handle<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
+        Handle<ClientboundGadgetJoinSnapshotPacket>(OnClientboundGadgetJoinSnapshotPacket);
 
 
         // General Sync
@@ -466,6 +468,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
 
     private const float ReadyBlockTimeoutSeconds = 60f;
     private const float RailwayStateTimeoutSeconds = 30f;
+    private const float GadgetSnapshotTimeoutSeconds = 30f;
 
     // Runs a loading coroutine so an exception ends the join with a message. Unity otherwise just
     // stops a coroutine that throws, leaving the player on the loading screen with a half-synced
@@ -614,10 +617,17 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
 
         /*
          * ReadyForCustomizers
+         * Every car exists: the gadgets installed on them (gadgets.md, "Late joiners")
          */
 
-        //TODO: implement
-        yield return new WaitForSeconds(0.25f);
+        gadgetJoinApplied = false;
+        SendLoadStateUpdate(PlayerLoadingState.ReadyForCustomizers);
+        float gadgetDeadline = Time.realtimeSinceStartup + GadgetSnapshotTimeoutSeconds;
+        while (!gadgetJoinApplied && Time.realtimeSinceStartup < gadgetDeadline)
+            yield return null;
+        // Gadgets missing is a worse game, not a broken one: carry on.
+        if (!gadgetJoinApplied)
+            LogWarning($"No installed gadgets after {GadgetSnapshotTimeoutSeconds:0}s; continuing without them");
 
         /* 
          * ReadyForItems

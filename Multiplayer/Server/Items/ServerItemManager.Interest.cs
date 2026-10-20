@@ -146,6 +146,10 @@ internal sealed partial class ServerItemManager
         if (item == null || recipient == null ||
             !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
             return false;
+        // An installed gadget rides its car, and every player has every car: its item is every
+        // player's to know (gadgets.md, "The installed gadget and its item").
+        if (record.Placement == ItemPlacementKind.Installed)
+            return true;
         bool ownerHasRecallClaim = record.PersistentOwnerPlayerId == recipient.PlayerId &&
                                    HasOwnerRecallClaim(record);
         if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)

@@ -1182,13 +1182,16 @@ public partial class NetworkServer : NetworkManager
 
                 break;
 
+            case PlayerLoadingState.ReadyForCustomizers:
+                // Every car exists on the player's game: its installed gadgets (gadgets.md, "Late joiners").
+                SendGadgetJoinSnapshot(player);
+                break;
+
             case PlayerLoadingState.ReadyForItems:
                 // Before the player's items go out: a save may hold two of their essentials on one
                 // slot, which left one with no silhouette and no recall.
                 AuthoritativeItemRegistry.EnsureDistinctClaimSlots(player, "owner-loading");
                 // World items will be spawned when the player is within the culling range
-                // Installed gadgets may be spawnable in the culling range but needs more thought as there are a lot of extra parameters
-                var installedGadgets = StorageController.Instance.StorageInstalledGadgets.GetStorageItemList();
                 break;
 
             case PlayerLoadingState.ReadyForJobs:

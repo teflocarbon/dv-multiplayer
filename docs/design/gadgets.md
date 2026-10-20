@@ -1,6 +1,6 @@
 # Gadgets
 
-> Status: designed 2026-10-21, not started. Nothing below is built except where
+> Status: designed 2026-10-21; PRs 1 and 2 built. Nothing below is built except where
 > [Implementation status](#implementation-status) says so. Vanilla behaviour is in
 > [`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md);
 > this doc refers to its sections rather than repeating them.
@@ -512,14 +512,19 @@ The scenarios run every gadget PR on a dedicated host as well as a player host.
 Gadgets use it:
 
 1. The client reaches `ReadyForCustomizers` after the train baseline, so every car exists.
-2. The server sends a Create (placement `Installed`) for every installed item, then one
-   `ClientboundGadgetAnchorSnapshotPacket` per car with gadgets or holes: the car's revision, its
-   holes, and each gadget's item, pose, UID and `gadgetData`. Car holes stay in `TrainsetSpawnPart`
-   for cars spawned later and are repeated here for the snapshot to be whole.
-3. The client applies each anchor as vanilla loads a save: holes (`ClearHoles` then `AddHole`); then
-   every gadget (`AssignUID`, `Place`, `SaveDataLoaded`); then every gadget's
-   `AfterSaveDataLoaded` (mounts, the alternating order, text, hanger snaps). Wiring tolerates any order
-   because both ends carry the edge.
+2. The server sends a Create (placement `Installed`, with its car) for every installed item, then one
+   `ClientboundGadgetJoinSnapshotPacket`: for each car with gadgets, each gadget's item, its UID, and
+   its item's whole vanilla save data (`ItemSaveData.SaveItemData()`, the mod's own `dvmp*` keys left
+   out), which holds the pose, `placedOn` and `gadgetData`. It is sent even with no gadgets, so the
+   client knows the step is done. Car holes come with the train baseline (`TrainsetSpawnPart`); the
+   resync of 3a sends them with a car's snapshot.
+3. The client replays vanilla's load of that data (`StartingItemsController`): for every gadget,
+   `AssignUID` (the server's, before `Place` links it, so the client allocates none), then
+   `ItemSaveData.LoadItemData`, which places it and restores its state; then every item's
+   `PostLoadItemData` (mounts, the alternating order, text, hanger snaps). It sets
+   `GadgetItem.Item` first, which vanilla sets in `Start` and an inactive item never runs. Wiring
+   tolerates any order because both ends carry the edge. Because the whole item save data is
+   replayed, modded gadgets come through too.
 4. The client advances to `ReadyForItems`. The server sends live gadget traffic only to players past
    `ReadyForCustomizers`, so nothing in the log predates the snapshot.
 
@@ -557,7 +562,8 @@ The server is never rolled back. Clients converge on it.
 | `ServerboundGadgetResyncRequestPacket` | client → server | anchor, applied revision |
 | `ClientboundGadgetChangesPacket` | server → clients | anchor, first revision, `GadgetChange[]` with operation ids |
 | `ClientboundGadgetRequestResultPacket` | server → requester | operation id, rejected, reason |
-| `ClientboundGadgetAnchorSnapshotPacket` | server → client | anchor, revision, holes, `InstalledGadgetData[]` (item, pose, UID, `gadgetData` as compressed JSON) |
+| `ClientboundGadgetJoinSnapshotPacket` (built, PR 2) | server → joining client | per car, `InstalledGadgetData[]`: item, UID, the item's vanilla save data as JSON |
+| `ClientboundGadgetAnchorSnapshotPacket` (3a) | server → client | one car's resync: revision, holes, `InstalledGadgetData[]` |
 | `ClientboundGadgetStatePacket` | server → clients | item, state revision, operation id, fields |
 | `ServerboundGadgetToolUsePacket` | client → server | tool item, target (item and mount point, or a hole), started or stopped |
 | `ClientboundGadgetToolUsePacket` | server → clients | player, tool item, target, started or stopped |
@@ -575,6 +581,21 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 | Client | `Client/Gadgets/`: `GadgetIntentPatches`, `GadgetChangeApplier` (queue, reconcile, resync, rebuild), `GadgetPrediction` (applying and undoing predictions), `GadgetStatePrediction`, `GadgetServerOnlyPatches`, `GadgetItemLifecyclePatches`. `Client/Session/NetworkClient.Gadgets.cs`, `LocalPlayerSession.Gadgets.cs` (results and state the host's player needs). Item touchpoint: the `Installed` apply in `NetworkedItem.Snapshots`/`StateApplication`. |
 | Tests | `Multiplayer.Protocol.Tests/GadgetPacketTests.cs` (round trips). |
 | Scenarios | `DevTools/DvmpScenarios/Library/Gadgets.cs` (spawn a gadget item, install, remove, drill, tape, wire, solder, set and read state through the vanilla tool methods, the digest); `Scenarios/Gadget*.cs`; runs in `DevTools/Scenarios/gate.sh`. |
+
+## Companies
+
+Decided by the user 2026-10-21 for the coming company career (recorded by the economy and licences
+session; the design is [company-career.md](company-career.md), to be written):
+
+- A company is a persistent group of players sharing money, licences and owned locos.
+- Gadgets (with loco paint, the wireless MU controller and the loco remote) are bought with company
+  money and owned by the company, including while a member carries one.
+- Installing, retrieving and the permission checks follow company membership, not the buyer: the
+  owner shown on a gadget is its company, a deleted car's gadgets go to the company's Lost and Found,
+  and the server's request checks ([What the server checks](#what-the-server-checks)) ask whether
+  the requester is a member. The wireless MU controller's licence is the company's.
+
+Until companies exist, gadgets are owned by the player who bought them, as above.
 
 ## Owned items
 
@@ -627,7 +648,12 @@ Decided:
 ## PR plan
 
 Small PRs, in order, each from a branch `gadgets/<what>` off `beta` and into `beta` (the client/server
-split merged into `beta` in #276, 2026-10-21).
+split merged into `beta` in #276, 2026-10-21). There is no integration branch for gadgets, owned items
+and shops together (decided 2026-10-21): each PR is small, tested on both host kinds and fixes
+something, and the few points where the three plans meet are kept by the merge order. The rule that
+makes that safe: **no PR leaves `beta` worse than today**, so a release can be cut from `beta` at any
+point. Whether to hand out a release while gadgets are part-done (between 3a and 5 they sync but
+can't yet be powered) is a release decision, not a branch.
 
 It runs beside the owned-items work ([owned-items.md](owned-items.md), PR #275), which redoes the item
 lifecycle. They meet at four points:
@@ -680,9 +706,13 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 ### 2. Late joiners see the installed gadgets
 
 - `ReadyForCustomizers` on both sides, item Creates for installed items, the anchor snapshot and its
-  apply, `AssignUID` before `Place`. The server-only patches (amp limiter,
-  anti-slip, overheat, ATS, roadrunner, alternating, collision dislodge, dangler) go in here, because
-  clients now have live gadgets. The gadget digest for `dvmp_desync`.
+  apply, `AssignUID` before `Place`. The gadget digest for `dvmp_desync`.
+- The server-only patches (amp limiter, anti-slip, overheat, ATS, roadrunner, alternating, collision
+  dislodge, dangler) for **the gadgets the server sent** only: the server runs those too, so a client
+  running them as well would apply each action twice. A client's own installs don't reach the server
+  until 3a, so until then they keep vanilla's logic in that client's game, as today: a client's own
+  ATS or anti-slip moves its own lever, which syncs as the player's input. Switching it off for them
+  here would leave them doing nothing until 3a, which is worse than today.
 - Core: `GadgetAnchorModel` (snapshot, apply plan), tests.
 - Files: `Core/Gadgets/`, `Shared/Gadgets/`, `Shared/Protocol/.../Gadgets/`, `Server/Gadgets/`
   (`GadgetSnapshots`), `Server/Session/NetworkServer.Gadgets.cs`, `NetworkServer.cs`
@@ -705,7 +735,8 @@ server side, and the base 3b predicts on top of.
   resync, item transitions in and out of `Installed` (in a file of their own that calls the
   registry), completing a hand removal, forced removals on clients through the apply scope, deleted
   cars' gadgets to their owners' Lost and Found, the owner on aim; the place and remove sounds played
-  by every game.
+  by every game. The server-only patches now cover every gadget on a client: installs reach the
+  server, which runs them.
 - Files: `Core/Gadgets/` (`GadgetRequestRules`, `GadgetChangeLog`), `Server/Gadgets/` (`GadgetServer`,
   `GadgetObserverPatches`, `GadgetItemTransitions`), `Client/Gadgets/` (`GadgetIntentPatches`),
   `Client/Session/LocalPlayerSession.Gadgets.cs`.
@@ -821,5 +852,12 @@ predict their own actions with.
 
 ## Implementation status
 
-Nothing is built. 2026-10-21: the vanilla research was checked against the decompiled game and the
-design written.
+2026-10-21: the vanilla research was checked against the decompiled game and the design written.
+
+- **PR 1 built** (#281): installed items are `Installed`; vehicles only. `gadget-save` passes on both
+  host kinds.
+- **PR 2 built** (`gadgets/join-snapshot`): late joiners get every installed gadget; the server-only
+  logic is off on a client for the gadgets the server sent. `gadget-join`, `gadget-save` and `rejoin`
+  pass on both host kinds. The comparison the plan gave `dvmp_desync` is a scenario step for now
+  (`Gadgets.Digest`: each gadget's own vanilla save data, wires sorted).
+- Next: 3a.
