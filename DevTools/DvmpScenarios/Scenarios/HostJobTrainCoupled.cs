@@ -268,28 +268,52 @@ namespace Dvmp.Scenarios
                     if (track == null) { tried.Add($"{endCar.ID}: derailed"); continue; }
                     var points = track.GetKinkedPointSet().points;
                     Vector3 At(int k) => (Vector3)points[k].position + WorldMover.currentMove;
-                    int i0 = Enumerable.Range(0, points.Length).OrderBy(k => (At(k) - end.transform.position).sqrMagnitude).First();
-                    int outward = i0 == 0 ? 1 : i0 == points.Length - 1 ? -1
-                        : Vector3.Distance(At(i0 + 1), endCar.transform.position) > Vector3.Distance(At(i0 - 1), endCar.transform.position) ? 1 : -1;
+                    // Exact spans along the track (points can be metres apart, so whole-point steps from the
+                    // point nearest the coupler could start under the end car and put the loco on it).
+                    double SpanOf(Vector3 world)
+                    {
+                        double best = 0; float bestSqr = float.MaxValue;
+                        for (int k = 0; k + 1 < points.Length; k++)
+                        {
+                            Vector3 a = At(k), d = At(k + 1) - a;
+                            float t = d.sqrMagnitude < 1e-6f ? 0f : Mathf.Clamp01(Vector3.Dot(world - a, d) / d.sqrMagnitude);
+                            float sqr = (a + d * t - world).sqrMagnitude;
+                            if (sqr < bestSqr) { bestSqr = sqr; best = points[k].span + t * (points[k + 1].span - points[k].span); }
+                        }
+                        return best;
+                    }
+                    (Vector3 position, Vector3 forward) AtSpan(double s)
+                    {
+                        int k = 0;
+                        while (k + 2 < points.Length && points[k + 1].span < s) k++;
+                        double length = points[k + 1].span - points[k].span;
+                        float t = length <= 0 ? 0f : (float)((s - points[k].span) / length);
+                        return (Vector3.Lerp(At(k), At(k + 1), t), (At(k + 1) - At(k)).normalized);
+                    }
+                    double couplerSpan = SpanOf(end.transform.position);
+                    int outward = couplerSpan >= SpanOf(endCar.transform.position) ? 1 : -1;
                     // The loco's centre: its half length plus the gap past the coupler, along the track.
                     Bounds bounds = CarSpawner.GetBoundsOfCar(livery.prefab);
-                    int j = i0;
-                    float along = 0f;
-                    while (along < bounds.extents.z + distance && j + outward >= 0 && j + outward < points.Length)
+                    double centre = couplerSpan + outward * (bounds.extents.z + distance);
+                    double trackEnd = points[points.Length - 1].span;
+                    if (centre - bounds.extents.z < 0 || centre + bounds.extents.z > trackEnd)
                     {
-                        along += Vector3.Distance(At(j), At(j + outward));
-                        j += outward;
-                    }
-                    if (along < bounds.extents.z + distance)
-                    {
-                        tried.Add($"{endCar.ID} +{distance} m: {track.name} ends {along:F0} m past it");
+                        tried.Add($"{endCar.ID} +{distance} m: {track.name} ends {(outward > 0 ? trackEnd - couplerSpan : couplerSpan):F0} m past it");
                         step.Note(tried.Last());
                         continue;
                     }
-                    Vector3 position = At(j), forward = points[j].forward;
+                    (Vector3 position, Vector3 forward) = AtSpan(centre);
                     if (CarSpawner.IsBoxOverlapping(position, bounds.extents, Quaternion.LookRotation(forward)))
                     {
-                        tried.Add($"{endCar.ID} +{distance} m: no room on {track.name}");
+                        // What the box hits, the way IsBoxOverlapping raises it: the end car means the
+                        // placement is wrong, another car means the track is taken.
+                        Vector3 half = bounds.extents;
+                        float lift = Mathf.Max(0f, 1.5f - half.y);
+                        half.y += lift;
+                        Vector3 centreOfBox = position + Vector3.up * (bounds.extents.y + lift + 0.15f);
+                        string hits = string.Join(",", Physics.OverlapBox(centreOfBox, half, Quaternion.LookRotation(forward), CarSpawner.TrainCheckLayerMask, QueryTriggerInteraction.Ignore)
+                            .Select(c => c.GetComponentInParent<TrainCar>()?.ID ?? c.name).Distinct());
+                        tried.Add($"{endCar.ID} +{distance} m: no room on {track.name} (hits {hits})");
                         step.Note(tried.Last());
                         continue;
                     }
