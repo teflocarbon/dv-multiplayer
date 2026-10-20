@@ -194,7 +194,7 @@ Checked and not in conflict:
   Neither undoes the other.
 - **`LauncherController.OnRunClicked` prefixes.** Both refuse a run: Mapify's for a missing map,
   the mod's for a save that a dedicated host on this PC has open
-  (`mod:Multiplayer/Server/Dedicated/LauncherControllerSaveLockPatch.cs:12-31`). Whichever
+  (`mod:Multiplayer/Menus/MainMenu/LauncherControllerSaveLockPatch.cs:12-31`). Whichever
   refuses first wins, and that's fine.
 
 Not checked (the session can't launch the game): what Mapify does on a dedicated host with no

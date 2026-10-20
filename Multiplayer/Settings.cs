@@ -1,5 +1,5 @@
 using Humanizer;
-using Multiplayer.Menus.ServerBrowser;
+using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Utils;
 using System;
 using UnityEngine;
