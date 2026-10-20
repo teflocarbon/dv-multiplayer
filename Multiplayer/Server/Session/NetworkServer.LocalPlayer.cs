@@ -60,6 +60,7 @@ public partial class NetworkServer : ILocalServer
     public override void PollEvents()
     {
         base.PollEvents();
+        UpdateLocalPlayerFromTracker();
         if (localRequests.Count > 0)
             localRequests.Drain(LocalPlayer, (type, e) =>
             {

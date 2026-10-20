@@ -66,7 +66,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "cab-controls|cab-controls|"
   "cab-controls-authority|cab-controls|MODE=authority"
   "cab-controls-no-grab|cab-controls|MODE=no-grab-sequence"
-  "cab-controls-reload|cab-controls|MODE=cab-reload"
+  "cab-controls-reload|cab-reload|"
   "settle-window|settle-window|"
   "compressor-signal|compressor-signal|"
   "stoker-coal|stoker-coal|"
@@ -95,6 +95,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "pit-stop-host|pit-stop|WHO=host"
   "pit-stop-yank|pit-stop|MODE=yank"
   "host-register-empty-basket|host-register-empty-basket|"
+  "host-session|host-session||player"
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
   "overview-pickup|overview-pickup|"
@@ -132,6 +133,19 @@ coupler_breaks() { local n=0 t; for t in host client; do n=$(( n + $($DVMP logs 
 # A run that failed because dvmp couldn't reach its pair (games not answering yet, or gone) says
 # nothing about the code: it's an ERROR, reported apart from FAILs (and retried once with PAIRS).
 harness_error() { grep -qE "no agent matches|no game is running|no (host|client) running|No connection could be made|actively refused|Connection refused" "$1"; }
+
+# Scenarios are bash (DevTools/Scenarios/<name>/run.sh) or C# (DevTools/DvmpScenarios, run by
+# `dvmp scenario run`; docs/design/scenarios.md) while they're ported. Same variables either way: a
+# C# scenario gets them as --arg NAME=value, and its exit code 3 is a harness ERROR.
+CS=DevTools/DvmpScenarios
+is_cs() { grep -qs "\[Scenario(\"$1\"" "$CS"/Scenarios/*.cs; }
+run_scenario() { # dir vars: one run of the scenario, its output on stdout
+  local dir=$1 a=() v
+  if [ -f "$S/$dir/run.sh" ]; then eval "env $2 bash \"$S/$dir/run.sh\""; return; fi
+  eval "set -- $2"
+  for v in "$@"; do a+=(--arg "$v"); done
+  $DVMP scenario run "$dir" "${a[@]}" --log-dir "$LOG_DIR"
+}
 
 # ---- the queue: the gate's runs, or the lines of RUNS. Each entry is
 # "label|scenario|variables|kind|strict": kind is the pair it needs (player, dedicated or any),
@@ -176,7 +190,7 @@ add_line() { # one line of RUNS
   fi
   if [ -z "$vars" ] && e=$(gate_run "$name"); then        # a run of the gate's list
     IFS='|' read -r d v k <<<"$e"; shown=$name
-  elif [ -f "$S/$name/run.sh" ]; then                      # a scenario with these variables
+  elif [ -f "$S/$name/run.sh" ] || is_cs "$name"; then     # a scenario with these variables
     d=$name v=$vars k=""
     shown=$(gate_name "$d" "$v" || echo "$name${vars:+[$shown]}")
   elif e=$(gate_run "$name"); then                         # a run of the gate's list, more variables
@@ -220,6 +234,17 @@ for q in "${queue[@]}"; do
   done
 done
 [ ${#all[@]} -gt 0 ] || { echo "nothing to run (check ONLY and RUNS)"; exit 2; }
+# The C# scenarios are built once, before the first run: one that doesn't compile against this
+# Multiplayer.dll stops the gate here instead of failing halfway through. (Build Multiplayer first.)
+for it in "${all[@]}"; do
+  IFS='|' read -r _ dir _ <<<"$it"
+  [ -f "$S/$dir/run.sh" ] && continue
+  echo "== building the C# scenarios"
+  dotnet build "$CS/DvmpScenarios.csproj" -c Debug -nologo -v q >"$LOG_DIR/scenarios-build.log" 2>&1 \
+    || { grep -E " error " "$LOG_DIR/scenarios-build.log" | sort -u | head -20; echo "the C# scenarios don't build (see $LOG_DIR/scenarios-build.log)"; exit 2; }
+  $DVMP scenario check || { echo "the C# scenarios don't pass their checks"; exit 2; }
+  break
+done
 
 # ---- parallel mode: PAIRS host+client pairs (dvmp sessions p1.., d1..) take runs from one
 # queue, REPEAT=N runs each one N times. See docs/design/parallel-test-sessions.md.
@@ -283,9 +308,9 @@ if [ -n "$parallel" ]; then
   run_one() { # label dir vars session; sets r to PASS, FAIL or ERROR
     local label=$1 dir=$2 vars=$3 session=$4 start first breaks logs log="$LOG_DIR/$1.$4.log"
     export DVMP_SESSION=$session
-    teleport_home
+    [ -f "$S/$dir/run.sh" ] && teleport_home   # a C# scenario resets in process (ScenarioRun.ResetAsync)
     start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-    if eval "env $vars bash \"$S/$dir/run.sh\"" >"$log" 2>&1; then r=PASS; else r=FAIL; note_logs "$logs" >>"$log"; fi
+    if run_scenario "$dir" "$vars" >"$log" 2>&1; then r=PASS; else [ $? = 3 ] && r=ERROR || r=FAIL; note_logs "$logs" >>"$log"; fi
     [ $r = FAIL ] && harness_error "$log" && r=ERROR
     first=$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game' "$log" | head -1 | cut -c1-90)
     breaks=$(( $(coupler_breaks) - breaks )); [ $breaks -gt 0 ] && first="$first [$breaks coupler break(s) logged]"
@@ -373,9 +398,9 @@ fi
 failed=0
 for it in "${all[@]}"; do
   IFS='|' read -r name dir vars _ <<<"$it"
-  teleport_home
+  [ -f "$S/$dir/run.sh" ] && teleport_home   # a C# scenario resets in process (ScenarioRun.ResetAsync)
   start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-  if eval "env $vars bash \"$S/$dir/run.sh\"" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; harness_error "$LOG_DIR/$name.log" && r=ERROR; fi
+  if run_scenario "$dir" "$vars" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else [ $? = 3 ] && r=ERROR || r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; harness_error "$LOG_DIR/$name.log" && r=ERROR; fi
   breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"
   printf '%-32s %-5s %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
 done

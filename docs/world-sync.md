@@ -43,7 +43,9 @@ sends world state at these steps:
 | `ReadyForTrainSets` | Train baseline, which carries each car's exploded flag and cargo |
 | `ReadyForTiles` | Every hazmat tile (`HazmatServer.SendAll`) |
 
-The player is added to the server's `peers` table at `ReadyForWorldState`, and every broadcast
+At `ReadyForWorldState` the host first checks the client's track graph and kicks it with a reason
+if it differs ([design/track-graph-check.md](design/track-graph-check.md)). The player is then
+added to the server's `peers` table, and every broadcast
 (`SendPacketToAll`) only walks `peers`. Anything broadcast between `ReadyForGameData` and
 `ReadyForWorldState` (while the client loads the scene) never reaches that client; see Known gaps.
 
@@ -70,10 +72,11 @@ differences, such as the host setting the time, are applied.
 
 ### Fast travel time skip
 
-`Client/World/TimeAdvancePatch.cs` prefixes `TimeAdvance.AdvanceTime`. With other players
+Two prefixes on `TimeAdvance.AdvanceTime`, each doing nothing outside its role: `Client/World/TimeAdvancePatch.cs` on a
+remote client, `Server/World/TimeAdvanceServerPatch.cs` on the host. With other players
 connected, fast travel only skips time when the host's `FastTravelAdvancesTime` mod setting is on
-(sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
-player who travelled advances locally and sends `ServerboundTimeAdvancePacket`. The server advances
+(the server's `NetworkServer.FastTravelAdvancesTime`; sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
+player who travelled advances locally and sends `ServerboundTimeAdvancePacket` (the host submits it to the server in-process). The server advances
 its own world's clock for a client's request (the host's own has already advanced), then relays it
 to everyone else as `ClientboundTimeAdvancePacket`, never to the host's own client
 (`NetworkServer.HandleTimeAdvance`). An advance applied for another player is not sent on again
@@ -95,7 +98,7 @@ everyone's jobs late. There is now one cooldown, kept by the host.
   `ClientboundSleepStatePacket` (`LastWakeTimeOADate`, `LastSleepDurationSeconds`): on join and
   after every accepted sleep. A client's bed menu therefore shows the shared cooldown.
 - A sleeping player skips time locally and sends `ServerboundTimeAdvancePacket` with `IsSleep`
-  set (`TimeAdvancePatch` tells sleep from fast travel by `BedSleepingController.IsSleeping`).
+  set (both patches tell sleep from fast travel by `BedSleepingController.IsSleeping`).
 - `NetworkServer.HandleSleep` ignores amounts outside (0, 24 h]. The host's own sleep has
   already passed vanilla's check and advanced the host's clock, so it is relayed and the new sleep
   state broadcast. A client's sleep is rejected when `GameParams.SleepCooldownInHours < 0` or the
@@ -317,6 +320,10 @@ implemented by `NetworkClient.World.cs`) and the server's switch broadcast throu
   to the host's own client, which shares the server's world. Nothing is checked: not the player,
   distance, or whether a train is on the junction. The last packet wins; a junction or turntable
   the server doesn't have is dropped with a warning.
+
+Before any of that, the client's `ReadyForWorldState` carries a hash of its NetId → name tables for
+tracks, junctions and turntables, and the host refuses a client whose hash differs from its own
+with a reason ([design/track-graph-check.md](design/track-graph-check.md)).
 
 On join, `ClientboundRailwayStatePacket` carries every junction's selected branch and every
 turntable's rotation, by index. The client waits up to 30 s for it

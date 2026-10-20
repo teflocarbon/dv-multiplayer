@@ -675,17 +675,8 @@ public partial class NetworkServer : ITrainServer
             return;
 
         networkedTrainCar.Server().ReceiveAuthorityRequest(packet.PortNetId, player, packet.RequestAuthority,
-            CurrentWorldPosition(player));
+            player.WorldPosition);
     }
-
-    // Where a player is now. The host's own player is read from its game: its position packets
-    // reach the server a poll or more late, which could put it out of range of a lever it's at.
-    // TODO: remove once LocalPlayer.WorldPosition is current (docs/design/host-local-session.md,
-    // "Position read from the tracker"); use player.WorldPosition then.
-    private Vector3 CurrentWorldPosition(ServerPlayer player) =>
-        player == LocalPlayer && PlayerManager.PlayerTransform != null
-            ? PlayerManager.PlayerTransform.position
-            : player.WorldPosition;
 
     /// <summary>
     ///     The host's own simulation: its changed ports, fuses and handbrake, or a brake-cylinder
@@ -1213,7 +1204,7 @@ public partial class NetworkServer : ITrainServer
         }
 
         // Check player is within range of the spawn point
-        float playerDistanceToSpawn = (CurrentWorldPosition(player) - WorldMover.currentMove - (Vector3)spawnPoint.position).magnitude;
+        float playerDistanceToSpawn = (player.WorldPosition - WorldMover.currentMove - (Vector3)spawnPoint.position).magnitude;
         if (playerDistanceToSpawn > CommsRadioCarSpawner.SIGNAL_RANGE && !Mathf.Approximately(playerDistanceToSpawn, CommsRadioCarSpawner.SIGNAL_RANGE))
         {
             LogWarning($"{player.Username} tried to spawn a train {playerDistanceToSpawn:F2}m away (max: {CommsRadioCarSpawner.SIGNAL_RANGE}m)");
