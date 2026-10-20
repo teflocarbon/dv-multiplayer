@@ -546,9 +546,11 @@ public static class NetworkedLostAndFoundManager
         }
     }
 
-    // Saves from before the item's own id was the entry's id have one minted per collection. Each
-    // entry takes the id of the stored item it will bind to, found as binding finds it, so an entry
-    // and its item have one id from the load on.
+    // An entry and its stored item have one id from the load on. Vanilla saves a stored item's
+    // state, and with it the item's id, only when the item has ItemSaveData (StorageSerializer): a
+    // mug has none, comes back with no id and is given a new one. Then the entry's id is the item's
+    // and the item takes it back. An item with saved state keeps its own id, and an entry from a save
+    // before the item's id was the entry's (a record id minted per collection) takes it.
     private static void UseItemIds(List<ItemBase> restoredItems)
     {
         HashSet<ItemBase> taken = new();
@@ -561,12 +563,29 @@ public static class NetworkedLostAndFoundManager
                 continue;
             taken.Add(stored);
             Guid itemId = ItemIdOf(stored);
-            if (itemId != Guid.Empty && itemId != saved)
+            if (itemId == saved || saved == Guid.Empty && itemId == Guid.Empty)
+                continue;
+            if (itemId != Guid.Empty && stored.GetComponent<ItemSaveData>() != null)
             {
                 Multiplayer.LogDebug(() => $"Lost and Found: saved entry {saved:D} takes its item's id {itemId:D}");
                 value["persistentItemId"] = itemId.ToString("D");
             }
+            else if (saved != Guid.Empty)
+            {
+                Multiplayer.LogDebug(() => $"Lost and Found: stored {stored.name} takes its entry's id {saved:D}");
+                GiveId(stored, saved);
+            }
         }
+    }
+
+    private static void GiveId(ItemBase stored, Guid id)
+    {
+        PersistentWorldItemIdentity identity = stored.GetComponent<PersistentWorldItemIdentity>() ??
+                                               stored.gameObject.AddComponent<PersistentWorldItemIdentity>();
+        identity.Value = id;
+        if (NetworkedItem.TryGetNetworkedItem(stored, out NetworkedItem item) && item.NetId != 0 &&
+            AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
+            record.PersistentItemId = OwnedItemsServer.ClaimPersistentId(item, id);
     }
 
     private static Guid ItemIdOf(ItemBase item) =>

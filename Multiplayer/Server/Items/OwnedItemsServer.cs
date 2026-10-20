@@ -204,9 +204,11 @@ public static class OwnedItemsServer
     public static List<string> Audit()
     {
         List<string> problems = new();
+        HashSet<Guid> pendingLost = PendingLostAndFound();
         foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
         {
             if (record.PersistentItemId == Guid.Empty || record.PersistentOwnerIdentity == Guid.Empty ||
+                pendingLost.Contains(record.PersistentItemId) ||
                 record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container)
                 continue;
             if (!ledger.TryGet(record.PersistentItemId, out OwnedItemEntry entry) || !entry.IsLive)
@@ -224,7 +226,8 @@ public static class OwnedItemsServer
         foreach (ItemBase item in storage.StorageLostAndFound?.GetStorageItemList() ?? new List<ItemBase>())
             if (item != null && NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem networked) &&
                 AuthoritativeItemRegistry.TryGet(networked.NetId, out AuthoritativeItemRegistry.Record record) &&
-                record.PersistentOwnerIdentity != Guid.Empty && record.Placement != ItemPlacementKind.LostAndFound)
+                record.PersistentOwnerIdentity != Guid.Empty && record.Placement != ItemPlacementKind.LostAndFound &&
+                !pendingLost.Contains(record.PersistentItemId))
                 problems.Add($"{item.name} (netId {networked.NetId}) is in vanilla's Lost and Found, but its record says {record.Placement}");
         // A dedicated host's own inventory belongs to its parked body and stays empty (#261).
         if (NetworkLifecycle.Instance?.IsDedicatedHost == true)
@@ -284,11 +287,18 @@ public static class OwnedItemsServer
         netIdByPersistentId[registered.Entry.Id] = record.NetId;
     }
 
+    // A Lost and Found entry whose owner hasn't joined is bound only when they do (until owned-items
+    // PR 2a); until then its inert item has a record of its own that says World. The entry is the
+    // item's place.
+    private static HashSet<Guid> PendingLostAndFound() =>
+        new(NetworkedLostAndFoundManager.PendingEntries().Select(pending => pending.ItemId));
+
     private static IEnumerable<OwnedItemStoreHit> StoreHits()
     {
+        HashSet<Guid> pendingLost = PendingLostAndFound();
         foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
         {
-            if (record.PersistentItemId == Guid.Empty ||
+            if (record.PersistentItemId == Guid.Empty || pendingLost.Contains(record.PersistentItemId) ||
                 record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container)
                 continue;
             OwnedItemWhere where = WhereOf(record);

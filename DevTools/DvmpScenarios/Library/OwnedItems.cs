@@ -107,19 +107,25 @@ namespace Dvmp.Scenarios
         public static void SaveWithoutLedger() => OwnedItemsServer.SaveWithoutLedger = true;
 
         /// <summary>
-        /// Host: a clone of the item made the way a dupe bug would, with Instantiate, which copies its
-        /// serialized identity. Result: the clone's net ID.
+        /// Host: a copy of the item as a copied save or a dupe bug delivers one: a new item of the same
+        /// prefab that arrives carrying the original's id, set before the server registers it.
+        /// Result: the copy's net ID.
         /// </summary>
         [Step]
         public static IEnumerator Clone(Step<ushort> step, ushort netId)
         {
             NetworkedItem.TryGet(netId, out NetworkedItem original);
-            if (original == null) throw new Exception("no item " + netId);
-            GameObject copy = UnityEngine.Object.Instantiate(original.gameObject, original.transform.position + Vector3.up * 0.5f,
-                original.transform.rotation, original.transform.parent);
+            if (original == null || !AuthoritativeItemRegistry.TryGet(netId, out var record)) throw new Exception("no item " + netId);
+            var spec = DV.Globals.G.Items.items.First(i => i.ItemPrefabName == record.PrefabName);
+            GameObject copy = UnityEngine.Object.Instantiate(spec.gameObject, original.transform.position + Vector3.up * 0.5f,
+                Quaternion.identity, WorldMover.OriginShiftParent);
+            // PersistentWorldItemIdentity is the mod's internal component.
+            Type identityType = typeof(AuthoritativeItemRegistry).Assembly.GetType("Multiplayer.Server.Items.PersistentWorldItemIdentity", true);
+            Component identity = copy.GetComponent(identityType) ?? copy.AddComponent(identityType);
+            identityType.GetProperty("Value").SetValue(identity, record.PersistentItemId);
             NetworkedItem item = copy.GetComponent<NetworkedItem>();
-            yield return Wait.Until(() => item != null && item.NetId != 0 && item.NetId != netId &&
-                                          AuthoritativeItemRegistry.TryGet(item.NetId, out _), 10f, "the clone's record");
+            yield return Wait.Until(() => item != null && item.NetId != 0 && AuthoritativeItemRegistry.TryGet(item.NetId, out _),
+                10f, "the copy's record");
             Items.Track(item.NetId);
             step.Result = item.NetId;
         }

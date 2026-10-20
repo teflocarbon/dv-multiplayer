@@ -86,6 +86,15 @@ left in saves.
 - **One item, several ids.** Lost and Found (`NetworkedLostAndFoundManager.cs:325`) and cold
   containers (`NetworkedColdContainerManager.cs:177`) mint record ids of their own.
 
+Found in game by the PR 1b scenarios (2026-10-21) and fixed there:
+
+- **An owned item in the world survived one restart but not two.** `ShouldPersist` kept a world
+  item only with vanilla's `BelongsToPlayer`. A restored item is a fresh prefab copy, and a mug's
+  prefab doesn't have that flag, so the save after the restart dropped it. Now an item with an owner
+  is kept, and restoring an owned item sets the flag again.
+- **A mug in vanilla's Lost and Found lost its id at load.** See
+  [Where the id travels](#one-id-for-life).
+
 ## Decisions
 
 All were decided with the user on 2026-10-21.
@@ -167,6 +176,12 @@ it uses the GUID the item already has. Nothing else mints an item id. Specifical
 **Where the id travels.** The id is carried in vanilla's own item save data
 (`dvmpPersistentWorldItemId`, `PersistentWorldItemIdentityPatch`), so every store that holds an
 item's save data carries it.
+
+The exception is an item with no `ItemSaveData` component, such as a mug. Vanilla saves no state for
+it (`StorageSerializer` calls `SaveItemData` only when the component exists), so a mug in vanilla's
+Lost and Found storage comes back with no id. The mod's own record for it then carries the id: the
+Lost and Found entry, or a cold record, which has the item's id as its key. At load the item takes
+the id back from its entry (found in game 2026-10-21 by `item-id-roundtrip`).
 
 | Placement | Who holds the id |
 | --- | --- |

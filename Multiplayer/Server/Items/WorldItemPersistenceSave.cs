@@ -149,9 +149,11 @@ internal static partial class WorldItemPersistenceManager
             // Like vanilla's world storage, only keep dynamic items a player owns. Unowned ones
             // are respawned by their source each load (e.g. the paint station's spray can, which
             // vanilla only skips when the player already owns one), so persisting them added a
-            // copy every load.
+            // copy every load. An item with an owner is a player's whatever its prefab says: a mug
+            // restored from the save is a fresh prefab copy without BelongsToPlayer, and was lost at
+            // the save after (found by ledger-save, 2026-10-21).
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) ||
-                item?.Item?.InventorySpecs?.BelongsToPlayer != true)
+                item?.Item?.InventorySpecs?.BelongsToPlayer != true && record.PersistentOwnerIdentity == Guid.Empty)
                 return false;
             return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                 ItemPlacementKind.StaticParent || IsPlayerPossession(record);
