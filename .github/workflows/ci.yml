@@ -132,6 +132,8 @@ jobs:
           $version = (Get-Content build/info.json -Raw | ConvertFrom-Json).Version
           $sha = "${{ github.event.pull_request.head.sha || github.sha }}".Substring(0, 8)
           $source = if ('${{ github.event_name }}' -eq 'pull_request') { "pr${{ github.event.pull_request.number }}" } else { '${{ github.ref_name }}' }
+          # An artifact name can't hold / \ " : < > | * ? (a branch like split/client-server has a slash).
+          $source = $source -replace '[\\/":<>|*?]', '-'
           "name=Multiplayer $version $source $sha" >> $env:GITHUB_OUTPUT
 
       - name: Upload the Debug build
