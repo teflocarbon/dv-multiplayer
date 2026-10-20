@@ -1,34 +1,27 @@
 using DV.Shops;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
-using Multiplayer.Client.Session;
+using Multiplayer.Shared.Shops;
 
 namespace Multiplayer.Client.World;
 
 /// <summary>
-/// A client's shops: the host spawns what it buys and owns the stock
-/// (<c>Server/World/GlobalShopControllerPatch</c> sends the stock on).
+/// A game's shops in a session: the server buys and spawns (<c>Server/Shops/ServerShops</c>) and
+/// owns the stock (<c>Server/World/GlobalShopControllerPatch</c> sends it on).
 /// </summary>
 [HarmonyPatch(typeof(GlobalShopController))]
 public static class GlobalShopControllerClientPatch
 {
-    // A client's purchase used to spawn the items on that client only: nobody else saw them and
-    // the host never saved them. The host spawns them now and owns the stock.
+    // Purchases are the server's: a Buy is a request (Client/Shops/ShopRegisterPatches), so vanilla's
+    // queue is never reached. If anything else gets here, spawning on this game alone would make
+    // items nobody else has.
     [HarmonyPrefix]
     [HarmonyPatch(nameof(GlobalShopController.AddItemToInstantiationQueue))]
-    private static bool AddItemToInstantiationQueue(GlobalShopController __instance, InventoryItemSpec boughtItemSpec,
-        Shop shop, int amountBought)
+    private static bool AddItemToInstantiationQueue(InventoryItemSpec boughtItemSpec)
     {
-        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !NetworkRole.IsRemoteClient || boughtItemSpec == null)
+        if (!ShopRegisters.ServerOwned)
             return true;
-
-        NetworkClient.Instance?.SendShopPurchase(__instance.globalShopList.IndexOf(shop), boughtItemSpec.ItemPrefabName,
-            amountBought);
-        // Show the stock going down straight away; the host's stock table follows.
-        ShopItemData data = __instance.GetShopItemData(boughtItemSpec);
-        if (data != null)
-            data.purchasedItems += amountBought;
+        Multiplayer.LogWarning($"Ignored a vanilla shop purchase of {boughtItemSpec?.ItemPrefabName}: purchases go through the server");
         return false;
     }
 

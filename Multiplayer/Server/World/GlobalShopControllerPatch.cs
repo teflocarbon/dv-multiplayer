@@ -6,20 +6,13 @@ using Multiplayer.Server.Session;
 namespace Multiplayer.Server.World;
 
 /// <summary>
-/// The host owns the shops' stock: every change to it goes to the players. A client's own side is
+/// The host owns the shops' stock: a restock goes to the players. Purchases send the stock
+/// themselves (<c>Server/Shops/ServerShops.Buy</c>); a client's own side is
 /// <c>Client/World/GlobalShopControllerClientPatch</c>.
 /// </summary>
 [HarmonyPatch(typeof(GlobalShopController))]
 public static class GlobalShopControllerPatch
 {
-    [HarmonyPostfix]
-    [HarmonyPatch(nameof(GlobalShopController.AddItemToInstantiationQueue))]
-    private static void AddItemToInstantiationQueuePostfix()
-    {
-        if (NetworkLifecycle.Instance?.IsHost() == true)
-            NetworkServer.Instance?.SendShopStock();
-    }
-
     [HarmonyPostfix]
     [HarmonyPatch(nameof(GlobalShopController.Restock))]
     private static void RestockPostfix()

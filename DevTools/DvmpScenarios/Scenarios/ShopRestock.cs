@@ -32,7 +32,7 @@ namespace Dvmp.Scenarios
             Require.That(b.Done && b.NetIds.Length == 1 && b.NetIds[0] != 0, "the purchase went through with one item");
             ushort item = b.NetIds[0];
             await Task.Delay(2000);
-            Shop.HostView before = await pair.Host.Run(() => Shop.InGame.HostView(b.Prefab, item));
+            Shop.HostView before = await pair.Host.Run(() => Shop.InGame.HostView(b.Prefab, item, -1));
             Report.Note($"host stock after the purchase: {before.Stock}");
             Require.Equal(b.Stock1, before.Stock, "the host's stock after the purchase");
 
@@ -41,7 +41,7 @@ namespace Dvmp.Scenarios
             foreach (string line in log) Report.Note(line);
             await Task.Delay(2000);
 
-            Shop.HostView after = await pair.Host.Run(() => Shop.InGame.HostView(b.Prefab, 0));
+            Shop.HostView after = await pair.Host.Run(() => Shop.InGame.HostView(b.Prefab, 0, -1));
             Report.Note($"host stock after the deposit and withdrawal: {after.Stock}");
             Expect.Equal(before.Stock, after.Stock, "the host's stock after the item went through a container");
 
@@ -51,7 +51,7 @@ namespace Dvmp.Scenarios
             ushort back = ushort.Parse(withdrew.Substring("withdrew: ".Length).Split(' ')[0]);
             await pair.Host.Run(() => InGame.Destroy(back));
             await Task.Delay(2000);
-            Shop.HostView gone = await pair.Host.Run(() => Shop.InGame.HostView(b.Prefab, 0));
+            Shop.HostView gone = await pair.Host.Run(() => Shop.InGame.HostView(b.Prefab, 0, -1));
             Report.Note($"host stock after destroying item {back}: {gone.Stock}");
             Expect.Equal(after.Stock + 1, gone.Stock, "the host's stock after the item was really destroyed");
         }

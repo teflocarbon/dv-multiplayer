@@ -40,6 +40,73 @@ public sealed class ShopPacketTests
     }
 
     [Test]
+    public void RegisterState_RoundTripsTheBasket()
+    {
+        ClientboundShopRegisterStatePacket result = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ClientboundShopRegisterStatePacket>(packet => result = new ClientboundShopRegisterStatePacket
+        {
+            ShopIndex = packet.ShopIndex,
+            Revision = packet.Revision,
+            LineModules = packet.LineModules,
+            LineOwners = packet.LineOwners,
+            LineUnits = packet.LineUnits,
+            Deposited = packet.Deposited,
+            Delivering = packet.Delivering,
+            Event = packet.Event,
+            EventPlayerId = packet.EventPlayerId,
+            EventModule = packet.EventModule
+        });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundShopRegisterStatePacket
+        {
+            ShopIndex = 3,
+            Revision = 4_000_000_001,
+            LineModules = new byte[] { 0, 7 },
+            LineOwners = new byte[] { 2, 1 },
+            LineUnits = new byte[] { 1, 3 },
+            Deposited = 1234.56,
+            Delivering = true,
+            Event = 4,
+            EventPlayerId = 2,
+            EventModule = 7
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That((result.ShopIndex, result.Revision), Is.EqualTo(((byte)3, 4_000_000_001u)));
+        Assert.That(result.LineModules, Is.EqualTo(new byte[] { 0, 7 }));
+        Assert.That(result.LineOwners, Is.EqualTo(new byte[] { 2, 1 }));
+        Assert.That(result.LineUnits, Is.EqualTo(new byte[] { 1, 3 }));
+        Assert.That(result.Deposited, Is.EqualTo(1234.56));
+        Assert.That(result.Delivering, Is.True);
+        Assert.That((result.Event, result.EventPlayerId, result.EventModule), Is.EqualTo(((byte)4, (byte)2, (byte)7)));
+    }
+
+    [Test]
+    public void RegisterState_RoundTripsAnEmptyBasket()
+    {
+        ClientboundShopRegisterStatePacket result = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ClientboundShopRegisterStatePacket>(packet => result = new ClientboundShopRegisterStatePacket
+        {
+            LineModules = packet.LineModules,
+            LineUnits = packet.LineUnits
+        });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundShopRegisterStatePacket
+        {
+            LineModules = new byte[0],
+            LineOwners = new byte[0],
+            LineUnits = new byte[0]
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.LineModules, Is.Empty);
+        Assert.That(result.LineUnits, Is.Empty);
+    }
+
+    [Test]
     public void ShopLayout_RoundTripsANegativeSeed()
     {
         ClientboundShopLayoutPacket result = null;

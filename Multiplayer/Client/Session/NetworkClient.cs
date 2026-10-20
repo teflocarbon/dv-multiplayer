@@ -22,6 +22,7 @@ using MPAPI.Types;
 using Multiplayer.Client.Api;
 using Multiplayer.Client.Career;
 using Multiplayer.Client.Items;
+using Multiplayer.Client.Shops;
 using Multiplayer.Client.Players;
 using Multiplayer.Client.Trains;
 using Multiplayer.Client.UI;
@@ -130,9 +131,11 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         typeof(ServerboundItemRecallPacket),
         typeof(ServerboundItemRecallPreparedPacket),
         typeof(ServerboundMoneyItemDepositPacket),
-        typeof(ServerboundShopPaymentPacket),
+        typeof(ServerboundShopScanPacket),
+        typeof(ServerboundShopDepositPacket),
         typeof(ServerboundHazmatIgnitePacket),
-        typeof(ServerboundShopPurchasePacket),
+        typeof(ServerboundShopBuyPacket),
+        typeof(ServerboundShopCancelPacket),
         typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
@@ -274,6 +277,8 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     {
         Log("Stopping client");
         ShopShelfLayout.Reset();
+        ShopRegisterView.Reset();
+        ShopRegisterPatches.Reset();
         trainsetRelocationRevisions.Clear();
         pendingTrainsetRelocationRevisions.Clear();
         if (originalSession != null)
@@ -323,6 +328,8 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundHazmatTilesPacket>(OnClientboundHazmatTilesPacket);
         Handle<ClientboundShopStockPacket>(OnClientboundShopStockPacket);
         Handle<ClientboundShopLayoutPacket>(OnClientboundShopLayoutPacket);
+        Handle<ClientboundShopRegisterStatePacket>(OnClientboundShopRegisterStatePacket);
+        Handle<ClientboundShopRequestResultPacket>(OnClientboundShopRequestResultPacket);
         Handle<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
         Handle<ClientboundGadgetJoinSnapshotPacket>(OnClientboundGadgetJoinSnapshotPacket);
 

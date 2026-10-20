@@ -293,9 +293,8 @@ public partial class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundShopPaymentPacket, ITransportPeer>(OnServerboundShopPaymentPacket);
         netPacketProcessor.SubscribeReusable<ServerboundHazmatIgnitePacket, ITransportPeer>(OnServerboundHazmatIgnitePacket);
-        netPacketProcessor.SubscribeReusable<ServerboundShopPurchasePacket, ITransportPeer>(OnServerboundShopPurchasePacket);
+        SubscribeShops();
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
@@ -1066,6 +1065,7 @@ public partial class NetworkServer : NetworkManager
                 SendSleepState(peer);
                 SendShopStock(peer);
                 SendShopLayout(peer);
+                SendShopRegisters(peer);
 
                 // Send junctions and turntables
                 SendPacket(peer, new ClientboundRailwayStatePacket
@@ -1421,13 +1421,6 @@ public partial class NetworkServer : NetworkManager
 
     // Players given the first-join starter kit this session (ones with saved data never get it).
     internal readonly HashSet<Guid> StarterKitsGiven = new();
-
-    // Well above any basket; refunds are further capped by what the player has paid in.
-    private const double MaxShopPayment = 1_000_000;
-
-    // Players buy within a few metres of the till; the margin covers walking off while it sends.
-    private const float MaxShopPurchaseDistance = 50f;
-    private const double ShopPriceTolerance = 0.5;
 
     private sealed class PendingItemRecall
     {

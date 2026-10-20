@@ -32,7 +32,7 @@ public class NetworkedCashRegisterWithModules : IdMonoBehaviour<ushort, Networke
 
     public static void InitialiseCashRegisters()
     {
-        // Find all shop cash registers
+        // Shop registers are the server's alone (Server/Shops/ServerShops): not numbered here.
         var shopRegisters = GlobalShopController.Instance.globalShopList
             .Select(shop => shop.cashRegister)
             .ToArray();
@@ -41,6 +41,7 @@ public class NetworkedCashRegisterWithModules : IdMonoBehaviour<ushort, Networke
         //sort them by their hierarchy path for consistent ordering
         var registers = CashRegisterBase.allCashRegisters
             .OfType<CashRegisterWithModules>()
+            .Where(r => !shopRegisters.Contains(r))
             .OrderBy(r => r.transform.position.x)
             .ThenBy(r => r.transform.position.y)
             .ThenBy(r => r.transform.position.z)
@@ -52,7 +53,6 @@ public class NetworkedCashRegisterWithModules : IdMonoBehaviour<ushort, Networke
         {
             var netRegister = register.GetOrAddComponent<NetworkedCashRegisterWithModules>();
             netRegister.CashRegister = register;
-            netRegister.IsShopRegister = shopRegisters.Contains(register);
 
             if (netRegister.NetId == 0)
                 netRegister.Awake();
@@ -83,7 +83,6 @@ public class NetworkedCashRegisterWithModules : IdMonoBehaviour<ushort, Networke
     bool isBuying;
     bool isCancelling;
     bool isAddingCash;
-    public bool IsShopRegister { get; set; } = false;
 
     double pendingCashToAdd = 0;
     #endregion
