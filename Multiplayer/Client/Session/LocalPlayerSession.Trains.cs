@@ -29,7 +29,7 @@ public partial class LocalPlayerSession : ITrainClient
             car.Client()?.ReceiveAuthorityUpdate(packet.PortNetId, packet.State);
     }
 
-    public ITrainCarClientPart CreateCarPart(NetworkedTrainCar car) => new NetworkedTrainCarClient(car);
+    public ITrainCarClientPart CreateCarPart(NetworkedTrainCar car) => new NetworkedTrainCarClient(car, followsHost: false);
 
     // The host's world is the canonical topology: it follows nobody's.
     public bool TryFollowingHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)

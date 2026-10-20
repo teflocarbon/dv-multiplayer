@@ -41,8 +41,8 @@ public partial class NetworkServer : ITrainServer
 
     partial void RegisterLocalTrains()
     {
-        // Lever authority is ordered with the control commits it guards (ReliableOrdered on
-        // loopback). The host's commits are made directly (CommitHostControls), so a release,
+        // Lever authority is ordered with the control commits it guards (both ReliableOrdered on a
+        // client's connection). The host's commits are made directly (CommitHostControls), so a release,
         // queued after flushing its last commit, still follows it; and a grant needs no order
         // with them, since the host's commits take no lease.
         HandleLocal<ServerboundTrainControlAuthorityPacket>(HandleTrainControlAuthority);
@@ -843,9 +843,7 @@ public partial class NetworkServer : ITrainServer
         if (NetworkedTrainCar.TryGet(packet.NetId, out NetworkedTrainCar networkedTrainCar))
         {
             networkedTrainCar.Server()?.DirtyAllState();
-            // Never to the host's own client: it would apply an old snapshot to the world it owns.
-            if (peer != SelfPeer)
-                SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
+            SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
         }
     }
 
@@ -869,8 +867,6 @@ public partial class NetworkServer : ITrainServer
         string rangeFailure = null;
         bool IsInRange()
         {
-            if (NetworkLifecycle.Instance.IsHost(player))
-                return true;
             if (!NetworkedTrainCar.TryGet(packet.PrimaryCarNetId,
                     out NetworkedTrainCar primary) || primary?.TrainCar == null)
             {
@@ -987,7 +983,7 @@ public partial class NetworkServer : ITrainServer
     private void OnServerboundTrainTopologySyncRequestPacket(
         ServerboundTrainTopologySyncRequestPacket packet, ITransportPeer peer)
     {
-        if (!TryGetServerPlayer(peer, out _) || peer == SelfPeer)
+        if (!TryGetServerPlayer(peer, out _))
             return;
         SendPacket(peer, trainTopologyAuthority.Snapshot(), DeliveryMethod.ReliableOrdered);
     }
