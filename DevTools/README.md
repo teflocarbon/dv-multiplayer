@@ -11,6 +11,7 @@ run C# inside either game, take screenshots, and read logs. Debug-only; never sh
 | `Dvmp/` | `dvmp.exe`: discovers running agents, compiles C# probes against the game's own Mono libraries with publicized game/mod assemblies, and exposes everything as an MCP server (`dvmp mcp`) and a CLI. |
 | `Dvmp/Probes/*.cs` | Probes behind the tools (`host`, `join`, `snapshot`, `soak`, `trace-install`, `trace-show`) compiled and sent into the game at runtime. Edit them without rebuilding the agent. |
 | `Scenarios/` | Regression scenarios (`<name>/run.sh` plus its probes) and `gate.sh`, which runs them all. |
+| `DvmpScenarios/` | Regression scenarios in C#, replacing `Scenarios/` one at a time ([design](../docs/design/scenarios.md)): a net48 exe compiled against the mod, run by `dvmp scenario`. Its `[Step]` methods run inside the games through the agent's `/v1/load` and `/v1/invoke`. |
 
 ## Build
 
@@ -164,6 +165,20 @@ dvmp eval -t remote:bentgear "Dev.PlayerAbs"     # the MCP tools take target rem
 Each scenario is `DevTools/Scenarios/<name>/run.sh`, needs a running pair, and exits non-zero on
 failure; its header lists its variables. `gate.sh` runs the whole set against the running pair
 and prints PASS/FAIL per run. Run it after any change touching items, joins, ticks or trains.
+
+The ported ones are C# classes in `DvmpScenarios/Scenarios/` ([design](../docs/design/scenarios.md));
+gate.sh runs them too, with the same variables:
+
+```bash
+dotnet build DevTools/DvmpScenarios/DvmpScenarios.csproj -c Debug   # after building Multiplayer
+dvmp scenario list                                                  # names, options, defaults
+dvmp scenario run host-stall --session p1 --arg SPEED=10 --arg LAG=150
+```
+
+A scenario run never starts games: it needs the session's pair up, and exits 0 (pass), 1 (fail),
+2 (usage: an unknown option is an error) or 3 (harness: no pair, a stale install, the wrong kind of
+host). Steps are compiled once, loaded once per game launch, and run by name; the agent refuses a
+build compiled against another `Multiplayer.dll` than the game runs.
 
 ```bash
 bash DevTools/Scenarios/gate.sh                       # everything
