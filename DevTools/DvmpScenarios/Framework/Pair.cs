@@ -38,6 +38,10 @@ namespace Dvmp.Scenarios
         /// the given save or the session's default; the scenario assembly is loaded again on the next
         /// step. Needs [Needs(Need.RestartsGames)].</summary>
         public Task Restart(string save = null) => run.RestartAsync(save);
+
+        /// <summary>After the client quit or was killed (Client.Quit, Client.Kill): a client joins the
+        /// running host again, as `dvmp up` does when only the host is up. Needs [Needs(Need.RestartsGames)].</summary>
+        public Task Rejoin() => run.RejoinAsync();
     }
 
     public sealed class Peer
@@ -54,8 +58,35 @@ namespace Dvmp.Scenarios
         public string Name { get; }
 
         public Task Run(Expression<Action> call, int timeoutSeconds = 60) => Invoke<object>(StepCall.From(call), timeoutSeconds, null);
-        /// <summary>The framework's own steps (the leak check): not printed unless they fail.</summary>
+        /// <summary>The framework's own steps (the reset, the leak check): not printed unless they fail.</summary>
         internal Task<T> Quiet<T>(Expression<Func<T>> call) => Invoke<T>(StepCall.From(call), 60, null, quiet: true);
+        internal Task Quiet(Expression<Func<IEnumerator>> call) => Invoke<object>(StepCall.From(call), 90, null, quiet: true);
+        internal Task<T> Quiet<T>(Expression<Func<Step<T>, IEnumerator>> call) => Invoke<T>(StepCall.From(call), 90, null, quiet: true);
+
+        /// <summary>Quits this game the way a player does (Application.Quit) and waits for it to exit.</summary>
+        public Task Quit() => Stop(kill: false);
+
+        /// <summary>Kills this game's process, as a crash: nothing is saved or sent.</summary>
+        public Task Kill() => Stop(kill: true);
+
+        private async Task Stop(bool kill)
+        {
+            GameAgent agent = run.Agent(Name);
+            Stopwatch clock = Stopwatch.StartNew();
+            using (Process p = Process.GetProcessById(agent.Pid))
+            {
+                if (kill) p.Kill();
+                else
+                {
+                    try { await agent.CallAsync("/v1/quit", new JObject(), TimeSpan.FromSeconds(10)); }
+                    catch (HarnessException) { }   // the connection can drop as the game quits
+                }
+                if (!await Task.Run(() => p.WaitForExit(30_000)))
+                    throw new HarnessException($"{Name} #{agent.Pid} didn't exit within 30 s of {(kill ? "being killed" : "quitting")}");
+            }
+            run.Forget(Name);
+            run.Out.Line(Name, kill ? "Kill" : "Quit", "ok", clock.Elapsed);
+        }
         public Task Run(Expression<Func<IEnumerator>> call, int timeoutSeconds = 60) => Invoke<object>(StepCall.From(call), timeoutSeconds, null);
         public Task<T> Run<T>(Expression<Func<T>> call, int timeoutSeconds = 60) => Invoke<T>(StepCall.From(call), timeoutSeconds, null);
         public Task<T> Run<T>(Expression<Func<Step<T>, IEnumerator>> call, int timeoutSeconds = 60) => Invoke<T>(StepCall.From(call), timeoutSeconds, null);
@@ -98,6 +129,8 @@ namespace Dvmp.Scenarios
 
         internal async Task<T> Invoke<T>(StepCall call, int timeoutSeconds, string startedId, bool quiet = false)
         {
+            if (Name == "host" && call.Method.GetCustomAttributes(typeof(ClientOnlyAttribute), false).Length > 0)
+                throw new ScenarioException($"{call.Label} is [ClientOnly]: it uses the game's NetworkClient, which the host loses in stage 3");
             GameAgent agent = await run.EnsureLoadedAsync(Name);
             Stopwatch clock = Stopwatch.StartNew();
             if (startedId != null) run.Out.Line(Name, call.Label, "started");

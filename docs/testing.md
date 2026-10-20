@@ -124,7 +124,7 @@ code 3 is an ERROR. When a run needs a C# scenario, the gate first builds `DevTo
 (against the built `Multiplayer.dll`: build the mod first) and runs `dvmp scenario check`, so one
 that doesn't compile stops the gate before the first run. `dvmp scenario list` shows the C#
 scenarios with their options. Ported so far: `host-stall`, `cab-reload` (was `cab-controls
-MODE=cab-reload`) and `save-reload`. A failed C# run saves both games' screenshots and log lines
+MODE=cab-reload`), `save-reload` and `rejoin`. A failed C# run saves both games' screenshots and log lines
 into `$LOG_DIR/<scenario>-<time>-<session>/`.
 
 `ONLY` takes scenario or run names. Each run's output goes to `$LOG_DIR/<run>.log` (default a new
@@ -224,7 +224,7 @@ host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 | `explosion` | default | A client can't set off loco or tank-car explosions; a host explosion leaves both peers with the same burnt car, derailments and positions. |
 | `car-fire` | default | A client's comms radio damages a gasoline tank until it leaks on both peers, its lighter lights the leak, and the tank burns and explodes on both. A tank the host lights burns for the client too (#74). |
 | `hazmat` | default | Spilled and burning hazmat tiles match on both peers; a client's own spill does nothing. The games are read one after the other while a fire spreads, so a mismatch is read again for up to 4 s before it fails. |
-| `rejoin` | default; `CRASH=1` | A client quits (or is killed) holding an item; the host keeps its items and drops the held one, and the client gets exactly one of each back on rejoin. |
+| `rejoin` (C#) | default; `CRASH=1` | A client quits (or is killed) holding an item; the host keeps its items and drops the held one, and the client gets exactly one of each back on rejoin. |
 | `save-reload` (C#) | `CYCLES=2` | Repeated host save and reload: items don't multiply, fall from the sky or drift into Lost and Found. Each cycle restarts the pair as the same kind of host (the bash version came back as a player host on a dedicated pair). |
 | `inventory-persist` | default | A client's inventory item survives a host save and restart of both games, bound to the host, once. |
 | `host-player-persist` | default (skips on a dedicated host) | The host's own player is stored by GUID like any player: the host stashes a mug, saves, both games restart, and its whole inventory comes back once at the same place. The save is in the per-player format, with the host's items as records and DV's own inventory list kept for vanilla. |

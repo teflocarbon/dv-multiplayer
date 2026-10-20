@@ -49,7 +49,7 @@ namespace Dvmp.Scenarios
         public Abs At;
     }
 
-    public static class Cars
+    public static partial class Cars
     {
         // Cars the library's spawn steps made in this game since the last TakeSpawned: the leak check's
         // list. The world spawns cars of its own while a run goes on (StationLocoSpawner puts locos
@@ -311,7 +311,7 @@ namespace Dvmp.Scenarios
         }
     }
 
-    public static class Players
+    public static partial class Players
     {
         /// <summary>Puts this game's player on the car's floor, attached the way the game attaches a
         /// player who steps on: to the car's interior (#171). The only boarding path.</summary>
@@ -322,7 +322,7 @@ namespace Dvmp.Scenarios
         public static IEnumerator TeleportToGround(float x, float z) => LocalPlayer.TeleportToGround(x, z);
     }
 
-    public static class Net
+    public static partial class Net
     {
         /// <summary>Delays every packet this game receives (Steam's fake lag); 0 turns it off.</summary>
         [Step]
