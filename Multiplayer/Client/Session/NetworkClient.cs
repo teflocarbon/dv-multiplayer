@@ -131,6 +131,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         typeof(ServerboundItemSpatialSettlementPacket),
         typeof(ServerboundItemTrainWakeWitnessPacket),
         typeof(ServerboundJobBookletSummonRequestPacket),
+        typeof(ServerboundJobRerollRequestPacket),
         typeof(CommonPaintThemePacket),
         typeof(CommonCashRegisterWithModulesActionPacket),
         typeof(ServerboundTrainControlAuthorityPacket),

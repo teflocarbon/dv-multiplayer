@@ -186,4 +186,14 @@ public partial class NetworkClient
             StationNetId = stationNetId
         }, DeliveryMethod.ReliableOrdered);
     }
+
+    public void SendJobRerollRequest(ushort jobNetId, ushort itemNetId, Vector3 binPosition)
+    {
+        SendPacketToServer(new ServerboundJobRerollRequestPacket
+        {
+            JobNetId = jobNetId,
+            ItemNetId = itemNetId,
+            BinPosition = binPosition
+        }, DeliveryMethod.ReliableOrdered);
+    }
 }
