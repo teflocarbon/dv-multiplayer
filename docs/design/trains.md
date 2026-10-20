@@ -437,8 +437,16 @@ The comms radio's car delete, rerail and work-train summon are requests too, the
 handled in-process like the lever leases (`HandleTrainDelete`, `HandleTrainRerail`,
 `HandleWorkTrain`), validated like anyone's; the work train's range check reads the host player's
 own position too. Every work-train request is answered (`SpawnResponse`, "in use" for a refusal with
-no reason of its own); the host player's answer goes back through its client, which holds the
+no reason of its own); the host player's answer goes back through its peer to whatever holds the
 radio's RPC ticket. The host doesn't send a firebox ignite: its fire is lit in its own world.
+
+The host's player makes these requests through `ITrainClient` (`TrainRoles.Client`), never through
+`NetworkClient`: on a client it's `NetworkClient`, which sends them; on a player host with
+`-mp-local-session` (host-local-session stage 3) it's the host's `LocalPlayerSession`
+(`LocalPlayerSession.Trains.cs`), which hands the same packets to the server in-process and
+subscribes the lease updates its cab needs (`ClientboundTrainControlAuthorityUpdatePacket`), the
+one train packet the host's player is sent; until stage 3 ends, the loopback client still does both
+without the switch. A dedicated host has no session, so its cars have no local-player half.
 
 ### Where the code is, by role
 
@@ -462,9 +470,9 @@ changes and chain interactions, and on a client, following the host (played-out 
 port values, motion, derail and rerail, brake state, commits). The car makes it from the local
 session (`ITrainClient.CreateCarPart`, `TrainRoles.Client` = `LocalSession as ITrainClient`) and
 calls it through `ITrainCarClientPart` at the end of `Start`, in `OnDisable`, from its sends, and
-when the host's port values land. Client code reaches it as `car.Client()`. In host-local-session
-stage 3 the host's session has to implement `ITrainClient` too, or the host's cars get no
-local-player half (no lever leases, no chain interactions reported).
+when the host's port values land. Client code reaches it as `car.Client()`. On a player host
+with `-mp-local-session` the host's `LocalPlayerSession` implements `ITrainClient` and makes the
+same part, its follower half off; a dedicated host has none.
 
 The car's own changes (dirty ports, fuses, handbrake, brake release, paint) go through one of the
 two, its `Role` (`ITrainCarRole`, both parts implement it): the server's half on the server, which

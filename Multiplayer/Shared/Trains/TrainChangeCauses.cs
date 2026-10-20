@@ -37,7 +37,7 @@ internal static class TrainChangeCauses
     /// <summary>A cause acted by this peer's own player (a host playing, or vanilla code on a client).</summary>
     internal static ChangeCause<TReason> LocalCause<TReason>(TReason reason, string detail = null)
         where TReason : struct, Enum
-        => new(reason, NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0, TrainRoles.Client?.Username, Tick, detail);
+        => new(reason, NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0, NetworkLifecycle.Instance?.LocalSession?.Username, Tick, detail);
 
     private static uint Tick => NetworkLifecycle.Instance != null ? NetworkLifecycle.Instance.Tick : 0;
 

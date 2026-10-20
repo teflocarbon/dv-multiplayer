@@ -34,7 +34,7 @@ public static class CommsRadioCarDeleterPatch
             return false;
         }
 
-        NetworkClient.Instance.SendTrainDeleteRequest(networkedTrainCar.NetId);
+        TrainRoles.Client?.SendTrainDeleteRequest(networkedTrainCar.NetId);
 
         CoroutineManager.Instance.StartCoroutine(PlaySoundsLater(__instance, __instance.carToDelete.transform.position, __instance.removePrice > 0));
         __instance.ClearFlags();

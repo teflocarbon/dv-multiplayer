@@ -1371,7 +1371,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             foreach (uint leased in PortsOf(portNetId))
             {
                 locallyOwnedPortAuthorities.Add(leased);
-                NetworkClient.Instance?.SendTrainControlAuthorityRequest(NetId, leased, true);
+                TrainRoles.Client?.SendTrainControlAuthorityRequest(NetId, leased, true);
             }
         }
     }
@@ -1495,7 +1495,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         foreach (uint released in PortsOf(portNetId))
         {
             locallyOwnedPortAuthorities.Remove(released);
-            NetworkClient.Instance?.SendTrainControlAuthorityRequest(NetId, released, false);
+            TrainRoles.Client?.SendTrainControlAuthorityRequest(NetId, released, false);
         }
     }
 
