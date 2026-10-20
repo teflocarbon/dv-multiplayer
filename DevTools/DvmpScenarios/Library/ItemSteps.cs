@@ -293,7 +293,7 @@ namespace Dvmp.Scenarios
         /// <summary>
         /// Host: a car of <paramref name="livery"/> (an ID, or the first livery whose ID starts with
         /// it: "Flatbed") on the track nearest a point around a player, <paramref name="near"/>
-        /// "host" or "client" (a dedicated host's player is parked away from the run), as
+        /// "host" or "client" (on a dedicated host, the host's player transform follows the client), as
         /// Trains.SpawnNearPlayer does around the host's. Result: its ID, 120 frames later.
         /// </summary>
         [Step]

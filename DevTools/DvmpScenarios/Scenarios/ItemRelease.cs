@@ -63,8 +63,9 @@ namespace Dvmp.Scenarios
                 }
                 case "throw-flatcar":
                 {
-                    // Around the host's player, as the bash scenario did; a dedicated host's is parked away from the run.
-                    string car = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "Flatbed", pair.Dedicated ? "client" : "host"));
+                    // Around the host's player, as the bash scenario did (on a dedicated host, its player
+                    // transform follows the client).
+                    string car = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "Flatbed", "host"));
                     pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, new[] { car })));
                     item = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Lantern", "client"));
                     Report.Note($"client throws lantern {item} onto {car}");
