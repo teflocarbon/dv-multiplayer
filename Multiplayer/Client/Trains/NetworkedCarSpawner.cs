@@ -61,6 +61,14 @@ public static class NetworkedCarSpawner
                     CommsRadioController.PlayAudioFromCar(CommsRadioCarSpawnerPatch.SpawnVehicleSound, cars[i].TrainCar, false);
             }
 
+            // A car out of DV's pool keeps its rigidbodies where the pool had it (2 km under the map
+            // where the pool made it, or where its last life was deleted) until a physics step
+            // catches them up with the transforms. The host sends a new car's full sync on its first tick, which usually
+            // arrives before that step: it saw the car kilometres off and "snapped" the body back,
+            // moving each bogie by the body's shift from its own parked pose, which lands the bogies
+            // wherever the old heading put them. The couplings below also join the bodies.
+            Physics.SyncTransforms();
+
             // Set brake params
             for (int i = 0; i < cars.Length; i++)
                 SetBrakeParams(parts[i].BrakeData, cars[i].TrainCar);

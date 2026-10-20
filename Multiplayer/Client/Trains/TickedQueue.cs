@@ -27,6 +27,8 @@ public abstract class TickedQueue<T> : MonoBehaviour
             return;
         NetworkLifecycle.Instance.OnTick -= OnTick;
         lastTick = 0;
+        // DV's pool reuses the car, queues and all: the next life isn't a gap since this one.
+        lastReceivedTick = 0;
         DebugDiagnostics.QueueCleared(GetType().Name, GetID(), snapshots.Count);
         snapshots.Clear();
         identifier = string.Empty;

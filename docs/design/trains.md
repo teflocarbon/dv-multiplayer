@@ -249,6 +249,16 @@ decision changes (`NetworkedTrainCarServer.KeepCompressorSignal`).
   (`Shared/Session/NetworkLifecycle.cs`; 274c250).
 - Full syncs use the transform instead of the rigidbody while a just-spawned car's body is still
   at its pooled position (c2d0d5f).
+- The client's half of that: a client spawning a trainset calls `Physics.SyncTransforms()` once
+  its cars are placed (`NetworkedCarSpawner.TrySpawnCars`). DV syncs transforms into bodies only on
+  physics steps and origin shifts, and a car out of the pool keeps its bodies where the pool had
+  it: 2 km under the map where the pool made it, or where its last life was deleted. The host's
+  first full sync of a new car usually arrived before that step, found the body kilometres off and
+  "snapped" it, moving each bogie by the body's shift from the bogie's own parked pose, so the
+  bogies landed wherever the old heading put them. The "full sync 2265 m off" / "11130 m off"
+  warnings seen after client teleports were these: new job cars at the station the client had
+  just reached, not stationary cars missing an origin shift (`WorldMover.MoveWorld` moves the car
+  transforms and calls `Physics.SyncTransforms()` itself).
 - Stopped cars settle where the host's stopped (#61), including after pile-ups under lag (#63: single
   cars are placed kinematically, coupled ones driven; see "What the code does"). The host sends a set reliably on the tick it
   stops; clients hold a car the host reports as stopped at the host's position without touching
@@ -1064,7 +1074,8 @@ Full-sync positions are a safety net. The host pose is projected forward by the 
 (capped at 0.5 s); if the car is more than 5 m from it (`POSITION_UPDATE_THRESHOLD` in
 `NetworkedTrainCar`), the body and its bogies are moved there and stopped, its rotation is left
 alone, and the motion queues and train stress are reset. `isKinematic` is only written when it
-changes.
+changes. The check reads the rigidbody, so the bodies must be in step with their transforms: a
+newly spawned trainset is synced at once for that (see "Motion" under "Implementation status").
 
 Derailment: a rigidbody snapshot for an on-rail client car clears its bogie samples (they are for
 the rails it left), calls `TrainCar.Derail()` once, then interpolates the snapshots
