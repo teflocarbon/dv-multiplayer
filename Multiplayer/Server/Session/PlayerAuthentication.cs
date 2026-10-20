@@ -30,11 +30,14 @@ internal sealed class PlayerAuthentication : IDisposable
         public readonly Guid PlayerId;
         // The verified account, or 0 when there was no ticket to check.
         public readonly ulong SteamId;
+        // The host's own client, proved by HostToken: it becomes the server's LocalPlayer.
+        public readonly bool IsLocalPlayer;
 
-        public Identity(Guid playerId, ulong steamId)
+        public Identity(Guid playerId, ulong steamId, bool isLocalPlayer = false)
         {
             PlayerId = playerId;
             SteamId = steamId;
+            IsLocalPlayer = isLocalPlayer;
         }
     }
 
@@ -63,7 +66,7 @@ internal sealed class PlayerAuthentication : IDisposable
         {
             identity = new Identity(NetworkLifecycle.Instance.IsDedicatedHost
                 ? Multiplayer.Settings.GetServiceGuid()
-                : PlayerIdentity.Local, 0);
+                : PlayerIdentity.Local, 0, isLocalPlayer: true);
             return true;
         }
 
