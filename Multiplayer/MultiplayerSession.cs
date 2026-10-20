@@ -154,6 +154,9 @@ public class MultiplayerSession : MonoBehaviour
         ServerPlayer player = server.AddLocalPlayer(session.Username, Multiplayer.Settings.CharacterId, VRManager.IsVREnabled(), session.Peer);
         session.OnAdmitted(player.PlayerId, player.Username);
         DebugRuntime.SetRole("host", player.Username, player.PlayerId);
+
+        // Register client API: mods see the host's player as they see a client's
+        MultiplayerAPI.RegisterClient(new ClientAPIProvider(session));
         OnSettingsUpdated(Multiplayer.Settings); // Show stats if enabled
     }
 
@@ -182,6 +185,7 @@ public class MultiplayerSession : MonoBehaviour
         if (localSession != null)
         {
             localSession.Stop();
+            MultiplayerAPI.ClearClient();
             localSession = null;
             NetworkLifecycle.Instance.AttachClient(null, null);
         }

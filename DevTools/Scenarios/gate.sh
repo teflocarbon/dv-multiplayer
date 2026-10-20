@@ -98,6 +98,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "host-session|host-session||player"
   "local-session|local-session|"
   "host-chat|host-chat|"
+  "mpapi-roundtrip|mpapi-roundtrip|"
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
   "overview-pickup|overview-pickup|"

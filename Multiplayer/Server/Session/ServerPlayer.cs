@@ -43,6 +43,28 @@ public class ServerPlayer : IDisposable
     /// <see cref="global::Multiplayer.Server.Session.NetworkServer.GameplayPlayers"/> wherever "the players" are meant.
     /// </summary>
     public bool IsServiceHost => NetworkLifecycle.Instance.IsDedicatedHost && NetworkLifecycle.Instance.IsHost(this);
+
+    /// <summary>
+    /// The sender of a dedicated host's console commands when it has no service identity
+    /// (docs/design/host-local-session.md, stage 3): not a player, never in the server's list, no id
+    /// and no peer. Made by <see cref="CreateConsole"/> only.
+    /// </summary>
+    public bool IsConsole { get; private set; }
+
+    /// <summary>A console sender (<see cref="IsConsole"/>) named <paramref name="username"/>.</summary>
+    public static ServerPlayer CreateConsole(string username) => new(username);
+
+    private ServerPlayer(string username)
+    {
+        IsConsole = true;
+        LastLogin = DateTime.UtcNow;
+        Username = username;
+        OriginalUsername = username;
+        Inventory = new StorageBase
+        {
+            storageType = DV.ThingTypes.StorageType.Inventory
+        };
+    }
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     public DateTime LastLogin { get; set; }
     private float PreviousPlayTime { get; set; }
