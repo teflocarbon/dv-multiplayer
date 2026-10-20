@@ -64,6 +64,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "cab-controls|cab-controls|"
   "cab-controls-authority|cab-controls|MODE=authority"
   "cab-controls-no-grab|cab-controls|MODE=no-grab-sequence"
+  "cab-controls-reload|cab-controls|MODE=cab-reload"
   "settle-window|settle-window|"
   "compressor-signal|compressor-signal|"
   "stoker-coal|stoker-coal|"

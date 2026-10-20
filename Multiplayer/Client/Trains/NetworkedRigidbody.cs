@@ -4,7 +4,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Trains;
+namespace Multiplayer.Client.Trains;
 
 public class NetworkedRigidbody : TickedQueue<RigidbodySnapshot>
 {

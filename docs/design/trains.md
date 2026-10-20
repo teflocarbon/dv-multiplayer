@@ -139,12 +139,18 @@ host applies them and answers with `ClientboundTrainControlCommitPacket`. The th
 and a brake-line member digest).
 
 A client only sends a cab control's port while it holds that control's lease, so every control has
-to be hooked when the cab loads (`NetworkedTrainCar.HookControls`). The port comes from the controls
+to be hooked when the cab loads (`NetworkedTrainCarClient.HookInteriorControls`). The port comes from the controls
 overrider or, failing that, the control's `InteractablePortFeeder`, and a second pass hooks
 feeder-driven controls the `InteriorControlsManager` doesn't list (the DE2's cab fan). A control
 that feeds several ports (the CCL C Class's bright switch feeds the front and rear headlights)
-leases and releases them together. The controls are hooked once they're all set up, a few frames
-after the cab loads, with one shared timeout rather than one per control. The lease is
+leases and releases them together. Each control is hooked once its implementation exists, which
+vanilla adds as the cab is made (`ControlSpec.Awake`), so within a frame or two of the cab's
+controls manager starting, at any frame rate. One that takes longer is hooked when it's ready,
+for as long as that cab stays loaded, and logged after 2 s. Until 2026-10-20 a control with no port
+(a handbrake, a fuse) never counted as ready, so every cab with one waited the whole 2 s before
+hooking anything: a lever grabbed in that window took no lease. A cab unloaded meanwhile is
+left alone (its hook pass threw). An unhooked control still syncs through the no-lease path below,
+but takes no lease and isn't blocked while another player holds it. The lease is
 taken on `Grabbed` (levers, knobs, flat-screen buttons), on hover-scrolling, and on `Used`: VR
 buttons and toggle switches, and keyboard presses, work through `Use()` and never raise `Grabbed`.
 A `Used` lease is handed back 0.5 s later, once the change has been sent. Fuses, the handbrake and
