@@ -37,7 +37,7 @@ public class ServerPitStopStation : MonoBehaviour
 
     private bool carEnteredSubscribed;
 
-    private static NetworkServer Server => NetworkLifecycle.Instance.Server;
+    private static NetworkServer Server => NetworkServer.Instance;
 
     public static bool TryGet(ushort netId, out ServerPitStopStation server)
     {

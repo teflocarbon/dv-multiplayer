@@ -10,6 +10,7 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Stations;
 
@@ -38,7 +39,7 @@ public class CashRegisterBasePatch
             // never paid, and its next update handed the money back - clients shopped for free.
             if (!NetworkLifecycle.Instance.IsHost() && !NetworkLifecycle.Instance.IsProcessingPacket &&
                 amount > double.Epsilon)
-                NetworkLifecycle.Instance.Client?.SendShopPayment(amount);
+                NetworkClient.Instance?.SendShopPayment(amount);
             return true;
         }
 
@@ -64,7 +65,7 @@ public class CashRegisterBasePatch
 
         // A printed note would only exist on this client, so spending it later would credit nothing.
         // Hand the change back through the host, which caps it at what this player paid in.
-        NetworkLifecycle.Instance.Client?.SendShopPayment(-__instance.DepositedCash);
+        NetworkClient.Instance?.SendShopPayment(-__instance.DepositedCash);
         __instance.SetCash(0);
         return false;
     }

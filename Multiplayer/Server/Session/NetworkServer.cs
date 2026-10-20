@@ -755,7 +755,7 @@ public partial class NetworkServer : NetworkManager
     {
         if (!string.IsNullOrEmpty(message) && recipient != null && recipient.Peer != null)
         {
-            NetworkLifecycle.Instance.Server.SendPacket
+            NetworkServer.Instance.SendPacket
             (
                 recipient.Peer,
                 new CommonChatPacket

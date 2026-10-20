@@ -40,7 +40,7 @@ internal sealed partial class ServerItemManager
         NetworkedItem[] lostItems = NetworkedLostAndFoundManager.Count == 0 ? Array.Empty<NetworkedItem>() :
             NetworkedItem.GetAll().Where(item => item != null && NetworkedLostAndFoundManager.Contains(item.NetId))
                 .Distinct().ToArray();
-        foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (var player in NetworkServer.Instance.ServerPlayers)
         {
             if (player.LoadingState < PlayerLoadingState.ReadyForItems)
                 continue;
@@ -61,11 +61,11 @@ internal sealed partial class ServerItemManager
             foreach (NetworkedItem item in lostItems)
             {
                 player.NearbyItems.Remove(item);
-                if (player.Peer != NetworkLifecycle.Instance.Server.SelfPeer &&
+                if (player.Peer != NetworkServer.Instance.SelfPeer &&
                     !player.KnownItems.ContainsKey(item) &&
                     NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out ItemUpdateData tombstone))
                 {
-                    NetworkLifecycle.Instance.Server.SendItemUpdatePacket(tombstone, player);
+                    NetworkServer.Instance.SendItemUpdatePacket(tombstone, player);
                     player.KnownItems[item] = NetworkLifecycle.Instance.Tick;
                 }
             }
@@ -106,7 +106,7 @@ internal sealed partial class ServerItemManager
                          .Where(item => item == null || !desiredItems.Contains(item)).ToArray())
             {
                 player.NearbyItems.Remove(leaving);
-                if (leaving != null && player.Peer != NetworkLifecycle.Instance.Server.SelfPeer &&
+                if (leaving != null && player.Peer != NetworkServer.Instance.SelfPeer &&
                     player.KnownItems.Remove(leaving))
                 {
                     // Authority ends when host interest ends. The later client acknowledgement
@@ -116,7 +116,7 @@ internal sealed partial class ServerItemManager
                     if (retirement != null)
                     {
                         retirement.TransitionReason = ItemTransitionReason.InterestRetirement;
-                        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(retirement, player);
+                        NetworkServer.Instance.SendItemUpdatePacket(retirement, player);
                     }
                 }
                 if (leaving != null)
@@ -149,7 +149,7 @@ internal sealed partial class ServerItemManager
                                    HasOwnerRecallClaim(record);
         if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
         {
-            ServerPlayer holder = NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player =>
+            ServerPlayer holder = NetworkServer.Instance.ServerPlayers.FirstOrDefault(player =>
                 player.PlayerId == record.PlacementPlayerId);
             bool holderNearby = holder != null && recipientCells.Contains(
                 WorldItemCellCoord.FromAbsolute(holder.AbsoluteWorldPosition));
@@ -234,7 +234,7 @@ internal sealed partial class ServerItemManager
     {
         List<ItemUpdateData> dirtyItems = [];
         float timeStamp = Time.time;
-        ServerPlayer hostPlayer = NetworkLifecycle.Instance.Server.LocalPlayer;
+        ServerPlayer hostPlayer = NetworkServer.Instance.LocalPlayer;
 
         foreach (var item in NetworkedItem.GetAll())
         {
@@ -265,14 +265,14 @@ internal sealed partial class ServerItemManager
             }
         }
 
-        //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) DirtyItems: {dirtyItems.Count}");
+        //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) DirtyItems: {dirtyItems.Count}");
 
-        foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (var player in NetworkServer.Instance.ServerPlayers)
         {
             if (player.LoadingState < PlayerLoadingState.ReadyForItems)
                 continue;
 
-            if (player.Peer == NetworkLifecycle.Instance.Server.SelfPeer)
+            if (player.Peer == NetworkServer.Instance.SelfPeer)
                 continue;
 
             List<ItemUpdateData> playerUpdates = [];
@@ -305,7 +305,7 @@ internal sealed partial class ServerItemManager
                 if (delivery.Kind == ItemDeliveryKind.Create)
                 {
                     // This is a new item for the player
-                    //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) New item for: {player.Username}, itemNetID{nearbyItem.NetId}");
+                    //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) New item for: {player.Username}, itemNetID{nearbyItem.NetId}");
 
                     ItemUpdateData snapshot = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
                     if (snapshot != null && hostPlayer != null)
@@ -322,7 +322,7 @@ internal sealed partial class ServerItemManager
                     if (nearbyItem.GetTrackedItem<JobReport>() != null &&
                         JobReportArtifactRegistry.TryGet(nearbyItem.NetId, out JobReportArtifactData reportArtifact))
                     {
-                        NetworkLifecycle.Instance.Server.SendJobReportArtifact(reportArtifact, player);
+                        NetworkServer.Instance.SendJobReportArtifact(reportArtifact, player);
                     }
                     if (delivery.MarkKnown)
                         player.KnownItems[nearbyItem] = tick;
@@ -342,7 +342,7 @@ internal sealed partial class ServerItemManager
                 }
                 else
                 {
-                    //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) Item exists for: {player.Username}, {dirtyUpdate != null}");
+                    //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) Item exists for: {player.Username}, {dirtyUpdate != null}");
                     if (delivery.Kind == ItemDeliveryKind.FullSync)
                         dirtyUpdate = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
 
@@ -355,7 +355,7 @@ internal sealed partial class ServerItemManager
                 }
             }
 
-            //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) Adding {DestroyedItems.Count()} DestroyedItems for: {player.Username}");
+            //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) Adding {DestroyedItems.Count()} DestroyedItems for: {player.Username}");
 
             playerUpdates.AddRange(DestroyedItems.Where(snapshot =>
                 DestroyRecipients.TryGetValue(snapshot, out HashSet<byte> recipients) &&
@@ -363,8 +363,8 @@ internal sealed partial class ServerItemManager
 
             if (playerUpdates.Count > 0)
             {
-                //NetworkLifecycle.Instance.Server.LogDebug(() => $"ProcessChanged({tick}) Sending {playerUpdates.Count()} to player: {player.Username}");
-                NetworkLifecycle.Instance.Server.SendItemsBulkUpdatePacket(playerUpdates, player);
+                //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) Sending {playerUpdates.Count()} to player: {player.Username}");
+                NetworkServer.Instance.SendItemsBulkUpdatePacket(playerUpdates, player);
                 HostSpatial.SendActiveLeasesTo(player, playerUpdates);
             }
         }

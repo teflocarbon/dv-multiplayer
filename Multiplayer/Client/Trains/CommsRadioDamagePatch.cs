@@ -4,6 +4,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -27,7 +28,7 @@ public static class CommsRadioDamagePatch
             return false;
 
         bool derail = __instance.opMode == CommsRadioDamage.OperationMode.Derail;
-        NetworkLifecycle.Instance.Client.SendSandboxCarDamage(networkedCar.NetId, (byte)__instance.damageLevel, derail);
+        NetworkClient.Instance.SendSandboxCarDamage(networkedCar.NetId, (byte)__instance.damageLevel, derail);
         if (!derail && AudioManager.Instance != null && AudioManager.Instance.derailHitClip != null)
             AudioManager.Instance.derailHitClip.Play(car.transform.position, 1f, 1f, 0f, 10f, 500f, default, null, car.transform);
         CommsRadioController.PlayAudioFromRadio(__instance.confirmSound, __instance.transform);

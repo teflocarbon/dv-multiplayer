@@ -32,7 +32,7 @@ cleanup() {
   [ -n "$car" ] && $D eval -t host -m body "Trains.Delete(Trains.Find(\"$car\")); return 0;" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
-client_id=$($D eval -t client -m body 'return new { id = (int)Multiplayer.Shared.Session.NetworkLifecycle.Instance.Client.PlayerId };' | field id)
+client_id=$($D eval -t client -m body 'return new { id = (int)Multiplayer.Client.Session.NetworkClient.Instance.PlayerId };' | field id)
 
 case $MODE in
 regrab|regrab-late)

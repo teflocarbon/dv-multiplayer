@@ -127,7 +127,7 @@ public static class DvExtensions
 
         //Loop through all of the players and return the one thats closest to the anchor (a
         //dedicated host's parked body isn't a player)
-        foreach (ServerPlayer serverPlayer in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (ServerPlayer serverPlayer in NetworkServer.Instance.ServerPlayers)
         {
             if (serverPlayer.IsServiceHost)
                 continue;
@@ -174,7 +174,7 @@ public static class DvExtensions
     public static bool AllowPause()
     {
         return NetworkLifecycle.Instance.IsHost() &&
-            (NetworkLifecycle.Instance.Server.IsSinglePlayer ||
+            (NetworkServer.Instance.IsSinglePlayer ||
             (NetworkLifecycle.Instance.IsHostPlayingAlone && NetworkLifecycle.Instance.IsClientRunning) ||
             DedicatedHost.AllowsPause);
     }

@@ -5,6 +5,7 @@ using Multiplayer.Shared.Utils;
 using System;
 using System.Collections;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Players;
 
@@ -89,7 +90,7 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour, ILocalPlayerTracke
 
         ServerboundPlayerPositionPacket packet = Sample(out bool reliable);
         if (packet != null)
-            NetworkLifecycle.Instance.Client.SendPlayerPosition(packet, reliable);
+            NetworkClient.Instance.SendPlayerPosition(packet, reliable);
     }
 
     public ServerboundPlayerPositionPacket Sample(out bool reliable)

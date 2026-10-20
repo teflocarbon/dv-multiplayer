@@ -56,8 +56,8 @@ public static class ItemChangeLog
     }
 
     public static string PlayerName(byte playerId) =>
-        playerId != 0 && NetworkLifecycle.Instance?.Server != null &&
-        NetworkLifecycle.Instance.Server.TryGetServerPlayer(playerId, out ServerPlayer player)
+        playerId != 0 && NetworkServer.Instance != null &&
+        NetworkServer.Instance.TryGetServerPlayer(playerId, out ServerPlayer player)
             ? player.Username : null;
 
     private static string Name(NetworkedItem item, AuthoritativeItemRegistry.Record record) =>

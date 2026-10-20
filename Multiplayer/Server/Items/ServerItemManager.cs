@@ -84,7 +84,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
 
     public void ReceiveLocalTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet)
     {
-        ServerPlayer hostPlayer = NetworkLifecycle.Instance.Server.LocalPlayer;
+        ServerPlayer hostPlayer = NetworkServer.Instance.LocalPlayer;
         if (hostPlayer != null)
             TrainItemWake.ReceiveImpactWitness(packet, hostPlayer);
     }
@@ -103,7 +103,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         DestroyRecipients[snapshot] = recipients;
         UnregisterHostWorldItem(netItem);
 
-        foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (var player in NetworkServer.Instance.ServerPlayers)
         {
             if (player.KnownItems.ContainsKey(netItem))
             {

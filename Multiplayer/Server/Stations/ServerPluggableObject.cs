@@ -24,7 +24,7 @@ public class ServerPluggableObject : MonoBehaviour
     public NetworkedPluggableObject Plug { get; private set; }
     private ServerPitStopStation station;
 
-    private static NetworkServer Server => NetworkLifecycle.Instance.Server;
+    private static NetworkServer Server => NetworkServer.Instance;
 
     // Called by hand, once: the plug can be inactive, and Unity only runs Awake once it's active.
     public void Init(ServerPitStopStation station)

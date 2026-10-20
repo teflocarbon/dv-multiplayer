@@ -3,6 +3,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Session;
 using System;
 using System.Diagnostics;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.World;
 
@@ -35,7 +36,7 @@ public static class TimeAdvancePatch
         // Client sleeping: the bed menu already showed the shared cooldown; the host checks it again.
         if (sleep)
         {
-            NetworkLifecycle.Instance.Client.SendTimeAdvance(amountOfTimeToSkipInSeconds, true);
+            NetworkClient.Instance.SendTimeAdvance(amountOfTimeToSkipInSeconds, true);
             return true;
         }
 
@@ -43,7 +44,7 @@ public static class TimeAdvancePatch
         if (!FastTravelAdvancesTime)
             return false;
 
-        NetworkLifecycle.Instance.Client.SendTimeAdvance(amountOfTimeToSkipInSeconds);
+        NetworkClient.Instance.SendTimeAdvance(amountOfTimeToSkipInSeconds);
         return true;
     }
 }

@@ -696,7 +696,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
 
         LogDebug(() => $"OnPeerDisconnected({peer.Id}, {disconnectReason}) disconnect message: {disconnectMessage}");
 
-        NetworkLifecycle.Instance.Stop();
+        MultiplayerSession.Instance.Stop();
 
         TrainStress.globalIgnoreStressCalculation = false;
 

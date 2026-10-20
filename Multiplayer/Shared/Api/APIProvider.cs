@@ -7,6 +7,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using System;
 using System.Collections.Generic;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Shared.Api;
 
@@ -26,7 +27,7 @@ public class APIProvider : IMultiplayerAPI
 
     public bool IsDedicatedServer => NetworkLifecycle.Instance.IsDedicatedHost;
 
-    public bool IsSinglePlayer => NetworkLifecycle.Instance.IsServerRunning && (NetworkLifecycle.Instance?.Server.IsSinglePlayer ?? false);
+    public bool IsSinglePlayer => NetworkLifecycle.Instance.IsServerRunning && (NetworkServer.Instance?.IsSinglePlayer ?? false);
 
     public event Action<uint> OnTick;
     public uint TICK_RATE => NetworkLifecycle.TICK_RATE;

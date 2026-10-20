@@ -4,6 +4,7 @@ using DV.ServicePenalty;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Career;
 
@@ -23,7 +24,7 @@ public static class SimulatedCarDebtTrackerPatch
     private static bool Prefix(SimulatedCarDebtTracker __instance)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsHost() || lifecycle.Server == null || (lifecycle.Server.PlayerCount <= 1 && !lifecycle.IsDedicatedHost))
+        if (lifecycle == null || !lifecycle.IsHost() || NetworkServer.Instance == null || (NetworkServer.Instance.PlayerCount <= 1 && !lifecycle.IsDedicatedHost))
             return true;
 
         DamageController damage = DamageController(__instance);

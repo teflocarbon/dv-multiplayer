@@ -10,7 +10,7 @@ var validator = NetworkedStationController.GetFromStationController(st, out var 
 var bin = UnityEngine.Object.FindObjectsOfType<JobAbandoner>()
     .OrderBy(b => Vector3.Distance(b.transform.position, validator != null ? validator.transform.position : st.transform.position)).First();
 var registry = TrainCarRegistry.Instance.logicCarToTrainCar;
-var players = NetworkLifecycle.Instance.Server.ServerPlayers.Select(p => p.CarId).ToHashSet();
+var players = Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers.Select(p => p.CarId).ToHashSet();
 var candidates = new List<(NetworkedJob nj, List<TrainCar> cars, TrainCar near, float distance)>();
 foreach (var job in st.logicStation.availableJobs.ToList())
 {

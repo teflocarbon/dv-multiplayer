@@ -124,7 +124,7 @@ public static class NetworkedItemServer
         }
 
         // Allow host to process packet if not from a local client
-        if (!NetworkLifecycle.Instance.IsClientRunning || (NetworkLifecycle.Instance.IsClientRunning && senderPlayer != NetworkLifecycle.Instance.Server.LocalPlayer))
+        if (!NetworkLifecycle.Instance.IsClientRunning || (NetworkLifecycle.Instance.IsClientRunning && senderPlayer != NetworkServer.Instance.LocalPlayer))
         {
             item.ProcessingAsHost = true;
             item.ReceiveSnapshot(snapshot);
@@ -138,12 +138,12 @@ public static class NetworkedItemServer
         //NetworkedItemManager.Instance.AddDirtyItemSnapshot(item, snapshot);
         // The sender also receives the canonical revision/owner projection. Applying an
         // acknowledgement is idempotent and prevents the next transition using a stale revision.
-        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
     }
 
     private static void SendCanonicalRejectionCorrection(this NetworkedItem item, ServerPlayer senderPlayer, string rejectionReason)
     {
-        if (senderPlayer == null || NetworkLifecycle.Instance?.Server == null)
+        if (senderPlayer == null || NetworkServer.Instance == null)
             return;
         bool lostAndFoundProjection = NetworkedLostAndFoundManager.TryCreateCollectionProjection(
             item, out ItemUpdateData correction);
@@ -164,7 +164,7 @@ public static class NetworkedItemServer
                 ["lostAndFoundProjection"] = lostAndFoundProjection,
                 ["requestedCorrection"] = true
             });
-        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(correction, senderPlayer);
+        NetworkServer.Instance.SendItemUpdatePacket(correction, senderPlayer);
     }
 
     private static bool ValidateUpdate(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer)
@@ -370,8 +370,8 @@ public static class NetworkedItemServer
     }
 
     private static void UpdateHostPossessor(this NetworkedItem item, byte playerId) =>
-        item.SetHostPossessor(playerId != 0 && NetworkLifecycle.Instance.Server != null &&
-            NetworkLifecycle.Instance.Server.TryGetServerPlayer(playerId, out _) ? playerId : (byte)0);
+        item.SetHostPossessor(playerId != 0 && NetworkServer.Instance != null &&
+            NetworkServer.Instance.TryGetServerPlayer(playerId, out _) ? playerId : (byte)0);
 
     internal static void ApplyServerCanonicalSnapshot(this NetworkedItem item, ItemUpdateData snapshot)
     {

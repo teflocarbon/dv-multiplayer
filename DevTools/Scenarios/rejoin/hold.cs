@@ -1,5 +1,5 @@
 // Client: pick up the nearest loose item and report it plus everything this player owns.
-byte me = NetworkLifecycle.Instance.Client.PlayerId;
+byte me = Multiplayer.Client.Session.NetworkClient.Instance.PlayerId;
 if (Hands.Held != null) yield return Hands.Drop(); // leftovers from an earlier run
 var item = Dev.All<NetworkedItem>()
     .Where(n => n.NetId != 0 && n.gameObject.activeInHierarchy && n.GetItemState() == ItemState.Dropped

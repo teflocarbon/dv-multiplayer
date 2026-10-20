@@ -281,7 +281,7 @@ public class ChatManager
         }
 
         message = $"<alpha=#50>{sender.DisplayName}:</color> <noparse>{message}</noparse>";
-        NetworkLifecycle.Instance.Server.SendChat(message, sender);
+        NetworkServer.Instance.SendChat(message, sender);
     }
 
     /// <summary>
@@ -316,7 +316,7 @@ public class ChatManager
             Multiplayer.Log("[Console] " + plain);
             return;
         }
-        NetworkLifecycle.Instance.Server.SendWhisper(message, player);
+        NetworkServer.Instance.SendWhisper(message, player);
     }
 
     private static bool runningConsoleCommand;
@@ -328,7 +328,7 @@ public class ChatManager
     /// </summary>
     public void RunConsoleCommand(string line)
     {
-        ServerPlayer console = NetworkLifecycle.Instance.Server?.ServerPlayers.FirstOrDefault(player => player.IsServiceHost);
+        ServerPlayer console = NetworkServer.Instance?.ServerPlayers.FirstOrDefault(player => player.IsServiceHost);
         if (console == null)
         {
             Multiplayer.LogWarning($"[Console] the server isn't ready for commands yet: {line}");
@@ -362,7 +362,7 @@ public class ChatManager
     {
         if (string.IsNullOrEmpty(name))
             return null;
-        var players = NetworkLifecycle.Instance.Server.GameplayPlayers.ToList();
+        var players = NetworkServer.Instance.GameplayPlayers.ToList();
         ServerPlayer exact = players.FirstOrDefault(p => string.Equals(p.Username, name, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
             return exact;
@@ -469,7 +469,7 @@ public class ChatManager
             Reply(sender, $"/{COMMAND_WEATHER} clear|rain|storm [hours], or auto, or new");
             return;
         }
-        NetworkLifecycle.Instance.Server.SendWeatherState();
+        NetworkServer.Instance.SendWeatherState();
         Multiplayer.Log(said);
         ServerMessage(said, null);
     }
@@ -515,7 +515,7 @@ public class ChatManager
             return;
         }
         // Advances the server's world, then every other game.
-        NetworkLifecycle.Instance.Server.SendTimeAdvance((float)seconds);
+        NetworkServer.Instance.SendTimeAdvance((float)seconds);
         string said = $"{sender.Username} skipped the time to {now.AddSeconds(seconds):HH:mm} ({seconds / 3600:0.#} h on).";
         Multiplayer.Log(said);
         ServerMessage(said, null);
@@ -660,7 +660,7 @@ public class ChatManager
             return;
 
         message = $"<color=#{MESSAGE_COLOUR_SERVER}>{message}</color>";
-        NetworkLifecycle.Instance.Server.SendChat(message, exclude);
+        NetworkServer.Instance.SendChat(message, exclude);
     }
 
     private void WhisperMessage(string message, ServerPlayer sender)
@@ -735,7 +735,7 @@ public class ChatManager
         {
             whisper = $"<color=#{MESSAGE_COLOUR_SERVER}>{Locale.Get(Locale.CHAT_KICK_KICKED_KEY, [playerName])}</color>";
 
-            NetworkLifecycle.Instance.Server.KickPlayer(playerToKick);
+            NetworkServer.Instance.KickPlayer(playerToKick);
         }
 
         Tell(whisper, sender);
@@ -788,7 +788,7 @@ public class ChatManager
         {
             string announce = $"<color=#{MESSAGE_COLOUR_SERVER}>{Locale.Get(Locale.CHAT_SET_CREW_JOINED_MSG_KEY, [playerToSet.Username, playerToSet.CrewName])}</color>";
 
-            NetworkLifecycle.Instance.Server.SendChat(announce);
+            NetworkServer.Instance.SendChat(announce);
         }
     }
 
@@ -891,6 +891,6 @@ public class ChatManager
         if (string.IsNullOrEmpty(playerName))
             return null;
 
-        return NetworkLifecycle.Instance.Server.ServerPlayers.Where(p => p.Username == playerName).FirstOrDefault();
+        return NetworkServer.Instance.ServerPlayers.Where(p => p.Username == playerName).FirstOrDefault();
     }
 }

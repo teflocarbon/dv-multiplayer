@@ -1,6 +1,7 @@
 using DV;
 using UnityEngine;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Coverage;
 
@@ -39,7 +40,7 @@ public sealed class ServerWorldCoverage : MonoBehaviour
     public static void Create()
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (Instance != null || !lifecycle.IsHost() || lifecycle.Server.IsSinglePlayer)
+        if (Instance != null || !lifecycle.IsHost() || NetworkServer.Instance.IsSinglePlayer)
             return;
         // In the game scene, so it goes with the world on unload.
         Instance = new GameObject("[server world coverage]").AddComponent<ServerWorldCoverage>();

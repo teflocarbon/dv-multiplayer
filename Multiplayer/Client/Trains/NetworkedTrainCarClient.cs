@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using Multiplayer.Debugging.Protocol;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -123,7 +124,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         // Only a client asks: the host's own reply carried a snapshot from before the spawn's
         // auto-couple, and applying it uncoupled every freshly spawned consist on the host.
         if (!NetworkLifecycle.Instance.IsHost())
-            NetworkLifecycle.Instance?.Client?.SendTrainSyncRequest(NetId);
+            NetworkClient.Instance?.SendTrainSyncRequest(NetId);
     }
 
     public void Disable()
@@ -185,7 +186,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         for (int i = 0; i < portIds.Length; i++)
             if (simulationFlow.TryGetPort(GetPort(portIds[i]), out Port _))
                 hostPortValues[portIds[i]] = portValues[i];
-        ulong operationId = NetworkLifecycle.Instance.Client.SendPorts(NetId, portIds, portValues);
+        ulong operationId = NetworkClient.Instance.SendPorts(NetId, portIds, portValues);
         foreach (uint portNetId in portIds)
             pendingPortOperations[portNetId] = operationId;
     }
@@ -194,18 +195,18 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     {
         lastLocalControlAt = Time.realtimeSinceStartup;
 
-        ulong operationId = NetworkLifecycle.Instance.Client.SendFuses(NetId, fuseIds, fuseValues);
+        ulong operationId = NetworkClient.Instance.SendFuses(NetId, fuseIds, fuseValues);
         foreach (uint fuseNetId in fuseIds)
             pendingFuseOperations[fuseNetId] = operationId;
     }
 
     public void SendHandbrake(bool viaRemote) =>
-        pendingHandbrakeOperation = NetworkLifecycle.Instance.Client.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
+        pendingHandbrakeOperation = NetworkClient.Instance.SendHandbrakePositionChanged(NetId, brakeSystem.handbrakePosition, viaRemote);
 
-    public void SendBrakeCylinderReleased() => NetworkLifecycle.Instance.Client.SendBrakeCylinderReleased(NetId);
+    public void SendBrakeCylinderReleased() => NetworkClient.Instance.SendBrakeCylinderReleased(NetId);
 
     public void SendPaintTheme(TrainCarPaint.Target target, uint themeNetId) =>
-        NetworkLifecycle.Instance.Client.SendPaintThemeChange(car, target, themeNetId);
+        NetworkClient.Instance.SendPaintThemeChange(car, target, themeNetId);
 
     public bool TakeHostPortValue(uint portNetId, Port port, float value, uint hostTick)
     {
@@ -409,7 +410,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (Time.realtimeSinceStartup >= nextInteriorResyncAt)
         {
             nextInteriorResyncAt = Time.realtimeSinceStartup + INTERIOR_RESYNC_INTERVAL;
-            NetworkLifecycle.Instance?.Client.SendTrainSyncRequest(NetId);
+            NetworkClient.Instance?.SendTrainSyncRequest(NetId);
         }
         else if (!interiorResyncPending)
         {
@@ -712,7 +713,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     {
         if (packet == null)
             return;
-        var client = NetworkLifecycle.Instance.Client;
+        var client = NetworkClient.Instance;
         if (client != null && client.IsOwnTrainControlOperation(packet.OperationId))
         {
             AcknowledgeControlOperation(packet.OperationId);
@@ -920,7 +921,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             if (Time.realtimeSinceStartup >= nextDerailResyncRequestAt)
             {
                 nextDerailResyncRequestAt = Time.realtimeSinceStartup + 2f;
-                NetworkLifecycle.Instance.Client?.SendTrainSyncRequest(NetId);
+                NetworkClient.Instance?.SendTrainSyncRequest(NetId);
             }
             return;
         }
@@ -994,7 +995,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (car == null || TrainCar == null)
             yield break;
         ResetFollowers();
-        NetworkLifecycle.Instance.Client?.SendTrainSyncRequest(NetId);
+        NetworkClient.Instance?.SendTrainSyncRequest(NetId);
     }
 
     private System.Collections.IEnumerator RestoreTopologyAfterRerail()
@@ -1002,7 +1003,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         for (float t0 = Time.realtimeSinceStartup; TrainCar != null && TrainCar.IsTeleporting && Time.realtimeSinceStartup - t0 < 5f;)
             yield return null;
         yield return new WaitForFixedUpdate();
-        NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
+        NetworkClient.Instance?.RestoreCanonicalTrainTopology();
     }
 
     /// <param name="hostSetSize">How many cars the host sent this car with: its trainset there.</param>
@@ -1239,8 +1240,8 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (ignition == 0f || NetworkLifecycle.Instance.IsHost())
             return;
 
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"Common_OnIgnite({CurrentID})");
-        NetworkLifecycle.Instance.Client.SendFireboxIgnition(NetId);
+        NetworkClient.Instance.LogDebug(() => $"Common_OnIgnite({CurrentID})");
+        NetworkClient.Instance.SendFireboxIgnition(NetId);
     }
 
     public void CouplerStateChange(ChainCouplerInteraction.State state, Coupler coupler)
@@ -1285,7 +1286,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             case ChainCouplerInteraction.State.Parked:
                 if (couplerInteraction != null)
                 {
-                    NetworkLifecycle.Instance.Client.SendChainPlacement(coupler,
+                    NetworkClient.Instance.SendChainPlacement(coupler,
                         TrainChainState.Parked, originalCoupledTo != null);
                     couplerInteraction = null;
                 }
@@ -1294,7 +1295,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             case ChainCouplerInteraction.State.Dangling:
                 if (couplerInteraction != null)
                 {
-                    NetworkLifecycle.Instance.Client.SendChainPlacement(coupler,
+                    NetworkClient.Instance.SendChainPlacement(coupler,
                         TrainChainState.Dangling, originalCoupledTo != null);
                     couplerInteraction = null;
                 }
@@ -1309,7 +1310,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                 if (couplerInteraction == coupler)
                 {
                     couplerInteraction = null;
-                    NetworkLifecycle.Instance.Client?.SendTrainSyncRequest(NetId);
+                    NetworkClient.Instance?.SendTrainSyncRequest(NetId);
                 }
                 break;
 
@@ -1321,7 +1322,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (interactionFlags != CouplerInteractionType.NoAction)
         {
             //Multiplayer.LogDebug(() => $"8 CouplerStateChange({state}) trainCar: [{TrainCar?.ID}, {NetId}], coupler is front: {coupler?.isFrontCoupler}, Sending: {interactionFlags}");
-            NetworkLifecycle.Instance.Client.SendCouplerInteraction(interactionFlags, coupler, otherCoupler);
+            NetworkClient.Instance.SendCouplerInteraction(interactionFlags, coupler, otherCoupler);
 
             //finished interaction, clear flag
             if (interactionFlags != CouplerInteractionType.Start)
@@ -1356,7 +1357,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             foreach (uint leased in PortsOf(portNetId))
             {
                 locallyOwnedPortAuthorities.Add(leased);
-                NetworkLifecycle.Instance.Client?.SendTrainControlAuthorityRequest(NetId, leased, true);
+                NetworkClient.Instance?.SendTrainControlAuthorityRequest(NetId, leased, true);
             }
         }
     }
@@ -1480,7 +1481,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         foreach (uint released in PortsOf(portNetId))
         {
             locallyOwnedPortAuthorities.Remove(released);
-            NetworkLifecycle.Instance.Client?.SendTrainControlAuthorityRequest(NetId, released, false);
+            NetworkClient.Instance?.SendTrainControlAuthorityRequest(NetId, released, false);
         }
     }
 

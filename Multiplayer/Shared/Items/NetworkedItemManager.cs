@@ -13,6 +13,7 @@ using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Items;
 using Multiplayer.Core.Replication;
 using DV.Booklets;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Shared.Items;
 
@@ -278,7 +279,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
 
                 //if (NetworkLifecycle.Instance.IsHost())
                 //{
-                //    NetworkLifecycle.Instance.Server.TryGetServerPlayer(snapshot.Player, out ServerPlayer player);
+                //    NetworkServer.Instance.TryGetServerPlayer(snapshot.Player, out ServerPlayer player);
                 //    ProcessReceivedAsHost(snapshot, player);
                 //}
                 //else

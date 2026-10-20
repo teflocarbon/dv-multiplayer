@@ -2,6 +2,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.World;
 using Multiplayer.Shared.Session;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Jobs;
 
@@ -39,16 +40,16 @@ public class WarehouseMachineControllerClientPatch
 
         if (string.IsNullOrEmpty(id))
         {
-            NetworkLifecycle.Instance.Client.LogError($"Failed to validate {action} for {machine?.name} at {machine?.warehouseTrackName}. Warehouse not found!");
+            NetworkClient.Instance.LogError($"Failed to validate {action} for {machine?.name} at {machine?.warehouseTrackName}. Warehouse not found!");
             return;
         }
 
         if (!NetworkedWarehouseMachineController.GetFromWarehouseMachineController(machine, out var netController) || netController == null)
         {
-            NetworkLifecycle.Instance.Client.LogError($"Failed to find NetworkedWarehouseMachineController {machine?.warehouseTrackName}. Warehouse not found!");
+            NetworkClient.Instance.LogError($"Failed to find NetworkedWarehouseMachineController {machine?.warehouseTrackName}. Warehouse not found!");
             return;
         }
 
-        NetworkLifecycle.Instance.Client.SendWarehouseRequest(action, netController.NetId);
+        NetworkClient.Instance.SendWarehouseRequest(action, netController.NetId);
     }
 }

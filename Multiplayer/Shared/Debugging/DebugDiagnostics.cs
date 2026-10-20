@@ -10,6 +10,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Shared.Debugging;
 
@@ -262,9 +263,9 @@ public static class DebugDiagnostics
 
     public static Dictionary<string, object>[] InterestMatrix(string itemId)
     {
-        if (!ushort.TryParse(itemId, out ushort id) || !NetworkedItem.TryGet(id, out NetworkedItem item) || item == null || NetworkLifecycle.Instance?.Server == null)
+        if (!ushort.TryParse(itemId, out ushort id) || !NetworkedItem.TryGet(id, out NetworkedItem item) || item == null || NetworkServer.Instance == null)
             return Array.Empty<Dictionary<string, object>>();
-        return NetworkLifecycle.Instance.Server.ServerPlayers.Select(player =>
+        return NetworkServer.Instance.ServerPlayers.Select(player =>
         {
             bool nearby = player.NearbyItems.TryGetValue(item, out float nearbyTime);
             bool known = player.KnownItems.TryGetValue(item, out uint knownTick);

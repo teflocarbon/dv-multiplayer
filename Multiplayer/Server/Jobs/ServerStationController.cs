@@ -10,6 +10,7 @@ using Multiplayer.Debugging.Protocol;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Jobs;
 
@@ -190,14 +191,14 @@ public class ServerStationController : MonoBehaviour
         //Send new jobs
         if (newJobs.Count > 0)
         {
-            NetworkLifecycle.Instance.Server.SendJobsCreatePacket(station, newJobs.ToArray());
+            NetworkServer.Instance.SendJobsCreatePacket(station, newJobs.ToArray());
             newJobs.Clear();
         }
 
         //Send jobs with a changed status
         if (dirtyJobs.Count > 0)
         {
-            NetworkLifecycle.Instance.Server.SendJobsUpdatePacket(station.NetId, dirtyJobs.ToArray());
+            NetworkServer.Instance.SendJobsUpdatePacket(station.NetId, dirtyJobs.ToArray());
             dirtyJobs.Clear();
         }
     }

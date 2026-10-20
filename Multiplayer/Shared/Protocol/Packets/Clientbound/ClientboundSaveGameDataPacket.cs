@@ -56,7 +56,7 @@ public class ClientboundSaveGameDataPacket
         SaveGameData data = SaveGameManager.Instance.data;
 
         JObject difficulty = new();
-        DifficultyDataUtils.SetDifficultyToJSON(difficulty, NetworkLifecycle.Instance.Server.Difficulty);
+        DifficultyDataUtils.SetDifficultyToJSON(difficulty, NetworkServer.Instance.Difficulty);
 
         JObject playerData = NetworkedSaveGameManager.Instance.Server_GetPlayerData(data, player.Guid);
 
@@ -74,7 +74,7 @@ public class ClientboundSaveGameDataPacket
         // A starter kit for a player joining this world for the first time. It used to be handed out
         // on every join, a free set of tools each time someone reconnected.
         List<PlayerItemSaveData> playerItems = [];
-        bool firstJoin = playerData == null && NetworkLifecycle.Instance.Server.StarterKitsGiven.Add(player.Guid);
+        bool firstJoin = playerData == null && NetworkServer.Instance.StarterKitsGiven.Add(player.Guid);
         string[] items = firstJoin ? ["shovel", "lighter", "Oiler", "Lantern", "Flashlight", "Hanger", "DuctTape"] : [];
         string[] states = ["", "", "", "", "{\"Restock\": true,\"Battery_power\": 100}", "", ""];
 

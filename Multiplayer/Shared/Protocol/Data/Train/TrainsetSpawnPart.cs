@@ -9,6 +9,7 @@ using Multiplayer.Shared.Utils;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Shared.Protocol.Data.Train;
 
@@ -281,7 +282,7 @@ public sealed class TrainsetSpawnPart
     {
         if (trainset == null)
         {
-            NetworkLifecycle.Instance.Server.LogWarning("TrainsetSpawnPart.FromTrainSet() trainset list is null!");
+            NetworkServer.Instance.LogWarning("TrainsetSpawnPart.FromTrainSet() trainset list is null!");
             return null;
         }
 
@@ -292,7 +293,7 @@ public sealed class TrainsetSpawnPart
 
             if (!trainset[i].TryNetworked(out networkedTrainCar))
             {
-                NetworkLifecycle.Instance.Server.LogWarning($"TrainsetSpawnPart.FromTrainSet() Failed to find NetworkedTrainCar for: {trainset[i]?.ID}");
+                NetworkServer.Instance.LogWarning($"TrainsetSpawnPart.FromTrainSet() Failed to find NetworkedTrainCar for: {trainset[i]?.ID}");
                 networkedTrainCar = trainset[i].GetOrAddComponent<NetworkedTrainCar>();
             }
 

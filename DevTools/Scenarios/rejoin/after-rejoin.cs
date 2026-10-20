@@ -1,7 +1,7 @@
 // Client, after rejoining: every owned item back once (as many of each kind as before leaving),
 // in the inventory, and no unbound duplicates. Args: names (comma list of the owned item names
 // before leaving, one entry per item), slots (comma list of netId@slot before leaving).
-byte me = NetworkLifecycle.Instance.Client.PlayerId;
+byte me = Multiplayer.Client.Session.NetworkClient.Instance.PlayerId;
 var mine = Dev.All<NetworkedItem>().Where(n => n.NetId != 0 && n.PersistentOwnerPlayerId == me).ToList();
 string Name(NetworkedItem n) => n.name.Replace("(Clone)", "");
 var failures = new List<string>();

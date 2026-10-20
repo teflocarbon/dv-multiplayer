@@ -33,22 +33,22 @@ trap cleanup EXIT
 if [ "$($D eval -t host -m body -u "$U" 'return new { d = NetworkLifecycle.Instance.IsDedicatedHost };' | field d)" = true ]; then
   echo "SKIP: a dedicated host has no player"; exit 0
 fi
-host_id=$($D eval -t host -m body -u "$U" 'return new { id = NetworkLifecycle.Instance.Server.LocalPlayer.PlayerId };' | field id)
+host_id=$($D eval -t host -m body -u "$U" 'return new { id = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer.PlayerId };' | field id)
 seen() { $D eval -t $1 -m body -a text="$2" -f $P/chat-seen.cs | field seen; }
 
 if want chat; then
   nonce="hs$RANDOM$RANDOM"
   echo "== the host says $nonce"
-  $D eval -t host -m body -u "$U" -a text="$nonce" 'NetworkLifecycle.Instance.Client.SendChat(ctx.Args["text"]); return 0;' >/dev/null
+  $D eval -t host -m body -u "$U" -a text="$nonce" 'Multiplayer.Client.Session.NetworkClient.Instance.SendChat(ctx.Args["text"]); return 0;' >/dev/null
   sleep 2
   [ "$(seen client "$nonce")" = true ] || fail "the client's chat doesn't show the host's line"
   echo "   the client sees it"
 
-  name=$($D eval -t client -m body -u "$U" 'return new { n = NetworkLifecycle.Instance.Client.Username };' | field n)
+  name=$($D eval -t client -m body -u "$U" 'return new { n = Multiplayer.Client.Session.NetworkClient.Instance.Username };' | field n)
   echo "== the host whispers $name"
   # The command goes without its slash: Git Bash would turn "/w" into a Windows path.
   $D eval -t host -m body -u "$U" -a to="$name" -a text="w$nonce" \
-    'string to = ctx.Args["to"]; NetworkLifecycle.Instance.Client.SendChat("/w " + (to.Contains(" ") ? "\"" + to + "\"" : to) + " " + ctx.Args["text"]); return 0;' >/dev/null
+    'string to = ctx.Args["to"]; Multiplayer.Client.Session.NetworkClient.Instance.SendChat("/w " + (to.Contains(" ") ? "\"" + to + "\"" : to) + " " + ctx.Args["text"]); return 0;' >/dev/null
   sleep 2
   [ "$(seen client "w$nonce")" = true ] || fail "the client's chat doesn't show the host's whisper"
   echo "   the client sees it"

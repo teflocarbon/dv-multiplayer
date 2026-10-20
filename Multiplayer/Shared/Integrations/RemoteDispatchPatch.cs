@@ -8,6 +8,8 @@ using System.Reflection;
 using System;
 using UnityEngine;
 using System.Linq;
+using Multiplayer.Server.Session;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Shared.Integrations;
 
@@ -50,9 +52,9 @@ public static class RemoteDispatchPatch
         IEnumerable<IPlayer> players;
 
         if (NetworkLifecycle.Instance.IsHost())
-            players = NetworkLifecycle.Instance.Server.ServerPlayerWrappers;
+            players = NetworkServer.Instance.ServerPlayerWrappers;
         else
-            players = NetworkLifecycle.Instance.Client.ClientPlayerWrappers;
+            players = NetworkClient.Instance.ClientPlayerWrappers;
 
         foreach (var player in players)
         {

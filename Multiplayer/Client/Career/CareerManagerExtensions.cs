@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Career;
 
@@ -210,19 +211,19 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     {
         Previous = previousScreen;
         LostAndFoundList.Changed += OnListChanged;
-        if (NetworkLifecycle.Instance.Client != null)
-            NetworkLifecycle.Instance.Client.LostItemRetrieveCompleted += OnRetrieveCompleted;
+        if (NetworkClient.Instance != null)
+            NetworkClient.Instance.LostItemRetrieveCompleted += OnRetrieveCompleted;
         loading = true;
         message = "LOADING...";
-        NetworkLifecycle.Instance.Client?.RequestLostItems(++requestId);
+        NetworkClient.Instance?.RequestLostItems(++requestId);
         RefreshFromModel();
     }
 
     public override void Disable()
     {
         LostAndFoundList.Changed -= OnListChanged;
-        if (NetworkLifecycle.Instance?.Client != null)
-            NetworkLifecycle.Instance.Client.LostItemRetrieveCompleted -= OnRetrieveCompleted;
+        if (NetworkClient.Instance != null)
+            NetworkClient.Instance.LostItemRetrieveCompleted -= OnRetrieveCompleted;
         Clear();
     }
 
@@ -241,7 +242,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
             LostItemData item = items[Selected];
             pending = true;
             message = "RETRIEVING...";
-            NetworkLifecycle.Instance.Client?.RequestLostItemRetrieval(++requestId,
+            NetworkClient.Instance?.RequestLostItemRetrieval(++requestId,
                 item.Handle, item.NetId, item.Revision);
         }
         else if (input == InputAction.PrintInfo)
