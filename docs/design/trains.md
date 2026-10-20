@@ -245,11 +245,11 @@ covers them, and every game, a dedicated server included, gets the same set with
 cab.
 
 A CCL control has a port only if its car's author placed a feeder proxy on it, and older cars
-have doors, windows and seats with none (the C class's cab doors, its twenty engine-room doors, two
-sliding windows and wall seat; the S464-730's tender toolboxes; the Santa Fe 2901's tender doors and
+have doors, windows and seats with none (the C class's two cab doors, twenty engine-room doors, two
+sliding windows and wall seat, 25 in all; the S464-730's tender toolboxes; the Santa Fe 2901's tender doors and
 hatches). Those moved on one game only, and the save never kept them. `CustomCarLoaderPorts`
-(Shared/Compatibility) wires them the way DV wires its own doors, as CCL builds each car and before
-any spawns: a `GenericControlDefinition` (`saveState` on) in the livery's simulation, and an
+(Shared/Compatibility) wires them the way DV wires its own doors, the frame after CCL builds each car
+(its proxies are only destroyed at the end of that frame) and long before any spawns: a `GenericControlDefinition` (`saveState` on) in the livery's simulation, and an
 `InteractablePortFeeder` on the control writing its `EXT_IN`, listed in its prefab's
 `InteractablePortFeedersController`. Only a lever, puller, knob, switch, wheel or CCL screw that has
 no feeder of any kind, isn't driven by another control (CCL's constant and ratchet feeders, a
