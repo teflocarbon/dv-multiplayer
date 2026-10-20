@@ -8,6 +8,7 @@ using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Transport;
+using Multiplayer.Server.Players;
 using Multiplayer.Server.World;
 using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.World;

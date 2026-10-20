@@ -17,11 +17,11 @@ public class NetworkedMapMarkersController : MonoBehaviour
     {
         markersController = GetComponent<MapMarkersController>();
         textPrefab = markersController.GetComponentInChildren<TMP_Text>().gameObject;
-        foreach (NetworkedPlayer networkedPlayer in NetworkLifecycle.Instance.Client.ClientPlayerManager.Players)
+        foreach (NetworkedPlayer networkedPlayer in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
             OnPlayerConnected(networkedPlayer);
-        NetworkLifecycle.Instance.Client.ClientPlayerManager.OnPlayerConnected += OnPlayerConnected;
-        NetworkLifecycle.Instance.Client.ClientPlayerManager.OnPlayerDisconnected += OnPlayerDisconnected;
-        NetworkLifecycle.Instance.Client.ClientPlayerManager.OnPlayerPrefsUpdated += OnPlayerPrefsUpdated;
+        NetworkLifecycle.Instance.LocalSession.RemotePlayerConnected += OnPlayerConnected;
+        NetworkLifecycle.Instance.LocalSession.RemotePlayerDisconnected += OnPlayerDisconnected;
+        NetworkLifecycle.Instance.LocalSession.RemotePlayerPrefsUpdated += OnPlayerPrefsUpdated;
 
         NetworkLifecycle.Instance.OnTick += OnTick;
     }
@@ -33,9 +33,9 @@ public class NetworkedMapMarkersController : MonoBehaviour
         NetworkLifecycle.Instance.OnTick -= OnTick;
         if (UnloadWatcher.isUnloading)
             return;
-        NetworkLifecycle.Instance.Client.ClientPlayerManager.OnPlayerConnected -= OnPlayerConnected;
-        NetworkLifecycle.Instance.Client.ClientPlayerManager.OnPlayerDisconnected -= OnPlayerDisconnected;
-        NetworkLifecycle.Instance.Client.ClientPlayerManager.OnPlayerPrefsUpdated -= OnPlayerPrefsUpdated;
+        NetworkLifecycle.Instance.LocalSession.RemotePlayerConnected -= OnPlayerConnected;
+        NetworkLifecycle.Instance.LocalSession.RemotePlayerDisconnected -= OnPlayerDisconnected;
+        NetworkLifecycle.Instance.LocalSession.RemotePlayerPrefsUpdated -= OnPlayerPrefsUpdated;
     }
 
     private void OnPlayerConnected(NetworkedPlayer player)
@@ -111,7 +111,7 @@ public class NetworkedMapMarkersController : MonoBehaviour
             if(kvp.Value == null)
                 Multiplayer.LogDebug(() => $"NetworkedWorldMap.UpdatePlayers() key: {kvp.Key}, value is null: {kvp.Value == null}");
 
-            if (!NetworkLifecycle.Instance.Client.ClientPlayerManager.TryGetPlayer(kvp.Key.PlayerId, out NetworkedPlayer networkedPlayer))
+            if (!NetworkLifecycle.Instance.LocalSession.TryGetRemotePlayer(kvp.Key.PlayerId, out NetworkedPlayer networkedPlayer))
             {
                 Multiplayer.LogWarning($"Player indicator for {kvp.Key} exists but {nameof(NetworkedPlayer)} does not!");
                 OnPlayerDisconnected(kvp.Key);
