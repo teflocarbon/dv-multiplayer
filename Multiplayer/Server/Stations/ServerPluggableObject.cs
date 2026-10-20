@@ -90,8 +90,18 @@ public class ServerPluggableObject : MonoBehaviour
         //Apply it here unless it's the host player's own: that has happened in this world already
         if (senderPlayer != Server.LocalPlayer)
         {
+            // Cleared here, not left to the plug's LateUpdate: that only clears it once there's an
+            // interaction to report, and after a client's dock there isn't, so the flag outlived this
+            // and swallowed the host player's own next grab (never sent, so the next dock was refused).
             Plug.ProcessingAsHost = true;
-            Plug.ProcessPacket(packet);
+            try
+            {
+                Plug.ProcessPacket(packet);
+            }
+            finally
+            {
+                Plug.ProcessingAsHost = false;
+            }
         }
 
         //send to all players in active area, except originator

@@ -34,6 +34,8 @@ internal static class Program
           dvmp scenario list | check                 the C# scenarios, their options; check them without games
           dvmp scenario run NAME [--arg K=V]... [--log-dir DIR]   one run against the session's pair
                                              (exit 0 pass, 1 fail, 3 harness error; docs/design/scenarios.md)
+          dvmp probes [-t target] [--stop all|ID|NAME] [--unpatch OWNER ...]
+                                             coroutines and Harmony patches probes left running; stop/remove them
 
         target: host | client | all (default) | pid | remote:NAME (a paired remote game; never part of "all")
         --session NAME (or DVMP_SESSION): act on that host + client pair; several can run at once.
@@ -43,7 +45,9 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
-        if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
+        // Anywhere on the line: `dvmp up --help` once ran a real `up` against the Steam install,
+        // replacing the user's installed mod (2026-10-20). Help never acts.
+        if (args.Length == 0 || args[0] == "help" || args.Any(a => a is "-h" or "--help" or "/?"))
         {
             Console.WriteLine(Usage);
             return args.Length == 0 ? 1 : 0;
@@ -88,6 +92,7 @@ internal static class Program
                 "perf" => await PerfAsync(args),
                 "remote" => await RemoteAsync(args),
                 "scenario" => await ScenarioAsync(args),
+                "probes" => Print(await Operations.ProbesAsync(Opt(args, "-t"), Opt(args, "--stop"), Opts(args, "--unpatch"))),
                 "logs" => Print(await Operations.LogsAsync(Opt(args, "-t"), Opt(args, "-l") ?? "warning",
                     Opt(args, "-c"), int.Parse(Opt(args, "-n") ?? "100"), sinceLast: false)),
                 _ => Fail("unknown command: " + args[0] + "\n\n" + Usage)
@@ -233,6 +238,15 @@ internal static class Program
     {
         int i = Array.IndexOf(args, name);
         return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+    }
+
+    // Every value of a repeatable option.
+    private static List<string> Opts(string[] args, string name)
+    {
+        List<string> values = new();
+        for (int i = 0; i + 1 < args.Length; i++)
+            if (args[i] == name) values.Add(args[i + 1]);
+        return values;
     }
 
     // The first argument after the command that is neither an option nor an option's value.

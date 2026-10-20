@@ -54,7 +54,29 @@ namespace Dvmp.Scenarios
         // Cars the library's spawn steps made in this game since the last TakeSpawned: the leak check's
         // list. The world spawns cars of its own while a run goes on (StationLocoSpawner puts locos
         // at a station a player comes near), so "cars that weren't there before" isn't a leak.
-        private static readonly HashSet<string> spawned = new();
+        private static readonly SpawnedCars spawned = new();
+
+        /// <summary>
+        /// Host, before a run: deletes cars an earlier run spawned that a save kept. A run whose games
+        /// were closed while its train was out (a crash, a session torn down, an autosave mid-run)
+        /// left it in the session's world for every later run: three host-stall trains parked where
+        /// the client starts failed host-stall's track search and its couplings (2026-10-20). Result:
+        /// what was deleted, as "ID livery".
+        /// </summary>
+        [Step]
+        public static IEnumerator DeleteLeftovers(Step<string[]> step)
+        {
+            List<(string Id, string Livery)> listed = SpawnedCars.Listed();
+            List<TrainCar> found = CarSpawner.Instance.AllCars
+                .Where(c => c != null && listed.Any(l => l.Id == c.ID && l.Livery == c.carLivery.id) && !spawned.Contains(c.ID))
+                .ToList();
+            // Named before they go: a deleted car's ID is empty.
+            string[] deleted = found.Select(c => c.ID + " " + c.carLivery.id).ToArray();
+            foreach (TrainCar c in found) CarSpawner.Instance.DeleteCar(c);
+            for (int i = 0; i < 30 && found.Count > 0; i++) yield return null;
+            SpawnedCars.Forget(listed.Where(l => !spawned.Contains(l.Id)).Select(l => l.Id));
+            step.Result = deleted;
+        }
 
         /// <summary>Every car this game has, by ID.</summary>
         [Step]
@@ -327,6 +349,69 @@ namespace Dvmp.Scenarios
         /// <summary>Delays every packet this game receives (Steam's fake lag); 0 turns it off.</summary>
         [Step]
         public static void SetReceiveLag(int ms) => Steamworks.SteamNetworkingUtils.FakeRecvPacketLag = ms;
+    }
+
+    /// <summary>
+    /// The cars the spawn steps made: in memory for this game's leak check, and listed in a file per
+    /// session (%LOCALAPPDATA%\dvmp\sessions\NAME\scenario-cars.txt, "ID livery" a line) so that one a
+    /// save kept is found after a restart (<see cref="Cars.DeleteLeftovers"/>). The livery is listed
+    /// too, so a car of the world's that later gets a listed ID is never taken for a test car.
+    /// </summary>
+    internal sealed class SpawnedCars
+    {
+        private readonly HashSet<string> ids = new();
+
+        public void Add(string id)
+        {
+            if (!ids.Add(id)) return;
+            string livery = CarSpawner.Instance.AllCars.FirstOrDefault(c => c != null && c.ID == id)?.carLivery.id ?? "?";
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(FilePath));
+                System.IO.File.AppendAllText(FilePath, id + " " + livery + "\n");
+            }
+            catch (Exception e) { Debug.LogWarning("[DvmpScenarios] couldn't list spawned car " + id + ": " + e.Message); }
+        }
+
+        public bool Contains(string id) => ids.Contains(id);
+        public string[] ToArray() => ids.ToArray();
+        public void Clear() => ids.Clear();
+
+        public static List<(string Id, string Livery)> Listed()
+        {
+            try
+            {
+                return System.IO.File.Exists(FilePath)
+                    ? System.IO.File.ReadAllLines(FilePath).Select(l => l.Split(' ')).Where(p => p.Length == 2).Select(p => (p[0], p[1])).ToList()
+                    : new List<(string, string)>();
+            }
+            catch { return new List<(string, string)>(); }
+        }
+
+        public static void Forget(IEnumerable<string> gone)
+        {
+            HashSet<string> drop = new(gone);
+            try
+            {
+                if (!System.IO.File.Exists(FilePath)) return;
+                System.IO.File.WriteAllLines(FilePath, System.IO.File.ReadAllLines(FilePath).Where(l => !drop.Contains(l.Split(' ')[0])).ToArray());
+            }
+            catch (Exception e) { Debug.LogWarning("[DvmpScenarios] couldn't update " + FilePath + ": " + e.Message); }
+        }
+
+        // The session this game was launched into (-dvmp-session; the default session has none).
+        private static string FilePath
+        {
+            get
+            {
+                string[] args = Environment.GetCommandLineArgs();
+                int i = Array.IndexOf(args, "-dvmp-session");
+                string root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "dvmp");
+                return i >= 0 && i + 1 < args.Length
+                    ? System.IO.Path.Combine(root, "sessions", args[i + 1], "scenario-cars.txt")
+                    : System.IO.Path.Combine(root, "scenario-cars.txt");
+            }
+        }
     }
 
     /// <summary>In-game conversions to the plain data steps return.</summary>

@@ -179,6 +179,14 @@ so ports in different areas never edit the same file.
   failure here is a bug the next run would trip over: a car that can't be deleted, a lease never
   given back. Only the run's own cars count: the world spawns cars while a run goes on
   (`StationLocoSpawner` puts locos at a station a player rides past).
+- **Cars a save kept.** A run whose games are closed while its train is out (a crash, a session
+  torn down, an autosave mid-run) never gets its leak check, and the save keeps the train for every
+  later run: three host-stall trains parked where the client starts failed host-stall's track search
+  and its couplings (2026-10-20). So the spawn steps also list each car, "ID livery", in
+  `%LOCALAPPDATA%\dvmp\sessions\NAME\scenario-cars.txt` from inside the game, and the reset deletes
+  every listed car still in the world (`Cars.DeleteLeftovers`). The livery keeps a car of the world's
+  that later gets a listed ID from being taken for one. `dvmp up --reseed` cleans a session whose
+  save had test cars before this.
 
 ### Restarts inside a scenario
 
@@ -206,6 +214,10 @@ The agent's `ScenarioSteps` (`/v1/load`, `/v1/invoke`, `/v1/cancel`; local only,
   the renamed copy matches), reads the arguments as JSON, and runs it like a probe: on the main
   thread, nested coroutines flattened, a timeout. The agent knows no scenario types: a coroutine's
   result is the `Result` of its first parameter when that parameter's type is a `Step<>`.
+- **A step cleans up after itself**, as a probe does (`DvmpAgent/ProbeCalls.cs`, the agent's probe
+  registry): a coroutine it starts with `MonoBehaviour.StartCoroutine` is caught and stops when the
+  step ends, fails, times out or is cancelled; `/v1/cancel` stops the step and all of them at
+  once. `dvmp probes` lists what's left in a game, a scenario's steps under `DvmpScenarios_<id>`.
 - A blocking step (a stall) blocks `/v1/status` on that game too; the exe doesn't poll status
   during a run.
 

@@ -70,7 +70,7 @@ Ordinary foreign-owned items do not appear red. Red is reserved for items that a
 - **Disconnect:** the host drops the departing player's hand item, and every item in their
   inventory that another player owns, where it is (`DropHeldItemsOfDepartingPlayer` in
   `NetworkedItemManager.ProjectionAndCompatibility.cs`, 2d52799; scenario
-  `DevTools/Scenarios/borrowed-disconnect`). Items they own stay keyed to their identity, are saved
+  the `borrowed-disconnect` scenario). Items they own stay keyed to their identity, are saved
   with the host's game, and come back into their inventory on rejoin. A dropped borrowed item then
   follows ordinary Lost-and-Found collection: it reaches the owner only if the owner is connected,
   nobody is near it, and the grace period passes. This replaces the earlier written policy of
