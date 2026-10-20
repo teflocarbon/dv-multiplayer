@@ -1,3 +1,5 @@
+using DV.PointSet;
+using Multiplayer.Core.Trains;
 using Multiplayer.Shared.Protocol.Data.Train;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.World;
@@ -145,9 +147,11 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
     /// <summary>
     /// How far (metres, along the car's forward axis) the host's bogie is ahead of ours,
     /// with the host sample projected forward to now. False when the bogies aren't on the same
-    /// track (crossing a track boundary) or there is no usable sample.
+    /// track (crossing a track boundary) or there is no usable sample. With
+    /// <paramref name="acrossJoint"/>, a host bogie on the track joined to either end of ours is
+    /// measured too (catching up after a freeze, when it's often a track ahead).
     /// </summary>
-    public bool TryGetAlongTrackError(TrainCar car, out float metres)
+    public bool TryGetAlongTrackError(TrainCar car, out float metres, bool acrossJoint = false)
     {
         metres = 0f;
         // A stopped host car is where its last sample says: projecting nothing, it goes stale far
@@ -160,17 +164,64 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         float age = Time.realtimeSinceStartup - sampleTime;
         float maxAge = holding ? MaxHoldSampleAgeSeconds
             : Mathf.Max(MaxSampleAgeSeconds * 2, MaxSampleAgeSeconds + TrainSpeedQueue.StaleSeconds(sampleInterval));
-        if (!hasSample || Bogie == null || Bogie.HasDerailed || Bogie.track != sampleTrack ||
-            Bogie.traveller == null || age > maxAge)
+        if (!hasSample || Bogie == null || Bogie.HasDerailed || Bogie.track == null || sampleTrack == null ||
+            (Bogie.track != sampleTrack && !acrossJoint) || Bogie.traveller == null || age > maxAge)
             return false;
 
         // Span increases along the bogie's forward when its track direction is +1.
         float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
         double hostSpan = holding ? sampleSpan
             : sampleSpan + sampleDirection * bogieToCar * sampleSpeed * age;
+        if (Bogie.track != sampleTrack)
+        {
+            double length = Bogie.traveller.pointSet.span, sampleLength = sampleTrack.GetKinkedPointSet().span;
+            Junction.Branch outBranch = Bogie.track.GetOutBranch(), inBranch = Bogie.track.GetInBranch();
+            if (outBranch?.track == sampleTrack)
+                hostSpan = TrackSpans.FromNext(hostSpan, length, atEnd: true, outBranch.first, sampleLength);
+            else if (inBranch?.track == sampleTrack)
+                hostSpan = TrackSpans.FromNext(hostSpan, length, atEnd: false, inBranch.first, sampleLength);
+            else
+                return false;
+        }
         metres = (float)(hostSpan - Bogie.traveller.Span) * Bogie.TrackDirectionSign * bogieToCar;
         return true;
     }
+
+    /// <summary>
+    /// The world shift that puts this (dynamic) bogie <paramref name="metres"/> further along the
+    /// car's forward axis on the rails, at most one track joint away. Vanilla's next step takes
+    /// the move up into the bogie's traveller as if it had run there (projecting it onto the rails
+    /// it stood on and crossing onto the next track), so only the body is moved, not the traveller.
+    /// </summary>
+    public bool TryGetShiftAlong(TrainCar car, float metres, out Vector3 shift)
+    {
+        shift = Vector3.zero;
+        if (Bogie == null || Bogie.HasDerailed || Bogie.rb == null || Bogie.rb.isKinematic ||
+            Bogie.track == null || Bogie.traveller == null)
+            return false;
+        float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
+        RailTrack track = Bogie.track;
+        double length = Bogie.traveller.pointSet.span;
+        double span = Bogie.traveller.Span + metres * Bogie.TrackDirectionSign * bogieToCar;
+        if (span < 0 || span >= length)
+        {
+            // Only onto the track the host's bogie is on: a junction thrown since the host's
+            // train passed would otherwise send ours down the other branch.
+            Junction.Branch branch = span < 0 ? track.GetInBranch() : track.GetOutBranch();
+            if (branch?.track == null || !hasSample || branch.track != sampleTrack)
+                return false;
+            track = branch.track;
+            if (!TrackSpans.TryCross(span, length, branch.first, track.GetKinkedPointSet().span, out span))
+                return false;
+        }
+        var traveller = new PointSetTraveller(track.GetKinkedPointSet());
+        traveller.MoveToSpan(span);
+        shift = (Vector3)traveller.worldPosition + WorldMover.currentMove - Bogie.rb.position;
+        return true;
+    }
+
+    /// <summary>Moves the bogie by a shift from <see cref="TryGetShiftAlong"/>.</summary>
+    public void ShiftAlong(Vector3 shift) => Bogie.rb.MovePosition(Bogie.rb.position + shift);
 
     /// <summary>
     /// Moves a kinematic bogie <paramref name="metres"/> along the car's forward axis on its track

@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using UnityEngine;
+using Multiplayer.Core.Trains;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Client.Trains;
@@ -46,6 +48,14 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float HoldMaxDriveSeconds = 10f;   // a held car that can't be moved is left alone ...
     private const float HoldRetrySeconds = 10f;      // ... for this long before trying again
 
+    // This client's freezes (see MeasureFreeze, TryCatchUp).
+    private static int measuredFrame = -1;
+    private static float measuredRealTime, measuredGameTime;
+    private static int freezes;
+    private static float lastFreezeSeconds;
+    private static float freezeEndedAt = float.NegativeInfinity;
+    private static readonly List<TrainSpeedQueue> catchUpSet = [];
+
     private TrainCar trainCar;
     private NetworkedBogie[] bogies;
     private float targetSpeed;
@@ -59,6 +69,9 @@ public class TrainSpeedQueue : TickedQueue<float>
     private float nextContactCheck;
     private bool touchingFollowing;
     private bool touchingHeld;
+    private int caughtUpAfter;                       // the freeze this car's set was caught up after
+    private float correctFrom = float.NegativeInfinity; // fixed time: no correction before (just caught up)
+    private Vector3[] catchUpShifts = [];
 
     /// <summary>Following the host's samples of a moving car.</summary>
     public bool Following { get; private set; }
@@ -152,6 +165,7 @@ public class TrainSpeedQueue : TickedQueue<float>
 
     private void FixedUpdate()
     {
+        MeasureFreeze();
         if (trainCar == null || trainCar.derailed || trainCar.rb == null || (trainCar.rb.isKinematic && !Kinematic) ||
             float.IsNegativeInfinity(lastSampleTime) || NetworkLifecycle.Instance.IsHost())
         {
@@ -186,11 +200,16 @@ public class TrainSpeedQueue : TickedQueue<float>
             return;
         }
 
+        if (caughtUpAfter != freezes && Time.realtimeSinceStartup - freezeEndedAt < FreezeCatchUp.WindowSeconds && TryCatchUp())
+            return;
+
         float correction = 0f;
         RefreshContacts();
         // Pushing a car the host has stopped (and ours has placed) back towards our host position
-        // would shove it off its own: follow the host's speed only while touching one.
-        if (!touchingHeld && TryGetAlongTrackError(out float error) && Mathf.Abs(error) > CorrectionDeadband)
+        // would shove it off its own: follow the host's speed only while touching one. Just after
+        // a catch-up the bogies' travellers are still where the car was, until vanilla's next step.
+        if (!touchingHeld && Time.fixedTime >= correctFrom &&
+            TryGetAlongTrackError(out float error) && Mathf.Abs(error) > CorrectionDeadband)
         {
             // A fast train needs a fast correction to catch up after a stall, but a slow one
             // doesn't: after a pile-up, cars crawling buffer to buffer each a little off were
@@ -356,6 +375,126 @@ public class TrainSpeedQueue : TickedQueue<float>
         ApplySpeed(easedSpeed + easedCorrection);
     }
 
+    /// <summary>
+    /// Notes this client's freezes: a frame (or a stretch without physics, e.g. paused) in which
+    /// real time ran on but game time hardly did, as DV caps a frame's delta. The host's trains
+    /// ran on meanwhile.
+    /// </summary>
+    private static void MeasureFreeze()
+    {
+        if (Time.frameCount == measuredFrame)
+            return;
+        float real = Time.realtimeSinceStartup, game = Time.time;
+        if (measuredFrame >= 0 && FreezeCatchUp.IsFreeze(real - measuredRealTime, game - measuredGameTime))
+        {
+            freezes++;
+            lastFreezeSeconds = real - measuredRealTime - (game - measuredGameTime);
+            freezeEndedAt = real;
+        }
+        measuredFrame = Time.frameCount;
+        measuredRealTime = real;
+        measuredGameTime = game;
+    }
+
+    private bool HasFreshSample => Time.realtimeSinceStartup - lastSampleTime <= StaleSeconds(SampleIntervalSeconds);
+
+    /// <summary>
+    /// Right after this client froze (<see cref="MeasureFreeze"/>), moves this car's whole set
+    /// along the rails to where the host's is, in one physics step, while the screen has only just
+    /// come back (<see cref="FreezeCatchUp"/>). Left to the correction, a train 31 m behind was
+    /// driven at the host's speed + 5 m/s, in view, and the full sync snapped the last 27 m.
+    /// The set's first car does it, for every car in the same step (cars moved apart would be
+    /// torn at their couplers). Every car must follow fresh samples of a moving host car, as
+    /// coupled as the host's, and the errors known must agree: otherwise ours isn't the host's
+    /// set, and it's left to the correction and the full sync as before. True if it moved them.
+    /// </summary>
+    private bool TryCatchUp()
+    {
+        List<TrainCar> cars = trainCar.trainset?.cars;
+        if (cars != null && cars.Count > 0 && cars[0] != trainCar)
+            return false;
+        int count = cars?.Count ?? 1;
+        var errors = new FreezeCatchUp();
+        catchUpSet.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            TrainSpeedQueue queue = cars == null || cars[i] == trainCar ? this : cars[i] != null ? cars[i].GetComponent<TrainSpeedQueue>() : null;
+            if (queue == null || !queue.Following || queue.Kinematic || queue.HostCoupled != count > 1 || !queue.HasFreshSample)
+                return false;
+            // Often a track ahead: the train ran on for seconds.
+            if (queue.TryGetAlongTrackError(out float error, acrossJoint: true))
+                errors.Add(error);
+            catchUpSet.Add(queue);
+        }
+        if (!errors.TryGetDistance(out float metres))
+            return false;
+        foreach (TrainSpeedQueue queue in catchUpSet)
+            queue.caughtUpAfter = freezes;
+        if (!FreezeCatchUp.IsWorthMoving(metres))
+            return false;
+        // All or none: a bogie two track joints away isn't placed.
+        foreach (TrainSpeedQueue queue in catchUpSet)
+            if (!queue.TryPrepareCatchUp(metres))
+                return false;
+        foreach (TrainSpeedQueue queue in catchUpSet)
+            queue.CatchUp();
+        Multiplayer.Log($"{trainCar.ID}{(count > 1 ? $" and {count - 1} coupled" : "")}: caught up {metres:F2} m along the track " +
+                        $"after a {lastFreezeSeconds:F2} s freeze (host speed {targetSpeed:F2} m/s)");
+        return true;
+    }
+
+    private bool TryPrepareCatchUp(float metres)
+    {
+        if (bogies == null || bogies.Length == 0)
+            return false;
+        if (catchUpShifts.Length != bogies.Length)
+            catchUpShifts = new Vector3[bogies.Length];
+        for (int i = 0; i < bogies.Length; i++)
+            if (bogies[i] == null || !bogies[i].TryGetShiftAlong(trainCar, metres, out catchUpShifts[i]))
+                return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Moves the car by the shifts <see cref="TryPrepareCatchUp"/> found: its bogies onto the rails
+    /// further on, the body with them (turned as the line between its bogies turned, so its joints
+    /// don't wrench it round on a curve), at the host's speed.
+    /// </summary>
+    private void CatchUp()
+    {
+        Rigidbody body = trainCar.rb;
+        Quaternion turn = Quaternion.identity;
+        if (bogies.Length == 2)
+        {
+            Vector3 before = bogies[1].Bogie.rb.position - bogies[0].Bogie.rb.position;
+            Vector3 after = before + catchUpShifts[1] - catchUpShifts[0];
+            if (before.sqrMagnitude > 0.01f && after.sqrMagnitude > 0.01f)
+                turn = Quaternion.FromToRotation(before, after);
+        }
+        Vector3 oldMid = Vector3.zero, newMid = Vector3.zero;
+        for (int i = 0; i < bogies.Length; i++)
+        {
+            Vector3 at = bogies[i].Bogie.rb.position;
+            oldMid += at;
+            newMid += at + catchUpShifts[i];
+            bogies[i].ShiftAlong(catchUpShifts[i]);
+        }
+        oldMid /= bogies.Length;
+        newMid /= bogies.Length;
+        body.MovePosition(newMid + turn * (body.position - oldMid));
+        body.MoveRotation(turn * body.rotation);
+        body.angularVelocity = Vector3.zero;
+
+        easedSpeed = targetSpeed;
+        easedCorrection = 0f;
+        driving = true;
+        ApplySpeed(targetSpeed);
+        holdDriveSince = Time.time;
+        // The bogies' travellers stay where they were until vanilla's next step.
+        correctFrom = Time.fixedTime + 2f * Time.fixedDeltaTime;
+        trainCar.stress?.ResetTrainStress();
+    }
+
     private void BeginPlacing()
     {
         if (Placing)
@@ -438,7 +577,7 @@ public class TrainSpeedQueue : TickedQueue<float>
         }
     }
 
-    private bool TryGetAlongTrackError(out float error)
+    private bool TryGetAlongTrackError(out float error, bool acrossJoint = false)
     {
         error = 0f;
         if (trainCar.Bogies == null || trainCar.Bogies.Length == 0)
@@ -451,7 +590,7 @@ public class TrainSpeedQueue : TickedQueue<float>
         {
             if (bogies[i] == null && trainCar.Bogies[i] != null)
                 bogies[i] = trainCar.Bogies[i].GetComponent<NetworkedBogie>();
-            if (bogies[i] != null && bogies[i].TryGetAlongTrackError(trainCar, out float bogieError))
+            if (bogies[i] != null && bogies[i].TryGetAlongTrackError(trainCar, out float bogieError, acrossJoint))
             {
                 error += bogieError;
                 samples++;

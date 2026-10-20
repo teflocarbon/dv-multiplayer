@@ -69,6 +69,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "compressor-signal|compressor-signal|"
   "stoker-coal|stoker-coal|"
   "fps-drop|fps-drop|"
+  "client-freeze|client-freeze|"
   "host-stall|host-stall|SPEED=10 LAG=150"
   "client-derail|client-derail|"
   "derail-drag|derail-drag|"

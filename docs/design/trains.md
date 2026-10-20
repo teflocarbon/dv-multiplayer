@@ -1061,6 +1061,30 @@ arrive):
 A moving car touching a held one follows the host's speed only, with no position correction, so it
 doesn't shove the held car off its place.
 
+**After the client's own freeze** (`TrainSpeedQueue.TryCatchUp`, `Core/Trains/FreezeCatchUp.cs`):
+while a frame stalls (loading after a teleport or fast travel, a hitch, a pause) the client's game
+time barely moves, since DV caps a frame's delta, and its trains stop while the host's run on. After
+a 3.25 s freeze at 9.4 m/s the client's train was 31 m behind; the correction drove it at the host's
+speed + 5.2 m/s, in view, and the next full sync snapped the last 26.6 m (train-rate, 2026-10-20).
+Now a frame (measured once a frame from the cars' physics steps) whose game time fell more than
+0.25 s behind real time is a freeze. In the second after one, as soon as a moving set has fresh
+samples (a frame or two later), the set's first car averages every car's along-track error and,
+when that is 2 m or more, moves the whole set there in one physics step, while the screen has only
+just come back. Each bogie's target is the point that far along its rails, across one track joint
+at most and only onto the track the host's bogie is on (a host bogie a track ahead counts for the
+error too); the bogie's rigidbody is moved there and vanilla's next step takes the move up into its
+traveller as if it had run there. The body moves with its bogies, turned as the line between them
+turned. Then the car runs at the host's speed with no correction for two steps (its travellers are
+still at the old spans until then) and its train stress is reset. All or nothing: if any car
+doesn't follow fresh samples of a moving host car, isn't as coupled as the host's, the cars'
+errors differ by more than 1 m, or a bogie would cross two joints, the set is left to the
+correction and the full sync as before. Placing the set kinematically over a second (as `Hold`
+does) slides a whole consist through its coupler joints and can't cross a track joint;
+raising the correction limit for a while after a freeze drives a train at three or four times its
+speed through curves, in view, and still snaps after a longer freeze. Sustained low frame rates
+aren't freezes: at fps-drop's 6 fps a frame loses under 0.1 s. A host stall isn't one either; it
+is handled as lost samples (above).
+
 Full-sync positions are a safety net. The host pose is projected forward by the sample's age
 (capped at 0.5 s); if the car is more than 5 m from it (`POSITION_UPDATE_THRESHOLD` in
 `NetworkedTrainCar`), the body and its bogies are moved there and stopped, its rotation is left
@@ -1140,7 +1164,8 @@ Each packet carries `IntervalTicks`, the player's interval, written once per int
 projection to it (above), so a far train keeps moving at the host's last speed between samples
 instead of stopping and snapping, and the correction resumes with the next sample. Coming back
 into range only makes samples more frequent: the position error is what built up over one far
-interval, closed by the ordinary correction. Scenario `train-rate` checks each band's rate, no
+interval, closed by the ordinary correction. The client's own load freeze on teleporting back
+near is caught up as above. Scenario `train-rate` checks each band's rate, no
 lost-car gaps, snaps or stalls (in the client's own game time; it reports that rate and the
 fps), boarding the train after being far, and that the peers agree; it prints the host's
 packets per second per band and per player (`BEFORE=1` for every tick to everyone).
