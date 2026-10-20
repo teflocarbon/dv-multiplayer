@@ -514,6 +514,14 @@ What gadget sync owes it:
 
 Until it exists, a player can keep someone else's removed gadget; it stays owned by its owner.
 
+On the id itself (discussed with the user 2026-10-21, for that design to settle): keep what exists, a
+random GUID for life in the save and server records and the per-session `ushort` NetId on the wire, so
+lifelong tracking adds nothing to item packets (Minecraft splits entity ids the same way). Random
+GUIDs don't collide in practice; the real risk is one id being copied (a copied save, a dupe, a clone
+of an object with its identity), so the guarantee is detecting a duplicate at registration: keep the
+first, re-mint the copy, log it. SteamID plus a counter was considered: the server mints ids, not
+players; owners change while ids must not; players without Steam have no SteamID.
+
 ## Decisions for the user
 
 Decided:
