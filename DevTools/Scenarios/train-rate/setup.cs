@@ -1,9 +1,10 @@
-// Host: a DE2 and N boxcars near the client, coupled with hoses joined and cocks open, the loco
-// started and the brake pipe charged, on a stretch with at least ROOM metres of clear track on one
-// side. Clear means following the switches as they're set, up to the first other car, buffer
-// stop or end of the line: the push used to run the train into whatever was ahead, and the wreck
-// failed the run. Args: wagons (default 4), room (metres, default 300), exclude (track names,
-// comma-separated, not to use).
+// Host: a DE2 and N boxcars near the client (host-stall's setup until host-stall became a C#
+// scenario), coupled with hoses joined and cocks open, the loco started and the brake pipe charged,
+// on a stretch with at least ROOM metres of clear track on one side. Clear means following the
+// switches as they're set, up to the first other car, buffer stop or end of the line: a push used
+// to run the train into whatever was ahead, and the wreck failed the run.
+// Args: wagons (default 4), room (metres, default 300), exclude (track names, comma-separated, not
+// to use).
 // Result: dir = 1 to push the loco forward, -1 to push it backward.
 var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 DV.ThingTypes.TrainCarLivery L(string id) => DV.Globals.G.Types.Liveries.First(l => l.id == id);

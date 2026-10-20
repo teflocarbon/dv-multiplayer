@@ -17,7 +17,6 @@ using LiteNetLib;
 using LiteNetLib.Utils;
 using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
-using Multiplayer.Client.World;
 using Multiplayer.Menus.MainMenu;
 using Multiplayer.Server.Api;
 using Multiplayer.Server.Chat;
@@ -60,6 +59,7 @@ using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Trains;
+using Multiplayer.Core.World;
 using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
 using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
 using System;
@@ -95,6 +95,8 @@ public partial class NetworkServer : NetworkManager
     public RerailController rerailController;
 
     private bool fastTravelAdvancesTime;
+    /// <summary>Whether fast travel advances everyone's clock (the host's setting); sleeping always does.</summary>
+    public bool FastTravelAdvancesTime => fastTravelAdvancesTime;
 
     public IReadOnlyCollection<ServerPlayer> ServerPlayers => serverPlayers.Values;
     public IReadOnlyCollection<ServerPlayerWrapper> ServerPlayerWrappers => PlayerWrapperCache.Values;
@@ -153,7 +155,6 @@ public partial class NetworkServer : NetworkManager
         Difficulty = difficulty;
 
         fastTravelAdvancesTime = settings.FastTravelAdvancesTime;
-        TimeAdvancePatch.FastTravelAdvancesTime = fastTravelAdvancesTime;
         authentication = new PlayerAuthentication(this);
     }
 
@@ -164,7 +165,6 @@ public partial class NetworkServer : NetworkManager
         if (settings.FastTravelAdvancesTime != fastTravelAdvancesTime)
         {
             fastTravelAdvancesTime = settings.FastTravelAdvancesTime;
-            TimeAdvancePatch.FastTravelAdvancesTime = fastTravelAdvancesTime;
             SendGameParams(Globals.G.GameParams);
         }
     }
@@ -366,6 +366,7 @@ public partial class NetworkServer : NetworkManager
             lobbyServerManager = NetworkLifecycle.Instance.GetOrAddComponent<LobbyServerManager>();
         }
 
+        Log($"Track graph: {TrackGraph.Compute()}");
         Log($"Server loaded, processing {joinQueue.Count} queued players");
         IsLoaded = true;
 
@@ -704,12 +705,27 @@ public partial class NetworkServer : NetworkManager
         );
     }
 
-    public void KickPlayer(ServerPlayer player)
+    public void KickPlayer(ServerPlayer player, string reason = null)
     {
         if (player == null || player.Peer == null)
             return;
 
-        player.Peer.Disconnect(WritePacket(new ClientboundDisconnectPacket { Kicked = true }));
+        player.Peer.Disconnect(WritePacket(new ClientboundDisconnectPacket { Kicked = true, Reason = reason ?? string.Empty }));
+    }
+
+    private bool CheckTrackGraph(ServerPlayer player)
+    {
+        TrackGraphFingerprint hostGraph = TrackGraph.Compute();
+        string mismatch = hostGraph.DescribeMismatch(player.TrackGraph);
+        if (mismatch == null)
+        {
+            Log($"Player {player.Username}'s track graph matches: {hostGraph}");
+            return true;
+        }
+
+        LogError($"Refusing {player.Username}: track graph {player.TrackGraph} doesn't match the host's {hostGraph}");
+        KickPlayer(player, mismatch);
+        return false;
     }
 
     // Why couplings came apart since the last broadcast topology snapshot, sent with the next one.
@@ -988,6 +1004,10 @@ public partial class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForWorldState:
+                // The join queue replays this state with an empty packet: keep the first report.
+                if (packet.TrackGraphHash != 0)
+                    player.TrackGraph = new TrackGraphFingerprint(packet.TrackGraphHash, packet.TrackCount, packet.JunctionCount, packet.TurntableCount);
+
                 if (!IsLoaded)
                 {
                     Log($"Player {player.Username} is ready but server is still loading, adding to the queue");
@@ -1001,6 +1021,12 @@ public partial class NetworkServer : NetworkManager
                 {
                     Log($"Player {player.Username} is ready for world state");
                 }
+
+                // Tracks, junctions and turntables are numbered as they wake in each game, so a
+                // client whose railway differs would put every car on the wrong track. Refuse it
+                // before it gets any world state or train baseline.
+                if (!NetworkLifecycle.Instance.IsHost(player) && !CheckTrackGraph(player))
+                    return;
 
                 // Unpause physics
                 if (AppUtil.Instance.IsTimePaused)
@@ -1242,15 +1268,56 @@ public partial class NetworkServer : NetworkManager
         }
     }
 
+    // The host's own player's preferences and chat are handled in-process (stage 2 of
+    // docs/design/host-local-session.md); its position is read from its tracker
+    // (UpdateLocalPlayerFromTracker).
+    partial void RegisterLocalSession()
+    {
+        HandleLocal<ServerboundPlayerPreferenceUpdatePacket>(HandlePlayerPreferences);
+        HandleLocal<CommonChatPacket>(HandleChat);
+    }
+
+    /// <summary>
+    ///     Reads the host's own player from its tracker, merges it into its <see cref="ServerPlayer"/>
+    ///     and relays it, as a position packet would: called before the host's requests are handled,
+    ///     so their range checks see where the host's player is now. Nothing on a dedicated host,
+    ///     which has no tracker.
+    /// </summary>
+    private void UpdateLocalPlayerFromTracker()
+    {
+        ILocalPlayerTracker tracker = LocalPlayerTracker.Current;
+        ServerPlayer local = tracker == null || NetworkLifecycle.Instance.IsReturningToMenu ? null : LocalPlayer;
+        if (local == null)
+            return;
+
+        try
+        {
+            ServerboundPlayerPositionPacket packet = tracker.Sample(out _);
+            if (packet != null)
+                HandlePlayerPosition(packet, local);
+        }
+        catch (Exception e)
+        {
+            LogError($"Reading the host's player from its tracker threw: {e}");
+        }
+    }
+
     private void OnServerboundPlayerPositionPacket(ServerboundPlayerPositionPacket packet, ITransportPeer peer)
     {
-        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Player", peer?.Id.ToString());
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
         {
-            DebugTrace.Validation("player", "Player", peer?.Id.ToString(), false, "unknown-player", DebugRuntimeSide.Server);
-            LogWarning($"Received Player Position from {peer.GetType()}, peerId: {peer.Id}, but could not find matching player.");
+            HandlePlayerPosition(packet, player);
             return;
         }
+
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Player", peer?.Id.ToString());
+        DebugTrace.Validation("player", "Player", peer?.Id.ToString(), false, "unknown-player", DebugRuntimeSide.Server);
+        LogWarning($"Received Player Position from {peer.GetType()}, peerId: {peer.Id}, but could not find matching player.");
+    }
+
+    private void HandlePlayerPosition(ServerboundPlayerPositionPacket packet, ServerPlayer player)
+    {
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Player", player.Peer?.Id.ToString());
 
         // Merge incoming delta into stored state
         player.TrackingData = player.TrackingData.MergeFrom(packet.TrackingData);
@@ -1266,18 +1333,24 @@ public partial class NetworkServer : NetworkManager
             Posture = packet.Posture,
             IsOnCar = packet.IsOnCar,
             CarID = packet.CarID
-        }, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, peer);
+        }, DeliveryMethod.Sequenced, PlayerLoadingState.Complete, player.Peer);
     }
 
     private void OnServerboundPlayerPreferenceUpdatePacket(ServerboundPlayerPreferenceUpdatePacket packet, ITransportPeer peer)
     {
-        Dictionary<PlayerPreference, string> preferences = [];
-
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
         {
             LogWarning($"Received Player Preferences Update from {peer.GetType()}, peerId: {peer.Id}, but could not find matching player.");
             return;
         }
+
+        HandlePlayerPreferences(packet, player);
+    }
+
+    // The new preferences go to everyone, the sender too (for the host's player, presentation only).
+    private void HandlePlayerPreferences(ServerboundPlayerPreferenceUpdatePacket packet, ServerPlayer player)
+    {
+        Dictionary<PlayerPreference, string> preferences = [];
 
         // Store the characterId for other players connecting to the server
         if (packet.GetPreferencesDictionary().TryGetValue(PlayerPreference.CharacterModel, out string characterId))
@@ -1301,8 +1374,12 @@ public partial class NetworkServer : NetworkManager
     private void OnCommonChatPacket(CommonChatPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))
-            ChatManager.ProcessMessage(packet.message, player);
+            HandleChat(packet, player);
     }
+
+    // A chat line or command, the host's player's too: the host is admin by IsHost(player).
+    private void HandleChat(CommonChatPacket packet, ServerPlayer player) =>
+        ChatManager.ProcessMessage(packet.message, player);
 
     private void OnUnconnectedPingPacket(UnconnectedPingPacket packet, IPEndPoint endPoint)
     {

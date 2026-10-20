@@ -57,7 +57,7 @@ string band = null, prevBand = null;
 float bandSince = 0f, lastSampleAt = -1f, gapMaxFrame = 0f, approachWorst = 0f, prevNow = 0f, slowNotedAt = -99f;
 int lastFrame = -1;
 uint lastTick = net.lastTickProcessed;
-Vector3 lastP = Dev.Abs(loco.transform.position);
+Vector3 lastP = Dev.Abs(loco.rb.position);
 var window = new Queue<(float t, float game, Vector3 p)>();
 float t0 = Time.realtimeSinceStartup;
 while (Time.realtimeSinceStartup - t0 < seconds)
@@ -129,8 +129,11 @@ while (Time.realtimeSinceStartup - t0 < seconds)
         gapMaxFrame = 0f;
     }
 
-    // A step beyond what the car's own velocity moves it in one physics step is a snap.
-    Vector3 p = Dev.Abs(loco.transform.position);
+    // A step beyond what the car's own velocity moves it in one physics step is a snap. The
+    // body's physics position, not its transform: a moving car's transform is interpolated once a
+    // rendered frame, so after a long frame (several physics steps in a row) it jumped several
+    // steps at once, which read as 1-2 m "catch-ups" right after this game froze (q6).
+    Vector3 p = Dev.Abs(loco.rb.position);
     float excess = Vector3.Distance(p, lastP) - loco.rb.velocity.magnitude * Time.fixedDeltaTime;
     lastP = p;
     bool afterFreeze = excess > 0.5f && now - lastFreezeAt < 5f && excess <= 2f * speed * (frozen + 1f) + 5f;
