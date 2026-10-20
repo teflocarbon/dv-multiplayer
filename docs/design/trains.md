@@ -194,6 +194,19 @@ on their own game's input, which a lease covers, or from the car's own state (`T
 `BoilerSimController`'s boiler angle, `DamageController`'s health ports), which are local values and
 not a player's.
 
+Custom Car Loader has its own writers of the first kind, which the vanilla class names miss. Its
+pullable rope (`PullableRopeBase`: the C class's horn, and the C-16's, FEF-3 Modification's, S464's and
+S484's) is the control itself: every frame it requests its own rope's length as the value, and it
+ignores `SetValue`. So another player's value reaching a game with nobody pulling lasted one frame,
+and the idle rope wrote it back as 0: the host's cut a client's horn, and a client's cut the host's
+in its own cab. It can't be switched off, as its `OnDisable` writes 0 and snaps the rope back, so a
+prefix on its `Update` skips it while another player holds the lease
+(`NetworkedTrainCarClient.IsHeldByAnotherPlayer`, kept in `ReceiveAuthorityUpdate` beside the
+writers). CCL's `WhistleDistanceControllerInternal` writes a dummy control as `WhistleRopeController`
+does and is skipped the same way, starting again from 0 (no known car uses it, so whatever its
+player grabs isn't known to take the dummy's lease). Both are in
+`Client/Compatibility/CustomCarLoaderRopes.cs`, patched by type name once `CCL.Importer` loads.
+
 One more of the first kind isn't a port: a handcar's handbrake springs off by itself. Vanilla
 `HandcarHandbrakeController` lowers it every frame unless its own game's player is holding it
 (grabbed, or hover- or keyboard-scrolled), and every game with the handcar's handbrake loaded runs
