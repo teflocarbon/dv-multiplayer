@@ -510,7 +510,7 @@ There is no per-item schema/version marker, duplicate-key prevention, range vali
 
 #### Q. Authored re-entry must reset network lifetime without resetting scene identity
 
-Status (2026-10-14): Fixed. `ResetClientNetworkLifetime` clears an authored copy's network state before it is rebound.
+Status (2026-10-14): Fixed. `ResetClientNetworkLifetime` (now `NetworkedItemClient.ResetNetworkLifetime`) clears an authored copy's network state before it is rebound.
 
 Dynamic projection reuse has been removed. Exact authored objects still survive interest retirement
 because other scene components may reference them. Their network identity, authority metadata,

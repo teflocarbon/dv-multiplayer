@@ -34,7 +34,11 @@
   part is `ClientItemManager` (`Client/Items`, behind `IItemManagerClientPart`, made through
   `ItemClient.Current` on a game that isn't the host): snapshot receipt, deferred world
   projections, job-document snapshots, Lost and Found tombstones, authored-projection binding,
-  unbound items and their temporary adoption, and the fall-rescue report.
+  unbound items and their temporary adoption, and the fall-rescue report. Each `NetworkedItem` has
+  the same two halves: `NetworkedItemServer` (validation and commits) and, on a remote client only,
+  `NetworkedItemClient` (`INetworkedItemClientPart`): the binding gate and unbound state, the Lost
+  and Found tombstone, adoption, the reset when the host retires it, sending the local player's
+  changes with the revision they claim, and the convergence and own-drop checks on what comes back.
 - **Persistence:** saves keep other players' inventory and hand items (325c2fb, dba0837) and skip
   unowned dynamic items (faa42c0), job overviews/booklets, and, on load, "world" items above
   1,500 m left by older builds (9b59a41).

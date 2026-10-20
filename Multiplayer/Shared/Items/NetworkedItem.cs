@@ -4,8 +4,6 @@ using DV.Customization.Gadgets;
 using DV.Interaction;
 using DV.InventorySystem;
 using DV.Items;
-using Multiplayer.Server.Items;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Players;
@@ -132,13 +130,36 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool recallPreparationPending;
     private uint recallPreparationOperationId;
     private bool hostStateObservationPending;
-    private bool clientBindingGateApplied;
     private bool placementSnapshotPending;
     private bool coldStorageRetirement;
     private bool coldMaterializationPending;
-    private bool interactionAllowedBeforeBindingGate;
-    private readonly ItemOutboundRevisionPipeline outboundRevisionPipeline = new();
-    internal ClientItemUnboundState UnboundState { get; private set; }
+
+    private INetworkedItemClientPart clientPart;
+
+    /// <summary>
+    ///     The remote client's half of the item (Client/Items/NetworkedItemClient); null on the host.
+    ///     Made the first time it's asked for on a game that isn't the host.
+    /// </summary>
+    internal INetworkedItemClientPart ClientPart =>
+        clientPart ??= NetworkLifecycle.Instance.IsHost() ? null : ItemClient.Current?.CreateItemPart(this);
+
+    internal ClientItemUnboundState UnboundState => ClientPart?.UnboundState ?? ClientItemUnboundState.None;
+
+    // The item's own state, for its client part.
+    internal bool CreatedDirty { get => createdDirty; set => createdDirty = value; }
+    internal bool StateDirty { get => stateDirty; set => stateDirty = value; }
+    internal bool HasLastSentState { get => hasLastSentState; set => hasLastSentState = value; }
+    internal ItemState LastObservedState { get => lastState; set => lastState = value; }
+
+    internal GrabHandlerItem GrabHandler
+    {
+        get
+        {
+            if (grabHandler == null)
+                TryGetComponent(out grabHandler);
+            return grabHandler;
+        }
+    }
 
     public byte playerBelongsToId; // 0 means no owner
     internal ItemState DebugCurrentState => GetItemState();
@@ -195,8 +216,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
 
-        if (!NetworkLifecycle.Instance.IsHost() && NetId == 0)
-            NetworkedItemManager.Instance?.ClientPart?.RegisterUnboundClientItem(this);
+        ClientPart?.RegisterIfUnbound();
 
         EntityDebugRegistry.RegisterItem(this);
         DebugRuntime.Publish("item", "item.registered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
@@ -206,20 +226,15 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     protected void OnEnable()
     {
         NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
-        if (!NetworkLifecycle.Instance.IsHost() && NetId == 0)
-            NetworkedItemManager.Instance?.ClientPart?.RegisterUnboundClientItem(this);
+        ClientPart?.RegisterIfUnbound();
     }
 
     protected void LateUpdate()
     {
         if (coldMaterializationPending)
             return;
-        if (!NetworkLifecycle.Instance.IsHost() &&
-            NetworkedItemManager.Instance?.ClientPart?.IsLostAndFoundTombstoned(NetId) == true)
-        {
-            EnforceClientLostAndFoundProjection();
+        if (ClientPart?.EnforceLostAndFoundTombstone() == true)
             return;
-        }
         if (NetworkLifecycle.Instance.IsHost() && hostStateObservationPending)
             return;
         ItemState currentState = GetItemState();
@@ -416,7 +431,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             if (!NetworkLifecycle.Instance.IsHost())
                 NetworkedItemManager.Instance?.ClientPart?.ResolveAuthoritativeBindingCollision(this, netId, typeof(T));
             NetId = netId;
-            SetClientNetworkBinding(true);
+            ClientPart?.SetNetworkBinding(true);
         }
 
         trackedItem = item;
@@ -457,8 +472,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             TryGetComponent<SnappableItem>(out snappableItem);
             NetworkedPageBookState.TryRegister(this);
 
-            if (!NetworkLifecycle.Instance.IsHost() && NetId == 0)
-                NetworkedItemManager.Instance?.ClientPart?.RegisterUnboundClientItem(this);
+            ClientPart?.RegisterIfUnbound();
 
             lastState = GetItemState();
             stateDirty = false;
@@ -473,46 +487,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         {
             Multiplayer.LogError($"NetworkedItem.Register() Unable to find ItemBase for {name}\r\n{ex.Message}");
             return false;
-        }
-    }
-
-    internal void SetClientNetworkBinding(bool isBound)
-    {
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
-
-        if (isBound && NetId != 0)
-        {
-            UnboundState = ClientItemUnboundState.None;
-
-            // A non-host item with an authoritative ID represents an object the server
-            // has already created.  Clear the local creation edge immediately rather
-            // than waiting for its first snapshot to apply: tracked-value setup can
-            // defer that snapshot, and LateUpdate must not emit a client Create while
-            // the item is waiting in that queue.
-            createdDirty = false;
-        }
-
-        if (grabHandler == null)
-            TryGetComponent(out grabHandler);
-        if (grabHandler == null)
-            return;
-
-        if (!isBound)
-        {
-            if (!clientBindingGateApplied)
-            {
-                interactionAllowedBeforeBindingGate = grabHandler.interactionAllowed;
-                clientBindingGateApplied = true;
-            }
-            grabHandler.interactionAllowed = false;
-            return;
-        }
-
-        if (clientBindingGateApplied)
-        {
-            grabHandler.interactionAllowed = interactionAllowedBeforeBindingGate;
-            clientBindingGateApplied = false;
         }
     }
 
@@ -551,19 +525,13 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     }
 
     /// <summary>
-    /// Clears authority and transition state from the previous NetId of an exact scene-authored
-    /// projection before the host rebinds that same stable authored object.
+    /// The item's half of its client part's reset (NetworkedItemClient.ResetNetworkLifetime): forgets
+    /// the authority and transition state of its previous NetId.
     /// </summary>
-    internal void ResetClientNetworkLifetime()
+    internal void ForgetNetworkLifetime()
     {
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
-
-        // A dormant authored projection has no live network identity. Be defensive here because
-        // a partial retirement may otherwise leave the old dictionary key pointing at it.
         NetId = 0;
         pendingSnapshots.Clear();
-        outboundRevisionPipeline.Reset();
         AuthorityRevision = 0;
         PersistentOwnerPlayerId = 0;
         InventoryClaimPlayerId = 0;
@@ -572,7 +540,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         LastTransitionReason = ItemTransitionReason.Unknown;
         playerBelongsToId = 0;
         playerBelongsTo = null;
-        UnboundState = ClientItemUnboundState.None;
         recallPreparationPending = false;
         recallPreparationOperationId = 0;
         hostStateObservationPending = false;
@@ -598,61 +565,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             Item.InventorySpecs.BelongsToPlayer = false;
         MarkValuesClean();
     }
-
-    internal void AllowUnboundLocalInteraction()
-    {
-        UnboundState = ClientItemUnboundState.None;
-        SetClientNetworkBinding(true);
-    }
-
-    internal void GateAsSceneObjectAwaitingHostCreate()
-    {
-        UnboundState = ClientItemUnboundState.SceneObjectAwaitingHostCreate;
-        SetClientNetworkBinding(false);
-    }
-
-    internal void CompleteItemAdoption(ItemAdoptionResultData result)
-    {
-        if (result.AssignedNetId == 0)
-            return;
-        NetId = result.AssignedNetId;
-        ApplyAuthorityMetadata(new ItemUpdateData
-        {
-            AuthorityRevision = result.AuthorityRevision,
-            PersistentOwnerPlayerId = result.PersistentOwnerPlayerId,
-            InventoryClaimPlayerId = result.InventoryClaimPlayerId,
-            InventoryClaimSlot = result.InventoryClaimSlot,
-            InventoryClaimFlags = result.InventoryClaimFlags,
-            TransitionReason = ItemTransitionReason.ClientAdoption
-        });
-        UnboundState = ClientItemUnboundState.None;
-        SetClientNetworkBinding(true);
-        createdDirty = false;
-        hasLastSentState = false;
-        stateDirty = true;
-        ProcessLocalStateObservation("adoption-complete");
-    }
-
-    internal ItemAdoptionRequestData CreateItemAdoptionRequest(string token)
-    {
-        ItemState currentState = GetItemState();
-        lastState = currentState;
-        playerBelongsToId = currentState is ItemState.InHand or ItemState.InInventory
-            ? NetworkLifecycle.Instance.LocalSession.PlayerId
-            : (byte)0;
-        ItemUpdateData snapshot = CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
-        return new ItemAdoptionRequestData
-        {
-            AdoptionToken = token,
-            PrefabName = Item?.InventorySpecs?.ItemPrefabName ?? name,
-            PlayerProperty = Item?.InventorySpecs?.BelongsToPlayer == true,
-            AuthoredItemKey = AuthoredItemKey ?? string.Empty,
-            Position = transform.position - WorldMover.currentMove,
-            Rotation = transform.rotation,
-            Snapshot = snapshot
-        };
-    }
-
     private void MarkLocalStateDirty(string reason)
     {
         // ForceEndInteraction, inventory purges and GrabHandlerItem.Throw raise the same base-game
@@ -714,42 +626,11 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         }
 
-        byte localPlayerId = InventoryIntegration.LocalPlayerId;
-        if (IsRemotePlayerAuthoritative())
-        {
-            stateDirty = false;
-            MarkValuesClean();
-            PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
-                "remote-player-authoritative");
-            return;
-        }
-
-        if (NetId == 0)
-        {
-            NetworkedItemManager.Instance?.ClientPart?.RequestItemAdoption(this, reason);
-            stateDirty = false;
-            PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
-                "awaiting-host-item-adoption");
-            return;
-        }
-
-        ItemUpdateData snapshot = GetSnapshot(reserveClientRevision: true);
-        if (snapshot == null)
-        {
-            PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
-                "no-state-or-tracked-value-change");
-            return;
-        }
-
-        if (!processingAsHost)
-        {
-            ItemClient.Current?.SendItemUpdatePacket(snapshot);
-        }
-        else
-            processingAsHost = false;
+        // A remote client sends the change to the host, or asks it to adopt an item it doesn't know.
+        ClientPart?.SendLocalObservation(currentState, previousObservedState, reason);
     }
 
-    private void PublishLocalState(string eventName, ItemState currentState, ItemState previousObservedState,
+    internal void PublishLocalState(string eventName, ItemState currentState, ItemState previousObservedState,
         string reason, string suppressionReason)
     {
         if (!DebugRuntime.EnabledFor("item"))
