@@ -23,14 +23,18 @@
   0.1 s so drifted client copies heal (`ServerItemManager.Convergence.cs`, b601cc6); items more
   than 1 m under the terrain are moved back to their last safe pose
   (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). The host scans where it has terrain;
-  a remote client reports its own items under its terrain (`NetworkedItemManager.FallRescue.cs`,
+  a remote client reports its own items under its terrain (`ClientItemManager.FallRescue.cs`,
   from the item tick, which until #37 was subscribed on the host only), and the server rescues
-  one only if its copy is under that ground too. Refactor note: the client's scan is client code in
-  the Shared manager; it, and the tick that runs it, move to the manager's client part
-  (`IItemManagerClientPart` beside `ServerItemManager`) with the rest of the client side.
-  Banknote amounts sync as a
+  one only if its copy is under that ground too. Banknote amounts sync as a
   host-authoritative tracked value and a client's spent note is deposited with the host
   (`MoneyPatch`, 89c68e6, 99a8f5c).
+- **Where the code is:** the Shared `NetworkedItemManager` keeps the queues every game runs (local
+  state observations, tracked-value finalisation), the prefab lookup, the authored catalogue and
+  the spatial store. Its server part is `ServerItemManager` (`Server/Items`); its remote client's
+  part is `ClientItemManager` (`Client/Items`, behind `IItemManagerClientPart`, made through
+  `ItemClient.Current` on a game that isn't the host): snapshot receipt, deferred world
+  projections, job-document snapshots, Lost and Found tombstones, authored-projection binding,
+  unbound items and their temporary adoption, and the fall-rescue report.
 - **Persistence:** saves keep other players' inventory and hand items (325c2fb, dba0837) and skip
   unowned dynamic items (faa42c0), job overviews/booklets, and, on load, "world" items above
   1,500 m left by older builds (9b59a41).

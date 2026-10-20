@@ -20,6 +20,9 @@ public interface IItemClient
     void SendItemSpatialSettlement(ItemSpatialStateData state);
     void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet);
 
+    /// <summary>The remote client's part of a new item manager (never asked for on the host).</summary>
+    IItemManagerClientPart CreateItemManagerPart(NetworkedItemManager manager);
+
     void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
         uint expectedRevision, int requestedSlot = -1);
 }

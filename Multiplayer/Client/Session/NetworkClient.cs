@@ -21,6 +21,7 @@ using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
 using Multiplayer.Client.Api;
 using Multiplayer.Client.Career;
+using Multiplayer.Client.Items;
 using Multiplayer.Client.Players;
 using Multiplayer.Client.Trains;
 using Multiplayer.Client.UI;
@@ -525,7 +526,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         Log($"Starting Item Manager...");
         NetworkedItemManager.Instance.CheckInstance();
         Log($"Quarantining unbound client items...");
-        NetworkedItemManager.Instance.QuarantineUnboundClientItems();
+        ClientItemManager.Instance?.QuarantineUnboundClientItems();
         SendWorldItemCatalogue();
         InitialiseStations();
 
@@ -948,7 +949,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
 
         // Starting items this game made itself are only this game's until the server adopts them.
         if (!isAlsoHost)
-            NetworkedItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
+            ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
 
         //if not single player, add in chat (nobody reads it on a dedicated host, and building it
         //pauses the game)

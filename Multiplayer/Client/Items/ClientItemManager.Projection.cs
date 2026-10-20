@@ -1,48 +1,19 @@
-using Multiplayer.Server.Items;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Multiplayer.Core.Items;
+using Multiplayer.Debugging.Protocol;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
-using System.Collections.Generic;
-using System.Linq;
-using DV.Utils;
-using UnityEngine;
-using JetBrains.Annotations;
-using System;
-using DV;
-using DV.InventorySystem;
-using Multiplayer.Debugging.Protocol;
-using Multiplayer.Core.Items;
-using Multiplayer.Core.Replication;
-using DV.Booklets;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Client.Items;
 
-public partial class NetworkedItemManager
+internal sealed partial class ClientItemManager
 {
     // Client snapshot receipt, deferred projections, and special-item routing.
-
-    //private void ProcessClientChanges(uint tick)
-    //{
-    //    List<ItemUpdateData> changedItems = new List<ItemUpdateData>();
-
-    //    if(!ClientInitialised)
-    //        return;
-
-    //    foreach (var item in NetworkedItem.GetAll())
-    //    {
-    //        ItemUpdateData snapshot = item.GetSnapshot();
-    //        if (snapshot != null)
-    //        {
-    //            changedItems.Add(snapshot);
-    //        }
-    //    }
-
-    //    if (changedItems.Count > 0)
-    //    {
-    //        ItemClient.Current.SendItemsBulkUpdatePacket(changedItems);
-    //    }
-    //}
 
     private void ProcessReceivedAsClient(ItemUpdateData snapshot)
     {
@@ -91,7 +62,7 @@ public partial class NetworkedItemManager
         }
 
         NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem netItem);
-        TraceSnapshot("item.snapshot-dispatch", snapshot);
+        NetworkedItemManager.TraceSnapshot("item.snapshot-dispatch", snapshot);
 
         (NetworkLifecycle.Instance.LocalSession as NetworkManager)?.LogDebug(() => $"NetworkedItemManager.ProcessReceivedAsClient() Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create)
@@ -109,7 +80,7 @@ public partial class NetworkedItemManager
             // BelongsToPlayer classification a second time.
             if (netItem != null && snapshot.TransitionReason == ItemTransitionReason.LostAndFoundRetrieval)
             {
-                TraceItem("item.lost-and-found-client-projection-restored", netItem,
+                NetworkedItemManager.TraceItem("item.lost-and-found-client-projection-restored", netItem,
                     DebugTrace.ItemSnapshotData(snapshot));
                 netItem.RestoreClientLostAndFoundProjection(snapshot);
                 return;
@@ -117,9 +88,9 @@ public partial class NetworkedItemManager
 
             // Job-created documents already own their authoritative ID. Applying the generic
             // snapshot to that representation is valid; replacing it would create a duplicate.
-            if (netItem != null && DoNotCreateItem(netItem))
+            if (netItem != null && shell.DoNotCreateItem(netItem))
             {
-                TraceItem("item.generic-create-bound-existing", netItem, new()
+                NetworkedItemManager.TraceItem("item.generic-create-bound-existing", netItem, new()
                 {
                     ["trackedItemType"] = netItem.TrackedItemType?.FullName ?? string.Empty,
                     ["prefabName"] = snapshot.PrefabName ?? string.Empty
@@ -135,7 +106,7 @@ public partial class NetworkedItemManager
             // Reliable ordering normally creates the job document before its item metadata is
             // received. Keep the snapshot if scene/job construction is a frame late; generic item
             // creation here would duplicate the job system's canonical Unity object.
-            if (netItem == null && IsJobDocumentPrefab(snapshot.PrefabName))
+            if (netItem == null && NetworkedItemManager.IsJobDocumentPrefab(snapshot.PrefabName))
             {
                 PendingSpecialItemSnapshots[snapshot.ItemNetId] = snapshot;
                 Dictionary<string, object> deferredData = DebugTrace.ItemSnapshotData(snapshot);
@@ -172,7 +143,7 @@ public partial class NetworkedItemManager
                 snapshot.TransitionReason == ItemTransitionReason.ContainerDeposit;
             bool dormantJobDocument =
                 snapshot.TransitionReason == ItemTransitionReason.InterestRetirement &&
-                netItem != null && DoNotCreateItem(netItem);
+                netItem != null && shell.DoNotCreateItem(netItem);
             if (lostAndFoundProjection)
             {
                 ClientLostAndFoundTombstones.Add(snapshot.ItemNetId);
@@ -288,15 +259,15 @@ public partial class NetworkedItemManager
         }
     }
 
-    internal void ApplyPendingSpecialSnapshot(NetworkedItem item)
+    public void ApplyPendingSpecialSnapshot(NetworkedItem item)
     {
-        if (NetworkLifecycle.Instance.IsHost() || item == null || item.NetId == 0 ||
-            !DoNotCreateItem(item) ||
+        if (item == null || item.NetId == 0 ||
+            !shell.DoNotCreateItem(item) ||
             !PendingSpecialItemSnapshots.TryGetValue(item.NetId, out ItemUpdateData snapshot))
             return;
 
         PendingSpecialItemSnapshots.Remove(item.NetId);
-        TraceItem("item.special-create-bound-existing", item, new()
+        NetworkedItemManager.TraceItem("item.special-create-bound-existing", item, new()
         {
             ["prefabName"] = snapshot.PrefabName ?? string.Empty,
             ["authorityRevision"] = snapshot.AuthorityRevision
@@ -321,10 +292,4 @@ public partial class NetworkedItemManager
                 ["reason"] = snapshot.TransitionReason.ToString()
             });
     }
-
-    internal static bool IsJobDocumentPrefab(string prefabName) =>
-        string.Equals(prefabName, nameof(JobOverview), StringComparison.Ordinal) ||
-        string.Equals(prefabName, nameof(JobBooklet), StringComparison.Ordinal) ||
-        string.Equals(prefabName, nameof(JobReport), StringComparison.Ordinal);
-
 }
