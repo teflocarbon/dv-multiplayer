@@ -11,7 +11,7 @@ namespace Multiplayer.Client.Trains;
 /// A client's car shows its simulation's outputs here, once a frame before its simulation
 /// controllers run (a handcar's crank is drawn by one): the host's values played out smoothly,
 /// and the ones the local player's controls drive worked out locally (<see cref="TrainPortPresenter"/>).
-/// The components themselves stay blocked on clients (<see cref="Multiplayer.Shared.Trains.SimComponent_Tick_Patch"/>).
+/// The components themselves stay blocked on clients (<see cref="SimComponent_Tick_Patch"/>).
 /// </summary>
 [HarmonyPatch(typeof(SimController), "Update")]
 public static class SimControllerUpdatePatch

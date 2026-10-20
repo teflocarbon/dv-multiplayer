@@ -35,9 +35,9 @@ public static class CouplerUncoupleLogPatch
             TrainChangeCauses.RecordUncouple(__instance, cause);
             TrainChangeCauses.RecordUncouple(other, cause);
 
+            // The server sends its causes with the next topology snapshot.
+            TrainRoles.Server?.NoteUncouple(__instance, cause);
             bool host = lifecycle.IsHost();
-            if (host)
-                TrainRoles.Server?.NoteUncouple(__instance, cause);
             Multiplayer.Log($"Uncoupled {car?.ID} ({End(__instance)}) from {otherCar?.ID} ({End(other)}) " +
                 $"on the {(host ? "host" : "client")}: {cause}");
             DebugRuntime.Publish("train", "train.uncoupled", TrainChangeCauses.Side, entityType: "TrainCar",
@@ -64,15 +64,9 @@ public static class CouplerUncoupleLogPatch
             return scoped;
 
         // A client applying the host's topology: the host's own reason if it sent one.
-        if (NetworkedTrainCar.IsApplyingAuthoritativeTopology && !NetworkLifecycle.Instance.IsHost() &&
-            TrainRoles.Client is { } client)
-        {
-            if (client.RefusalUncoupleCause is ChangeCause<UncoupleReason> refused)
-                return refused;
-            if (client.TakeHostUncoupleCause(coupler, other, out ChangeCause<UncoupleReason> hostCause))
-                return hostCause;
-            return TrainChangeCauses.Cause(UncoupleReason.FollowingHost);
-        }
+        if (TrainRoles.Client is { } client &&
+            client.TryFollowingHostUncoupleCause(coupler, other, out ChangeCause<UncoupleReason> followed))
+            return followed;
 
         List<MethodBase> callers = TrainChangeCauses.Callers(2);
         if (TrainChangeCauses.Called(callers, nameof(CarSpawner), "PrepareTrainCarForDeleting"))

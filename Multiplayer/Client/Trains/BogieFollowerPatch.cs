@@ -4,7 +4,8 @@ using Multiplayer.Shared.Utils;
 
 namespace Multiplayer.Client.Trains;
 
-// A client follows the host's bogies: each one gets the queue NetworkedTrainCarClient feeds.
+// A remote client follows the host's bogies: each one gets the queue NetworkedTrainCarClient
+// feeds, and they never switch junctions themselves (the host's junction state arrives).
 [HarmonyPatch(typeof(Bogie))]
 public static class BogieFollowerPatch
 {
@@ -12,7 +13,7 @@ public static class BogieFollowerPatch
     [HarmonyPatch(nameof(Bogie.SetupPhysics))]
     private static void SetupPhysics(Bogie __instance)
     {
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (NetworkRole.IsRemoteClient)
             __instance.gameObject.GetOrAddComponent<NetworkedBogie>();
     }
 
@@ -24,7 +25,11 @@ public static class BogieFollowerPatch
     [HarmonyPatch("Start")]
     private static void Start(Bogie __instance)
     {
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (NetworkRole.IsRemoteClient)
             __instance.gameObject.GetOrAddComponent<NetworkedBogie>();
     }
+
+    [HarmonyPrefix]
+    [HarmonyPatch(nameof(Bogie.SwitchJunctionIfNeeded))]
+    private static bool SwitchJunctionIfNeeded() => !NetworkRole.IsRemoteClient;
 }

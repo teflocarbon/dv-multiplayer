@@ -1,12 +1,13 @@
 using HarmonyLib;
-using Multiplayer.Shared.Session;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
 
-namespace Multiplayer.Server.Trains;
+namespace Multiplayer.Shared.Trains;
 
+// Every game: drops the Debug.LogError in vanilla's Bogie.UpdatePointSetTraveller. A remote
+// client's own bogie patches are Client/Trains/BogieFollowerPatch.
 [HarmonyPatch(typeof(Bogie))]
 public static class BogiePatch
 {
@@ -37,13 +38,6 @@ public static class BogiePatch
         }
 
         return codes;
-    }
-
-    [HarmonyPrefix]
-    [HarmonyPatch(nameof(Bogie.SwitchJunctionIfNeeded))]
-    private static bool SwitchJunctionIfNeeded()
-    {
-        return NetworkLifecycle.Instance.IsHost();
     }
 }
 
