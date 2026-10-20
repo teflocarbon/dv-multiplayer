@@ -49,6 +49,8 @@ internal sealed partial class ServerItemManager
                 continue;
             if (depth.Value > NetworkedItemManager.BelowTerrainTolerance)
             {
+                if (NetworkedItemManager.HasFloorUnder(item))
+                    continue;   // in a tunnel
                 RescueFallenItem(item, record, surfaceY, "host-terrain");
                 continue;
             }
@@ -69,6 +71,9 @@ internal sealed partial class ServerItemManager
         // fell, convergence already puts it back to the host's pose.
         float hostAbsoluteY = item.transform.position.y - WorldMover.currentMove.y;
         if (hostAbsoluteY > surfaceAbsoluteY - NetworkedItemManager.BelowTerrainTolerance)
+            return;
+        // The client may have no floor loaded where the host does (a tunnel's): it's in the tunnel.
+        if (NetworkedItemManager.HasFloorUnder(item))
             return;
         RescueFallenItem(item, record, surfaceAbsoluteY, "client-report:P" + reporter.PlayerId);
     }

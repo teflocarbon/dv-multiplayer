@@ -24,9 +24,10 @@ namespace Dvmp.Scenarios
     /// - the throw keeps its force when the actor is the host's own player (granting the new lease
     ///   used to stop the body under the old one, losing GrabHandlerItem.Throw's one-step force).
     /// Both games must then have it at the same spot outside the loco, no lease open, the client's
-    /// copy never retired and re-created. A mug that goes through the terrain where it lands
-    /// (vanilla physics, docs/research/item-terrain-tunnelling.md) is judged by its flight above the
-    /// ground and must have been rescued. ACTOR=host needs a player host (the host's body boards).
+    /// copy never retired and re-created. Where it lands beside the track the mug's collider often
+    /// goes straight through the terrain in vanilla physics (docs/research/item-terrain-tunnelling.md):
+    /// the mod's terrain guard must put it back on the surface, so the host's copy never goes under
+    /// the ground and the fall rescue never runs. ACTOR=host needs a player host (the host's body boards).
     /// </summary>
     [Scenario("server-throw", "The host throws a mug out of a loco cab on a player's behalf under the drop's lease: it's indexed in its world cell at once, keeps its force, and lands at the same spot in both games")]
     public sealed class ServerThrow : Scenario<ServerThrow.Options>
@@ -50,6 +51,7 @@ namespace Dvmp.Scenarios
             await pair.Client.Run(() => Players.Board(loco));
 
             ushort mug = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", o.Actor));
+            PeerResults<int> caughtBefore = await pair.Both.Run(() => InGame.GuardCatches());
             ItemPose before = await pair.Client.Run(() => Items.Pose(mug));
             // The host throws it out under the drop's lease: it watches for the drop while the actor makes it.
             var throwing = pair.Host.Start<Thrown>(s => InGame.Throw(s, mug, loco, o.Actor), 120);
@@ -59,30 +61,26 @@ namespace Dvmp.Scenarios
 
             PeerResults<ItemPose> pose = await pair.Both.Run(() => Items.Pose(mug));
             ItemRecord record = await pair.Host.Run(() => Items.Record(mug));
+            PeerResults<int> caughtAfter = await pair.Both.Run(() => InGame.GuardCatches());
             Report.Note($"flew {t.Travel:0.##} m (rose {t.Rise:0.##} m); host {pose.Host} ({record.Placement}, last move {record.LastMove}), client {pose.Client}");
 
             Expect.That(t.LeaseLiveAtThrow, "a lease from the drop was open when the host threw it (else the throw superseded none, and this run shows nothing about its force)",
                 $"{t.DroppedFor:0.#} s after it was in the cab");
             Expect.That(t.IndexedOnCommit, "the transition put the mug in a world cell");
             // The mug's convex collider often goes straight through DV's terrain where it lands beside
-            // the track, in plain PhysX with none of the game's or the mod's scripts on it
-            // (docs/research/item-terrain-tunnelling.md). The fall rescue then puts it back at its
-            // last safe spot, so where it lies says nothing about the throw: its flight above the
-            // ground still does, and the rescue must have happened.
-            bool rescued = pose.Host.Present && record.LastMove == "RescuedFromBelowMap";
-            if (t.FellThrough)
-            {
-                Report.Note($"the host's copy went through the terrain {t.FellAfter:0.##} s into its flight (vanilla physics, not the throw)");
-                Expect.That(rescued, "the fall rescue brought it back from below the map", $"last move {record.LastMove}");
-            }
-            else Expect.That(!rescued, "rescued from below the map only after the host's copy went through the terrain", $"last move {record.LastMove}");
+            // the track, in plain PhysX (docs/research/item-terrain-tunnelling.md). The terrain guard
+            // on whichever game simulates its flight puts it back on the surface the same physics step.
+            int caught = (caughtAfter.Host - caughtBefore.Host) + (caughtAfter.Client - caughtBefore.Client);
+            if (caught > 0) Report.Note($"the terrain guard put it back on the ground {caught} time(s) (host {caughtAfter.Host - caughtBefore.Host}, client {caughtAfter.Client - caughtBefore.Client})");
+            Expect.That(!t.FellThrough, "the host's copy stayed above the ground", $"went under the terrain {t.FellAfter:0.##} s into its flight");
+            Expect.That(!(pose.Host.Present && record.LastMove == "RescuedFromBelowMap"), "never rescued from below the map", $"last move {record.LastMove}");
             Expect.AtLeast(t.Travel, 1.5, "the host's copy's flight sideways above the ground (m), less is a throw that lost its force");
             foreach (var (peer, v) in pose)
             {
                 if (!Expect.That(v.Present, $"{peer}: has the mug")) continue;
                 Expect.That(!v.Leased, $"{peer}: no spatial lease still open");
                 Expect.Equal("Dropped", v.State, $"{peer}: mug state");
-                if (!rescued) Expect.AtLeast(Peers.Horizontal(v.Pos, t.Start), 1.5, $"{peer}: came down from where it was thrown (m)");
+                Expect.AtLeast(Peers.Horizontal(v.Pos, t.Start), 1.5, $"{peer}: came down from where it was thrown (m)");
             }
             if (pose.Host.Present) Expect.Equal("World", record.Placement, "host record placement");
             if (before.Present && pose.Client.Present) Expect.Equal(before.Instance, pose.Client.Instance, "the client's copy (its Unity instance: another is one retired and re-created)");
@@ -105,6 +103,10 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
+            /// <summary>Either game: how many times its terrain guard has put an item back on the ground.</summary>
+            [Step]
+            public static int GuardCatches() => NetworkedItemManager.TerrainGuardCatches;
+
             /// <summary>
             /// Host: once the mug lies in the cab under the lease its drop opened, throws it out of the
             /// side of the loco with a host transition naming the actor, as the job re-roll throws a

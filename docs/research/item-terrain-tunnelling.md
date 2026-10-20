@@ -8,8 +8,9 @@ at all, and keep falling to the water plane under the map (y 110). This is plain
 rigidbody that has only the mug's convex `MeshCollider` and none of the game's or the mod's scripts
 does it too, on a host and on a client. Vanilla has nothing that catches it. `RespawnOnDrop`
 respawns an item only once it is too far from the player and from its spawn point. In multiplayer
-the mod's fall rescue (`ServerItemManager.FallRescue.cs`, `ClientItemManager.FallRescue.cs`) puts
-the item back at its last safe spot.
+the mod's terrain guard now puts it back on the surface the same physics step
+([below](#the-terrain-guard-2026-10-21)); the fall rescue (`ServerItemManager.FallRescue.cs`,
+`ClientItemManager.FallRescue.cs`) is the backstop.
 
 ## What was measured
 
@@ -40,9 +41,57 @@ rarely on open ground. Any small item with a convex mesh collider is likely to b
 
 ## What it means for the mod
 
-- Players will see it: a mug thrown off a loco onto the embankment may vanish into the ground. The
-  fall rescue brings it back within about a second, to the last spot it was seen resting or held,
+- Players saw it: a mug thrown off a loco onto the embankment could vanish into the ground. The
+  fall rescue brought it back within about a second, to the last spot it was seen resting or held,
   which for a throw is near where it was thrown from, not where it should have landed.
-- Scenarios that throw or drop items onto terrain can't treat "it went under the ground" as a
-  failure of what they test. `server-throw` judges the throw by its flight above the ground and
-  requires the rescue to have happened.
+- DV's terrain colliders aren't on the rendered `Terrain` objects (`terrain_18_renderer`): they're
+  separate `TerrainCollider` objects in `TerrainGrid`'s pool (`TerrainGrid/terrain_N`, layer
+  `Terrain`), plus the host's own `server_terrain_N` around remote players.
+- Items are on the `World_Item` layer. A tunnel portal (`TunnelCollisionIgnore`, a capsule trigger
+  about 8 m long and 3 m in radius at the mouth) ignores the terrain collider for whatever enters it
+  except the `Interactable` layer, so items thrown into a tunnel do go in. Its `TerrainHole` only
+  clips the terrain's rendering (MicroSplat); the collider has no hole.
+
+## The terrain guard (2026-10-21)
+
+The mod now guards against it (`NetworkedItemManager.TerrainGuard.cs`,
+[design](../design/item-spatial-physics.md#landing-on-the-terrain)): right after each physics step,
+on the game simulating the item, an item that crossed the terrain collider in that step is put back
+on the surface where it crossed, without the velocity into the ground.
+
+**Method.** A probe (`dvmp eval`) on the game being measured throws mugs at the `server-throw` spot,
+absolute (7173, 126, 6889) on `terrain_18`, the player standing 6 m away: each starts 3 m above
+`Terrain.SampleHeight` at a random offset of up to a metre and a random rotation, with velocity
+(2, -6, 0) m/s, so it hits the ground at about 9.9 m/s. It counts a fall-through when the mug's
+centre goes 0.5 m under the surface within 2 s. The guard is switched off for "before"
+(`NetworkedItemManager.TerrainGuardEnabled`), same seed for both. On the host the mugs are
+`Instantiate`d from the prefab (networked world items, simulated by the host with no lease). On the
+client, a client's local `Instantiate` is removed by the mod, so the host spawns networked mugs by
+the client, and the client picks each up, throws it (it then holds the lease and simulates it), and
+the probe launches the body from the same start.
+
+| Simulated by | Before | After | Guard corrections after |
+|---|---|---|---|
+| The host (player host), 40 throws | 11 fell through | 0 | 13 |
+| The host, 10 and 20 throws (other seeds) | 3 of 10 | 0 of 20 | 4 |
+| The client (lease simulator), 30 throws | 6 fell through, rescued back to where they were picked up | 0 | 12 |
+| A dedicated host (the client standing at the spot), 30 throws | 9 fell through | 0 | 9 |
+
+The guard costs about 55 to 65 µs a physics step with about 800 items loaded and none moving (it
+looks at every item, skipping kinematic and sleeping bodies). On a player host, `server-throw`
+lands its mug at this spot, and the guard put it back on the ground in 5 of 6 runs (on the host for
+`ACTOR=host`, on the client for `ACTOR=client`). The scenario now requires the mug never to go under
+the ground and never to be rescued. On a dedicated host it lands by the client's home instead, where
+the guard never had to act.
+
+An observer's proxy could also dip under the ground: it extrapolates the last motion sample by up to
+0.15 s, and a sample taken just before landing carried it on down. On a dedicated host the host's
+copy of a client's throw went 0.3 m under once in 7 runs, with no guard correction on the client.
+The observer no longer predicts into the terrain.
+
+**Tunnels.** At the portal at absolute (5714, 146, 9145): a mug dropped 40 m inside the tunnel, 25 m
+under the terrain surface, and a mug thrown in through the portal at 12 m/s (it ended 5.5 m under the
+surface, on the tunnel floor) were neither guarded nor rescued, on the host and with the client
+standing in the tunnel next to them. Before, by its code, the fall rescue had no idea of tunnels: it
+moved an item more than 1 m under the terrain out of it (not measured). Now neither the rescue nor a
+client's report acts on an item with a floor under it.

@@ -25,7 +25,10 @@
   (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). The host scans where it has terrain;
   a remote client reports its own items under its terrain (`ClientItemManager.FallRescue.cs`,
   from the item tick, which until #37 was subscribed on the host only), and the server rescues
-  one only if its copy is under that ground too. Banknote amounts sync as a
+  one only if its copy is under that ground too. An item with a floor under it (a tunnel's) is
+  never rescued. Since the terrain guard puts an item that goes through the terrain back on it the
+  same physics step ([item-spatial-physics.md](item-spatial-physics.md#landing-on-the-terrain)),
+  the rescue is a backstop. Banknote amounts sync as a
   host-authoritative tracked value and a client's spent note is deposited with the host
   (`MoneyPatch`, 89c68e6, 99a8f5c).
 - **Where the code is:** the Shared `NetworkedItemManager` keeps the queues every game runs (local

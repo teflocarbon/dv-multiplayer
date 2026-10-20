@@ -206,7 +206,14 @@ internal sealed class NetworkedItemSpatialManager
         if (prediction > 0f && !predicted.Sleeping && predicted.Phase != ItemSpatialPhase.Settled)
         {
             if (predicted.WorldParentKind == ItemWorldParentKind.World)
+            {
                 predicted.AbsolutePosition += predicted.LinearVelocity * prediction;
+                // A sample just before it lands would carry it on into the ground: the simulator's
+                // body stops on the surface (or its terrain guard puts it back there).
+                if (NetworkedItemManager.BelowTerrain(predicted.AbsolutePosition + WorldMover.currentMove, out _) > 0f &&
+                    !(NetworkedItemManager.BelowTerrain(lease.Target.AbsolutePosition + WorldMover.currentMove, out _) > 0f))
+                    predicted.AbsolutePosition = lease.Target.AbsolutePosition;
+            }
             else
                 predicted.ParentLocalPosition += predicted.LinearVelocity * prediction;
 

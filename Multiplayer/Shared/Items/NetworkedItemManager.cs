@@ -66,6 +66,7 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         // The host's tick runs the server's part; a remote client's runs the client part, whose
         // fall-rescue scan reports its items under the map (#37: it was subscribed on the host only).
         NetworkLifecycle.Instance.OnTick += Common_OnTick;
+        StartCoroutine(GuardItemsAgainstTerrainTunnelling());
 
         BuildPrefabLookup();
     }

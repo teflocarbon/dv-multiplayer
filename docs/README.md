@@ -63,7 +63,7 @@ the decompiled game and describe Derail Valley itself, not the mod.
 replaces the world, where it collides with the mod, and whether a test map is worth it.
 [research/item-terrain-tunnelling.md](research/item-terrain-tunnelling.md) was measured in game
 rather than read from the code: small items such as the mug fall straight through DV's terrain in
-plain PhysX, and vanilla doesn't catch them.
+plain PhysX, and vanilla doesn't catch them. The mod's terrain guard does.
 
 ## Generated
 
