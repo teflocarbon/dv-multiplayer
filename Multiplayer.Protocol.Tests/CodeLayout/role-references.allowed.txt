@@ -10,7 +10,6 @@ Multiplayer.Server.Dedicated.DedicatedHost -> Multiplayer.Menus.ServerBrowser.Se
 Multiplayer.Server.Dedicated.LauncherControllerSaveLockPatch -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff
 Multiplayer.Server.Session.LobbyServerManager -> Multiplayer.Menus.ServerBrowser.ServerVisibility
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.Session.NetworkClient
-Multiplayer.Server.Session.NetworkServer -> Multiplayer.Client.World.TimeAdvancePatch
 Multiplayer.Server.Session.NetworkServer -> Multiplayer.Menus.MainMenu.MainMenuControllerPatch
 Multiplayer.Shared.Api.APIProvider -> Multiplayer.Server.Session.NetworkServer
 Multiplayer.Shared.Api.ModCompatibilityManager -> Multiplayer.Menus.MainMenu.MainMenuThingsAndStuff

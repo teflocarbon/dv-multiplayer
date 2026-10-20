@@ -70,10 +70,11 @@ differences, such as the host setting the time, are applied.
 
 ### Fast travel time skip
 
-`Client/World/TimeAdvancePatch.cs` prefixes `TimeAdvance.AdvanceTime`. With other players
+Two prefixes on `TimeAdvance.AdvanceTime`, each doing nothing outside its role: `Client/World/TimeAdvancePatch.cs` on a
+remote client, `Server/World/TimeAdvanceServerPatch.cs` on the host. With other players
 connected, fast travel only skips time when the host's `FastTravelAdvancesTime` mod setting is on
-(sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
-player who travelled advances locally and sends `ServerboundTimeAdvancePacket`. The server advances
+(the server's `NetworkServer.FastTravelAdvancesTime`; sent to clients inside `ClientboundGameParamsPacket`, and re-sent when the host changes it). The
+player who travelled advances locally and sends `ServerboundTimeAdvancePacket` (the host submits it to the server in-process). The server advances
 its own world's clock for a client's request (the host's own has already advanced), then relays it
 to everyone else as `ClientboundTimeAdvancePacket`, never to the host's own client
 (`NetworkServer.HandleTimeAdvance`). An advance applied for another player is not sent on again
@@ -95,7 +96,7 @@ everyone's jobs late. There is now one cooldown, kept by the host.
   `ClientboundSleepStatePacket` (`LastWakeTimeOADate`, `LastSleepDurationSeconds`): on join and
   after every accepted sleep. A client's bed menu therefore shows the shared cooldown.
 - A sleeping player skips time locally and sends `ServerboundTimeAdvancePacket` with `IsSleep`
-  set (`TimeAdvancePatch` tells sleep from fast travel by `BedSleepingController.IsSleeping`).
+  set (both patches tell sleep from fast travel by `BedSleepingController.IsSleeping`).
 - `NetworkServer.HandleSleep` ignores amounts outside (0, 24 h]. The host's own sleep has
   already passed vanilla's check and advanced the host's clock, so it is relayed and the new sleep
   state broadcast. A client's sleep is rejected when `GameParams.SleepCooldownInHours < 0` or the

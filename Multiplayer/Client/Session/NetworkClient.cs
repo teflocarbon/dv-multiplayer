@@ -1027,17 +1027,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         LoadingState = newState;
     }
 
-    public void SendPlayerPosition(PlayerTrackingData trackingData, PlayerPostureFlags posture, bool isOnCar, ushort carId, bool reliable)
+    public void SendPlayerPosition(ServerboundPlayerPositionPacket packet, bool reliable)
     {
-        //LogDebug(() => $"SendPlayerPosition({position}, {moveDir}, {rotationY}, {carId}, {isJumping}, {IsOnCar})");
-
-        SendPacketToServer(new ServerboundPlayerPositionPacket
-        {
-            TrackingData = trackingData,
-            Posture = posture,
-            IsOnCar = isOnCar,
-            CarID = carId
-        }, reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Sequenced);
+        SendPacketToServer(packet, reliable ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Sequenced);
     }
 
     public void SendPlayerPreferences(Dictionary<PlayerPreference, string> preferences)
