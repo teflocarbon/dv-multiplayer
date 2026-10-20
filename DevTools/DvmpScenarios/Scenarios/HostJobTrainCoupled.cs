@@ -303,16 +303,30 @@ namespace Dvmp.Scenarios
                         continue;
                     }
                     (Vector3 position, Vector3 forward) = AtSpan(centre);
-                    if (CarSpawner.IsBoxOverlapping(position, bounds.extents, Quaternion.LookRotation(forward)))
+                    // What the spawner's box hits, raised the way IsBoxOverlapping raises it.
+                    TrainCar[] Blocking()
                     {
-                        // What the box hits, the way IsBoxOverlapping raises it: the end car means the
-                        // placement is wrong, another car means the track is taken.
                         Vector3 half = bounds.extents;
                         float lift = Mathf.Max(0f, 1.5f - half.y);
                         half.y += lift;
                         Vector3 centreOfBox = position + Vector3.up * (bounds.extents.y + lift + 0.15f);
-                        string hits = string.Join(",", Physics.OverlapBox(centreOfBox, half, Quaternion.LookRotation(forward), CarSpawner.TrainCheckLayerMask, QueryTriggerInteraction.Ignore)
-                            .Select(c => c.GetComponentInParent<TrainCar>()?.ID ?? c.name).Distinct());
+                        return Physics.OverlapBox(centreOfBox, half, Quaternion.LookRotation(forward), CarSpawner.TrainCheckLayerMask, QueryTriggerInteraction.Ignore)
+                            .Select(c => c.GetComponentInParent<TrainCar>()).Where(c => c != null).Distinct().ToArray();
+                    }
+                    // A full yard parks other consists right behind the job's train: those that hold no
+                    // job car are cleared out of the way (the run's own cleanup doesn't need them).
+                    TrainCar[] blocking = Blocking();
+                    var strangers = blocking.Where(c => !jobCars.Contains(c) && !c.trainset.cars.Any(jobCars.Contains))
+                        .SelectMany(c => c.trainset.cars).Distinct().ToList();
+                    if (blocking.Length > 0 && strangers.Count > 0 && blocking.All(c => strangers.Contains(c)))
+                    {
+                        step.Note($"{endCar.ID} +{distance} m: clearing {strangers.Count} car(s) parked past it ({string.Join(",", strangers.Select(c => c.ID))})");
+                        foreach (TrainCar stranger in strangers) Trains.Delete(stranger);
+                        for (int i = 0; i < 30; i++) yield return null;
+                    }
+                    if (CarSpawner.IsBoxOverlapping(position, bounds.extents, Quaternion.LookRotation(forward)))
+                    {
+                        string hits = string.Join(",", Blocking().Select(c => c.ID));
                         tried.Add($"{endCar.ID} +{distance} m: no room on {track.name} (hits {hits})");
                         step.Note(tried.Last());
                         continue;
