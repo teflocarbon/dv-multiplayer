@@ -257,6 +257,8 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     // Vanilla controllers that write a hooked control's port every frame from this game's own
     // input (LocalInputWriters), by the ports they write: off while another player holds the lease.
     private readonly Dictionary<uint, Behaviour[]> portNetIdToLocalInputWriters = [];
+    // Hooked controls, on any car, whose lease another player holds (IsHeldByAnotherPlayer).
+    private static readonly HashSet<ControlImplBase> controlsHeldByOthers = [];
     private const float USED_CONTROL_LEASE_SECONDS = 0.5f;
 
     // Client: controls this client changed in operations the host hasn't committed back yet.
@@ -557,6 +559,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
             control.Grabbed -= ControlGrabbed;
             control.Ungrabbed -= ControlUngrabbed;
+            controlsHeldByOthers.Remove(control);
         }
 
         foreach (var kvp in scrollingControls)
@@ -676,6 +679,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         }
         linkedPortNetIds.Remove(portNetId);
         controlToPortNetId.Remove(control);
+        controlsHeldByOthers.Remove(control);
     }
 
     /// <summary>
@@ -701,6 +705,14 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                     writers.Add(rope);
         return writers.ToArray();
     }
+
+    /// <summary>
+    /// Whether another player holds the lease on the control's port (<see cref="ReceiveAuthorityUpdate"/>).
+    /// For local input writers that can't be switched off as <see cref="LocalInputWriters"/> are:
+    /// Custom Car Loader's ropes (Compatibility.CustomCarLoaderRopes).
+    /// </summary>
+    public static bool IsHeldByAnotherPlayer(ControlImplBase control) =>
+        control != null && controlsHeldByOthers.Contains(control);
 
     public void ReceiveControlState(TrainControlStateData state)
     {
@@ -1526,6 +1538,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (portNetIdToControl.TryGetValue(portNetId, out var mapped) && mapped != null && !controls.Contains(mapped))
             controls.Add(mapped);
 
+        controlsHeldByOthers.RemoveWhere(control => control == null);
         foreach (ControlImplBase control in controls)
         {
             var hinge = control.GetComponent<HingeJoint>();
@@ -1544,6 +1557,10 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
             control.BlockControl(shouldBlock);
             control.InteractionAllowed = shouldEnable;
+            if (shouldBlock)
+                controlsHeldByOthers.Add(control);
+            else
+                controlsHeldByOthers.Remove(control);
 
             if (hinge != null)
                 control.enabled = shouldEnable;
