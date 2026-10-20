@@ -42,7 +42,7 @@ public static class CommsRadioCarDeleterPatch
 
     private static IEnumerator PlaySoundsLater(CommsRadioCarDeleter __instance, Vector3 trainPosition, bool playMoneyRemovedSound = true)
     {
-        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.Client.Ping * 3f)/1000);
+        yield return new WaitForSecondsRealtime((NetworkLifecycle.Instance.LocalSession.Ping * 3f)/1000);
         if (playMoneyRemovedSound && __instance.moneyRemovedSound != null)
             __instance.moneyRemovedSound.Play2D();
         // The TrainCar may already be deleted when we're done waiting, so we play the sound manually.

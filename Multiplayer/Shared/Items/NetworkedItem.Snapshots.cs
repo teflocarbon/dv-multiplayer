@@ -820,7 +820,7 @@ public partial class NetworkedItem
     {
         if (NetworkLifecycle.Instance.IsHost())
         {
-            byte hostPlayerId = ItemServer.Current?.LocalPlayerId ?? 0;
+            byte hostPlayerId = NetworkRole.LocalPlayerId;
             return HostPossessorPlayerId != 0 && HostPossessorPlayerId != hostPlayerId;
         }
 

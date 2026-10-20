@@ -1,9 +1,9 @@
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Trains;
+using Multiplayer.Shared.Session;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Multiplayer.Shared.Session;
+namespace Multiplayer.Client.Trains;
 
 public abstract class TickedQueue<T> : MonoBehaviour
 {
