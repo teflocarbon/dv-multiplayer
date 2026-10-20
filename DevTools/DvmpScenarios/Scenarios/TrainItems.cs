@@ -27,7 +27,8 @@ namespace Dvmp.Scenarios
         {
             if (o.Who == "host" && pair.Dedicated) throw new HarnessException("WHO=host needs a player host: a dedicated host has no player to carry the mug");
             Peer carrier = o.Who == "host" ? pair.Host : pair.Client;
-            string loco = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "LocoDE2", "client"));
+            // Around the host's player, as the bash scenario did; a dedicated host's is parked away from the run.
+            string loco = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "LocoDE2", pair.Dedicated ? "client" : "host"));
             pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, new[] { loco })));
             if (!pair.Dedicated) await pair.Host.Run(() => Players.Board(loco));
             await pair.Client.Run(() => Players.Board(loco));
