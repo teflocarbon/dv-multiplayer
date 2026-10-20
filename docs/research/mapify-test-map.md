@@ -1,6 +1,11 @@
 # A Mapify test map for the physics scenarios
 
-Status: research, 2026-10-20. No game was launched and nothing was installed. Mapify Continued
+Status: **dropped**, 2026-10-20. The user's call: Mapify loads the vanilla scenes before the map,
+so a test map wouldn't save load time, and that was the reason to want one. The scenario
+framework stays map-agnostic on the real world. The track-graph check in §3 item 3 is still worth
+building on its own. The rest of this doc is kept as the reasoning.
+
+Research, 2026-10-20. No game was launched and nothing was installed. Mapify Continued
 was read at [`t0stiman/dv-mapify@efeb14d`](https://github.com/t0stiman/dv-mapify/tree/efeb14d)
 (version 2026.09.08, the current Nexus release); the mod was read on `split/client-server`.
 
