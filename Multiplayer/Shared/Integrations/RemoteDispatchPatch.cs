@@ -1,5 +1,6 @@
 using DV.JObjectExtstensions;
 using HarmonyLib;
+using MPAPI;
 using MPAPI.Interfaces;
 using Multiplayer.Shared.Session;
 using Newtonsoft.Json.Linq;
@@ -8,8 +9,6 @@ using System.Reflection;
 using System;
 using UnityEngine;
 using System.Linq;
-using Multiplayer.Server.Session;
-using Multiplayer.Client.Session;
 
 namespace Multiplayer.Shared.Integrations;
 
@@ -49,12 +48,13 @@ public static class RemoteDispatchPatch
         if (!NetworkLifecycle.Instance.IsClientRunning)
             return;
 
-        IEnumerable<IPlayer> players;
-
-        if (NetworkLifecycle.Instance.IsHost())
-            players = NetworkServer.Instance.ServerPlayerWrappers;
-        else
-            players = NetworkClient.Instance.ClientPlayerWrappers;
+        // The players as MPAPI gives them to any mod: the server's list on the host, the
+        // client's elsewhere.
+        IEnumerable<IPlayer> players = NetworkLifecycle.Instance.IsHost()
+            ? MultiplayerAPI.Server?.Players
+            : MultiplayerAPI.Client?.Players;
+        if (players == null)
+            return;
 
         foreach (var player in players)
         {

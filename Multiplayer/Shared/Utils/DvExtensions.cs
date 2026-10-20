@@ -1,15 +1,7 @@
-using DV.Interaction;
-using DV.KeyboardInput;
-using DV.Localization;
-using DV.UI;
-using DV.UIFramework;
-using Multiplayer.Server.Dedicated;
-using Multiplayer.Server.Session;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.World;
 using UnityEngine;
-using UnityEngine.UI;
 
 
 
@@ -53,113 +45,7 @@ public static class DvExtensions
 
     #endregion
 
-    #region UI
-    public static GameObject UpdateButton(this GameObject pane, string oldButtonName, string newButtonName, string localeKey, string toolTipKey, Sprite icon)
-    {
-        // Find and rename the button
-        GameObject button = pane.FindChildByName(oldButtonName);
-        button.name = newButtonName;
-
-        // Update localization and tooltip
-        if (button.GetComponentInChildren<Localize>() != null)
-        {
-            button.GetComponentInChildren<Localize>().key = localeKey;
-            foreach(var child in button.GetComponentsInChildren<I2.Loc.Localize>())
-            {
-                GameObject.Destroy(child);
-            }
-            ResetTooltip(button);
-            button.GetComponentInChildren<Localize>().UpdateLocalization();
-        }else if(button.GetComponentInChildren<UIElementTooltip>() != null)
-        {
-            button.GetComponentInChildren<UIElementTooltip>().enabledKey = localeKey + "__tooltip";
-            button.GetComponentInChildren<UIElementTooltip>().disabledKey = localeKey + "__tooltip_disabled";
-        }
-
-        // Set the button icon if provided
-        if (icon != null)
-        {
-            SetButtonIcon(button, icon);
-        }
-
-        // Enable button interaction
-        button.GetComponentInChildren<ButtonDV>().ToggleInteractable(true);
-
-        return button;
-    }
-
-    private static void SetButtonIcon(this GameObject button, Sprite icon)
-    {
-        // Find and set the icon for the button
-        GameObject goIcon = button.FindChildByName("[icon]");
-        if (goIcon == null)
-        {
-            Multiplayer.LogError("Failed to find icon!");
-            return;
-        }
-
-        goIcon.GetComponent<Image>().sprite = icon;
-    }
-
-    public static void ResetTooltip(this GameObject button)
-    {
-        // Reset the tooltip keys for the button
-        UIElementTooltip tooltip = button.GetComponent<UIElementTooltip>();
-        tooltip.initialized = false;
-        tooltip.disabledKey = null;
-        tooltip.enabledKey = null;
-
-    }
-
-    #endregion
-
     #region Utils
-
-    public static float AnyPlayerSqrMag(this GameObject item)
-    {
-        return AnyPlayerSqrMag(item.transform.position);
-    }
-
-    public static float AnyPlayerSqrMag(this Vector3 anchor)
-    {
-        float result = float.MaxValue;
-        //string origin = new StackTrace().GetFrame(1).GetMethod().Name;
-
-        //Loop through all of the players and return the one thats closest to the anchor (a
-        //dedicated host's parked body isn't a player)
-        foreach (ServerPlayer serverPlayer in NetworkServer.Instance.ServerPlayers)
-        {
-            if (serverPlayer.IsServiceHost)
-                continue;
-            float sqDist = (serverPlayer.WorldPosition - anchor).sqrMagnitude;
-
-            if (sqDist < result)
-                result = sqDist;
-        }
-
-        return result;
-    }
-
-    public static bool PlayerCanReach(this GameObject item, ServerPlayer player, float extraRange = 0f)
-    {
-        return PlayerCanReach (item.transform, player, extraRange);
-    }
-
-    public static bool PlayerCanReach(this Transform item, ServerPlayer player, float extraRange = 0f)
-    {
-        float reachRange = AKeyboardInput.XZ_SQR_REACH_RANGE + GrabberRaycasterDV.FPS_INTERACTION_RANGE_SQR + (extraRange * extraRange);
-
-        var delta = player.WorldPosition - item.transform.position;
-
-        if (Mathf.Abs(delta.y) > AKeyboardInput.Y_REACH_RANGE)
-            return false;
-
-        delta.y = 0f;
-
-        float sqrMag = (delta).sqrMagnitude;
-
-        return sqrMag <= reachRange;
-    }
 
     public static Vector3 GetWorldAbsolutePosition(this GameObject go)
     {
@@ -171,12 +57,10 @@ public static class DvExtensions
         return transform.position - WorldMover.currentMove;
     }
 
+    /// <summary>Whether this game may pause: the server decides (<see cref="IPauseServer"/>), so never on a remote client.</summary>
     public static bool AllowPause()
     {
-        return NetworkLifecycle.Instance.IsHost() &&
-            (NetworkServer.Instance.IsSinglePlayer ||
-            (NetworkLifecycle.Instance.IsHostPlayingAlone && NetworkLifecycle.Instance.IsClientRunning) ||
-            DedicatedHost.AllowsPause);
+        return NetworkLifecycle.Instance.LocalServer is IPauseServer server && server.AllowsPause;
     }
     #endregion
 }

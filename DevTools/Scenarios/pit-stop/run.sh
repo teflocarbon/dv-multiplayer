@@ -6,6 +6,11 @@
 # host player's own requests, which the server handles in-process
 # (docs/design/host-local-session.md, stage 2).
 #   WHO=client (default) or host: who acts.
+#   MODE=yank (run pit-stop-yank; WHO=client only): instead of putting the plug back, the client
+#     walks off with it. Its avatar carries the plug on the host until the hose is stretched, and
+#     the server's rope physics yanks it out of the hand (Server/Stations/PropHoseRopePatch): the
+#     server has nobody holding it, the client's plug was moved by the yank the host sent, and both
+#     games agree whether it ended up snapped home.
 # Exit code 0 = pass. Needs a running pair (dvmp up).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -15,7 +20,11 @@ dvmp_bin=$D; D=dvmp_checked
 dvmp_checked() { local out; if ! out=$("$dvmp_bin" "$@"); then echo "FAIL: dvmp ${*:1:3} failed: ${out:-no output}" >&2; return 1; fi; printf '%s\n' "$out"; }
 P=DevTools/Scenarios/pit-stop
 WHO=${WHO:-client}
+MODE=${MODE:-dock}
 [ "$WHO" = host ] && OTHER=client || OTHER=host
+if [ "$MODE" = yank ] && [ "$WHO" = host ]; then
+  echo "SKIP: MODE=yank needs the client's avatar to carry the plug"; exit 0
+fi
 U="using Multiplayer.Shared.Stations;"
 fail() { echo "FAIL: $*"; exit 1; }
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
@@ -67,6 +76,28 @@ h=$(state host); o=$(state $OTHER)
 echo "   server: held by P$(echo "$h" | field heldBy); $OTHER shows P$(echo "$o" | field holding) holding it ($WHO is P$me)"
 [ "$(echo "$h" | field heldBy)" = "$me" ] || fail "the server has the plug held by P$(echo "$h" | field heldBy), not P$me"
 if [ "$OTHER" = client ]; then [ "$(echo "$o" | field holding)" = "$me" ] || fail "the client shows P$(echo "$o" | field holding) holding the plug, not P$me"; fi
+
+if [ "$MODE" = yank ]; then
+  PLUG=$(echo "$f" | field plug)
+  T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+  for t in host client; do
+    "$dvmp_bin" eval -t $t -m coroutine --timeout 60 -u "$U" -a plug=$PLUG -a seconds=14 -f $P/yank.cs >"$T/$t.json" &
+  done
+  sleep 1
+  echo "== client walks off with the plug"
+  move client "${X}f + 35f" "${Z}f + 35f"
+  wait
+  h=$(field maxAway <"$T/host.json"); c=$(field maxAway <"$T/client.json")
+  echo "   furthest from home: host $h m, client $c m (the hose yanks at $(field limit <"$T/host.json") m from its origin); yank settle seen: host $(field settleSeen <"$T/host.json"), client $(field settleSeen <"$T/client.json")"
+  echo "   at the end: host $(field away <"$T/host.json") m from home (at home: $(field atHome <"$T/host.json")), client $(field away <"$T/client.json") m (at home: $(field atHome <"$T/client.json")); server: held by P$(field heldBy <"$T/host.json")"
+  [ "$(field heldBy <"$T/host.json")" = 0 ] || fail "the server still has the plug held by P$(field heldBy <"$T/host.json") after the client walked off"
+  node -e 'process.exit(+process.argv[1] > 1.5 ? 0 : 1)' "$h" || fail "the host's plug never left home (${h} m): the client's avatar didn't carry it"
+  node -e 'process.exit(+process.argv[1] > 1.5 ? 0 : 1)' "$c" || fail "the client's plug never left home (${c} m): the host's yank never reached it"
+  [ "$(field atHome <"$T/host.json")" = "$(field atHome <"$T/client.json")" ] || fail "the games disagree whether the plug is home (host $(field atHome <"$T/host.json"), client $(field atHome <"$T/client.json"))"
+  echo PASS
+  exit 0
+fi
+
 echo "== $WHO puts it back home"
 state $WHO dock >/dev/null; sleep 2
 h=$(state host); o=$(state $OTHER)

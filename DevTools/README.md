@@ -11,6 +11,7 @@ run C# inside either game, take screenshots, and read logs. Debug-only; never sh
 | `Dvmp/` | `dvmp.exe`: discovers running agents, compiles C# probes against the game's own Mono libraries with publicized game/mod assemblies, and exposes everything as an MCP server (`dvmp mcp`) and a CLI. |
 | `Dvmp/Probes/*.cs` | Probes behind the tools (`host`, `join`, `snapshot`, `soak`, `trace-install`, `trace-show`) compiled and sent into the game at runtime. Edit them without rebuilding the agent. |
 | `Scenarios/` | Regression scenarios (`<name>/run.sh` plus its probes) and `gate.sh`, which runs them all. |
+| `DvmpScenarios/` | Regression scenarios in C#, replacing `Scenarios/` one at a time ([design](../docs/design/scenarios.md)): a net48 exe compiled against the mod, run by `dvmp scenario`. Its `[Step]` methods run inside the games through the agent's `/v1/load` and `/v1/invoke`. |
 
 ## Build
 
@@ -26,10 +27,14 @@ MCP server is running fails because the file is locked; reconnect the `dvmp` ser
 
 Test builds don't have to go into the game you play. `DevTools/make-test-install.ps1` makes a copy
 of Derail Valley at `%LOCALAPPDATA%\dvmp\test-install` that writes nothing to the real install:
-`DerailValley_Data`, `MonoBleedingEdge` and every other mod are directory junctions to it, the
-launcher and Unity Mod Manager's loader are copied, `Multiplayer` and `MultiplayerDevTools` are
-real copies, and a `steam_appid.txt` lets Steam start it from outside its folder. Run it again to
-pick up mods you add. Then point the harness and the builds at it:
+`DerailValley_Data` and `MonoBleedingEdge` are directory junctions to it, the launcher and Unity
+Mod Manager's loader are copied, `Multiplayer` and `MultiplayerDevTools` are real copies, and a
+`steam_appid.txt` lets Steam start it from outside its folder. No other mod is loaded: tests see
+the mod alone, and Unity Mod Manager loads in about 10 s instead of 32 s with 21 mods
+([harness-time-budget.md](../docs/research/harness-time-budget.md)). Running it again on an older
+test install removes its links to other mods (only the links). For a mod-compatibility pass, make a
+separate install with `-AllMods -TestDir ...`, which links every mod in the real install. Then point
+the harness and the builds at it:
 
 ```bash
 export DVMP_DV_DIR="$LOCALAPPDATA/dvmp/test-install"          # dvmp launches and compiles against it
@@ -161,6 +166,20 @@ Each scenario is `DevTools/Scenarios/<name>/run.sh`, needs a running pair, and e
 failure; its header lists its variables. `gate.sh` runs the whole set against the running pair
 and prints PASS/FAIL per run. Run it after any change touching items, joins, ticks or trains.
 
+The ported ones are C# classes in `DvmpScenarios/Scenarios/` ([design](../docs/design/scenarios.md));
+gate.sh runs them too, with the same variables:
+
+```bash
+dotnet build DevTools/DvmpScenarios/DvmpScenarios.csproj -c Debug   # after building Multiplayer
+dvmp scenario list                                                  # names, options, defaults
+dvmp scenario run host-stall --session p1 --arg SPEED=10 --arg LAG=150
+```
+
+A scenario run never starts games: it needs the session's pair up, and exits 0 (pass), 1 (fail),
+2 (usage: an unknown option is an error) or 3 (harness: no pair, a stale install, the wrong kind of
+host). Steps are compiled once, loaded once per game launch, and run by name; the agent refuses a
+build compiled against another `Multiplayer.dll` than the game runs.
+
 ```bash
 bash DevTools/Scenarios/gate.sh                       # everything
 ONLY="rejoin recall" bash DevTools/Scenarios/gate.sh  # by scenario or run name
@@ -231,10 +250,14 @@ acts; `Hands.ReleaseControl()` hands it back.
   game's `launchId` and `logFile`, and a failed gate run lists the game logs from its start and end.
 - Built to run in the background while you use the PC (or play VR): harness-launched games
   start minimised at below-normal priority, are muted, use the lowest graphics quality, and
-  are capped at 30 fps (20 fps when not the foreground window). This only applies to games
+  are capped at 30 fps (20 fps when not the foreground window). While a game loads (its loading
+  screen is up, or its world is streaming in) the cap is 60 fps, since loading steps take a frame
+  each; `-dvmp-loading-fps N` changes it, 0 lifts it. This only applies to games
   started with `-dvmp-role`; nothing is written to the game's settings. Override with
   `dvmp up --visible --fps 60 --sound` (or the `background`/`fpsCap`/`sound` tool arguments).
-  Probes can change it live via `HarnessMode.FpsCap`, `HarnessMode.Muted`, etc.
+  Probes can change it live via `HarnessMode.FpsCap`, `HarnessMode.LoadingFpsCap`, `HarnessMode.Muted`, etc.
+- `dvmp up` starts loading the host's save as soon as the host's agent is up, while the client
+  is still booting, rather than after the client's agent is up.
 - Real keyboard/mouse are ignored by harness-launched games, so a stray click on a test window
   can't move a player. Press Ctrl+Shift+F5 in a game window to take (or give back) control.
 - Screenshots of a minimised game briefly restore its window without taking focus.

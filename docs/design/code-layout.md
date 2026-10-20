@@ -110,7 +110,7 @@ Paths are under `Multiplayer/`.
 |---|---|---|
 | `Multiplayer.cs`, `Settings.cs` | Mod | `Settings` mixes the player's options with the server's (`[Header("Server")]`, `Admins`, `Settings.cs:52-67`); later, a server-settings section the Server reads through an interface |
 | `Locale.cs`, `ModCompatibility/`, `Models/` | Shared (locale, mod lists), Client (player models) | |
-| `API/` | `APIProvider`, `ModCompatibilityManager`: Mod. `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
+| `API/` | `APIProvider`, `ModCompatibilityManager`: Shared (the mod list is checked by server, client and menus; the menus show the incompatible-mods popup, `IncompatibleModsWarning`, and `APIProvider` asks the server through `IApiServer`). `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
 | `Shared/Session/IdMonoBehaviour.cs`, `TrainComponentLookup.cs` | Shared | |
 | `Components/MainMenu/`, `Components/UI/{GridView,ServerBrowser,Settings}/`, `Components/Util/` | Mod | The front end: host and join |
 | `Components/UI/CareerManager/` | Client | |
@@ -118,20 +118,20 @@ Paths are under `Multiplayer/`.
 | `Components/Networking/{DedicatedHost,DedicatedHostAnchor,DedicatedHostSaveLock,Server*Coverage}.cs` | Server | |
 | `Components/Networking/{RpcManager,TickedQueue}.cs` | Client (`RpcManager` issues and resolves tickets), Shared | |
 | `Components/Networking/Jobs/` | `JobBookletSummonCoordinator`, `NetworkedTask`: Server. `NetworkedJob`: split. Lookups: Shared | |
-| `Components/Networking/Player/` | Client: trackers, `NetworkedWorldMap`. **`NetworkedPlayer`: see Decisions** | |
+| `Components/Networking/Player/` | Client: trackers, `NetworkedWorldMap`, `NetworkedPlayerNameTag` (name tag and ping). **`NetworkedPlayer`: see Decisions** (its model and animation are still in it: the VR IK handler the model adds gates the hand smoothing that places held items) | |
 | `Components/Networking/Train/` | `TrainTopologyAuthority`, `NetworkedLocoRestorationController`: Server. `TrainPortPresenter`, `TrainTopologyReconciler`, `NetworkedCarSpawner`: Client. Lookups, `TrainTopologyNativeAdapter`, `NetworkedBogie`, `NetworkedRigidbody`: Shared. **`NetworkedTrainCar`, `NetworkTrainsetWatcher`, `TrainSpeedQueue`, `TrainChangeCauses`: split** | |
 | `Components/Networking/UI/` | Client (`NetworkStatsGui`: Shared) | |
 | `Components/Networking/World/` (items) | `AuthoritativeItemRegistry`, `NetworkedItem.Server`, `NetworkedItemManager.{ServerInterest,Convergence}`, `NetworkedLostAndFoundManager`, `OwnedItemsSummary`, `Containers/NetworkedColdContainerManager`, `WorldItems/{Persistence*,AuthoredWorldItemReplenishmentManager}`: Server. `NetworkedItem.{StateApplication,VrHand}`, `NetworkedItemManager.ClientProjection`: Client. Identities and records: Shared. **`NetworkedItem`, `NetworkedItem.Snapshots`, `NetworkedItemManager.{ProjectionAndCompatibility,WorldIntegration,FallRescue}`, `WorldItems/{NetworkedItemSpatialManager,NetworkedTrainItemWakeManager}`: split** | Items are already split into role partials; the split here is finishing that |
 | `Components/Networking/World/` (stations and world) | `NetworkedJunction`, `NetworkedTurntable`: Client today, Server after [host-local-session](host-local-session.md) stage 2 makes the server apply them. **`NetworkedPitStopStation`, `NetworkedPluggableObject`, `NetworkedCashRegisterWithModules`, `NetworkedGenericSwitch`, `NetworkedStationController`, `HazmatSync`, `NetworkedPageBookState`: split** | Each has its server processing (`ProcessInteractionPacketAsHost`, `Server_Process*`) next to its client side |
 | `Components/SaveGame/` | `NetworkedSaveGameManager`, `InstallGuidRekey`, `PerPlayerSaveFormat`, `NetworkedCareerManagerDebtController`: Server. `Client_GameSession`, `StartGameData_ServerSave`: Client | |
 | `Debugging/` | Shared (`DebugDiagnostics`' server half: Server) | |
-| `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons, storage: Shared | |
+| `Integrations/` | `ColdContainerUiIntegration`: Client. `InventoryIntegration`: split. Seasons (`DVSeasonsIntegration`, only `/season`): Server. Storage: Shared | |
 | `Networking/Data/`, `Networking/Packets/`, `Networking/Serialization/`, `Networking/TransportLayers/` | Shared, except `ServerPlayer.cs`: Server | `PlayerIdentity` is used by both (login and authentication): Shared, once its server reference goes |
 | `Shared/Session/NetworkManager.cs` | Shared | |
 | `Networking/Managers/Server/` | Server | `NetworkServer.cs` (3,934 lines) could also split by area (trains, items, world, career) while it moves |
 | `Networking/Managers/Client/` | Client | `NetworkClient.cs` (3,079 lines), likewise |
 | `Patches/` | Per file: see Patches | |
-| `Utils/` | Shared. `DvExtensions`: split (`AnyPlayerSqrMag` is the server's) | |
+| `Utils/` | Shared. `DvExtensions`: split; its server rules are `Server/Players/PlayerDistance` (`AnyPlayerSqrMag`, `PlayerCanReach`) and `NetworkServer.Pause` (`AllowsPause`, read through `IPauseServer`) | |
 
 ### Patches
 

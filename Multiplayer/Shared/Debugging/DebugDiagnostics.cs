@@ -10,7 +10,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
-using Multiplayer.Server.Session;
 
 namespace Multiplayer.Shared.Debugging;
 
@@ -261,23 +260,12 @@ public static class DebugDiagnostics
         lock (gate) return Copy(network);
     }
 
+    /// <summary>The server's interest decisions for an item, per player; empty when this game isn't the server.</summary>
     public static Dictionary<string, object>[] InterestMatrix(string itemId)
     {
-        if (!ushort.TryParse(itemId, out ushort id) || !NetworkedItem.TryGet(id, out NetworkedItem item) || item == null || NetworkServer.Instance == null)
+        if (!ushort.TryParse(itemId, out ushort id) || NetworkLifecycle.Instance?.LocalServer is not IDebugServer server)
             return Array.Empty<Dictionary<string, object>>();
-        return NetworkServer.Instance.ServerPlayers.Select(player =>
-        {
-            bool nearby = player.NearbyItems.TryGetValue(item, out float nearbyTime);
-            bool known = player.KnownItems.TryGetValue(item, out uint knownTick);
-            float distance = Vector3.Distance(player.WorldPosition, item.transform.position);
-            string action = player.LoadingState < PlayerLoadingState.ReadyForItems ? "not-ready" : !nearby ? "outside-interest" : !known ? "create-required" : knownTick < item.LastDirtyTick ? "full-sync-required" : "up-to-date";
-            return new Dictionary<string, object>
-            {
-                ["playerId"] = player.PlayerId, ["player"] = player.Username, ["loadingState"] = player.LoadingState.ToString(),
-                ["distance"] = distance, ["nearby"] = nearby, ["nearbyAgeSeconds"] = nearby ? Time.time - nearbyTime : 0,
-                ["known"] = known, ["knownTick"] = knownTick, ["lastDirtyTick"] = item.LastDirtyTick, ["decision"] = action
-            };
-        }).ToArray();
+        return server.InterestMatrix(id);
     }
 
     public static Dictionary<string, object>[] ReplicationFlow(string itemId)

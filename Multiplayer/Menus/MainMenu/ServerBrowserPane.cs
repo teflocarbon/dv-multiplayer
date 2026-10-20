@@ -114,7 +114,7 @@ public class ServerBrowserPane : MonoBehaviour
     public void OnEnable()
     {
         //ensure no incompatible mods are loaded
-        incompatibleMods = ModCompatibilityManager.Instance.CheckModCompatibility();
+        incompatibleMods = IncompatibleModsWarning.Show();
 
         this.SetupListeners(true);
 

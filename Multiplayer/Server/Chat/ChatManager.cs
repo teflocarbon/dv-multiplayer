@@ -1,5 +1,6 @@
 using Multiplayer.Server.Career;
 using Multiplayer.Server.Dedicated;
+using Multiplayer.Server.Players;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Session;
 using DV.Utils;
@@ -286,7 +287,7 @@ public class ChatManager
 
     /// <summary>
     /// Whether a player may use the admin commands: the host's own player; on a dedicated host, its
-    /// owner (PlayerIdentity.Owner: the Steam account running it, or -mp-owner); and anyone in
+    /// owner (CareerOwner.Id: the Steam account running it, or -mp-owner); and anyone in
     /// Settings.Admins. Player IDs are verified Steam accounts (PlayerAuthentication), except on a
     /// host with -mp-allow-unverified.
     /// </summary>
@@ -299,7 +300,7 @@ public class ChatManager
             return runningConsoleCommand;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         return lifecycle.IsHost(player) ||
-               (lifecycle.IsDedicatedHost && player.Guid == PlayerIdentity.Owner) ||
+               (lifecycle.IsDedicatedHost && player.Guid == CareerOwner.Id) ||
                Multiplayer.Settings.IsListedAdmin(player.Guid);
     }
 
@@ -568,7 +569,7 @@ public class ChatManager
     {
         if (!IsAdmin(sender))
             return;
-        if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.Installed)
+        if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.Installed)
         {
             Reply(sender, "The Dynamic Seasons mod isn't installed on the server.");
             return;
@@ -579,11 +580,11 @@ public class ChatManager
         switch (arg)
         {
             case "":
-                string current = global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.Current() ?? "an unknown season";
+                string current = global::Multiplayer.Server.Integrations.DVSeasonsIntegration.Current() ?? "an unknown season";
                 Reply(sender, $"It's {current}. /{COMMAND_SEASON} spring|summer|autumn|winter|next|blizzard|calm");
                 return;
             case "next":
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TryCall("AdvanceToNextSeason", out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TryCall("AdvanceToNextSeason", out error))
                 {
                     Reply(sender, error);
                     return;
@@ -591,7 +592,7 @@ public class ChatManager
                 said = $"{sender.Username} moved the season on.";
                 break;
             case "blizzard":
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TryCall("ScheduleBlizzard", out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TryCall("ScheduleBlizzard", out error))
                 {
                     Reply(sender, error);
                     return;
@@ -599,7 +600,7 @@ public class ChatManager
                 said = $"{sender.Username} called up a blizzard (it only comes in winter).";
                 break;
             case "calm":
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TryCall("EndBlizzard", out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TryCall("EndBlizzard", out error))
                 {
                     Reply(sender, error);
                     return;
@@ -607,7 +608,7 @@ public class ChatManager
                 said = $"{sender.Username} ended the blizzard.";
                 break;
             default:
-                if (!global::Multiplayer.Shared.Integrations.DVSeasonsIntegration.TrySetSeason(arg, out error))
+                if (!global::Multiplayer.Server.Integrations.DVSeasonsIntegration.TrySetSeason(arg, out error))
                 {
                     Reply(sender, error);
                     return;

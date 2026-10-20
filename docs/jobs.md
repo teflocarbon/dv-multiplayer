@@ -250,7 +250,8 @@ broadcast; the real check runs in the host's vanilla validator.
   the overview.
 
 On complete, abandon and expire the host destroys every booklet copy and clears the issuance index
-(`DestroyJobBooklets`); the item destroys replicate. Reports are kept.
+(`DestroyJobBooklets`, from `NetworkedJob` through `IJobServer.OnJobEnded`); the item destroys
+replicate. Reports are kept.
 
 ### Re-rolling an offered job
 

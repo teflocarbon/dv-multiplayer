@@ -105,7 +105,13 @@ public abstract class LocalPlayerTrackerBase : MonoBehaviour, ILocalPlayerTracke
             isOnCar = car != null;
         }
 
-        Vector3 position = isOnCar ? PlayerManager.PlayerTransform.localPosition : PlayerManager.PlayerTransform.GetWorldAbsolutePosition();
+        // On a car: relative to the car's transform, the frame the server and the other players
+        // place it in. Not the player's localPosition: the game says the player entered a car
+        // before it parents them to it (and on a rolling car that can take seconds), and until then
+        // localPosition is a scene position, which put the avatar hundreds of metres off.
+        Vector3 position = isOnCar
+            ? car.transform.InverseTransformPoint(PlayerManager.PlayerTransform.position)
+            : PlayerManager.PlayerTransform.GetWorldAbsolutePosition();
         float rotationY = PlayerManager.PlayerCamera.transform.eulerAngles.y;
 
         float rawHeadPitch = GetHeadPitch();

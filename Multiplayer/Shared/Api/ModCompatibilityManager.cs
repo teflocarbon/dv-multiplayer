@@ -2,7 +2,6 @@ using DV.JObjectExtstensions;
 using DV.Utils;
 using JetBrains.Annotations;
 using MPAPI.Types;
-using Multiplayer.Menus.MainMenu;
 using Multiplayer.Shared.Protocol.Data;
 using Newtonsoft.Json.Linq;
 using System;
@@ -148,10 +147,9 @@ public class ModCompatibilityManager : SingletonBehaviour<ModCompatibilityManage
     }
 
     /// <summary>
-    /// Checks if any incompatible mods are enabled and generates an message box to alert the user
+    /// The enabled mods known to be incompatible with multiplayer (the menus warn about them).
     /// </summary>
-    /// <returns>True if incompatible mods have been found</returns>
-    public bool CheckModCompatibility()
+    public List<string> EnabledIncompatibleMods()
     {
         List<string> incompatible = [];
 
@@ -164,14 +162,7 @@ public class ModCompatibilityManager : SingletonBehaviour<ModCompatibilityManage
             }
         }
 
-        if (incompatible.Count == 0)
-            return false;
-
-        var message = $"{Locale.MAIN_MENU__INCOMPATIBLE_MODS} {string.Join(", ", incompatible)}";
-
-        MainMenuThingsAndStuff.Instance.ShowOkPopup(message, () => { });
-
-        return true;
+        return incompatible;
     }
 
     // Returns a list of mods installed and enabled, filtered for mods that are required for hosts and clients

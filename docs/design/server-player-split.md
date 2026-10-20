@@ -36,7 +36,7 @@
     - the session ends on disconnect, and a reconnect replaces the old one.
   - A refused login gets `dr/auth_failed`.
   - `Settings.Admins` (SteamID64s, or GUIDs) replaces `AdminGuids`, and the dedicated host's owner
-    is `PlayerIdentity.Owner`.
+    is `CareerOwner.Id`.
   - dvmp starts every host with `-mp-allow-unverified`, so the gate doesn't exercise verified
     logins.
 
@@ -83,7 +83,7 @@
   - **Conversion:** a save without the marker `Multiplayer.PlayerStateFormat = 2` has its
     `Player_position`, rotation and `Storage_Inventory` turned into `Players.<owner>` and item
     records owned by the owner's player ID. The owner is the Steam account the game runs under, or
-    `-mp-owner` (`PlayerIdentity.Owner`). Then the marker is set. Converting the same save twice
+    `-mp-owner` (`CareerOwner.Id`). Then the marker is set. Converting the same save twice
     changes nothing the second time (an inventory item without a persistent ID gets one derived
     from the owner, its place in the inventory and its prefab, not a random one), and so does
     re-keying: `SaveFormatConversionTests` (`Multiplayer.Protocol.Tests`) checks both lose and

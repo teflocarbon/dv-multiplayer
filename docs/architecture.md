@@ -199,7 +199,8 @@ Harmony patches attach to game objects (for example `Junction_Awake_Patch` adds
   `NetworkedTask`): only the host allocates; clients get the id in a spawn or create packet.
 - `false` (junctions, turntables, rail tracks, stations, pit stops, cash registers, pluggables,
   warehouse controllers): every peer allocates locally as the scene loads, which relies on the
-  same objects waking in the same order on every peer.
+  same objects waking in the same order on every peer. For tracks, junctions and turntables the
+  host checks this at join ([design/track-graph-check.md](design/track-graph-check.md)).
 
 `Multiplayer/Shared/Api/NetIdProvider.cs` maps game types (`TrainCar`, `Junction`, `Job`, `ItemBase`, ...)
 to their NetId lookups for MPAPI users.
@@ -276,7 +277,7 @@ Concrete cases:
   the escrow is refunded and the stock resent. The host spawns the purchase owned by the buyer.
   Depositing a money item is refused if the note is in a container, the Lost and Found, or
   someone else's hands.
-- **Explosions and hazmat.** `Shared/Trains/ExplosionPatch.cs`: clients never start an explosion
+- **Explosions and hazmat.** `Shared/Trains/ExplosionSync.cs`: clients never start an explosion
   or apply its force; the host sends which car exploded and clients play effects only, while the
   resulting train motion arrives through train sync. `Server/World/HazmatServer.cs`:
   the host sends changed hazmat tiles every half second; a client lighting a tile sends
@@ -334,8 +335,8 @@ sequenceDiagram
     Note over H: held in gameDataQueue until the host's save has loaded
     H->>C: GameParams, SaveGameData (money, licences, garages, position, starter kit on first join)
     Note over C: load scene, quarantine local items, send item catalogue, wait for mods
-    C->>H: ReadyForWorldState
-    Note over H: joinQueue + ServerLoading if not loaded; else peer joins broadcasts
+    C->>H: ReadyForWorldState (+ track-graph hash)
+    Note over H: joinQueue + ServerLoading if not loaded; kick on a track-graph mismatch; else peer joins broadcasts
     H->>C: weather, sleep state, shop stock, junctions/turntables, switches, customisation holes
     C->>H: ReadyForTrainSets
     H->>C: BaselineBegin, SpawnTrainSet x N, topology snapshot, BaselineComplete

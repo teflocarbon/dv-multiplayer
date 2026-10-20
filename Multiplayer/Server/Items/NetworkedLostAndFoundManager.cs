@@ -454,7 +454,9 @@ public static class NetworkedLostAndFoundManager
                 });
             }
         }
-        result.AddRange(LostAndFoundList.DebugSnapshot());
+        // The host player's own list, as its session has it.
+        if (ItemClient.Current?.LostAndFoundDebugSnapshot() is { } localList)
+            result.AddRange(localList);
         return result.ToArray();
     }
 

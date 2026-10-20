@@ -43,7 +43,9 @@ sends world state at these steps:
 | `ReadyForTrainSets` | Train baseline, which carries each car's exploded flag and cargo |
 | `ReadyForTiles` | Every hazmat tile (`HazmatServer.SendAll`) |
 
-The player is added to the server's `peers` table at `ReadyForWorldState`, and every broadcast
+At `ReadyForWorldState` the host first checks the client's track graph and kicks it with a reason
+if it differs ([design/track-graph-check.md](design/track-graph-check.md)). The player is then
+added to the server's `peers` table, and every broadcast
 (`SendPacketToAll`) only walks `peers`. Anything broadcast between `ReadyForGameData` and
 `ReadyForWorldState` (while the client loads the scene) never reaches that client; see Known gaps.
 
@@ -224,8 +226,9 @@ A service station is a `PitStopStation` (car selector, resource levers, faucet),
 sending the local player's requests through `IStationsClient`), their server parts in
 `Server/Stations/` (`ServerPitStopStation`, `ServerPluggableObject`, `ServerCashRegister`: range,
 validation, relays, the bulk update, the register's requests),
-`Shared/Stations/PluggableObjectPatch.cs`, `PropHosePatch.cs`, `CashRegisterWithModulesPatch.cs`,
-`CashRegisterBasePatch.cs`.
+`Shared/Stations/PluggableObjectPatch.cs`, `Server/Stations/PropHoseRopePatch.cs` (the hose's
+rope), `Client/Stations/{PluggableObjectClientPatch,PropHoseClientPatch}.cs` (no snapping home on a
+client), `CashRegisterWithModulesPatch.cs`, `CashRegisterBasePatch.cs`.
 
 Ids: stations and registers are numbered by sorting them by position
 (`InitialisePitStops`, `InitialiseCashRegisters`, run on the host in `OnLoaded` through
@@ -259,9 +262,10 @@ uses 2 m plug-to-socket; the host's limit was raised from that to 3 m (commit `a
 for lag.
 
 A failure sends `Rejected` back to the sender. The hose's rope physics runs on the host only:
-`PropHosePatch` transpiles `PropHose.Update` so a stretched hose yanks the plug out of the holder's
-hand (`YankedByRope`, sent as `Yanked`) or snaps it home (`SnappedByRope`, sent as `DockHome`) on
-the host's say. Clients don't snap plugs home on `Awake`/`OnEnable`.
+`PropHoseRopePatch` transpiles `PropHose.Update` so a stretched hose yanks the plug out of the holder's
+hand (`ServerPluggableObject.YankedByRope`, sent as `Yanked`) or snaps it home (`SnappedByRope`, sent
+as `DockHome`) on the host's say; elsewhere the rope's unplug, yank, force and snap do nothing.
+Remote clients don't snap plugs home on `Awake`/`OnEnable`.
 
 A client reports a plug's drop or dock only after its own player grabbed it (`grabbedLocally`);
 any state applied from the network ends that. Vanilla fires `PluggedIn` for every snap, including
@@ -317,6 +321,10 @@ implemented by `NetworkClient.World.cs`) and the server's switch broadcast throu
   distance, or whether a train is on the junction. The last packet wins; a junction or turntable
   the server doesn't have is dropped with a warning.
 
+Before any of that, the client's `ReadyForWorldState` carries a hash of its NetId → name tables for
+tracks, junctions and turntables, and the host refuses a client whose hash differs from its own
+with a reason ([design/track-graph-check.md](design/track-graph-check.md)).
+
 On join, `ClientboundRailwayStatePacket` carries every junction's selected branch and every
 turntable's rotation, by index. The client waits up to 30 s for it
 (`RailwayStateTimeoutSeconds`). Junctions or turntables missing locally are logged and skipped
@@ -348,7 +356,7 @@ Engine-failure explosions come from the loco simulation, which runs only on the 
 saw none.
 
 The host decides (`Server/Trains/ExplosionServerPatch.cs`), clients play it
-(`Client/Trains/ExplosionClientPatch.cs`), and `Shared/Trains/ExplosionPatch.cs` (`ExplosionSync`)
+(`Client/Trains/ExplosionClientPatch.cs`), and `Shared/Trains/ExplosionSync.cs` (`ExplosionSync`)
 is how both name an explosion. Three kinds (`ExplosionSync.Kind`):
 
 | Kind | Vanilla trigger |
@@ -389,7 +397,7 @@ countdown is blocked, and the host's car wasn't burning.
 
 The host decides: `Server/Trains/CargoFireServerPatch.cs` (`CargoFireServer`) sends and lights,
 `Client/Trains/CargoFireClientPatch.cs` (`CargoFirePlayback`) holds and forwards, and
-`Shared/Trains/CargoFirePatch.cs` (`CargoFireSync`) is how both name a fire:
+`Shared/Trains/CargoFireSync.cs` (`CargoFireSync`) is how both name a fire:
 
 - Host: after each reaction's `Update`, if its state (burning, about to explode) changed since it
   was last sent, it sends `ClientboundCargoFirePacket` (car NetId, the reaction's index among the

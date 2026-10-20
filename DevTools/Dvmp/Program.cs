@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -30,6 +31,9 @@ internal static class Program
           dvmp remote pair NAME ADDRESS[:PORT] PAIRING-CODE [--as LABEL]   pair with a game on someone else's PC (Tailscale)
           dvmp remote connect NAME SESSION-CODE      start a session with it (a new code every launch of their game)
           dvmp remote list | forget NAME             paired games; forget drops the pairing on this PC only
+          dvmp scenario list | check                 the C# scenarios, their options; check them without games
+          dvmp scenario run NAME [--arg K=V]... [--log-dir DIR]   one run against the session's pair
+                                             (exit 0 pass, 1 fail, 3 harness error; docs/design/scenarios.md)
 
         target: host | client | all (default) | pid | remote:NAME (a paired remote game; never part of "all")
         --session NAME (or DVMP_SESSION): act on that host + client pair; several can run at once.
@@ -83,6 +87,7 @@ internal static class Program
                 "screenshot" => await ScreenshotAsync(args),
                 "perf" => await PerfAsync(args),
                 "remote" => await RemoteAsync(args),
+                "scenario" => await ScenarioAsync(args),
                 "logs" => Print(await Operations.LogsAsync(Opt(args, "-t"), Opt(args, "-l") ?? "warning",
                     Opt(args, "-c"), int.Parse(Opt(args, "-n") ?? "100"), sinceLast: false)),
                 _ => Fail("unknown command: " + args[0] + "\n\n" + Usage)
@@ -153,6 +158,29 @@ internal static class Program
             default:
                 return Fail("usage: dvmp remote pair NAME ADDRESS[:PORT] PAIRING-CODE [--as LABEL] | connect NAME SESSION-CODE | list | forget NAME");
         }
+    }
+
+    // The C# scenarios (docs/design/scenarios.md) run in their own net48 exe, built from
+    // DevTools/DvmpScenarios against the mod: this passes the command and the session on to it, and
+    // its exit code back (0 pass, 1 fail, 2 usage, 3 harness error).
+    private static async Task<int> ScenarioAsync(string[] args)
+    {
+        string? exe = Paths.ProbeSourceDir is { } probes
+            ? Path.GetFullPath(Path.Combine(probes, "..", "..", "DvmpScenarios", "bin", "Debug", "net48", "DvmpScenarios.exe"))
+            : null;
+        if (exe == null || !File.Exists(exe))
+            return Fail("the scenarios aren't built: dotnet build DevTools/DvmpScenarios/DvmpScenarios.csproj -c Debug" +
+                        (exe != null ? $" (looked for {exe})" : " (dvmp isn't running from the repo)"));
+        ProcessStartInfo start = new(exe) { UseShellExecute = false };
+        foreach (string a in args.Skip(1)) start.ArgumentList.Add(a);
+        start.ArgumentList.Add("--session");
+        start.ArgumentList.Add(Sessions.Current);
+        start.ArgumentList.Add("--dvmp");
+        start.ArgumentList.Add(Environment.ProcessPath!);
+        start.Environment["DVMP_DV_DIR"] = Paths.GameDir;
+        using Process p = Process.Start(start) ?? throw new AgentException("couldn't start " + exe);
+        await p.WaitForExitAsync();
+        return p.ExitCode;
     }
 
     private static async Task<int> ScreenshotAsync(string[] args)

@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Multiplayer.Server.Players;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using UnityEngine;

@@ -109,7 +109,7 @@ internal sealed partial class ServerItemManager
             rejectionReason = "invalid-adoption-snapshot";
             return false;
         }
-        if (!TemporaryClientAdoptionCompatibility.AllowsHostRequest(request,
+        if (!TemporaryHostAdoptionCompatibility.AllowsHostRequest(request,
                 NetworkedItemManager.IsJobDocumentPrefab, out rejectionReason))
             return false;
         ItemUpdateData.ItemUpdateType updateType = request.Snapshot.UpdateType;

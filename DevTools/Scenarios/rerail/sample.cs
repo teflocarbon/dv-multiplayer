@@ -2,7 +2,7 @@
 // absolute position, speed, derailed, kinematic, and on a client whether TrainSpeedQueue is placing).
 var car = Trains.Find(ctx.Args["car"]);
 float seconds = float.Parse(ctx.Args["seconds"], System.Globalization.CultureInfo.InvariantCulture);
-var queue = car.GetComponent<Multiplayer.Shared.Trains.TrainSpeedQueue>();
+var queue = car.GetComponent<Multiplayer.Client.Trains.TrainSpeedQueue>();
 var samples = new List<object>();
 float t0 = Time.realtimeSinceStartup;
 while (Time.realtimeSinceStartup - t0 < seconds)

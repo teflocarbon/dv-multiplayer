@@ -6,6 +6,7 @@ using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Jobs;
+using Multiplayer.Shared.Protocol.Data.World;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs;
 using Multiplayer.Shared.Transport;
@@ -16,8 +17,16 @@ using System.Linq;
 namespace Multiplayer.Server.Session;
 
 // NetworkServer's jobs handlers and sends (see docs/design/code-layout.md).
-public partial class NetworkServer
+public partial class NetworkServer : IJobServer
 {
+    // A job that's over takes its booklets with it, wherever they are; the players hear of it as
+    // item removals.
+    void IJobServer.OnJobEnded(NetworkedJob job)
+    {
+        if (IsRunning)
+            job.DestroyJobBooklets();
+    }
+
     partial void RegisterLocalJobs()
     {
         HandleLocal<ServerboundJobBookletSummonRequestPacket>(HandleJobBookletSummon);
@@ -187,7 +196,22 @@ public partial class NetworkServer
 
         //Todo: add check for player distance from machine
 
-        targetWarehouse.ServerProcessWarehouseAction(packet.WarehouseAction);
+        ProcessWarehouseAction(targetWarehouse, packet.WarehouseAction);
+    }
+
+    private void ProcessWarehouseAction(NetworkedWarehouseMachineController warehouse, WarehouseAction action)
+    {
+        LogDebug(() => $"ProcessWarehouseAction() {warehouse.Id}, Action Type: {action}");
+        switch (action)
+        {
+            case WarehouseAction.Load:
+                warehouse.WarehouseMachineController.StartLoadSequence();
+                break;
+
+            case WarehouseAction.Unload:
+                warehouse.WarehouseMachineController.StartUnloadSequence();
+                break;
+        }
     }
 
     private void OnServerboundJobBookletSummonRequestPacket(
