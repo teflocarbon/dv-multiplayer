@@ -108,7 +108,13 @@ public sealed class HostStall : Scenario<HostStall.Options>
   fails the build in a scenario class's own methods on DVMP0101, a game type or member
   (UnityEngine, Assembly-CSharp, DV.*, Multiplayer, the agent, the probe library `Dvmp.Lib`), and on
   DVMP0102, a `[Step]` called directly. Inside `() => Step(...)` only the step itself is exempt: its
-  arguments are evaluated in the exe too. `dvmp scenario check` checks every step's signature.
+  arguments are evaluated in the exe too. DVMP0103, anywhere: `NetworkClient`, `ClientPlayerManager`
+  or `NetworkLifecycle.Client`. Stage 3 removes the host's client, so steps reach the local player
+  through `NetworkLifecycle.LocalSession`, and the scenarios run unchanged on it. A `[ClientOnly]`
+  step is exempt: it runs on a remote client only (the runner refuses it on the host), which keeps
+  its client, for what no player action sends (a request the vanilla UI would refuse before it
+  leaves the game). Player actions go through the vanilla path (the comms radio, the grabber),
+  which tests the mod's own patches. `dvmp scenario check` checks every step's signature.
 - **Step calls are typed by expression trees.** `pair.Host.Run<Stalled>(s => InGame.Stall(s, 30))`
   never calls `Stall` in the exe: `Run` reads the `MethodCallExpression`, evaluates each argument
   there, and sends the declaring type, the method name, the parameter types (for overloads) and the

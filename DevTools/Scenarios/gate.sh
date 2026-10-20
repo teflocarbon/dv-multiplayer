@@ -95,6 +95,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "pit-stop-host|pit-stop|WHO=host"
   "pit-stop-yank|pit-stop|MODE=yank"
   "host-register-empty-basket|host-register-empty-basket|"
+  "host-session|host-session||player"
   "shop|shop|"
   "jobs|jobs|ACCEPT=host HANDIN=client"
   "overview-pickup|overview-pickup|"

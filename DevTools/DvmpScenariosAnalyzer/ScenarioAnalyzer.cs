@@ -22,7 +22,8 @@ namespace Dvmp.ScenariosAnalyzer;
 /// <list type="bullet">
 /// <item>DVMP0103: the game's NetworkClient, ClientPlayerManager or NetworkLifecycle.Client. Stage 3 of
 /// docs/design/host-local-session.md removes the host's client, so a step reaches the player at this
-/// keyboard through NetworkLifecycle.LocalSession (ILocalPlayerSession), and runs unchanged on both.</item>
+/// keyboard through NetworkLifecycle.LocalSession (ILocalPlayerSession), and runs unchanged on both.
+/// A [ClientOnly] step is exempt: it runs on a remote client only, which keeps its client.</item>
 /// </list>
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -70,7 +71,7 @@ public sealed class ScenarioAnalyzer : DiagnosticAnalyzer
     private static void Check(OperationAnalysisContext context)
     {
         IOperation op = context.Operation;
-        if (NamesHostClient(op) is string what)
+        if (NamesHostClient(op) is string what && !InClientOnly(context.ContainingSymbol))
             context.ReportDiagnostic(Diagnostic.Create(HostClient, op.Syntax.GetLocation(), what));
         if (!IsOrchestrator(context.ContainingSymbol)) return;
 
@@ -125,6 +126,14 @@ public sealed class ScenarioAnalyzer : DiagnosticAnalyzer
         };
         string? name = type?.ToDisplayString();
         return name != null && ClientTypes.Contains(name) ? name.Substring(name.LastIndexOf('.') + 1) : null;
+    }
+
+    // Inside a [ClientOnly] step (or a lambda or local function in one): it runs on a remote client only.
+    private static bool InClientOnly(ISymbol symbol)
+    {
+        for (ISymbol? s = symbol; s is IMethodSymbol m; s = s.ContainingSymbol)
+            if (m.GetAttributes().Any(a => a.AttributeClass?.Name == "ClientOnlyAttribute")) return true;
+        return false;
     }
 
     private static bool IsStep(IMethodSymbol m) => m.GetAttributes().Any(a => a.AttributeClass?.Name == "StepAttribute");
