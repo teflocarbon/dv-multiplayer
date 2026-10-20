@@ -129,6 +129,8 @@ namespace Dvmp.Scenarios
 
         internal async Task<T> Invoke<T>(StepCall call, int timeoutSeconds, string startedId, bool quiet = false)
         {
+            if (Name == "host" && call.Method.GetCustomAttributes(typeof(ClientOnlyAttribute), false).Length > 0)
+                throw new ScenarioException($"{call.Label} is [ClientOnly]: it uses the game's NetworkClient, which the host loses in stage 3");
             GameAgent agent = await run.EnsureLoadedAsync(Name);
             Stopwatch clock = Stopwatch.StartNew();
             if (startedId != null) run.Out.Line(Name, call.Label, "started");
