@@ -52,7 +52,7 @@ public sealed class TrainPortPresenter
     {
         get
         {
-            NetworkClient client = NetworkLifecycle.Instance?.Client;
+            NetworkClient client = NetworkClient.Instance;
             if (clock == null || !ReferenceEquals(client, clockOwner))
             {
                 clockOwner = client;

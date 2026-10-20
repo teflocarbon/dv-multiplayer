@@ -61,7 +61,7 @@ public class LobbyServerManager : MonoBehaviour
     {
         bool destroy = false;
 
-        server = NetworkLifecycle.Instance.Server;
+        server = NetworkServer.Instance;
 
         if (server == null)
         {

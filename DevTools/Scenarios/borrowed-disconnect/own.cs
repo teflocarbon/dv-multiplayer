@@ -7,4 +7,4 @@ for (int i = 0; i < 30; i++) yield return null;
 yield return Hands.Drop();
 for (int i = 0; i < 60; i++) yield return null;
 AuthoritativeItemRegistry.TryGet(id, out var r);
-ctx.Result = new { owner = (int)(r?.PersistentOwnerPlayerId ?? 0), host = (int)NetworkLifecycle.Instance.Client.PlayerId };
+ctx.Result = new { owner = (int)(r?.PersistentOwnerPlayerId ?? 0), host = (int)Multiplayer.Client.Session.NetworkClient.Instance.PlayerId };

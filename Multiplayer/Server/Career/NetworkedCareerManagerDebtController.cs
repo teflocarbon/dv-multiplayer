@@ -1,6 +1,7 @@
 using DV.ServicePenalty;
 using DV.Utils;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Career;
 
@@ -34,6 +35,6 @@ public class NetworkedCareerManagerDebtController : SingletonBehaviour<Networked
         if (lastSentHasDebt == hasDebt)
             return;
         lastSentHasDebt = hasDebt;
-        NetworkLifecycle.Instance.Server.SendDebtStatus(hasDebt);
+        NetworkServer.Instance.SendDebtStatus(hasDebt);
     }
 }

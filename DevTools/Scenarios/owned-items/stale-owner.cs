@@ -2,7 +2,7 @@
 // identity), with the client's player number as its owner number: a restored record whose owner
 // hasn't joined, after the numbers moved on. Reports how many of that prefab the client owns
 // (OwnedItemsSummary, what its join and /give use) before and after.
-var server = NetworkLifecycle.Instance.Server;
+var server = Multiplayer.Server.Session.NetworkServer.Instance;
 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
 var essentials = DV.Globals.G.Items.items.Where(i => i != null && i.IsEssential && !string.IsNullOrEmpty(i.ItemPrefabName)).ToList();
 Func<string, int> owned = prefab => OwnedItemsSummary.For(client).Count(o => string.Equals(o.Prefab, prefab, StringComparison.OrdinalIgnoreCase));

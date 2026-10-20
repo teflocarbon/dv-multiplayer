@@ -427,11 +427,11 @@ public class HostGamePane : MonoBehaviour
             Multiplayer.Settings.Details = serverData.ServerDetails;
 
             // Pass the server data to the NetworkLifecycle manager
-            NetworkLifecycle.Instance.serverData = serverData;
+            MultiplayerSession.Instance.serverData = serverData;
         }
 
         // Mark it as a real multiplayer game
-        NetworkLifecycle.Instance.IsSinglePlayer = false;
+        MultiplayerSession.Instance.IsSinglePlayer = false;
 
         var ContinueGameRequested = lcInstance.GetType().GetMethod("OnRunClicked", BindingFlags.NonPublic | BindingFlags.Instance);
 

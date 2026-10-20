@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Coverage;
 
@@ -93,7 +94,7 @@ public sealed class ServerSceneryCoverage : MonoBehaviour
                     anchors.Add((Tile(car.transform.position), DerailedCarMargin / size, 2f * DerailedCarMargin / size));
 
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        foreach (var player in lifecycle.Server.GameplayPlayers)
+        foreach (var player in NetworkServer.Instance.GameplayPlayers)
             if (!lifecycle.IsHost(player) && player.TrackingData.Position.HasValue)
                 anchors.Add((Tile(player.WorldPosition), PlayerRange + 0.5f, PlayerRange + 1.5f));
 

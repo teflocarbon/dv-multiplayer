@@ -3,6 +3,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -27,6 +28,6 @@ public static class HoseAndCock_SetCock_Patch
         if (networkedTrainCar.IsDestroying)
             return;
 
-        NetworkLifecycle.Instance.Client?.SendCockState(networkedTrainCar.NetId, coupler, open);
+        NetworkClient.Instance?.SendCockState(networkedTrainCar.NetId, coupler, open);
     }
 }

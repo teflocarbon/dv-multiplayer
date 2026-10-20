@@ -1,6 +1,6 @@
 // Host: the station's job overviews, which of them the client has (the server sent it the item)
 // and which the server took its acknowledgement for. Waits up to 15 s for acknowledgements.
-var server = NetworkLifecycle.Instance.Server;
+var server = Multiplayer.Server.Session.NetworkServer.Instance;
 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
 var st = StationController.allStations.First(s => s.stationInfo.YardID == ctx.Args["station"]);
 List<NetworkedItem> overviews = null, known = null;

@@ -49,7 +49,7 @@ public static class UICouplingHelperPatch
         __state?.Batch?.Dispose();
         Multiplayer.LogDebug(() => $"UICouplingHelper.HandleCoupling({coupler?.train?.ID}, {advanced})");
 
-        var client = NetworkLifecycle.Instance?.Client;
+        var client = NetworkClient.Instance;
         if (coupler == null || client == null || __state == null)
             return;
 

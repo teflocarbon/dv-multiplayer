@@ -44,7 +44,7 @@ echo "   $port set to $want $(echo "$s" | field since) s after the resync: clien
 node -e 'process.exit(Math.abs(+process.argv[1] - +process.argv[2]) < 0.02 ? 0 : 1)' "$h" "$want" || fail "the host never got the client's change to $port"
 
 echo "== another resync"
-$D eval -t client -m coroutine -u "$U" -a loco=$loco 'NetworkLifecycle.Instance.Client.SendTrainSyncRequest(Trains.Find(ctx.Args["loco"]).GetComponent<NetworkedTrainCar>().NetId); yield return new WaitForSecondsRealtime(3f);' >/dev/null
+$D eval -t client -m coroutine -u "$U" -a loco=$loco 'Multiplayer.Client.Session.NetworkClient.Instance.SendTrainSyncRequest(Trains.Find(ctx.Args["loco"]).GetComponent<NetworkedTrainCar>().NetId); yield return new WaitForSecondsRealtime(3f);' >/dev/null
 c=$(value client "$port"); h=$(value host "$port")
 echo "   $port: client $c, host $h"
 node -e 'process.exit(Math.abs(+process.argv[1] - +process.argv[3]) < 0.02 && Math.abs(+process.argv[2] - +process.argv[3]) < 0.02 ? 0 : 1)' "$c" "$h" "$want" || fail "$port didn't stay at $want after the next resync"

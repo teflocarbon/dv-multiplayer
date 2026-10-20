@@ -1,6 +1,7 @@
 using DV.Shops;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.World;
 
@@ -22,7 +23,7 @@ public static class GlobalShopControllerClientPatch
         if (lifecycle == null || !lifecycle.IsClientRunning || lifecycle.IsHost() || boughtItemSpec == null)
             return true;
 
-        lifecycle.Client?.SendShopPurchase(__instance.globalShopList.IndexOf(shop), boughtItemSpec.ItemPrefabName,
+        NetworkClient.Instance?.SendShopPurchase(__instance.globalShopList.IndexOf(shop), boughtItemSpec.ItemPrefabName,
             amountBought);
         // Show the stock going down straight away; the host's stock table follows.
         ShopItemData data = __instance.GetShopItemData(boughtItemSpec);
