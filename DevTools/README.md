@@ -34,7 +34,11 @@ Mod Manager's loader are copied, `Multiplayer` and `MultiplayerDevTools` are rea
 the mod alone, and Unity Mod Manager loads in about 10 s instead of 32 s with 21 mods
 ([harness-time-budget.md](../docs/research/harness-time-budget.md)). Running it again on an older
 test install removes its links to other mods (only the links). For a mod-compatibility pass, make a
-separate install with `-AllMods -TestDir ...`, which links every mod in the real install. Then point
+separate install with `-AllMods -TestDir ...`, which links every mod in the real install except
+an installed copy of our own mods: a folder whose `Info.json` Id is `Multiplayer` or
+`MultiplayerDevTools`, like a release in `Mods\Multiplayer 2026.10.20-dev.0945 ...`, is never linked,
+and a link to one left by an older run is removed (the link only), so the test game loads one
+Multiplayer and builds into it can't write into the real install. Then point
 the harness and the builds at it:
 
 ```bash
