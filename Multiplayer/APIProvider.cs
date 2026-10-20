@@ -2,13 +2,14 @@ using DV.Customization.Paint;
 using DV.Logic.Job;
 using MPAPI.Interfaces;
 using MPAPI.Types;
+using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using System;
 using System.Collections.Generic;
 
-namespace Multiplayer.Shared.Api;
+namespace Multiplayer;
 
 public class APIProvider : IMultiplayerAPI
 {
@@ -20,9 +21,9 @@ public class APIProvider : IMultiplayerAPI
 
     public bool IsMultiplayerLoaded => true;
 
-    public bool IsConnected => NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsServerRunning;
+    public bool IsConnected => NetworkLifecycle.Instance.IsSessionRunning;
 
-    public bool IsHost => NetworkLifecycle.Instance.IsHost();
+    public bool IsHost => NetworkRole.IsServer;
 
     public bool IsDedicatedServer => NetworkLifecycle.Instance.IsDedicatedHost;
 
@@ -65,9 +66,9 @@ public class APIProvider : IMultiplayerAPI
             return 0;
         }
 
-        if (!NetworkLifecycle.Instance.IsServerRunning || !NetworkLifecycle.Instance.IsClientRunning)
+        if (!NetworkLifecycle.Instance.IsServerRunning)
         {
-            Multiplayer.LogWarning("APIProvider.RegisterPaintTheme() called when server or client is not running");
+            Multiplayer.LogWarning("APIProvider.RegisterPaintTheme() called when this game isn't the server");
             return 0;
         }
 
@@ -82,9 +83,9 @@ public class APIProvider : IMultiplayerAPI
             return;
         }
 
-        if (!NetworkLifecycle.Instance.IsServerRunning || !NetworkLifecycle.Instance.IsClientRunning)
+        if (!NetworkLifecycle.Instance.IsServerRunning)
         {
-            Multiplayer.LogWarning("APIProvider.UnregisterPaintTheme() called when server or client is not running");
+            Multiplayer.LogWarning("APIProvider.UnregisterPaintTheme() called when this game isn't the server");
             return;
         }
 

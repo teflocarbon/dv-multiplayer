@@ -33,7 +33,7 @@ public partial class NetworkedItemManager
             return;
         AuthoredCatalogue.Rebuild();
         authoredCatalogueBuilt = true;
-        if (NetworkLifecycle.Instance.IsHost() && ServerPart is { } server)
+        if (ServerPart is { } server)
         {
             foreach (NetworkedItem item in NetworkedItem.GetAll().Where(value => value != null).Distinct().ToArray())
                 server.RegisterHostWorldItem(item);
@@ -158,8 +158,9 @@ public partial class NetworkedItemManager
             Impulse = impulse,
             AbsoluteContactPoint = contact - WorldMover.currentMove
         };
-        if (NetworkLifecycle.Instance.IsHost())
-            ServerPart?.ReceiveLocalTrainWakeWitness(packet);
+        // The server's own game witnessed it: straight to the server. A remote client reports it.
+        if (ServerPart is { } server)
+            server.ReceiveLocalTrainWakeWitness(packet);
         else
             ItemClient.Current.SendItemTrainWakeWitness(packet);
     }
@@ -187,14 +188,14 @@ public partial class NetworkedItemManager
     internal static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
     {
         if (!DebugRuntime.EnabledFor("item") || snapshot == null) return;
-        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(snapshot));
     }
 
     internal static void TraceItem(string eventName, NetworkedItem item, Dictionary<string, object> data)
     {
         if (!DebugRuntime.EnabledFor("item") || item == null) return;
-        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
             entityType: "Item", entityId: item.NetId.ToString(), data: data);
     }
 

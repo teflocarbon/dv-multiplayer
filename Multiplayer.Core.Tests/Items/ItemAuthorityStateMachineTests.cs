@@ -485,6 +485,83 @@ public sealed class ItemAuthorityStateMachineTests
         Assert.That(result.State.PlacementPlayerId, Is.Zero);
     }
 
+    [TestCase(AuthorityPlacement.World)]
+    [TestCase(AuthorityPlacement.TrainInterior)]
+    [TestCase(AuthorityPlacement.StaticParent)]
+    [TestCase(AuthorityPlacement.Attached)]
+    [TestCase(AuthorityPlacement.Destroyed)]
+    public void ServerActor_MovesAnItemAboutTheWorld(AuthorityPlacement placement)
+    {
+        ItemAuthorityState original = State(revision: 4, placement: AuthorityPlacement.World);
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original,
+            Transition(ItemTransitionCommand.ServerActorId, 4, placement));
+
+        Assert.That(result.Accepted, Is.True, result.RejectionReason);
+        Assert.That(result.State.Placement, Is.EqualTo(placement));
+        Assert.That(result.State.PlacementPlayerId, Is.Zero);
+        Assert.That(result.State.Revision, Is.EqualTo(5));
+    }
+
+    [TestCase(AuthorityPlacement.PlayerHand)]
+    [TestCase(AuthorityPlacement.PlayerInventory)]
+    public void ServerActor_NeverHoldsAnItem(AuthorityPlacement placement)
+    {
+        ItemAuthorityState original = State(revision: 4, placement: AuthorityPlacement.World);
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original,
+            Transition(ItemTransitionCommand.ServerActorId, 4, placement));
+
+        Assert.That(result.Accepted, Is.False);
+        Assert.That(result.RejectionReason, Is.EqualTo("server-cannot-possess"));
+        Assert.That(result.State.Revision, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void ServerActor_NeverBecomesAnOwner()
+    {
+        ItemAuthorityState original = State(revision: 4);
+        ItemTransitionCommand adoption = Transition(ItemTransitionCommand.ServerActorId, 4,
+            AuthorityPlacement.World, retrievalClaim: true);
+        adoption.EstablishPersistentOwner = true;
+
+        Assert.That(ItemAuthorityStateMachine.Apply(original, adoption).Accepted, Is.False);
+
+        adoption.EstablishPersistentOwner = false;
+        ItemAuthorityResult moved = ItemAuthorityStateMachine.Apply(original, adoption);
+
+        Assert.That(moved.Accepted, Is.True);
+        Assert.That(moved.State.PersistentOwnerPlayerId, Is.Zero);
+        Assert.That(moved.State.InventoryClaimPlayerId, Is.Zero);
+        Assert.That(moved.State.InventoryClaimSlot, Is.EqualTo(-1));
+    }
+
+    [Test]
+    public void ServerActor_MovingAnOwnersDroppedItem_KeepsTheOwnersClaimReserved()
+    {
+        ItemAuthorityState original = OwnedEssentialWorldItem(owner: 1, revision: 6);
+
+        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(original,
+            Transition(ItemTransitionCommand.ServerActorId, 6, AuthorityPlacement.TrainInterior));
+
+        Assert.That(result.Accepted, Is.True);
+        Assert.That(result.State.PersistentOwnerPlayerId, Is.EqualTo(1));
+        Assert.That(result.State.InventoryClaimPlayerId, Is.EqualTo(1));
+        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(3));
+        Assert.That(result.State.InventoryClaimFlags.HasFlag(AuthorityClaimFlags.Reserved), Is.True);
+    }
+
+    [Test]
+    public void ServerActor_CannotTakeAnItemOutOfAPlayersHandUnlessForced()
+    {
+        ItemAuthorityState held = State(revision: 3, placement: AuthorityPlacement.PlayerHand);
+        held.PlacementPlayerId = 2;
+
+        Assert.That(ItemAuthorityStateMachine.Apply(held,
+            Transition(ItemTransitionCommand.ServerActorId, 3, AuthorityPlacement.World)).RejectionReason,
+            Is.EqualTo("sender-not-current-possessor"));
+    }
+
     [Test]
     public void DeterministicMixedTransitionFuzz_PreservesCoreInvariants()
     {
@@ -520,7 +597,8 @@ public sealed class ItemAuthorityStateMachineTests
                     : state.Revision;
                 transition = new ItemTransitionCommand
                 {
-                    ActorPlayerId = (byte)random.Next(1, 4),
+                    // 0 is the server itself.
+                    ActorPlayerId = (byte)random.Next(0, 4),
                     ExpectedRevision = expected,
                     AppliesPlacement = true,
                     RequestedPlacement = (AuthorityPlacement)random.Next(0,

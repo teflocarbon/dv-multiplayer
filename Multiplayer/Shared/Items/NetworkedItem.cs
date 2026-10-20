@@ -113,23 +113,15 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool wasRemoved;
     // The frame the local VR player let go of a belt-snappable item, or -1 (BeltItemPolicy).
     private int vrBeltReleaseFrame = -1;
-    private float releasedAt = -1f;     // when a local hand last let go, until it's sent or re-grabbed
-    private float releaseSpeed = -1f;
-    private int releasedFrame;
-    private bool releaseDeferralPublished;
     private ItemInteractionWindow localInteraction;
 
     private Vector3 thrownPosition;
     private Quaternion thrownRotation;
     private Vector3 throwDirection;
 
-    private bool processingAsHost = false;
-    /// <summary>The server is applying its own snapshot to this item: what changes isn't sent on.</summary>
-    internal bool ProcessingAsHost { get => processingAsHost; set => processingAsHost = value; }
     private bool applyingRemoteSnapshot;
     private bool recallPreparationPending;
     private uint recallPreparationOperationId;
-    private bool hostStateObservationPending;
     private bool placementSnapshotPending;
     private bool coldStorageRetirement;
     private bool coldMaterializationPending;
@@ -138,18 +130,29 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     /// <summary>
     ///     The remote client's half of the item (Client/Items/NetworkedItemClient); null on the host.
-    ///     Made the first time it's asked for on a game that isn't the host.
+    ///     Made the first time it's asked for; the host's <c>LocalPlayerSession</c> makes none.
     /// </summary>
     internal INetworkedItemClientPart ClientPart =>
-        clientPart ??= NetworkLifecycle.Instance.IsHost() ? null : ItemClient.Current?.CreateItemPart(this);
+        clientPart ??= ItemClient.Current?.CreateItemPart(this);
 
     internal ClientItemUnboundState UnboundState => ClientPart?.UnboundState ?? ClientItemUnboundState.None;
+
+    private INetworkedItemServerPart serverPart;
+
+    /// <summary>
+    ///     The server's half of the item (Server/Items/NetworkedItemServerPart); null on a client.
+    ///     Made the first time it's asked for on the server.
+    /// </summary>
+    internal INetworkedItemServerPart ServerPart =>
+        serverPart ??= ItemServer.Current?.CreateItemPart(this);
 
     // The item's own state, for its client part.
     internal bool CreatedDirty { get => createdDirty; set => createdDirty = value; }
     internal bool StateDirty { get => stateDirty; set => stateDirty = value; }
     internal bool HasLastSentState { get => hasLastSentState; set => hasLastSentState = value; }
     internal ItemState LastObservedState { get => lastState; set => lastState = value; }
+    internal bool WasThrown => wasThrown;
+    internal WireItemState LastSentWireState => hasLastSentState ? lastSentProjection.State : WireItemState.Dropped;
 
     internal GrabHandlerItem GrabHandler
     {
@@ -175,8 +178,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     public ChangeCause<ItemMoveReason>? LastMoveCause { get; private set; }
     /// <summary>Client: why the host last said this item went away; it may since have come back.</summary>
     public ChangeCause<ItemRemovalReason>? LastRemovalCause { get; private set; }
-    /// <summary>Host: what last changed the host's own copy (a grab, an inventory call), for an unexplained change's cause.</summary>
-    internal string HostObservationTrigger { get; private set; }
     // Host: why the code destroying this item is doing it, for OnDestroy to log and send.
     private ChangeCause<ItemRemovalReason>? pendingRemovalCause;
     public bool IsForeignOwned => InventoryIntegration.Project(this).ForeignOwned;
@@ -203,8 +204,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         }
         base.Awake();
 
-        if (NetworkLifecycle.Instance.IsHost())
-            NetworkedItemManager.Instance.CheckInstance(); //Ensure the NetworkedItemManager is initialised
+        // Ensure the NetworkedItemManager is initialised (Register reaches it too, on every game).
+        NetworkedItemManager.Instance?.CheckInstance();
 
         Register();
     }
@@ -219,7 +220,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         ClientPart?.RegisterIfUnbound();
 
         EntityDebugRegistry.RegisterItem(this);
-        DebugRuntime.Publish("item", "item.registered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", "item.registered", NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: EntityDebugRegistry.ItemState(this));
     }
 
@@ -235,10 +236,13 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         if (ClientPart?.EnforceLostAndFoundTombstone() == true)
             return;
-        if (NetworkLifecycle.Instance.IsHost() && hostStateObservationPending)
+        // The server's own change waits for its item manager's dirty pass.
+        if (serverPart?.ObservationPending == true)
             return;
         ItemState currentState = GetItemState();
-        if (!NetworkLifecycle.Instance.IsHost() && NetId == 0 && !stateDirty)
+        // An item the server hasn't given an id has nothing to report until it changes. Only a
+        // client has those: the server ids every item as it wakes.
+        if (NetId == 0 && !stateDirty)
             return;
         bool remotePlayerAuthoritative = IsRemotePlayerAuthoritative();
         if (!stateDirty && lastState == currentState &&
@@ -256,7 +260,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             NetworkedItemManager.Instance?.OnTrainItemRemoved(NetId);
 
         if (!suppressNetworkDestroy)
-            DebugRuntime.Publish("item", "item.destroyed", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            DebugRuntime.Publish("item", "item.destroyed", NetworkRole.DebugSide,
                 entityType: "Item", entityId: NetId.ToString(), data: EntityDebugRegistry.ItemState(this));
         EntityDebugRegistry.Unregister("Item", NetId.ToString());
         DebugDesyncDetector.Forget(NetId);
@@ -292,7 +296,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
     /// <summary>
     /// When the local player last let go of this item (realtime), or -1 if they hold it or never
-    /// did. Unlike the release grace below, it isn't cleared once the drop is sent.
+    /// did. Unlike a client's release grace (NetworkedItemClient.DefersRelease), it isn't cleared
+    /// once the drop is sent.
     /// </summary>
     internal float LocallyReleasedAt { get; private set; } = -1f;
 
@@ -301,56 +306,23 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (VRManager.IsVREnabled() && Item != null && Item.IsBeltSnappable)
             vrBeltReleaseFrame = Time.frameCount;
         RefreshLocalVrHandAfterInteraction();
-        releasedAt = Time.realtimeSinceStartup;
-        LocallyReleasedAt = releasedAt;
-        releasedFrame = Time.frameCount;
-        releaseSpeed = -1f;
+        LocallyReleasedAt = Time.realtimeSinceStartup;
+        ClientPart?.NoteReleased(LocallyReleasedAt);
         MarkLocalStateDirty("released");
     }
 
     private void OnGrabbed(ControlImplBase obj)
     {
-        playerBelongsToId = NetworkLifecycle.Instance.LocalSession.PlayerId;
+        playerBelongsToId = NetworkRole.LocalPlayerId;
         RefreshLocalVrHandAfterInteraction();
-        releasedAt = -1f;
+        ClientPart?.NoteGrabbed();
         LocallyReleasedAt = -1f;
         MarkLocalStateDirty("grabbed");
     }
 
-    /// <summary>
-    /// Holds back a gentle release for <see cref="ItemReleaseGrace.GraceSeconds"/>: a VR hand
-    /// swap or a re-grab at another spot lets go for a moment, and sent at once that became a
-    /// drop, with the new hold arriving as a change to an item the player no longer had.
-    /// </summary>
-    private bool DeferLocalRelease(ItemState currentState)
-    {
-        if (releasedAt < 0f)
-            return false;
-        float now = Time.realtimeSinceStartup;
-        // VRTK gives a thrown body its velocity as it lets go, not necessarily before the
-        // Ungrabbed event: measure from the next frame.
-        if (releaseSpeed < 0f && Time.frameCount > releasedFrame)
-            releaseSpeed = RelativeReleaseSpeed();
-        WireItemState lastSent = hasLastSentState ? lastSentProjection.State : WireItemState.Dropped;
-        if (ItemReleaseGrace.ShouldDefer(lastSent, ToWireState(currentState), wasThrown,
-                Mathf.Max(releaseSpeed, 0f), now - releasedAt))
-        {
-            if (!releaseDeferralPublished && releaseSpeed >= 0f)
-            {
-                releaseDeferralPublished = true;
-                PublishLocalState("item.release-deferred", currentState, lastState, "released",
-                    $"release-grace speed={releaseSpeed:F2}");
-            }
-            return true;
-        }
-        releasedAt = -1f;
-        releaseDeferralPublished = false;
-        return false;
-    }
-
     // Measured against the car the player is on: a gentle drop in a moving cab isn't a throw.
     // A body DV has already parented to a car moves relative to it.
-    private float RelativeReleaseSpeed()
+    internal float RelativeReleaseSpeed()
     {
         Rigidbody body = Item?.ItemRigidbody;
         if (body == null || body.isKinematic)
@@ -426,8 +398,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
         if (netId != 0)
         {
-            if (!NetworkLifecycle.Instance.IsHost())
-                NetworkedItemManager.Instance?.ClientPart?.ResolveAuthoritativeBindingCollision(this, netId, typeof(T));
+            NetworkedItemManager.Instance?.ClientPart?.ResolveAuthoritativeBindingCollision(this, netId, typeof(T));
             NetId = netId;
             ClientPart?.SetNetworkBinding(true);
         }
@@ -477,8 +448,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
 
             initialised = true;
             NetworkedItemManager.Instance?.ScheduleTrackedValueFinalization(this);
-            if (NetworkLifecycle.Instance.IsHost())
-                NetworkedItemManager.Instance?.RegisterHostWorldItem(this);
+            NetworkedItemManager.Instance?.RegisterHostWorldItem(this);
             return true;
         }
         catch (Exception ex)
@@ -495,7 +465,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         if (!WorldItemStableIdentity.IsValid(AuthoredItemKey) && Item != null &&
             WorldItemStableIdentity.IsLikelyAuthoredAtAwake(Item))
             AuthoredItemKey = WorldItemStableIdentity.Capture(Item);
-        if (NetworkLifecycle.Instance.IsHost() && IsSceneAuthored)
+        if (IsSceneAuthored)
             ItemServer.Current?.MarkAuthoredIdentity(this);
     }
 
@@ -540,7 +510,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         playerBelongsTo = null;
         recallPreparationPending = false;
         recallPreparationOperationId = 0;
-        hostStateObservationPending = false;
         placementSnapshotPending = false;
         coldStorageRetirement = false;
         coldMaterializationPending = false;
@@ -548,9 +517,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
-        releasedAt = -1f;
-        releaseSpeed = -1f;
-        releaseDeferralPublished = false;
         localInteraction.Reset();
         hasLastSentState = false;
         ResetVrHandState();
@@ -572,8 +538,8 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             coldMaterializationPending || placementSnapshotPending)
             return;
         stateDirty = true;
-        if (!NetworkLifecycle.Instance.IsHost())
-            NetworkedItemManager.Instance?.QueueLocalStateObservation(this, reason);
+        // A client looks at it in the item manager's next pass; the server at its LateUpdate.
+        ClientPart?.QueueObservation(reason);
     }
 
     internal void ProcessLocalStateObservation(string reason)
@@ -602,8 +568,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
                 reason, "recall-prepare-pending");
             return;
         }
-        // Stays dirty, so LateUpdate looks again each frame until it's sent or re-grabbed.
-        if (!NetworkLifecycle.Instance.IsHost() && NetId != 0 && DeferLocalRelease(currentState))
+        // A client's release grace. Stays dirty, so LateUpdate looks again each frame until it's
+        // sent or re-grabbed.
+        if (NetId != 0 && ClientPart?.DefersRelease(currentState) == true)
             return;
         bool networkStateChanged = HasNetworkStateProjectionChanged(currentState);
         if (currentState != previousObservedState || networkStateChanged)
@@ -614,13 +581,11 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         PublishLocalState(networkStateChanged ? "item.local-state-changed" : "item.local-state-unchanged",
             currentState, previousObservedState, reason, string.Empty);
 
-        // Host-local interactions are authoritative already. Leave the dirty state for
-        // NetworkedItemManager.ProcessChanged() instead of sending a client packet back
-        // through the host's validation handler.
-        if (NetworkLifecycle.Instance.IsHost())
+        // The host's player's change is the server's world already: leave the dirty state for the
+        // server item manager's ProcessChanged, which sends it to the other players.
+        if (ServerPart is { } server)
         {
-            hostStateObservationPending = true;
-            HostObservationTrigger = reason;
+            server.NoteLocalObservation(reason);
             return;
         }
 
@@ -643,7 +608,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         data["trigger"] = reason ?? string.Empty;
         data["suppressionReason"] = suppressionReason ?? string.Empty;
         DebugRuntime.Publish("item", eventName,
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: data);
     }
 

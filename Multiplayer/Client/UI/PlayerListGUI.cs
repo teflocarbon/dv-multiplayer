@@ -71,7 +71,7 @@ public class PlayerListGUI : MonoBehaviour
     // todo: cache this?
     private IEnumerable<string> GetPlayerList()
     {
-        if (!NetworkLifecycle.Instance.IsClientRunning)
+        if (NetworkLifecycle.Instance.LocalSession == null)
             return new[] { "Not in game" };
 
         IReadOnlyCollection<NetworkedPlayer> players = NetworkLifecycle.Instance.LocalSession.RemotePlayers;

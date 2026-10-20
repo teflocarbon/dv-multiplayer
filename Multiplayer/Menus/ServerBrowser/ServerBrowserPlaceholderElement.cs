@@ -1,3 +1,4 @@
+using Multiplayer.Shared.Protocol.Data;
 using DV.UI;
 using DV.UIFramework;
 using DV.Localization;

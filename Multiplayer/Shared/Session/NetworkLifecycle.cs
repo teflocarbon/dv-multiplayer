@@ -1,4 +1,5 @@
 using DV.Utils;
+using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Utils;
 using System.Collections.Generic;
 using System.Collections;
@@ -33,32 +34,48 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     private NetworkManager client;
 
     public bool IsServerRunning => server?.IsRunning ?? false;
+
+    /// <summary>
+    ///     A <c>NetworkClient</c> runs here: this game plays on another game's server (a host has no
+    ///     client of its own). Not "multiplayer is on" (<see cref="IsSessionRunning"/>) nor
+    ///     "someone plays here" (<see cref="NetworkRole.HasLocalPlayer"/>, <see cref="LocalSession"/>).
+    /// </summary>
     public bool IsClientRunning => client?.IsRunning ?? false;
+
+    /// <summary>Multiplayer is on in this game: it runs a server, a client, or both.</summary>
+    public bool IsSessionRunning => IsServerRunning || IsClientRunning;
+
+    /// <summary>
+    ///     The other players' avatars in this game's world; null when no session runs. A dedicated
+    ///     host has them too. Attached by the session root.
+    /// </summary>
+    public PlayerAvatars Avatars { get; private set; }
 
     /// <summary>
     ///     True while this game applies another player's change: the client handling a received
     ///     packet, or the server applying a change to its own world
     ///     (<see cref="ILocalServer.IsApplyingRemoteChange"/>). Code that would send that change on must not.
     /// </summary>
-    public bool IsProcessingPacket => (client?.IsProcessingPacket ?? false) || (LocalServer?.IsApplyingRemoteChange ?? false);
+    public bool IsProcessingPacket => (client?.IsProcessingPacket ?? (LocalSession as IPolledSession)?.IsProcessingPacket ?? false) || (LocalServer?.IsApplyingRemoteChange ?? false);
 
     /// <summary>The server as the host's own player reaches it, in-process; null when this game isn't the server.</summary>
     public ILocalServer LocalServer { get; private set; }
 
     /// <summary>
     ///     The player at this keyboard (id, name, ping, the other players' avatars, chat); null when
-    ///     no client is running. Code that runs for the host's player too reads this, not
-    ///     <c>NetworkClient</c>: in host-local-session stage 3 the host has no client.
+    ///     nobody plays here (a dedicated host). A remote client's <c>NetworkClient</c>, or a host's
+    ///     in-process session: code that runs for the host's player too reads this, never <c>NetworkClient</c>.
     /// </summary>
     public ILocalPlayerSession LocalSession { get; private set; }
 
     public bool IsReturningToMenu { get; private set; } = false;
 
     /// <summary>
-    ///     Whether the caller is the host.
-    ///     Note that this does NOT check authority, and should only be used for client-only logic.
-    ///     Whether a <c>ServerPlayer</c> is the host's is the server's extension
-    ///     <c>IsHost(player)</c> (Server/Session/NetworkLifecycleServerExtensions).
+    ///     Whether this game runs the server: a player host, a dedicated host or single player. A host
+    ///     runs no client of its own, so while a session runs this is also "not a remote client".
+    ///     New code says which it means: <see cref="NetworkRole.IsServer"/> or
+    ///     <see cref="NetworkRole.IsRemoteClient"/>. Whether a <c>ServerPlayer</c> is the host's is
+    ///     the server's extension <c>IsHost(player)</c> (Server/Session/NetworkLifecycleServerExtensions).
     /// </summary>
     public bool IsHost()
     {
@@ -73,8 +90,7 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
     /// <summary>
     ///     Whether this game is a dedicated host (<c>DedicatedHost</c>): hosting with nobody
-    ///     playing it, so the local player is a parked body and the host's own client is a service
-    ///     identity, not a player.
+    ///     playing it: the local player is a parked body, and the server has no player of its own.
     /// </summary>
     public bool IsDedicatedHost => DedicatedHostRequested && IsServerRunning;
 
@@ -106,7 +122,16 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
         LocalServer = local;
     }
 
-    /// <summary>The session root attaches the client it started (null when it stops it).</summary>
+    /// <summary>The session root attaches the avatar registry when a session starts (null when it ends).</summary>
+    internal void AttachAvatars(PlayerAvatars avatars)
+    {
+        Avatars = avatars;
+    }
+
+    /// <summary>
+    ///     The session root attaches the client it started, or a host's local player session with no
+    ///     manager (an <see cref="IPolledSession"/>, polled here); nulls when it stops it.
+    /// </summary>
     internal void AttachClient(NetworkManager manager, ILocalPlayerSession session)
     {
         client = manager;
@@ -188,12 +213,31 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
 
             if (client != null)
                 TickManager(client);
+            else if (LocalSession is IPolledSession polled)
+                TickLocalSession(polled);
 
             if (server != null)
                 TickManager(server);
 
             float remainingTime = nextTickAt - Time.realtimeSinceStartup;
             yield return remainingTime < 0.001f ? null : new WaitForSecondsRealtime(remainingTime);
+        }
+    }
+
+    private void TickLocalSession(IPolledSession session)
+    {
+        tickWatchdog.Start();
+        try
+        {
+            session.PollEvents();
+        }
+        catch (Exception e)
+        {
+            Multiplayer.LogError($"Exception while polling the local player session: {e}");
+        }
+        finally
+        {
+            tickWatchdog.Stop(time => Multiplayer.LogWarning($"Local player session poll took {time} ms!"));
         }
     }
 

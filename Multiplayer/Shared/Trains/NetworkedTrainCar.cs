@@ -385,7 +385,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         TrainCar = GetComponent<TrainCar>();
         trainCarsToNetworkedTrainCars[TrainCar] = this;
         EntityDebugRegistry.RegisterTrain(this);
-        DebugRuntime.Publish("train", "train.registered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("train", "train.registered", NetworkRole.DebugSide,
             entityType: "TrainCar", entityId: NetId.ToString(), data: DebugValueSnapshotter.SnapshotObject(new { CurrentID, NetId }));
 
         TrainCar.LogicCarInitialized += OnLogicCarInitialised;
@@ -576,7 +576,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (UnloadWatcher.isQuitting || Retired)
             return;
 
-        DebugRuntime.Publish("train", "train.unregistered", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("train", "train.unregistered", NetworkRole.DebugSide,
             entityType: "TrainCar", entityId: NetId.ToString(), data: DebugValueSnapshotter.SnapshotObject(new { CurrentID, NetId }));
         EntityDebugRegistry.Unregister("TrainCar", NetId.ToString());
 
@@ -881,7 +881,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
     private void Common_OnPortUpdated(Port port, uint portNetId)
     {
-        DebugRuntime.PublishHighFrequency("train", "train.port-value-changed", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.PublishHighFrequency("train", "train.port-value-changed", NetworkRole.DebugSide,
             "Control/Port", $"{NetId}:{portNetId}",
             () => DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, port.id, port.Value, port.prevValue, port.valueType }));
         //Multiplayer.LogDebug(() => $"Common_OnPortUpdated() port [{port?.id}] updated on [{CurrentID}, {NetId}]. Value: {port?.Value}, PrevValue: {port?.prevValue}, ValueType: {port?.valueType}, Tick: {NetworkLifecycle.Instance.Tick}");

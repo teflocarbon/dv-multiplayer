@@ -128,13 +128,13 @@ namespace Dvmp.Scenarios
                     Money = DV.InventorySystem.Inventory.Instance.PlayerMoney,
                     Fees = payable.Count,
                     Cost = cost,
-                    Players = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayerCount
+                    Players = Multiplayer.Server.Session.NetworkServer.Instance.PlayerCount
                 };
             }
 
             /// <summary>Host: the (only) player's GUID, as Settings.Admins lists admins.</summary>
             [Step]
-            public static string PlayerGuid() => Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayers.First().Guid.ToString();
+            public static string PlayerGuid() => Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers.First().Guid.ToString();
 
             /// <summary>Host: the admins, in memory only.</summary>
             [Step]

@@ -12,6 +12,10 @@ public static class ChainCouplerInteractionPatch
     [HarmonyPostfix]
     private static void OnScrewButtonUsed(ChainCouplerInteraction __instance)
     {
+        // A client's player's screw. The host's is in the server's world, which observes the chain
+        // settling (NetworkedTrainCarServer.ChainStateChanged).
+        if (!NetworkRole.IsRemoteClient)
+            return;
 
         Multiplayer.LogDebug(() => $"OnScrewButtonUsed({__instance?.couplerAdapter?.coupler?.train?.ID}) state: {__instance.state}");
 
@@ -28,7 +32,7 @@ public static class ChainCouplerInteractionPatch
             });
 
         if (flag != CouplerInteractionType.NoAction)
-            NetworkClient.Instance.SendCouplerInteraction(flag, __instance?.couplerAdapter?.coupler);
+            NetworkClient.Instance?.SendCouplerInteraction(flag, __instance?.couplerAdapter?.coupler);
     }
 
 }

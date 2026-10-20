@@ -21,7 +21,7 @@ public static class Probe
             role = ctx.Role,
             t = Time.realtimeSinceStartup,
             tick = lifecycle != null ? lifecycle.Tick : 0u,
-            me = Multiplayer.Client.Session.NetworkClient.Instance != null ? new { id = Multiplayer.Client.Session.NetworkClient.Instance.PlayerId, name = Multiplayer.Client.Session.NetworkClient.Instance.Username } : null,
+            me = lifecycle?.LocalSession != null ? new { id = lifecycle.LocalSession.PlayerId, name = lifecycle.LocalSession.DisplayName } : null,
             player = V(Dev.PlayerAbs),
             items = Items(),
             cars = Cars(),
@@ -161,7 +161,7 @@ public static class Probe
     private static object Interest(NetworkLifecycle lifecycle)
     {
         return Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers
-            .Where(p => p.PlayerId != Multiplayer.Client.Session.NetworkClient.Instance?.PlayerId)
+            .Where(p => p.PlayerId != Multiplayer.Shared.Session.NetworkLifecycle.Instance?.LocalSession?.PlayerId)
             .Select(p => new
             {
                 id = p.PlayerId,

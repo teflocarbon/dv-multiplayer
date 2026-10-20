@@ -29,7 +29,7 @@ public partial class NetworkedItem
     {
         //Multiplayer.LogDebug(() => $"NetworkedItem.RegisterTrackedValue(\"{key}\", {valueGetter != null}, {valueSetter != null}, {thresholdComparer != null}, {serverAuthoritative}) itemNetId {NetId}, item name: {name}");
         if (registrationComplete)
-            DebugRuntime.Publish("item", "item.tracked-value-registered-late", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            DebugRuntime.Publish("item", "item.tracked-value-registered-late", NetworkRole.DebugSide,
                 DebugSeverity.Warning, "Item", NetId.ToString(), new() { ["key"] = key ?? string.Empty, ["trackedItemType"] = TrackedItemType?.FullName ?? string.Empty });
         trackedValues.Add(new TrackedValue<T>(key, valueGetter, valueSetter, thresholdComparer, serverAuthoritative));
     }
@@ -78,7 +78,7 @@ public partial class NetworkedItem
             ClientPart?.SetNetworkBinding(true);
 
         DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "tracked-values-not-finalised");
-        DebugRuntime.Publish("item", "item.tracked-values-finalized", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", "item.tracked-values-finalized", NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: new()
             {
                 ["reason"] = reason,
@@ -91,25 +91,25 @@ public partial class NetworkedItem
     private bool HasDirtyValues()
     {
         //clients should only send values that are not server authoritative
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkRole.IsServer)
             return trackedValues.Any(tv => ((dynamic)tv).IsDirty && !((dynamic)tv).ServerAuthoritative);
         else
             return trackedValues.Any(tv => ((dynamic)tv).IsDirty);
     }
 
-    private bool IsTrackedValueDirty(string key) =>
+    internal bool IsTrackedValueDirty(string key) =>
         trackedValues.Any(tv => ((dynamic)tv).Key == key && ((dynamic)tv).IsDirty);
 
     private Dictionary<string, object> GetDirtyStateData()
     {
         return TrackedStateComposer.Compose(GetTrackedStateEntries(),
-            TrackedStateCompositionMode.Delta, NetworkLifecycle.Instance.IsHost());
+            TrackedStateCompositionMode.Delta, NetworkRole.IsServer);
     }
 
     private Dictionary<string, object> GetAllStateData()
     {
         return TrackedStateComposer.Compose(GetTrackedStateEntries(),
-            TrackedStateCompositionMode.FullSync, NetworkLifecycle.Instance.IsHost());
+            TrackedStateCompositionMode.FullSync, NetworkRole.IsServer);
     }
 
     private IEnumerable<TrackedStateEntry> GetTrackedStateEntries()
@@ -141,7 +141,7 @@ public partial class NetworkedItem
     {
         if (coldStorageRetirement || coldMaterializationPending)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             stateDirty = false;
             MarkValuesClean();
             return null;
@@ -153,15 +153,15 @@ public partial class NetworkedItem
 
         if (Item == null && Register() == false)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             return null;
         }
 
-        if (NetworkLifecycle.Instance.IsHost() && NetId != 0 &&
+        if (NetId != 0 &&
             ItemServer.Current?.TryGetPlacement(NetId, out ItemPlacementKind placement) == true &&
             placement == ItemPlacementKind.LostAndFound)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             createdDirty = false;
             stateDirty = false;
             wasThrown = false;
@@ -172,7 +172,7 @@ public partial class NetworkedItem
 
         if (!stateDirty && !hasDirtyVals)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             return null;
         }
 
@@ -203,30 +203,23 @@ public partial class NetworkedItem
         // it where it lies (a set-down lantern's knob, lighting it). A thrown lantern's flame
         // flickers in every game it flies through; each of them reporting it was refused by the
         // host, and the correction set the copy off again, several times a second (playtest 2).
-        // A book lying in the world is the other exception: anyone may turn its pages.
+        // A book lying in the world is the other exception: anyone may turn its pages. The client
+        // part decides (the server's own copy is the truth).
         bool pageOnlyWorldState = false;
         bool worldInteraction = false;
-        if (!NetworkLifecycle.Instance.IsHost() &&
-            updateType == ItemUpdateData.ItemUpdateType.ObjectState &&
-            !ItemObjectStateAuthority.ClientMaySend(ToWireState(currentState), pageOnly: false,
-                localInteraction: false))
+        if (updateType == ItemUpdateData.ItemUpdateType.ObjectState && ClientPart is { } client &&
+            !client.MaySendObjectState(currentState, out worldInteraction, out pageOnlyWorldState))
         {
-            worldInteraction = IsLocalInteractionOpen;
-            pageOnlyWorldState = !worldInteraction &&
-                IsTrackedValueDirty(NetworkedPageBookState.TrackedValueKey);
-            if (!worldInteraction && !pageOnlyWorldState)
-            {
-                PublishLocalState("item.snapshot-suppressed", currentState, lastState, "object-state",
-                    "object-state-not-holder");
-                updateType = ItemUpdateData.ItemUpdateType.None;
-                MarkValuesClean();
-            }
+            PublishLocalState("item.snapshot-suppressed", currentState, lastState, "object-state",
+                "object-state-not-holder");
+            updateType = ItemUpdateData.ItemUpdateType.None;
+            MarkValuesClean();
         }
 
         //no changes this snapshot
         if (updateType == ItemUpdateData.ItemUpdateType.None)
         {
-            hostStateObservationPending = false;
+            serverPart?.ClearObservation();
             stateDirty = false;
             wasThrown = false;
             wasRemoved = false;
@@ -269,7 +262,7 @@ public partial class NetworkedItem
     internal void BeginColdStorageRetirement()
     {
         coldStorageRetirement = true;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
@@ -279,7 +272,7 @@ public partial class NetworkedItem
     internal void BeginColdMaterialization()
     {
         coldMaterializationPending = true;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
@@ -290,7 +283,7 @@ public partial class NetworkedItem
     {
         coldMaterializationPending = false;
         coldStorageRetirement = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         stateDirty = false;
         wasThrown = false;
         wasRemoved = false;
@@ -311,7 +304,7 @@ public partial class NetworkedItem
         if (snapshot.AuthorityRevision != 0 && snapshot.AuthorityRevision < AuthorityRevision)
         {
             DebugRuntime.Publish("item", "item.stale-authority-snapshot-rejected",
-                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                NetworkRole.DebugSide,
                 DebugSeverity.Warning, "Item", NetId.ToString(), new()
                 {
                     ["currentRevision"] = AuthorityRevision,
@@ -332,7 +325,7 @@ public partial class NetworkedItem
         snapshot.DebugCorrelationFingerprint = receivedDebugData.TryGetValue("stateFingerprint", out object fingerprint)
             ? Convert.ToString(fingerprint)
             : string.Empty;
-        DebugRuntime.Publish("item", "item.snapshot-received", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", "item.snapshot-received", NetworkRole.DebugSide,
             entityType: "Item", entityId: snapshot.ItemNetId.ToString(), data: receivedDebugData);
         DebugDesyncDetector.Remember(snapshot);
 
@@ -341,8 +334,8 @@ public partial class NetworkedItem
         // drop would take the item out of the hand that has it now.
         if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
             ItemSnapshotApplicationPolicy.IsSupersededLocalRelease(
-                NetworkLifecycle.Instance.IsHost(),
-                NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
+                NetworkRole.IsServer,
+                NetworkRole.LocalPlayerId,
                 snapshot.OriginatingPlayerId,
                 ToWireState(snapshot.ItemState),
                 IsLocallyPossessed()))
@@ -364,15 +357,15 @@ public partial class NetworkedItem
         // unsnapped the belt item.
         if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
             (ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
-                    NetworkLifecycle.Instance.IsHost(),
-                    NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
+                    NetworkRole.IsServer,
+                    NetworkRole.LocalPlayerId,
                     snapshot.OriginatingPlayerId,
                     ToWireState(snapshot.ItemState),
                     ToWireState(GetItemState()),
                     IsLocallyPossessed()) ||
                 (Item != null &&
-                    BeltItemPolicy.IsSupersededOwnHold(NetworkLifecycle.Instance.IsHost(),
-                        NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
+                    BeltItemPolicy.IsSupersededOwnHold(NetworkRole.IsServer,
+                        NetworkRole.LocalPlayerId, snapshot.OriginatingPlayerId,
                         ToWireState(snapshot.ItemState), Item.IsGrabbed(),
                         InventoryIntegration.ContainsActive(gameObject)))))
         {
@@ -386,14 +379,14 @@ public partial class NetworkedItem
         }
 
         // The host's echo of our own object-state change (a lantern's knob still being turned).
-        if (ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(NetworkLifecycle.Instance.IsHost(),
-                NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0, snapshot.OriginatingPlayerId,
+        if (ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(NetworkRole.IsServer,
+                NetworkRole.LocalPlayerId, snapshot.OriginatingPlayerId,
                 snapshot.UpdateType == ItemUpdateData.ItemUpdateType.ObjectState))
             return;
 
         if (ItemSnapshotApplicationPolicy.IsLocalThrowAcknowledgement(
-                NetworkLifecycle.Instance.IsHost(),
-                NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
+                NetworkRole.IsServer,
+                NetworkRole.LocalPlayerId,
                 snapshot.OriginatingPlayerId,
                 ToWireState(snapshot.ItemState)))
         {
@@ -438,7 +431,7 @@ public partial class NetworkedItem
                     NetworkLifecycle.Instance.Tick, pendingSnapshots.Count > 1 ? NetworkLifecycle.Instance.Tick - 1 : 0);
             else
                 DebugRuntime.Publish("item", "item.pending-snapshot-rejected",
-                    NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                    NetworkRole.DebugSide,
                     enqueue.Status == PendingEnqueueStatus.CapacityExceeded ? DebugSeverity.Error : DebugSeverity.Warning,
                     "Item", NetId.ToString(), new()
                     {
@@ -449,7 +442,7 @@ public partial class NetworkedItem
                         ["updateType"] = snapshot.UpdateType.ToString()
                     });
             DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "tracked-values-not-finalised", $"pending={pendingSnapshots.Count}");
-            DebugRuntime.Publish("item", "item.snapshot-deferred", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            DebugRuntime.Publish("item", "item.snapshot-deferred", NetworkRole.DebugSide,
                 DebugSeverity.Warning, "Item", NetId.ToString(), new()
                 {
                     ["reason"] = "tracked-values-not-finalised",
@@ -472,7 +465,7 @@ public partial class NetworkedItem
             // origin and can expose a visibly falling debug label. Only packets which
             // actually carry tracked state need to wait for item-specific patches.
             DebugRuntime.Publish("item", "item.snapshot-applied-before-finalization",
-                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                NetworkRole.DebugSide,
                 entityType: "Item", entityId: NetId.ToString(), data: new()
                 {
                     ["reason"] = "no-tracked-state-in-packet",
@@ -489,7 +482,7 @@ public partial class NetworkedItem
     {
         PublishDeferredDrain("item.pending-snapshot-stale-placement-skipped", snapshot, reason);
         using IDisposable debugScope = DebugTrace.BeginApply("item", "item.pending-tracked-state-apply",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             "Item", NetId.ToString(), () => DebugApplyState(snapshot));
         if (snapshot.States is { Count: > 0 })
             ApplyTrackedValues(snapshot.States);
@@ -516,7 +509,7 @@ public partial class NetworkedItem
         createdDirty = false;
         stateDirty = false;
         wasThrown = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         CompleteLocalVrReleaseAcknowledgement();
         MarkValuesClean();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(),
@@ -536,7 +529,7 @@ public partial class NetworkedItem
     private void PublishDeferredDrain(string eventName, ItemUpdateData snapshot, string reason)
     {
         DebugRuntime.Publish("item", eventName,
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["reason"] = reason ?? string.Empty,
@@ -569,7 +562,7 @@ public partial class NetworkedItem
         bool appliesItemState = ItemUpdateData.IncludesItemState(snapshot.UpdateType);
         bool probeWorldState = DebugRuntime.EnabledFor("item") && appliesItemState && (snapshot.ItemState is ItemState.Dropped or ItemState.Thrown);
         string parentBefore = probeWorldState ? ParentPath() : string.Empty;
-        using IDisposable debugScope = DebugTrace.BeginApply("item", "item.snapshot-apply", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        using IDisposable debugScope = DebugTrace.BeginApply("item", "item.snapshot-apply", NetworkRole.DebugSide,
             "Item", snapshot.ItemNetId.ToString(), () => DebugApplyState(snapshot));
         Multiplayer.LogDebug(() => $"NetworkedItem.ApplySnapshot([netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}, ItemState: {snapshot?.ItemState}, PlayerId: {snapshot?.PlayerId}, Active state: {gameObject.activeInHierarchy}])");
 
@@ -629,7 +622,7 @@ public partial class NetworkedItem
         stateDirty = false;
 
         MarkValuesClean();
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         EntityDebugRegistry.UpdateState("Item", NetId.ToString(), EntityDebugRegistry.ItemState(this));
         if (appliesItemState)
             PublishHolderInvariant(snapshot);
@@ -734,7 +727,7 @@ public partial class NetworkedItem
             InventoryClaimSlot = InventoryClaimSlot,
             InventoryClaimFlags = InventoryClaimFlags,
             TransitionReason = LastTransitionReason,
-            OriginatingPlayerId = NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0,
+            OriginatingPlayerId = NetworkRole.LocalPlayerId,
             AuthoredItemKey = updateType.HasFlag(ItemUpdateData.ItemUpdateType.Create)
                 ? AuthoredItemKey ?? string.Empty
                 : string.Empty,
@@ -751,7 +744,7 @@ public partial class NetworkedItem
         Dictionary<string, object> snapshotDebugData = DebugTrace.ItemSnapshotData(updateData);
         if (DebugRuntime.EnabledFor("item"))
             snapshotDebugData["sourceUnityState"] = DebugUnityState();
-        DebugRuntime.Publish("item", "item.snapshot-created", NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", "item.snapshot-created", NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: snapshotDebugData);
 
         return updateData;
@@ -818,11 +811,9 @@ public partial class NetworkedItem
 
     internal bool IsRemotePlayerAuthoritative()
     {
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            byte hostPlayerId = NetworkRole.LocalPlayerId;
-            return HostPossessorPlayerId != 0 && HostPossessorPlayerId != hostPlayerId;
-        }
+        // The server goes by its record of the holder; a client by the placement it was last given.
+        if (ServerPart is { } server)
+            return server.HeldByAnotherPlayer;
 
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         return playerBelongsToId != 0 && playerBelongsToId != localPlayerId;
@@ -838,7 +829,7 @@ public partial class NetworkedItem
         Multiplayer.LogDebug(() => $"NetworkedItem.ApplyTrackedValues() itemNetId: {NetId}, item name: {name}. Registration complete: {registrationComplete}");
 
         TrackedStateMergePlan mergePlan = TrackedStateComposer.PlanMerge(
-            GetTrackedStateEntries(), newValues, NetworkLifecycle.Instance.IsHost());
+            GetTrackedStateEntries(), newValues, NetworkRole.IsServer);
 
         foreach (var newValue in mergePlan.ApplicableValues)
         {

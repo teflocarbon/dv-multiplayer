@@ -38,8 +38,8 @@ public partial class NetworkedItem
         }
 
         // Recover from stale ownership bookkeeping by checking the actual remote hand objects.
-        if (playerId == 0 && NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
+        if (playerId == 0 && NetworkLifecycle.Instance.Avatars != null)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Avatars.Players)
                 player?.DropItem(gameObject);
 
         // find new player reference
@@ -74,7 +74,7 @@ public partial class NetworkedItem
                 if (hadLocalPossession)
                 {
                     DebugRuntime.Publish("item", "item.local-possession-revoked",
-                        NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                        NetworkRole.DebugSide,
                         entityType: "Item", entityId: NetId.ToString(), data: new()
                         {
                             ["localPlayerId"] = localPlayerId,
@@ -89,8 +89,8 @@ public partial class NetworkedItem
                 Multiplayer.LogWarning($"Unable to revoke local possession for item {NetId}: {exception.Message}");
             }
         }
-        if (playerId != 0 && playerId != localPlayerId && NetworkLifecycle.Instance.IsClientRunning)
-            if (!NetworkLifecycle.Instance.LocalSession.TryGetRemotePlayer(playerId, out playerBelongsTo))
+        if (playerId != 0 && playerId != localPlayerId && NetworkLifecycle.Instance.Avatars != null)
+            if (!NetworkLifecycle.Instance.Avatars.TryGetPlayer(playerId, out playerBelongsTo))
             {
                 DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player", $"playerId={playerId}");
                 Multiplayer.LogDebug(() => $"Unable to find player {playerId} for item {NetId}");
@@ -223,7 +223,7 @@ public partial class NetworkedItem
         new(ToWireState(snapshot.ItemState), snapshot.PlayerId, snapshot.CarNetId,
             snapshot.AttachedFront, (byte)snapshot.PlayerHand);
 
-    private static WireItemState ToWireState(ItemState state) => state switch
+    internal static WireItemState ToWireState(ItemState state) => state switch
     {
         ItemState.Dropped => WireItemState.Dropped,
         ItemState.Thrown => WireItemState.Thrown,
@@ -242,8 +242,8 @@ public partial class NetworkedItem
 
         if (playerBelongsTo != null)
             playerBelongsTo.DropItem(gameObject);
-        if (NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
+        if (NetworkLifecycle.Instance.Avatars != null)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Avatars.Players)
                 player?.DropItem(gameObject);
 
         try
@@ -268,7 +268,7 @@ public partial class NetworkedItem
             if (!plan.Accepted)
             {
                 DebugRuntime.Publish("storage", "storage.transition-rejected",
-                    NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                    NetworkRole.DebugSide,
                     DebugSeverity.Warning, "Item", NetId.ToString(), new()
                     {
                         ["reason"] = plan.Reason,
@@ -277,7 +277,7 @@ public partial class NetworkedItem
             }
             else if (plan.RepairedMultipleMembership)
                 DebugRuntime.Publish("storage", "storage.multiple-membership-repaired",
-                    NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                    NetworkRole.DebugSide,
                     DebugSeverity.Warning, "Item", NetId.ToString(), new()
                     {
                         ["removed"] = plan.Remove.ToString(),
@@ -319,7 +319,7 @@ public partial class NetworkedItem
             return;
 
         DebugRuntime.Publish("inventory", "inventory.essential-claim-repaired",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: new()
             {
                 ["slot"] = InventoryClaimSlot,
@@ -331,7 +331,7 @@ public partial class NetworkedItem
     private void PublishClaimInvariant(string code, int actualSlot, ItemState targetState)
     {
         DebugRuntime.Publish("inventory", "inventory.essential-claim-invariant-violation",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["code"] = code,
@@ -366,7 +366,7 @@ public partial class NetworkedItem
         // Only the root presentation layer is canonical for world-state validation.
         if (childLayersBefore != null)
             DebugRuntime.Publish("item", "item.world-presentation-layer-applied",
-                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                NetworkRole.DebugSide,
                 entityType: "Item", entityId: NetId.ToString(), data: new()
                 {
                     ["previousRootLayer"] = previousRootLayer,
@@ -457,7 +457,7 @@ public partial class NetworkedItem
         data["violations"] = violations.ToArray();
         Multiplayer.LogWarning($"World item {NetId} failed {stage} invariants: {string.Join(", ", violations)}");
         DebugRuntime.Publish("item", "item.world-state-invariant-violation",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             DebugSeverity.Warning, "Item", NetId.ToString(), data);
     }
 
@@ -482,7 +482,7 @@ public partial class NetworkedItem
         if (additional != null)
             foreach (KeyValuePair<string, object> value in additional)
                 data[value.Key] = value.Value;
-        DebugRuntime.Publish("item", eventName, NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+        DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: data);
     }
 
@@ -519,8 +519,8 @@ public partial class NetworkedItem
 
         try
         {
-            NetworkedPlayer actualRemoteHolder = NetworkLifecycle.Instance.IsClientRunning
-                ? NetworkLifecycle.Instance.LocalSession.RemotePlayers.FirstOrDefault(player => player?.HoldsItem(gameObject) == true)
+            NetworkedPlayer actualRemoteHolder = NetworkLifecycle.Instance.Avatars != null
+                ? NetworkLifecycle.Instance.Avatars.Players.FirstOrDefault(player => player?.HoldsItem(gameObject) == true)
                 : null;
             state["actualRemoteHandMember"] = actualRemoteHolder != null;
             state["actualRemoteHolderPlayerId"] = actualRemoteHolder?.PlayerId ?? 0;
@@ -628,15 +628,14 @@ public partial class NetworkedItem
 
     private void HandleInventoryOrHandState(ItemUpdateData snapshot)
     {
-        if (!NetworkLifecycle.Instance.IsHost())
-            NetworkedItemManager.Instance?.ClientPart?.DetachAuthoredProjectionForPossession(this, snapshot);
+        NetworkedItemManager.Instance?.ClientPart?.DetachAuthoredProjectionForPossession(this, snapshot);
         Multiplayer.LogDebug(() => $"NetworkedItem.HandleInventoryOrHandState() ItemNetId: {snapshot?.ItemNetId} State: {snapshot?.ItemState}. Player: {snapshot?.PlayerId}, Position: {snapshot?.ItemPosition}");
 
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         RemoteItemProjectionPlan plan = RemoteItemProjectionPlanner.Plan(
             ToWireState(snapshot.ItemState), snapshot.PlayerId, localPlayerId, playerBelongsTo != null);
-        if (plan.ClearExistingRemoteHands && NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
+        if (plan.ClearExistingRemoteHands && NetworkLifecycle.Instance.Avatars != null)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Avatars.Players)
                 player?.DropItem(gameObject);
 
         if (plan.Action is RemoteItemProjectionAction.LocalHand or
@@ -656,8 +655,7 @@ public partial class NetworkedItem
                 // way, otherwise essentials are dropped (DV allows one of each) and everything
                 // else is duplicated. The original takes the copy's slot, so the inventory keeps
                 // its layout across a rejoin.
-                int freedSlot = NetworkLifecycle.Instance.IsHost() ? -1 :
-                    NetworkedItemManager.Instance?.ClientPart?.DiscardUnboundLocalDuplicate(this) ?? -1;
+                int freedSlot = NetworkedItemManager.Instance?.ClientPart?.DiscardUnboundLocalDuplicate(this) ?? -1;
 
                 // Retrieval claims reserve an exact silhouette slot. Ordinary inventory
                 // possession uses DV's normal free-slot insertion. A slot without a retrieval
@@ -678,7 +676,7 @@ public partial class NetworkedItem
 
             DebugRuntime.Publish("item", snapshot.TransitionReason == ItemTransitionReason.OwnerRecall
                     ? "item.recall-applied" : "item.local-authority-projection-applied",
-                NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                NetworkRole.DebugSide,
                 entityType: "Item", entityId: NetId.ToString(), data: DebugUnityState());
             return;
         }
@@ -759,7 +757,7 @@ public partial class NetworkedItem
         }
 
         stateDirty = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         PublishRecallPreparation(true, operationId, requestedSlot, string.Empty);
         return true;
     }
@@ -771,10 +769,10 @@ public partial class NetworkedItem
         recallPreparationPending = false;
         recallPreparationOperationId = 0;
         stateDirty = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         DebugRuntime.Publish("item", accepted ? "item.recall-transaction-committed" :
                 "item.recall-transaction-cancelled",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             accepted ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["operationId"] = operationId,
@@ -787,7 +785,7 @@ public partial class NetworkedItem
     {
         DebugRuntime.Publish("item", succeeded ? "item.recall-prepare-succeeded" :
                 "item.recall-prepare-failed",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             succeeded ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["operationId"] = operationId,
@@ -809,7 +807,7 @@ public partial class NetworkedItem
         }
 
         DebugRuntime.Publish("inventory", "inventory.essential-claim-restored",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: NetId.ToString(), data: new()
             {
                 ["requestedSlot"] = requestedSlot,
@@ -846,8 +844,8 @@ public partial class NetworkedItem
     {
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         NetworkedPlayer actualRemoteHolder = null;
-        if (NetworkLifecycle.Instance.IsClientRunning)
-            actualRemoteHolder = NetworkLifecycle.Instance.LocalSession.RemotePlayers
+        if (NetworkLifecycle.Instance.Avatars != null)
+            actualRemoteHolder = NetworkLifecycle.Instance.Avatars.Players
                 .FirstOrDefault(player => player?.HoldsItem(gameObject) == true);
         List<string> violations = new();
         if (snapshot.ItemState == ItemState.InHand && snapshot.PlayerId != localPlayerId &&
@@ -855,12 +853,12 @@ public partial class NetworkedItem
             violations.Add("expected-remote-hand-missing");
         if (snapshot.ItemState != ItemState.InHand && actualRemoteHolder != null)
             violations.Add("stale-remote-hand-membership");
-        if (NetworkLifecycle.Instance.IsHost() && HostPossessorPlayerId != snapshot.PlayerId)
+        if (NetworkRole.IsServer && HostPossessorPlayerId != snapshot.PlayerId)
             violations.Add("host-possessor-mismatch");
         if (violations.Count == 0)
             return;
         DebugRuntime.Publish("item", "item.holder-invariant-violation",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             DebugSeverity.Warning, "Item", NetId.ToString(), new()
             {
                 ["expectedState"] = snapshot.ItemState.ToString(),
@@ -909,7 +907,7 @@ public partial class NetworkedItem
         if (removal.SlotBefore < 0 && removal.EquippedSlotBefore < 0 && !removal.ContainedBefore)
             return;
         DebugRuntime.Publish("inventory", "item.local-inventory-membership-revoked",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             removal.ContainedAfter || removal.SlotAfter >= 0 || removal.EquippedSlotAfter >= 0
                 ? DebugSeverity.Warning : DebugSeverity.Info,
             "Item", NetId.ToString(), new()

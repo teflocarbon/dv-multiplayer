@@ -107,8 +107,8 @@ dvmp down --session light
   count every send and receive whether or not the debug system is on, and stay installed until the
   game quits. The forced GC behind `monoRetained` costs one frame hitch; skip it with
   `-a retained=false` through `dvmp eval -f Probes/perf.cs`.
-- `--dedicated` launches the host as a dedicated host (`-mp-dedicated`). Its own client is then a
-  service identity, not a player: no avatar for the client to see, no slot, not a nearby player.
+- `--dedicated` launches the host as a dedicated host (`-mp-dedicated`). It has no player of
+  its own: no avatar for the client to see, no slot, not a nearby player.
   A plain `dvmp up` reuses either kind of host; `--dedicated` only reuses a dedicated one.
 - Not in the MCP tools yet: they have no `session` argument, so use the CLI.
 

@@ -57,14 +57,13 @@ public class NetworkedTurntable : IdMonoBehaviour<byte, NetworkedTurntable>
 
         NetworkLifecycle.Instance.OnTick += OnTick;
 
-        if (NetworkLifecycle.Instance?.IsServerRunning ?? false)
-            initialised = NetworkLifecycle.Instance.IsHost();
+        initialised = NetworkRole.IsServer;
     }
 
     protected void Start()
     {
         if (!initialised)
-            initialised = NetworkLifecycle.Instance.IsHost();
+            initialised = NetworkRole.IsServer;
     }
 
     protected override void OnDestroy()
@@ -84,7 +83,11 @@ public class NetworkedTurntable : IdMonoBehaviour<byte, NetworkedTurntable>
             return;
 
         lastYRotation = TurntableRailTrack.targetYRotation;
-        WorldClient.Current?.SendTurntableRotation(NetId, lastYRotation);
+        // The server's world: tell everyone, whoever or whatever turned it. A client's: ask the server.
+        if (WorldServer.Current is { } server)
+            server.BroadcastTurntableRotation(NetId, lastYRotation);
+        else
+            WorldClient.Current?.SendTurntableRotation(NetId, lastYRotation);
     }
 
     public void SetRotation(float rotation, bool forceConnectionRefresh = false, bool initialising = false)

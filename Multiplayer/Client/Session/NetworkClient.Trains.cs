@@ -34,13 +34,12 @@ namespace Multiplayer.Client.Session;
 // NetworkClient's trains handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkClient : ITrainClient
 {
-    public ITrainCarClientPart CreateCarPart(NetworkedTrainCar car) => new global::Multiplayer.Client.Trains.NetworkedTrainCarClient(car);
+    public ITrainCarClientPart CreateCarPart(NetworkedTrainCar car) => new global::Multiplayer.Client.Trains.NetworkedTrainCarClient(car, followsHost: true);
 
     public bool TryFollowingHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause)
     {
         cause = default;
-        // The host's topology is its own (its loopback client applies none of it).
-        if (!NetworkedTrainCar.IsApplyingAuthoritativeTopology || NetworkLifecycle.Instance.IsHost())
+        if (!NetworkedTrainCar.IsApplyingAuthoritativeTopology)
             return false;
         if (RefusalUncoupleCause is ChangeCause<UncoupleReason> refused)
             cause = refused;
@@ -674,12 +673,6 @@ public partial class NetworkClient : ITrainClient
             return;
         }
 
-        // The host's chain has already moved in the world it shares with the server. Sending it on
-        // made the server apply it to that coupler a second time: a Start (the screw used in an
-        // unexpected state) locked the host's own screw button and left the coupler marked in use.
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
-
         Log($"Sending coupler interaction [{flags}] for {coupler?.train?.ID}, {(couplerIsFront ? "Front" : "Rear")}");
 
         SendPacketToServer(new CommonCouplerInteractionPacket
@@ -801,11 +794,6 @@ public partial class NetworkClient : ITrainClient
             LogWarning($"Cannot send topology {kind}: primary endpoint has no NetId");
             return;
         }
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            NetworkServer.Instance?.CommitObservedTrainTopology();
-            return;
-        }
         string signature = $"{(byte)kind}:{primaryNetId}:{primary?.isFrontCoupler == true}:" +
                            $"{secondaryNetId}:{secondary?.isFrontCoupler == true}:" +
                            $"{cascadeHose}:{cascadeMu}:{requestedValue}:{(byte)chainState}";
@@ -855,9 +843,6 @@ public partial class NetworkClient : ITrainClient
 
     private void RequestTrainTopologySync()
     {
-        // The host's topology is the canonical one: there is nothing to sync it with.
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
         // A single topology failure can defer every car's brake heartbeat. Coalesce their
         // identical repair requests instead of turning one native mismatch into hundreds
         // of reliable packets and repeated snapshots per second.
@@ -876,9 +861,6 @@ public partial class NetworkClient : ITrainClient
 
     internal void RestoreCanonicalTrainTopology()
     {
-        // On the host its own couplings are the canonical ones; this client holds no snapshot of them.
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
         if (trainTopology.ReapplyCurrent(out string failure))
             return;
 
@@ -1016,9 +998,6 @@ public partial class NetworkClient : ITrainClient
 
     public void SendTrainSyncRequest(ushort netId)
     {
-        // The host has the car's state already; asking only made it resend the car to everyone.
-        if (NetworkLifecycle.Instance.IsHost())
-            return;
         SendPacketToServer(new ServerboundTrainSyncRequestPacket
         {
             NetId = netId

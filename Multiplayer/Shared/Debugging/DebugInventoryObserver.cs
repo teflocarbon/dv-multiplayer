@@ -307,7 +307,5 @@ internal sealed class DebugInventoryObserver : MonoBehaviour
         DebugRuntime.Publish("inventory", eventName, Side(), entityType: "Item", entityId: entityId, data: data);
     }
 
-    private static DebugRuntimeSide Side() => NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsHost()
-        ? DebugRuntimeSide.Server
-        : DebugRuntimeSide.Client;
+    private static DebugRuntimeSide Side() => NetworkRole.DebugSide;
 }

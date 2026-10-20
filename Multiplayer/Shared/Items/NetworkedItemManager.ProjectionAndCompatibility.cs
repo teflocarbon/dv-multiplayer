@@ -40,7 +40,7 @@ public partial class NetworkedItemManager
             return false;
         byte localPlayerId = NetworkRole.LocalPlayerId;
         DebugRuntime.Publish("item", "item.recall-requested",
-            NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+            NetworkRole.DebugSide,
             entityType: "Item", entityId: item.NetId.ToString(), data: new()
             {
                 ["requestingPlayerId"] = localPlayerId,
@@ -49,12 +49,11 @@ public partial class NetworkedItemManager
                 ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId
             });
 
-        if (!NetworkLifecycle.Instance.IsHost())
-        {
-            ItemClient.Current?.SendItemRecall(item.NetId, item.AuthorityRevision, requestedSlot);
-            return true;
-        }
+        // The host's player: the server recalls it now and says whether it could. A remote client asks.
+        if (ServerPart is { } server)
+            return server.RequestHostRecall(item, requestedSlot);
 
-        return ServerPart?.RequestHostRecall(item, requestedSlot) == true;
+        ItemClient.Current?.SendItemRecall(item.NetId, item.AuthorityRevision, requestedSlot);
+        return true;
     }
 }

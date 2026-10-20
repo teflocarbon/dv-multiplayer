@@ -94,7 +94,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
     public byte LocalPlayerId => NetworkRole.LocalPlayerId;
 
     public bool RuntimeActive => NetworkLifecycle.Instance != null &&
-        (NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsHost());
+        NetworkLifecycle.Instance.IsSessionRunning;
 
     public bool TrySnapshotSlot(InventoryUIController controller, int relativeSlot,
         InventorySectionController section, out InventorySlotRuntimeSnapshot snapshot)
@@ -305,7 +305,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
 
                 InventoryRemovalSnapshot removal = RevokeMembership(candidate, networkedItem.NetId);
                 DebugRuntime.Publish("inventory", "item.foreign-dropped-silhouette-purged",
-                    NetworkLifecycle.Instance.IsHost() ? DebugRuntimeSide.Server : DebugRuntimeSide.Client,
+                    NetworkRole.DebugSide,
                     removal.ContainedAfter ? DebugSeverity.Warning : DebugSeverity.Info,
                     "Item", networkedItem.NetId.ToString(), new()
                     {

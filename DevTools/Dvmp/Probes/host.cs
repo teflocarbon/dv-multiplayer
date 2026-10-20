@@ -9,7 +9,6 @@ using DV.Common;
 using DV.UI;
 using HarmonyLib;
 using Multiplayer.Menus.MainMenu;
-using Multiplayer.Menus.ServerBrowser;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Protocol.Data;

@@ -7,7 +7,7 @@
 var car = Trains.Find(ctx.Args["loco"]);
 var ntc = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>();
 var server = Multiplayer.Server.Session.NetworkServer.Instance;
-var client = Multiplayer.Client.Session.NetworkClient.Instance;
+var client = (Multiplayer.Shared.Trains.ITrainClient)Multiplayer.Shared.Session.NetworkLifecycle.Instance.LocalSession;
 
 yield return Trains.Board(car);
 var c = car.loadedInterior.GetComponentsInChildren<DV.CabControls.ControlImplBase>(true).First(x => x.name == ctx.Args["control"]);

@@ -67,17 +67,17 @@ runs the network tick and answers the role queries (`IsHost()`, `IsServerRunning
 `IsDedicatedHost`, `IsProcessingPacket`, `LocalServer`, `LocalSession`), naming no role: the
 root attaches the server and client to it as their Shared parts. Role code reaches its own role as
 `NetworkServer.Instance` or `NetworkClient.Instance`; whether a `ServerPlayer` is the host's is
-the server's `NetworkLifecycle.Instance.IsHost(player)` extension. Hosting calls
-`StartServer`, which starts a `NetworkServer` and then a `NetworkClient` connected to loopback.
-**The host is also a player**: its own client logs in like anyone else, gets a `ServerPlayer` and
-is addressed by the server as `SelfPeer`. Most broadcasts pass `excludeSelf` because the host's
-game already has the state. Single-player games run the same way with a one-player limit.
+the server's `NetworkLifecycle.Instance.IsHost(player)` extension. Hosting calls `StartServer`,
+which starts a `NetworkServer` and, unless this is a dedicated host, the host's own player: a
+`LocalPlayerSession` (`Client/Session`), a session of the server in the same process. **The host
+is also a player, but it runs no client**: the server admits its player as it starts
+(`NetworkServer.AddLocalPlayer`, player 1, the same record binding as a login) and keeps it as
+`NetworkServer.LocalPlayer`. Single-player games run the same way with a one-player limit. A remote
+player's game runs a `NetworkClient` and joins over the network.
 
-A **dedicated host** (`-mp-dedicated`, `Server/Dedicated/DedicatedHost.cs`) keeps that
-loopback client, because it carries the host's own simulation and applies relayed state to its
-world. Its `ServerPlayer` is a service identity (`IsServiceHost`), not a player: it has its own
-GUID, no avatar and no slot. Code that means "the players" uses `NetworkServer.GameplayPlayers`.
-Code that means "the host plays alone, so vanilla is right" uses
+A **dedicated host** (`-mp-dedicated`, `Server/Dedicated/DedicatedHost.cs`) has no player at all:
+no session, no avatar, no slot. Its console commands run as a console sender
+(`ServerPlayer.CreateConsole`). Code that means "the host plays alone, so vanilla is right" uses
 `NetworkLifecycle.IsHostPlayingAlone`, never `PlayerCount == 1`. See
 [design/dedicated-host.md](design/dedicated-host.md).
 
@@ -89,59 +89,43 @@ To ask what this game is, use `NetworkRole` (`Shared/Session/NetworkRole.cs`):
 
 - `IsServer`: this game is the authority (a player host, a dedicated host, or single player). The
   same as `NetworkLifecycle.Instance.IsHost()`, which most code still calls.
-- `IsRemoteClient`: this game plays on another game's server. Never true on a host, even though
-  the host runs a client of its own.
+- `IsRemoteClient`: this game plays on another game's server. Never true on a host.
 - `HasLocalPlayer`: someone plays at this keyboard (a client, or a host that isn't dedicated).
 
 Server-side code must validate through `ServerPlayer`, never through the client's own idea of who
 it is.
 
-### The host's own client
+### The host's own player
 
-The host's own client runs in the server's world, so **it never follows the host's state**.
+The host's game is the server's world, so **the host's player never follows the host's state**.
 A packet that carries the host's state for players to follow (a topology snapshot, a car spawn,
 an item correction) would make the authority apply its own state to itself: a copy at best, an
 old one at worst. On 2026-10-19 that split 29 trains in one session: each car the host spawned
-asked for a train sync from the host's client, the reply was a snapshot from before the spawn's
-auto-couple, and applying it uncoupled the new consist on the host; every client followed.
+asked for a train sync from the host's then loopback client, the reply was a snapshot from before
+the spawn's auto-couple, and applying it uncoupled the new consist on the host; every client
+followed.
 
-The rule is kept where state is applied, so it holds whichever way a packet gets there (a reply
-to a request, a broadcast without `excludeSelf`, held traffic):
+Since [host-local-session](design/host-local-session.md) stage 3 there's no client on the host to do
+that:
 
-- `Client/Session/HostOwnClient.cs` says, for every packet a client handles, whether
-  the host's own client applies it. `NetworkClient` subscribes every handler through `Handle`,
-  which drops the ignored ones on the host and logs the first of each type (the server shouldn't
-  have sent it). A protocol test fails if a `Clientbound*` packet isn't listed; subscribing a
-  handler for an unlisted packet logs an error.
-- **Ignored on the host:** rolling stock (spawns, deletes, topology snapshots, physics, brake
-  state, control commits, relocations, rerails, cargo, damage, paint), jobs, items (snapshots,
-  corrections, recalls, adoption, spatial leases), money, licences and garages, weather, sleep,
-  hazmat, shop stock, pit stops, registers, switches, junctions, turntables and time skips (the
-  server applies other players' to its own world), and the join steps the host skips.
-- **Applied on the host:** its own session (login, loading screen, RPC answers), the other
-  players (joins, positions, ping, chat), answers to the host player's career and container UI,
-  and control-authority updates (another player holding a lever blocks it for the host player
-  too).
-- **Requests.** The host's own client doesn't ask the server for state it already has:
-  `SendTrainSyncRequest` and the topology sync do nothing on the host, nor does
-  `RestoreCanonicalTrainTopology`, and the coupler-interaction fallback isn't sent. The host
-  player's own actions still go through the server where that's how the host commits and
-  broadcasts them (control writes, topology commands, which become `CommitObservedTrainTopology`).
-  The server also skips `SelfPeer` when answering the two train sync requests, but nothing relies
-  on that.
-- **No join.** The host's client goes straight to `ReadyForWorldState`, which the server treats
-  as `Complete` (see [Loading states](#2-loading-states)), so it never takes the world state or the
-  train baseline.
+- **Requests** from the host's player go to the server in-process: `LocalPlayerSession.Submit`
+  hands them to `ILocalServer.Submit`, handled at the server's next poll with the host's
+  `ServerPlayer` as the sender, through the same work as the packet handlers. The host's own
+  simulation (ports, fuses, topology it observes) is committed by the server directly.
+- **What the server sends the host's player** goes to its `LocalPeer` (`Shared/Transport`), an
+  in-process peer: every reply to `player.Peer` and every broadcast that doesn't exclude self. The
+  session reads it a poll later with its own packet processor, which subscribes **only
+  presentation**: the loading screen, chat, RPC answers, its own crew name, and what each area's
+  `LocalPlayerSession.<Area>.cs` adds (control-authority updates, Lost and Found and container
+  answers, MPAPI mods' packets). Anything else is dropped and logged once by type
+  (`LocalPlayerSession.Drop`), so the server's state for its followers can't be applied to its own
+  world.
+- **Other players' avatars** (`NetworkLifecycle.Avatars`) are kept by the server itself, on a player
+  host and a dedicated host alike; the host's player isn't sent the presence packets.
 
-When adding a packet: if it carries the host's state, list it as ignored. If the host's client
-seems to need it, check whether it's the host player's own view (fine) or the host's world, which
-the server should change directly instead of through its own client.
-
-This list is the safety net, not the end state. The plan to remove the host's loopback client in
-stages, keeping one process, is [design/host-local-session.md](design/host-local-session.md):
-[the three stages](design/host-local-session.md#the-three-stages) are (1) this gate, (2) the host
-player's requests handled by the server in-process, and (3) no client on the host at all, which
-removes the class of bug this gate guards against.
+When adding a clientbound packet: if the host's player should show it, subscribe it in its area's
+`LocalPlayerSession.<Area>.cs`; otherwise do nothing, and if the server sends it to the host's
+player anyway, the session drops it.
 
 ### Managers
 
@@ -155,7 +139,7 @@ removes the class of bug this gate guards against.
   clientbound handler. Observer mode (`Settings.ObserverMode`) blocks the mutation packets in
   `ObserverMutationPacketTypes` at the send boundary.
 - `Server/Chat/ChatManager.cs`, `Server/Session/LobbyServerManager.cs` (public server listing),
-  `Menus/ServerBrowser/ServerBrowserClient.cs`, `Client/Players/ClientPlayerManager.cs`.
+  `Menus/ServerBrowser/ServerBrowserClient.cs`, `Shared/Players/PlayerAvatars.cs` (other players' avatars, `NetworkLifecycle.Avatars`).
 
 ### Transports
 
@@ -323,9 +307,9 @@ sending `ServerboundLoadStateUpdatePacket`; the server answers each step in
 is kicked. Broadcasts carry a minimum loading state, so a player only receives live traffic for a
 system once it has that system's baseline.
 
-The host's own client skips straight to `ReadyForWorldState`, which the server treats as
-`Complete`. The plan to remove that loopback client, with the host's player as a local session of
-the server in the same process, is [design/host-local-session.md](design/host-local-session.md).
+The host's own player has no join: `AddLocalPlayer` takes it straight to `ReadyForWorldState`
+(held in the join queue until the save has loaded), which the server treats as `Complete`. See
+[design/host-local-session.md](design/host-local-session.md).
 
 ```mermaid
 sequenceDiagram

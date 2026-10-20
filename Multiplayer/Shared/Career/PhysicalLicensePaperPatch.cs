@@ -18,7 +18,7 @@ internal static class PhysicalGeneralLicensePaperPatch
     private static bool Prefix(ref GameObject __result)
     {
         if (NetworkLifecycle.Instance == null ||
-            !NetworkLifecycle.Instance.IsServerRunning && !NetworkLifecycle.Instance.IsClientRunning)
+            !NetworkLifecycle.Instance.IsSessionRunning)
             return true;
         __result = null;
         return false;
@@ -36,7 +36,7 @@ internal static class PhysicalJobLicensePaperPatch
     private static bool Prefix(ref GameObject __result)
     {
         if (NetworkLifecycle.Instance == null ||
-            !NetworkLifecycle.Instance.IsServerRunning && !NetworkLifecycle.Instance.IsClientRunning)
+            !NetworkLifecycle.Instance.IsSessionRunning)
             return true;
         __result = null;
         return false;
@@ -54,7 +54,7 @@ internal static class PhysicalGeneralLicensePaperDirectPatch
     private static bool Prefix(ref GameObject __result)
     {
         if (NetworkLifecycle.Instance == null ||
-            !NetworkLifecycle.Instance.IsServerRunning && !NetworkLifecycle.Instance.IsClientRunning)
+            !NetworkLifecycle.Instance.IsSessionRunning)
             return true;
         __result = null;
         return false;
@@ -72,7 +72,7 @@ internal static class PhysicalJobLicensePaperDirectPatch
     private static bool Prefix(ref GameObject __result)
     {
         if (NetworkLifecycle.Instance == null ||
-            !NetworkLifecycle.Instance.IsServerRunning && !NetworkLifecycle.Instance.IsClientRunning)
+            !NetworkLifecycle.Instance.IsSessionRunning)
             return true;
         __result = null;
         return false;

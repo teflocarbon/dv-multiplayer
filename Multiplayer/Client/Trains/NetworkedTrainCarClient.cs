@@ -31,8 +31,10 @@ namespace Multiplayer.Client.Trains;
 /// The local player's half of a car (<see cref="ITrainCarClientPart"/>), on every game someone
 /// plays at, the host's too: its cab and external controls hooked for leases, the player's control
 /// changes and chain interactions sent, and on a client, following the host (the host's values
-/// played out or predicted, its motion, brakes and commits). Made by the car from the local session
-/// (<see cref="NetworkClient.CreateCarPart"/>); client code reaches it as <c>car.Client()</c>.
+/// played out or predicted, its motion, brakes and commits). Made by the car from the local session:
+/// a client's <see cref="NetworkClient.CreateCarPart"/>, or on a player host its
+/// <see cref="LocalPlayerSession.CreateCarPart"/>, whose part follows nobody. Client code reaches it as
+/// <c>car.Client()</c>.
 /// </summary>
 public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 {
@@ -65,10 +67,15 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     private static uint GetPortNetId(string portId) => NetworkedTrainCar.GetPortNetId(portId);
     private static string GetPort(uint netId) => NetworkedTrainCar.GetPort(netId);
 
-    public NetworkedTrainCarClient(NetworkedTrainCar car)
+    // A client's part: the car follows the host. The host's own player's part (made by its
+    // LocalPlayerSession) follows nobody: its car is in the server's world.
+    private readonly bool followsHost;
+
+    public NetworkedTrainCarClient(NetworkedTrainCar car, bool followsHost)
     {
         this.car = car;
-        if (!NetworkLifecycle.Instance.IsHost())
+        this.followsHost = followsHost;
+        if (followsHost)
         {
             trainSpeedQueue = TrainCar.GetOrAddComponent<TrainSpeedQueue>();
             trainRigidbodyQueue = TrainCar.GetOrAddComponent<NetworkedRigidbody>();
@@ -91,7 +98,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
         if (hasSimFlow)
         {
-            if (simulationFlow != null && !NetworkLifecycle.Instance.IsHost())
+            if (simulationFlow != null && followsHost)
             {
                 portPresenter = TrainPortPresenter.Create(car, simulationFlow, portId => portWriters.Classify(GetPortNetId(portId)),
                     port => HoldsPort(GetPortNetId(port.id)));
@@ -121,9 +128,9 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                 car.firebox.fireboxIgnitionPort.ValueUpdatedInternally += OnIgnite;      //Player igniting firebox
         }
 
-        // Only a client asks: the host's own reply carried a snapshot from before the spawn's
-        // auto-couple, and applying it uncoupled every freshly spawned consist on the host.
-        if (!NetworkLifecycle.Instance.IsHost())
+        // Only a client asks. Before 2026-10-20 the host's own client asked too, and the reply, a snapshot
+        // from before the spawn's auto-couple, uncoupled every freshly spawned consist on the host.
+        if (followsHost)
             NetworkClient.Instance?.SendTrainSyncRequest(NetId);
     }
 
@@ -250,6 +257,8 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     // Vanilla controllers that write a hooked control's port every frame from this game's own
     // input (LocalInputWriters), by the ports they write: off while another player holds the lease.
     private readonly Dictionary<uint, Behaviour[]> portNetIdToLocalInputWriters = [];
+    // Hooked controls, on any car, whose lease another player holds (IsHeldByAnotherPlayer).
+    private static readonly HashSet<ControlImplBase> controlsHeldByOthers = [];
     private const float USED_CONTROL_LEASE_SECONDS = 0.5f;
 
     // Client: controls this client changed in operations the host hasn't committed back yet.
@@ -550,6 +559,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
             control.Grabbed -= ControlGrabbed;
             control.Ungrabbed -= ControlUngrabbed;
+            controlsHeldByOthers.Remove(control);
         }
 
         foreach (var kvp in scrollingControls)
@@ -669,6 +679,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         }
         linkedPortNetIds.Remove(portNetId);
         controlToPortNetId.Remove(control);
+        controlsHeldByOthers.Remove(control);
     }
 
     /// <summary>
@@ -694,6 +705,14 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                     writers.Add(rope);
         return writers.ToArray();
     }
+
+    /// <summary>
+    /// Whether another player holds the lease on the control's port (<see cref="ReceiveAuthorityUpdate"/>).
+    /// For local input writers that can't be switched off as <see cref="LocalInputWriters"/> are:
+    /// Custom Car Loader's ropes (Compatibility.CustomCarLoaderRopes).
+    /// </summary>
+    public static bool IsHeldByAnotherPlayer(ControlImplBase control) =>
+        control != null && controlsHeldByOthers.Contains(control);
 
     public void ReceiveControlState(TrainControlStateData state)
     {
@@ -728,7 +747,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         {
             AcknowledgeControlOperation(packet.OperationId);
             // The host didn't take our change; get its state back rather than keep ours.
-            if (packet.Result != TrainControlCommitResult.Accepted && !NetworkLifecycle.Instance.IsHost())
+            if (packet.Result != TrainControlCommitResult.Accepted)
                 client.SendTrainSyncRequest(NetId);
         }
         // Another player's handbrake operation (a join's state carries no operation).
@@ -736,7 +755,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
                  packet.Result == TrainControlCommitResult.Accepted)
             car.Common_OnRemoteHandbrakeChange();
         // Every commit is stamped with the host's tick: their arrivals measure the link's jitter.
-        if (packet.Tick != 0 && !NetworkLifecycle.Instance.IsHost())
+        if (packet.Tick != 0)
             TrainPortPresenter.Clock.OnArrival(packet.Tick, TrainPortPresenter.Now);
         if (packet.Revision < ControlRevision)
             return;
@@ -852,7 +871,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
     /// operations and resync requests. The host always reports.
     /// </summary>
     public bool LocalPlayerCanTouch() =>
-        NetworkLifecycle.Instance.IsHost() ||
+        !followsHost ||
         (PlayerManager.PlayerTransform != null &&
          (PlayerManager.PlayerTransform.position - transform.position).sqrMagnitude <= CarLengthSq);
 
@@ -1247,12 +1266,16 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             return;
 
         // The host's fire is lit in the world it already owns.
-        if (ignition == 0f || NetworkLifecycle.Instance.IsHost())
+        if (ignition == 0f || !followsHost)
             return;
 
         NetworkClient.Instance.LogDebug(() => $"Common_OnIgnite({CurrentID})");
         NetworkClient.Instance.SendFireboxIgnition(NetId);
     }
+
+    // Where a client reports its player's chain placements. The host's player's chains are in the
+    // server's world, which observes them itself (NetworkedTrainCarServer.ChainStateChanged).
+    private NetworkClient RemoteClient => followsHost ? NetworkClient.Instance : null;
 
     public void CouplerStateChange(ChainCouplerInteraction.State state, Coupler coupler)
     {
@@ -1296,7 +1319,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             case ChainCouplerInteraction.State.Parked:
                 if (couplerInteraction != null)
                 {
-                    NetworkClient.Instance.SendChainPlacement(coupler,
+                    RemoteClient?.SendChainPlacement(coupler,
                         TrainChainState.Parked, originalCoupledTo != null);
                     couplerInteraction = null;
                 }
@@ -1305,7 +1328,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             case ChainCouplerInteraction.State.Dangling:
                 if (couplerInteraction != null)
                 {
-                    NetworkClient.Instance.SendChainPlacement(coupler,
+                    RemoteClient?.SendChainPlacement(coupler,
                         TrainChainState.Dangling, originalCoupledTo != null);
                     couplerInteraction = null;
                 }
@@ -1332,7 +1355,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (interactionFlags != CouplerInteractionType.NoAction)
         {
             //Multiplayer.LogDebug(() => $"8 CouplerStateChange({state}) trainCar: [{TrainCar?.ID}, {NetId}], coupler is front: {coupler?.isFrontCoupler}, Sending: {interactionFlags}");
-            NetworkClient.Instance.SendCouplerInteraction(interactionFlags, coupler, otherCoupler);
+            RemoteClient?.SendCouplerInteraction(interactionFlags, coupler, otherCoupler);
 
             //finished interaction, clear flag
             if (interactionFlags != CouplerInteractionType.Start)
@@ -1367,7 +1390,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             foreach (uint leased in PortsOf(portNetId))
             {
                 locallyOwnedPortAuthorities.Add(leased);
-                NetworkClient.Instance?.SendTrainControlAuthorityRequest(NetId, leased, true);
+                TrainRoles.Client?.SendTrainControlAuthorityRequest(NetId, leased, true);
             }
         }
     }
@@ -1491,7 +1514,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         foreach (uint released in PortsOf(portNetId))
         {
             locallyOwnedPortAuthorities.Remove(released);
-            NetworkClient.Instance?.SendTrainControlAuthorityRequest(NetId, released, false);
+            TrainRoles.Client?.SendTrainControlAuthorityRequest(NetId, released, false);
         }
     }
 
@@ -1515,6 +1538,7 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
         if (portNetIdToControl.TryGetValue(portNetId, out var mapped) && mapped != null && !controls.Contains(mapped))
             controls.Add(mapped);
 
+        controlsHeldByOthers.RemoveWhere(control => control == null);
         foreach (ControlImplBase control in controls)
         {
             var hinge = control.GetComponent<HingeJoint>();
@@ -1533,6 +1557,10 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
             control.BlockControl(shouldBlock);
             control.InteractionAllowed = shouldEnable;
+            if (shouldBlock)
+                controlsHeldByOthers.Add(control);
+            else
+                controlsHeldByOthers.Remove(control);
 
             if (hinge != null)
                 control.enabled = shouldEnable;
