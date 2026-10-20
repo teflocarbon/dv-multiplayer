@@ -2,12 +2,14 @@ using DV.Scenarios.Common;
 using LiteNetLib;
 using MPAPI;
 using Multiplayer.Client.Api;
+using Multiplayer.Client.Players;
 using Multiplayer.Client.Session;
 using Multiplayer.Client.UI;
 using Multiplayer.Server.Api;
 using Multiplayer.Server.Dedicated;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
 using System;
@@ -64,10 +66,10 @@ public class MultiplayerSession : MonoBehaviour
     private void OnSettingsUpdated(Settings settings)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (!lifecycle.IsClientRunning && !lifecycle.IsServerRunning)
+        if (!lifecycle.IsSessionRunning)
             return;
         if (settings.ShowStats)
-            Stats.Show(NetworkClient.Instance.Statistics, NetworkServer.Instance?.Statistics);
+            Stats.Show(NetworkClient.Instance?.Statistics, NetworkServer.Instance?.Statistics);
         else
             Stats.Hide();
     }
@@ -99,6 +101,7 @@ public class MultiplayerSession : MonoBehaviour
 
         NetworkServer.Instance = server;
         NetworkLifecycle.Instance.AttachServer(server, server);
+        AttachAvatars();
         DebugRuntime.SetRole("host", Multiplayer.Settings.GetUserName());
 
         // Register server API
@@ -123,6 +126,7 @@ public class MultiplayerSession : MonoBehaviour
 
         NetworkClient.Instance = client;
         NetworkLifecycle.Instance.AttachClient(client, client);
+        AttachAvatars();
         if (NetworkServer.Instance == null)
             DebugRuntime.SetRole("client", client.Username);
 
@@ -154,6 +158,15 @@ public class MultiplayerSession : MonoBehaviour
             NetworkClient.Instance = null;
             NetworkLifecycle.Instance.AttachClient(null, null);
         }
+
+        NetworkLifecycle.Instance.AttachAvatars(null);
+    }
+
+    // One avatar registry per session, whichever role starts first (a host starts both).
+    private static void AttachAvatars()
+    {
+        if (NetworkLifecycle.Instance.Avatars == null)
+            NetworkLifecycle.Instance.AttachAvatars(new PlayerAvatars(new AvatarPresentation()));
     }
 
     protected void OnApplicationQuit()

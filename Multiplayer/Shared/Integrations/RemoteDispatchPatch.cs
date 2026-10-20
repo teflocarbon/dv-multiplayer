@@ -45,7 +45,7 @@ public static class RemoteDispatchPatch
 
     private static void GetPlayerData_Postfix(ref JObject __result)
     {
-        if (!NetworkLifecycle.Instance.IsClientRunning)
+        if (!NetworkLifecycle.Instance.IsSessionRunning)
             return;
 
         // The players as MPAPI gives them to any mod: the server's list on the host, the

@@ -24,7 +24,7 @@ public static class CargoLeakPointPatch
     {
         __state = null;
         if (NetworkLifecycle.Instance == null ||
-            !(NetworkLifecycle.Instance.IsServerRunning || NetworkLifecycle.Instance.IsClientRunning))
+            !NetworkLifecycle.Instance.IsSessionRunning)
             return;
         TrainCar car = TrainCarField(__instance);
         if (car == null || string.IsNullOrEmpty(car.ID))

@@ -20,7 +20,7 @@ public class APIProvider : IMultiplayerAPI
 
     public bool IsMultiplayerLoaded => true;
 
-    public bool IsConnected => NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsServerRunning;
+    public bool IsConnected => NetworkLifecycle.Instance.IsSessionRunning;
 
     public bool IsHost => NetworkLifecycle.Instance.IsHost();
 
@@ -65,9 +65,9 @@ public class APIProvider : IMultiplayerAPI
             return 0;
         }
 
-        if (!NetworkLifecycle.Instance.IsServerRunning || !NetworkLifecycle.Instance.IsClientRunning)
+        if (!NetworkLifecycle.Instance.IsServerRunning)
         {
-            Multiplayer.LogWarning("APIProvider.RegisterPaintTheme() called when server or client is not running");
+            Multiplayer.LogWarning("APIProvider.RegisterPaintTheme() called when this game isn't the server");
             return 0;
         }
 
@@ -82,9 +82,9 @@ public class APIProvider : IMultiplayerAPI
             return;
         }
 
-        if (!NetworkLifecycle.Instance.IsServerRunning || !NetworkLifecycle.Instance.IsClientRunning)
+        if (!NetworkLifecycle.Instance.IsServerRunning)
         {
-            Multiplayer.LogWarning("APIProvider.UnregisterPaintTheme() called when server or client is not running");
+            Multiplayer.LogWarning("APIProvider.UnregisterPaintTheme() called when this game isn't the server");
             return;
         }
 

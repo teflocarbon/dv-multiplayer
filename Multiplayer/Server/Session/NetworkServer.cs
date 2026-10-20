@@ -169,6 +169,8 @@ public partial class NetworkServer : NetworkManager
 
         //setup paint theme lookup cache
         PaintThemeLookup.Instance.CheckInstance();
+        // MPAPI's NetId lookups: only a client's Start reached this, so a host without one had none.
+        NetIdProvider.Instance.CheckInitialization();
 
         WorldStreamingInit.LoadingFinished += OnLoaded;
 

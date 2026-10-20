@@ -94,7 +94,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
     public byte LocalPlayerId => NetworkRole.LocalPlayerId;
 
     public bool RuntimeActive => NetworkLifecycle.Instance != null &&
-        (NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsHost());
+        NetworkLifecycle.Instance.IsSessionRunning;
 
     public bool TrySnapshotSlot(InventoryUIController controller, int relativeSlot,
         InventorySectionController section, out InventorySlotRuntimeSnapshot snapshot)

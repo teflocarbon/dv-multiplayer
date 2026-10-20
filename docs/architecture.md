@@ -155,7 +155,7 @@ removes the class of bug this gate guards against.
   clientbound handler. Observer mode (`Settings.ObserverMode`) blocks the mutation packets in
   `ObserverMutationPacketTypes` at the send boundary.
 - `Server/Chat/ChatManager.cs`, `Server/Session/LobbyServerManager.cs` (public server listing),
-  `Menus/ServerBrowser/ServerBrowserClient.cs`, `Client/Players/ClientPlayerManager.cs`.
+  `Menus/ServerBrowser/ServerBrowserClient.cs`, `Shared/Players/PlayerAvatars.cs` (other players' avatars, `NetworkLifecycle.Avatars`).
 
 ### Transports
 

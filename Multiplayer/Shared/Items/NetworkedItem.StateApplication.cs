@@ -38,8 +38,8 @@ public partial class NetworkedItem
         }
 
         // Recover from stale ownership bookkeeping by checking the actual remote hand objects.
-        if (playerId == 0 && NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
+        if (playerId == 0 && NetworkLifecycle.Instance.Avatars != null)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Avatars.Players)
                 player?.DropItem(gameObject);
 
         // find new player reference
@@ -89,8 +89,8 @@ public partial class NetworkedItem
                 Multiplayer.LogWarning($"Unable to revoke local possession for item {NetId}: {exception.Message}");
             }
         }
-        if (playerId != 0 && playerId != localPlayerId && NetworkLifecycle.Instance.IsClientRunning)
-            if (!NetworkLifecycle.Instance.LocalSession.TryGetRemotePlayer(playerId, out playerBelongsTo))
+        if (playerId != 0 && playerId != localPlayerId && NetworkLifecycle.Instance.Avatars != null)
+            if (!NetworkLifecycle.Instance.Avatars.TryGetPlayer(playerId, out playerBelongsTo))
             {
                 DebugDiagnostics.ReportDependency("Item", NetId.ToString(), "missing-player", $"playerId={playerId}");
                 Multiplayer.LogDebug(() => $"Unable to find player {playerId} for item {NetId}");
@@ -242,8 +242,8 @@ public partial class NetworkedItem
 
         if (playerBelongsTo != null)
             playerBelongsTo.DropItem(gameObject);
-        if (NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
+        if (NetworkLifecycle.Instance.Avatars != null)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Avatars.Players)
                 player?.DropItem(gameObject);
 
         try
@@ -519,8 +519,8 @@ public partial class NetworkedItem
 
         try
         {
-            NetworkedPlayer actualRemoteHolder = NetworkLifecycle.Instance.IsClientRunning
-                ? NetworkLifecycle.Instance.LocalSession.RemotePlayers.FirstOrDefault(player => player?.HoldsItem(gameObject) == true)
+            NetworkedPlayer actualRemoteHolder = NetworkLifecycle.Instance.Avatars != null
+                ? NetworkLifecycle.Instance.Avatars.Players.FirstOrDefault(player => player?.HoldsItem(gameObject) == true)
                 : null;
             state["actualRemoteHandMember"] = actualRemoteHolder != null;
             state["actualRemoteHolderPlayerId"] = actualRemoteHolder?.PlayerId ?? 0;
@@ -635,8 +635,8 @@ public partial class NetworkedItem
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         RemoteItemProjectionPlan plan = RemoteItemProjectionPlanner.Plan(
             ToWireState(snapshot.ItemState), snapshot.PlayerId, localPlayerId, playerBelongsTo != null);
-        if (plan.ClearExistingRemoteHands && NetworkLifecycle.Instance.IsClientRunning)
-            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.LocalSession.RemotePlayers)
+        if (plan.ClearExistingRemoteHands && NetworkLifecycle.Instance.Avatars != null)
+            foreach (NetworkedPlayer player in NetworkLifecycle.Instance.Avatars.Players)
                 player?.DropItem(gameObject);
 
         if (plan.Action is RemoteItemProjectionAction.LocalHand or
@@ -846,8 +846,8 @@ public partial class NetworkedItem
     {
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         NetworkedPlayer actualRemoteHolder = null;
-        if (NetworkLifecycle.Instance.IsClientRunning)
-            actualRemoteHolder = NetworkLifecycle.Instance.LocalSession.RemotePlayers
+        if (NetworkLifecycle.Instance.Avatars != null)
+            actualRemoteHolder = NetworkLifecycle.Instance.Avatars.Players
                 .FirstOrDefault(player => player?.HoldsItem(gameObject) == true);
         List<string> violations = new();
         if (snapshot.ItemState == ItemState.InHand && snapshot.PlayerId != localPlayerId &&

@@ -287,8 +287,8 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
     {
         if (playerHolding != 0)
         {
-            if (NetworkLifecycle.Instance.IsClientRunning &&
-            NetworkLifecycle.Instance.LocalSession.TryGetRemotePlayer(playerHolding, out var player))
+            if (NetworkLifecycle.Instance.Avatars != null &&
+            NetworkLifecycle.Instance.Avatars.TryGetPlayer(playerHolding, out var player))
             {
                 player.DropItem();
             }
@@ -317,8 +317,8 @@ public class NetworkedPluggableObject : IdMonoBehaviour<ushort, NetworkedPluggab
         SocketIndex = INVALID_SOCKET;
 
         //attach to a player
-        if (NetworkLifecycle.Instance.IsClientRunning &&
-            NetworkLifecycle.Instance.LocalSession.TryGetRemotePlayer(playerHolding, out var player))
+        if (NetworkLifecycle.Instance.Avatars != null &&
+            NetworkLifecycle.Instance.Avatars.TryGetPlayer(playerHolding, out var player))
         {
             var target = nonVrGrabAnchor?.GetGrabAnchor();
             Multiplayer.LogDebug(() => $"GrabPlug() NetId: {NetId}, player: {player.Username}, targetPos: {target?.localPos}, targetRot: {target?.localRot}");

@@ -1,6 +1,5 @@
 using DV;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Data.Player;
 using System;
 using System.Collections.Generic;
@@ -8,9 +7,16 @@ using UnityEngine;
 using Object = UnityEngine.Object;
 using Multiplayer.Debugging.Protocol;
 
-namespace Multiplayer.Client.Players;
+namespace Multiplayer.Shared.Players;
 
-public class ClientPlayerManager
+/// <summary>
+///     The other players' avatars in this game's world (<see cref="NetworkedPlayer"/>), reached as
+///     <c>NetworkLifecycle.Instance.Avatars</c> on every game in a session, a dedicated host's
+///     included: the server needs them too (held items hang on their hands, plugs follow them,
+///     cars count who is aboard). A remote client fills it from the server's packets; on a host,
+///     whoever follows the other players does (docs/design/host-local-session.md, stage 3).
+/// </summary>
+public class PlayerAvatars
 {
     private readonly Dictionary<byte, NetworkedPlayer> playerMap = new();
 
@@ -19,11 +25,15 @@ public class ClientPlayerManager
     public Action<NetworkedPlayer> OnPlayerPrefsUpdated;
     public IReadOnlyCollection<NetworkedPlayer> Players => playerMap.Values;
 
-    private readonly GameObject playerTagPrefab;
+    private readonly IAvatarPresentation presentation;
 
-    public ClientPlayerManager()
+    public PlayerAvatars(IAvatarPresentation presentation)
     {
-        playerTagPrefab = Multiplayer.AssetIndex.PlayerTag;
+        this.presentation = presentation;
+
+        // A static method, so re-subscribing for every session replaces instead of piling up.
+        WorldStreamingInit.LoadingFinished -= NetworkedPlayer.CaptureItemAnchorOffset;
+        WorldStreamingInit.LoadingFinished += NetworkedPlayer.CaptureItemAnchorOffset;
     }
 
     public bool TryGetPlayer(byte playerid, out NetworkedPlayer player)
@@ -44,20 +54,15 @@ public class ClientPlayerManager
         go.transform.SetParent(WorldMover.OriginShiftParent);
         go.layer = LayerMask.NameToLayer(Layers.Player);
 
-        // Setup player tag
-        Object.Instantiate(playerTagPrefab, go.transform);
         NetworkedPlayer networkedPlayer = go.AddComponent<NetworkedPlayer>();
-        go.AddComponent<NetworkedPlayerNameTag>();
+        presentation.AddNameTag(networkedPlayer);
 
         networkedPlayer.PlayerId = playerId;
         networkedPlayer.Username = username;
         networkedPlayer.CrewName = crewName;
         networkedPlayer.IsVR = isVr;
 
-        // Get player model from registry and apply it to the player
-        var model = Multiplayer.PlayerModelRegistry.GetModelById(characterId);
-
-        networkedPlayer.ChangeModel(model.Prefab);
+        presentation.ChangeModel(networkedPlayer, characterId);
 
         playerMap.Add(playerId, networkedPlayer);
         EntityDebugRegistry.RegisterPlayer(networkedPlayer);
@@ -84,7 +89,7 @@ public class ClientPlayerManager
     {
         if (!TryGetPlayer(playerId, out NetworkedPlayer player))
             return;
-        player.SetPing(ping);
+        presentation.SetPing(player, ping);
     }
 
     public void UpdatePosition(byte playerId, PlayerTrackingData trackingData, PlayerPostureFlags posture, bool isOnCar, ushort carId)
@@ -108,8 +113,7 @@ public class ClientPlayerManager
 
         if (preferences.TryGetValue(PlayerPreference.CharacterModel, out string characterId))
         {
-            var model = Multiplayer.PlayerModelRegistry.GetModelById(characterId);
-            player.ChangeModel(model.Prefab);
+            presentation.ChangeModel(player, characterId);
         }
 
         OnPlayerPrefsUpdated?.Invoke(player);

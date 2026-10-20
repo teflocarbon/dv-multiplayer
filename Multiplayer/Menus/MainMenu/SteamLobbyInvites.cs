@@ -59,8 +59,7 @@ public static class SteamLobbyInvites
 
     private static bool CanHandleLobbyRequest()
     {
-        return !NetworkLifecycle.Instance.IsServerRunning &&
-               !NetworkLifecycle.Instance.IsClientRunning;
+        return !NetworkLifecycle.Instance.IsSessionRunning;
     }
 
     public static void OnLobbyJoinRequest(Lobby lobby, SteamId id)

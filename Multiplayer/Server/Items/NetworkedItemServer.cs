@@ -124,7 +124,7 @@ public static class NetworkedItemServer
         }
 
         // Allow host to process packet if not from a local client
-        if (!NetworkLifecycle.Instance.IsClientRunning || (NetworkLifecycle.Instance.IsClientRunning && senderPlayer != NetworkServer.Instance.LocalPlayer))
+        if (senderPlayer != NetworkServer.Instance.LocalPlayer)
         {
             item.ProcessingAsHost = true;
             item.ReceiveSnapshot(snapshot);
