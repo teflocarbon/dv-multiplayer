@@ -79,7 +79,9 @@ All were decided with the user on 2026-10-21.
     must not. Players without Steam have no SteamID.
 - **Retrieval sends the item to your Lost and Found.** You collect it at any shed. Nothing jumps into
   your hands from across the map.
-- **You can retrieve your item from anyone,** even from another player's hand. It's yours.
+- **You can retrieve your item from anyone,** even from another player's hand, mid-use. It's yours.
+  Taking it back from a friend at the worst moment is part of the fun ("that's half the fun", the
+  user), not abuse to design out. The default policy keeps it, whatever permissions add later.
 - **Installed gadgets can be retrieved any time, from any car.** Players on that train see it come
   off.
 - **A borrower leaving sends your item straight to your Lost and Found,** online or not.
