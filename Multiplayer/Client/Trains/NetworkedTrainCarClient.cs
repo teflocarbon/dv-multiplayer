@@ -1087,6 +1087,14 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
 
                 if (positionDelta > POSITION_UPDATE_THRESHOLD)
                 {
+                    // What #44 asked for: whether a snap is a real divergence or the sample's age
+                    // (projected by the tick difference, capped at 0.5 s) being wrong.
+                    Vector3 here = TrainCar.rb != null ? TrainCar.rb.position : TrainCar.transform.position;
+                    Multiplayer.LogWarning($"{CurrentID}: full sync {positionDelta:F2} m off, snapping " +
+                                           $"({Vector3.Dot(worldPos - here, TrainCar.transform.forward):F2} m along the car); " +
+                                           $"sample tick {tick}, ours {NetworkLifecycle.Instance.Tick} (age {ageSeconds:F2} s used), " +
+                                           $"host speed {movementPart.Speed:F2} m/s, ours {TrainCar.GetForwardSpeed():F2} m/s, " +
+                                           $"interval {intervalTicks} ticks, frame {Time.unscaledDeltaTime * 1000f:F0} ms");
                     if (TrainCar.rb != null)
                     {
                         // Move the bogies with the body and stop everything: moving the body

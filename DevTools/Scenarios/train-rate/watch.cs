@@ -26,7 +26,7 @@ Dictionary<string, double> Stats(string b)
     if (!bands.TryGetValue(b, out var s))
         bands[b] = s = new Dictionary<string, double> { ["seconds"] = 0, ["samples"] = 0, ["intervalTicks"] = 0, ["staleGaps"] = 0,
             ["worstGap"] = 0, ["worstStep"] = 0, ["slowestSecond"] = 999, ["slowestRealSecond"] = 999, ["minDistance"] = 1e9,
-            ["maxDistance"] = 0, ["gameSeconds"] = 0, ["realSeconds"] = 0, ["frames"] = 0 };
+            ["maxDistance"] = 0, ["gameSeconds"] = 0, ["realSeconds"] = 0, ["frames"] = 0, ["worstStepAt"] = 0 };
     return s;
 }
 string Follower()
@@ -36,6 +36,16 @@ string Follower()
            $"v {loco.GetForwardSpeed():F1} m/s, frame {Time.unscaledDeltaTime * 1000f:F0} ms";
 }
 var notes = new List<string>();
+// The last second of the follower, for what led up to a snap: steps with an along-track error,
+// the largest error, steps following.
+var recent = new Queue<(bool hasError, float error, bool following)>();
+string Before()
+{
+    int withError = recent.Count(r => r.hasError), following = recent.Count(r => r.following);
+    float worst = recent.Where(r => r.hasError).Select(r => Mathf.Abs(r.error)).DefaultIfEmpty(0f).Max();
+    return $"in the second before: error known {withError}/{recent.Count} steps, at most {worst:F2} m; following {following}/{recent.Count}";
+}
+float firstLeftNear = -1f;
 string band = null, prevBand = null;
 float bandSince = 0f, lastSampleAt = -1f, gapMaxFrame = 0f, approachWorst = 0f, prevNow = 0f, slowNotedAt = -99f;
 int lastFrame = -1;
@@ -55,6 +65,8 @@ while (Time.realtimeSinceStartup - t0 < seconds)
     if (b != band)
     {
         prevBand = band;
+        if (band == "near" && firstLeftNear < 0f)
+            firstLeftNear = now;
         band = b;
         bandSince = now;
         window.Clear();
@@ -107,9 +119,15 @@ while (Time.realtimeSinceStartup - t0 < seconds)
     if (excess > s["worstStep"])
     {
         s["worstStep"] = Math.Round(excess, 3);
+        s["worstStepAt"] = Math.Round(now, 1);
         if (excess > 0.5f && notes.Count < 12)
-            notes.Add($"{now:F1}s {b}: stepped {excess:F2} m beyond its speed ({Follower()})");
+            notes.Add($"{now:F1}s {b}: stepped {excess:F2} m beyond its speed ({Follower()}; {Before()})");
     }
+    float knownError = 0f;
+    bool known = bogie != null && bogie.TryGetAlongTrackError(loco, out knownError);
+    recent.Enqueue((known, known ? knownError : 0f, queue.Following));
+    while (recent.Count > 50)
+        recent.Dequeue();
     if (b == "near" && (prevBand == "mid" || prevBand == "far") && now - bandSince < 8f)
         approachWorst = Mathf.Max(approachWorst, excess);
 
@@ -142,4 +160,4 @@ foreach (var s in bands.Values)
     s["minDistance"] = Math.Round(s["minDistance"]);
     s["maxDistance"] = Math.Round(s["maxDistance"]);
 }
-ctx.Result = new { bands, approachWorst = Math.Round(approachWorst, 3), notes };
+ctx.Result = new { bands, approachWorst = Math.Round(approachWorst, 3), firstLeftNear = Math.Round(firstLeftNear, 1), notes };
