@@ -80,6 +80,7 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
     public NetworkedTrainCarServer(NetworkedTrainCar car)
     {
         this.car = car;
+        car.Client_Initialized = true; // the server's car follows nobody
         NetworkTrainsetWatcher.Instance.CheckInstance(); // Ensure the NetworkTrainsetWatcher is initialized
     }
 
@@ -88,6 +89,9 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
 
     public void Start()
     {
+        if (!NetworkRole.IsServer) // the server stopped since the car was made
+            return;
+
         if (car.handcarDrive != null)
         {
             handcarPumpers = new HandcarPumpers<ServerPlayer>();
@@ -154,6 +158,9 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
 
     public void Disable()
     {
+        if (!NetworkRole.IsServer) // the server stopped first (the host leaving)
+            return;
+
         if (!UnloadWatcher.isUnloading)
             NetworkLifecycle.Instance.Server?.CommitObservedTrainTopology();
 
@@ -359,16 +366,41 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
             });
     }
 
-    public void CommitPorts(uint[] portIds, float[] portValues) =>
+    #region The host's own changes (ITrainCarRole)
+
+    // Every port the host's simulation sets is the server's to send, not only the controls.
+    public bool Reports(Port port, uint portNetId) => true;
+
+    public void NoteLocalControlChange() { }
+
+    // A full resync dirties every port. The host's handcar handle is its own player's.
+    public uint[] PortsToSend(HashSet<uint> dirtyPorts, out List<uint> settling)
+    {
+        settling = null;
+        return dirtyPorts.Where(id => !car.locallyFedPorts.Contains(id) && !car.handcarHandlePorts.Contains(id)).ToArray();
+    }
+
+    public bool SendsChange(bool viaRemote) => true;
+
+    // The host's are its simulation's (its player's levers included): committed with this tick's
+    // values, as the car read them.
+    public void SendPorts(uint[] portIds, float[] portValues) =>
         NetworkLifecycle.Instance.Server.CommitHostControls(car, portIds, portValues);
 
-    public void CommitFuses(uint[] fuseIds, bool[] fuseValues) =>
+    public void SendFuses(uint[] fuseIds, bool[] fuseValues) =>
         NetworkLifecycle.Instance.Server.CommitHostControls(car, fuseIds: fuseIds, fuseValues: fuseValues);
 
-    public void CommitHandbrake() => NetworkLifecycle.Instance.Server.CommitHostControls(car, handbrake: true);
+    public void SendHandbrake(bool viaRemote) => NetworkLifecycle.Instance.Server.CommitHostControls(car, handbrake: true);
 
-    public void CommitBrakeCylinderRelease() =>
+    // Vanilla raises this before it sets the release, and clears it at the next brake update, so
+    // the host commits it now: checked at the server's next poll, it could be gone already.
+    public void SendBrakeCylinderReleased() =>
         NetworkLifecycle.Instance.Server.CommitHostControls(car, brakeCylinderReleased: true);
+
+    // Values from players are applied to the server's car as they come.
+    public bool TakeHostPortValue(uint portNetId, Port port, float value, uint hostTick) => false;
+
+    #endregion
 
     public void SendPaintTheme(TrainCarPaint.Target target, uint themeNetId) =>
         NetworkLifecycle.Instance.Server.SendPaintThemeChange(car, target, themeNetId);

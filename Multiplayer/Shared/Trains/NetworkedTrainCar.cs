@@ -370,6 +370,12 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     /// </summary>
     internal ITrainCarClientPart ClientPart { get; private set; }
 
+    /// <summary>
+    /// This game's half for the car's own changes (<see cref="ITrainCarRole"/>): the server's on the
+    /// server, the local player's on a client; null when neither was made.
+    /// </summary>
+    internal ITrainCarRole Role { get; private set; }
+
     protected override bool IsIdServerAuthoritative => true;
 
     protected override void Awake()
@@ -387,12 +393,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         bogie1 = TrainCar.Bogies[0];
         bogie2 = TrainCar.Bogies[1];
 
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            ServerPart = TrainRoles.Server?.CreateCarPart(this);
-            Client_Initialized = true;
-        }
+        ServerPart = TrainRoles.Server?.CreateCarPart(this);
         ClientPart = TrainRoles.Client?.CreateCarPart(this);
+        Role = (ITrainCarRole)ServerPart ?? ClientPart;
     }
 
     [UsedImplicitly]
@@ -505,7 +508,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                     var portNetId = GetPortNetId(kvp.Key);
                     if (locallyFedPorts.Contains(portNetId))
                         continue;
-                    if (kvp.Value.valueType == PortValueType.CONTROL || NetworkLifecycle.Instance.IsHost())
+                    if (kvp.Value.valueType == PortValueType.CONTROL || Role?.Reports(kvp.Value, portNetId) == true)
                     {
                         if (portToBaseControl.TryGetValue(portNetId, out var control))
                         {
@@ -556,8 +559,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
 
         NetworkLifecycle.Instance.OnTick += OnTick;
 
-        if (NetworkLifecycle.Instance.IsHost())
-            ServerPart?.Start();
+        ServerPart?.Start();
         ClientPart?.Start();
     }
 
@@ -602,8 +604,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             TrainCar.PaintInterior.OnThemeChanged -= Common_OnPaintThemeChange;
 
         //stop tracking server events
-        if (NetworkLifecycle.Instance.IsHost())
-            ServerPart?.Disable();
+        ServerPart?.Disable();
 
         CurrentID = string.Empty;
         // Destroy only takes effect at the end of the frame, and DV's car pool can hand this
@@ -731,15 +732,9 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             return;
 
         handbrakeDirty = false;
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            ServerPart?.CommitHandbrake();
-            lastHandbrakeSentAt = Time.realtimeSinceStartup;
-            return;
-        }
-        if (ClientPart == null || !viaRemote && !ClientPart.LocalPlayerCanTouch())
+        if (Role == null || !Role.SendsChange(viaRemote))
             return; // simulation noise (e.g. set during load), not a player action
-        ClientPart.SendHandbrake(viaRemote);
+        Role.SendHandbrake(viaRemote);
         lastHandbrakeSentAt = Time.realtimeSinceStartup;
     }
 
@@ -784,13 +779,8 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         if (!hasSimFlow || dirtyPorts.Count == 0)
             return;
 
-        uint[] portIds;
         List<uint> settling = null;
-        if (NetworkLifecycle.Instance.IsHost())
-            // A full resync dirties every port. The host's handcar handle is its own player's.
-            portIds = dirtyPorts.Where(id => !locallyFedPorts.Contains(id) && !handcarHandlePorts.Contains(id)).ToArray();
-        else
-            portIds = ClientPart?.PortsToSend(dirtyPorts, out settling) ?? Array.Empty<uint>();
+        uint[] portIds = Role?.PortsToSend(dirtyPorts, out settling) ?? Array.Empty<uint>();
         // Other unowned dirty controls are native simulation feedback, not client intent.
         // Retaining them would either spin forever or contaminate a later leased batch.
         dirtyPorts.Clear();
@@ -823,21 +813,14 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             i++;
         }
 
-        // The host's are its simulation's (its player's levers included): committed with this
-        // tick's values, as read above.
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            ServerPart?.CommitPorts(portIds, portValues);
-            return;
-        }
-        ClientPart?.SendPorts(portIds, portValues);
+        Role?.SendPorts(portIds, portValues);
     }
 
     private void Common_SendFuses()
     {
         if (!hasSimFlow || dirtyFuses.Count == 0)
             return;
-        if (!NetworkLifecycle.Instance.IsHost() && ClientPart?.LocalPlayerCanTouch() != true)
+        if (Role?.SendsChange(viaRemote: false) != true)
         {
             dirtyFuses.Clear(); // simulation noise (e.g. set during load), not a player action
             return;
@@ -859,12 +842,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
         }
 
         dirtyFuses.Clear();
-        if (NetworkLifecycle.Instance.IsHost())
-        {
-            ServerPart?.CommitFuses(fuseIds, fuseValues);
-            return;
-        }
-        ClientPart?.SendFuses(fuseIds, fuseValues);
+        Role?.SendFuses(fuseIds, fuseValues);
     }
 
     private void Common_SendPaintThemes()
@@ -881,10 +859,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
                 return;
             }
 
-            if (NetworkLifecycle.Instance.IsHost())
-                ServerPart?.SendPaintTheme(paintController.targetArea, themeNetId);
-            else
-                ClientPart?.SendPaintTheme(paintController.targetArea, themeNetId);
+            Role?.SendPaintTheme(paintController.targetArea, themeNetId);
         }
 
         dirtyPaints.Clear();
@@ -901,12 +876,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
     {
         if (NetworkLifecycle.Instance.IsProcessingPacket)
             return;
-        // Vanilla raises this before it sets the release, and clears it at the next brake update,
-        // so the host commits it now: checked at the server's next poll, it could be gone already.
-        if (NetworkLifecycle.Instance.IsHost())
-            ServerPart?.CommitBrakeCylinderRelease();
-        else
-            ClientPart?.SendBrakeCylinderReleased();
+        Role?.SendBrakeCylinderReleased();
     }
 
     private void Common_OnPortUpdated(Port port, uint portNetId)
@@ -915,14 +885,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             "Control/Port", $"{NetId}:{portNetId}",
             () => DebugValueSnapshotter.SnapshotObject(new { carNetId = NetId, portNetId, port.id, port.Value, port.prevValue, port.valueType }));
         //Multiplayer.LogDebug(() => $"Common_OnPortUpdated() port [{port?.id}] updated on [{CurrentID}, {NetId}]. Value: {port?.Value}, PrevValue: {port?.prevValue}, ValueType: {port?.valueType}, Tick: {NetworkLifecycle.Instance.Tick}");
-        if (port.valueType != PortValueType.CONTROL && !NetworkLifecycle.Instance.IsHost())
-        {
-            Multiplayer.LogDebug(() => $"Common_OnPortUpdated() Ignoring non-control port update for [{port.id}] on [{CurrentID}, {NetId}]");
-            return;
-        }
-        // CONTROL ports simulation code sets (the compressor's signal, a horn fed from its control,
-        // a gearbox's gear input) are the host's: a client sends only the ones players drive.
-        if (!NetworkLifecycle.Instance.IsHost() && portWriters?.ClientReports(portNetId) != true)
+        if (Role?.Reports(port, portNetId) != true)
             return;
 
         // A host value being applied, as it lands or played out (TrainPortPresenter), isn't a change here.
@@ -930,8 +893,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             return;
         if (float.IsNaN(port.prevValue) && float.IsNaN(port.Value))
             return;
-        if (!NetworkLifecycle.Instance.IsHost())
-            ClientPart?.NoteLocalControlChange();
+        Role?.NoteLocalControlChange();
 
         bool hasLastSent = lastSentPortValues.TryGetValue(portNetId, out float lastSentValue);
         float delta = Mathf.Abs(lastSentValue - port.Value);
@@ -999,8 +961,7 @@ public class NetworkedTrainCar : IdMonoBehaviour<ushort, NetworkedTrainCar>
             if (simulationFlow.TryGetPort(portId, out Port port))
             {
                 float value = packet.PortValues[i];
-                if (!NetworkLifecycle.Instance.IsHost() && ClientPart != null &&
-                    ClientPart.TakeHostPortValue(packet.PortIds[i], port, value, hostTick))
+                if (Role?.TakeHostPortValue(packet.PortIds[i], port, value, hostTick) == true)
                     continue;
 
                 if (port.type == PortType.EXTERNAL_IN)
