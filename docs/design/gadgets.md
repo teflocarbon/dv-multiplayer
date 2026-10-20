@@ -582,6 +582,21 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 | Tests | `Multiplayer.Protocol.Tests/GadgetPacketTests.cs` (round trips). |
 | Scenarios | `DevTools/DvmpScenarios/Library/Gadgets.cs` (spawn a gadget item, install, remove, drill, tape, wire, solder, set and read state through the vanilla tool methods, the digest); `Scenarios/Gadget*.cs`; runs in `DevTools/Scenarios/gate.sh`. |
 
+## Companies
+
+Decided by the user 2026-10-21 for the coming company career (recorded by the economy and licences
+session; the design is [company-career.md](company-career.md), to be written):
+
+- A company is a persistent group of players sharing money, licences and owned locos.
+- Gadgets (with loco paint, the wireless MU controller and the loco remote) are bought with company
+  money and owned by the company, including while a member carries one.
+- Installing, retrieving and the permission checks follow company membership, not the buyer: the
+  owner shown on a gadget is its company, a deleted car's gadgets go to the company's Lost and Found,
+  and the server's request checks ([What the server checks](#what-the-server-checks)) ask whether
+  the requester is a member. The wireless MU controller's licence is the company's.
+
+Until companies exist, gadgets are owned by the player who bought them, as above.
+
 ## Owned items
 
 Gadgets are bought items, and players install them on trains that everyone shares, so "what stops
@@ -633,7 +648,12 @@ Decided:
 ## PR plan
 
 Small PRs, in order, each from a branch `gadgets/<what>` off `beta` and into `beta` (the client/server
-split merged into `beta` in #276, 2026-10-21).
+split merged into `beta` in #276, 2026-10-21). There is no integration branch for gadgets, owned items
+and shops together (decided 2026-10-21): each PR is small, tested on both host kinds and fixes
+something, and the few points where the three plans meet are kept by the merge order. The rule that
+makes that safe: **no PR leaves `beta` worse than today**, so a release can be cut from `beta` at any
+point. Whether to hand out a release while gadgets are part-done (between 3a and 5 they sync but
+can't yet be powered) is a release decision, not a branch.
 
 It runs beside the owned-items work ([owned-items.md](owned-items.md), PR #275), which redoes the item
 lifecycle. They meet at four points:
@@ -686,9 +706,13 @@ The item side, with no gadget sync yet: an installed gadget stops leaking as a l
 ### 2. Late joiners see the installed gadgets
 
 - `ReadyForCustomizers` on both sides, item Creates for installed items, the anchor snapshot and its
-  apply, `AssignUID` before `Place`. The server-only patches (amp limiter,
-  anti-slip, overheat, ATS, roadrunner, alternating, collision dislodge, dangler) go in here, because
-  clients now have live gadgets. The gadget digest for `dvmp_desync`.
+  apply, `AssignUID` before `Place`. The gadget digest for `dvmp_desync`.
+- The server-only patches (amp limiter, anti-slip, overheat, ATS, roadrunner, alternating, collision
+  dislodge, dangler) for **the gadgets the server sent** only: the server runs those too, so a client
+  running them as well would apply each action twice. A client's own installs don't reach the server
+  until 3a, so until then they keep vanilla's logic in that client's game, as today: a client's own
+  ATS or anti-slip moves its own lever, which syncs as the player's input. Switching it off for them
+  here would leave them doing nothing until 3a, which is worse than today.
 - Core: `GadgetAnchorModel` (snapshot, apply plan), tests.
 - Files: `Core/Gadgets/`, `Shared/Gadgets/`, `Shared/Protocol/.../Gadgets/`, `Server/Gadgets/`
   (`GadgetSnapshots`), `Server/Session/NetworkServer.Gadgets.cs`, `NetworkServer.cs`
@@ -711,7 +735,8 @@ server side, and the base 3b predicts on top of.
   resync, item transitions in and out of `Installed` (in a file of their own that calls the
   registry), completing a hand removal, forced removals on clients through the apply scope, deleted
   cars' gadgets to their owners' Lost and Found, the owner on aim; the place and remove sounds played
-  by every game.
+  by every game. The server-only patches now cover every gadget on a client: installs reach the
+  server, which runs them.
 - Files: `Core/Gadgets/` (`GadgetRequestRules`, `GadgetChangeLog`), `Server/Gadgets/` (`GadgetServer`,
   `GadgetObserverPatches`, `GadgetItemTransitions`), `Client/Gadgets/` (`GadgetIntentPatches`),
   `Client/Session/LocalPlayerSession.Gadgets.cs`.
