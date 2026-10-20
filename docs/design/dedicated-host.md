@@ -580,7 +580,7 @@ Then the host's player was teleported 4 km away from a DE2:
 | Cab interiors | Local player in the car (LOD -1) | Only loaded for the host's own player | `TrainPhysicsLod.cs:135-147`, `:174-191` |
 | Origin shift | Same tracker | One origin for everyone | `WorldStreamer: WorldMover` (shift past `moveRange`) |
 | World items | `ActiveCamera`, 128 m cells | Items outside the 3x3 cells are deactivated | `DV/ItemDisablerGrid.cs:9-50`, `DV/ItemDisabler.cs:158-210` |
-| Dropped-item respawn | `PlayerTransform`, `ActiveCamera` | Respawn or Lost and Found beyond 200 m / 1 km; kinematic far from the camera | `RespawnOnDrop.cs:11-13`, `:86-89`, `:300-368` |
+| Dropped-item respawn | `PlayerTransform`, `ActiveCamera` | Respawn or Lost and Found beyond 200 m / 1 km; kinematic far from the camera. Distance to the player patched to the nearest player for networked items on the server (`Server/Items/RespawnOnDropRangePatch.cs`): an unowned personal item beside a client went to the host's own Lost and Found; the kinematic flag still follows the camera | `RespawnOnDrop.cs:11-13`, `:86-89`, `:300-368` |
 | Station job generation | `PlayerTransform` | Already patched to any player (`StationJobGenerationRangePatch.cs`) | `StationJobGenerationRange.cs:5-57`, `StationController.cs:190` |
 | Loco spawners | Player distance | Already patched (`StationLocoSpawnerPatch.cs`) | `StationLocoSpawner.cs:75-99` |
 | Garage car respawn | Player distance | **Not patched** | `GarageCarSpawner.cs:96-115` |
