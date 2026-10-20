@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.0735+c6a53e7b207c28e3aba04e31711dc53c7fb3dd40",
-  "Fingerprint": "5f47bf192e7d3202d4ea43df8ccbb8054810719c48514fcf11c3a359eaae46c6",
+  "BuildVersion": "2026.10.21-dev.0916+9be8b1c833d28d60f763d5770d8377ee16ddc9ff",
+  "Fingerprint": "351115ed365475b24f97424511c9c34bf221998014565135f9098ee9b9336133",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -659,6 +659,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "9E8566D8EDA9ABD3",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.World.ClientboundShopLayoutPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "A076C067EA563A3C",
