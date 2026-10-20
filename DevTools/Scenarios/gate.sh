@@ -307,7 +307,7 @@ if [ -n "$parallel" ]; then
   run_one() { # label dir vars session; sets r to PASS, FAIL or ERROR
     local label=$1 dir=$2 vars=$3 session=$4 start first breaks logs log="$LOG_DIR/$1.$4.log"
     export DVMP_SESSION=$session
-    teleport_home
+    [ -f "$S/$dir/run.sh" ] && teleport_home   # a C# scenario resets in process (ScenarioRun.ResetAsync)
     start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
     if run_scenario "$dir" "$vars" >"$log" 2>&1; then r=PASS; else [ $? = 3 ] && r=ERROR || r=FAIL; note_logs "$logs" >>"$log"; fi
     [ $r = FAIL ] && harness_error "$log" && r=ERROR
@@ -397,7 +397,7 @@ fi
 failed=0
 for it in "${all[@]}"; do
   IFS='|' read -r name dir vars _ <<<"$it"
-  teleport_home
+  [ -f "$S/$dir/run.sh" ] && teleport_home   # a C# scenario resets in process (ScenarioRun.ResetAsync)
   start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
   if run_scenario "$dir" "$vars" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else [ $? = 3 ] && r=ERROR || r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; harness_error "$LOG_DIR/$name.log" && r=ERROR; fi
   breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"

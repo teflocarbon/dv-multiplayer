@@ -41,29 +41,14 @@
         <None Include="$([System.IO.Path]::GetDirectoryName($(MultiplayerAssemblyPath)))\Multiplayer*.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
         <!-- Release: a Debug build of the agent installs itself into the game. -->
         <ProjectReference Include="..\DvmpAgent\DvmpAgent.csproj" SetConfiguration="Configuration=Release" Private="false" />
-        <!-- The game's own: found at run time in the install dvmp points at (Runtime/Resolver.cs). -->
-        <Reference Include="Assembly-CSharp" Private="false" />
-        <Reference Include="DV.BrakeSystem" Private="false" />
-        <Reference Include="DV.CabControls.Spec" Private="false" />
-        <Reference Include="DV.CharacterController" Private="false" />
-        <Reference Include="DV.Common" Private="false" />
-        <Reference Include="DV.Interaction" Private="false" />
-        <Reference Include="DV.Inventory" Private="false" />
-        <Reference Include="DV.PointSet" Private="false" />
-        <Reference Include="DV.RailTrack" Private="false" />
-        <Reference Include="DV.Simulation" Private="false" />
-        <Reference Include="DV.ThingTypes" Private="false" />
-        <Reference Include="DV.UI" Private="false" />
-        <Reference Include="DV.UIFramework" Private="false" />
-        <Reference Include="DV.Utils" Private="false" />
-        <Reference Include="Facepunch.Steamworks.Win64" Private="false" />
-
-        <Reference Include="UnityEngine" Private="false" />
-        <Reference Include="UnityEngine.CoreModule" Private="false" />
-        <Reference Include="UnityEngine.PhysicsModule" Private="false" />
-        <Reference Include="UnityEngine.InputLegacyModule" Private="false" />
-        <Reference Include="WorldStreamer" Private="false" />
-        <Reference Include="net.smkd.vector3d" Private="false" />
+        <!-- DVMP0101/0102: game code in a scenario's orchestrator fails the build. -->
+        <ProjectReference Include="..\DvmpScenariosAnalyzer\DvmpScenariosAnalyzer.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+        <!-- The game's own, every one of them (no list to edit when a port needs another), except
+             the class libraries and what the exe brings itself. Found at run time in the install
+             dvmp points at (Framework/Program.cs: Resolver). -->
+        <GameAssembly Include="$(DvInstallDir)\DerailValley_Data\Managed\*.dll"
+                      Exclude="$(DvInstallDir)\DerailValley_Data\Managed\mscorlib.dll;$(DvInstallDir)\DerailValley_Data\Managed\netstandard.dll;$(DvInstallDir)\DerailValley_Data\Managed\System*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Mono.*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Microsoft.*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Newtonsoft*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Unity.Burst.Cecil*.dll" />
+        <Reference Include="@(GameAssembly)" Private="false" />
         <Reference Include="System.Net.Http" />
     </ItemGroup>
 </Project>

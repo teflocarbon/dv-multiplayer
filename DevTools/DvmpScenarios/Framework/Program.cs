@@ -13,7 +13,7 @@ namespace Dvmp.Scenarios
     /// DvmpScenarios.exe, run by `dvmp scenario ...`:
     ///   list                                   scenarios, their options and defaults
     ///   check                                  every scenario and step is well formed (no games)
-    ///   run NAME [--arg K=V]... [--log-dir D]  one run against $DVMP_SESSION's pair
+    ///   run NAME [--arg K=V]... [--log-dir D] [--no-reset]  one run against $DVMP_SESSION's pair, after the reset (ScenarioRun.ResetAsync)
     /// Exit codes: 0 pass, 1 fail, 2 usage, 3 harness error (not a test result).
     /// </summary>
     internal static class Program
@@ -41,7 +41,7 @@ namespace Dvmp.Scenarios
                     "list" => List(),
                     "check" => Check(),
                     "run" when args.Length > 1 => RunAsync(args[1], args).GetAwaiter().GetResult(),
-                    _ => UsageError("usage: DvmpScenarios list | check | run NAME [--arg K=V]... [--session S] [--log-dir DIR] [--dvmp PATH]")
+                    _ => UsageError("usage: DvmpScenarios list | check | run NAME [--arg K=V]... [--session S] [--log-dir DIR] [--dvmp PATH] [--no-reset]")
                 };
             }
             catch (UsageException e) { return UsageError(e.Message); }
@@ -128,7 +128,7 @@ namespace Dvmp.Scenarios
                 run.Out.Text($"   {(pair.Dedicated ? "dedicated host" : "player host")}; client #{run.Agent("client").Pid}, host #{run.Agent("host").Pid}");
                 CheckNeeds(found.Type, pair);
                 logStart = await run.LogCursorsAsync();
-                await run.ForgetSpawnedAsync();
+                if (!args.Contains("--no-reset")) await run.ResetAsync();
                 started = true;
                 Task body = scenario.Run(pair, options);
                 if (await Task.WhenAny(body, Task.Delay(TimeSpan.FromSeconds(budget))) != body)
@@ -153,7 +153,7 @@ namespace Dvmp.Scenarios
             return passed ? Pass : harness ? HarnessError : Fail;
         }
 
-        // Cleanups, then the leak check: every car the run spawned is gone again, on both games.
+        // Cleanups, then the leak check (ScenarioRun.LeakCheckAsync).
         private static async Task CleanUpAsync(ScenarioRun run, bool checkLeaks)
         {
             try { await run.CancelStartedAsync(); }
@@ -166,10 +166,11 @@ namespace Dvmp.Scenarios
             if (!checkLeaks) return;
             try
             {
-                foreach (var (peer, left) in await run.SpawnedLeftAsync())
-                    Expect.Empty(left, $"{peer}: cars the run spawned and left behind");
+                // A restart or a rejoin can leave a game undiscovered: find them again first.
+                await run.DiscoverAsync();
+                await run.LeakCheckAsync();
             }
-            catch (Exception e) { run.Out.Note("leak check: " + e.Message); }
+            catch (Exception e) { Expect.That(false, "the leak check ran", e.Message); }
         }
 
         private static void CheckNeeds(Type type, Pair pair)

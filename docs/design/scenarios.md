@@ -2,7 +2,7 @@
 
 Status: built 2026-10-20 (design reviewed by a second model; its changes are folded in). Replaces
 the bash + `node -e` + C#-string scenarios in `DevTools/Scenarios/` one scenario at a time. Ported:
-`host-stall`, `cab-reload` (was `cab-controls MODE=cab-reload`), `save-reload`. What isn't built
+`host-stall`, `cab-reload` (was `cab-controls MODE=cab-reload`), `save-reload`, `rejoin`. What isn't built
 yet is listed under [Next](#next).
 
 ## Why
@@ -103,10 +103,12 @@ public sealed class HostStall : Scenario<HostStall.Options>
 }
 ```
 
-- **What runs where.** In-game code is in `[Step]` methods, in a nested `InGame` class or the shared
-  library; everything else is the orchestrator. Today that's a convention backed by two checks: a
-  step call that isn't one throws when it's made, and `dvmp scenario check` checks every step's
-  signature. An analyzer making it a compile error is [next](#next).
+- **What runs where is a compile error.** In-game code is in `[Step]` methods, in a nested `InGame`
+  class or the shared library; everything else is the orchestrator. `DevTools/DvmpScenariosAnalyzer`
+  fails the build in a scenario class's own methods on DVMP0101, a game type or member
+  (UnityEngine, Assembly-CSharp, DV.*, Multiplayer, the agent, the probe library `Dvmp.Lib`), and on
+  DVMP0102, a `[Step]` called directly. Inside `() => Step(...)` only the step itself is exempt: its
+  arguments are evaluated in the exe too. `dvmp scenario check` checks every step's signature.
 - **Step calls are typed by expression trees.** `pair.Host.Run<Stalled>(s => InGame.Stall(s, 30))`
   never calls `Stall` in the exe: `Run` reads the `MethodCallExpression`, evaluates each argument
   there, and sends the declaring type, the method name, the parameter types (for overloads) and the
@@ -147,18 +149,30 @@ public sealed class HostStall : Scenario<HostStall.Options>
 | `Cars.Push`, `Cars.WaitForSpeed`, `Cars.WaitUntilStopped`, `Cars.Delete`, `Cars.Position` | |
 | `Players.Board(car)` | the one boarding path: the floor's reparent target, `car.interior` (#171) |
 | `Players.TeleportToGround(x, z)` | |
+| `Items.Spawn(prefab, near)`, `Pickup`, `Drop`, `Throw(Dir)`, `Held`, `Destroy`, `Existing`, `Position` | test items through DV's real grabber (`Hands`) |
 | `Net.SetReceiveLag(ms)`, `peer.Lag(ms)` | Steam's fake receive lag; `Lag` is a scope, undone on failure too |
 | `Peers.Distance`, `Peers.Horizontal` | on `Abs` positions (`Dev.Abs`), so each game's floating origin cancels out |
+| `Wait.Until(condition, seconds, what)` | in a step: yields until it holds, throws naming `what` |
+| `Until.Value(read, done, seconds, what)`, `Until.True` | in the orchestrator: polls a step quietly, one line for the wait |
+| `peer.Quit()`, `peer.Kill()`, `pair.Rejoin()`, `pair.Restart(save)` | games leaving and coming back (`[Needs(Need.RestartsGames)]`) |
+| `peer.LogCursor()`, `peer.LogsSince(cursor, level)` | a game's log since a point |
+
+Area-specific steps go in that area's file under `Library/` (`Library/Items.cs`, a trains file...),
+so ports in different areas never edit the same file.
 
 ### Isolation
 
+- **The reset, before every run** (`ScenarioRun.ResetAsync`, `Library/World.cs`): both players to
+  where every run starts, empty-handed, test mugs dropped out of inventories and destroyed, the
+  wallet topped up to `$MONEY` (default 100000). In process, so gate.sh skips its `teleport_home`
+  for C# runs (six `dvmp` calls, 14 to 40 s a run). `--no-reset` skips it.
 - `pair.Cleanup(...)` registers cleanup that runs after the scenario, pass or fail, last first.
-- **The leak check.** The library's spawn steps record every car they make. After the cleanups, any
-  of them still on the host or the client fails the run: `host: cars the run spawned and left
-  behind: L-064`. Only the run's own cars count: the world spawns cars while a run goes on
+- **The leak check, after every run** (`ScenarioRun.LeakCheckAsync`). The library's spawn steps
+  record every car and item they make; after the cleanups the framework removes any left, and each
+  must then be gone from both games. No cab control lease may still be held on either game. A
+  failure here is a bug the next run would trip over: a car that can't be deleted, a lease never
+  given back. Only the run's own cars count: the world spawns cars while a run goes on
   (`StationLocoSpawner` puts locos at a station a player rides past).
-- The per-run reset (players home, test items dropped, money topped up) is still gate.sh's
-  `teleport_home`; moving it in is [next](#next).
 
 ### Restarts inside a scenario
 
@@ -247,17 +261,31 @@ Unchanged syntax: the run list, `RUNS`, `PAIRS`, `@dedicated`, `REPEAT` and the 
 - No new `run.sh`. A flaky one is ported, not patched.
 - Each port runs in game on both a player host and a dedicated host before its PR.
 
+## Porting a scenario
+
+1. Read the bash scenario: its header (what it checks, its variables), `run.sh`, its probes, and the
+   probes it borrows from other scenarios.
+2. One file, `DevTools/DvmpScenarios/Scenarios/<Name>.cs`: `[Scenario("<name>", "...")]` with the
+   bash name (gate's run list and `ONLY` keep working), the header as the class's summary, the
+   variables as `Options` fields with the same defaults, the probes as `[Step]`s in a nested
+   `InGame` class with typed results, and `run.sh`'s sequence as `Run`.
+3. Keep every check's meaning: the same threshold, the same comparison, the same peer. A check that
+   looks wrong is reported in the PR, not changed in the port. Each bash `FAIL` becomes an `Expect`
+   (or a `Require` where the rest depends on it); each echoed number a `Report.Note`.
+4. Use the library: spawning, boarding, items, lag, the reset. A helper two scenarios need goes in
+   the area's library file. A bash wait for a condition becomes `Wait.Until` or `Until.Value`; a wait
+   that is the condition under test (a stall, a gap) stays, with a comment saying so.
+5. Delete the bash scenario and its probes (and any gate run that only the removed mode had), and
+   update its row in docs/testing.md with `(C#)`.
+6. `dotnet build DevTools/DvmpScenarios/DvmpScenarios.csproj -c Debug` and `dvmp scenario check`
+   without games; then in game on a player host and a dedicated host, through gate.sh
+   (`ONLY="<runs>"`), before the PR. A scenario that can't run on one kind declares `[Needs(...)]`.
+
 ## Next
 
-- **An analyzer** (alongside `Tools/RoleAnalyzer`, DVMP0001) making "what runs where" a compile
-  error: orchestrator code may not use `UnityEngine`, `Assembly-CSharp` or `Multiplayer` types
-  outside the lambdas passed to `Run`/`Start`, and a `[Step]` may not be called directly.
-- **The per-run reset in process**, replacing gate's `teleport_home` (six `dvmp eval`s, 14 to 40 s
-  per run, docs/research/harness-time-budget.md), and the leak check for items and control leases.
 - **A fresh copy of the session's baseline save** for scenarios that write saves.
-- **`Until(condition, timeout, what)`** as the one way to wait; the ports keep their bash waits
-  (`Task.Delay(4000)` after boarding, the 3 s for a stale hook pass), each commented.
-- `pair.Client.Rejoin()`, for porting `rejoin`.
+- The waits the first ports kept from bash (`Task.Delay(4000)` after boarding, the 3 s for a stale
+  hook pass), each commented, could become `Until`s.
 
 ## Considered and not done
 
