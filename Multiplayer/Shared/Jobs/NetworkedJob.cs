@@ -274,24 +274,21 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
-        if (NetworkLifecycle.Instance?.IsHost() == true)
-            DestroyJobBooklets();
+        JobServer.Current?.OnJobEnded(this);
     }
 
     private void OnJobCompleted(Job job)
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
-        if (NetworkLifecycle.Instance?.IsHost() == true)
-            DestroyJobBooklets();
+        JobServer.Current?.OnJobEnded(this);
     }
 
     private void OnJobExpired(Job job)
     {
         Cause = DirtyCause.JobState;
         OnJobDirty?.Invoke(this);
-        if (NetworkLifecycle.Instance?.IsHost() == true)
-            DestroyJobBooklets();
+        JobServer.Current?.OnJobEnded(this);
     }
 
     public void AddReport(NetworkedItem item)
