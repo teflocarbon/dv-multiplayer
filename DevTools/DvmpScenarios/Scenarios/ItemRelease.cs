@@ -63,7 +63,8 @@ namespace Dvmp.Scenarios
                 }
                 case "throw-flatcar":
                 {
-                    string car = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "Flatbed", "client"));
+                    // Around the host's player, as the bash scenario did; a dedicated host's is parked away from the run.
+                    string car = await pair.Host.Run<string>(s => Cars.SpawnCarNear(s, "Flatbed", pair.Dedicated ? "client" : "host"));
                     pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, new[] { car })));
                     item = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Lantern", "client"));
                     Report.Note($"client throws lantern {item} onto {car}");
@@ -96,9 +97,9 @@ namespace Dvmp.Scenarios
                     LanternState c = await pair.Client.Run<LanternState>(s => InGame.Interact(s, item, wick), 60);
                     LanternState h = await pair.Host.Run(() => InGame.ReadLantern(item));
                     Report.Note($"client wick {c.Wick:0.##} ({c.State}); server wick {h.Wick:0.##}, knob {h.Knob:0.##}");
-                    Expect.AtMost(Math.Abs(c.Wick - wick), 0.05, $"the client's own wick off {wick} (set back?)");
-                    Expect.AtMost(Math.Abs(h.Wick - wick), 0.05, $"the server's wick off {wick}");
-                    Expect.AtMost(Math.Abs(h.Knob - wick), 0.05, $"the server's knob off {wick} (its next movement would undo the wick)");
+                    Expect.AtMost(Off(c.Wick, wick), 0.05, $"the client's own wick off {wick} (set back?)");
+                    Expect.AtMost(Off(h.Wick, wick), 0.05, $"the server's wick off {wick}");
+                    Expect.AtMost(Off(h.Knob, wick), 0.05, $"the server's knob off {wick} (its next movement would undo the wick)");
                     break;
                 }
                 default:
@@ -107,6 +108,11 @@ namespace Dvmp.Scenarios
             Corrections n = await pair.Host.Run(() => InGame.ReadCorrections(item));
             Expect.Zero(n.Count, $"rejection corrections the server sent for the item ({n.Reasons})");
         }
+
+        // How far a wick or knob is from the target, to the millimetre of travel: the knob moves in
+        // steps of 0.1, and in floats 0.15 - 0.1 is 0.050000004, over the 0.05 a step off is allowed
+        // (the bash version compared the decimals JSON printed).
+        private static double Off(float value, float target) => Math.Round(Math.Abs(value - target), 3);
 
         private static async Task CheckOnCar(Pair pair, ushort item, string car, string when)
         {
