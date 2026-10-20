@@ -217,6 +217,15 @@ The server doesn't describe its own changes; it observes them. Server patches on
 primitives record what happened, whatever caused it: a player's request, a car deletion, a broken
 window, a collision, a mount's cascade, a label's replacement.
 
+Why observe rather than announce each request (agreed with the user 2026-10-21): announcing requests
+would need its own code for every change that has no request behind it (car deletion, glass, the
+random knock-off, mount cascades, labels replacing themselves), and a missed or newly added one
+desyncs silently. The primitives are what all of those call; they are few and the least likely to
+change. A primitive renamed by a game update fails its Harmony patch at load; a change that bypasses
+them shows in the gadget digest every scenario compares; the one subtle rule (only top-level changes
+are recorded) lives in `Multiplayer.Core` with unit tests. Requests still exist: they carry the
+player's intent and get an answer; the log only carries the result.
+
 | Primitive | Entry |
 | --- | --- |
 | `Customization.Link` of a `GadgetBase` | `Installed`: item, anchor, pose, UID, gadget data |
