@@ -179,6 +179,14 @@ so ports in different areas never edit the same file.
   failure here is a bug the next run would trip over: a car that can't be deleted, a lease never
   given back. Only the run's own cars count: the world spawns cars while a run goes on
   (`StationLocoSpawner` puts locos at a station a player rides past).
+- **Cars a save kept.** A run whose games are closed while its train is out (a crash, a session
+  torn down, an autosave mid-run) never gets its leak check, and the save keeps the train for every
+  later run: three host-stall trains parked where the client starts failed host-stall's track search
+  and its couplings (2026-10-20). So the spawn steps also list each car, "ID livery", in
+  `%LOCALAPPDATA%\dvmp\sessions\NAME\scenario-cars.txt` from inside the game, and the reset deletes
+  every listed car still in the world (`Cars.DeleteLeftovers`). The livery keeps a car of the world's
+  that later gets a listed ID from being taken for one. `dvmp up --reseed` cleans a session whose
+  save had test cars before this.
 
 ### Restarts inside a scenario
 
