@@ -326,6 +326,11 @@ registered by `ReconcileExistingJobs` and `OnJobTaken` ignores the load-game tak
 doesn't broadcast spurious state changes. A client keeps nothing between sessions: on every join
 or rejoin it gets the active jobs afresh at `ReadyForJobs`, with all live booklet copies.
 
+Booklets aren't saved, so on load DV prints a replacement for each taken job into the local
+player's inventory (`JobSaveManager.CreateAndInitializeJobBookletForJob`). On a player host that is
+the host's player; a dedicated host has none, and `JobBookletRecoveryPatch` skips it there. Players
+who took a job reprint its booklet at a validator.
+
 ## Tasks and warehouses
 
 `Task.SetState` on the host (except to `InProgress`) sends `ClientboundTaskUpdatePacket`, which
