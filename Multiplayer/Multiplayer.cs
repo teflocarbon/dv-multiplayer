@@ -116,6 +116,7 @@ public static class Multiplayer
             harmony.PatchAll();
             global::Multiplayer.Client.Trains.SimComponent_Tick_Patch.Patch(harmony);
             global::Multiplayer.Client.Trains.TenderAutoCouplerPatch.Patch(harmony);
+            CustomCarLoaderRopes.Patch(harmony);
 
             UnityModManager.ModEntry remoteDispatch = UnityModManager.FindMod("RemoteDispatch");
             if (remoteDispatch?.Enabled == true)
