@@ -46,8 +46,9 @@
   unowned dynamic items (faa42c0), job overviews/booklets, and, on load, "world" items above
   1,500 m left by older builds (9b59a41).
 - **Not implemented:** missing train car on load going to recovery (`LostItemReason.SaveRecovery`
-  is unused); `InstalledGadget` placement (gadget sync is partial: customization holes travel with
-  car spawns, gadget switches as tracked values, removal through the `Removed` state is WIP);
+  is unused); `InstalledGadget` placement (installed gadgets don't sync: customization holes travel
+  only with car spawns, and the switch and removal hooks never fire; designed in
+  [gadgets.md](gadgets.md));
   chunked or compressed baselines (compression is commented out).
 - **Gaps:** client item updates are relayed to every player at `ReadyForItems` regardless of
   interest; no pickup reach check.
@@ -395,65 +396,26 @@ same as an installed gadget.
 
 ### Installed-gadget placement
 
-Not implemented: the code never assigns `Installed` placement, and installed gadgets stay with
-vanilla's `StorageInstalledGadgets`. The rest of this section is the design.
-
-The full vanilla lifecycle and identity/wiring model are documented in
+Not implemented. The design is [gadgets.md](gadgets.md); the vanilla lifecycle, identity and wiring
+model are in
 [`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
 
 Vanilla moves an installed gadget item into `StorageInstalledGadgets` and deactivates the item
-GameObject. Its `ItemSaveData` retains the customization anchor (`placedOn`), local placement, and
-gadget-specific state while a separate installed presentation is reconstructed on the target.
+GameObject. Its `ItemSaveData` keeps the anchor (`placedOn`, the `CarGUID` for a car), the local
+pose, and `gadgetData` (UID, wires, soldering, mount points, settings), while a separate projection
+is linked to the anchor.
 
-Multiplayer models this as:
+In multiplayer the item record's placement is `Installed` on its anchor, and the projection is a
+presentation of that record, never a second saved item. Only the gadget server moves an item into or
+out of `Installed`, after validating the request; clients never send save JSON for the server to
+apply. Installing doesn't change the item's persistent owner. Installed items stay in vanilla's
+installed storage in the server's save and are skipped by `WorldItemsV1`; a missing anchor on load
+takes an owned item to its owner's Lost and Found.
 
-```text
-InstalledGadget
-  persistentItemIdentity
-  stableCustomizationAnchor
-  localPosition
-  localRotation
-  gadgetStatePayload
-  optionalSessionParentNetId
-```
-
-The inactive item record remains authoritative. The installed presentation is a projection of that
-record and cannot become a second independently saved item. For a train gadget, the durable anchor
-must ultimately resolve through the owned train/car identity, preferably `CarGUID` plus a stable
-customization/snap target key. Missing anchors follow the gadget recovery policy—currently compatible
-with Lost and Found—without duplicating the item and projection.
-
-DV already supplies the serialization bridge:
-
-- capture state with `GadgetItem.OnItemSaveDataRequestedInternal`;
-- read `placedOn` and resolve it through `Customization.TryGetFromIdentificationKey`;
-- reconstruct with `GadgetItem.OnItemSaveDataLoadedInternal` only after the anchor is ready.
-
-The host accepts an install intent only after validating actor authority, ownership policy, item and
-target revisions, range, gadget/target compatibility, and target capacity/rules. It then commits one
-`InstalledGadget` placement revision. Clients receive authoritative placement data; they never send
-an arbitrary save JObject that the host blindly applies.
-
-If a client receives placement before the train/customization exists, it retains the operation in a
-deferred-by-anchor queue and acknowledges only after successful reconstruction. Repeated delivery is
-idempotent by persistent item identity, anchor identity, and placement revision—not merely by testing
-whether `Gadget.Custom` is non-null.
-
-Installation does not silently erase persistent player ownership. Ownership and placement are
-orthogonal fields; any transfer-to-vehicle policy must be an explicit later decision.
-
-Drilled customization holes belong to train/customization authority rather than item placement. They
-may reuse `TrainCarCustomization.Serialize`/`Deserialize`, but require their own host-validated
-revision stream and should not be bundled into every gadget item update.
-
-Gadget wiring is likewise a separate revisioned graph. Vanilla stores edges by saved customizer UID
-and restores them only after gadget nodes have been placed and loaded. Wiring, fuse, and train
-simulation-port state must not be flattened into generic world-item transform updates.
-
-`TrainCarCustomization.GetIdentificationKey()` confirms that a train gadget's durable customization
-anchor is `TrainCar.CarGUID`. EOT lanterns are now confirmed to use `SnappableItem`, not
-`GadgetBase`. Brake LED bars and wired lights are confirmed `GadgetBase` implementations rather
-than separate placement families.
+Holes, wiring, mount points and gadget settings are not item state. They travel in the gadget change
+log and anchor snapshots, ordered by a revision per anchor and keyed by the anchor and
+server-assigned customizer UIDs (gadgets.md, "The change log"). A client holds entries whose anchor
+doesn't exist yet in a per-anchor queue rather than applying them early.
 
 ### Snapped-attachment placement
 
@@ -530,9 +492,10 @@ host-originated forced-unsnap transition. An occupied `GadgetWithSnapPoint` bloc
 forced removal unsnaps the dependent item before removing the support. Those logical transitions
 must commit in that order or in one host transaction.
 
-Load ordering is dependency-based: trains and customizations, then installed gadgets and restored
-UIDs, then snapped accessories, then wiring/after-load state. Missing anchors remain deferred rather
-than allowing vanilla's load callback to log and abandon the authoritative snap.
+Load ordering is dependency-based: trains and customizations, then installed gadgets (vanilla places
+each gadget and restores its UID, state and wires in one callback; wiring tolerates any order because
+both ends save the edge), then snapped accessories and mounts in the after-load pass. Missing anchors
+remain deferred rather than allowing vanilla's load callback to log and abandon the authoritative snap.
 
 Snapped train items inherit train relevance. Although their physical parent may be the train
 interior, they retain `SnappedAttachment` placement because occupancy and forced-unsnap behavior are
