@@ -223,7 +223,7 @@ public partial class NetworkedItem
         new(ToWireState(snapshot.ItemState), snapshot.PlayerId, snapshot.CarNetId,
             snapshot.AttachedFront, (byte)snapshot.PlayerHand);
 
-    private static WireItemState ToWireState(ItemState state) => state switch
+    internal static WireItemState ToWireState(ItemState state) => state switch
     {
         ItemState.Dropped => WireItemState.Dropped,
         ItemState.Thrown => WireItemState.Thrown,
@@ -757,7 +757,7 @@ public partial class NetworkedItem
         }
 
         stateDirty = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         PublishRecallPreparation(true, operationId, requestedSlot, string.Empty);
         return true;
     }
@@ -769,7 +769,7 @@ public partial class NetworkedItem
         recallPreparationPending = false;
         recallPreparationOperationId = 0;
         stateDirty = false;
-        hostStateObservationPending = false;
+        serverPart?.ClearObservation();
         DebugRuntime.Publish("item", accepted ? "item.recall-transaction-committed" :
                 "item.recall-transaction-cancelled",
             NetworkRole.DebugSide,

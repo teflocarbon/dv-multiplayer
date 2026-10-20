@@ -355,8 +355,8 @@ public static class AuthoritativeItemRegistry
         {
             ItemTransitionReason.ClientState => null,
             // The host's own copy changed: on a dedicated host that is the game, not a player.
-            ItemTransitionReason.HostLocalState => string.IsNullOrEmpty(item.HostObservationTrigger)
-                ? "host's game" : "host's game, " + item.HostObservationTrigger,
+            ItemTransitionReason.HostLocalState => string.IsNullOrEmpty(item.ServerPart?.ObservationTrigger)
+                ? "host's game" : "host's game, " + item.ServerPart?.ObservationTrigger,
             _ => reason.ToString()
         };
         return ItemChangeLog.Move(classified, actor, ItemChangeCauses.Detail(change, source,

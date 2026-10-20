@@ -55,6 +55,8 @@ public partial class NetworkServer : IItemServer
 
     IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);
 
+    INetworkedItemServerPart IItemServer.CreateItemPart(NetworkedItem item) => new NetworkedItemServerPart(item);
+
     IReadOnlyList<(string Prefab, int Slot)> IItemServer.OwnedItems(Guid playerIdentity, byte playerId) =>
         OwnedItemsSummary.For(playerIdentity, playerId).Select(item => (item.Prefab, item.Slot)).ToList();
 

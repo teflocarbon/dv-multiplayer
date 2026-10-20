@@ -158,8 +158,9 @@ public partial class NetworkedItemManager
             Impulse = impulse,
             AbsoluteContactPoint = contact - WorldMover.currentMove
         };
-        if (NetworkLifecycle.Instance.IsHost())
-            ServerPart?.ReceiveLocalTrainWakeWitness(packet);
+        // The server's own game witnessed it: straight to the server. A remote client reports it.
+        if (ServerPart is { } server)
+            server.ReceiveLocalTrainWakeWitness(packet);
         else
             ItemClient.Current.SendItemTrainWakeWitness(packet);
     }
