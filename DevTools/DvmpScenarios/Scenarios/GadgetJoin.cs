@@ -13,7 +13,7 @@ namespace Dvmp.Scenarios
 {
     /// <summary>
     /// A player joining sees the gadgets installed on the trains as the server has them (gadgets.md,
-    /// PR 2). The server builds a loco full of gadgets the way vanilla's tools leave them: a simple
+    /// PR 2). The server fills a car with gadgets the way vanilla's tools leave them: a simple
     /// gadget; a switch at half and a light, wired together and soldered; a plate bolted at two points
     /// with a gadget mounted on it; and a hole left by a bolted plate taken off. Then the client quits
     /// and joins again. Its game must have each gadget once, inactive and installed, with the same UID,
@@ -26,30 +26,32 @@ namespace Dvmp.Scenarios
     {
         public sealed class Options
         {
-            /// <summary>The loco the gadgets go on.</summary>
-            public string Loco = "LocoDE2";
+            /// <summary>The car the gadgets go on (default: the uncoupled car nearest the client). A car
+            /// spawned for the run isn't used: spawned beside a parked car it couples, and a rejoin onto a
+            /// coupling made that way fails on the train baseline (chain state), which isn't this test.</summary>
+            public string Car = "";
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
-            HeldLoco loco = await pair.Host.Run<HeldLoco>(s => Cars.SpawnHeldLoco(s, o.Loco));
-            pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, loco.Cars)));
-            Built built = await pair.Host.Run<Built>(s => InGame.Build(s, loco.Loco));
+            string car = string.IsNullOrEmpty(o.Car) ? await pair.Host.Run<string>(() => InGame.NearestUncoupledCar()) : o.Car;
+            pair.Cleanup(() => pair.Host.Run(() => InGame.ClearHoles(car)));
+            Built built = await pair.Host.Run<Built>(s => InGame.Build(s, car));
             pair.Cleanup(() => pair.Host.Run(() => Gadgets.DestroyByPersistentId(built.PersistentIds)));
             foreach (string note in built.Notes)
                 Report.Note(note);
 
-            string host = await pair.Host.Run<string>(() => Gadgets.Digest(loco.Loco));
-            Report.Note("the server's loco:\n" + host);
+            string host = await pair.Host.Run<string>(() => Gadgets.Digest(car));
+            Report.Note("the server's car:\n" + host);
 
             await pair.Client.Quit();
             await Task.Delay(4000);   // the host notices the departure
             await pair.Rejoin();
 
-            string client = await pair.Client.Run<string>(s => Gadgets.DigestWhenEqual(s, loco.Loco, host, 20f));
+            string client = await pair.Client.Run<string>(s => Gadgets.DigestWhenEqual(s, car, host, 20f));
             if (client != host)
-                Report.Note("the client's loco:\n" + client);
-            Expect.Equal(host, client, "after joining: the client's gadgets on the loco, against the server's");
+                Report.Note("the client's car:\n" + client);
+            Expect.Equal(host, client, "after joining: the client's gadgets on the car, against the server's");
             Expect.Equal(built.Installed.Length, await pair.Client.Run<int>(() => Gadgets.CountInstalled(built.Installed)),
                 "after joining: the gadgets the client has as installed (item inactive, projection on a car)");
         }
@@ -64,15 +66,32 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
+            /// <summary>Host: the ID of the car nearest the client that is coupled to nothing and on the rails.</summary>
+            [Step]
+            public static string NearestUncoupledCar()
+            {
+                Vector3 client = Gadgets.Client().WorldPosition;
+                return CarSpawner.Instance.AllCars
+                    .Where(c => c != null && !c.derailed && c.Customization != null &&
+                                c.frontCoupler.coupledTo == null && c.rearCoupler.coupledTo == null)
+                    .OrderBy(c => (c.transform.position - client).sqrMagnitude)
+                    .Select(c => c.ID).FirstOrDefault() ?? throw new Exception("no uncoupled car on the rails");
+            }
+
+            /// <summary>Host: takes the holes the run made out of the car again (the session's save keeps the car).</summary>
+            [Step]
+            public static void ClearHoles(string carId) =>
+                CarSpawner.Instance.AllCars.FirstOrDefault(c => c != null && c.ID == carId)?.Customization.ClearHoles();
+
             /// <summary>
-            /// Host: the gadgets on <paramref name="loco"/>, as vanilla's tools leave them (see the
+            /// Host: the gadgets on <paramref name="carId"/>, as vanilla's tools leave them (see the
             /// scenario). The parts it can't build (no such gadget in this game) are left out with a note.
             /// </summary>
             [Step]
-            public static IEnumerator Build(Step<Built> step, string loco)
+            public static IEnumerator Build(Step<Built> step, string carId)
             {
                 var client = Gadgets.Client();
-                TrainCar car = CarSpawner.Instance.AllCars.First(c => c != null && c.ID == loco);
+                TrainCar car = CarSpawner.Instance.AllCars.First(c => c != null && c.ID == carId);
                 Vector3 beside = client.WorldPosition + Vector3.right * 1.5f + Vector3.up;
                 var notes = new List<string>();
                 var items = new List<NetworkedItem>();
@@ -110,14 +129,17 @@ namespace Dvmp.Scenarios
                 else
                     notes.Add("no switch or no light in this game: wiring left out");
 
-                InventoryItemSpec plateSpec = Spec(g => g.GetComponent<Mount>() != null && g.GetComponent<Drillable>() is { MountPointCount: >= 2 });
+                // A prefab's mount points are set up only once it's live: count them after installing.
+                InventoryItemSpec plateSpec = Spec(g => g.GetComponent<Mount>() != null && !(g is GadgetWithSnapPoint));
                 InventoryItemSpec mountableSpec = Spec(g => g.RequiredMountPoints > 0 && g.GetComponent<Mount>() == null);
                 if (plateSpec != null)
                 {
                     yield return Install(plateSpec, at(0f, 0.4f), g => plate = g);
                     Drillable drillable = plate.GetComponent<Drillable>();
-                    drillable.SetMountPointState(0, MountPoint.States.Mounted);
-                    drillable.SetMountPointState(1, MountPoint.States.Mounted);
+                    for (int i = 0; i < Math.Min(2, drillable?.MountPointCount ?? 0); i++)
+                        drillable.SetMountPointState(i, MountPoint.States.Mounted);
+                    if ((drillable?.MountPointCount ?? 0) < 2)
+                        notes.Add($"{plateSpec.ItemPrefabName} has {drillable?.MountPointCount ?? 0} mount points: bolted what there is");
                     if (mountableSpec != null)
                     {
                         yield return Install(mountableSpec, at(0f, 0.45f), g => mounted = g);
@@ -128,19 +150,20 @@ namespace Dvmp.Scenarios
 
                     // A bolted plate taken off leaves its holes in the car.
                     yield return Install(plateSpec, at(0f, 0.8f), g => removed = g);
-                    removed.GetComponent<Drillable>().SetMountPointState(0, MountPoint.States.Mounted);
+                    if (removed.GetComponent<Drillable>() is { MountPointCount: > 0 } bolt)
+                        bolt.SetMountPointState(0, MountPoint.States.Mounted);
                     yield return null;
                     removed.Remove(reparentToTrainCar: false);
                 }
                 else
-                    notes.Add("no plate with two mount points in this game: plates and holes left out");
+                    notes.Add("no mount plate in this game: plates and holes left out");
                 for (int i = 0; i < 10; i++) yield return null;
 
                 step.Result = new Built
                 {
                     Installed = items.Where(i => i.GetComponent<GadgetItem>().Gadget.IsLinked).Select(i => i.NetId).ToArray(),
                     PersistentIds = items.Select(i => i.GetComponent<Multiplayer.Server.Items.PersistentWorldItemIdentity>().Value.ToString("D")).ToArray(),
-                    Notes = notes.Prepend($"built on {loco}: {string.Join(", ", new[] { simple, sw, light, plate, mounted }.Where(g => g != null).Select(g => g.name))}; a removed plate left {car.Customization.Holes.Count()} holes").ToArray()
+                    Notes = notes.Prepend($"built on {carId}: {string.Join(", ", new[] { simple, sw, light, plate, mounted }.Where(g => g != null).Select(g => g.name))}; a removed plate left {car.Customization.Holes.Count()} holes").ToArray()
                 };
             }
         }
