@@ -356,7 +356,8 @@ host broadcast directly. On join, one packet per switch.
 
 `ClientboundCustomizationsPacket` sends `WorldCustomization.I.Holes` at `ReadyForWorldState`; the
 client clears its holes and adds the host's. Holes drilled after that are not sent. Holes in cars
-travel with the train baseline (`NetworkedCarSpawner.SetCustomizations`).
+travel with the train baseline (`NetworkedCarSpawner.SetCustomizations`). Live holes and gadgets are
+planned in [design/gadgets.md](design/gadgets.md).
 
 ## Explosions
 
@@ -529,6 +530,7 @@ weather, sleep, difficulty, junctions, switches and service stations have none.
   interaction was recorded. If none is, the host's next grab is treated as part of that processing
   and not sent, and its dock is then rejected. From `CODE_AUDIT.md`; not reproduced.
 - **Drilled holes are join-only**, and installed gadgets are read at `ReadyForItems` but never sent.
+  Planned in [design/gadgets.md](design/gadgets.md).
 - **Client hazmat cargo ignition.** Only ground-tile ignition is forwarded. A client setting a car's
   hazmat cargo alight has no path to the host.
 - **Licence purchase rejections are silent.** The client has already run the register's `Buy`;
