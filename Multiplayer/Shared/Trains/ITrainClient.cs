@@ -16,11 +16,12 @@ public interface ITrainClient
     /// <summary>The local player's name, for the causes of the changes they make.</summary>
     string Username { get; }
 
-    /// <summary>Set while a refused coupling's snapshot is applied: why its couplings come apart.</summary>
-    ChangeCause<UncoupleReason>? RefusalUncoupleCause { get; }
-
-    /// <summary>The host's reason for an uncouple this client is following, if it sent one.</summary>
-    bool TakeHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause);
+    /// <summary>
+    ///     Why a coupling comes apart while a client applies the host's topology: a refused
+    ///     coupling of its own, the host's reason if it sent one, or just following the host. False
+    ///     when this isn't a client following the host's topology (the host's session included).
+    /// </summary>
+    bool TryFollowingHostUncoupleCause(Coupler coupler, Coupler other, out ChangeCause<UncoupleReason> cause);
 
     /// <summary>The local player's half of a car (Client/Trains/NetworkedTrainCarClient.cs), made with it.</summary>
     ITrainCarClientPart CreateCarPart(NetworkedTrainCar car);

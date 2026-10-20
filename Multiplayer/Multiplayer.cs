@@ -113,8 +113,8 @@ public static class Multiplayer
                 Harmony.DEBUG = true;
 #endif
             harmony.PatchAll();
-            SimComponent_Tick_Patch.Patch(harmony);
-            global::Multiplayer.Shared.Trains.TenderAutoCouplerPatch.Patch(harmony);
+            global::Multiplayer.Client.Trains.SimComponent_Tick_Patch.Patch(harmony);
+            global::Multiplayer.Client.Trains.TenderAutoCouplerPatch.Patch(harmony);
 
             UnityModManager.ModEntry remoteDispatch = UnityModManager.FindMod("RemoteDispatch");
             if (remoteDispatch?.Enabled == true)

@@ -29,7 +29,7 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
   Clients no longer auto-couple spawned cars themselves (477a94c); they wait for the host's
   snapshot. Nor do they run the steam tender auto-couplers (vanilla's
   `SteamTenderAutoCoupleMechanism` and Custom Car Loader's `CarAutoCouplerInternal`,
-  `Shared/Trains/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
+  `Client/Trains/TenderAutoCouplerPatch.cs`): those couple with the hose and cocks a few seconds
   after a spawn, rerail or uncouple, which a client sent the host as its player's commands.
 - Every snapshot carries the **whole** graph, every brake line and every car's control revision,
   not only the affected closure. Accepted commands are broadcast; rejections go to the requester.
