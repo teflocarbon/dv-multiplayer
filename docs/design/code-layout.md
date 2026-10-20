@@ -110,7 +110,7 @@ Paths are under `Multiplayer/`.
 |---|---|---|
 | `Multiplayer.cs`, `Settings.cs` | Mod | `Settings` mixes the player's options with the server's (`[Header("Server")]`, `Admins`, `Settings.cs:52-67`); later, a server-settings section the Server reads through an interface |
 | `Locale.cs`, `ModCompatibility/`, `Models/` | Shared (locale, mod lists), Client (player models) | |
-| `API/` | `APIProvider`, `ModCompatibilityManager`: Mod. `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
+| `API/` | `APIProvider`, `ModCompatibilityManager`: Shared (the mod list is checked by server, client and menus; the menus show the incompatible-mods popup, `IncompatibleModsWarning`, and `APIProvider` asks the server through `IApiServer`). `ServerAPIProvider`, `ServerPlayerWrapper`: Server. `ClientAPIProvider`, `ClientPlayerWrapper`: Client. `NetIdProvider`, `ExternalSerializablePacketWrapper`: Shared | |
 | `Shared/Session/IdMonoBehaviour.cs`, `TrainComponentLookup.cs` | Shared | |
 | `Components/MainMenu/`, `Components/UI/{GridView,ServerBrowser,Settings}/`, `Components/Util/` | Mod | The front end: host and join |
 | `Components/UI/CareerManager/` | Client | |

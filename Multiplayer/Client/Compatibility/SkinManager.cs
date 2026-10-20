@@ -2,7 +2,7 @@ using System;
 using System.Reflection;
 using UnityModManagerNet;
 
-namespace Multiplayer.Shared.Compatibility;
+namespace Multiplayer.Client.Compatibility;
 
 internal class SkinManager
 {
