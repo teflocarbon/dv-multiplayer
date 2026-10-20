@@ -5,6 +5,7 @@ using DV.Logic.Job;
 using DV.ThingTypes;
 using DV.Utils;
 using HarmonyLib;
+using Multiplayer.Server.Players;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using UnityEngine;

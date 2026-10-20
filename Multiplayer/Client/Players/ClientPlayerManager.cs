@@ -47,6 +47,7 @@ public class ClientPlayerManager
         // Setup player tag
         Object.Instantiate(playerTagPrefab, go.transform);
         NetworkedPlayer networkedPlayer = go.AddComponent<NetworkedPlayer>();
+        go.AddComponent<NetworkedPlayerNameTag>();
 
         networkedPlayer.PlayerId = playerId;
         networkedPlayer.Username = username;

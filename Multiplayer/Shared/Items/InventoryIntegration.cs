@@ -91,10 +91,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
 {
     private bool purgingForeignDroppedClaims;
 
-    public byte LocalPlayerId => NetworkLifecycle.Instance == null ? (byte)0 :
-        NetworkLifecycle.Instance.IsHost()
-            ? ItemServer.Current?.LocalPlayerId ?? 0
-            : NetworkLifecycle.Instance.LocalSession?.PlayerId ?? 0;
+    public byte LocalPlayerId => NetworkRole.LocalPlayerId;
 
     public bool RuntimeActive => NetworkLifecycle.Instance != null &&
         (NetworkLifecycle.Instance.IsClientRunning || NetworkLifecycle.Instance.IsHost());

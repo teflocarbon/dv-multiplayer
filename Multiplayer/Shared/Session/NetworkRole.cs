@@ -47,4 +47,12 @@ public static class NetworkRole
             return lifecycle.IsHost() ? !lifecycle.IsDedicatedHost : lifecycle.IsClientRunning;
         }
     }
+
+    /// <summary>
+    ///     The id of the player at this keyboard (<see cref="ILocalPlayerSession.PlayerId"/>), the same
+    ///     on a host and a client; 0 when there's no session or its login hasn't been accepted yet.
+    ///     On a dedicated host, today, its service identity's id. Use this, not
+    ///     <c>IsHost() ? server id : client id</c>.
+    /// </summary>
+    public static byte LocalPlayerId => NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0;
 }
