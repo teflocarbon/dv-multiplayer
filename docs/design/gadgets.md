@@ -576,6 +576,21 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 | Tests | `Multiplayer.Protocol.Tests/GadgetPacketTests.cs` (round trips). |
 | Scenarios | `DevTools/DvmpScenarios/Library/Gadgets.cs` (spawn a gadget item, install, remove, drill, tape, wire, solder, set and read state through the vanilla tool methods, the digest); `Scenarios/Gadget*.cs`; runs in `DevTools/Scenarios/gate.sh`. |
 
+## Companies
+
+Decided by the user 2026-10-21 for the coming company career (recorded by the economy and licences
+session; the design is [company-career.md](company-career.md), to be written):
+
+- A company is a persistent group of players sharing money, licences and owned locos.
+- Gadgets (with loco paint, the wireless MU controller and the loco remote) are bought with company
+  money and owned by the company, including while a member carries one.
+- Installing, retrieving and the permission checks follow company membership, not the buyer: the
+  owner shown on a gadget is its company, a deleted car's gadgets go to the company's Lost and Found,
+  and the server's request checks ([What the server checks](#what-the-server-checks)) ask whether
+  the requester is a member. The wireless MU controller's licence is the company's.
+
+Until companies exist, gadgets are owned by the player who bought them, as above.
+
 ## Owned items
 
 Gadgets are bought items, and players install them on trains that everyone shares, so "what stops
