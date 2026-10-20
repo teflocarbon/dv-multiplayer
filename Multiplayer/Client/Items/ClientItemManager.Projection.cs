@@ -23,7 +23,7 @@ internal sealed partial class ClientItemManager
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
         {
             NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem described);
-            ItemChangeCauses.OnClientSnapshot(described, snapshot, NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0);
+            ClientItemChangeLog.OnSnapshot(described, snapshot, NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0);
         }
         if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create &&
             RequiresLoadedWorldRegion(snapshot) && !IsWorldRegionReady(snapshot))

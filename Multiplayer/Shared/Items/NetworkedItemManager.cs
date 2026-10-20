@@ -161,7 +161,6 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         NetworkLifecycle.Instance.OnTick -= Common_OnTick;
         // Only a part made this session: the server may be gone already.
         serverPart?.Clear();
-        LostAndFoundList.Clear();
         Cleared?.Invoke();
 
         Spatial?.Clear();

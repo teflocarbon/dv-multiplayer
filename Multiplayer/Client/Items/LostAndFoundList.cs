@@ -3,19 +3,24 @@ using System.Collections.Generic;
 using System.Linq;
 using Multiplayer.Core.Items;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Client.Items;
 
 /// <summary>
 ///     The local player's Lost and Found as the server last sent it: what the career manager's
 ///     screen lists and the inventory's Get button retrieves. The server's own Lost and Found is
-///     <c>NetworkedLostAndFoundManager</c>.
+///     <c>NetworkedLostAndFoundManager</c>, which (like the overlay) reads this list's rows through
+///     <see cref="IItemClient.LostAndFoundDebugSnapshot"/>.
 /// </summary>
 public static class LostAndFoundList
 {
     private static readonly List<LostItemData> items = new();
+
+    // The session's items are gone with the item manager: so is this list.
+    static LostAndFoundList() => NetworkedItemManager.Cleared += Clear;
 
     public static event Action Changed;
     public static IReadOnlyList<LostItemData> Items => items;

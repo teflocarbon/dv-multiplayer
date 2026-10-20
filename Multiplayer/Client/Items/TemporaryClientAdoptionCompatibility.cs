@@ -1,7 +1,7 @@
 using System;
-using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Items;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Client.Items;
 
 /// <summary>
 /// TEMPORARY compatibility bridge for Derail Valley creation paths that have not yet been
@@ -11,6 +11,9 @@ namespace Multiplayer.Shared.Items;
 /// request/validation/host-create flow, then be deleted together with the adoption packets and
 /// coordinators. Scene-authored objects, job-lifecycle objects, and objects not explicitly marked
 /// as player property are never eligible.
+///
+/// This is the client's half: which items it may ask the host to adopt. The host's half, which
+/// requests it accepts, is <c>Server/Items/TemporaryHostAdoptionCompatibility</c>.
 /// </summary>
 internal static class TemporaryClientAdoptionCompatibility
 {
@@ -42,34 +45,6 @@ internal static class TemporaryClientAdoptionCompatibility
         }
 
         reason = "temporary-unconverted-player-item-producer";
-        return true;
-    }
-
-    internal static bool AllowsHostRequest(ItemAdoptionRequestData request,
-        Func<string, bool> isJobDocumentPrefab, out string reason)
-    {
-        if (request.Snapshot == null)
-        {
-            reason = "missing-adoption-snapshot";
-            return false;
-        }
-        if (!string.IsNullOrWhiteSpace(request.AuthoredItemKey))
-        {
-            reason = "authored-item-adoption-forbidden";
-            return false;
-        }
-        if (isJobDocumentPrefab?.Invoke(request.PrefabName) == true)
-        {
-            reason = "job-item-adoption-forbidden";
-            return false;
-        }
-        if (!request.PlayerProperty)
-        {
-            reason = "temporary-adoption-requires-player-property";
-            return false;
-        }
-
-        reason = string.Empty;
         return true;
     }
 }
