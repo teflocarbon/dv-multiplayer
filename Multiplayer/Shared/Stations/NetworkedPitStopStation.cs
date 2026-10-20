@@ -755,22 +755,23 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     }
 
     /// <summary>
-    /// Processes incoming network packets for pit stop interactions.
+    /// Applies another player's pit stop interaction to this world: a client applying a packet, or
+    /// the server applying a remote player's request.
     /// </summary>
     /// <param name="packet">The packet containing interaction data.</param>
-    public void ProcessInteractionPacketAsClient(CommonPitStopInteractionPacket packet)
+    public void ApplyInteractionPacket(CommonPitStopInteractionPacket packet)
     {
         LeverBase grab = null;
         RotaryAmplitudeChecker amplitudeChecker = null;
         LeverBase lever = null;
         LocoResourceModule resourceModule = null;
 
-        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessInteractionPacketAsClient() [{StationName}, {NetId}] Tick: {packet.Tick}, Packet InteractionType: {packet.InteractionType}, ResourceType: {packet.ResourceType}, Value: {packet.Value}");
+        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ApplyInteractionPacket() [{StationName}, {NetId}] Tick: {packet.Tick}, Packet InteractionType: {packet.InteractionType}, ResourceType: {packet.ResourceType}, Value: {packet.Value}");
 
         // Validate interaction type
         if (!Enum.IsDefined(typeof(PitStopStationInteractionType), packet.InteractionType))
         {
-            Multiplayer.LogWarning($"Invalid interaction type: {packet.InteractionType} in ProcessInteractionPacketAsClient()");
+            Multiplayer.LogWarning($"Invalid interaction type: {packet.InteractionType} in ApplyInteractionPacket()");
             return;
         }
 

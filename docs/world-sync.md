@@ -347,7 +347,7 @@ Engine-failure explosions come from the loco simulation, which runs only on the 
 saw none.
 
 The host decides (`Server/Trains/ExplosionServerPatch.cs`), clients play it
-(`Client/Trains/ExplosionClientPatch.cs`), and `Shared/Trains/ExplosionPatch.cs` (`ExplosionSync`)
+(`Client/Trains/ExplosionClientPatch.cs`), and `Shared/Trains/ExplosionSync.cs` (`ExplosionSync`)
 is how both name an explosion. Three kinds (`ExplosionSync.Kind`):
 
 | Kind | Vanilla trigger |
@@ -388,7 +388,7 @@ countdown is blocked, and the host's car wasn't burning.
 
 The host decides: `Server/Trains/CargoFireServerPatch.cs` (`CargoFireServer`) sends and lights,
 `Client/Trains/CargoFireClientPatch.cs` (`CargoFirePlayback`) holds and forwards, and
-`Shared/Trains/CargoFirePatch.cs` (`CargoFireSync`) is how both name a fire:
+`Shared/Trains/CargoFireSync.cs` (`CargoFireSync`) is how both name a fire:
 
 - Host: after each reaction's `Update`, if its state (burning, about to explode) changed since it
   was last sent, it sends `ClientboundCargoFirePacket` (car NetId, the reaction's index among the
