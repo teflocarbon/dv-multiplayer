@@ -46,6 +46,7 @@ host-authority model works end to end, then points at the rest.
 | Doc | What it covers |
 |---|---|
 | [design/parallel-test-sessions.md](design/parallel-test-sessions.md) | Planned: several dvmp host+client pairs at once, to split the gate and repeat scenarios |
+| [research/harness-time-budget.md](research/harness-time-budget.md) | Where dvmp spends wall-clock time: each launch's phases, what dominates a world load, loading against scenario time in a gate batch, and what a faster launch, an in-world reset or a hot reload would save |
 
 Each design doc starts with a status line and has a dated "Implementation status" section that says
 what is built, what is partial and what is not done. Update it when you change how a system syncs.
