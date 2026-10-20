@@ -146,6 +146,28 @@ public sealed class OwnedItemReconcilerTests
     }
 
     [Test]
+    public void MigratedEssentials_KeepTheirClaimSlots_AndAClashIsSplit()
+    {
+        // An old save where the radio (with another player) and the map both claim slot 3.
+        OwnedItemLedger ledger = new();
+        IReadOnlyList<OwnedItemLoadStep> steps = OwnedItemReconciler.Plan(ledger.All(), new[]
+        {
+            new OwnedItemStoreHit(Radio, OwnedItemStore.Possession, OwnedItemWhere.With(Liam, OwnedItemHold.Inventory, 3),
+                Liam, "CommsRadio", claimSlot: 3),
+            new OwnedItemStoreHit(OwnedItemLedgerTests.G(5), OwnedItemStore.Possession,
+                OwnedItemWhere.With(Liam, OwnedItemHold.Inventory, 4), Liam, "Map", claimSlot: 3),
+            new OwnedItemStoreHit(Lantern, OwnedItemStore.World, OwnedItemWhere.World(), Liam, "Lantern")
+        });
+
+        OwnedItemReconciler.ApplyToLedger(ledger, steps);
+
+        Assert.That(ledger.TryGet(Radio, out OwnedItemEntry radio) && radio.ClaimSlot == 3, Is.True);
+        Assert.That(ledger.TryGet(OwnedItemLedgerTests.G(5), out OwnedItemEntry map), Is.True);
+        Assert.That(map.ClaimSlot, Is.EqualTo(EssentialClaimSlotPolicy.InventoryCapacity - 1));
+        Assert.That(ledger.TryGet(Lantern, out OwnedItemEntry lantern) && lantern.ClaimSlot == -1, Is.True);
+    }
+
+    [Test]
     public void AnIdTwiceInAnOldSave_IsRegisteredOnce_FromTheStrongerStore()
     {
         IReadOnlyList<OwnedItemLoadStep> steps = OwnedItemReconciler.Plan(Array.Empty<OwnedItemEntry>(), new[]
