@@ -16,8 +16,8 @@ float mid = float.Parse(ctx.Args["mid"], inv);
 float speed = float.Parse(ctx.Args["speed"], inv);
 if (!Multiplayer.Shared.Trains.NetworkedTrainCar.TryGetFromTrainCar(loco, out var net))
     throw new Exception("loco " + loco.ID + " isn't networked");
-var queue = loco.GetComponent<Multiplayer.Shared.Trains.TrainSpeedQueue>() ?? throw new Exception("no speed queue on " + loco.ID);
-var bogie = loco.Bogies[0].GetComponent<Multiplayer.Shared.Trains.NetworkedBogie>();
+var queue = loco.GetComponent<Multiplayer.Client.Trains.TrainSpeedQueue>() ?? throw new Exception("no speed queue on " + loco.ID);
+var bogie = loco.Bogies[0].GetComponent<Multiplayer.Client.Trains.NetworkedBogie>();
 
 string BandOf(float d) => d <= full ? "near" : d <= mid ? "mid" : "far";
 var bands = new Dictionary<string, Dictionary<string, double>>();
@@ -103,7 +103,7 @@ while (Time.realtimeSinceStartup - t0 < seconds)
             float gap = now - lastSampleAt;
             s["worstGap"] = Math.Max(s["worstGap"], Math.Round(gap, 2));
             // A gap with a frame hitch in it (a teleport loading the world) is the client's own.
-            if (gap > Multiplayer.Shared.Trains.TrainSpeedQueue.StaleSeconds(queue.SampleIntervalSeconds) && gapMaxFrame < 0.3f)
+            if (gap > Multiplayer.Client.Trains.TrainSpeedQueue.StaleSeconds(queue.SampleIntervalSeconds) && gapMaxFrame < 0.3f)
             {
                 s["staleGaps"]++;
                 if (notes.Count < 12) notes.Add($"{now:F1}s {b}: no sample for {gap:F2} s (interval {queue.SampleIntervalSeconds:F2} s)");
