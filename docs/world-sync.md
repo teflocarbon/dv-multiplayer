@@ -19,7 +19,7 @@ own player is also a client and goes through the same request paths unless noted
 | Difficulty (`GameParams`) | Host | Yes (`ReadyForGameData`) | Synced on every change |
 | Wallet, licences, garages | Host | Yes (save-game packet) | Synced; some client spends not forwarded |
 | Debt | Host | Yes (save-game packet) | Flag only; an admin client pays all fees at once |
-| Shops | Host (stock, payment, spawn) | Stock yes | Synced, escrowed |
+| Shops | Host (stock, payment, spawn) | Stock yes | Money and items synced; registers, shelves and scanner per game ([redesign](design/shops.md)) |
 | Service stations | Host | On entering the station's range | Synced; station interactions not validated |
 | Junctions, turntables | Last writer | Yes (`ReadyForWorldState`) | Relayed, not validated |
 | Generic switches | Host | Yes (`ReadyForWorldState`) | Synced, reach-checked |
@@ -218,6 +218,10 @@ only, so a client destroying its copy of a bought item doesn't restock.
 The host's own purchases run vanilla and broadcast the stock afterwards.
 `CashRegisterWithModulesPatch` doesn't replay the host's shop buy or cancel on clients: each
 game's shop register is separate.
+
+This is how shops work today. Their gaps (unshared registers and shelves, the host's unowned
+purchases, client-local receipts, licence limits missing on clients, restocks that shouldn't happen)
+and the redesign that replaces this section are in [design/shops.md](design/shops.md).
 
 Scenario: `DevTools/Scenarios/shop` (client buys, host wallet pays once, one NetId on both, stock
 drops; cancelled basket refunds without a banknote).
