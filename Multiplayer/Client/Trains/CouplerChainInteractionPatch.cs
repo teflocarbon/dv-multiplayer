@@ -1,6 +1,7 @@
 using HarmonyLib;
 using Multiplayer.Shared.Protocol.Data.Train;
 using Multiplayer.Shared.Session;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -27,7 +28,7 @@ public static class ChainCouplerInteractionPatch
             });
 
         if (flag != CouplerInteractionType.NoAction)
-            NetworkLifecycle.Instance.Client.SendCouplerInteraction(flag, __instance?.couplerAdapter?.coupler);
+            NetworkClient.Instance.SendCouplerInteraction(flag, __instance?.couplerAdapter?.coupler);
     }
 
 }

@@ -40,5 +40,5 @@ return new
     heldBy = (int)netPlug.HeldByPlayerId,
     holding = (int)netPlug.playerHolding,
     remoteGrabbed = station.isResourceRemoteGrabbedDict.TryGetValue(resource, out bool g) && g,
-    me = (int)lifecycle.Client.PlayerId,
+    me = (int)Multiplayer.Client.Session.NetworkClient.Instance.PlayerId,
 };

@@ -35,7 +35,7 @@ public static class Probe
             prefix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(Guid), BindingFlags.NonPublic | BindingFlags.Static)));
 
         DevContext.State["dvmp.join.disconnect"] = null;
-        lifecycle.StartClient(address, port, password, false,
+        global::Multiplayer.MultiplayerSession.Instance.StartClient(address, port, password, false,
             (reason, detail) => DevContext.State["dvmp.join.disconnect"] = reason + ": " + detail);
 
         return new { address, port, name, guid = guid.ToString() };

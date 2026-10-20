@@ -88,7 +88,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static Held HostHas(ushort id)
             {
-                var server = NetworkLifecycle.Instance.Server;
+                var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
                 AuthoritativeItemRegistry.TryGet(id, out var r);
                 NetworkedItem.TryGet(id, out NetworkedItem n);

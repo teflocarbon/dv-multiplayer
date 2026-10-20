@@ -24,8 +24,8 @@ public sealed class CodeLayoutTests
     private const string WriteAllowListVariable = "MULTIPLAYER_WRITE_ROLE_ALLOWLIST";
 
     private static readonly string[] RoleFolders = { "Shared", "Server", "Client", "Menus" };
-    // The root namespace: UMM's entry point (Multiplayer.Multiplayer.Load), the settings and the locale.
-    private static readonly string[] RootFiles = { "Multiplayer.cs", "Settings.cs", "Locale.cs" };
+    // The root namespace: UMM's entry point (Multiplayer.Multiplayer.Load), the session root, the settings and the locale.
+    private static readonly string[] RootFiles = { "Multiplayer.cs", "MultiplayerSession.cs", "Settings.cs", "Locale.cs" };
 
     private static readonly Regex NamespaceDeclaration =
         new(@"^\s*namespace\s+([A-Za-z_][\w.]*)\s*[;{]?\s*$", RegexOptions.Multiline);

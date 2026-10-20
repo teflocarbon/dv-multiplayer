@@ -110,7 +110,7 @@ public static class Probe
             },
             players = new
             {
-                server = lifecycle?.IsServerRunning == true ? lifecycle.Server.ServerPlayers.Select(p => p.Username).ToArray() : null,
+                server = lifecycle?.IsServerRunning == true ? Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers.Select(p => p.Username).ToArray() : null,
                 remoteAvatars = Dev.All<Multiplayer.Shared.Players.NetworkedPlayer>().Count,
             },
             packets = new

@@ -27,7 +27,7 @@ if (op == "seed")
 {
     double amount = double.Parse(ctx.Args["amount"]);
     register.SetCash(amount);
-    Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
+    Multiplayer.Server.Session.NetworkServer.Instance.SendCashRegisterAction(new CommonCashRegisterWithModulesActionPacket
     {
         NetId = reg.NetId,
         Action = CashRegisterAction.SetFunds,

@@ -23,7 +23,7 @@ internal sealed partial class ServerItemManager
 
     public bool RequestHostRecall(NetworkedItem item, int requestedSlot)
     {
-        ServerPlayer hostPlayer = NetworkLifecycle.Instance.Server.LocalPlayer;
+        ServerPlayer hostPlayer = NetworkServer.Instance.LocalPlayer;
         if (hostPlayer == null)
             return false;
         byte localPlayerId = hostPlayer.PlayerId;
@@ -68,7 +68,7 @@ internal sealed partial class ServerItemManager
             item.ApplyServerCanonicalSnapshot(snapshot);
             item.CompleteLocalRecallPreparation(0, true);
         }
-        NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
         return true;
     }
 
@@ -284,7 +284,7 @@ internal sealed partial class ServerItemManager
             }
             item.ApplyServerCanonicalSnapshot(snapshot);
             RegisterHostWorldItem(item);
-            NetworkLifecycle.Instance.Server.SendItemUpdatePacket(snapshot, excludePlayer: player);
+            NetworkServer.Instance.SendItemUpdatePacket(snapshot, excludePlayer: player);
         }
     }
 

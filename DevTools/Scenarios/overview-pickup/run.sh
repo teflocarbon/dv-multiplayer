@@ -62,7 +62,7 @@ for id in $ids; do
   [ $n -ge "$PICKS" ] && break
   n=$((n + 1))
   c=$($D eval -t client -m coroutine --timeout 60 -u "$U" -a item=$id -f $P/pick.cs)
-  h=$($D eval -t host -m body -u "$U" -a item=$id 'ushort id = ushort.Parse(ctx.Args["item"]); var server = NetworkLifecycle.Instance.Server; var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId); AuthoritativeItemRegistry.TryGet(id, out var r); return new { placement = r?.Placement.ToString(), mine = r != null && r.PlacementPlayerId == client.PlayerId };')
+  h=$($D eval -t host -m body -u "$U" -a item=$id 'ushort id = ushort.Parse(ctx.Args["item"]); var server = Multiplayer.Server.Session.NetworkServer.Instance; var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId); AuthoritativeItemRegistry.TryGet(id, out var r); return new { placement = r?.Placement.ToString(), mine = r != null && r.PlacementPlayerId == client.PlayerId };')
   echo "   overview $id: client holds it $(echo "$c" | field held) (still after 3 s: $(echo "$c" | field kept)); host records $(echo "$h" | field placement), the client's: $(echo "$h" | field mine)"
   [ "$(echo "$c" | field kept)" = "true" ] || fail "the client's pickup of overview $id was refused"
   [ "$(echo "$h" | field mine)" = "true" ] || fail "the host doesn't have overview $id in the client's hand"

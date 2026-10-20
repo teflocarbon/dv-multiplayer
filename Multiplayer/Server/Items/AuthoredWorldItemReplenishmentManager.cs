@@ -11,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Items;
 
@@ -221,7 +222,7 @@ internal sealed class AuthoredWorldItemReplenishmentManager
     private static bool AnyPlayerInterested(Vector3 absolutePosition)
     {
         WorldItemCellCoord slotCell = WorldItemCellCoord.FromAbsolute(absolutePosition);
-        return NetworkLifecycle.Instance.Server.GameplayPlayers.Any(player => player != null &&
+        return NetworkServer.Instance.GameplayPlayers.Any(player => player != null &&
             player.LoadingState >= PlayerLoadingState.ReadyForItems &&
             WorldItemCellCoord.Neighbourhood(WorldItemCellCoord.FromAbsolute(player.AbsoluteWorldPosition))
                 .Contains(slotCell));

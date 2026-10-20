@@ -678,7 +678,7 @@ public static class AuthoritativeItemRegistry
         ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(reason,
             detail: "in Lost and Found, owner " + (ItemChangeLog.PlayerName(ownerPlayerId) ?? "P" + ownerPlayerId) +
                     (reason == ItemMoveReason.HostCorrection ? ", retrieval rolled back" : null)));
-        if (NetworkLifecycle.Instance.Server.TryGetServerPlayer(ownerPlayerId, out ServerPlayer owner))
+        if (NetworkServer.Instance.TryGetServerPlayer(ownerPlayerId, out ServerPlayer owner))
         {
             record.PersistentOwnerIdentity = owner.Guid;
             owner.AddOwnedItem(item.NetId);
@@ -727,7 +727,7 @@ public static class AuthoritativeItemRegistry
         };
         records[item.NetId] = record;
         if (persistentOwnerPlayerId != 0 &&
-            NetworkLifecycle.Instance.Server.TryGetServerPlayer(persistentOwnerPlayerId,
+            NetworkServer.Instance.TryGetServerPlayer(persistentOwnerPlayerId,
                 out ServerPlayer owner))
         {
             record.PersistentOwnerIdentity = owner.Guid;
@@ -1006,7 +1006,7 @@ public static class AuthoritativeItemRegistry
         bool corrected = lost
             ? NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out correction)
             : TryCreateCorrectionSnapshot(item, out correction, record.LastMove);
-        NetworkServer server = NetworkLifecycle.Instance?.Server;
+        NetworkServer server = NetworkServer.Instance;
         bool hostOwns = server != null && record.PersistentOwnerPlayerId != 0 &&
             record.PersistentOwnerPlayerId == server.SelfId;
         if (corrected && hostOwns && !lost)
@@ -1057,7 +1057,7 @@ public static class AuthoritativeItemRegistry
     {
         if (record.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory))
             return;
-        var server = NetworkLifecycle.Instance?.Server;
+        var server = NetworkServer.Instance;
         if (server == null || record.PlacementPlayerId != server.SelfId)
             return;
         byte possessor = item.playerBelongsToId;

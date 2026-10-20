@@ -1,5 +1,5 @@
 // Client: whether the host's avatar wears character `id` (its model is that prefab's instance).
-var host = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Client.ClientPlayerManager.Players
+var host = Multiplayer.Client.Session.NetworkClient.Instance.ClientPlayerManager.Players
     .FirstOrDefault(p => p.PlayerId == byte.Parse(ctx.Args["host"]));
 var prefab = global::Multiplayer.Multiplayer.PlayerModelRegistry.GetModelById(ctx.Args["id"]).Prefab;
 string model = host?.playerModel?.name ?? "";

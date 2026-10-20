@@ -5,6 +5,7 @@ using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Session;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Jobs;
 
@@ -46,7 +47,7 @@ public static class JobValidator_ClientPatch
             __instance.bookletPrinter.PlayErrorSound();
             return false;
         }
-        NetworkLifecycle.Instance.Client.SendJobBookletSummonRequest(station.NetId);
+        NetworkClient.Instance.SendJobBookletSummonRequest(station.NetId);
         return false;
     }
 
@@ -79,13 +80,13 @@ public static class JobValidator_ClientPatch
             netJob.JobValidator = validator;
             netJob.ValidationType = type;
 
-            NetworkLifecycle.Instance.Client.SendJobValidateRequest(netJob, networkedStation,
+            NetworkClient.Instance.SendJobValidateRequest(netJob, networkedStation,
                 validationItem);
             CoroutineManager.Instance.StartCoroutine(AwaitResponse(validator, netJob));
         }
         else
         {
-            NetworkLifecycle.Instance.Client.LogError($"Failed to validate {type} for {netJob?.Job?.ID}. NetworkedStation not found!");
+            NetworkClient.Instance.LogError($"Failed to validate {type} for {netJob?.Job?.ID}. NetworkedStation not found!");
             validator.bookletPrinter.PlayErrorSound();
         }
     }
@@ -104,7 +105,7 @@ public static class JobValidator_ClientPatch
             }
         );
 
-        //WaitForSecondsRealtime(Math.Max(4f,(NetworkLifecycle.Instance.Client.Ping * 4f)/1000));
+        //WaitForSecondsRealtime(Math.Max(4f,(NetworkClient.Instance.Ping * 4f)/1000));
 
         bool received = networkedJob.ValidatorResponseReceived;
         bool accepted = networkedJob.ValidationAccepted;
@@ -112,7 +113,7 @@ public static class JobValidator_ClientPatch
         var receivedStr = received ? "received" : "timed out";
         var acceptedStr = accepted ? " Accepted" : " Rejected";
 
-        NetworkLifecycle.Instance.Client.Log($"Job Validation Response {receivedStr} for {networkedJob?.Job?.ID}.{acceptedStr}");
+        NetworkClient.Instance.Log($"Job Validation Response {receivedStr} for {networkedJob?.Job?.ID}.{acceptedStr}");
 
         if (networkedJob == null)
         {

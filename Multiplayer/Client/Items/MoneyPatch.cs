@@ -4,6 +4,7 @@ using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Items;
 
@@ -48,6 +49,6 @@ public static class MoneyPatch
             NetworkLifecycle.Instance.IsHost() || !NetworkLifecycle.Instance.IsClientRunning)
             return;
         if (__instance.TryGetComponent(out NetworkedItem networked) && networked.NetId != 0)
-            NetworkLifecycle.Instance.Client.SendMoneyItemDeposit(networked.NetId);
+            NetworkClient.Instance.SendMoneyItemDeposit(networked.NetId);
     }
 }

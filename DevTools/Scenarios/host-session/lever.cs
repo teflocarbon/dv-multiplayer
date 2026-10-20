@@ -6,8 +6,8 @@
 // after the grab ("host", "none" or a name) and the lease count after letting go.
 var car = Trains.Find(ctx.Args["loco"]);
 var ntc = car.GetComponent<Multiplayer.Shared.Trains.NetworkedTrainCar>();
-var server = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server;
-var client = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Client;
+var server = Multiplayer.Server.Session.NetworkServer.Instance;
+var client = Multiplayer.Client.Session.NetworkClient.Instance;
 
 yield return Trains.Board(car);
 var c = car.loadedInterior.GetComponentsInChildren<DV.CabControls.ControlImplBase>(true).First(x => x.name == ctx.Args["control"]);

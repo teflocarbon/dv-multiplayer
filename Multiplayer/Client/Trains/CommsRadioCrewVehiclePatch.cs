@@ -46,7 +46,7 @@ public static class CommsRadioCrewVehiclePatch
         }
 
         var ticket = RpcManager.Instance
-            .CreateTicket(Mathf.Max(NetworkLifecycle.Instance.Client.RPC_Timeout, 2f))
+            .CreateTicket(Mathf.Max(NetworkClient.Instance.RPC_Timeout, 2f))
             .OnResolve
             (
                 response =>
@@ -89,7 +89,7 @@ public static class CommsRadioCrewVehiclePatch
                 }
             );
 
-        NetworkLifecycle.Instance.Client.SendWorkTrainRequest
+        NetworkClient.Instance.SendWorkTrainRequest
         (
             ticket.TicketId,
             __instance.selectedCar.livery.id,

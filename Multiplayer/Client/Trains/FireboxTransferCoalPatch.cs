@@ -2,6 +2,7 @@ using DV.Simulation.Cars;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -30,7 +31,7 @@ public static class FireboxTransferCoalPatch
         if (car == null || !NetworkedTrainCar.TryGetFromTrainCar(car, out NetworkedTrainCar networkedCar))
             return;
         float delta = coalMass / __instance.coalConsumptionMultiplier;
-        lifecycle.Client.LogDebug(() => $"FireboxTransferCoalPatch({car.ID}): coal added {delta}");
-        lifecycle.Client.SendAddCoal(networkedCar.NetId, delta);
+        NetworkClient.Instance.LogDebug(() => $"FireboxTransferCoalPatch({car.ID}): coal added {delta}");
+        NetworkClient.Instance.SendAddCoal(networkedCar.NetId, delta);
     }
 }

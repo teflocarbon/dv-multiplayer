@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -54,7 +55,7 @@ public static class LocoRestorationControllerStartPatch
         if (NetworkLifecycle.Instance.IsHost())
             return AStartGameData.carsAndJobsLoadingFinished;
 
-        return NetworkLifecycle.Instance.Client.LoadingState == global::Multiplayer.Shared.Protocol.Data.PlayerLoadingState.Complete;
+        return NetworkClient.Instance.LoadingState == global::Multiplayer.Shared.Protocol.Data.PlayerLoadingState.Complete;
     }
 }
 

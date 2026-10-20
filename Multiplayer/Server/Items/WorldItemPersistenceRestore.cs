@@ -345,6 +345,6 @@ internal static partial class WorldItemPersistenceManager
     {
         if (identity == Guid.Empty)
             return null;
-        return NetworkLifecycle.Instance.Server.ServerPlayers.FirstOrDefault(player => player.Guid == identity);
+        return NetworkServer.Instance.ServerPlayers.FirstOrDefault(player => player.Guid == identity);
     }
 }
