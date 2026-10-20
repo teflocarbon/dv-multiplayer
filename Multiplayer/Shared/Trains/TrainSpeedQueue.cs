@@ -20,8 +20,8 @@ public class TrainSpeedQueue : TickedQueue<float>
     private const float SlowCorrectionSpeed = 0.5f;     // m/s, plus a larger share: see the limit in FixedUpdate
     private const float SlowCorrectionSpeedFraction = 0.5f;
     private const float StaleSampleSeconds = 0.5f;
-    /// <summary>Sample intervals a car may go without one before it's taken as lost (see <see cref="StaleSeconds"/>).</summary>
-    public const float StaleSampleIntervals = 2.5f;
+    /// <summary>Sample intervals a car may go without one, beyond <see cref="StaleSampleSeconds"/>, before it's taken as lost (see <see cref="StaleSeconds"/>).</summary>
+    public const float StaleSampleIntervals = 2f;
     private const float MaxSpeedAcceleration = 8f;      // m/s², easing the host's speed between samples
     private const float MaxCorrectionAcceleration = 4f; // m/s², easing the position correction
     private const float ImpactSpeedStep = 1.5f;         // m/s jump in the host's speed: only impacts make one
@@ -99,11 +99,14 @@ public class TrainSpeedQueue : TickedQueue<float>
     }
 
     /// <summary>
-    /// How long a moving car goes without a sample before they're taken as lost: 0.5 s, or two
-    /// and a half sample intervals for a far train, so one lost far sample is ridden out too.
+    /// How long (real time: samples arrive in real time) a moving car goes without a sample
+    /// before they're taken as lost: 0.5 s close by, plus two sample intervals for a far train,
+    /// so one or two lost samples are ridden out (1 s at 4 Hz, 2.5 s at 1 Hz). Unreliable samples
+    /// do get lost: at 4 Hz a 0.9 s gap took a car as lost (train-rate, 2026-10-20).
     /// </summary>
     public static float StaleSeconds(float sampleIntervalSeconds) =>
-        Mathf.Max(StaleSampleSeconds, StaleSampleIntervals * sampleIntervalSeconds);
+        sampleIntervalSeconds * NetworkLifecycle.TICK_RATE <= 1.5f ? StaleSampleSeconds
+            : StaleSampleSeconds + StaleSampleIntervals * sampleIntervalSeconds;
 
     /// <summary>Kinematic because of us (placing or parked): nothing else should change it.</summary>
     public bool Kinematic => Placing || Parked;
@@ -143,7 +146,7 @@ public class TrainSpeedQueue : TickedQueue<float>
     protected override void Process(float snapshot, uint snapshotTick)
     {
         targetSpeed = snapshot;
-        lastSampleTime = Time.time;
+        lastSampleTime = Time.realtimeSinceStartup;
         SampleIntervalSeconds = receivedIntervalSeconds;
     }
 
@@ -175,7 +178,7 @@ public class TrainSpeedQueue : TickedQueue<float>
         // away). Samples stopping without the host saying the car stopped means they were lost:
         // leave the car to local physics at the host's last speed, not still carrying a
         // correction it no longer needs (it would roll on with it).
-        if (Time.time - lastSampleTime > StaleSeconds(SampleIntervalSeconds))
+        if (Time.realtimeSinceStartup - lastSampleTime > StaleSeconds(SampleIntervalSeconds))
         {
             if (driving)
                 ApplySpeed(easedSpeed);

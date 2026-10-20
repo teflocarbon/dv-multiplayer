@@ -118,7 +118,11 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         sampleSpeed = movement.SpeedMetresPerSecond;
         sampleInterval = movement.IntervalSeconds;
         float ageSeconds = (NetworkLifecycle.Instance.Tick - (float)snapshotTick) / NetworkLifecycle.TICK_RATE;
-        sampleTime = Time.time - Mathf.Clamp(ageSeconds, 0f, MaxSampleAgeSeconds);
+        // Real time: the host's train moves in real time. A client below 12 fps runs its game
+        // time slower (DV caps the frame's delta), and projecting in game time put the host's
+        // train behind where it was by the time the next sample came: a second apart, far trains
+        // fell metres behind and the next full sync snapped them (train-rate, 2026-10-20).
+        sampleTime = Time.realtimeSinceStartup - Mathf.Clamp(ageSeconds, 0f, MaxSampleAgeSeconds);
         hasSample = true;
     }
 
@@ -153,7 +157,7 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         // A moving one is projected until the car would be taken as lost (TrainSpeedQueue): 1 s
         // close by, longer for a far train, whose samples come up to a second apart.
         bool holding = Mathf.Abs(sampleSpeed) < TrainSpeedQueue.HoldSpeed;
-        float age = Time.time - sampleTime;
+        float age = Time.realtimeSinceStartup - sampleTime;
         float maxAge = holding ? MaxHoldSampleAgeSeconds
             : Mathf.Max(MaxSampleAgeSeconds * 2, MaxSampleAgeSeconds + TrainSpeedQueue.StaleSeconds(sampleInterval));
         if (!hasSample || Bogie == null || Bogie.HasDerailed || Bogie.track != sampleTrack ||
@@ -163,7 +167,7 @@ public class NetworkedBogie : TickedQueue<NetworkedBogie.MovementSnapshot>
         // Span increases along the bogie's forward when its track direction is +1.
         float bogieToCar = Mathf.Sign(Vector3.Dot(Bogie.transform.forward, car.transform.forward));
         double hostSpan = holding ? sampleSpan
-            : sampleSpan + sampleDirection * bogieToCar * sampleSpeed * (Time.time - sampleTime);
+            : sampleSpan + sampleDirection * bogieToCar * sampleSpeed * age;
         metres = (float)(hostSpan - Bogie.traveller.Span) * Bogie.TrackDirectionSign * bogieToCar;
         return true;
     }

@@ -21,9 +21,9 @@ SPEED=${SPEED:-5}; NEAR=${NEAR:-6}; MID=${MID:-10}; FAR=${FAR:-16}; BACK=${BACK:
 FULL_M=1500; MID_M=4000
 field() { node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.error(o.compileError||JSON.stringify(x));process.exit(1)}const v=x.result[process.argv[1]];console.log(typeof v==="object"?JSON.stringify(v):v)' "$1"; }
 fail() { echo "FAIL: $*"; exit 1; }
-# The host's sends of the trainset physics packet per second over a window (dvmp perf's counters).
-rate() { $D eval -t host -m coroutine --timeout $(( $1 + 60 )) -a seconds=$1 -a retained=false -f DevTools/Dvmp/Probes/perf.cs |
-  node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(!x||!x.ok){console.log("?");process.exit(0)}const t=(x.result.packets.byType||[]).find(p=>p.key.endsWith(" ClientboundTrainsetPhysicsPacket")&&p.key.startsWith("send"));console.log(t?`${t.perSecond}/s, ${t.bytesPerSecond} B/s`:"0/s")'; }
+# The host's ClientboundTrainsetPhysicsPacket sends a second over a window, in all and per player.
+rate() { $D eval -t host -m class --timeout $(( $1 + 60 )) -a seconds=$1 -f $P/sends.cs |
+  node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.log("? ("+(o.compileError||(x&&x.error)||"no result")+")");process.exit(0)}const r=x.result;console.log(`${r.perSecond}/s, ${r.bytesPerSecond} B/s; to `+(Object.entries(r.players).map(([k,v])=>k+" "+v+"/s").join(", ")||"nobody"))'; }
 cars=""
 settings_restore=""
 cleanup() {
@@ -46,14 +46,25 @@ ROOM=$(( SPEED * (HOLD + 20) + 60 ))
 s=$($D eval -t host -m coroutine --timeout 200 -a wagons=2 -a room=$ROOM -f DevTools/Scenarios/host-stall/setup.cs)
 cars=$(echo "$s" | field cars); loco=$(echo "$s" | field loco); dir=$(echo "$s" | field dir)
 echo "== $cars on $(echo "$s" | field track), $(echo "$s" | field clear) m clear; the host drives it at ${SPEED} m/s"
+# A player host drives from the cab, as its player would: in batch 11 (2026-10-20) the throttle,
+# set with the host's player elsewhere, didn't move the train on a player host (it did on a
+# dedicated one, which has no player). The host's player isn't a recipient: the rates are the client's.
+dedicated=$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsDedicatedHost };' | field d)
+if [ "$dedicated" != "true" ]; then
+  $D eval -t host -m coroutine --timeout 60 -a loco=$loco 'yield return Trains.Board(Trains.Find(ctx.Args["loco"]));' >/dev/null || fail "the host's player couldn't board $loco"
+fi
 # Drive with the reverser towards the clear side, then hold until the run is done and brake.
 $D eval -t host -m coroutine --timeout $(( HOLD + 120 )) -a loco=$loco -a dir=$dir -a speed=$SPEED -a hold=$HOLD \
   'var l = Trains.Find(ctx.Args["loco"]); l.SimController.controlsOverrider.Reverser?.Set(int.Parse(ctx.Args["dir"]) > 0 ? 1f : 0f); yield return Trains.Drive(l, float.Parse(ctx.Args["speed"]), float.Parse(ctx.Args["hold"]), float.Parse(ctx.Args["hold"]) + 90f); foreach (var c in l.trainset.cars) c.brakeSystem.SetHandbrakePosition(1f); ctx.Result = new { v = Math.Round(l.GetForwardSpeed(), 2) };' >"$T/drive.json" &
 v=$($D eval -t host -m coroutine --timeout 90 -a loco=$loco -a speed=$SPEED 'var l = Trains.Find(ctx.Args["loco"]); for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 60f && Mathf.Abs(l.GetForwardSpeed()) < 0.85f * float.Parse(ctx.Args["speed"]);) yield return null; ctx.Result = new { v = Math.Round(Mathf.Abs(l.GetForwardSpeed()), 1) };' | field v)
-awk -v v="$v" -v s="$SPEED" 'BEGIN { exit !(v >= 0.85 * s) }' || fail "the train never got up to speed (${v} m/s)"
+if ! awk -v v="$v" -v s="$SPEED" 'BEGIN { exit !(v >= 0.85 * s) }'; then
+  echo "   loco: $($D eval -t host -m body -a loco=$loco 'var l = Trains.Find(ctx.Args["loco"]); var o = l.SimController.controlsOverrider; return new { v = Math.Round(l.GetForwardSpeed(), 2), throttle = o.Throttle?.Value, reverser = o.Reverser?.Value, independent = o.IndependentBrake?.Value, train = o.Brake?.Value, handbrake = l.brakeSystem.handbrakePosition, cylinder = Math.Round(l.brakeSystem.brakeCylinderPressure, 2), engine = o.EngineOnReader?.IsOn, l.derailed, hostPlayerCar = PlayerManager.Car?.ID };' 2>&1 | tr -d '\r\n' | head -c 800)"
+  echo "   drive: $(tr -d '\r\n' <"$T/drive.json" | head -c 800)"
+  fail "the train never got up to speed (${v} m/s)"
+fi
 
 W=$(( NEAR + MID + FAR + BACK + 45 ))
-$D eval -t client -m coroutine --timeout $(( W + 30 )) -a loco=$loco -a cars=$cars -a seconds=$W -a full=$FULL_M -a mid=$MID_M -f $P/watch.cs >"$T/watch.json" &
+$D eval -t client -m coroutine --timeout $(( W + 30 )) -a loco=$loco -a cars=$cars -a seconds=$W -a full=$FULL_M -a mid=$MID_M -a speed=$SPEED -f $P/watch.cs >"$T/watch.json" &
 WATCH=$!
 
 # A station the given distance range from the client's copy of the train, or nothing.
@@ -104,7 +115,7 @@ const [d,before,speed,a1,a2,a3]=process.argv.slice(1); const w=v(d+"/watch.json"
 const want={near:{interval:1,min:12,max:30},mid:{interval:6,min:2,max:6.5},far:{interval:24,min:0.5,max:2.5}};
 for (const b of ["near","mid","far"]) {
   const s=w.bands[b]; if(!s){console.log(`   ${b}: not visited`); if(b!=="mid") bad.push("never "+b); continue;}
-  console.log(`   ${b} (${s.minDistance}-${s.maxDistance} m, ${s.seconds} s): ${s.samplesPerSecond} samples/s, interval ${s.intervalTicks} ticks, worst gap ${s.worstGap} s, ${s.staleGaps} lost, worst step ${s.worstStep} m, slowest second ${s.slowestSecond} m/s`);
+  console.log(`   ${b} (${s.minDistance}-${s.maxDistance} m, ${s.seconds} s, ${s.fps} fps, game time at ${s.gameRate}x): ${s.samplesPerSecond} samples/s, interval ${s.intervalTicks} ticks, worst gap ${s.worstGap} s, ${s.staleGaps} lost, worst step ${s.worstStep} m, slowest second ${s.slowestSecond} m/s (real ${s.slowestRealSecond})`);
   if (s.staleGaps>0) bad.push(`${b}: ${s.staleGaps} gaps long enough to take the car as lost`);
   if (s.worstStep>0.5) bad.push(`${b}: the train snapped ${s.worstStep} m`);
   if (b!=="near" && s.slowestSecond < 0.5*speed) bad.push(`${b}: the train stalled (slowest second ${s.slowestSecond} m/s)`);

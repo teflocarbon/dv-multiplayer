@@ -1019,10 +1019,13 @@ host speed eases at up to 8 m/s² and the correction at up to 4 m/s², except th
 over 1.5 m/s (an impact) is taken at once. A bogie on a different track from the host's is set
 onto the host's track unless it is just crossing to the adjacent one. A car taken over from local
 physics starts at the host's speed with no correction (its local motion never happened on the
-host). If moving samples stop arriving for 0.5 s, or 2.5 of the host's announced intervals when
-that is longer (a far train), the car is handed back to local physics at the host's last speed,
-without the correction term. A moving bogie sample is projected for as long (1 s close by, 3 s
-for a train sent once a second) before it's no longer used for the correction.
+host). If moving samples stop arriving for 0.5 s of real time (plus two of the host's announced
+intervals for a train sent less often than every tick: 1 s at 4 Hz, 2.5 s at 1 Hz), the car is
+handed back to local physics at the host's last speed, without the correction term. A moving
+bogie sample is projected in real time, for 0.5 s longer than that (1 s close by, 3 s at 1 Hz),
+before it's no longer used for the correction. Real time, because the host's train moves in real
+time: a client below 12 fps runs its game time slower (DV caps a frame's delta), and a projection
+in game time fell behind the host's train between samples a second apart.
 
 A sample under 0.01 m/s (vanilla's stationary threshold) means the host's car is stopped, and the
 client holds its car there (`TrainSpeedQueue.Hold`); it is followed again only above 0.05 m/s, so a
@@ -1130,8 +1133,15 @@ projection to it (above), so a far train keeps moving at the host's last speed b
 instead of stopping and snapping, and the correction resumes with the next sample. Coming back
 into range only makes samples more frequent: the position error is what built up over one far
 interval, closed by the ordinary correction. Scenario `train-rate` checks each band's rate, no
-lost-car gaps, snaps or stalls, boarding the train after being far, and that the peers agree;
-it prints the host's packets per second per band (`BEFORE=1` for every tick to everyone).
+lost-car gaps, snaps or stalls (in the client's own game time; it reports that rate and the
+fps), boarding the train after being far, and that the peers agree; it prints the host's
+packets per second per band and per player (`BEFORE=1` for every tick to everyone).
+
+The first in-game run (batch 11, dedicated host) found far trains on the client 1.5-2 m apart
+from the host's, slowing to about 2 m/s at 5 m/s in mid and far and snapped 5-7 m by full syncs,
+with gaps of 0.9 s at 4 Hz and 2 s at 1 Hz (unreliable samples lost). The real-time projection
+and the longer lost-car timeout above are the fix; the next run's per-band game-time rate shows
+how much of the slowing was the client's own frame rate.
 
 ## Loading-state delivery
 
