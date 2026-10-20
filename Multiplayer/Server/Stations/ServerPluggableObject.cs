@@ -33,14 +33,11 @@ public class ServerPluggableObject : MonoBehaviour
             return;
         this.station = station;
         Plug = GetComponent<NetworkedPluggableObject>();
-        Plug.HostStateChanged += SendToStation;
         Server.PlayerDisconnected += OnPlayerDisconnected;
     }
 
     protected void OnDestroy()
     {
-        if (Plug != null)
-            Plug.HostStateChanged -= SendToStation;
         if (Server != null)
             Server.PlayerDisconnected -= OnPlayerDisconnected;
     }
@@ -216,8 +213,58 @@ public class ServerPluggableObject : MonoBehaviour
         SendToStation(packet, disconnectedPlayer);
     }
 
-    // The plug's state changed in the server's world (the hose yanked it or snapped it home).
-    private void SendToStation(CommonPitStopPlugInteractionPacket packet) => SendToStation(packet, null);
+    #region The hose's rope physics (PropHoseRopePatch)
+
+    /// <summary>The stretched hose pulled the plug out of the holder's hand, with this force.</summary>
+    public static void YankedByRope(NetworkedPluggableObject plug, Vector3 force, ForceMode mode)
+    {
+        Multiplayer.LogDebug(() => $"ServerPluggableObject.YankedByRope() [{plug.transform.parent.name}, {plug.NetId}] station: {plug.Station?.StationName}, force: {force}");
+
+        ApplyByRope(plug, new CommonPitStopPlugInteractionPacket
+        {
+            NetId = plug.NetId,
+            InteractionType = PlugInteractionType.Yanked,
+            Position = plug.transform.position - WorldMover.currentMove,
+            Rotation = plug.transform.rotation,
+            YankForce = force,
+            YankMode = mode,
+        });
+    }
+
+    /// <summary>The hose snapped the plug, held by nobody, home to its stand.</summary>
+    public static void SnappedByRope(NetworkedPluggableObject plug)
+    {
+        Multiplayer.LogDebug(() => $"ServerPluggableObject.SnappedByRope() [{plug.transform.parent.name}, {plug.NetId}] station: {plug.Station?.StationName}");
+
+        ApplyByRope(plug, new CommonPitStopPlugInteractionPacket
+        {
+            NetId = plug.NetId,
+            InteractionType = PlugInteractionType.DockHome,
+        });
+    }
+
+    // The plug's state changed in the server's world by itself: apply it here, then tell the players
+    // at the station.
+    private static void ApplyByRope(NetworkedPluggableObject plug, CommonPitStopPlugInteractionPacket packet)
+    {
+        //cancel any client events
+        plug.CancelLocalInteraction();
+
+        plug.HeldByPlayerId = 0;
+        plug.TrainCarNetId = NetworkedPluggableObject.INVALID_NETID;
+        plug.SocketIndex = NetworkedPluggableObject.INVALID_SOCKET;
+        plug.IsConnecting = false;
+
+        //Allow host to process packet
+        plug.ProcessingAsHost = true;
+        plug.ProcessPacket(packet);
+        plug.ProcessingAsHost = false;
+
+        if (plug.TryGetComponent(out ServerPluggableObject serverPlug) && serverPlug.Plug != null)
+            serverPlug.SendToStation(packet, null);
+    }
+
+    #endregion
 
     // To the players at the station except one, and never the host's own player: its world is this one.
     private void SendToStation(CommonPitStopPlugInteractionPacket packet, ServerPlayer except)

@@ -7,38 +7,33 @@ using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
 
-namespace Multiplayer.Shared.World;
+namespace Multiplayer.Server.Stations;
 
+/// <summary>
+/// A service station hose's rope physics is the server's: stretched, it yanks the plug out of the
+/// holder's hand or snaps it home on the server only, which tells the players at the station
+/// (<see cref="ServerPluggableObject.YankedByRope"/>, <see cref="ServerPluggableObject.SnappedByRope"/>).
+/// Everywhere else the rope's unplug, yank, force and snap do nothing.
+/// </summary>
 [HarmonyPatch(typeof(PropHose))]
-public static class PropHosePatch
+public static class PropHoseRopePatch
 {
     static readonly CodeInstruction targetUnplugMethod = CodeInstruction.Call(typeof(PluggableObject), nameof(PluggableObject.Unplug), [], null);
-    static readonly CodeInstruction override_UnplugMethod = CodeInstruction.Call(typeof(PropHosePatch), nameof(PropHosePatch.Override_Unplug), [typeof(PluggableObject)], null);
+    static readonly CodeInstruction override_UnplugMethod = CodeInstruction.Call(typeof(PropHoseRopePatch), nameof(PropHoseRopePatch.Override_Unplug), [typeof(PluggableObject)], null);
 
     static readonly CodeInstruction targetYankOutOfHandMethod = CodeInstruction.Call(typeof(PluggableObject), nameof(PluggableObject.YankOutOfHand), [], null);
-    static readonly CodeInstruction override_YankOutOfHandMethod = CodeInstruction.Call(typeof(PropHosePatch), nameof(PropHosePatch.Override_YankOutOfHand), [typeof(PluggableObject)], null);
+    static readonly CodeInstruction override_YankOutOfHandMethod = CodeInstruction.Call(typeof(PropHoseRopePatch), nameof(PropHoseRopePatch.Override_YankOutOfHand), [typeof(PluggableObject)], null);
 
     static readonly CodeInstruction targetAddForceMethod = CodeInstruction.Call(typeof(Rigidbody), nameof(Rigidbody.AddForce), [typeof(Vector3), typeof(ForceMode)], null);
-    static readonly CodeInstruction override_AddForceMethod = CodeInstruction.Call(typeof(PropHosePatch), nameof(PropHosePatch.Override_AddForce), [typeof(Rigidbody), typeof(Vector3), typeof(ForceMode), typeof(PluggableObject)], null);
+    static readonly CodeInstruction override_AddForceMethod = CodeInstruction.Call(typeof(PropHoseRopePatch), nameof(PropHoseRopePatch.Override_AddForce), [typeof(Rigidbody), typeof(Vector3), typeof(ForceMode), typeof(PluggableObject)], null);
 
     static readonly CodeInstruction targetInstantSnapToMethod = CodeInstruction.Call(typeof(PluggableObject), nameof(PluggableObject.InstantSnapTo), [typeof(PlugSocket)], null);
-    static readonly CodeInstruction override_InstantSnapToMethod = CodeInstruction.Call(typeof(PropHosePatch), nameof(PropHosePatch.Override_InstantSnapTo), [typeof(PluggableObject), typeof(PlugSocket)], null);
+    static readonly CodeInstruction override_InstantSnapToMethod = CodeInstruction.Call(typeof(PropHoseRopePatch), nameof(PropHoseRopePatch.Override_InstantSnapTo), [typeof(PluggableObject), typeof(PlugSocket)], null);
 
     private static readonly string UnplugOperand = targetUnplugMethod.operand?.ToString();
     private static readonly string YankOutOfHandOperand = targetYankOutOfHandMethod.operand?.ToString();
     private static readonly string AddForceOperand = targetAddForceMethod.operand?.ToString();
     private static readonly string InstantSnapToOperand = targetInstantSnapToMethod.operand?.ToString();
-
-    [HarmonyPatch(nameof(PropHose.OnEnable))]
-    [HarmonyPrefix]
-    public static bool OnEnable()
-    {
-        if (NetworkLifecycle.Instance.IsHost())
-            return true;
-
-        //prevent client from snapping manual service plug to home position
-        return false;
-    }
 
     [HarmonyPatch(nameof(PropHose.Update))]
     [HarmonyTranspiler]
@@ -147,7 +142,7 @@ public static class PropHosePatch
     {
         Multiplayer.LogDebug(() => $"Override_Unplug({instance.GetObjectPath()})");
 
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkRole.IsServer)
             return;
 
         Multiplayer.LogDebug(() => $"Override_Unplug({instance.GetObjectPath()}) Unplugging");
@@ -158,7 +153,7 @@ public static class PropHosePatch
     {
         Multiplayer.LogDebug(() => $"Override_YankOutOfHand({instance.GetObjectPath()})");
 
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkRole.IsServer)
             return false; // result is unused by Update(), we can return true or false
 
         if (NetworkedPluggableObject.Get(instance, out var netPlug))
@@ -172,7 +167,7 @@ public static class PropHosePatch
     {
         Multiplayer.LogDebug(() => $"Override_AddForce() station: {instance.GetObjectPath()}, force: {force}, mode: {mode}");
 
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkRole.IsServer)
             return;
 
         if (NetworkedPluggableObject.Get(instance, out var netPlug))
@@ -181,7 +176,7 @@ public static class PropHosePatch
 
             //The force will be applied when the packet is processed as the host
             //rb.AddForce(force, mode);
-            netPlug.YankedByRope(force, mode);
+            ServerPluggableObject.YankedByRope(netPlug, force, mode);
         }
     }
 
@@ -189,7 +184,7 @@ public static class PropHosePatch
     {
         Multiplayer.LogDebug(() => $"Override_InstantSnapTo({instance.GetObjectPath()}, {socket.GetObjectPath()}) instance.yankOutOfHand: {instance.yankOutOfHand}");
 
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkRole.IsServer)
             return false; // result is unused by Update(), we can return true or false
 
         if(!instance.yankOutOfHand)
@@ -202,7 +197,7 @@ public static class PropHosePatch
 
         if (NetworkedPluggableObject.Get(instance, out var netPlug))
         {
-            netPlug.SnappedByRope();
+            ServerPluggableObject.SnappedByRope(netPlug);
             return false;
         }
 
