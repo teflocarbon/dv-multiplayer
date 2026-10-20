@@ -10,7 +10,8 @@ namespace Multiplayer.Shared.Stations;
 ///     The station requests a player at this keyboard sends (pit stops, plugs, module cash
 ///     registers), as Shared code makes them without referencing the client
 ///     (docs/design/code-layout.md). <c>NetworkClient</c> implements it, in
-///     <c>Client/Session/NetworkClient.Stations.cs</c>. On the host they go straight to the server
+///     <c>Client/Session/NetworkClient.Stations.cs</c>, and on the host its player's session
+///     (<c>LocalPlayerSession.Stations.cs</c>), which hands them to the server in-process
 ///     (docs/design/host-local-session.md).
 /// </summary>
 public interface IStationsClient
