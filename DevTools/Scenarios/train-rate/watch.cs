@@ -31,7 +31,8 @@ Dictionary<string, double> Stats(string b)
 }
 string Follower()
 {
-    string error = bogie != null && bogie.TryGetAlongTrackError(loco, out float e) ? $"{e:F2} m" : "none";
+    float e = 0f;
+    string error = bogie != null && bogie.TryGetAlongTrackError(loco, out e) ? $"{e:F2} m" : "none";
     return $"following {queue.Following}, held {queue.Held}, interval {queue.SampleIntervalSeconds:F2} s, error {error}, " +
            $"v {loco.GetForwardSpeed():F1} m/s, frame {Time.unscaledDeltaTime * 1000f:F0} ms";
 }
