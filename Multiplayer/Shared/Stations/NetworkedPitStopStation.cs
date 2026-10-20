@@ -4,7 +4,6 @@ using DV.Optimizers;
 using DV.ThingTypes;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.World;
-using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
@@ -69,7 +68,6 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
 
     protected override bool IsIdServerAuthoritative => false;
 
-    const float LOADING_TIMEOUT = 5f;
     const float ROTATION_SMOOTH_SPEED = 0.5f;
 
     #region Server variables
@@ -109,7 +107,12 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
 
     private Coroutine faucetMoveCoroutine;
 
-    private bool Refreshed = false;
+    /// <summary>
+    /// Set on a client by its part (<c>Client/Stations/ClientPitStopStation</c>) until the server's
+    /// state of the station has arrived and been applied: the local player's interactions here
+    /// aren't sent before then.
+    /// </summary>
+    public bool WaitingForServerState { get; set; } = false;
     #endregion
 
     #region Unity
@@ -119,16 +122,6 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             base.Awake();
 
         StationName = $"{transform?.parent?.parent?.name} - {transform?.parent?.name}";
-
-        // Ensure host can interact
-        if (NetworkLifecycle.Instance.IsHost())
-            Refreshed = true;
-    }
-
-    protected void OnDisable()
-    {
-        if (!NetworkLifecycle.Instance.IsHost())
-            Refreshed = false;
     }
 
     protected override void OnDestroy()
@@ -453,6 +446,80 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             Multiplayer.LogWarning($"Pit Stop car selection change out of bounds! Selected: {selection}, current car count: {Station.pitstop.carList.Count}");
         }
     }
+
+    /// <summary>True for a water tower: a station with a faucet to turn.</summary>
+    public bool HasFaucet => faucetPositioner != null;
+
+    /// <summary>False while <see cref="SetFaucetRotation"/> is still turning the faucet.</summary>
+    public bool FaucetTargetReached => faucetTargetReached;
+
+    /// <summary>Redraws the station's cash register after its units to buy changed.</summary>
+    public void RefreshRegister() => register?.OnUnitsToBuyChanged();
+
+    /// <summary>
+    /// Applies one resource from the server's state of the station: the units to buy for each car,
+    /// whether another player holds its lever, and its valve.
+    /// </summary>
+    public void ApplyResourceState(LocoResourceModuleData resource)
+    {
+        if (!resourceTypeToLocoResourceModule.TryGetValue(resource.ResourceType, out var module))
+        {
+            Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ApplyResourceState() [{StationName}, {NetId}] Failed to find resource module for type {resource.ResourceType}");
+            return;
+        }
+
+        if (module != null)
+        {
+            if (module.resourceData.Count == resource.Values.Length)
+            {
+                for (int i = 0; i < module.resourceData.Count; i++)
+                {
+                    module.resourceData[i].unitsToBuy = resource.Values[i];
+                }
+            }
+            else
+            {
+                Multiplayer.LogWarning($"PitStop bulk data count mismatch post-force: {module.resourceData.Count} != {resource.Values.Count()}");
+            }
+        }
+        else
+            Multiplayer.LogWarning($"PitStop module not found for resource type: {resource.ResourceType}");
+
+        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ApplyResourceState() [{StationName}, {NetId}] Resource module data loaded for {resource.ResourceType}");
+
+        // Set the grab state
+        bool grabbed = (resource.FillingState != LocoResourceModuleFillingState.None);
+        bool isLocallyGrabbed = isResourceGrabbedDict.TryGetValue(resource.ResourceType, out var localGrabbed) && localGrabbed;
+
+        leverLookup.TryGetValue(resource.ResourceType, out LeverBase lever);
+        //grabbedHandlerLookup.TryGetValue(resource.ResourceType, out LeverBase grab);
+
+        if (!isLocallyGrabbed)
+        {
+            lever?.BlockControl(grabbed);
+            if (lever != null)
+                lever.InteractionAllowed = !grabbed;
+
+            if (grabbed)
+                lever?.ForceEndInteraction();
+        }
+
+        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ApplyResourceState() [{StationName}, {NetId}] Grab states set for {resource.ResourceType}, state: {grabbed}");
+
+        int valvePos = resource.FillingState switch
+        {
+            LocoResourceModuleFillingState.Filling => -1,
+            LocoResourceModuleFillingState.Draining => 1,
+            _ => 0
+        };
+
+        module.OnValvePositionChange(valvePos);
+
+        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ApplyResourceState() [{StationName}, {NetId}] Valve position set for {resource.ResourceType}, position: {valvePos}");
+
+        // Update remote grab state
+        isResourceRemoteGrabbedDict[resource.ResourceType] = grabbed;
+    }
     #endregion
 
 
@@ -466,7 +533,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         Multiplayer.LogDebug(() => $"CarSelectorGrabbed() {StationName}");
@@ -482,7 +549,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         Multiplayer.LogDebug(() => $"CarSelectorUnGrabbed() {StationName}");
@@ -500,7 +567,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             return;
 
         // Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         Multiplayer.LogDebug(() => $"CarSelected() selected: {Station.pitstop.SelectedIndex}");
@@ -515,7 +582,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
     private void OnLeverPositionChange(LocoResourceModule module, int state)
     {
         // Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         Multiplayer.LogDebug(() => $"OnLeverPositionChange() {StationName}, module: {module.resourceType}, state: {state}");
@@ -542,7 +609,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         Multiplayer.LogDebug(() => $"FaucetCrankGrabbed() {StationName}");
@@ -565,7 +632,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         Multiplayer.LogDebug(() => $"FaucetCrankUnGrabbed() {StationName}, percentage: {faucetPositioner.Percentage}");
@@ -588,7 +655,7 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
             return;
 
         //Prevent new players/players entering the area from sending packets until initalised
-        if (!Refreshed)
+        if (WaitingForServerState)
             return;
 
         if (!faucetTargetReached)
@@ -604,154 +671,6 @@ public class NetworkedPitStopStation : IdMonoBehaviour<ushort, NetworkedPitStopS
         }
 
         StationsClient.Current?.SendPitStopInteractionPacket(NetId, PitStopStationInteractionType.FaucetPosition, null, notch);
-    }
-
-    public void ProcessBulkUpdate(ClientboundPitStopBulkUpdatePacket packet)
-    {
-        // Packet is broken up due to SubscribeResusable reusing/overwriting packet data
-        CoroutineManager.Instance.StartCoroutine(ProcessBulkUpdate_Internal(packet.CarCount, packet.CarSelection, packet.FaucetNotch, packet.ResourceData, packet.PlugData));
-    }
-
-    private IEnumerator ProcessBulkUpdate_Internal(int carCount, int carSelection, int faucetNotch, LocoResourceModuleData[] resourceData, PitStopPlugData[] plugData)
-    {
-        float time = Time.time;
-
-        // Allow pit stop to complete loading and cars to load in the pit stop
-        Multiplayer.Log($"Processing bulk update for [{StationName}, {NetId}]");
-
-        yield return new WaitUntil
-        (
-            () =>
-            {
-                Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Initialised: {initialised}, Active:{Station?.gameObject?.activeInHierarchy}, Packet Car Count: {carCount}, Station Car Count: {Station.pitstop?.carList?.Count}, Car Count Matched: {carCount == Station.pitstop?.carList?.Count}, time elapsed: {(Time.time - time)}");
-
-                if (Station?.gameObject?.activeInHierarchy == false)
-                {
-                    // Don't time out if we're waiting for the object to be enabled
-                    time = Time.time;
-                    return false;
-                }
-
-                // Try to trigger colliders manually
-                if (initialised && Station?.pitstop?.carList != null && carCount != Station.pitstop.carList.Count)
-                    Station?.pitstop?.RefreshPitStopCarPresence();
-
-                return (initialised && Station?.pitstop?.carList != null && carCount == Station.pitstop.carList.Count)
-                || (Time.time - time) > LOADING_TIMEOUT;
-
-            }
-        );
-
-
-        yield return new WaitForEndOfFrame();
-        yield return new WaitForEndOfFrame();
-
-        if ((Time.time - time) > LOADING_TIMEOUT)
-            Multiplayer.LogWarning($"PitStop [{StationName}] timed out waiting for load. PitStop Initialised: {initialised}, Packet Car Count: {carCount}, Station Car Count: {Station.pitstop?.carList?.Count}, Car Count Matched: {carCount == Station.pitstop?.carList?.Count}");
-
-        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}] Car count: {carCount}, resource data count: {resourceData.Count()}, resource data: [{string.Join(", ", resourceData.Select(x => $"{x.ResourceType}: {{{string.Join(", ", x.Values)}}}"))}]");
-        // Make sure the data elements exist prior to attempting to load them
-        InitialiseData();
-
-        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}] PitStop bulk data car count matches. Station module count: {Station?.locoResourceModules?.resourceModules?.Count()}, Packet resource count: {resourceData?.Count()}");
-
-        // Load the data for each car and resource module
-        foreach (var resource in resourceData)
-        {
-            if (!resourceTypeToLocoResourceModule.TryGetValue(resource.ResourceType, out var module))
-            {
-                Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Failed to find resource module for type {resource.ResourceType}");
-                continue;
-            }
-
-            if (module != null)
-            {
-                if (module.resourceData.Count == resource.Values.Length)
-                {
-                    for (int i = 0; i < module.resourceData.Count; i++)
-                    {
-                        module.resourceData[i].unitsToBuy = resource.Values[i];
-                    }
-                }
-                else
-                {
-                    Multiplayer.LogWarning($"PitStop bulk data count mismatch post-force: {module.resourceData.Count} != {resource.Values.Count()}");
-                }
-            }
-            else
-                Multiplayer.LogWarning($"PitStop module not found for resource type: {resource.ResourceType}");
-
-            Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Resource module data loaded for {resource.ResourceType}");
-
-            // Set the grab state
-            bool grabbed = (resource.FillingState != LocoResourceModuleFillingState.None);
-            bool isLocallyGrabbed = isResourceGrabbedDict.TryGetValue(resource.ResourceType, out var localGrabbed) && localGrabbed;
-
-            leverLookup.TryGetValue(resource.ResourceType, out LeverBase lever);
-            //grabbedHandlerLookup.TryGetValue(resource.ResourceType, out LeverBase grab);
-
-            if (!isLocallyGrabbed)
-            {
-                lever?.BlockControl(grabbed);
-                if (lever != null)
-                    lever.InteractionAllowed = !grabbed;
-
-                if (grabbed)
-                    lever?.ForceEndInteraction();
-            }
-
-            Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Grab states set for {resource.ResourceType}, state: {grabbed}");
-
-            int valvePos = resource.FillingState switch
-            {
-                LocoResourceModuleFillingState.Filling => -1,
-                LocoResourceModuleFillingState.Draining => 1,
-                _ => 0
-            };
-
-            module.OnValvePositionChange(valvePos);
-
-            Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Valve position set for {resource.ResourceType}, position: {valvePos}");
-
-            // Update remote grab state
-            isResourceRemoteGrabbedDict[resource.ResourceType] = grabbed;
-        }
-
-        // Refresh the cash register display
-        register?.OnUnitsToBuyChanged();
-
-        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Car Index: {carSelection}");
-        SetCarSelection(carSelection);
-
-
-        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] bulk data Plugs {plugData.Count()}");
-
-        // Sync plugs
-        foreach (var plug in plugData)
-        {
-            var result = NetworkedPluggableObject.Get(plug.NetId, out var netPlug);
-            Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Plugs netId: {plug.NetId}, found: {result}");
-
-            netPlug?.ProcessBulkUpdate(plug);
-        }
-
-        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Plugs synced");
-
-        // Sync faucet position
-        if (faucetPositioner != null)
-        {
-            Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Faucet notch: {faucetNotch}");
-
-            SetFaucetRotation(faucetNotch);
-
-            while (!faucetTargetReached)
-                yield return null;
-        }
-
-        // Mark data as refreshed to allow player interactions
-        Refreshed = true;
-
-        Multiplayer.LogDebug(() => $"NetworkedPitStopStation.ProcessBulkUpdate_Internal() [{StationName}, {NetId}] Bulk data refreshed");
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 ﻿using DV.Shops;
 using DV.ThingTypes;
 using LiteNetLib;
+using Multiplayer.Client.Stations;
 using Multiplayer.Shared.Protocol.Data.World;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
@@ -16,8 +17,10 @@ namespace Multiplayer.Client.Session;
 public partial class NetworkClient : IStationsClient
 {
     /// <summary>
-    /// Numbers the service stations and module registers the way the host does, so the ids match.
-    /// A client's stations need no role parts: the shells do what a player's game does.
+    /// Numbers the service stations and module registers the way the host does, so the ids match,
+    /// and, on a game that isn't the host, gives each pit stop its client part (which waits for the
+    /// server's state of the station). The registers need no client part: the shells do what a
+    /// player's game does.
     /// </summary>
     private void InitialiseStations()
     {
@@ -25,6 +28,11 @@ public partial class NetworkClient : IStationsClient
         NetworkedCashRegisterWithModules.InitialiseCashRegisters();
         Log($"Initialising Pit Stops...");
         NetworkedPitStopStation.InitialisePitStops();
+
+        if (!NetworkRole.IsRemoteClient)
+            return;
+        foreach (NetworkedPitStopStation station in NetworkedPitStopStation.All)
+            station.GetOrAddComponent<ClientPitStopStation>().Setup();
     }
 
     private void OnClientboundShopStockPacket(ClientboundShopStockPacket packet)
@@ -72,7 +80,7 @@ public partial class NetworkClient : IStationsClient
     {
         LogDebug(() => $"OnClientboundPitStopBulkUpdatePacket() NetId: {packet.NetId}, CarCount: {packet.CarCount}, CarSelection: {packet.CarSelection}, FaucetNotch: {packet.FaucetNotch}, ResourceData Count: {packet.ResourceData.Length}, PlugData: {packet.PlugData.Length}");
 
-        if (!NetworkedPitStopStation.Get(packet.NetId, out var netPitStop))
+        if (!NetworkedPitStopStation.Get(packet.NetId, out var netPitStop) || !netPitStop.TryGetComponent(out ClientPitStopStation clientPitStop))
         {
             LogWarning($"Pit Stop Bulk Data received for station netId: {packet.NetId}, but pit stop does not exist!");
             return;
@@ -80,7 +88,7 @@ public partial class NetworkClient : IStationsClient
 
         Log($"Pit Stop Bulk Data received for {netPitStop.StationName}");
 
-        netPitStop.ProcessBulkUpdate(packet);
+        clientPitStop.ProcessBulkUpdate(packet);
     }
 
     private void OnCommonCashRegisterWithModulesActionPacket(CommonCashRegisterWithModulesActionPacket packet)
