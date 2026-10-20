@@ -16,4 +16,13 @@ public static class CareerManagerDebtControllerServerPatch
     {
         __instance.gameObject.AddComponent<NetworkedCareerManagerDebtController>();
     }
+
+    // A refresh moves debts between the zero-priced and priced lists (a loco damaged or refuelled)
+    // without raising DebtListsUpdated.
+    [HarmonyPostfix]
+    [HarmonyPatch(nameof(CareerManagerDebtController.RefreshExistingDebtsState))]
+    private static void RefreshExistingDebtsState()
+    {
+        NetworkedCareerManagerDebtController.Instance?.SendDebtStatusIfChanged();
+    }
 }
