@@ -97,8 +97,20 @@ not eligible for Lost and Found. Nothing assigns it. Gadgets make it real:
   destroys it. Applying an item snapshot that moves an item out of `Installed` while its projection is
   still linked first runs the native `Remove` in the apply scope, so the order of the item update and
   the gadget removal doesn't matter.
-- **Ownership is unchanged by installing.** The persistent owner stays on the item; vanilla's
-  `BelongsToPlayer` too. See [Decisions](#decisions-for-the-user) for who may remove whose gadget.
+- **Ownership is unchanged by installing**, and never lost. The item keeps its persistent id and its
+  owner's identity (`PersistentOwnerIdentity`, a GUID, valid while the owner is offline) through
+  installing, removing, being knocked off and being carried away by someone else; vanilla's
+  `BelongsToPlayer` stays too. Anyone may remove anyone's gadget ([Decisions](#decisions-for-the-user)).
+- **The owner is shown.** Aiming at an installed gadget shows its owner's name in the interaction
+  text. The server sends the name with the item's `Installed` record, so it shows while the owner is
+  offline.
+- **A deleted car sends its gadgets to their owners' Lost and Found at once**, online or not
+  (`gadget-car-deleted`), instead of leaving them as world items for the distance rules. Unowned ones
+  stay in the world at the gadget's pose.
+- **No tether.** Nothing pulls an absent owner's gadget back to its train. Tracking every owned item
+  for life, listing it and retrieving it from anywhere is the owned-items design's job (see
+  [Owned items](#owned-items)); gadget sync only has to keep the id and owner intact and offer it a
+  `Retrieve` removal.
 - **Never destroy an installed item.** `GadgetItem` has no `OnDestroy`, so destroying one leaves a
   linked projection. The item code's destroy path, on any game, refuses an `Installed` item and logs
   it; destroying an uninstalled gadget item also destroys `item.Gadget.gameObject`.
@@ -114,7 +126,7 @@ same on a player host (no network) and on a client.
 | --- | --- | --- |
 | Install | `GadgetItem.TryPlace` (public static; every input path ends there, the load path doesn't). A prefix on `TryPlaceOnHit` notes the `Mount` that was hit. | `Install`: item, anchor, local pose, mount host UID, on-glass flags of the gadget and each mount point (computed from the hit collider and the prefab's mount points at the target pose, as `GeneratePlacementData` would) |
 | Label | the same, with `instantiateGadget` | `SpawnInstall`: the label maker item, the prefab, anchor, pose, text (sent after the popup closes with text; a cancel sends nothing) |
-| Remove | `GadgetRemover`'s remove, `GadgetHandNonVR.TryGrab` and `GadgetHandVR.TryGrab`, `GadgetBase.OnTelegrabbableChanged` | `Remove`: item, method (`Remover`, `EmptyHand`, `Telegrab`) |
+| Remove | `GadgetRemover`'s remove, `GadgetHandNonVR.TryGrab` and `GadgetHandVR.TryGrab`, `GadgetBase.OnTelegrabbableChanged` | `Remove`: item, method (`Remover`, `EmptyHand`, `Telegrab`). A fourth method, `Retrieve`, is reserved for the owned-items system: the server removes the gadget on the owner's behalf and hands the item to that system |
 | Bolt, tape, untape | `DrillTool`, `DuctTape`, `GadgetHandBase` at their `SetMountPointState` call | `MountPoint`: item, point index, state, the tape item for taping |
 | Fill a hole | `HoleFiller` at its `RemoveHole` call | `FillHole`: anchor, hole local position |
 | Wire, unwire | `GadgetWiringTool` at its `Wire`/`Unwire` call | `Wire`: anchor, source UID, target UID, wire or unwire |
@@ -359,7 +371,7 @@ Everyone near a player using a gadget tool sees and hears it, as they would in o
 
 | Trigger | Server | Remote clients |
 | --- | --- | --- |
-| Car deleted | native: each gadget force-removed, items become world items at the gadget's pose; the change log records them. The manual's "gadgets on a despawned DVRT vehicle return to a tool shed" is this plus vanilla's `RespawnOnDrop` sending owned items far from the player to Lost and Found; the mod's Lost and Found policy does the same for owned world items whose owner is away | runs natively when the client applies the car's despawn, in the apply scope; the `Removed` entries are then already applied and skipped |
+| Car deleted | native: each gadget force-removed; the server then sends each owned gadget item straight to its owner's Lost and Found (online or not), as vanilla's `RespawnOnDrop` does for owned items far from the player (the manual's "return to a tool shed"); unowned ones stay in the world at the gadget's pose. The change log records the removals | runs natively when the client applies the car's despawn, in the apply scope; the `Removed` entries are then already applied and skipped |
 | Window glass broken | native, from the server's damage | runs natively when the client applies `ClientboundWindowsBrokenPacket`, in the apply scope |
 | Collision dislodge (random) | native: the server's roll is the only roll | `TrainCarCustomization.OnCollisionEnter` off |
 | Hanger flips | native | `Dangler`'s forced unsnap off |
@@ -387,8 +399,9 @@ own.
 - **A missing anchor on load.** Vanilla sends the item to its Lost and Found, which
   `StorageControllerAddLostItemPatch` blocks for owned items. Owned: the owner's Lost and Found with
   `LostItemReason.GadgetDestinationMissing`. Unowned: vanilla's behaviour, as for other unowned items.
-- **Car deleted while its gadgets' owners are away:** the items are world items; the Lost and Found
-  policy collects them as any owned world item.
+- **Car deleted:** owned gadget items go straight to their owners' Lost and Found. Its records
+  carry the owner's identity; PR 3 checks that a record can be added while the owner is offline (the
+  runtime player number is unbound then) and makes it so if not, so they get it on their next join.
 - Clients save nothing, as for everything else.
 
 ## Dedicated hosts
@@ -481,6 +494,25 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 | Client | `Client/Gadgets/`: `GadgetIntentPatches`, `GadgetChangeApplier` (queue, resync, rebuild), `GadgetStatePrediction`, `GadgetServerOnlyPatches`, `GadgetItemLifecyclePatches`. `Client/Session/NetworkClient.Gadgets.cs`, `LocalPlayerSession.Gadgets.cs` (results and state the host's player needs). Item touchpoint: the `Installed` apply in `NetworkedItem.Snapshots`/`StateApplication`. |
 | Tests | `Multiplayer.Protocol.Tests/GadgetPacketTests.cs` (round trips). |
 | Scenarios | `DevTools/DvmpScenarios/Library/Gadgets.cs` (spawn a gadget item, install, remove, drill, tape, wire, solder, set and read state through the vanilla tool methods, the digest); `Scenarios/Gadget*.cs`; runs in `DevTools/Scenarios/gate.sh`. |
+
+## Owned items
+
+Gadgets are bought items, and players install them on trains that everyone shares, so "what stops
+someone walking off with an absent player's gadget" came up. The answer is not gadget-specific: every
+item a player owns (anything but scene-authored world items) is to be tracked by the server for its
+whole life by one id, listed for its owner with where it is, and retrievable from anywhere. That is
+its own design (owned items, planned 2026-10-21), together with an all-items Lost and Found change:
+an offline owner counts as far away, so their abandoned world items go to their Lost and Found.
+
+What gadget sync owes it:
+
+- the item's persistent id and owner identity survive every gadget transition (install, remove,
+  knock-off, car deletion, the label and consumable swaps, which are new items and record what they
+  replaced);
+- a `Retrieve` removal: the server removes an installed gadget on the owner's behalf and hands the
+  item over.
+
+Until it exists, a player can keep someone else's removed gadget; it stays owned by its owner.
 
 ## Decisions for the user
 
