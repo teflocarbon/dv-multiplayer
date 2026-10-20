@@ -184,7 +184,7 @@ build compiled against another `Multiplayer.dll` than the game runs.
 bash DevTools/Scenarios/gate.sh                       # everything
 ONLY="rejoin recall" bash DevTools/Scenarios/gate.sh  # by scenario or run name
 PAIRS="p:2 d:1" RUNS=batch.txt bash DevTools/Scenarios/gate.sh  # pairs by kind, your own run list
-WHO=host MODE=throw WHEN=moving bash DevTools/Scenarios/train-items/run.sh
+RUNS="train-items WHO=host MODE=throw WHEN=moving" bash DevTools/Scenarios/gate.sh  # one run with variables
 ```
 
 Per-run output goes to `$LOG_DIR` (default a temp directory, printed at the end). Scenarios use
