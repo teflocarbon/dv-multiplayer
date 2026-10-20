@@ -240,7 +240,8 @@ Range: the host gives each station a `CullingManager` sized from the station's
 squared distance. When a player enters it, the host sends `ClientboundPitStopBulkUpdatePacket`
 (car count, selected car, faucet notch, each resource module's data, each plug's state) and the
 register's deposited cash. That is the join sync for stations. Updates go only to players in the
-activation region.
+activation region. A player leaves it after 3 s beyond the culling distance, or at once when the
+host's disabler turns the station off (nobody is within 500 m), so coming back sends the state again.
 
 Station controls: car selector, levers and faucet send `CommonPitStopInteractionPacket`. The host
 applies it and relays it to the other players in range. `ValidateInteraction` is a TODO that
