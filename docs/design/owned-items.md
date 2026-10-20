@@ -113,7 +113,7 @@ of these ways:
 
 | How | Owner | Born as |
 | --- | --- | --- |
-| Shop purchase, by any player (the host's own player included) | the buyer | `Purchased` |
+| Shop purchase, by any player (the host's own player included): the server makes the item and registers it before anyone sees it ([shops.md](shops.md#owned-items)) | whoever scanned the line (one shared basket per register) | `Purchased`, detail: shop, transaction id, payer |
 | Starter kit, on a player's first join to the career | that player | `StarterKit` |
 | An essential or licence paper the server issues because the player has none (see [Joining](#joining-and-rejoining)) | that player | `Issued` |
 | Admin `/give` | the target | `Granted` |
@@ -123,7 +123,8 @@ of these ways:
 | An owned item found in an old save, while [migrating](#migration) | the owner the save names | `Migrated` |
 
 Not owned: scene-authored world items; non-personal items, even when carried; job booklets, overviews
-and reports; unowned dynamic items such as stock forks and the paint station's spray can.
+and reports; shop receipts (paper, server-made and unowned, [shops.md](shops.md#owned-items)); unowned
+dynamic items such as stock forks and the paint station's spray can.
 
 ### One id for life
 
@@ -199,7 +200,27 @@ OwnedItem
   where         see below
   born          reason, time, actor identity, from (id)
   ended         reason, time, cause detail, replacedBy (id); absent while live
+  shopStocked   the item still carries vanilla's Restock flag, so it counts against its owner's
+                stock of that prefab at the shops
 ```
+
+**What other systems read.** Shops keeps stock per player, and works it out from the ledger instead
+of saving a counter ([shops.md](shops.md#owned-items)). A slot is used for as long as its owner has
+a live entry of that prefab with `shopStocked` set. The entry ending, or the flag clearing (a used
+garage key), frees the slot, and that is restocking. The ledger gives two things:
+
+- **A count query,** `CountLive(owner, prefab, shopStocked)`.
+- **A change event,** raised when an entry is born, ends, or has `shopStocked` change.
+
+The ledger sets `shopStocked` at birth from the item's flag. The server clears it where vanilla
+clears the flag. At load, and in migration, it is read from the `Restock` value in the item's stored
+state. A replacement (the empty tape roll) is never shop-stocked. Installed gadgets still count, as
+they do in vanilla.
+
+Several systems also send an item to its owner's Lost and Found: a departing borrower, retrieval, a
+deleted car's gadgets, a purchase made far away. They all go through one entry point,
+`SendToLostAndFound(id, reason)`. A purchase can also be born straight into Lost and Found through
+it.
 
 `where` is a summary that names the store holding the item, not its pose:
 
@@ -375,7 +396,8 @@ as far away:
 - **Reasons** (`LostItemReason`, byte, on the wire: append, never reorder):
   - kept: `OwnerDistance` (now also for offline owners) and `ContainerCleared` (car deleted);
   - used for the first time: `GadgetDestinationMissing` (gadget PR 1), `PurchasedDeliveryFallback`
-    (a purchase that can't be placed at the shop), `SaveRecovery` (migration and load
+    (a purchase born straight into its owner's Lost and Found, because the owner is more than 200 m
+    away or offline when it comes due, [shops.md](shops.md#owned-items)), `SaveRecovery` (migration and load
     reconciliation), and `InventoryOverflow` (a possession or issued essential with no free slot);
   - new: `BorrowerLeft` and `RetrievedByOwner`.
 - **Job papers** stay outside the ledger. A lost booklet goes to the Lost and Found of the player it
@@ -503,6 +525,13 @@ four points, and both docs state them the same way:
   server-side, and PR 7 (lineage) records what they replace. Owned-items PR 8 (retrieving installed
   gadgets) comes after gadget PR 3a.
 
+It also meets the shops work ([shops.md](shops.md#owned-items)):
+
+- **The host's purchases.** Shops PR 3 makes every purchase a server transaction, the host's own
+  player's included, and births the item in the ledger.
+- **Per-player stock.** Shops' per-player stock (shops PR 6) waits for owned-items PRs 1 and 2. It
+  uses the count query and change event of [the ledger](#the-ledger).
+
 A dedicated host has no player of its own and a pair has one client, so "an owner who isn't here" is
 a made-up identity: the host spawns an item and gives it to a new GUID, as the `owned-items` scenario
 already does. "Another player" is the host's own player, so steps that need two players run on a
@@ -603,15 +632,16 @@ game, and the join-packet fields and the rejoin swap go.
   6. Cleanup restores the client's GUID.
 - `host-player-persist` and `rejoin-crash` also run on a player host.
 
-### 5. The host's purchases, and no adoption
+### 5. No adoption
 
-- The host's own player buys through `SpawnShopPurchase` like everyone, so a purchase is owned by its
-  buyer at once.
 - With nothing left adopting, `TemporaryClientAdoptionCompatibility`, `TemporaryHostAdoptionCompatibility`
-  and their packets are deleted.
-- Scenario **`shop`** gains `WHO=host` (player host only): the host's purchase is owned by the host
-  and born `Purchased` before anyone touches it. On both hosts the client's purchase is born
-  `Purchased`.
+  and their packets are deleted. Shop receipts are client-local today and never adopted, and the
+  shops work makes them server-made, so nothing in a shop adopts.
+- The host's own player buying through the server, owned at once and born `Purchased`, is now shops
+  PR 3 ("the purchase as a server transaction", [shops.md](shops.md#owned-items)), with its
+  `shop WHO=host` scenario.
+- Scenario: `starting-items` and `rejoin` show that no adoption request is sent. A check in
+  `ServerRequests` counts none.
 
 ### 6. The list and retrieval
 
