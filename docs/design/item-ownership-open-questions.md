@@ -7,6 +7,12 @@ Implemented lifecycle and ownership-establishment rules are canonicalized in
 only hold unresolved or explicitly deferred game-design choices, plus a short record of the ones
 since decided (checked against the code on 2026-10-14).
 
+The ownership model is being rebuilt on a server-owned ledger of owned items, with one id per item
+for life: [`owned-items.md`](owned-items.md) (designed 2026-10-21, not built). Most of the questions
+below were decided for it, and are recorded under
+[Decided for the ledger](#decided-for-the-ledger-2026-10-21). "Current behaviour" and "Decided"
+describe the code as it is until that work lands.
+
 ## Separate concepts
 
 The implementation must continue to distinguish these values:
@@ -48,7 +54,7 @@ Ordinary foreign-owned items do not appear red. Red is reserved for items that a
   ID is restored when they log in).
 - **Creation paths:**
   - starting inventory: given on a player's first join only and owned by them through the
-    temporary adoption path (`ClientboundSaveGameDataPacket.CreatePacket`,
+    temporary adoption path (`SaveGameDataPacketBuilder.Create`,
     `NetworkServer.StarterKitsGiven`, 2962fa7);
   - shop purchase by a client: spawned by the host at the shop, owned by the buyer
     (`NetworkServer.SpawnShopPurchase`, f796ca8); the host's own purchases are vanilla spawns and
@@ -69,8 +75,7 @@ Ordinary foreign-owned items do not appear red. Red is reserved for items that a
 - **Red** means another player can recall the item (`InventoryPresentationPlanner`).
 - **Disconnect:** the host drops the departing player's hand item, and every item in their
   inventory that another player owns, where it is (`DropHeldItemsOfDepartingPlayer` in
-  `NetworkedItemManager.ProjectionAndCompatibility.cs`, 2d52799; scenario
-  the `borrowed-disconnect` scenario). Items they own stay keyed to their identity, are saved
+  `Server/Items/ServerItemManager.PlayerItems.cs`, 2d52799; the `borrowed-disconnect` scenario). Items they own stay keyed to their identity, are saved
   with the host's game, and come back into their inventory on rejoin. A dropped borrowed item then
   follows ordinary Lost-and-Found collection: it reaches the owner only if the owner is connected,
   nobody is near it, and the grace period passes. This replaces the earlier written policy of
@@ -78,6 +83,38 @@ Ordinary foreign-owned items do not appear red. Red is reserved for items that a
   Known gaps: when the owner is offline at the time, their owner ID is already unbound, so the
   item is not recognised as borrowed and stays in the departing player's saved inventory; unowned
   items in the inventory also stay with them.
+
+## Decided for the ledger (2026-10-21)
+
+Decided with the user for [`owned-items.md`](owned-items.md). None of this is built yet.
+
+- **One id for life.** A random GUID in the save and the server's records, and the per-session NetId
+  on the wire.
+  - Uniqueness comes from detecting a duplicate when an item registers: keep the first, re-mint the
+    copy, log it.
+  - Lost and Found and cold-container records use the item's id instead of minting their own.
+- **Keyed by identity.** Owners and holders are identities everywhere on the server. Player numbers
+  stay on the wire only, and nothing is unbound on disconnect.
+- **Retrieval.** An owner can retrieve any owned item from their list:
+  - from anywhere, even another player's hand;
+  - an installed gadget from any car, at any time;
+  - it goes to the owner's Lost and Found.
+- **Borrower leaves.** Another player's item they carry goes straight to its owner's Lost and Found,
+  whether the owner is online or not.
+- **Offline owners count as far away.** Their items are collected under the standard rules (nearby
+  players protect; grace period), except items with a player, in a container, installed or already
+  in Lost and Found. That includes train interiors and shelves. An online owner's are collected from
+  the world only, as now.
+- **No expiry** for an absent player's items.
+- **Found items stay unowned.** A non-personal item a player keeps is saved while carried but never
+  owned.
+- **Used-up items** leave the owner's list. The ledger keeps the lineage (what replaced what).
+- **A destroyed essential** is issued again at the owner's next join, only when the ledger says its
+  life ended.
+- **Job papers** belong to the job, not the ledger. A lost booklet goes to the Lost and Found of the
+  player it was issued to.
+- **Red** means "its owner can take it back", so it now marks every item another player owns, online
+  or not.
 
 ## Decisions still required
 
@@ -94,34 +131,48 @@ Pickup alone is ambiguous: it could mean theft, borrowing, cooperation, cleanup,
 
 ### What should Lost and Found mean for borrowed items?
 
-Questions:
+Decided for the ledger (above):
 
-- Should a borrower's disconnect send borrowed items straight to the owner's Lost and Found, as
-  first written, rather than dropping them in the world?
-- Should an abandoned borrowed item return to its original owner or its most recent possessor?
-- Should the last possessor receive a temporary recovery opportunity before the persistent owner?
-- Should explicit gifts immediately change the Lost and Found destination?
-- What happens when the persistent owner is disconnected for a long time? (Their items are
-  currently never collected while they are away.)
-- Should another nearby player protect the item indefinitely, or only while actively interacting with it?
+- a borrower's departure sends the item straight to its owner's Lost and Found;
+- an abandoned item always goes to its owner, never its last possessor, and the possessor gets no
+  recovery window;
+- offline owners' items are collected, and never expire;
+- a nearby player protects an item while near, as now.
+
+Still open: whether an explicit gift changes the destination at once. It would, if gifts change the
+owner (see the question above).
 
 ### Which creation paths establish ownership?
 
+Decided (2026-10-21, for the ledger):
+
+- job documents are the job's, not owned;
+- an admin `/give` is owned by its target, as `AdminItemGrants` already does;
+- the starter kit, essentials and licence papers become server-made, which removes temporary
+  adoption (owned-items PRs 5 and 6);
+- a replacement vanilla makes while using an item up is owned by the used item's owner.
+
 Still undecided:
 
-- Job reward or generated document
-- Item spawned by a machine or printer
-- Admin/debug spawn
-- Temporary compatibility adoption from an unconverted DV producer (must be replaced by an
-  explicit host operation, not retained as a permanent creation path)
+- Item spawned by a machine or printer (recommended: owned by the player who operated or paid)
 
 For each path, determine whether it creates a persistent owner, an unowned item, or inherits ownership from another entity.
 
 ### How should containers affect ownership?
 
-- How will a future friend/ACL system affect possession without changing ownership?
+- How will a future friend/ACL system affect possession without changing ownership? Planned: one
+  server-side decision point, `ItemAccess.Decide` ([owned-items.md](owned-items.md#permissions)), whose
+  default policy is today's rules. The permissions system replaces the policy.
 
 ### What should players see?
+
+Planned:
+
+- a player's own list of everything they own, with where each item is and a Retrieve button
+  ([owned-items.md](owned-items.md#the-owned-items-list));
+- red for every item another player owns.
+
+Still open from the list below: an explicit gift action.
 
 Potential presentation rules:
 
@@ -182,19 +233,19 @@ The transition reason should distinguish gifting, purchase, administrative reass
 
 ## Scenario matrix to decide and test
 
-| Scenario | Current result | Decision needed |
+| Scenario | Current result | Decided (owned-items, not built) |
 | --- | --- | --- |
-| A lends an ordinary item to B | A remains owner; B possesses it | Is explicit return sufficient? |
-| A gives an ordinary item to B | Indistinguishable from lending | Define an explicit gift path |
-| B drops A's item and stays nearby | Item remains in world | Confirm protection duration |
-| B drops A's item and everyone leaves | Item goes to A's Lost and Found if A is connected | Confirm destination |
-| A disconnects while item is abandoned | Not collected: A's owner ID is unbound until A returns | Decide long-term offline policy |
-| B holds A's recallable item | A remains owner and may recall; B sees red | Confirm intended theft/recall behaviour |
-| B holds A's non-recallable item | A remains owner; B does not see red | Decide whether a neutral owner label is wanted |
-| B disconnects while holding or carrying A's item | Dropped where B was; reaches A's Lost and Found by ordinary collection | Direct to Lost and Found? |
-| B disconnects carrying A's item while A is offline | Stays in B's inventory and save | Fix (gap) |
-| B purchases an item | B owns it (client purchase); a host purchase goes to the first taker | Decided |
-| B stores items in a container | Only B's own items can go in; ownership unchanged | Decided |
+| A lends an ordinary item to B | A remains owner; B possesses it | A can retrieve it from B any time, to A's Lost and Found |
+| A gives an ordinary item to B | Indistinguishable from lending | Open: an explicit gift path |
+| B drops A's item and stays nearby | Item remains in world | Protected while B is near, as now |
+| B drops A's item and everyone leaves | Item goes to A's Lost and Found if A is connected | A's Lost and Found, A online or not |
+| A disconnects while item is abandoned | Not collected: A's owner ID is unbound until A returns | Collected into A's Lost and Found under the standard rules, also from trains and shelves; never expires |
+| B holds A's recallable item | A remains owner and may recall; B sees red | Unchanged; red |
+| B holds A's non-recallable item | A remains owner; B does not see red | A can retrieve it; B sees red |
+| B disconnects while holding or carrying A's item | Dropped where B was; reaches A's Lost and Found by ordinary collection | Straight to A's Lost and Found |
+| B disconnects carrying A's item while A is offline | Stays in B's inventory and save | Straight to A's Lost and Found; migration fixes old saves |
+| B purchases an item | B owns it (client purchase); a host purchase goes to the first taker | The buyer owns it, the host's player too |
+| B stores items in a container | Only B's own items can go in; ownership unchanged | Unchanged |
 
 ## Deferred implementation ideas
 
@@ -203,5 +254,5 @@ Do not implement these until the policy is chosen:
 - Explicit gift/ownership-transfer UI
 - Abandonment timers that transfer ownership
 - Ownership transfer through player-owned containers
-- Friend or ACL-based borrowing
-- Offline-owner expiry rules
+- Friend or ACL-based borrowing (through `ItemAccess`, when the permissions system lands)
+- ~~Offline-owner expiry rules~~: decided 2026-10-21, nothing expires
