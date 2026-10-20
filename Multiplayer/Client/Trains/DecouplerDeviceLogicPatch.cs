@@ -7,6 +7,7 @@ using Multiplayer.Shared.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -78,7 +79,7 @@ public static class DecouplerDeviceLogicPatch
     private static void Report(Before before)
     {
         before?.Batch?.Dispose();
-        var client = NetworkLifecycle.Instance?.Client;
+        var client = NetworkClient.Instance;
         if (client == null || before == null)
             return;
 

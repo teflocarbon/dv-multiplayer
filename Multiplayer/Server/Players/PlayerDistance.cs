@@ -21,7 +21,7 @@ public static class PlayerDistance
 
         //Loop through all of the players and return the one thats closest to the anchor (a
         //dedicated host's parked body isn't a player)
-        foreach (ServerPlayer serverPlayer in NetworkLifecycle.Instance.Server.ServerPlayers)
+        foreach (ServerPlayer serverPlayer in NetworkServer.Instance.ServerPlayers)
         {
             if (serverPlayer.IsServiceHost)
                 continue;

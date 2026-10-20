@@ -21,7 +21,7 @@ public static class HazmatServer
     // What each tile looked like when last sent (flags and quantised liquids).
     private static readonly Dictionary<int, byte[]> lastSent = new();
 
-    private static NetworkServer Server => NetworkLifecycle.Instance.Server;
+    private static NetworkServer Server => NetworkServer.Instance;
 
     public static void Reset() => lastSent.Clear();
 

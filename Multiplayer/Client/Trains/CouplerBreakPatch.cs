@@ -7,6 +7,7 @@ using Multiplayer.Shared.Trains;
 using Multiplayer.Core.Trains;
 using Multiplayer.Debugging.Protocol;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -33,7 +34,7 @@ public static class CouplerBreakPatch
     private static readonly Dictionary<Coupler, (int frame, float force)> breakForces = new();
 
     private static bool IsClient =>
-        NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.Client != null &&
+        NetworkLifecycle.Instance != null && NetworkClient.Instance != null &&
         !NetworkLifecycle.Instance.IsHost();
 
     internal static void RecordJointBreak(Coupler coupler, float force)
@@ -66,7 +67,7 @@ public static class CouplerBreakPatch
         if (__state == null)
             return;
         __state.Dispose();
-        NetworkLifecycle.Instance.Client?.RestoreCanonicalTrainTopology();
+        NetworkClient.Instance?.RestoreCanonicalTrainTopology();
     }
 
     [HarmonyPatch(nameof(Coupler.Uncouple))]
@@ -92,7 +93,7 @@ public static class CouplerBreakPatch
             float gap = other != null ? Vector3.Distance(coupler.transform.position, other.transform.position) : float.NaN;
             bool client = IsClient;
             string host = client
-                ? NetworkLifecycle.Instance.Client.DescribeHostCoupling(netId, End(coupler))
+                ? NetworkClient.Instance.DescribeHostCoupling(netId, End(coupler))
                 : "(this is the host)";
 
             Multiplayer.LogError(

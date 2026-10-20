@@ -48,7 +48,7 @@ public class CullingManager : IDisposable
 
         checkCoro = CoroutineManager.Instance.StartCoroutine(PlayerDistanceChecker());
 
-        NetworkLifecycle.Instance.Server.PlayerDisconnected += OnPlayerDisconnected;
+        NetworkServer.Instance.PlayerDisconnected += OnPlayerDisconnected;
     }
 
     public void Dispose()
@@ -56,8 +56,8 @@ public class CullingManager : IDisposable
         if (checkCoro != null)
             CoroutineManager.Instance.Stop(checkCoro);
 
-        if (NetworkLifecycle.Instance.Server != null)
-            NetworkLifecycle.Instance.Server.PlayerDisconnected -= OnPlayerDisconnected;
+        if (NetworkServer.Instance != null)
+            NetworkServer.Instance.PlayerDisconnected -= OnPlayerDisconnected;
     }
 
     //todo: fix when merged with ModAPI branch
@@ -83,9 +83,9 @@ public class CullingManager : IDisposable
             //if not active then there is no one close by
             if (_referenceObject != null && _referenceObject.activeInHierarchy)
             {
-                foreach (var player in NetworkLifecycle.Instance.Server.ServerPlayers)
+                foreach (var player in NetworkServer.Instance.ServerPlayers)
                 {
-                    if (player.PlayerId == NetworkLifecycle.Instance.Server.SelfId || player.LoadingState != PlayerLoadingState.Complete)
+                    if (player.PlayerId == NetworkServer.Instance.SelfId || player.LoadingState != PlayerLoadingState.Complete)
                         continue;
 
                     float sqrDistance = (player.WorldPosition - _referenceObject.transform.position).sqrMagnitude;

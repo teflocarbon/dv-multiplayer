@@ -1,6 +1,7 @@
 using HarmonyLib;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Session;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Jobs;
 
@@ -26,7 +27,7 @@ public static class JobValidator_ServerPatch
         // A client's request has set who the booklet is for; otherwise it's the host's own player.
         if (networkedJob.PendingBookletIssuedToPlayerId == 0)
             networkedJob.PendingBookletIssuedToPlayerId =
-                NetworkLifecycle.Instance.Server.LocalPlayer?.PlayerId ?? 0;
+                NetworkServer.Instance.LocalPlayer?.PlayerId ?? 0;
         return true;
     }
 

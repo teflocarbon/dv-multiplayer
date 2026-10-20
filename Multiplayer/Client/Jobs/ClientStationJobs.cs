@@ -13,6 +13,7 @@ using Multiplayer.Debugging.Protocol;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Jobs;
 
@@ -196,7 +197,7 @@ public static class ClientStationJobs
         NetworkedItem netItem;
         string jobIdStr = $"[{netJob?.Job?.ID}, {netJob.NetId}]";
 
-        NetworkLifecycle.Instance.Client.LogDebug(() => $"HandleJobStateChange({jobIdStr}) Current state: {netJob?.Job?.State}, New state: {updateData.JobState}, ValidationStationNetId: {updateData.ValidationStationId}, ItemNetId: {updateData.ItemNetID}");
+        NetworkClient.Instance.LogDebug(() => $"HandleJobStateChange({jobIdStr}) Current state: {netJob?.Job?.State}, New state: {updateData.JobState}, ValidationStationNetId: {updateData.ValidationStationId}, ItemNetId: {updateData.ItemNetID}");
 
         // Job state packets only create the accepted-job booklet. Job reports are physical
         // print artifacts and arrive through ClientboundJobReportArtifactPacket.
@@ -211,13 +212,13 @@ public static class ClientStationJobs
             }
             else
             {
-                NetworkLifecycle.Instance.Client.LogError($"HandleJobStateChange({jobIdStr}) Validator not found or data missing! Validator ID: {updateData.ValidationStationId}");
+                NetworkClient.Instance.LogError($"HandleJobStateChange({jobIdStr}) Validator not found or data missing! Validator ID: {updateData.ValidationStationId}");
                 canPrint = false;
             }
 
             if (updateData.ItemNetID == 0)
             {
-                NetworkLifecycle.Instance.Client.LogError($"HandleJobStateChange({jobIdStr}) Missing item data!");
+                NetworkClient.Instance.LogError($"HandleJobStateChange({jobIdStr}) Missing item data!");
                 canPrint = false;
             }
         }
@@ -271,7 +272,7 @@ public static class ClientStationJobs
                 break;
 
             default:
-                NetworkLifecycle.Instance.Client.LogError($"HandleJobStateChange({jobIdStr}) Unrecognised Job State: {updateData.JobState}");
+                NetworkClient.Instance.LogError($"HandleJobStateChange({jobIdStr}) Unrecognised Job State: {updateData.JobState}");
                 break;
         }
 

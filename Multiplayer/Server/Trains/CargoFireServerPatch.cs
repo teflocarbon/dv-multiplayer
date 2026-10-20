@@ -6,6 +6,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Trains;
 
@@ -24,14 +25,14 @@ public static class CargoFireServer
     internal static void AfterUpdate(CargoReactionBase reaction)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
-        if (lifecycle == null || !lifecycle.IsHost() || lifecycle.Server == null)
+        if (lifecycle == null || !lifecycle.IsHost() || NetworkServer.Instance == null)
             return;
         CargoFireSync.FireState state = CargoFireSync.State(reaction);
         if (sent.TryGetValue(reaction, out CargoFireSync.FireState last) ? last == state : state == CargoFireSync.FireState.None)
             return;
         sent[reaction] = state;
         if (CargoFireSync.TryLocate(reaction, out NetworkedTrainCar networked, out byte index))
-            lifecycle.Server.SendCargoFire(networked.NetId, index, state);
+            NetworkServer.Instance.SendCargoFire(networked.NetId, index, state);
     }
 
     // A joining player gets every car that's burning now.
@@ -41,7 +42,7 @@ public static class CargoFireServer
             sent.Remove(reaction);
         foreach (KeyValuePair<CargoReactionBase, CargoFireSync.FireState> kvp in sent)
             if (kvp.Value != CargoFireSync.FireState.None && CargoFireSync.TryLocate(kvp.Key, out NetworkedTrainCar networked, out byte index))
-                NetworkLifecycle.Instance.Server.SendCargoFire(networked.NetId, index, kvp.Value, peer);
+                NetworkServer.Instance.SendCargoFire(networked.NetId, index, kvp.Value, peer);
     }
 
     public static void Ignite(TrainCar car, byte index, float strength, bool explode, Vector3 playerPosition, string username)

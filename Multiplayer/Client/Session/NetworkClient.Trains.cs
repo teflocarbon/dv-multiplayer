@@ -27,6 +27,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Client.Session;
 
@@ -802,7 +803,7 @@ public partial class NetworkClient : ITrainClient
         }
         if (NetworkLifecycle.Instance.IsHost())
         {
-            NetworkLifecycle.Instance.Server?.CommitObservedTrainTopology();
+            NetworkServer.Instance?.CommitObservedTrainTopology();
             return;
         }
         string signature = $"{(byte)kind}:{primaryNetId}:{primary?.isFrontCoupler == true}:" +

@@ -47,7 +47,7 @@ F='float A(string k) => float.Parse(ctx.Args[k], System.Globalization.CultureInf
 if [ "$WHO" = client ] || [ "$WHO" = host-radio ]; then
   # What the comms radio's rerail does (RerailControllerPatch): host-radio is the host's own player,
   # whose request is handled in-process.
-  $D eval -t $( [ "$WHO" = client ] && echo client || echo host ) -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedTrainCar.TryGetFromTrainCar(car, out var n); NetworkLifecycle.Instance.Client.SendTrainRerailRequest(n.NetId, ushort.Parse(ctx.Args["track"]), p, f); return 0;' >/dev/null
+  $D eval -t $( [ "$WHO" = client ] && echo client || echo host ) -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedTrainCar.TryGetFromTrainCar(car, out var n); Multiplayer.Client.Session.NetworkClient.Instance.SendTrainRerailRequest(n.NetId, ushort.Parse(ctx.Args["track"]), p, f); return 0;' >/dev/null
 else
   $D eval -t host -m body -u "$U" -a car=$car -a track=$track $pos "$F"' NetworkedRailTrack.TryGet(ushort.Parse(ctx.Args["track"]), out NetworkedRailTrack t); car.Rerail(t.RailTrack, p + WorldMover.currentMove, f); return 0;' >/dev/null
 fi
