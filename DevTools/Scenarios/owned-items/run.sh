@@ -36,12 +36,12 @@ echo "   the client owned $(echo "$s" | field before) $prefab before, counts $(e
 [ "$(echo "$s" | field after)" = "$(echo "$s" | field before)" ] || fail "the absent player's $prefab counts as the client's"
 
 if [ "$(echo "$s" | field before)" = "0" ]; then
-  guid=$(host 'var server = NetworkLifecycle.Instance.Server; return new { g = server.ServerPlayers.First(p => p.PlayerId != server.SelfId).Guid.ToString() };' | field g)
-  name=$(host 'var server = NetworkLifecycle.Instance.Server; return new { n = server.ServerPlayers.First(p => p.PlayerId != server.SelfId).Username };' | field n)
+  guid=$(host 'var server = Multiplayer.Server.Session.NetworkServer.Instance; return new { g = server.ServerPlayers.First(p => p.PlayerId != server.SelfId).Guid.ToString() };' | field g)
+  name=$(host 'var server = Multiplayer.Server.Session.NetworkServer.Instance; return new { n = server.ServerPlayers.First(p => p.PlayerId != server.SelfId).Username };' | field n)
   host -a guid=$guid 'Multiplayer.Multiplayer.Settings.Admins = ctx.Args["guid"]; return 0;' >/dev/null
   echo "== the client sends /give $name $prefab"
   # Without its slash: Git Bash would turn "/give" into a Windows path.
-  $D eval -t client -m body -u "$U" -a cmd="give $name $prefab" 'NetworkLifecycle.Instance.Client.SendChat("/" + ctx.Args["cmd"]); return 0;' >/dev/null
+  $D eval -t client -m body -u "$U" -a cmd="give $name $prefab" 'Multiplayer.Client.Session.NetworkClient.Instance.SendChat("/" + ctx.Args["cmd"]); return 0;' >/dev/null
   g=$($D eval -t client -m coroutine -u "$U" -a prefab=$prefab 'NetworkedItem got = null; for (float t0 = Time.realtimeSinceStartup; got == null && Time.realtimeSinceStartup - t0 < 10f; ) { yield return new WaitForSecondsRealtime(0.5f); got = DV.InventorySystem.Inventory.Instance.GetItemsArray(false).Where(go => go != null && go.name.StartsWith(ctx.Args["prefab"])).Select(go => go.GetComponent<NetworkedItem>()).FirstOrDefault(n => n != null && n.NetId != 0); } ctx.Result = new { item = got == null ? 0 : got.NetId };')
   given=$(echo "$g" | field item)
   echo "   in the client's inventory: $([ "$given" = 0 ] && echo nothing || echo "$prefab $given")"

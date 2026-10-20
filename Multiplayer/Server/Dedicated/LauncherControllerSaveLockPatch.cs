@@ -24,8 +24,8 @@ public static class LauncherControllerSaveLockPatch
         if (MainMenuThingsAndStuff.Instance != null)
             MainMenuThingsAndStuff.Instance.ShowOkPopup(message, () => { });
         // Hosting may already have been set up for this run.
-        NetworkLifecycle.Instance.serverData = null;
-        NetworkLifecycle.Instance.IsSinglePlayer = true;
+        MultiplayerSession.Instance.serverData = null;
+        MultiplayerSession.Instance.IsSinglePlayer = true;
         return false;
     }
 }

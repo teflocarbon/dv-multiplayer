@@ -1,6 +1,7 @@
 using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -36,7 +37,7 @@ public static class CouplerPatch
             return;
         }
 
-        NetworkLifecycle.Instance.Client?.SendHoseConnected(__instance, other, playAudio);
+        NetworkClient.Instance?.SendHoseConnected(__instance, other, playAudio);
     }
 
     [HarmonyPatch(nameof(Coupler.DisconnectAirHose))]
@@ -64,7 +65,7 @@ public static class CouplerPatch
         }
 
         Multiplayer.LogDebug(() => $"DisconnectAirHose({__instance?.train?.ID}, {__instance.isFrontCoupler})");
-        NetworkLifecycle.Instance.Client?.SendHoseDisconnected(__instance, playAudio); 
+        NetworkClient.Instance?.SendHoseDisconnected(__instance, playAudio); 
     }
 
 }

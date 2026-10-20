@@ -26,7 +26,7 @@ float value = ctx.Args.TryGetValue("value", out var v) && !string.IsNullOrEmpty(
 float delay = ctx.Args.TryGetValue("delay", out var d) && !string.IsNullOrEmpty(d) ? float.Parse(d, System.Globalization.CultureInfo.InvariantCulture) : 0.3f;
 
 float before = Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).hostPortReceivedAt.TryGetValue(portNetId, out float t) ? t : 0f;
-NetworkLifecycle.Instance.Client.SendTrainSyncRequest(ntc.NetId);
+Multiplayer.Client.Session.NetworkClient.Instance.SendTrainSyncRequest(ntc.NetId);
 float asked = Time.realtimeSinceStartup;
 while ((!Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(ntc).hostPortReceivedAt.TryGetValue(portNetId, out t) || t <= before) && Time.realtimeSinceStartup - asked < 10f)
     yield return null;

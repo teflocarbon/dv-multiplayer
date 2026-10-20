@@ -2,7 +2,7 @@
 // client's known items) but hasn't acknowledged yet, so its revision moves on before the client's
 // acknowledgement arrives. Stands in for another game's update to a new overview. Runs until no
 // new overview has turned up for 15 s (at most 90 s).
-var server = NetworkLifecycle.Instance.Server;
+var server = Multiplayer.Server.Session.NetworkServer.Instance;
 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
 var nudged = new Dictionary<ushort, uint>();
 float start = Time.realtimeSinceStartup, last = start;

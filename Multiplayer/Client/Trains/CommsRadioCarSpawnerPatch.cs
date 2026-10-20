@@ -3,6 +3,7 @@ using HarmonyLib;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.World;
 using UnityEngine;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Trains;
 
@@ -70,7 +71,7 @@ public static class CommsRadioCarSpawnerPatch
             return false;
         }
 
-        NetworkLifecycle.Instance.Client.SendTrainSpawnRequest(
+        NetworkClient.Instance.SendTrainSpawnRequest(
             trainCar.carLivery.id,
             trackNetId,
             __instance.closestPointOnDestinationTrack.Value.index,

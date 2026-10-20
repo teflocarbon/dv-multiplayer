@@ -29,6 +29,9 @@ internal static class Mp
         serverRunningProp = lifecycle.GetProperty("IsServerRunning");
         clientRunningProp = lifecycle.GetProperty("IsClientRunning");
         serverProp = lifecycle.GetProperty("Server");
+        // Since the lifecycle split (2026-10-20) the server is NetworkServer.Instance.
+        if (serverProp == null)
+            serverProp = Type.GetType("Multiplayer.Server.Session.NetworkServer, Multiplayer")?.GetProperty("Instance", flags);
         tickProp = lifecycle.GetProperty("Tick");
     }
 
@@ -65,7 +68,7 @@ internal static class Mp
         if (lifecycle == null) return new { loaded = Loaded, role = "offline" };
         try
         {
-            object server = serverProp?.GetValue(lifecycle);
+            object server = serverProp == null ? null : serverProp.GetGetMethod().IsStatic ? serverProp.GetValue(null) : serverProp.GetValue(lifecycle);
             object playerCount = server?.GetType().GetProperty("PlayerCount")?.GetValue(server);
             return new
             {

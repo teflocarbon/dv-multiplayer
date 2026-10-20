@@ -103,7 +103,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator Throw(Step<Thrown> step, ushort id, string loco, string actorName)
             {
-                var server = NetworkLifecycle.Instance.Server;
+                var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 ServerPlayer actor = actorName == "host" ? server.LocalPlayer : server.ServerPlayers.First(p => p != server.LocalPlayer);
                 var spatial = NetworkedItemManager.Instance.Spatial;
                 NetworkedItem item = null;

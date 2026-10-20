@@ -5,6 +5,7 @@ using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using static WarehouseMachineController;
+using Multiplayer.Server.Session;
 
 namespace Multiplayer.Server.Jobs;
 
@@ -65,6 +66,6 @@ public class WarehouseMachineControllerServerPatch
 
         CargoTypeLookup.Instance.TryGetNetId(cargoType, out uint cargoTypeNetId);
 
-        NetworkLifecycle.Instance.Server.SendWarehouseControllerUpdate(netMachine.NetId, isLoading, jobNetId, carNetId, cargoTypeNetId, preset);
+        NetworkServer.Instance.SendWarehouseControllerUpdate(netMachine.NetId, isLoading, jobNetId, carNetId, cargoTypeNetId, preset);
     }
 }

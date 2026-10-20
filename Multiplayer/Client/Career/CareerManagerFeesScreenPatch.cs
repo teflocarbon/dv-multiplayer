@@ -1,6 +1,7 @@
 using DV.ServicePenalty.UI;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
+using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Career;
 
@@ -23,7 +24,7 @@ public static class CareerManagerFeesScreenPatch
             return false;
         }
         __instance.confirmActionScreen.SetCustomActionData(
-            () => NetworkLifecycle.Instance.Client.SendPayFeesRequest(),
+            () => NetworkClient.Instance.SendPayFeesRequest(),
             __instance.mainScreen,
             Locale.CAREER_MANAGER__PAY_FEES_TITLE,
             Locale.CAREER_MANAGER__PAY_FEES_INFO);

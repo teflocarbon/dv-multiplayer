@@ -174,7 +174,7 @@ namespace Dvmp.Scenarios
                 Lost = NetworkedLostAndFoundManager.Contains(netId),
                 Exists = NetworkedItem.TryGet(netId, out NetworkedItem n) && n != null,
                 ClientId = client != null ? client.PlayerId : 0,
-                HostId = NetworkLifecycle.Instance.Server.LocalPlayer?.PlayerId ?? 0
+                HostId = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer?.PlayerId ?? 0
             };
             if (!AuthoritativeItemRegistry.TryGet(netId, out var r)) return result;
             result.Known = true;

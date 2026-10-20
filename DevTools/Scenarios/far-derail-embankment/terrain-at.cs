@@ -2,7 +2,7 @@
 // it is from the host's own body), and whether its Far scenery tile is loaded there. Result: the top
 // collider's name, the terrain collider's name, and whether the Far tile is loaded.
 var lifecycle = NetworkLifecycle.Instance;
-var player = lifecycle.Server.GameplayPlayers.First(p => !lifecycle.IsHost(p));
+var player = Multiplayer.Server.Session.NetworkServer.Instance.GameplayPlayers.First(p => p != Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer);
 var hits = Physics.RaycastAll(player.WorldPosition + Vector3.up * 30f, Vector3.down, 80f, ~0, QueryTriggerInteraction.Ignore)
     .Where(h => h.collider.attachedRigidbody == null).OrderBy(h => h.distance).ToList();
 var terrains = hits.Where(h => h.collider is TerrainCollider).Select(h => h.collider.name).ToList();

@@ -10,5 +10,5 @@ return new {
     lost = NetworkedLostAndFoundManager.Contains(id),
     exists = NetworkedItem.TryGet(id, out NetworkedItem n) && n != null,
     clientId = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First().PlayerId,
-    hostId = Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server.LocalPlayer?.PlayerId ?? 0
+    hostId = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer?.PlayerId ?? 0
 };

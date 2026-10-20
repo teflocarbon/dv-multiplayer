@@ -24,7 +24,7 @@ office() { # both players at the office (a dedicated host has no player to move)
   $D eval -t client -m coroutine --timeout 90 'yield return LocalPlayer.TeleportToGround(5986f, 6740f); yield return new WaitForSeconds(4);' >/dev/null; }
 cleanup() { $D eval -t $WHO -m coroutine 'if (Hands.Held != null) yield return Hands.Drop(); Hands.ReleaseControl();' >/dev/null 2>&1 || true; office >/dev/null 2>&1 || true; }
 
-DEDICATED=$($D eval -t host 'Multiplayer.Shared.Session.NetworkLifecycle.Instance.Server.LocalPlayer == null' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(Object.values(o.results)[0].result)')
+DEDICATED=$($D eval -t host 'Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer == null' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log(Object.values(o.results)[0].result)')
 [ "$DEDICATED" = true ] && [ "$WHO" = host ] && fail "WHO=host needs a player host"
 trap cleanup EXIT
 

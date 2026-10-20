@@ -25,7 +25,7 @@ float t0 = Time.realtimeSinceStartup;
 var ticket = Multiplayer.Client.Session.RpcManager.Instance.CreateTicket(float.Parse(ctx.Args["timeout"]))
     .OnResolve(r => response = (r as Multiplayer.Shared.Protocol.Data.RPCs.SpawnResponse)?.Response.ToString() ?? r.GetType().Name)
     .OnTimeout(() => response = "timeout");
-Multiplayer.Shared.Session.NetworkLifecycle.Instance.Client.SendWorkTrainRequest(ticket.TicketId, liveryId,
+Multiplayer.Client.Session.NetworkClient.Instance.SendWorkTrainRequest(ticket.TicketId, liveryId,
     ushort.Parse(ctx.Args["track"]), int.Parse(ctx.Args["index"]), true);
 while (response == null)
     yield return null;
