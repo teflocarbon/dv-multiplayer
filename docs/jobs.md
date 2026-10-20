@@ -179,8 +179,10 @@ Works:
   rebuilds every live copy from `JobData.JobBooklets`. Incremental updates add copies by NetId
   without duplicating ones the client has.
 - **Reprint** (`SummonAllActiveJobBooklets`) is replaced by `ServerboundJobBookletSummonRequestPacket`
-  from every player; the host's own player's is handled in-process
-  ([host-local-session](design/host-local-session.md), stage 2). The host's
+  from every player, sent through the player's session (`IJobsClient`, `Client/Jobs`); the host's
+  own player's is handled in-process ([host-local-session](design/host-local-session.md), stage 2;
+  with `-mp-local-session`, `LocalPlayerSession.Jobs.cs` submits it). With no player session
+  (multiplayer off, or a dedicated host with `-mp-local-session`), vanilla's summon runs. The host's
   `JobBookletSummonCoordinator`, for every in-progress job, moves the requester's issued copy to
   the printer through an authoritative item transition (`ItemTransitionReason.JobBookletSummon`,
   clearing any retrieval claim) or prints a new copy if they have none. Other players' copies
@@ -267,8 +269,10 @@ job's overview enters the trigger, the game whose player let go of it sends
 the paper falls into the bin, so only one game may ask: the paper is this player's if it is in their
 hand or inventory, if this game simulates it (its physics lease), or if they let go of it in the
 last 5 s, before the lease arrives (`NetworkedItem.LocallyReleasedAt`). A game asks once per job
-every 2 s, since the paper has several colliders and can bounce. The host's own player's request is
-handled in-process ([host-local-session](design/host-local-session.md), stage 2).
+every 2 s, since the paper has several colliders and can bounce. The request goes through the
+player's session (`IJobsClient`); the host's own player's is handled in-process
+([host-local-session](design/host-local-session.md), stage 2; with `-mp-local-session`,
+`LocalPlayerSession.Jobs.cs` submits it).
 
 The host (`Server/Jobs/JobReroll`) ignores a request for a job that is no longer `Available` or an
 item that isn't the job's overview: a second request for the same paper finds the job expired, so
