@@ -53,7 +53,7 @@ namespace Dvmp.Scenarios
                 var hopper = Cars.Livery("HopperBrown");
                 var player = PlayerManager.PlayerTransform.position;
                 var track = Object.FindObjectsOfType<RailTrack>()
-                    .Where(t => t.curve != null && t.curve.length > 80 && !t.BogiesOnTrack().Any())
+                    .Where(t => Cars.Length(t) > 80 && !t.BogiesOnTrack().Any())
                     .OrderBy(t => (t.transform.position - player).sqrMagnitude).First();
                 var cars = CarSpawner.Instance.SpawnCarTypesOnTrack(Enumerable.Repeat(hopper, 4).ToList(), Enumerable.Repeat(false, 4).ToList(), track, true, true, 10.0, false);
                 Cars.Record(cars);

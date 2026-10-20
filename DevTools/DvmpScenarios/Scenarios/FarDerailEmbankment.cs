@@ -85,7 +85,7 @@ namespace Dvmp.Scenarios
                 var stations = StationController.allStations.Select(s => s.transform.position).ToList();
                 var rnd = new System.Random(7);
                 var point = UnityEngine.Object.FindObjectsOfType<RailTrack>()
-                    .Select(t => (Vector3)t.curve.GetPointAt(0.5f))
+                    .Where(t => Cars.Length(t) > 0).Select(Cars.Middle)
                     .Where(p => { var d = Vector3.Distance(p, body); return d > 4000 && d < 8000; })
                     .Where(p => stations.All(s => Vector3.Distance(s, p) > 400f))
                     .OrderBy(_ => rnd.Next())
