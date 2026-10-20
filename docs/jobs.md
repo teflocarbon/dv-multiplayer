@@ -365,8 +365,8 @@ another job and bins that one (the paper comes back out and lands at the same sp
 `WHO=client` (the default, also on a dedicated host) or `WHO=host` bins the paper.
 
 ```bash
-DevTools/Scenarios/job-reroll/run.sh            # WHO=client
-WHO=host DevTools/Scenarios/job-reroll/run.sh   # a player host
+dvmp scenario run job-reroll --session NAME                     # WHO=client
+dvmp scenario run job-reroll --session NAME --arg WHO=host     # a player host
 ```
 
 Unit tests: `JobBookletIssuanceIndexTests`
