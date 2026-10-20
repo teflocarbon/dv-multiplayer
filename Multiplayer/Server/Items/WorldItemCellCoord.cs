@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Multiplayer.Shared.Items;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
 internal readonly struct WorldItemCellCoord : IEquatable<WorldItemCellCoord>
 {

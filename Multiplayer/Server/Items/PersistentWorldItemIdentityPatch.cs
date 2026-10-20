@@ -1,8 +1,9 @@
 using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using System;
+using Multiplayer.Shared.Items;
 
-namespace Multiplayer.Shared.Items;
+namespace Multiplayer.Server.Items;
 
 [HarmonyPatch]
 internal static class PersistentWorldItemIdentityPatch

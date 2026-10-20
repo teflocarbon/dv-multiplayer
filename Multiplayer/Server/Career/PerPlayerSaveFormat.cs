@@ -138,7 +138,7 @@ public static class PerPlayerSaveFormat
             index++;
             if (item == null || string.IsNullOrEmpty(item.itemPrefabName) || WorldItemPersistenceManager.IsJobSystemDocument(item.itemPrefabName))
                 continue;
-            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Shared.Items.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
+            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Server.Items.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
                 ? saved : ConvertedItemId(owner, index, item);
             if (!known.Add(id))
                 continue;   // already a record: nothing to move

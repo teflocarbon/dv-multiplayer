@@ -32,7 +32,8 @@ public interface IItemServer
 
     /// <summary>
     ///     The item is being destroyed (its OnDestroy): the host logs why, keeps a scene-authored
-    ///     item's tombstone, queues the Destroy for the players who know it and drops its record.
+    ///     item's tombstone, queues the Destroy for the players who know it, drops its record
+    ///     and forgets its job-report artifact.
     /// </summary>
     void OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy);
 

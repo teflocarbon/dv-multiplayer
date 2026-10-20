@@ -1,6 +1,7 @@
 ﻿using DV.InventorySystem;
 using LiteNetLib;
 using Multiplayer.Server.Items;
+using Multiplayer.Server.Jobs;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data;
@@ -46,7 +47,11 @@ public partial class NetworkServer : IItemServer
 
     void IItemServer.PromoteAuthoredToPersistent(NetworkedItem item) => AuthoritativeItemRegistry.PromoteAuthoredToPersistent(item);
 
-    void IItemServer.OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy) => item.OnDestroyed(suppressNetworkDestroy);
+    void IItemServer.OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy)
+    {
+        item.OnDestroyed(suppressNetworkDestroy);
+        JobReportArtifactRegistry.Remove(item.NetId);
+    }
 
     bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => WorldItemPersistenceManager.OwnsWorldPersistence(item);
 
