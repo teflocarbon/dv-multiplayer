@@ -489,7 +489,11 @@ As of 2026-10-20, on `split/client-server` (not yet in `beta`):
     own state. The server keeps the avatars itself and leaves the host's player out of the presence
     packets. A dedicated host has no player and leaves its loading screen itself. Scenario:
     `local-session` (C#).
+  - MPAPI's client API on the host is the session's (`IClientApiSession`): mods' packets reach it and
+    leave it serialised, through the `LocalPeer` and `ILocalServer.ReceiveFromLocalPlayer`. Scenario:
+    `mpapi-roundtrip` (C#).
+  - A dedicated host's console commands run with a console sender (`ServerPlayer.CreateConsole`, never
+    in the player list) when there's no service player.
 
-  Left: each area's `I<Area>Client` on the session and its host call sites off `NetworkClient`;
-  MPAPI's client API on the host; the dedicated host's console without a service player; then the
-  loopback path, the switch and `HostOwnClient` removed.
+  Left: each area's `I<Area>Client` on the session and its host call sites off `NetworkClient`; then
+  the loopback path, the switch, the service identity and `HostOwnClient` removed.
