@@ -366,8 +366,13 @@ Notes on the steps:
   `WorldStreamingInit.LoadingFinished`, so it stays up through the sync. `RemoveLoadingScreen` takes
   it down, and the client then makes sure it has left loading mode
   (`LoadingScreenManager.FinishLoading()`), even if the loading screen object is gone. In VR that's
-  what turns the gloves and the teleport pointer back on; the VR loading overlay closes by itself at
-  100%, so a client left in loading mode is in the world without them (#72).
+  what turns the gloves and the teleport pointer back on (#72). The VR loading view (`VrLoading`)
+  fades into the world as soon as its progress reaches 1, and the client reports 100% before the
+  sync is done (on "Complete", with the host's items and jobs still arriving, and when a mod clears
+  its ready block). `VrLoadingProgressPatch` holds that progress below 1, so only
+  `FinishLoading()` ends it, in the frame the loading screen and its camera are destroyed. Before,
+  a VR player was in the world while the desktop still showed the loading screen, with one eye
+  upside down.
 - `ReadyForCustomizers` exists in the enum but the client never sends it. The client waits a
   fixed 0.25–0.5 s between the later states; there is no completion acknowledgement for items.
 
