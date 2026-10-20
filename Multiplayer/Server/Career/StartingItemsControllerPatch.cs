@@ -1,7 +1,7 @@
 using HarmonyLib;
 using Multiplayer.Shared.Session;
 
-namespace Multiplayer.Shared.Career;
+namespace Multiplayer.Server.Career;
 
 /// <summary>
 /// While loading, DV adds any starting items (comms radio, maps, compass, wallet, ...) and licence
