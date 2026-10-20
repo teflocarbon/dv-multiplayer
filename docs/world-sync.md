@@ -169,6 +169,11 @@ from `CareerManagerDebtControllerPatch.HasDebt`, set from the save-game packet o
 `ClientboundDebtStatusPacket` afterwards. `Server/Career/
 NetworkedCareerManagerDebtController.cs` sends that packet when "has debt" changes (it used to go
 out only at exactly 0 or 1 debts, so going from none to two left clients thinking there was none).
+It checks on `DebtListsUpdated` and after every `RefreshExistingDebtsState`
+(`CareerManagerDebtControllerServerPatch.cs`): a refresh moves a debt between the zero-priced and
+priced lists, a loco taking damage or being refuelled, without raising `DebtListsUpdated`, so a
+loco damaged after a client joined left its fees screen saying there were no fees. Vanilla
+refreshes every 60 s, and whenever the fees are read.
 
 A client has no fee list, so `CareerManagerFeesScreenPatch.cs` replaces its fees screen with "Pay
 all fees?". Confirming sends `ServerboundPayFeesRequestPacket`, and the server pays them for an
