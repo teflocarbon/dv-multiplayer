@@ -53,6 +53,8 @@
         <GameAssembly Include="$(DvInstallDir)\DerailValley_Data\Managed\*.dll"
                       Exclude="$(DvInstallDir)\DerailValley_Data\Managed\mscorlib.dll;$(DvInstallDir)\DerailValley_Data\Managed\netstandard.dll;$(DvInstallDir)\DerailValley_Data\Managed\System*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Mono.*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Microsoft.*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Newtonsoft*.dll;$(DvInstallDir)\DerailValley_Data\Managed\Unity.Burst.Cecil*.dll" />
         <Reference Include="@(GameAssembly)" Private="false" />
+        <!-- Steps that watch a code path patch it (Library/Cabs.cs: Received), as `class` probes do. -->
+        <Reference Include="0Harmony" Private="false"><HintPath>$(DvInstallDir)\DerailValley_Data\Managed\UnityModManager\0Harmony.dll</HintPath></Reference>
         <Reference Include="System.Net.Http" />
     </ItemGroup>
 </Project>
