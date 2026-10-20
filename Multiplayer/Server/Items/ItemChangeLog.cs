@@ -58,6 +58,7 @@ public static class ItemChangeLog
             return;
         record.LastMove = cause;
         Multiplayer.Log(ItemChangeLogFormat.Moved(Name(item, record), record.NetId, cause));
+        OwnedItemsServer.OnMove(record, cause);
     }
 
     /// <summary>Host: logs a removal and keeps it among the recent ones.</summary>
@@ -69,6 +70,7 @@ public static class ItemChangeLog
         RecentRemovals.Add(new ItemRemovalRecord(item.NetId, Name(item, record), Whereabouts(record),
             cause, record?.LastMove ?? default));
         Multiplayer.Log(ItemChangeLogFormat.Removed(Name(item, record), item.NetId, cause));
+        OwnedItemsServer.OnRemoved(item, cause);
     }
 
     public static string PlayerName(byte playerId) =>

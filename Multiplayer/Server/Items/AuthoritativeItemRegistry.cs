@@ -115,8 +115,8 @@ public static class AuthoritativeItemRegistry
         byte persistentOwner = actorOwnsPlayerItem ? actor.PlayerId : (byte)0;
 
         PersistentWorldItemIdentity persistentIdentity = item.GetComponent<PersistentWorldItemIdentity>();
-        Guid persistentItemId = item.IsSceneAuthored ? Guid.Empty :
-            (persistentIdentity ?? item.gameObject.AddComponent<PersistentWorldItemIdentity>()).Ensure();
+        Guid persistentItemId = item.IsSceneAuthored ? Guid.Empty : OwnedItemsServer.ClaimPersistentId(item,
+            (persistentIdentity ?? item.gameObject.AddComponent<PersistentWorldItemIdentity>()).Ensure());
         ItemPlacementKind initialPlacement = PlacementFrom(seed?.ItemState ?? item.DebugCurrentState);
         Vector3 initialPosition = seed?.ItemPosition ?? item.transform.position - WorldMover.currentMove;
         Quaternion initialRotation = seed?.ItemRotation ?? item.transform.rotation;
@@ -737,10 +737,13 @@ public static class AuthoritativeItemRegistry
     /// the current holder to accidentally replace its persistent owner.
     /// </summary>
     public static Record RegisterMaterializedColdItem(NetworkedItem item, ServerPlayer holder,
-        byte persistentOwnerPlayerId, ItemUpdateData snapshot)
+        byte persistentOwnerPlayerId, ItemUpdateData snapshot, Guid persistentItemId)
     {
         if (item == null || holder == null || snapshot == null || item.NetId == 0)
             return null;
+        // The item keeps its id through the container (owned-items.md, "Known bugs"): without it the
+        // record wasn't saved.
+        persistentItemId = OwnedItemsServer.ClaimPersistentId(item, persistentItemId);
 
         Record record = new()
         {
@@ -759,7 +762,9 @@ public static class AuthoritativeItemRegistry
             PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
             Position = snapshot.ItemPosition,
             Rotation = snapshot.ItemRotation,
-            LastReason = ItemTransitionReason.HostLocalState
+            LastReason = ItemTransitionReason.HostLocalState,
+            PersistentItemId = persistentItemId,
+            AuthoredItemKey = item.AuthoredItemKey ?? string.Empty
         };
         records[item.NetId] = record;
         if (persistentOwnerPlayerId != 0 &&

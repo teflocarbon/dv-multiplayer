@@ -101,6 +101,7 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
         NetworkedColdContainerManager.WriteSave(root);
         WorldItemPersistenceManager.RemoveVanillaStorageDuplicates(data, keepInventory: true);
         WorldItemPersistenceManager.WriteSave(root);
+        OwnedItemsServer.WriteSave(root);
         data.SetJObject(ROOT_KEY, root);
     }
 

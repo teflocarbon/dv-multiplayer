@@ -35,6 +35,9 @@ public static class NetworkedColdContainerManager
     private static readonly Dictionary<ushort, Guid> shellByNetId = new();
     private static bool saveImportAttempted;
 
+    /// <summary>The save's records have been read (the owned-items ledger is checked against them after).</summary>
+    internal static bool ImportAttempted => saveImportAttempted;
+
     public static ColdContainerGraph Graph => graph;
 
     public static void HostTick(uint tick)
@@ -174,7 +177,8 @@ public static class NetworkedColdContainerManager
         JObject detached = item.GetComponent<ItemSaveData>()?.SaveItemData();
         ColdStoredItemRecord record = new()
         {
-            PersistentItemId = Guid.NewGuid(),
+            // The item's own id, not one of the record's: one id for life (owned-items.md).
+            PersistentItemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid(),
             PrefabName = item.Item.InventorySpecs?.ItemPrefabName ?? item.name,
             DisplayName = item.Item.InventorySpecs?.LocalizedName ?? item.name,
             PersistentOwnerIdentity = ResolveOwnerIdentity(authority.PersistentOwnerPlayerId) ??
@@ -232,6 +236,7 @@ public static class NetworkedColdContainerManager
             StorageIntegration.MoveTo(item.Item, StorageMembership.None);
             UnityEngine.Object.Destroy(item.gameObject);
             graph.FinalizeDepositRetirement(operationId, record.PersistentItemId);
+            OwnedItemsServer.OnDeposited(record.PersistentItemId, destinationId);
             Publish("container.deposit-committed", shellNetId, result, new()
             {
                 ["itemNetId"] = itemNetId,
@@ -364,8 +369,14 @@ public static class NetworkedColdContainerManager
             snapshot.InventoryClaimPlayerId = actor.PlayerId;
             snapshot.InventoryClaimSlot = destinationInventorySlot;
             snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
+            // Its stored state brought its id back (PersistentWorldItemIdentityPatch.Load); a record
+            // from before the item's id was the record's key is the fallback.
+            PersistentWorldItemIdentity identity = instance.GetComponent<PersistentWorldItemIdentity>() ??
+                                                   instance.AddComponent<PersistentWorldItemIdentity>();
+            if (identity.Value == Guid.Empty)
+                identity.Value = OwnedItemsServer.ItemIdOf(record);
             if (AuthoritativeItemRegistry.RegisterMaterializedColdItem(item, actor,
-                    persistentOwnerPlayerId, snapshot) == null)
+                    persistentOwnerPlayerId, snapshot, identity.Value) == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
             // The item was indexed by its spawn position when it woke, before it had a record;

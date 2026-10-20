@@ -15,6 +15,24 @@ on the server and in every client, are made to agree with it.
 - **PR 1a, the ledger in Core: built (2026-10-21)**, unit tested, not yet wired to the server.
   - Built: `OwnedItemLedger`, `OwnedItemEntry` and `OwnedItemReconciler` in `Multiplayer.Core/Items/`.
   - Tests: 31 tests in `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`.
+- **PR 1b, the ledger on the server: written (2026-10-21), not yet run in game.** It is in shadow:
+  it follows the records, is checked against the stores at load, and is saved, but nothing reads it.
+  - `OwnedItemsServer` and `OwnedItemsSaveCodec` (`Multiplayer/Server/Items/`).
+  - The ledger follows the moves and removals `ItemChangeLog` records, and cold deposits.
+  - Its load check waits for all three stores to have loaded. In shadow, a step that would move an
+    item (dropping a copy, recovering another player's item) is logged, not carried out.
+  - An item that registers with an id another live item has is re-minted
+    (`OwnedItemsServer.ClaimPersistentId`, from `AuthoritativeItemRegistry.Ensure` and cold
+    withdrawal).
+  - Cold and Lost and Found records use the item's own id. A withdrawn item keeps its id, which
+    fixes the known bug.
+  - Saved Lost and Found entries take their item's id at load, and bind by it.
+  - `OwnedItemsServer.Audit()` is the check that the ledger, the records and vanilla's storage agree.
+    Scenarios call it; nothing runs it on a timer.
+  - Tests:
+    - the save format in `Multiplayer.Protocol.Tests/OwnedItemsSaveCodecTests.cs`;
+    - migration in Core's `OwnedItemReconcilerTests`;
+    - scenarios `item-id-roundtrip` and `ledger-save`, not run yet.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why

@@ -48,6 +48,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "recall-taken|recall|TAKEN=1|player"
   "containers|containers|"
   "containers-briefcase-flashlight|containers|CONTAINER=ItemContainerBriefcase PREFAB=Flashlight"
+  "item-id-roundtrip|item-id-roundtrip|"
+  "ledger-save|ledger-save|"
   "containers-host|containers|WHO=host|player"
   "client-fall-rescue|client-fall-rescue|"
   "manual-uncouple|manual-uncouple|N=3"
