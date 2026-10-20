@@ -35,6 +35,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "train-items|train-items|"
   "train-items-host-throw-moving|train-items|WHO=host MODE=throw WHEN=moving"
   "host-throw-settles|host-throw-settles|"
+  "server-throw|server-throw||player"
+  "server-throw-client|server-throw|ACTOR=client"
   "item-release-regrab|item-release|"
   "item-release-regrab-late|item-release|MODE=regrab-late"
   "item-release-throw-flatcar|item-release|MODE=throw-flatcar"
