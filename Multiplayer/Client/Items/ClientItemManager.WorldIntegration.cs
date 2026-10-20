@@ -85,9 +85,9 @@ internal sealed partial class ClientItemManager
             RetireClientProjection(collision, "authored-binding-collision");
         DormantAuthoredClientProjections.Remove(authored);
         if (authored.NetId != 0 && authored.NetId != snapshot.ItemNetId)
-            authored.ResetClientNetworkLifetime();
+            authored.Client()?.ResetNetworkLifetime();
         authored.NetId = snapshot.ItemNetId;
-        authored.SetClientNetworkBinding(true);
+        authored.Client()?.SetNetworkBinding(true);
         authored.gameObject.SetActive(true);
         authored.ReceiveSnapshot(snapshot);
         if (acknowledge)

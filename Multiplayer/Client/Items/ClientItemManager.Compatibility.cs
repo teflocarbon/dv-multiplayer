@@ -40,7 +40,7 @@ internal sealed partial class ClientItemManager
         NetworkedItemManager.TraceItem("item.instantiated", newItem, new() { ["prefabName"] = snapshot.PrefabName });
 
         newItem.NetId = snapshot.ItemNetId;
-        newItem.SetClientNetworkBinding(true);
+        newItem.Client()?.SetNetworkBinding(true);
         newItem.gameObject.SetActive(true);
         NetworkedItemManager.TraceItem("item.created", newItem, DebugValueSnapshotter.SnapshotObject(snapshot));
 
@@ -73,7 +73,7 @@ internal sealed partial class ClientItemManager
                 }
                 else if (IsTemporaryClientAdoptionAllowed(item, out _))
                 {
-                    item.AllowUnboundLocalInteraction();
+                    item.Client()?.AllowUnboundLocalInteraction();
                 }
                 else
                 {
@@ -97,9 +97,9 @@ internal sealed partial class ClientItemManager
         Dictionary<string, object> classification = new();
         bool allowInteraction = IsTemporaryClientAdoptionAllowed(item, out string compatibilityReason);
         if (allowInteraction)
-            item.AllowUnboundLocalInteraction();
+            item.Client()?.AllowUnboundLocalInteraction();
         else
-            item.GateAsSceneObjectAwaitingHostCreate();
+            item.Client()?.GateAsSceneObjectAwaitingHostCreate();
         classification["classification"] = allowInteraction ? "temporary-client-adoption-compatibility" :
             item.IsSceneAuthored ? "host-authored-projection" : "scene-authored-clutter";
         classification["compatibilityReason"] = compatibilityReason;
@@ -157,7 +157,7 @@ internal sealed partial class ClientItemManager
             return;
         }
         string token = Guid.NewGuid().ToString("N");
-        ItemAdoptionRequestData request = item.CreateItemAdoptionRequest(token);
+        ItemAdoptionRequestData request = item.Client()?.CreateItemAdoptionRequest(token) ?? default;
         if (request.Snapshot == null || string.IsNullOrWhiteSpace(request.PrefabName))
         {
             DebugRuntime.Publish("item", "item.adoption-rejected", DebugRuntimeSide.Client, DebugSeverity.Error,
@@ -221,7 +221,7 @@ internal sealed partial class ClientItemManager
             return;
         }
 
-        item.CompleteItemAdoption(result);
+        item.Client()?.CompleteItemAdoption(result);
         shell.ScheduleTrackedValueFinalization(item);
         DebugRuntime.Publish("item", "item.adoption-complete", DebugRuntimeSide.Client, DebugSeverity.Info,
             "Item", result.AssignedNetId.ToString(), data);
@@ -360,7 +360,7 @@ internal sealed partial class ClientItemManager
                 ["reason"] = reason ?? string.Empty,
                 ["retiredNetId"] = retiredNetId
             });
-        netItem.SetClientNetworkBinding(false);
+        netItem.Client()?.SetNetworkBinding(false);
         StorageIntegration.MoveTo(netItem.Item, StorageMembership.None);
         InventoryIntegration.RevokeMembership(netItem.gameObject, retiredNetId);
         InventoryIntegration.PurgeContainerMembership(netItem.gameObject);
@@ -368,7 +368,7 @@ internal sealed partial class ClientItemManager
         netItem.NetId = 0;
         if (authored)
         {
-            netItem.ResetClientNetworkLifetime();
+            netItem.Client()?.ResetNetworkLifetime();
             DormantAuthoredClientProjections.Add(netItem);
             return;
         }

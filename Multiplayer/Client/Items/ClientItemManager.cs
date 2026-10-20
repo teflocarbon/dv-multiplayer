@@ -71,13 +71,13 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
                 }
                 else
                 {
-                    item.GateAsSceneObjectAwaitingHostCreate();
+                    item.Client()?.GateAsSceneObjectAwaitingHostCreate();
                     item.gameObject.SetActive(false);
                 }
             }
             else if (IsTemporaryClientAdoptionAllowed(item, out _))
             {
-                item.AllowUnboundLocalInteraction();
+                item.Client()?.AllowUnboundLocalInteraction();
             }
             else
             {

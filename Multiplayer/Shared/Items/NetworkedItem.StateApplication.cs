@@ -828,14 +828,7 @@ public partial class NetworkedItem
         if (snapshot == null)
             return;
         AuthorityRevision = snapshot.AuthorityRevision;
-        if (!NetworkLifecycle.Instance.IsHost())
-        {
-            byte localPlayerId = InventoryIntegration.LocalPlayerId;
-            bool ownAcknowledgement = localPlayerId != 0 &&
-                snapshot.OriginatingPlayerId == localPlayerId;
-            outboundRevisionPipeline.ObserveCanonical(AuthorityRevision,
-                preserveReservations: ownAcknowledgement);
-        }
+        ClientPart?.ObserveCanonicalRevision(snapshot);
         PersistentOwnerPlayerId = snapshot.PersistentOwnerPlayerId;
         InventoryClaimPlayerId = snapshot.InventoryClaimPlayerId;
         InventoryClaimSlot = snapshot.InventoryClaimSlot;
@@ -932,6 +925,6 @@ public partial class NetworkedItem
     }
 
 
-    private static bool HasRetrievalFlag(ItemInventoryClaimFlags flags) =>
+    internal static bool HasRetrievalFlag(ItemInventoryClaimFlags flags) =>
         (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
 }

@@ -218,6 +218,8 @@ public partial class NetworkClient : IItemClient
 
     IItemManagerClientPart IItemClient.CreateItemManagerPart(NetworkedItemManager manager) => new ClientItemManager(manager);
 
+    INetworkedItemClientPart IItemClient.CreateItemPart(NetworkedItem item) => new NetworkedItemClient(item);
+
     public void SendItemUpdatePacket(ItemUpdateData updateData)
     {
         if (updateData == null || updateData.ItemNetId == 0)
