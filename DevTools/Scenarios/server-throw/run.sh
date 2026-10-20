@@ -51,12 +51,16 @@ node -e '
 const [t,b,h,c]=process.argv.slice(1).map(s=>JSON.parse(s)); const f=[];
 if (!t.leaseLiveAtThrow) f.push("no lease from the drop was open when the host threw it ("+t.droppedFor.toFixed(1)+" s after it was in the cab): the throw didn'"'"'t supersede one, so this run shows nothing about its force");
 if (!t.indexedOnCommit) f.push("the transition left the mug in no world cell");
-if (t.travel < 1.5) f.push("the host'"'"'s copy went "+t.travel.toFixed(2)+" m sideways: the throw lost its force");
+// Rescued from below the map, it was put back where it was thrown and fell straight down from there:
+// where it lies says nothing about the force of the throw.
+const rescued = h.present && h.lastMove==="RescuedFromBelowMap";
+if (rescued) f.push("the mug fell through the ground after flying "+t.travel.toFixed(2)+" m sideways and was rescued from below the map");
+else if (t.travel < 1.5) f.push("the host'"'"'s copy went "+t.travel.toFixed(2)+" m sideways: the throw lost its force");
 for (const [n,v] of [["host",h],["client",c]]) {
   if (!v.present) { f.push(n+": mug missing"); continue; }
   if (v.leased) f.push(n+": a spatial lease is still open");
   if (v.state!=="Dropped") f.push(n+": state "+v.state);
-  const d=Math.hypot(v.pos[0]-t.start[0], v.pos[2]-t.start[2]); if (d<1.5) f.push(n+": came down "+d.toFixed(2)+" m from where it was thrown");
+  const d=Math.hypot(v.pos[0]-t.start[0], v.pos[2]-t.start[2]); if (d<1.5 && !rescued) f.push(n+": came down "+d.toFixed(2)+" m from where it was thrown");
 }
 if (h.present && h.recordPlacement!=="World") f.push("host record: "+h.recordPlacement);
 if (b.present && c.present && b.instance!==c.instance) f.push("the client'"'"'s copy was retired and re-created");
@@ -65,5 +69,5 @@ if (h.present && c.present) {
   if (h.revision!==c.revision) f.push("revisions differ: host "+h.revision+", client "+c.revision);
 }
 const p=v=>v.present?JSON.stringify(v.pos.map(x=>+x.toFixed(2)))+" r"+v.revision:"missing";
-console.log("   flew "+t.travel.toFixed(2)+" m (rose "+t.rise.toFixed(2)+" m); host "+p(h)+" ("+h.recordPlacement+"), client "+p(c));
+console.log("   flew "+t.travel.toFixed(2)+" m (rose "+t.rise.toFixed(2)+" m); host "+p(h)+" ("+h.recordPlacement+", last move "+h.lastMove+"), client "+p(c));
 if (f.length) { console.log("FAIL: "+f.join("; ")); process.exit(1);} console.log("PASS");' "$t" "$before" "$h" "$c"

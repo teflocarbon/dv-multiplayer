@@ -1,5 +1,6 @@
 // Either side: where this game has the mug, whether a lease is still open on it, which Unity object
-// it is (a copy retired by interest and re-created is another one), and on the host its record.
+// it is (a copy retired by interest and re-created is another one), and on the host its record and
+// why it last moved (a mug that fell through the ground was rescued from below the map).
 // Args: item.
 ushort id = ushort.Parse(ctx.Args["item"]);
 if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) return new { present = false };
@@ -15,5 +16,6 @@ return new
     state = item.GetItemState().ToString(),
     leased = NetworkedItemManager.Instance.HasActiveSpatialState(id),
     revision = item.AuthorityRevision,
-    recordPlacement = record?.Placement.ToString()
+    recordPlacement = record?.Placement.ToString(),
+    lastMove = record?.LastMove.Reason.ToString()
 };
