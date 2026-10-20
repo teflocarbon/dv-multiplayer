@@ -234,11 +234,20 @@ internal static class Session
             Agent hostAgent = await WaitForAgentAsync(hostProcess, TimeSpan.FromSeconds(90));
             // Unity Mod Manager touches shared cache files while loading; LaunchAsync starts the
             // client only once the host's mods are loaded (and staggers other sessions' launches).
+            // The host loads its save meanwhile: waiting for the client's agent first left it idle
+            // at the menu for 67 s (median; docs/research/harness-time-budget.md).
+            Task<(Agent, JsonObject)> hosting = HostAsync(hostAgent, o, identity: null);
             Mark("launching client");
-            Process clientProcess = await LaunchAsync("client", o);
+            Process clientProcess;
+            try { clientProcess = await LaunchAsync("client", o); }
+            catch
+            {
+                _ = hosting.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                throw;
+            }
+            if (o.Arrange && !o.Background) Arrange(hostProcess, clientProcess, o);
 
-            (hostAgent, JsonObject hosted) = await HostAsync(hostAgent, o, identity: null,
-                beforeWorldWait: () => { if (o.Arrange && !o.Background) Arrange(hostProcess, clientProcess, o); });
+            (hostAgent, JsonObject hosted) = await hosting;
             int port = hosted["port"]?.GetValue<int>() ?? 7777;
             string password = hosted["password"]?.GetValue<string>() ?? string.Empty;
 
@@ -307,8 +316,7 @@ internal static class Session
 
     // From the host's main menu to a loaded, hosted world: loads the save through the host probe
     // and checks the host owns its port. identity gives the host's player its own name and GUID.
-    private static async Task<(Agent, JsonObject)> HostAsync(Agent hostAgent, UpOptions o, (string Name, string Guid)? identity,
-        Action? beforeWorldWait = null)
+    private static async Task<(Agent, JsonObject)> HostAsync(Agent hostAgent, UpOptions o, (string Name, string Guid)? identity)
     {
         Mark("host: waiting for main menu");
         await WaitForMenuAsync(hostAgent, TimeSpan.FromSeconds(120));
@@ -327,8 +335,6 @@ internal static class Session
         }
         JsonObject hosted = await RunProbeAsync(hostAgent, "host", hostArgs);
         int port = hosted["port"]?.GetValue<int>() ?? 7777;
-
-        beforeWorldWait?.Invoke();
 
         Mark("host: waiting for world + server");
         hostAgent = await WaitUntilAsync(hostAgent.Pid, a => a.Role == "host" && WorldLoaded(a), TimeSpan.FromSeconds(300), "host world load");
