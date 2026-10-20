@@ -354,7 +354,7 @@ flag above and licences, which are host-owned and broadcast on purchase.
 
 ## Testing
 
-The `jobs` scenario (`DevTools/Scenarios/jobs/run.sh`, needs a running pair from `dvmp up`) runs
+The `jobs` scenario (`DevTools/DvmpScenarios/Scenarios/JobsRoundTrip.cs`, needs a running pair from `dvmp up`) runs
 a transport or empty-haul job at a station from start to finish: one peer takes it, the host
 stands in for the drive by moving the cars to the destination track, one peer hands the booklet
 in, and the client banks the payment. Both peers must agree on the job state and booklets after
@@ -362,8 +362,8 @@ each step, the client must see the banknotes, and the shared wallet must go up b
 exactly once.
 
 ```bash
-ACCEPT=host HANDIN=client DevTools/Scenarios/jobs/run.sh   # what gate.sh runs
-ACCEPT=client HANDIN=client STATION=FM DevTools/Scenarios/jobs/run.sh   # the defaults
+dvmp scenario run jobs --session NAME --arg ACCEPT=host --arg HANDIN=client   # what gate.sh runs
+dvmp scenario run jobs --session NAME   # the defaults: ACCEPT=client HANDIN=client STATION=FM
 ```
 
 `ACCEPT` and `HANDIN` take `host` or `client`.
