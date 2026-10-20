@@ -45,6 +45,7 @@ namespace Dvmp.Scenarios
             Peer buyer = o.Who == "host" ? pair.Host : pair.Client;
             Peer other = o.Who == "host" ? pair.Client : pair.Host;
             await Places.Shop(pair, 2f);
+            await pair.Host.Run(() => InGame.ResetRegisters());
 
             Report.Note($"{o.Who} buys a {o.Item}");
             Bought b = await buyer.Run<Bought>(s => InGame.Buy(s, o.Item, false));
@@ -124,15 +125,7 @@ namespace Dvmp.Scenarios
                 ScanItemCashRegisterModule mod = shop.scanItemResourceModules.First(m => m.name.StartsWith(item));
                 Wallet w = Resources.FindObjectsOfTypeAll<Wallet>().First(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Shared.Players.NetworkedPlayer>() == null);
 
-                NetworkedItem scanner = UnityEngine.Object.FindObjectsOfType<ShopScanner>()
-                    .OrderBy(s => Vector3.Distance(s.transform.position, reg.transform.position))
-                    .Select(s => s.GetComponent<NetworkedItem>()).First(n => n != null);
-                if (Hands.Held != scanner)
-                {
-                    if (Hands.Held != null) yield return Hands.Drop();
-                    yield return LocalPlayer.GoTo(scanner);
-                    yield return Hands.Pickup(scanner.NetId);
-                }
+                yield return TakeScanner(shop);
                 double start = Inventory.Instance.PlayerMoney;
                 int stock0 = GlobalShopController.Instance.GetShopItemData(mod.sellingItemSpec).ItemsInStock;
                 var before = new HashSet<ItemBase>(UnityEngine.Object.FindObjectsOfType<ItemBase>());
@@ -168,6 +161,64 @@ namespace Dvmp.Scenarios
                     NoteIds = notes.Select(x => x.GetComponent<NetworkedItem>()?.NetId ?? 0).ToArray(),
                     NoteValue = notes.Sum(x => x.GetComponent<IMoney>()?.Amount ?? 0)
                 };
+                yield return ReturnScanner(shop);
+            }
+
+            /// <summary>
+            /// The shop's scanner in this player's hand: from the counter, or from their inventory,
+            /// where an earlier run left it (a player who logs out holding it takes it with them).
+            /// </summary>
+            public static IEnumerator TakeScanner(global::Shop shop)
+            {
+                if (Hands.Held != null && Hands.Held.GetComponent<ShopScanner>() != null)
+                    yield break;
+                if (Hands.Held != null) yield return Hands.Drop();
+                NetworkedItem AtTheShop() => UnityEngine.Object.FindObjectsOfType<ShopScanner>()
+                    .Where(s => Vector3.Distance(s.transform.position, shop.cashRegister.transform.position) < 30f)
+                    .Select(s => s.GetComponent<NetworkedItem>()).FirstOrDefault(n => n != null && n.NetId != 0);
+                NetworkedItem scanner = AtTheShop();
+                GameObject carried = Inventory.Instance.GetItemsArray().FirstOrDefault(g => g != null && g.GetComponent<ShopScanner>() != null);
+                if (scanner == null && carried != null)
+                {
+                    Inventory.Instance.DropItemFromHandsOrInventory(carried);
+                    for (int i = 0; i < 60; i++) yield return null;
+                    scanner = AtTheShop();
+                }
+                if (scanner == null)
+                    throw new InvalidOperationException("no shop scanner at the shop or in the inventory");
+                yield return LocalPlayer.GoTo(scanner);
+                yield return Hands.Pickup(scanner.NetId);
+            }
+
+            /// <summary>Puts a held scanner back by the register, where the next player (and run) looks.</summary>
+            public static IEnumerator ReturnScanner(global::Shop shop)
+            {
+                if (Hands.Held == null || Hands.Held.GetComponent<ShopScanner>() == null)
+                    yield break;
+                yield return StandAt(shop.cashRegister.transform);
+                yield return Hands.Drop();
+            }
+
+            /// <summary>Puts a held scanner back by the nearest shop's register.</summary>
+            [Step]
+            public static IEnumerator ReturnHeldScanner(Step<bool> step)
+            {
+                global::Shop shop = GlobalShopController.Instance.globalShopList
+                    .OrderBy(s => Vector3.Distance(s.cashRegister.transform.position, PlayerManager.PlayerTransform.position)).First();
+                yield return ReturnScanner(shop);
+                step.Result = true;
+            }
+
+            /// <summary>Host: every shop register empty, its cash back in the wallet, so a run starts clean.</summary>
+            [Step]
+            public static void ResetRegisters()
+            {
+                foreach (var entry in NetworkServer.Instance.Shops.Baskets.ToArray())
+                {
+                    entry.Value.ClearLines();
+                    Inventory.Instance.AddMoney(entry.Value.TakeDeposit());
+                    NetworkServer.Instance.SendShopRegisterState(entry.Key, entry.Value, Multiplayer.Core.Shops.ShopRegisterEvent.None, 0);
+                }
             }
 
             // A metre from something, as a player using it stands.

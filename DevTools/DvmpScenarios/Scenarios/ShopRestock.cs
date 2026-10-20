@@ -26,6 +26,7 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             await Places.Shop(pair, 2f);
+            await pair.Host.Run(() => Shop.InGame.ResetRegisters());
 
             Shop.Bought b = await pair.Client.Run<Shop.Bought>(s => Shop.InGame.Buy(s, o.Item, false));
             Report.Note($"bought {b.Prefab} for ${b.Cost}: stock {b.Stock0} -> {b.Stock1}, net ID {string.Join(",", b.NetIds)}");

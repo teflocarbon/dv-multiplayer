@@ -35,7 +35,8 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             await Places.Shop(pair, 2f);
-            Paid p = await pair.Client.Run<Paid>(s => InGame.ScanAndPay(s, o.Item));
+            await pair.Host.Run(() => Shop.InGame.ResetRegisters());
+            Paid p =await pair.Client.Run<Paid>(s => InGame.ScanAndPay(s, o.Item));
             if (p.Cost <= 0) throw new HarnessException("shop-cash needs a career save: this save's prices are 0");
             await Task.Delay(1000);
             Till t = await pair.Host.Run(() => InGame.Server(p.Shop));
@@ -43,8 +44,11 @@ namespace Dvmp.Scenarios
             Require.That(Math.Abs(t.Deposited - p.Cost) < 0.01, "the server's till holds the payment", $"{t.Deposited}, expected {p.Cost}");
             Expect.That(Math.Abs(t.Saved - p.Start) < 1, "the save counts the till's cash as the wallet's", $"{t.Saved}, expected {p.Start}");
 
-            Report.Note("client walks 30 m away");
+            // Every player away from the register: on a player host the host's own player keeps it too.
+            Report.Note("client walks 30 m away (and the host's player, on a player host)");
             await pair.Client.Run<bool>(s => InGame.WalkAway(s, p.Shop, 30f));
+            if (!pair.Dedicated)
+                await pair.Host.Run<bool>(s => InGame.WalkAway(s, p.Shop, 30f));
             await Task.Delay(5000);
             t = await pair.Host.Run(() => InGame.Server(p.Shop));
             double shown = await pair.Client.Run(() => InGame.ClientTill(p.Shop));
@@ -89,15 +93,7 @@ namespace Dvmp.Scenarios
                 global::Shop shop = shops.OrderBy(s => Vector3.Distance(s.cashRegister.transform.position, PlayerManager.PlayerTransform.position)).First();
                 CashRegisterWithModules reg = shop.cashRegister;
                 ScanItemCashRegisterModule mod = shop.scanItemResourceModules.First(m => m.name.StartsWith(item));
-                var scanner = UnityEngine.Object.FindObjectsOfType<ShopScanner>()
-                    .OrderBy(s => Vector3.Distance(s.transform.position, reg.transform.position))
-                    .Select(s => s.GetComponent<Multiplayer.Shared.Items.NetworkedItem>()).First(n => n != null);
-                if (Hands.Held != scanner)
-                {
-                    if (Hands.Held != null) yield return Hands.Drop();
-                    yield return LocalPlayer.GoTo(scanner);
-                    yield return Hands.Pickup(scanner.NetId);
-                }
+                yield return Shop.InGame.TakeScanner(shop);
                 double start = Inventory.Instance.PlayerMoney;
                 yield return Shop.InGame.StandAt(mod.transform);
                 mod.AddItemsToBuy();
@@ -110,6 +106,8 @@ namespace Dvmp.Scenarios
                     w.GetComponent<MoneyUse>().HandleUse(reg.GetComponent<ItemUseTarget>());
                     yield return Wait.Until(() => reg.DepositedCash >= cost, 10f, "the payment on the register");
                 }
+                // Leave the scanner at the shop: the player walks away next.
+                yield return Shop.InGame.ReturnScanner(shop);
                 step.Result = new Paid { Shop = shops.IndexOf(shop), Cost = cost, Deposited = reg.DepositedCash, Start = start };
             }
 

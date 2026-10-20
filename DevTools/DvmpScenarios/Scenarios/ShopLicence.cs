@@ -101,21 +101,14 @@ namespace Dvmp.Scenarios
             {
                 global::Shop shop = GlobalShopController.Instance.globalShopList[shopIndex];
                 ScanItemCashRegisterModule mod = shop.scanItemResourceModules[module];
-                NetworkedItem scanner = Object.FindObjectsOfType<ShopScanner>()
-                    .OrderBy(s => Vector3.Distance(s.transform.position, shop.cashRegister.transform.position))
-                    .Select(s => s.GetComponent<NetworkedItem>()).First(n => n != null);
-                if (Hands.Held != scanner)
-                {
-                    if (Hands.Held != null) yield return Hands.Drop();
-                    yield return LocalPlayer.GoTo(scanner);
-                    yield return Hands.Pickup(scanner.NetId);
-                }
+                yield return Shop.InGame.TakeScanner(shop);
                 yield return Shop.InGame.StandAt(mod.transform);
                 // The patched scan sends the request whatever vanilla's own stock check would say.
                 mod.AddItemsToBuy();
                 yield return new WaitForSeconds(3f);
                 ShopItemData data = GlobalShopController.Instance.GetShopItemData(mod.sellingItemSpec);
                 step.Result = new Scan { Allowed = data.allowedToHaveAmount, InStock = data.ItemsInStock, Units = (int)mod.Data.unitsToBuy };
+                yield return Shop.InGame.ReturnScanner(shop);
             }
 
             [Step]
