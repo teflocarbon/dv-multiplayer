@@ -27,11 +27,15 @@ rate() { $D eval -t host -m class --timeout $(( $2 + 60 )) -a seconds=$2 -a cars
   node -e 'const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok){console.log("? ("+(o.compileError||(x&&x.error)||"no result")+")");process.exit(0)}const r=x.result;console.log(Object.keys(r.allTrainsets).map(k=>`to ${k}: this train ${r.train[k]}/s (${r.trainBytes[k]} B/s), every trainset ${r.allTrainsets[k]}/s (${r.allTrainsetsBytes[k]} B/s)`).join("; ")||"nothing sent")' "$T/sends-$1.json" 2>/dev/null || echo "? (unreadable)"; }
 cars=""
 settings_restore=""
-cleanup() {
-  [ -z "$settings_restore" ] || $D eval -t host -m body -a v=$settings_restore 'Multiplayer.Multiplayer.Settings.TrainFullRateDistance = float.Parse(ctx.Args["v"], System.Globalization.CultureInfo.InvariantCulture); return 0;' >/dev/null 2>&1 || true
+# Deletes the train in one go and says so if any of it is left.
+delete_train() {
   [ -n "$cars" ] || return 0
   left=$($D eval -t host -m coroutine --timeout 60 -a cars=$cars 'var ids = ctx.Args["cars"].Split((char)44); foreach (var c in CarSpawner.Instance.AllCars.Where(c => c != null && ids.Contains(c.ID)).ToList()) CarSpawner.Instance.DeleteCar(c); for (int i = 0; i < 30; i++) yield return null; ctx.Result = string.Join(",", CarSpawner.Instance.AllCars.Where(c => c != null && ids.Contains(c.ID)).Select(c => c.ID));' 2>/dev/null | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const x=Object.values(o.results||{})[0];console.log(x&&x.ok?x.result:"cleanup failed: "+(o.compileError||JSON.stringify(x)))' 2>/dev/null || echo "cleanup failed")
   [ -z "$left" ] || echo "WARNING: train not cleaned up: $left"
+}
+cleanup() {
+  [ -z "$settings_restore" ] || $D eval -t host -m body -a v=$settings_restore 'Multiplayer.Multiplayer.Settings.TrainFullRateDistance = float.Parse(ctx.Args["v"], System.Globalization.CultureInfo.InvariantCulture); return 0;' >/dev/null 2>&1 || true
+  delete_train
 }
 trap cleanup EXIT
 T=$(mktemp -d)
@@ -44,27 +48,35 @@ fi
 # Drive time: the bands, the client's two trips and boarding (~25 s), and getting up to speed.
 HOLD=$(( NEAR + MID + FAR + BACK + 30 ))
 ROOM=$(( SPEED * (HOLD + 20) + 60 ))
-s=$($D eval -t host -m coroutine --timeout 200 -a wagons=2 -a room=$ROOM -f DevTools/Scenarios/host-stall/setup.cs)
-cars=$(echo "$s" | field cars); loco=$(echo "$s" | field loco); dir=$(echo "$s" | field dir)
-echo "== $cars on $(echo "$s" | field track), $(echo "$s" | field clear) m clear; the host drives it at ${SPEED} m/s"
-# On a player host, the host's player stands beside the line (they aren't a recipient: the rates
-# are the client's). Batch 11 had them elsewhere and batch 13 in the cab; neither moved the train.
 dedicated=$($D eval -t host -m body 'return new { d = Multiplayer.Shared.Session.NetworkLifecycle.Instance.IsDedicatedHost };' | field d)
-if [ "$dedicated" != "true" ]; then
-  $D eval -t host -m coroutine --timeout 90 -a loco=$loco 'var l = Trains.Find(ctx.Args["loco"]); var a = Dev.Abs(l.transform.position + l.transform.right * 15f); yield return LocalPlayer.TeleportToGround(a.x, a.z);' >/dev/null || fail "the host's player couldn't go to the line"
-fi
-# Drive with the reverser towards the clear side, then hold until the run is done and brake.
-# First bleed the brake cylinders, as a driver pulls the release valve: host-stall's setup takes
-# up to 1.2 bar as released (its push overcomes that), and in batch 13 the loco's cylinder sat at
-# 1.0 bar with both brake handles off, so the throttle couldn't move it.
-$D eval -t host -m coroutine --timeout $(( HOLD + 120 )) -a loco=$loco -a dir=$dir -a speed=$SPEED -a hold=$HOLD \
-  'var l = Trains.Find(ctx.Args["loco"]); var cars = l.trainset.cars.ToList(); foreach (var c in cars) c.brakeSystem.ReleaseBrakeCylinderPressure(); for (float t0 = Time.time; Time.time - t0 < 10f && cars.Any(c => c.brakeSystem.brakeCylinderPressure > 0.1f);) yield return null; float cylinder = cars.Max(c => c.brakeSystem.brakeCylinderPressure); ctx.Log($"cylinders at most {cylinder:F2} bar, pipe {l.brakeSystem.brakePipePressure:F2} bar after the release"); l.SimController.controlsOverrider.Reverser?.Set(int.Parse(ctx.Args["dir"]) > 0 ? 1f : 0f); yield return Trains.Drive(l, float.Parse(ctx.Args["speed"]), float.Parse(ctx.Args["hold"]), float.Parse(ctx.Args["hold"]) + 90f); foreach (var c in cars) c.brakeSystem.SetHandbrakePosition(1f); ctx.Result = new { v = Math.Round(l.GetForwardSpeed(), 2), cylinder = Math.Round(cylinder, 2) };' >"$T/drive.json" 2>&1 &
-v=$($D eval -t host -m coroutine --timeout 90 -a loco=$loco -a speed=$SPEED 'var l = Trains.Find(ctx.Args["loco"]); for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 60f && Mathf.Abs(l.GetForwardSpeed()) < 0.85f * float.Parse(ctx.Args["speed"]);) yield return null; ctx.Result = new { v = Math.Round(Mathf.Abs(l.GetForwardSpeed()), 1) };' | field v)
-if ! awk -v v="$v" -v s="$SPEED" 'BEGIN { exit !(v >= 0.85 * s) }'; then
-  echo "   loco: $($D eval -t host -m body -a loco=$loco 'var l = Trains.Find(ctx.Args["loco"]); var o = l.SimController.controlsOverrider; return new { v = Math.Round(l.GetForwardSpeed(), 2), throttle = o.Throttle?.Value, reverser = o.Reverser?.Value, independent = o.IndependentBrake?.Value, train = o.Brake?.Value, handbrake = l.brakeSystem.handbrakePosition, cylinder = Math.Round(l.brakeSystem.brakeCylinderPressure, 2), engine = o.EngineOnReader?.IsOn, l.derailed, hostPlayerCar = PlayerManager.Car?.ID };' 2>&1 | tr -d '\r\n' | head -c 800)"
-  echo "   drive: $(tr -d '\r\n' <"$T/drive.json" | head -c 800)"
-  fail "the train never got up to speed (${v} m/s)"
-fi
+# The train doesn't always move: on Road 36 it never did, on either host kind (batches 13 and
+# q4), with the engine running, full throttle and brakes off (DV's pressures are absolute: a
+# 1.0 bar cylinder is released). Then its traction is printed and it's set up again elsewhere.
+exclude=""
+for attempt in 1 2; do
+  s=$($D eval -t host -m coroutine --timeout 200 -a wagons=2 -a room=$ROOM ${exclude:+-a exclude=$exclude} -f DevTools/Scenarios/host-stall/setup.cs)
+  cars=$(echo "$s" | field cars); loco=$(echo "$s" | field loco); dir=$(echo "$s" | field dir); track=$(echo "$s" | field track)
+  echo "== $cars on $track, $(echo "$s" | field clear) m clear; the host drives it at ${SPEED} m/s"
+  # On a player host, the host's player stands beside the line (they aren't a recipient: the
+  # rates are the client's).
+  if [ "$dedicated" != "true" ]; then
+    $D eval -t host -m coroutine --timeout 90 -a loco=$loco 'var l = Trains.Find(ctx.Args["loco"]); var a = Dev.Abs(l.transform.position + l.transform.right * 15f); yield return LocalPlayer.TeleportToGround(a.x, a.z);' >/dev/null || fail "the host's player couldn't go to the line"
+  fi
+  # Drive with the reverser towards the clear side, then hold until the run is done and brake.
+  $D eval -t host -m coroutine --timeout $(( HOLD + 120 )) -a loco=$loco -a dir=$dir -a speed=$SPEED -a hold=$HOLD \
+    'var l = Trains.Find(ctx.Args["loco"]); var cars = l.trainset.cars.ToList(); l.SimController.controlsOverrider.Reverser?.Set(int.Parse(ctx.Args["dir"]) > 0 ? 1f : 0f); yield return Trains.Drive(l, float.Parse(ctx.Args["speed"]), float.Parse(ctx.Args["hold"]), float.Parse(ctx.Args["hold"]) + 90f); foreach (var c in cars) c.brakeSystem.SetHandbrakePosition(1f); ctx.Result = new { v = Math.Round(l.GetForwardSpeed(), 2) };' >"$T/drive.json" 2>&1 &
+  DRIVE=$!
+  v=$($D eval -t host -m coroutine --timeout 90 -a loco=$loco -a speed=$SPEED 'var l = Trains.Find(ctx.Args["loco"]); for (float t0 = Time.realtimeSinceStartup; Time.realtimeSinceStartup - t0 < 60f && Mathf.Abs(l.GetForwardSpeed()) < 0.85f * float.Parse(ctx.Args["speed"]);) yield return null; ctx.Result = new { v = Math.Round(Mathf.Abs(l.GetForwardSpeed()), 1) };' | field v)
+  awk -v v="$v" -v s="$SPEED" 'BEGIN { exit !(v >= 0.85 * s) }' && break
+  echo "   $loco on $track didn't get up to speed (${v} m/s):"
+  echo "   loco: $($D eval -t host -m body -a loco=$loco 'var l = Trains.Find(ctx.Args["loco"]); var o = l.SimController.controlsOverrider; var ports = l.SimController.simFlow.fullPortIdToPort.Where(p => new[] { "TRACTION", "AMPS", "RPM", "POWER", "WHEEL", "SLIP", "SAND", "REVERSER", "THROTTLE" }.Any(k => p.Key.ToUpperInvariant().Contains(k))).Take(16).ToDictionary(p => p.Key, p => Math.Round(p.Value.Value, 2)); return new { v = Math.Round(l.GetForwardSpeed(), 2), throttle = o.Throttle?.Value, reverser = o.Reverser?.Value, independent = o.IndependentBrake?.Value, train = o.Brake?.Value, handbrake = l.brakeSystem.handbrakePosition, cylinder = Math.Round(l.brakeSystem.brakeCylinderPressure, 2), engine = o.EngineOnReader?.IsOn, l.derailed, ports };' 2>&1 | tr -d '\r\n' | head -c 1500)"
+  echo "   drive: $(tr -d '\r\n' <"$T/drive.json" | head -c 600)"
+  [ "$attempt" = 2 ] && fail "the train never got up to speed (${v} m/s)"
+  delete_train
+  wait $DRIVE 2>/dev/null || true
+  cars=""
+  exclude="${exclude:+$exclude,}$track"
+done
 
 W=$(( NEAR + MID + FAR + BACK + 45 ))
 $D eval -t client -m coroutine --timeout $(( W + 30 )) -a loco=$loco -a cars=$cars -a seconds=$W -a full=$FULL_M -a mid=$MID_M -a speed=$SPEED -f $P/watch.cs >"$T/watch.json" &
@@ -117,14 +129,16 @@ const fs=require("fs");
 const v=f=>{const o=JSON.parse(fs.readFileSync(f,"utf8"));const x=Object.values(o.results||{})[0];if(o.compileError||!x||!x.ok)throw new Error(f+": "+(o.compileError||JSON.stringify(x)));return x.result;};
 const sends=b=>{try{return v(d+"/sends-"+b+".json");}catch(e){return null;}};
 const [d,before,speed,a1,a2,a3]=process.argv.slice(1); const w=v(d+"/watch.json"), hs=v(d+"/hs.json"), cs=v(d+"/cs.json"); const bad=[], warn=[];
-try{const dr=v(d+"/drive.json");console.log(`   drive: cylinders at most ${dr.cylinder} bar after the release`);}catch(e){}
 // Client samples counted per frame: several arriving in one frame count once, so near is at most the fps.
 const want={near:{interval:1,min:12,max:30},mid:{interval:6,min:2,max:6.5},far:{interval:24,min:0.5,max:2.5}};
-// The host decides the rate: this train to the client per band (reliable track changes and stops come on top).
-const hostWant={near:{min:18,max:26},mid:{min:3,max:7},far:{min:0.5,max:2.5}};
+// The host decides the rate: this train to the client per band, against the tick on the host:
+// its handlers run at most once a frame, so "every tick" is at most its fps (reliable track
+// changes and stops come on top).
+const hostWant=(b,r)=>{const t=r.ticksPerSecond||24, calls=Math.min(t,r.fps||24);
+  return b==="near"?{min:0.75*calls,max:t*1.1}:b==="mid"?{min:0.7*t/6,max:1.75*t/6}:{min:0.5*t/24,max:2.5*t/24};};
 for (const b of ["near","mid","far"]) {
   const s=w.bands[b]; if(!s){console.log(`   ${b}: not visited`); if(b!=="mid") bad.push("never "+b); continue;}
-  console.log(`   ${b} (${s.minDistance}-${s.maxDistance} m, ${s.seconds} s, ${s.fps} fps, game time at ${s.gameRate}x): ${s.samplesPerSecond} samples/s, interval ${s.intervalTicks} ticks, worst gap ${s.worstGap} s, ${s.staleGaps} lost, worst step ${s.worstStep} m at ${s.worstStepAt}s, slowest second ${s.slowestSecond} m/s (real ${s.slowestRealSecond})`);
+  console.log(`   ${b} (${s.minDistance}-${s.maxDistance} m, ${s.seconds} s, ${s.fps} fps, game time at ${s.gameRate}x): ${s.samplesPerSecond} samples/s, interval ${s.intervalTicks} ticks, worst gap ${s.worstGap} s, ${s.staleGaps} lost, worst step ${s.worstStep} m at ${s.worstStepAt}s, ${s.freezeSnaps} catch-ups after this game froze (worst ${s.worstFreezeSnap} m), slowest second ${s.slowestSecond} m/s (real ${s.slowestRealSecond})`);
   if (s.staleGaps>0) bad.push(`${b}: ${s.staleGaps} gaps long enough to take the car as lost`);
   if (s.worstStep>0.5) {
     // Near is sent every tick as before distance-based rates: a snap there before the client
@@ -138,8 +152,9 @@ for (const b of ["near","mid","far"]) {
     if (s.intervalTicks!==want[b].interval) bad.push(`${b}: interval ${s.intervalTicks} ticks, not ${want[b].interval}`);
     if (s.samplesPerSecond<min||s.samplesPerSecond>want[b].max) bad.push(`${b}: ${s.samplesPerSecond} samples/s, not ${min.toFixed(1)}-${want[b].max} (${s.fps} fps)`);
     const r=sends(b);
-    if (r) { const rates=Object.values(r.train); const t=rates.length?Math.max(...rates):0;
-      if (t<hostWant[b].min||t>hostWant[b].max) bad.push(`${b}: the host sent this train ${t}/s, not ${hostWant[b].min}-${hostWant[b].max}`); }
+    if (r) { const rates=Object.values(r.train); const t=rates.length?Math.max(...rates):0; const h=hostWant(b,r);
+      console.log(`   ${b}: the host sent this train ${t}/s at ${r.fps} fps, ${r.ticksPerSecond} ticks/s`);
+      if (t<h.min||t>h.max) bad.push(`${b}: the host sent this train ${t}/s, not ${h.min.toFixed(1)}-${h.max.toFixed(1)} (${r.fps} fps, ${r.ticksPerSecond} ticks/s)`); }
     else bad.push(`${b}: no host send count`);
   }
 }

@@ -1,4 +1,3 @@
-using System.Linq;
 using Multiplayer.Core.Trains;
 using NUnit.Framework;
 
@@ -57,11 +56,34 @@ public sealed class TrainsetSendRateTests
     }
 
     [Test]
-    public void Due_OnTheFullSyncAndEveryIntervalAfter()
+    public void Due_OnceTheIntervalHasPassed()
     {
-        uint[] due = Enumerable.Range(0, 49).Select(t => (uint)t).Where(t => TrainsetSendRate.IsDue(t, 24)).ToArray();
-        Assert.That(due, Is.EqualTo(new uint[] { 0, 24, 48 }));
-        Assert.That(Enumerable.Range(0, 48).Count(t => TrainsetSendRate.IsDue((uint)t, 6)), Is.EqualTo(8));
-        Assert.That(Enumerable.Range(0, 48).All(t => TrainsetSendRate.IsDue((uint)t, 1)), Is.True);
+        Assert.That(TrainsetSendRate.IsDue(23, 24), Is.False);
+        Assert.That(TrainsetSendRate.IsDue(24, 24), Is.True);
+        Assert.That(TrainsetSendRate.IsDue(0, 1), Is.True);
+        Assert.That(TrainsetSendRate.IsDue(5, 6), Is.False);
+        Assert.That(TrainsetSendRate.IsDue(6, 6), Is.True);
+    }
+
+    [Test]
+    public void Due_AtTheRateInRealTime_WhenTheTickSkipsNumbers()
+    {
+        // A host at 10 fps runs the tick once a frame, advancing it 2 or 3 numbers each time.
+        // Sending whenever the interval has passed keeps close to 1 Hz; the old multiples of 24
+        // (and of call counts) were missed or ran slow.
+        int[] steps = { 2, 3, 2, 3, 2 };
+        uint tick = 0, sentAt = 0;
+        int sends = 0;
+        for (int i = 0; i < 240; i++)
+        {
+            tick += (uint)steps[i % steps.Length];
+            if (TrainsetSendRate.IsDue(tick - sentAt, 24))
+            {
+                sends++;
+                sentAt = tick;
+            }
+        }
+        float seconds = tick / 24f;
+        Assert.That(sends / seconds, Is.InRange(0.85f, 1f));
     }
 }

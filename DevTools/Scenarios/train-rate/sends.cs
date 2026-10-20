@@ -39,10 +39,15 @@ public static class Probe
         harmony.Patch(AccessTools.Method(typeof(DebugTrace), nameof(DebugTrace.PacketSending)),
             prefix: new HarmonyMethod(typeof(Probe).GetMethod(nameof(OnSending), flags)));
         float start = Time.realtimeSinceStartup;
+        uint startTick = NetworkLifecycle.Instance.Tick;
+        int frames = 0;
         try
         {
             while (Time.realtimeSinceStartup - start < seconds)
+            {
                 yield return null;
+                frames++;
+            }
         }
         finally
         {
@@ -56,6 +61,9 @@ public static class Probe
         ctx.Result = new
         {
             seconds = Math.Round(elapsed, 1),
+            // The tick handlers run at most once a frame, so "every tick" is at most this often.
+            fps = Math.Round(frames / elapsed, 1),
+            ticksPerSecond = Math.Round((NetworkLifecycle.Instance.Tick - startTick) / elapsed, 1),
             train = window.ToDictionary(p => Name(p.Key), p => Math.Round(p.Value[0] / elapsed, 1)),
             trainBytes = window.ToDictionary(p => Name(p.Key), p => Math.Round(p.Value[1] / elapsed)),
             allTrainsets = window.ToDictionary(p => Name(p.Key), p => Math.Round(p.Value[2] / elapsed, 1)),

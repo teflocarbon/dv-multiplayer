@@ -1125,9 +1125,11 @@ A moving set's samples go to each player at a rate set by their distance from it
 | beyond | | `TrainFarRateHz` | 1 Hz (every 24 ticks) |
 
 A player whose game hasn't sent a position yet counts as close. A set is due a player's sample
-every interval counted from its last full sync (`TicksSinceSync` of its first car), so a far
-player's samples fall on the 2 s full syncs rather than between them, and sets are spread over
-the interval. These always go to everyone, whatever the distance: a reliable sample (a bogie
+once the interval has passed, in tick numbers, since the last one it sent them (any send counts,
+full syncs too). Tick numbers, not tick handler calls: the tick runs at most once a frame and
+skips numbers below 24 fps, and the first version, counting calls from the set's last full
+sync, sent a slow host's far trains every 2-3 s. Sets that started moving at different ticks
+stay spread over the interval. These always go to everyone, whatever the distance: a reliable sample (a bogie
 changed track, or the set just stopped), a full sync, and a set with a derailed car (its
 rigidbody snapshots are interpolated, so it stays at every tick). When a player's interval for a
 set grows (they moved away, or teleported far), the set is sent to them at once with the new

@@ -32,13 +32,15 @@ public readonly struct TrainsetSendRate
     }
 
     /// <summary>
-    /// Whether a set is due a sample to a player with this interval. <paramref name="ticksSinceFullSync"/>
-    /// is counted from the set's last full sync (every 2 s, sent to everyone), so a far player's
-    /// samples fall on the full syncs instead of between them, and sets that last synced at
-    /// different ticks are spread over the interval rather than all sent on the same one.
+    /// Whether a set is due a sample to a player with this interval, <paramref name="ticksSinceSent"/>
+    /// tick numbers after the last one it sent them. Tick numbers, not tick handler calls: the
+    /// tick runs at most once a frame and skips numbers below 24 fps, so counting calls (and
+    /// scheduling on multiples, which skipped numbers miss) sent a slow host's far trains every
+    /// 2-3 s instead of every second (train-rate, 2026-10-20). Sets that started moving at
+    /// different ticks stay spread over the interval.
     /// </summary>
-    public static bool IsDue(uint ticksSinceFullSync, byte intervalTicks) =>
-        intervalTicks <= 1 || ticksSinceFullSync % intervalTicks == 0;
+    public static bool IsDue(uint ticksSinceSent, byte intervalTicks) =>
+        intervalTicks <= 1 || ticksSinceSent >= intervalTicks;
 
     private static byte IntervalFor(float hz, int tickRate)
     {

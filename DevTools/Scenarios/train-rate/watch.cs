@@ -5,7 +5,9 @@
 // second (a stop-and-snap shows as a stall), and the worst step in the first 8 s back near.
 // The slowest second is in this game's own time: below 12 fps DV runs game time slower than real
 // time (it caps a frame's delta), which slows every train on this game, near or far, and isn't the
-// sync's doing. Each band reports that rate (gameRate) and the frame rate.
+// sync's doing. Each band reports that rate (gameRate) and the frame rate. A snap within 5 s of
+// this game freezing (frames over 0.25 s, e.g. loading after a teleport), no bigger than the host's
+// train could have run meanwhile, is the frozen game catching up, counted apart (freezeSnaps).
 // Args: loco, cars (comma-separated), seconds, full and mid (band edges, metres), speed (m/s).
 var loco = Trains.Find(ctx.Args["loco"]);
 var cars = ctx.Args["cars"].Split((char)44).Select(id => Trains.Find(id)).ToList();
@@ -26,7 +28,8 @@ Dictionary<string, double> Stats(string b)
     if (!bands.TryGetValue(b, out var s))
         bands[b] = s = new Dictionary<string, double> { ["seconds"] = 0, ["samples"] = 0, ["intervalTicks"] = 0, ["staleGaps"] = 0,
             ["worstGap"] = 0, ["worstStep"] = 0, ["slowestSecond"] = 999, ["slowestRealSecond"] = 999, ["minDistance"] = 1e9,
-            ["maxDistance"] = 0, ["gameSeconds"] = 0, ["realSeconds"] = 0, ["frames"] = 0, ["worstStepAt"] = 0 };
+            ["maxDistance"] = 0, ["gameSeconds"] = 0, ["realSeconds"] = 0, ["frames"] = 0, ["worstStepAt"] = 0,
+            ["freezeSnaps"] = 0, ["worstFreezeSnap"] = 0 };
     return s;
 }
 string Follower()
@@ -47,6 +50,9 @@ string Before()
     return $"in the second before: error known {withError}/{recent.Count} steps, at most {worst:F2} m; following {following}/{recent.Count}";
 }
 float firstLeftNear = -1f;
+// Long frames (over 0.25 s) in the last 6 s: how long this game was frozen.
+var longFrames = new Queue<(float at, float length)>();
+int lastLongFrame = -1;
 string band = null, prevBand = null;
 float bandSince = 0f, lastSampleAt = -1f, gapMaxFrame = 0f, approachWorst = 0f, prevNow = 0f, slowNotedAt = -99f;
 int lastFrame = -1;
@@ -88,6 +94,15 @@ while (Time.realtimeSinceStartup - t0 < seconds)
     s["minDistance"] = Math.Min(s["minDistance"], distance);
     s["maxDistance"] = Math.Max(s["maxDistance"], distance);
     gapMaxFrame = Mathf.Max(gapMaxFrame, Time.unscaledDeltaTime);
+    if (Time.unscaledDeltaTime > 0.25f && Time.frameCount != lastLongFrame)
+    {
+        lastLongFrame = Time.frameCount;
+        longFrames.Enqueue((now, Time.unscaledDeltaTime));
+    }
+    while (longFrames.Count > 0 && now - longFrames.Peek().at > 6f)
+        longFrames.Dequeue();
+    float frozen = longFrames.Sum(x => x.length);
+    float lastFreezeAt = longFrames.Count > 0 ? longFrames.Last().at : -99f;
 
     // A new sample from the host (several in one frame count once: a lower bound).
     if (net.lastTickProcessed != lastTick)
@@ -102,8 +117,9 @@ while (Time.realtimeSinceStartup - t0 < seconds)
         {
             float gap = now - lastSampleAt;
             s["worstGap"] = Math.Max(s["worstGap"], Math.Round(gap, 2));
-            // A gap with a frame hitch in it (a teleport loading the world) is the client's own.
-            if (gap > Multiplayer.Client.Trains.TrainSpeedQueue.StaleSeconds(queue.SampleIntervalSeconds) && gapMaxFrame < 0.3f)
+            // A gap with a frame hitch in it (a teleport loading the world) is the client's own, and
+            // samples are seen once a frame: allow two frames on top of the client's own limit.
+            if (gap > Multiplayer.Client.Trains.TrainSpeedQueue.StaleSeconds(queue.SampleIntervalSeconds) + 2f * gapMaxFrame && gapMaxFrame < 0.3f)
             {
                 s["staleGaps"]++;
                 if (notes.Count < 12) notes.Add($"{now:F1}s {b}: no sample for {gap:F2} s (interval {queue.SampleIntervalSeconds:F2} s)");
@@ -117,6 +133,15 @@ while (Time.realtimeSinceStartup - t0 < seconds)
     Vector3 p = Dev.Abs(loco.transform.position);
     float excess = Vector3.Distance(p, lastP) - loco.rb.velocity.magnitude * Time.fixedDeltaTime;
     lastP = p;
+    bool afterFreeze = excess > 0.5f && now - lastFreezeAt < 5f && excess <= 2f * speed * (frozen + 1f) + 5f;
+    if (afterFreeze)
+    {
+        s["freezeSnaps"]++;
+        s["worstFreezeSnap"] = Math.Max(s["worstFreezeSnap"], Math.Round(excess, 2));
+        if (notes.Count < 12)
+            notes.Add($"{now:F1}s {b}: caught up {excess:F2} m, {now - lastFreezeAt:F1} s after this game froze for {frozen:F1} s ({Follower()})");
+        excess = 0f;
+    }
     if (excess > s["worstStep"])
     {
         s["worstStep"] = Math.Round(excess, 3);

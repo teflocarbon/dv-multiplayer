@@ -2,12 +2,14 @@
 // started and the brake pipe charged, on a stretch with at least ROOM metres of clear track on one
 // side. Clear means following the switches as they're set, up to the first other car, buffer
 // stop or end of the line: the push used to run the train into whatever was ahead, and the wreck
-// failed the run. Args: wagons (default 4), room (metres, default 300).
+// failed the run. Args: wagons (default 4), room (metres, default 300), exclude (track names,
+// comma-separated, not to use).
 // Result: dir = 1 to push the loco forward, -1 to push it backward.
 var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().First();
 DV.ThingTypes.TrainCarLivery L(string id) => DV.Globals.G.Types.Liveries.First(l => l.id == id);
 int n = ctx.Args.TryGetValue("wagons", out var w) ? int.Parse(w) : 4;
 float room = ctx.Args.TryGetValue("room", out var r) ? float.Parse(r) : 300f;
+var exclude = new HashSet<string>(ctx.Args.TryGetValue("exclude", out var ex) ? ex.Split((char)44) : new string[0]);
 var liveries = new List<DV.ThingTypes.TrainCarLivery> { L("LocoDE2") };
 for (int i = 0; i < n; i++) liveries.Add(L("BoxcarBrown"));
 
@@ -55,7 +57,7 @@ foreach (float d in new[] { 20f, 40f, 60f, 80f, 120f, 160f, 200f })
 foreach (var dir in new[] { Vector3.forward, Vector3.right, Vector3.back, Vector3.left })
 {
     var t = CarSpawner.GetTrackClosestTo(client.transform.position + dir * d, 60f, out int _);
-    if (t == null) continue;
+    if (t == null || exclude.Contains(t.name)) continue;
     var cars = CarSpawner.Instance.SpawnCarTypesOnTrack(liveries, liveries.Select(_ => false).ToList(), t, true, false);
     if (cars == null) continue;
     for (int i = 0; i < 60; i++) yield return null;

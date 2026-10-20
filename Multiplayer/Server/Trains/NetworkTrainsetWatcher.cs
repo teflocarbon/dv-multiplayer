@@ -120,7 +120,6 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         bool maxTicksReached = false;
         bool anyTracksDirty = false;
         bool anyCarDerailed = false;
-        uint ticksSinceFullSync = 0;
 
         if (UnloadWatcher.isUnloading || UnloadWatcher.isQuitting)
             return;
@@ -169,8 +168,6 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             {
                 maxTicksReached |= netTC.TicksSinceSync >= MAX_UNSYNC_TICKS; //Even if the car is stationary, if the max ticks has been exceeded we will still sync
                 anyTracksDirty |= netTC.BogieTracksDirty;
-                if (trainCar == set.firstCar)
-                    ticksSinceFullSync = netTC.TicksSinceSync;
             }
             else
             {
@@ -275,7 +272,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         // interpolated between samples, so its set is sent to everyone every tick.
         sendToAll = reliable || maxTicksReached || anyCarDerailed;
         sendEveryTick = anyCarDerailed;
-        sendTicksSinceFullSync = ticksSinceFullSync;
+        sendTick = tick;
         NetworkLifecycle.Instance.Server.SendTrainsetPhysicsUpdate(cachedSendPacket, reliable, intervalFor);
         sendSet = null;
     }
@@ -291,7 +288,7 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
     private Trainset sendSet;
     private bool sendToAll;
     private bool sendEveryTick;
-    private uint sendTicksSinceFullSync;
+    private uint sendTick;
 
     private void UpdateRecipients()
     {
@@ -307,11 +304,13 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
         }
     }
 
-    // The interval each player was last told for each set. When it grows (the player moved away,
-    // or teleported far), the set is sent at once with the new one: the last sample announced the
-    // shorter interval, and the client took the car as lost before the next one was due.
-    private readonly Dictionary<(byte player, Trainset set), byte> announced = new();
+    // The interval each player was last told for each set, and the tick it was sent. When the
+    // interval grows (the player moved away, or teleported far), the set is sent at once with the
+    // new one: the last sample announced the shorter interval, and the client took the car as
+    // lost before the next one was due.
+    private readonly Dictionary<(byte player, Trainset set), (byte interval, uint sentAt)> announced = new();
     private readonly List<(byte player, Trainset set)> announcedGone = new();
+    private uint lastForgotAt;
 
     /// <summary>The interval of <see cref="sendSet"/>'s samples to this player, or 0 if it isn't due one this tick.</summary>
     private byte IntervalFor(ServerPlayer player)
@@ -320,18 +319,20 @@ public class NetworkTrainsetWatcher : SingletonBehaviour<NetworkTrainsetWatcher>
             return 1;
         byte interval = sendEveryTick ? (byte)1 : sendRate.IntervalTicks(NearestCarDistance(player));
         var key = (player.PlayerId, sendSet);
-        bool grew = !announced.TryGetValue(key, out byte last) || interval > last;
-        if (!sendToAll && !grew && !TrainsetSendRate.IsDue(sendTicksSinceFullSync, interval))
+        bool grew = !announced.TryGetValue(key, out var last) || interval > last.interval;
+        if (!sendToAll && !grew && !TrainsetSendRate.IsDue(unchecked(sendTick - last.sentAt), interval))
             return 0;
-        announced[key] = interval;
+        announced[key] = (interval, sendTick);
         return interval;
     }
 
     // Couplings replace trainsets and players leave: forget them now and then.
     private void ForgetAnnounced(uint tick)
     {
-        if (tick % MAX_UNSYNC_TICKS != 0 || announced.Count == 0)
+        // Tick numbers skip below 24 fps: a multiple of the period can be missed.
+        if (unchecked(tick - lastForgotAt) < MAX_UNSYNC_TICKS || announced.Count == 0)
             return;
+        lastForgotAt = tick;
         var sets = new HashSet<Trainset>(Trainset.allSets);
         announcedGone.Clear();
         foreach (var key in announced.Keys)
