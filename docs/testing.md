@@ -29,6 +29,7 @@ The suite (NUnit, `net8.0`) mirrors the folders of `Multiplayer.Core`:
 | `Replication/` | Interest entry at 100 m with a three-second removal delay, dirty-vs-full-sync selection and known-item delivery. |
 | `Jobs/` | Job booklet issuance index. |
 | `Trains/` | Train baseline receipt and the train topology (coupling) state machine. |
+| `World/` | The track-graph fingerprint checked at join: order independence, renumbered, extra or renamed tracks, a fixed expected hash. |
 
 Every multiplayer bug fix that changes pure transition behaviour should first gain a failing unit
 test here.

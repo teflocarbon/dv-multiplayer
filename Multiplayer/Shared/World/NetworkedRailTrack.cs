@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Shared.World;
@@ -43,6 +44,9 @@ public class NetworkedRailTrack : IdMonoBehaviour<ushort, NetworkedRailTrack>
     {
         return railTracksToNetworkedRailTracks[railTrack];
     }
+
+    public static IEnumerable<KeyValuePair<ushort, string>> NetIdTable =>
+        Registered.Select(entry => new KeyValuePair<ushort, string>(entry.Key, entry.Value.name));
 
     #endregion
 

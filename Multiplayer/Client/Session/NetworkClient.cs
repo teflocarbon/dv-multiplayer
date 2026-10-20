@@ -59,6 +59,7 @@ using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.World;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Trains;
+using Multiplayer.Core.World;
 using Multiplayer.Debugging.Protocol;
 using Newtonsoft.Json.Linq;
 using System;
@@ -567,7 +568,11 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
          */
 
         Log("Syncing world state");
-        SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState);
+        // The host checks it against its own before sending any world state. Taken after the
+        // ready-blocks, so a mod that adds track has done so.
+        TrackGraphFingerprint trackGraph = TrackGraph.Compute();
+        Log($"Track graph: {trackGraph}");
+        SendLoadStateUpdate(PlayerLoadingState.ReadyForWorldState, trackGraph);
         displayLoadingInfo.OnLoadingStatusChanged(Locale.LOADING_INFO__SYNC_WORLD_STATE, false, ((float)LoadingState / (float)PlayerLoadingState.Complete) * 100);
 
         float railwayDeadline = Time.realtimeSinceStartup + RailwayStateTimeoutSeconds;
@@ -863,8 +868,8 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
     {
         if (packet.Kicked)
         {
-            Log($"Player was kicked!");
-            disconnectMessage = "You were kicked!";
+            Log($"Player was kicked! {packet.Reason}");
+            disconnectMessage = string.IsNullOrEmpty(packet.Reason) ? "You were kicked!" : packet.Reason;
         }
         else
         {
@@ -1036,10 +1041,17 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession
         SendNetSerializablePacketToServer(wrapper, deliveryMethod);
     }
 
-    private void SendLoadStateUpdate(PlayerLoadingState newState)
+    private void SendLoadStateUpdate(PlayerLoadingState newState, TrackGraphFingerprint trackGraph = default)
     {
         Log($"Sending Load State {newState}");
-        SendPacketToServer(new ServerboundLoadStateUpdatePacket { LoadState = newState }, DeliveryMethod.ReliableOrdered);
+        SendPacketToServer(new ServerboundLoadStateUpdatePacket
+        {
+            LoadState = newState,
+            TrackGraphHash = trackGraph.Hash,
+            TrackCount = (ushort)trackGraph.Tracks,
+            JunctionCount = (ushort)trackGraph.Junctions,
+            TurntableCount = (ushort)trackGraph.Turntables,
+        }, DeliveryMethod.ReliableOrdered);
         LoadingState = newState;
     }
 

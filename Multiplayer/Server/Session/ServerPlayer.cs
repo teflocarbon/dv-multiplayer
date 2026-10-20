@@ -7,6 +7,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
+using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
@@ -121,6 +122,9 @@ public class ServerPlayer : IDisposable
     // (sent, not yet acknowledged), delivered in order once they acknowledge it.
     internal bool TrainBaselinePending { get; set; }
     internal List<(byte[] Data, LiteNetLib.DeliveryMethod Delivery)> PendingTrainTraffic { get; } = new();
+    // The track graph this player reported with ReadyForWorldState, kept because a join that
+    // waits for the host to load is replayed without the packet.
+    internal TrackGraphFingerprint TrackGraph { get; set; }
     public bool WorldItemCatalogueAccepted { get; internal set; }
     public StorageBase Inventory { get; private set; }
 

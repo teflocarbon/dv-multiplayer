@@ -43,7 +43,9 @@ sends world state at these steps:
 | `ReadyForTrainSets` | Train baseline, which carries each car's exploded flag and cargo |
 | `ReadyForTiles` | Every hazmat tile (`HazmatServer.SendAll`) |
 
-The player is added to the server's `peers` table at `ReadyForWorldState`, and every broadcast
+At `ReadyForWorldState` the host first checks the client's track graph and kicks it with a reason
+if it differs ([design/track-graph-check.md](design/track-graph-check.md)). The player is then
+added to the server's `peers` table, and every broadcast
 (`SendPacketToAll`) only walks `peers`. Anything broadcast between `ReadyForGameData` and
 `ReadyForWorldState` (while the client loads the scene) never reaches that client; see Known gaps.
 
@@ -317,6 +319,10 @@ implemented by `NetworkClient.World.cs`) and the server's switch broadcast throu
   to the host's own client, which shares the server's world. Nothing is checked: not the player,
   distance, or whether a train is on the junction. The last packet wins; a junction or turntable
   the server doesn't have is dropped with a warning.
+
+Before any of that, the client's `ReadyForWorldState` carries a hash of its NetId → name tables for
+tracks, junctions and turntables, and the host refuses a client whose hash differs from its own
+with a reason ([design/track-graph-check.md](design/track-graph-check.md)).
 
 On join, `ClientboundRailwayStatePacket` carries every junction's selected branch and every
 turntable's rotation, by index. The client waits up to 30 s for it

@@ -60,6 +60,7 @@ using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Trains;
+using Multiplayer.Core.World;
 using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
 using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
 using System;
@@ -366,6 +367,7 @@ public partial class NetworkServer : NetworkManager
             lobbyServerManager = NetworkLifecycle.Instance.GetOrAddComponent<LobbyServerManager>();
         }
 
+        Log($"Track graph: {TrackGraph.Compute()}");
         Log($"Server loaded, processing {joinQueue.Count} queued players");
         IsLoaded = true;
 
@@ -704,12 +706,27 @@ public partial class NetworkServer : NetworkManager
         );
     }
 
-    public void KickPlayer(ServerPlayer player)
+    public void KickPlayer(ServerPlayer player, string reason = null)
     {
         if (player == null || player.Peer == null)
             return;
 
-        player.Peer.Disconnect(WritePacket(new ClientboundDisconnectPacket { Kicked = true }));
+        player.Peer.Disconnect(WritePacket(new ClientboundDisconnectPacket { Kicked = true, Reason = reason ?? string.Empty }));
+    }
+
+    private bool CheckTrackGraph(ServerPlayer player)
+    {
+        TrackGraphFingerprint hostGraph = TrackGraph.Compute();
+        string mismatch = hostGraph.DescribeMismatch(player.TrackGraph);
+        if (mismatch == null)
+        {
+            Log($"Player {player.Username}'s track graph matches: {hostGraph}");
+            return true;
+        }
+
+        LogError($"Refusing {player.Username}: track graph {player.TrackGraph} doesn't match the host's {hostGraph}");
+        KickPlayer(player, mismatch);
+        return false;
     }
 
     // Why couplings came apart since the last broadcast topology snapshot, sent with the next one.
@@ -988,6 +1005,10 @@ public partial class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForWorldState:
+                // The join queue replays this state with an empty packet: keep the first report.
+                if (packet.TrackGraphHash != 0)
+                    player.TrackGraph = new TrackGraphFingerprint(packet.TrackGraphHash, packet.TrackCount, packet.JunctionCount, packet.TurntableCount);
+
                 if (!IsLoaded)
                 {
                     Log($"Player {player.Username} is ready but server is still loading, adding to the queue");
@@ -1001,6 +1022,12 @@ public partial class NetworkServer : NetworkManager
                 {
                     Log($"Player {player.Username} is ready for world state");
                 }
+
+                // Tracks, junctions and turntables are numbered as they wake in each game, so a
+                // client whose railway differs would put every car on the wrong track. Refuse it
+                // before it gets any world state or train baseline.
+                if (!NetworkLifecycle.Instance.IsHost(player) && !CheckTrackGraph(player))
+                    return;
 
                 // Unpause physics
                 if (AppUtil.Instance.IsTimePaused)
