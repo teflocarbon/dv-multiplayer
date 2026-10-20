@@ -84,7 +84,11 @@ public class NetworkedJunction : IdMonoBehaviour<ushort, NetworkedJunction>
         if (NetworkLifecycle.Instance.IsProcessingPacket || !initialised)
             return;
 
-        WorldClient.Current?.SendJunctionSwitched(NetId, (byte)branch, switchMode);
+        // The server's world: tell everyone, whoever or whatever threw it. A client's: ask the server.
+        if (NetworkLifecycle.Instance.IsHost())
+            WorldServer.Current?.BroadcastJunctionSwitched(NetId, (byte)branch, switchMode);
+        else
+            WorldClient.Current?.SendJunctionSwitched(NetId, (byte)branch, switchMode);
     }
 
     public void Switch(byte mode, byte selectedBranch, bool initialising = false)

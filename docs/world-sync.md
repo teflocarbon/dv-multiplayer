@@ -307,17 +307,22 @@ or the register yet.
 `Shared/World/JunctionPatch.cs` and `TurntableControllerPatch.cs` add `NetworkedJunction` and
 `NetworkedTurntable`. Ids are assigned locally in `Awake` order (`IsIdServerAuthoritative` is
 false): `ushort` for junctions, `byte` for turntables. These components, and
-`NetworkedGenericSwitch`, are Shared: they send through `IWorldClient` (`WorldClient.Current`,
-implemented by `NetworkClient.World.cs`) and the server's switch broadcast through `IWorldServer`.
+`NetworkedGenericSwitch`, are Shared: on a remote client they send through `IWorldClient`
+(`WorldClient.Current`, implemented by `NetworkClient.World.cs`); on the server they broadcast
+through `IWorldServer` (`WorldServer.Current`, `NetworkServer.World.cs`).
 
-- A junction switched locally sends `CommonChangeJunctionPacket` (id, branch, switch mode).
+- A junction switched on a client sends `CommonChangeJunctionPacket` (id, branch, switch mode).
 - A turntable sends `CommonRotateTurntablePacket` from `OnTick` whenever its `targetYRotation`
   changes, so every tick while someone turns it.
 - The server switches the junction or turns the turntable in its own world for another player's
-  change, inside `ApplyingRemoteChange` so the host doesn't send it back, then relays it to every
-  other player at `ReadyForWorldState` or later (`HandleJunction`, `HandleTurntable`). The host's
-  own changes reach the server in-process (`RegisterLocalWorld`) and are only relayed. Neither goes
-  to the host's own client, which shares the server's world. Nothing is checked: not the player,
+  change, inside `ApplyingRemoteChange` so the server doesn't send it back, then relays it to every
+  other player at `ReadyForWorldState` or later (`HandleJunction`, `HandleTurntable`).
+- A junction or turntable that moves in the server's own world any other way (the host's player,
+  a train, a mod, nobody at all on a dedicated host) is broadcast by the server itself
+  (`BroadcastJunctionSwitched`, `BroadcastTurntableRotation`), with no player and no request.
+  It used to go through the host's own client as a request, so with no client on the host
+  (host-local-session stage 3) it would have reached nobody.
+- None of these goes to the host's own player, which shares the server's world. Nothing is checked: not the player,
   distance, or whether a train is on the junction. The last packet wins; a junction or turntable
   the server doesn't have is dropped with a warning.
 
