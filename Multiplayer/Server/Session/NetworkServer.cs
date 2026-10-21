@@ -301,6 +301,7 @@ public partial class NetworkServer : NetworkManager
         SubscribeShops();
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundOwnedItemsRequestPacket, ITransportPeer>(OnServerboundOwnedItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
         netPacketProcessor.SubscribeReusable<ServerboundContainerBrowsePacket, ITransportPeer>(OnServerboundContainerBrowsePacket);
         netPacketProcessor.SubscribeReusable<ServerboundContainerMutationPacket, ITransportPeer>(OnServerboundContainerMutationPacket);

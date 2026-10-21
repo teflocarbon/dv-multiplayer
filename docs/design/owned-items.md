@@ -65,6 +65,9 @@ on the server and in every client, are made to agree with it.
   `starting-items`.
 - **PR 5, no adoption: built, and tested in game with PR 4 on both host kinds (2026-10-22).** Client item adoption is deleted;
   nothing legitimate still used it (see [5](#5-no-adoption)).
+- **PR 6a, the owned-items list: built (2026-10-22), not yet run in game.** The packets, the
+  server's rows from the ledger, and an Owned Items page in the career manager (see
+  [6](#6-the-list-and-retrieval)). Scenario: `owned-list`.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -961,6 +964,28 @@ As built (2026-10-22):
   2. Player host only: the client gives the host's player its lantern, the host holds it in hand, and
      the client retrieves it. The host's hand is empty, its log names the client, and the lantern is
      in the client's Lost and Found.
+
+Split in two, as small PRs: **6a the list**, **6b retrieval**.
+
+6a as built (2026-10-22):
+
+- **Packets:** `ServerboundOwnedItemsRequestPacket` and `ClientboundOwnedItemsPacket`. The answer
+  holds parallel rows: handle, prefab, display name, where, retrievable. Retrievable is false until
+  6b.
+- **The server builds the rows** (`OwnedItemRows`, `Server/Items/OwnedItems/`) from the ledger's
+  live entries for the player.
+  - Ended entries aren't listed.
+  - An item keeps its handle for the session.
+  - Where it is is worded by `OwnedItemPlaceText` (Core, unit-tested): "in your inventory", "in
+    Bentgear29's hand", "on the ground", "in L-042", "on a shelf", "in Toolbox", "in Lost and
+    Found", "installed on L-042". The car's id and the container's name come from the server's
+    records.
+  - The host's own player is answered in-process.
+- **The client** keeps the last list (`OwnedItemsList`), and the career manager's Multiplayer hub
+  has an **Owned Items** page beside Lost Items. It's a list only until 6b.
+- **Scenario `owned-list`:** step 3 uses a destroyed mug, not a banknote; money is PR 7's.
+- **Strings:** the page's labels are English, like the Lost Items page's. Localising both pages is
+  left for later.
 
 ### 7. Lineage
 

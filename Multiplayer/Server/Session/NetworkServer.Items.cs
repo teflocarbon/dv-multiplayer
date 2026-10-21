@@ -1,6 +1,7 @@
 ﻿using DV.InventorySystem;
 using LiteNetLib;
 using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.OwnedItems;
 using Multiplayer.Server.Jobs;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items;
@@ -602,6 +603,7 @@ public partial class NetworkServer : IItemServer
     partial void RegisterLocalItems()
     {
         HandleLocal<ServerboundLostItemsRequestPacket>(HandleLostItemsRequest);
+        HandleLocal<ServerboundOwnedItemsRequestPacket>(HandleOwnedItemsRequest);
         HandleLocal<ServerboundLostItemRetrievePacket>(HandleLostItemRetrieve);
         HandleLocal<ServerboundContainerBrowsePacket>(HandleContainerBrowse);
         HandleLocal<ServerboundContainerMutationPacket>(HandleContainerMutation);
@@ -615,6 +617,28 @@ public partial class NetworkServer : IItemServer
 
     private void HandleLostItemsRequest(ServerboundLostItemsRequestPacket packet, ServerPlayer player) =>
         SendLostItemsSnapshot(player, packet.RequestId);
+
+    private void OnServerboundOwnedItemsRequestPacket(ServerboundOwnedItemsRequestPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleOwnedItemsRequest(packet, player);
+    }
+
+    // The player's owned-items list (owned-items.md, PR 6a), worded here for every game alike.
+    private void HandleOwnedItemsRequest(ServerboundOwnedItemsRequestPacket packet, ServerPlayer player)
+    {
+        if (player?.Peer == null) return;
+        List<OwnedItemRow> rows = OwnedItemRows.For(player);
+        SendPacket(player.Peer, new ClientboundOwnedItemsPacket
+        {
+            RequestId = packet.RequestId,
+            Handles = rows.Select(row => row.Handle).ToArray(),
+            PrefabNames = rows.Select(row => row.Prefab).ToArray(),
+            DisplayNames = rows.Select(row => row.DisplayName).ToArray(),
+            Wheres = rows.Select(row => row.Where).ToArray(),
+            Retrievable = rows.Select(row => row.Retrievable).ToArray()
+        }, DeliveryMethod.ReliableOrdered);
+    }
 
     private void OnServerboundLostItemRetrievePacket(ServerboundLostItemRetrievePacket packet, ITransportPeer peer)
     {

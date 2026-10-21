@@ -222,6 +222,12 @@ public partial class NetworkClient : IItemClient
             DeliveryMethod.ReliableOrdered);
     }
 
+    public void RequestOwnedItems(uint requestId)
+    {
+        SendPacketToServer(new ServerboundOwnedItemsRequestPacket { RequestId = requestId },
+            DeliveryMethod.ReliableOrdered);
+    }
+
     public void RequestContainerView(uint requestId, ushort shellNetId,
         uint containerHandle = 0, int offset = 0, byte count = 64)
     {

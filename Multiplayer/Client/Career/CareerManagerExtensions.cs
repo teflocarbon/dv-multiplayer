@@ -37,6 +37,13 @@ internal static class CareerManagerExtensionRegistry
             Label = "LOST ITEMS",
             CreateScreen = host => host.LostItemsScreen
         });
+        Register(new CareerManagerExtensionEntry
+        {
+            Id = "multiplayer.owned-items",
+            Order = 110,
+            Label = "OWNED ITEMS",
+            CreateScreen = host => host.OwnedItemsScreen
+        });
     }
 
     internal static void Register(CareerManagerExtensionEntry entry)
@@ -59,6 +66,7 @@ internal sealed class CareerManagerExtensionHost : MonoBehaviour
     internal TextMeshPro MainRow { get; private set; }
     internal CareerManagerExtensionHubScreen HubScreen { get; private set; }
     internal LostItemsCareerManagerScreen LostItemsScreen { get; private set; }
+    internal OwnedItemsCareerManagerScreen OwnedItemsScreen { get; private set; }
 
     internal void Initialize(CareerManagerMainScreen main)
     {
@@ -80,8 +88,10 @@ internal sealed class CareerManagerExtensionHost : MonoBehaviour
 
         HubScreen = gameObject.AddComponent<CareerManagerExtensionHubScreen>();
         LostItemsScreen = gameObject.AddComponent<LostItemsCareerManagerScreen>();
+        OwnedItemsScreen = gameObject.AddComponent<OwnedItemsCareerManagerScreen>();
         HubScreen.Initialize(this, CreateScreenText("MultiplayerHub", "MULTIPLAYER"));
         LostItemsScreen.Initialize(this, CreateScreenText("LostItems", "LOST ITEMS"));
+        OwnedItemsScreen.Initialize(this, CreateScreenText("OwnedItems", "OWNED ITEMS"));
     }
 
     internal void ShowMainRow()

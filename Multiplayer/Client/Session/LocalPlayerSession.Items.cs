@@ -22,6 +22,7 @@ public partial class LocalPlayerSession : IItemClient
     partial void RegisterItems()
     {
         Handle<ClientboundLostItemsSnapshotPacket>(LostAndFoundExchange.ApplySnapshot);
+        Handle<ClientboundOwnedItemsPacket>(OwnedItemsList.Apply);
         Handle<ClientboundLostItemRetrieveResultPacket>(packet =>
         {
             LostAndFoundExchange.ReportRetrieveResult(packet);
@@ -33,6 +34,9 @@ public partial class LocalPlayerSession : IItemClient
 
     public void RequestLostItems(uint requestId) =>
         Submit(new ServerboundLostItemsRequestPacket { RequestId = requestId });
+
+    public void RequestOwnedItems(uint requestId) =>
+        Submit(new ServerboundOwnedItemsRequestPacket { RequestId = requestId });
 
     public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
         uint expectedRevision, int requestedSlot = -1) =>

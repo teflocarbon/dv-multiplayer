@@ -22,6 +22,8 @@ public interface IItemClient
     event Action<ClientboundContainerViewPacket> ContainerViewReceived;
     event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
     void RequestLostItems(uint requestId);
+    /// <summary>Asks for the local player's owned-items list (owned-items.md, PR 6a): OwnedItemsList gets it.</summary>
+    void RequestOwnedItems(uint requestId);
     void RequestContainerView(uint requestId, ushort shellNetId, uint containerHandle = 0, int offset = 0,
         byte count = 64);
     void RequestContainerMutation(ServerboundContainerMutationPacket packet);
