@@ -38,8 +38,14 @@ public static class NetworkedLostAndFoundManager
     private static uint generation;
     private static bool saveImportAttempted;
 
+    /// <summary>The save's records have been read (the owned-items ledger is checked against them after).</summary>
+    internal static bool ImportAttempted => saveImportAttempted;
+
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
+    /// <summary>The id of an item's entry: its own persistent id (owned-items.md), or empty for none.</summary>
+    public static Guid EntryId(ushort itemNetId) =>
+        registry.TryGet(itemNetId, out LostItemRecord record) ? record.PersistentItemId : Guid.Empty;
     public static int Count => registry.Count;
 
     public static bool TryCreateCollectionProjection(NetworkedItem item,
@@ -191,7 +197,7 @@ public static class NetworkedLostAndFoundManager
         }
         catch (Exception exception)
         {
-            registry.Restore(removedRecord);
+            LogRestore(registry.Restore(removedRecord), removedRecord.PersistentItemId, "retrieval rollback");
             AuthoritativeItemRegistry.RestoreLostRecord(item, player.PlayerId,
                 expectedRevision, lost.PrefabName, lost.InventoryClaimPlayerId,
                 lost.InventoryClaimSlot, (ItemInventoryClaimFlags)lost.InventoryClaimFlags);
@@ -322,7 +328,8 @@ public static class NetworkedLostAndFoundManager
         }
         LostItemRecord record = new()
         {
-            PersistentItemId = Guid.NewGuid(),
+            // The item's own id, not one of the record's: one id for life (owned-items.md).
+            PersistentItemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid(),
             NetId = item.NetId,
             Revision = authority.Revision,
             OwnerPlayerId = authority.PersistentOwnerPlayerId,
@@ -504,7 +511,100 @@ public static class NetworkedLostAndFoundManager
         }
         if (saved != null)
             pendingSaveImports.AddRange(saved.OfType<JObject>().Select(value => (JObject)value.DeepClone()));
+        UseItemIds(storage.StorageLostAndFound.GetStorageItemList());
         TryBindPendingSaveEntries();
+    }
+
+    /// <summary>A saved entry not yet bound (its owner hasn't joined), for the owned-items ledger.</summary>
+    internal readonly struct PendingEntry
+    {
+        public PendingEntry(Guid itemId, Guid owner, string prefab, int claimSlot)
+        {
+            ItemId = itemId;
+            Owner = owner;
+            Prefab = prefab;
+            ClaimSlot = claimSlot;
+        }
+
+        public Guid ItemId { get; }
+        public Guid Owner { get; }
+        public string Prefab { get; }
+        public int ClaimSlot { get; }
+    }
+
+    internal static IEnumerable<PendingEntry> PendingEntries()
+    {
+        foreach (JObject value in pendingSaveImports)
+        {
+            if (!Guid.TryParse((string)value["persistentItemId"], out Guid id) || id == Guid.Empty ||
+                !Guid.TryParse((string)value["ownerIdentity"], out Guid owner))
+                continue;
+            ItemInventoryClaimFlags flags = (ItemInventoryClaimFlags)((byte?)value["inventoryClaimFlags"] ?? 0);
+            bool retrievalClaim = (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
+            yield return new PendingEntry(id, owner, (string)value["prefabName"] ?? string.Empty,
+                retrievalClaim ? (int?)value["inventoryClaimSlot"] ?? -1 : -1);
+        }
+    }
+
+    // An entry and its stored item have one id from the load on. Vanilla saves a stored item's
+    // state, and with it the item's id, only when the item has ItemSaveData (StorageSerializer): a
+    // mug has none, comes back with no id and is given a new one. Then the entry's id is the item's
+    // and the item takes it back. An item with saved state keeps its own id, and an entry from a save
+    // before the item's id was the entry's (a record id minted per collection) takes it.
+    private static void UseItemIds(List<ItemBase> restoredItems)
+    {
+        HashSet<ItemBase> taken = new();
+        foreach (JObject value in pendingSaveImports)
+        {
+            Guid.TryParse((string)value["persistentItemId"], out Guid saved);
+            ItemBase stored = FindStoredItem(restoredItems, restoredItems.Where(item => item != null && !taken.Contains(item)).ToList(),
+                saved, (int?)value["storageIndex"] ?? -1, (string)value["prefabName"] ?? string.Empty);
+            if (stored == null)
+                continue;
+            taken.Add(stored);
+            Guid itemId = ItemIdOf(stored);
+            if (itemId == saved || saved == Guid.Empty && itemId == Guid.Empty)
+                continue;
+            if (itemId != Guid.Empty && stored.GetComponent<ItemSaveData>() != null)
+            {
+                Multiplayer.LogDebug(() => $"Lost and Found: saved entry {saved:D} takes its item's id {itemId:D}");
+                value["persistentItemId"] = itemId.ToString("D");
+            }
+            else if (saved != Guid.Empty)
+            {
+                Multiplayer.LogDebug(() => $"Lost and Found: stored {stored.name} takes its entry's id {saved:D}");
+                GiveId(stored, saved);
+            }
+        }
+    }
+
+    private static void GiveId(ItemBase stored, Guid id)
+    {
+        PersistentWorldItemIdentity identity = stored.GetComponent<PersistentWorldItemIdentity>() ??
+                                               stored.gameObject.AddComponent<PersistentWorldItemIdentity>();
+        identity.Value = id;
+        if (NetworkedItem.TryGetNetworkedItem(stored, out NetworkedItem item) && item.NetId != 0 &&
+            AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
+            record.PersistentItemId = OwnedItemsServer.ClaimPersistentId(item, id);
+    }
+
+    private static Guid ItemIdOf(ItemBase item) =>
+        item != null && item.TryGetComponent(out PersistentWorldItemIdentity identity) ? identity.Value : Guid.Empty;
+
+    // The stored item an entry binds to: the one with the entry's id, else (an older save) the one
+    // at its storage index if the prefab matches, else the first with its prefab.
+    private static ItemBase FindStoredItem(List<ItemBase> restoredItems, List<ItemBase> available, Guid id,
+        int storageIndex, string prefab)
+    {
+        ItemBase byId = id == Guid.Empty ? null : available.FirstOrDefault(candidate => ItemIdOf(candidate) == id);
+        if (byId != null)
+            return byId;
+        ItemBase baseItem = storageIndex >= 0 && storageIndex < restoredItems.Count ? restoredItems[storageIndex] : null;
+        if (baseItem == null || !available.Contains(baseItem) ||
+            !string.Equals(baseItem.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal))
+            baseItem = available.FirstOrDefault(candidate =>
+                string.Equals(candidate.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal));
+        return baseItem;
     }
 
     private static void TryBindPendingSaveEntries()
@@ -553,13 +653,7 @@ public static class NetworkedLostAndFoundManager
             ServerPlayer owner = NetworkServer.Instance.ServerPlayers.FirstOrDefault(player =>
                 string.Equals(player.Guid.ToString("D"), ownerIdentity, StringComparison.OrdinalIgnoreCase));
             if (owner == null) continue;
-            ItemBase baseItem = storageIndex >= 0 && storageIndex < restoredItems.Count
-                ? restoredItems[storageIndex]
-                : null;
-            if (baseItem == null || !available.Contains(baseItem) ||
-                !string.Equals(baseItem.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal))
-                baseItem = available.FirstOrDefault(candidate =>
-                    string.Equals(candidate.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal));
+            ItemBase baseItem = FindStoredItem(restoredItems, available, persistentItemId, storageIndex, prefab);
             if (baseItem == null)
             {
                 // DV's Lost and Found storage, loaded with the save, has nothing left for this
@@ -582,7 +676,7 @@ public static class NetworkedLostAndFoundManager
             ItemInventoryClaimFlags claimFlags = (ItemInventoryClaimFlags)((byte?)value["inventoryClaimFlags"] ?? 0);
             AuthoritativeItemRegistry.RestoreLostRecord(item, owner.PlayerId, revision, prefab,
                 claimPlayerId, claimSlot, claimFlags, ItemMoveReason.RestoredFromSave);
-            registry.Restore(new LostItemRecord
+            LostItemRecord restored = new()
             {
                 PersistentItemId = persistentItemId,
                 NetId = item.NetId,
@@ -597,11 +691,18 @@ public static class NetworkedLostAndFoundManager
                 InventoryClaimFlags = (byte)claimFlags,
                 Reason = (LostItemReason)((byte?)value["reason"] ?? 0),
                 LostUtcTicks = (long?)value["lostUtcTicks"] ?? DateTime.UtcNow.Ticks
-            });
+            };
+            LogRestore(registry.Restore(restored), persistentItemId, "save import");
             pendingSaveImports.Remove(value);
         }
         if (registry.Count > countBefore)
             generation++;
+    }
+
+    private static void LogRestore(LostItemRegistryResult result, Guid persistentItemId, string during)
+    {
+        if (result is not (LostItemRegistryResult.Added or LostItemRegistryResult.Updated))
+            Multiplayer.LogError($"Lost and Found: restoring entry {persistentItemId:D} ({during}) was refused: {result}");
     }
 
     private static LostItemDecision Evaluate(LostItemCandidate candidate) =>
@@ -609,13 +710,25 @@ public static class NetworkedLostAndFoundManager
             Multiplayer.Settings.LostItemNearbyPlayerProtectionDistance,
             Multiplayer.Settings.LostItemCollectionGraceSeconds);
 
+    private static bool HasPosition(ServerPlayer player) =>
+        player.TrackingData.Position.HasValue || NetworkLifecycle.Instance.IsHost(player);
+
+    private static bool HasSettledPosition(ServerPlayer player, float now) =>
+        NetworkLifecycle.Instance.IsHost(player) || player.TrackingData.Position.HasValue &&
+        player.LoadingState == PlayerLoadingState.Complete && player.CompletedLoadingAt >= 0f &&
+        now - player.CompletedLoadingAt >= Multiplayer.Settings.LostItemCollectionGraceSeconds;
+
     private static LostItemCandidate BuildCandidate(NetworkedItem item,
         AuthoritativeItemRegistry.Record authority, float now)
     {
+        // A just-joined owner's items were collected seconds after they loaded (ledger-save on a
+        // dedicated host, 2026-10-21): before their game sends a position it reads as the origin, and
+        // its first ones can be from before it put the player at their saved spot. An owner's
+        // position counts once they have been loaded for a grace period.
         bool ownerKnown = NetworkServer.Instance.TryGetServerPlayer(
-            authority.PersistentOwnerPlayerId, out ServerPlayer owner);
+            authority.PersistentOwnerPlayerId, out ServerPlayer owner) && HasSettledPosition(owner, now);
         List<ServerPlayer> players = NetworkServer.Instance.ServerPlayers
-            .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems)
+            .Where(player => player != null && player.LoadingState >= PlayerLoadingState.ReadyForItems && HasPosition(player))
             .ToList();
         float nearest = players.Count == 0 ? float.MaxValue :
             players.Min(player => (player.WorldPosition - item.transform.position).sqrMagnitude);

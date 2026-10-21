@@ -25,6 +25,9 @@ internal static partial class WorldItemPersistenceManager
     internal const string SaveKey = "WorldItemsV1";
 
     private static bool importAttempted;
+
+    /// <summary>The save's records have been read (the owned-items ledger is checked against them after).</summary>
+    internal static bool ImportAttempted => importAttempted;
     private static readonly List<JObject> destroyedAuthoredRecords = new();
     private static readonly List<PendingStateRestore> pendingStateRestores = new();
     private static readonly HashSet<NetworkedItem> pendingRepresentations = new();

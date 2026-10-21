@@ -1251,6 +1251,7 @@ public partial class NetworkServer : NetworkManager
     private void CompleteLoading(ServerPlayer player)
     {
         ITransportPeer peer = player.Peer;
+        player.CompletedLoadingAt = Time.realtimeSinceStartup;
         Log($"Player {player.Username} has completed loading");
 
         // Send the new player to all other players
