@@ -454,6 +454,27 @@ until 6b, because its interval and its running phase share one key.
 
 `GadgetSwitchPatch` is deleted (6a).
 
+**As built (7).** Gadgets that drive the train ([Logic that writes the train](#logic-that-writes-the-train)):
+- ATS, anti-slip and overheat protection already ran only on the server (PR 2's server-only patches);
+  `Server/Gadgets/GadgetControlWriter` marks the gadget whose `Update` is running and catches the
+  `Move` and `Set` it makes on the car's `OverridableBaseControl`s.
+- **The gadget wins:** a control it moves or sets is taken from the player holding its lease
+  (`NetworkedTrainCarServer.RevokeLease`): the holder is sent `Blocked`, which lets go of the lever
+  in their game, then every game `Released`. The server's own move is then committed and broadcast as
+  any server-side control change.
+- **The step without an interior:** a `Move` on a control that isn't notched, on a car with no cab
+  loaded on the server, steps by the cab lever's scroll step (`Core/Gadgets/GadgetControlStep`: a
+  stepped lever's notch gap, a free lever's scroll in degrees over its range, a puller's scroll), read
+  from the livery's interior prefab by the control's port and cached; 0.1 when there is no such
+  lever. A notched control and a car with its cab loaded keep vanilla's.
+- **Running state:** anti-slip `active` and overheat protection `limit` (their lamps) join the running
+  families, sent on change.
+- Not done: anti-slip's notch count still falls back to 1 with no interior (it only tunes when it
+  notices the player pulling the throttle down further); the ATS's "a remote controller is in
+  control" reads the server's own remote controllers only; the distance tracker (roadrunner) never
+  wrote the train and was done in 6b.
+- Scenarios `gadget-ats`, `gadget-antislip`.
+
 ### Shared motion and randomness
 
 Vanilla drives some gadgets from local time, local physics or `Random`, so two games show different
@@ -965,4 +986,7 @@ In three parts:
   `gadget-join` pass on both host kinds.
 - **PR 6c built** (`gadgets/control-leases`): gadget knobs take leases through the cab-control path;
   settings out of a knob's range are refused. Scenario `gadget-knobs`.
-- Next: 7 (gadgets that drive the train), 8 (DPU and the control panel); 3a once owned-items 2a lands.
+- **PR 7 built** (`gadgets/drive-train`): server-run gadgets take the controls they move from the
+  player holding them and step them as the cab lever would with no cab loaded; anti-slip and overheat
+  lamps sync. Scenarios `gadget-ats`, `gadget-antislip`.
+- Next: 8 (DPU and the control panel); 3a once owned-items 2a lands.

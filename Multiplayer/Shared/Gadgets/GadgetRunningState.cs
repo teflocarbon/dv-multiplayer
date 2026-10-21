@@ -89,6 +89,34 @@ public static class GadgetRunningState
         },
         new()
         {
+            // Its lamp: easing the throttle off a slip, or still stepping it back up (PR 7).
+            Is = g => g is GadgetAntiSlip,
+            Keys = new[]
+            {
+                new Key
+                {
+                    Name = "active", Kind = Kind.Step,
+                    Get = g => ((GadgetAntiSlip)g).IsActivated ? 1f : 0f,
+                    Set = (g, v) => ((GadgetAntiSlip)g).IsActivated = v > 0.5f
+                }
+            }
+        },
+        new()
+        {
+            // Its lamp blinks once the engine is at its limit (PR 7).
+            Is = g => g is GadgetOverheatProtection,
+            Keys = new[]
+            {
+                new Key
+                {
+                    Name = "limit", Kind = Kind.Step,
+                    Get = g => ((GadgetOverheatProtection)g).HasReachedLimit ? 1f : 0f,
+                    Set = (g, v) => ((GadgetOverheatProtection)g).HasReachedLimit = v > 0.5f
+                }
+            }
+        },
+        new()
+        {
             // A plain gadget: its LOD is all there is of it, and has its snooze.
             Is = g => DefectDetector(g) != null,
             Keys = new[]
