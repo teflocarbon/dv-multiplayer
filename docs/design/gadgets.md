@@ -356,6 +356,23 @@ the state afterwards isn't what the entry says), asks for a [resync](#desync-and
 - Labels still install locally (PR 9); the owner's name on aim isn't shown yet.
 - Scenario `gadget-install`.
 
+**As built (4).** Mount points and holes, with no prediction yet:
+- **Entries:** `MountPoint` (item, index, state) from a top-level `Drillable.SetMountPointState`;
+  `HoleAdded` and `HoleRemoved` (position and direction in the car's parenting frame) from a top-level
+  `Customization.AddHole` / `RemoveHole`. A removal's freed points and new holes are its consequences,
+  reproduced by the native removal, so they aren't entries.
+- **Requests:** `ServerboundGadgetMountPointPacket` (item, index, state) from the client's
+  `SetMountPointState` (the drill, the tape, the hand's untape), outside a removal and the apply
+  scope; `ServerboundGadgetFillHolePacket` (car, hole position) from `RemoveHole` (the hole filler).
+  The server finds the tool in the requester's hand itself (a drill to bolt, a tape with uses left,
+  a hole filler; untaping only frees a taped point) and runs vanilla's
+  `Drillable.CheckIfCanChangeToState` with the car's surfaces on.
+- **Tape:** the server counts a tape's uses on its copy and refuses an empty one; the client counts
+  as vanilla does but never swaps an empty roll itself. Swapping the empty roll for the empty-tape
+  item (a new item in the player's hand) isn't done yet: an empty roll stays a roll with no uses.
+- **Resync** carries the car's holes (`GadgetAnchorSnapshotData.Holes`); the client replaces its own.
+- Scenario `gadget-mounting`.
+
 ## Gadget state
 
 Settings and running state are typed fields per gadget class, kept by small adapters in
@@ -1058,4 +1075,5 @@ In three parts:
 - **PR 3a built** (`gadgets/install-remove`): installs and removals go through the server and its
   change log; resync; deleted cars' gadgets to their owners' Lost and Found. Scenario
   `gadget-install`.
+- **PR 4 built** (`gadgets/mount-points`): bolting, taping, untaping and filling holes go through the server; holes in the change log and the resync. Scenario `gadget-mounting`.
 - Next: 3b (prediction), 4 (mount points, holes, tape), 5 (wiring, soldering).

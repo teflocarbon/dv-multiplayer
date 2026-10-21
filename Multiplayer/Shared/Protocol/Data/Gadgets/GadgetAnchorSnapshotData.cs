@@ -1,4 +1,5 @@
 using LiteNetLib.Utils;
+using UnityEngine;
 
 namespace Multiplayer.Shared.Protocol.Data.Gadgets;
 
@@ -36,6 +37,9 @@ public class GadgetAnchorSnapshotData
     /// <summary>The car's change log revision the snapshot includes (gadgets.md, "The change log").</summary>
     public uint Revision;
     public InstalledGadgetData[] Gadgets = [];
+    /// <summary>The car's holes, position then direction in its parenting frame for each; null when the
+    /// snapshot leaves holes alone (the join snapshot: holes come with the customizations).</summary>
+    public Vector3[] Holes;
 
     public static void Serialize(NetDataWriter writer, GadgetAnchorSnapshotData data)
     {
@@ -45,6 +49,13 @@ public class GadgetAnchorSnapshotData
         writer.Put(gadgets.Length);
         foreach (InstalledGadgetData gadget in gadgets)
             InstalledGadgetData.Serialize(writer, gadget);
+        writer.Put(data.Holes == null ? -1 : data.Holes.Length);
+        foreach (Vector3 v in data.Holes ?? [])
+        {
+            writer.Put(v.x);
+            writer.Put(v.y);
+            writer.Put(v.z);
+        }
     }
 
     public static GadgetAnchorSnapshotData Deserialize(NetDataReader reader)
@@ -53,6 +64,13 @@ public class GadgetAnchorSnapshotData
         data.Gadgets = new InstalledGadgetData[reader.GetInt()];
         for (int i = 0; i < data.Gadgets.Length; i++)
             data.Gadgets[i] = InstalledGadgetData.Deserialize(reader);
+        int holes = reader.GetInt();
+        if (holes >= 0)
+        {
+            data.Holes = new Vector3[holes];
+            for (int i = 0; i < holes; i++)
+                data.Holes[i] = new Vector3(reader.GetFloat(), reader.GetFloat(), reader.GetFloat());
+        }
         return data;
     }
 }

@@ -1,4 +1,5 @@
 using LiteNetLib.Utils;
+using UnityEngine;
 
 namespace Multiplayer.Shared.Protocol.Data.Gadgets;
 
@@ -19,6 +20,12 @@ public class GadgetChangeData
     public string State = string.Empty;
     /// <summary>Removed: knocked or taken off by code (a deleted car, broken glass), not by a player.</summary>
     public bool Forced;
+    /// <summary>MountPoint: the point's index and its new state (MountPoint.States).</summary>
+    public int Index;
+    public byte Value;
+    /// <summary>A hole: its position and direction in the car's parenting frame.</summary>
+    public Vector3 Position;
+    public Vector3 Direction;
     /// <summary>The request it answers: its player and operation, 0 for none.</summary>
     public byte PlayerId;
     public uint OperationId;
@@ -33,6 +40,10 @@ public class GadgetChangeData
         writer.Put(data.Forced);
         writer.Put(data.PlayerId);
         writer.Put(data.OperationId);
+        writer.Put(data.Index);
+        writer.Put(data.Value);
+        Put(writer, data.Position);
+        Put(writer, data.Direction);
     }
 
     public static GadgetChangeData Deserialize(NetDataReader reader) => new()
@@ -44,6 +55,19 @@ public class GadgetChangeData
         State = reader.GetString(),
         Forced = reader.GetBool(),
         PlayerId = reader.GetByte(),
-        OperationId = reader.GetUInt()
+        OperationId = reader.GetUInt(),
+        Index = reader.GetInt(),
+        Value = reader.GetByte(),
+        Position = GetVector(reader),
+        Direction = GetVector(reader)
     };
+
+    private static void Put(NetDataWriter writer, Vector3 v)
+    {
+        writer.Put(v.x);
+        writer.Put(v.y);
+        writer.Put(v.z);
+    }
+
+    private static Vector3 GetVector(NetDataReader reader) => new(reader.GetFloat(), reader.GetFloat(), reader.GetFloat());
 }

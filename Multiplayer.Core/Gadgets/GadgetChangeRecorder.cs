@@ -5,7 +5,11 @@ namespace Multiplayer.Core.Gadgets;
 public enum GadgetChangeKind : byte
 {
     Installed = 1,
-    Removed = 2
+    Removed = 2,
+    /// <summary>A mount point bolted, taped or freed (PR 4).</summary>
+    MountPoint = 3,
+    HoleAdded = 4,
+    HoleRemoved = 5
 }
 
 /// <summary>A change the server observed on one car's gadgets, waiting to be sent.</summary>
@@ -16,6 +20,11 @@ public sealed class GadgetChange<TGadget>
     public GadgetChangeKind Kind;
     public TGadget Gadget;
     public bool Forced;
+    /// <summary>MountPoint: the point's index and its new state.</summary>
+    public int Index;
+    public byte Value;
+    /// <summary>A hole: its position and direction in the car's parenting frame, six numbers.</summary>
+    public float[] Point;
     /// <summary>The request that caused it: its player and operation, 0 for none.</summary>
     public byte PlayerId;
     public uint OperationId;
@@ -66,7 +75,8 @@ public sealed class GadgetChangeRecorder<TGadget>
     /// Records a top-level change, called from inside the primitive (after <see cref="Enter"/> said it is
     /// top-level). Returns the car's new revision.
     /// </summary>
-    public uint Record(ushort anchor, GadgetChangeKind kind, TGadget gadget, bool forced = false)
+    public uint Record(ushort anchor, GadgetChangeKind kind, TGadget gadget, bool forced = false,
+        int index = 0, byte value = 0, float[] point = null)
     {
         uint revision = Revision(anchor) + 1;
         revisions[anchor] = revision;
@@ -77,6 +87,9 @@ public sealed class GadgetChangeRecorder<TGadget>
             Kind = kind,
             Gadget = gadget,
             Forced = forced,
+            Index = index,
+            Value = value,
+            Point = point,
             PlayerId = operationPlayer,
             OperationId = operation
         });

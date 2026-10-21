@@ -43,6 +43,12 @@ public partial class NetworkClient
     internal void SendGadgetRemove(ServerboundGadgetRemovePacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 
+    internal void SendGadgetMountPoint(ServerboundGadgetMountPointPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetFillHole(ServerboundGadgetFillHolePacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
     internal void SendGadgetResync(ServerboundGadgetResyncRequestPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }

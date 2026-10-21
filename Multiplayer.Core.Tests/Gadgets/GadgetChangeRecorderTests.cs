@@ -81,6 +81,19 @@ public sealed class GadgetChangeRecorderTests
     }
 
     [Test]
+    public void AMountPointOrHole_CarriesItsPayload()
+    {
+        var recorder = new GadgetChangeRecorder<string>();
+        recorder.Record(5, GadgetChangeKind.MountPoint, "plate", index: 2, value: 1);
+        recorder.Record(5, GadgetChangeKind.HoleRemoved, null, point: new[] { 0.1f, 1f, -2f, 0f, 1f, 0f });
+
+        var flushed = recorder.Flush();
+        Assert.That((flushed[0].Index, flushed[0].Value), Is.EqualTo((2, (byte)1)));
+        Assert.That(flushed[1].Point, Is.EqualTo(new[] { 0.1f, 1f, -2f, 0f, 1f, 0f }));
+        Assert.That(flushed[1].Revision, Is.EqualTo(2));
+    }
+
+    [Test]
     public void Flush_EmptiesThePending()
     {
         var recorder = new GadgetChangeRecorder<string>();

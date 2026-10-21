@@ -1,6 +1,7 @@
 using DV.Customization;
 using DV.CabControls;
 using DV.Customization.Gadgets;
+using DV.Customization.Gadgets.Implementations;
 using DV.Utils;
 using Multiplayer.Core.Items;
 using Multiplayer.Server.Items;
@@ -205,10 +206,103 @@ internal static class GadgetServer
     }
 
     /// <summary>
-    /// Vanilla's placement check at the pose, with the car's placement surfaces switched on for it:
-    /// vanilla keeps them on only within 20 m of the local player, which a dedicated host never is.
+    /// A player bolts, tapes or untapes a mount point (PR 4). Bolting needs a drill in their hand,
+    /// taping a tape with uses left (the server counts them), untaping a taped point; the new state must
+    /// be one vanilla allows there (<c>Drillable.CheckIfCanChangeToState</c>, with the car's surfaces on).
     /// </summary>
-    private static bool CanPlaceWithSurfaces(TrainCar car, Vector3 position, Quaternion rotation, GadgetBase prefab)
+    internal static void HandleMountPoint(ServerboundGadgetMountPointPacket packet, ServerPlayer player, NetworkServer server)
+    {
+        GadgetBase gadget = GadgetStateServer.LinkedGadget(packet.ItemNetId);
+        var state = (MountPoint.States)packet.State;
+        Drillable drillable = gadget != null ? gadget.GetComponent<Drillable>() : null;
+        DuctTape tape = null;
+        string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
+            : gadget == null ? "not an installed gadget"
+            : drillable == null || packet.Index < 0 || packet.Index >= drillable.MountPointCount ? $"no mount point {packet.Index}"
+            : state == MountPoint.States.Mounted && Held<DrillTool>(player) == null ? "no drill in hand"
+            : state == MountPoint.States.Taped && ((tape = Held<DuctTape>(player)) == null || tape.usesLeft <= 0) ? "no tape left in hand"
+            : state == MountPoint.States.None && drillable.GetMountPointState(packet.Index) != MountPoint.States.Taped ? "only tape comes off by hand"
+            : state != MountPoint.States.None && state != MountPoint.States.Mounted && state != MountPoint.States.Taped ? $"no state {packet.State}"
+            : GadgetStateServer.ReachRefusal(player, gadget);
+        if (refusal == null && gadget.TrainCar is { } car &&
+            !WithSurfaces(car, () => drillable.CheckIfCanChangeToState(packet.Index, state, out _)))
+            refusal = "vanilla's check refuses that state there";
+        if (refusal != null)
+        {
+            Reject(server, player, packet.OperationId, packet.ItemNetId, "mount point", refusal);
+            return;
+        }
+        GadgetChangeLogServer.BeginOperation(player, packet.OperationId);
+        try
+        {
+            using (GadgetApplyScope.Enter())
+                drillable.SetMountPointState(packet.Index, state);
+        }
+        finally
+        {
+            GadgetChangeLogServer.EndOperation();
+        }
+        if (tape != null)
+        {
+            // The server's count; the empty roll's swap (a new item in the player's hand) isn't done yet.
+            tape.usesLeft--;
+            tape.tapeModelUpdater?.UpdateActiveStates(tape.PercentageUsesLeft);
+        }
+    }
+
+    /// <summary>A player fills a hole in a car with the hole filler in their hand (PR 4).</summary>
+    internal static void HandleFillHole(ServerboundGadgetFillHolePacket packet, ServerPlayer player, NetworkServer server)
+    {
+        Collider hole = null;
+        TrainCar car = null;
+        string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
+            : !NetworkedTrainCar.TryGet(packet.CarNetId, out car) || car == null || car.Customization == null ? "no such car"
+            : Held<HoleFiller>(player) == null ? "no hole filler in hand"
+            : !car.Customization.FindHole(packet.LocalPosition, 0.02f, out hole) ? "no hole there"
+            : null;
+        if (refusal == null)
+        {
+            float distance = Vector3.Distance(player.WorldPosition, hole.transform.position);
+            if (player.CarId != packet.CarNetId && distance > ReachMetres)
+                refusal = $"out of reach ({distance:0.0} m)";
+        }
+        if (refusal != null)
+        {
+            Reject(server, player, packet.OperationId, 0, "hole fill", refusal);
+            return;
+        }
+        GadgetChangeLogServer.BeginOperation(player, packet.OperationId);
+        try
+        {
+            using (GadgetApplyScope.Enter())
+                car.Customization.RemoveHole(hole);
+        }
+        finally
+        {
+            GadgetChangeLogServer.EndOperation();
+        }
+    }
+
+    /// <summary>The tool of type <typeparamref name="T"/> in the player's hand, as the server has it.</summary>
+    private static T Held<T>(ServerPlayer player) where T : Component
+    {
+        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
+            if (record.Placement == ItemPlacementKind.PlayerHand && record.PlacementPlayerId == player.PlayerId &&
+                NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item != null &&
+                item.GetComponentInChildren<T>(true) is { } tool)
+                return tool;
+        return null;
+    }
+
+    /// <summary>Vanilla's placement check at the pose, with the car's placement surfaces on (WithSurfaces).</summary>
+    private static bool CanPlaceWithSurfaces(TrainCar car, Vector3 position, Quaternion rotation, GadgetBase prefab) =>
+        WithSurfaces(car, () => GadgetItem.CanPlace(position, rotation, prefab));
+
+    /// <summary>
+    /// Runs one of vanilla's surface checks with the car's placement surfaces switched on for it: vanilla
+    /// keeps them on only within 20 m of the local player, which a dedicated host never is.
+    /// </summary>
+    private static bool WithSurfaces(TrainCar car, System.Func<bool> check)
     {
         GadgetColliderHolder[] holders = car.GetComponentsInChildren<GadgetColliderHolder>(true);
         bool[] wasActive = holders.Select(h => h.holder != null && h.holder.activeSelf).ToArray();
@@ -218,7 +312,7 @@ internal static class GadgetServer
                 if (holder.holder != null)
                     holder.holder.SetActive(true);
             Physics.SyncTransforms();
-            return GadgetItem.CanPlace(position, rotation, prefab);
+            return check();
         }
         finally
         {

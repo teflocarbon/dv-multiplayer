@@ -1,6 +1,7 @@
 using DV.CabControls;
 using DV.Customization;
 using DV.Customization.Gadgets;
+using DV.Customization.Gadgets.Implementations;
 using DV.Interaction;
 using DV.Utils;
 using HarmonyLib;
@@ -134,6 +135,77 @@ internal static class GadgetIntentPatches
     [HarmonyPatch(typeof(GadgetBase), nameof(GadgetBase.OnTelegrabbableChanged))]
     private static bool TelegrabRemove(GadgetBase __instance, bool isBeingTelegrabbed) =>
         !(isBeingTelegrabbed && __instance.IsLinked && Request(__instance, GadgetBase.GadgetRemovalMethod.EmptyHand, null, null));
+
+    // While this game takes a gadget off, its mount points are freed as part of the removal, not by a player.
+    private static int unlinking;
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Customization.CustomizerBase), nameof(Customization.CustomizerBase.Unlink))]
+    private static void UnlinkStart() => unlinking++;
+
+    [HarmonyFinalizer]
+    [HarmonyPatch(typeof(Customization.CustomizerBase), nameof(Customization.CustomizerBase.Unlink))]
+    private static void UnlinkEnd() => unlinking--;
+
+    // The drill bolting, the tape taping and the hand untaping (PR 4). The tool in hand the server finds itself.
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Drillable), nameof(Drillable.SetMountPointState))]
+    private static bool MountPoint(Drillable __instance, int index, MountPoint.States newState)
+    {
+        if (!Intercepts || unlinking > 0 || __instance.ThisGadget is not { IsLinked: true } gadget ||
+            !GadgetJoinApplier.IsServerSent(gadget) || index < 0 || index >= __instance.MountPointCount ||
+            __instance.GetMountPointState(index) == newState)
+            return true;
+        NetworkedItem item = gadget.GadgetItem?.GetComponent<NetworkedItem>();
+        if (item == null || item.NetId == 0)
+            return true;
+        uint operation = ++nextOperation;
+        pending[operation] = new Pending();
+        NetworkClient.Instance?.SendGadgetMountPoint(new ServerboundGadgetMountPointPacket
+        {
+            OperationId = operation,
+            ItemNetId = item.NetId,
+            Index = index,
+            State = (byte)newState
+        });
+        return false;
+    }
+
+    // The tape counts down here as vanilla's does; the server counts too, and swapping an empty roll for
+    // a new item is the server's (not done yet).
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(DuctTape), nameof(DuctTape.ConsumeOneUse))]
+    private static bool TapeUse(DuctTape __instance)
+    {
+        if (!Intercepts)
+            return true;
+        if (__instance.usesLeft > 0)
+        {
+            __instance.usesLeft--;
+            __instance.tapeModelUpdater?.UpdateActiveStates(__instance.PercentageUsesLeft);
+        }
+        return false;
+    }
+
+    // The hole filler (PR 4).
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Customization), nameof(Customization.RemoveHole))]
+    private static bool FillHole(Customization __instance, Collider holeCollider, ref bool __result)
+    {
+        if (!Intercepts || holeCollider == null || __instance is not TrainCarCustomization { TrainCar: { } car } ||
+            !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId) || !__instance.IsHole(holeCollider))
+            return true;
+        __result = false;
+        uint operation = ++nextOperation;
+        pending[operation] = new Pending();
+        NetworkClient.Instance?.SendGadgetFillHole(new ServerboundGadgetFillHolePacket
+        {
+            OperationId = operation,
+            CarNetId = carNetId,
+            LocalPosition = holeCollider.transform.localPosition
+        });
+        return false;
+    }
 
     private static bool Request(GadgetBase target, GadgetBase.GadgetRemovalMethod method, GadgetHandNonVR handNonVR, GadgetHandVR handVR)
     {

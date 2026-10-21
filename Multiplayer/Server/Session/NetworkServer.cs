@@ -297,6 +297,8 @@ public partial class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundGadgetInstallPacket, ITransportPeer>(OnServerboundGadgetInstallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetRemovePacket, ITransportPeer>(OnServerboundGadgetRemovePacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetResyncRequestPacket, ITransportPeer>(OnServerboundGadgetResyncRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundGadgetMountPointPacket, ITransportPeer>(OnServerboundGadgetMountPointPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundGadgetFillHolePacket, ITransportPeer>(OnServerboundGadgetFillHolePacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);

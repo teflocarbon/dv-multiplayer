@@ -14,6 +14,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 namespace Multiplayer.Server.Gadgets;
 
@@ -107,6 +108,73 @@ internal static class GadgetChangeLogServer
     [HarmonyPatch(typeof(GadgetBase), nameof(GadgetBase.ForceRemove))]
     private static void ForceEnd(bool __state) => forcing = __state;
 
+    // 0: not watched; 1: inside another primitive; 2: top-level.
+    private static int Start() => !Recording ? 0 : recorder.Enter() ? 2 : 1;
+
+    private static void End(int state)
+    {
+        if (state > 0)
+            recorder.Exit();
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Drillable), nameof(Drillable.SetMountPointState))]
+    private static void MountPointStart(Drillable __instance, int index, out (int scope, MountPoint.States before) __state) =>
+        __state = (Start(), index >= 0 && index < __instance.MountPointCount ? __instance.GetMountPointState(index) : MountPoint.States.None);
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(Drillable), nameof(Drillable.SetMountPointState))]
+    private static void MountPointSet(Drillable __instance, int index, MountPoint.States newState, (int scope, MountPoint.States before) __state)
+    {
+        GadgetBase gadget = __instance.ThisGadget;
+        if (__state.scope == 2 && __state.before != newState && gadget != null && gadget.IsLinked && OnCar(gadget.Custom, out ushort carNetId))
+            recorder.Record(carNetId, GadgetChangeKind.MountPoint, gadget, index: index, value: (byte)newState);
+    }
+
+    [HarmonyFinalizer]
+    [HarmonyPatch(typeof(Drillable), nameof(Drillable.SetMountPointState))]
+    private static void MountPointEnd((int scope, MountPoint.States before) __state) => End(__state.scope);
+
+    // A hole made by a bolted gadget coming off is the removal's consequence; on its own (a save loading)
+    // it is recorded.
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Customization), nameof(Customization.AddHole))]
+    private static void HoleAddStart(out int __state) => __state = Start();
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(Customization), nameof(Customization.AddHole))]
+    private static void HoleAdded(Customization __instance, Vector3 localPosition, Vector3 localNormal, int __state)
+    {
+        if (__state == 2 && OnCar(__instance, out ushort carNetId))
+            recorder.Record(carNetId, GadgetChangeKind.HoleAdded, null, point: Point(localPosition, localNormal));
+    }
+
+    [HarmonyFinalizer]
+    [HarmonyPatch(typeof(Customization), nameof(Customization.AddHole))]
+    private static void HoleAddEnd(int __state) => End(__state);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Customization), nameof(Customization.RemoveHole))]
+    private static void HoleRemoveStart(Collider holeCollider, out (int scope, float[] point) __state) =>
+        __state = (Start(), holeCollider != null
+            ? Point(holeCollider.transform.localPosition, holeCollider.transform.localRotation * Vector3.forward)
+            : null);
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(Customization), nameof(Customization.RemoveHole))]
+    private static void HoleRemoved(Customization __instance, bool __result, (int scope, float[] point) __state)
+    {
+        if (__state.scope == 2 && __result && __state.point != null && OnCar(__instance, out ushort carNetId))
+            recorder.Record(carNetId, GadgetChangeKind.HoleRemoved, null, point: __state.point);
+    }
+
+    [HarmonyFinalizer]
+    [HarmonyPatch(typeof(Customization), nameof(Customization.RemoveHole))]
+    private static void HoleRemoveEnd((int scope, float[] point) __state) => End(__state.scope);
+
+    private static float[] Point(Vector3 position, Vector3 direction) =>
+        new[] { position.x, position.y, position.z, direction.x, direction.y, direction.z };
+
     /// <summary>Sends what was recorded since the last flush: every server tick, and at once when a car
     /// is about to go, so its removals arrive before it does.</summary>
     internal static void Flush(NetworkServer server)
@@ -147,9 +215,16 @@ internal static class GadgetChangeLogServer
             ItemNetId = item?.NetId ?? 0,
             Uid = change.Gadget != null ? change.Gadget.UID : 0,
             Forced = change.Forced,
+            Index = change.Index,
+            Value = change.Value,
             PlayerId = change.PlayerId,
             OperationId = change.OperationId
         };
+        if (change.Point is { Length: 6 } p)
+        {
+            data.Position = new Vector3(p[0], p[1], p[2]);
+            data.Direction = new Vector3(p[3], p[4], p[5]);
+        }
         // Installed and taken off again in the same tick: the entry keeps its revision and does nothing.
         if (change.Kind == GadgetChangeKind.Installed && item != null && change.Gadget != null && change.Gadget.IsLinked &&
             GadgetJoinSnapshot.Describe(item, change.Gadget) is { } installed)

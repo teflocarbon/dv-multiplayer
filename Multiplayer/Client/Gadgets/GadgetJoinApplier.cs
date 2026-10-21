@@ -1,6 +1,7 @@
 using DV.CabControls;
 using DV.Customization;
 using DV.Customization.Gadgets;
+using Multiplayer.Shared.Gadgets;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;
@@ -65,20 +66,24 @@ internal static class GadgetJoinApplier
             yield return null;
 
         List<ItemSaveData> placed = new();
-        foreach ((TrainCar car, InstalledGadgetData data) in wanted)
+        // The server's state, not this player's actions: the request patches pass it through.
+        using (GadgetApplyScope.Enter())
         {
-            if (TryPlace(car, data, out ItemSaveData saveData))
-                placed.Add(saveData);
-        }
-        foreach (ItemSaveData saveData in placed)
-        {
-            try
+            foreach ((TrainCar car, InstalledGadgetData data) in wanted)
             {
-                saveData.PostLoadItemData();
+                if (TryPlace(car, data, out ItemSaveData saveData))
+                    placed.Add(saveData);
             }
-            catch (Exception exception)
+            foreach (ItemSaveData saveData in placed)
             {
-                Multiplayer.LogException($"Installed gadget {saveData.name}: after-load failed", exception);
+                try
+                {
+                    saveData.PostLoadItemData();
+                }
+                catch (Exception exception)
+                {
+                    Multiplayer.LogException($"Installed gadget {saveData.name}: after-load failed", exception);
+                }
             }
         }
         // After the after-load pass, which can still move a setting (a knob binding its LOD).

@@ -89,6 +89,18 @@ public partial class NetworkServer
             GadgetServer.HandleRemove(packet, player, this);
     }
 
+    private void OnServerboundGadgetMountPointPacket(ServerboundGadgetMountPointPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleMountPoint(packet, player, this);
+    }
+
+    private void OnServerboundGadgetFillHolePacket(ServerboundGadgetFillHolePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleFillHole(packet, player, this);
+    }
+
     private void OnServerboundGadgetResyncRequestPacket(ServerboundGadgetResyncRequestPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))

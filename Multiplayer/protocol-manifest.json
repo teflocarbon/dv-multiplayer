@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.22-dev.0502+ff06e1504154efb38c83f72c2f2d1bad5fb609cd",
-  "Fingerprint": "e1fc09574afff8aa86a7e68caefe89a364278f5c90be8707e605a91ee86df32e",
+  "BuildVersion": "2026.10.22-dev.0512+987c913d170924f9713b2a27c1042ad486d9a866",
+  "Fingerprint": "56fd909bd3575618997c4d0b64eee510a7271edbdd5ce0cd0a3c181f22c730df",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -89,6 +89,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundShopScanPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "1227359BA03FA619",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetMountPointPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1122,6 +1131,15 @@
     {
       "Hash": "DAD010656AEAA44C",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetRemovePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "DDB6B55E9AC5F3DF",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetFillHolePacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,

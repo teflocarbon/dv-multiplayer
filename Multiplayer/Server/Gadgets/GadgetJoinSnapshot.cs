@@ -77,7 +77,8 @@ internal sealed class GadgetJoinSnapshot
         {
             CarNetId = carNetId,
             Revision = GadgetChangeLogServer.Revision(carNetId),
-            Gadgets = gadgets.ToArray()
+            Gadgets = gadgets.ToArray(),
+            Holes = HolesOf(carNetId)
         };
     }
 
@@ -110,6 +111,22 @@ internal sealed class GadgetJoinSnapshot
         foreach (JProperty own in state.Properties().Where(p => p.Name.StartsWith("dvmp", StringComparison.Ordinal)).ToList())
             own.Remove();
         return new InstalledGadgetData { ItemNetId = item.NetId, Uid = gadget.UID, State = state.ToString(Formatting.None) };
+    }
+
+    /// <summary>The car's holes, position then direction in its parenting frame for each.</summary>
+    private static Vector3[] HolesOf(ushort carNetId)
+    {
+        if (!NetworkedTrainCar.TryGet(carNetId, out TrainCar car) || car == null || car.Customization == null)
+            return null;
+        List<Vector3> holes = new();
+        foreach (Collider hole in car.Customization.Holes)
+        {
+            if (hole == null)
+                continue;
+            holes.Add(hole.transform.localPosition);
+            holes.Add(hole.transform.localRotation * Vector3.forward);
+        }
+        return holes.ToArray();
     }
 
     private static List<AuthoritativeItemRegistry.Record> InstalledRecords() =>

@@ -178,6 +178,8 @@ internal static class GadgetChangeApplier
         var kind = (GadgetChangeKind)entry.Kind;
         if (kind == GadgetChangeKind.Installed && string.IsNullOrEmpty(entry.State))
             return ApplyResult.Applied;   // installed and taken off again within one server tick
+        if (kind is GadgetChangeKind.HoleAdded or GadgetChangeKind.HoleRemoved)
+            return ApplyHole(car, entry);
         if (!NetworkedItem.TryGet(entry.ItemNetId, out NetworkedItem item) || item == null)
             return kind == GadgetChangeKind.Removed ? ApplyResult.Applied : ApplyResult.Wait;
         GadgetBase gadget = item.GetComponent<GadgetItem>()?.Gadget;
@@ -195,6 +197,16 @@ internal static class GadgetChangeApplier
                     ?.Play(placed.transform.position);
                 return ApplyResult.Applied;
             }
+            if (kind == GadgetChangeKind.MountPoint)
+            {
+                if (gadget == null || !gadget.IsLinked || !gadget.TryGetComponent(out Drillable drillable) ||
+                    entry.Index < 0 || entry.Index >= drillable.MountPointCount)
+                    return ApplyResult.Failed;
+                using (GadgetApplyScope.Enter())
+                    drillable.SetMountPointState(entry.Index, (MountPoint.States)entry.Value);
+                GadgetIntentPatches.Confirmed(entry);
+                return drillable.GetMountPointState(entry.Index) == (MountPoint.States)entry.Value ? ApplyResult.Applied : ApplyResult.Failed;
+            }
             if (gadget != null && gadget.IsLinked)
             {
                 gadget.PlayRemoveSound();
@@ -208,6 +220,26 @@ internal static class GadgetChangeApplier
             Multiplayer.LogException($"Gadget change {kind} of item {entry.ItemNetId} on {car.ID} (revision {entry.Revision}) failed", exception);
             return ApplyResult.Failed;
         }
+    }
+
+    // A hole made or filled on its own (not as a removal's consequence, which the removal reproduces).
+    private static ApplyResult ApplyHole(TrainCar car, GadgetChangeData entry)
+    {
+        Customization custom = car.Customization;
+        using (GadgetApplyScope.Enter())
+        {
+            if (entry.Kind == (byte)GadgetChangeKind.HoleAdded)
+            {
+                if (!custom.FindHole(entry.Position, 0.02f, out _))
+                    custom.AddHole(entry.Position, entry.Direction);
+            }
+            else if (custom.FindHole(entry.Position, 0.02f, out Collider hole))
+            {
+                custom.RemoveHole(hole);
+            }
+        }
+        GadgetIntentPatches.Confirmed(entry);
+        return ApplyResult.Applied;
     }
 
     /// <summary>Places a gadget the server described, as vanilla's load would, and tracks its state.</summary>
@@ -274,6 +306,15 @@ internal static class GadgetChangeApplier
                 }
                 TakeOff(gadget, forced: true);
                 progress = true;
+            }
+        }
+        if (data.Holes != null)
+        {
+            using (GadgetApplyScope.Enter())
+            {
+                car.Customization.ClearHoles();
+                for (int i = 0; i + 1 < data.Holes.Length; i += 2)
+                    car.Customization.AddHole(data.Holes[i], data.Holes[i + 1]);
             }
         }
         int placed = 0;
