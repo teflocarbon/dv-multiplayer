@@ -59,7 +59,7 @@ on the server and in every client, are made to agree with it.
   `offline-lost-and-found`, `borrowed-disconnect`, and for 2a and 3 together `owner-offline`,
   `car-delete-owner` (item-review L1), `lost-and-found-many-owners`, `offline-sweep-mid-save`,
   `rejoin-mid-sweep` and `deposit-refused`, with their variants ([testing.md](../testing.md)).
-- **PR 4, server-made starting items: built (2026-10-21), not yet run in game.** The server makes
+- **PR 4, server-made starting items: built, and tested in game on both host kinds (2026-10-22).** The server makes
   the starter kit and missing essentials, the safeguards are off everywhere, and the join fields
   and the rejoin swap are gone (see [4](#4-server-made-starting-items)). Scenario:
   `starting-items`.
