@@ -155,9 +155,9 @@ public static class NetworkedColdContainerManager
         if (!possessed)
             return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.Unauthorized,
                 "deposit-item-not-possessed", operationId);
-        if (authority.PersistentOwnerPlayerId != actor.PlayerId)
+        if (!ItemAccessServer.Allows(actor, ItemAccessAction.Deposit, item, authority, out string refused))
             return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.Unauthorized,
-                "deposit-item-not-owned", operationId);
+                refused, operationId);
         NetworkedItem.TryGet(shellNetId, out NetworkedItem shell);
         AItemContainer runtimeContainer = shell?.GetComponent<AItemContainer>();
         // The opened root shell is the game's compatibility oracle. Nested shells may be

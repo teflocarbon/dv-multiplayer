@@ -245,6 +245,10 @@ public static class AuthoritativeItemRegistry
                 ItemWorldParentKind.StaticParent => ItemPlacementKind.StaticParent,
                 _ => requestedPlacement
             };
+        if (actor != null && requestedPlacement == ItemPlacementKind.PlayerInventory &&
+            record.Placement != ItemPlacementKind.PlayerInventory &&
+            !ItemAccessServer.Allows(actor, ItemAccessAction.Stash, item, record, out rejectionReason))
+            return false;
         byte previousPersistentOwner = record.PersistentOwnerPlayerId;
         int previousClaimSlot = record.InventoryClaimSlot;
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(currentState, new ItemTransitionCommand

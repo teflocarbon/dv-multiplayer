@@ -168,6 +168,34 @@ namespace Dvmp.Scenarios
             for (int i = 0; i < 30; i++) yield return null;
         }
 
+        /// <summary>Host: marks a prefab as a station fixture (in memory) or unmarks it. Result: whether it changed.</summary>
+        [Step]
+        public static bool SetFixture(string prefab, bool fixture)
+        {
+            if (!fixture) return ItemAccessServer.Fixtures.RemovePrefab(prefab);
+            bool had = ItemAccessServer.Fixtures.Contains(prefab, null);
+            ItemAccessServer.Fixtures.AddPrefab(prefab);
+            return !had;
+        }
+
+        /// <summary>
+        /// This game's player picks the item up and tries to put it in their inventory, then waits
+        /// for the server's answer. Result: whether it is in their inventory 3 s later.
+        /// </summary>
+        [Step]
+        public static IEnumerator TryStash(Step<bool> step, ushort netId)
+        {
+            yield return Items.Arrive(netId);
+            NetworkedItem.TryGet(netId, out NetworkedItem item);
+            if (Hands.Held != null) yield return Hands.Drop();
+            yield return LocalPlayer.GoTo(item);
+            yield return Hands.Pickup(netId);
+            DV.InventorySystem.Inventory.Instance.AddItemToInventory(item.gameObject);
+            yield return new WaitForSecondsRealtime(3f);
+            step.Result = item != null && DV.InventorySystem.Inventory.Instance.IndexOf(item.gameObject) >= 0;
+            if (Hands.Held != null) yield return Hands.Drop();
+        }
+
         /// <summary>Whether this game's player has the item in their inventory.</summary>
         [Step]
         public static bool InInventory(ushort netId) =>

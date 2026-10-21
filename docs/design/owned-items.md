@@ -35,7 +35,15 @@ on the server and in every client, are made to agree with it.
     - migration in Core's `OwnedItemReconcilerTests`;
     - scenarios `item-id-roundtrip` and `ledger-save`, both passing on both host kinds.
   - The runs found four bugs, fixed in the same PR (see [Known bugs](#known-bugs-the-ledger-removes)).
-- **Everything else: not started.** See the [plan](#plan). PR 1c (`ItemAccess`) comes next.
+- **PR 1c, `ItemAccess`: built (2026-10-21), not yet run in game.**
+  - Core: `ItemAccess.Decide` and `ItemFixtureList` (`Multiplayer.Core/Items/ItemAccess.cs`, 12 tests).
+  - Server: `ItemAccessServer`, with `ItemAccessServer.Fixtures` empty.
+  - Wired: a player's transition into their inventory (the VR belt included) and a cold-container
+    deposit. The deposit's ownership rule moved into the policy, with the same reason string.
+    Withdraw, retrieve, recall and gadget removal are in the policy and get wired by the PRs that
+    change them.
+  - Scenario: `fixture-no-stash`.
+- **Everything else: not started.** See the [plan](#plan).
 
 ## Why
 
