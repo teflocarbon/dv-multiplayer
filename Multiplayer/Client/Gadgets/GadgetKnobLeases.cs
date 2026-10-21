@@ -262,7 +262,7 @@ internal static class GadgetKnobLeases
     }
 
     // The server runs this gadget, so its knobs are leased there: every gadget on the host, and on a
-    // remote client the ones the server sent (one it installed itself isn't on the server until 3a).
+    // remote client the ones the server sent (since 3a, every one it has but a label).
     private static bool Leased(GadgetBase gadget) =>
         gadget != null && gadget.IsLinked && (NetworkRole.IsServer || GadgetJoinApplier.IsServerSent(gadget));
 

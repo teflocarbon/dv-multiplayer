@@ -33,11 +33,14 @@ public class InstalledGadgetData
 public class GadgetAnchorSnapshotData
 {
     public ushort CarNetId;
+    /// <summary>The car's change log revision the snapshot includes (gadgets.md, "The change log").</summary>
+    public uint Revision;
     public InstalledGadgetData[] Gadgets = [];
 
     public static void Serialize(NetDataWriter writer, GadgetAnchorSnapshotData data)
     {
         writer.Put(data.CarNetId);
+        writer.Put(data.Revision);
         InstalledGadgetData[] gadgets = data.Gadgets ?? [];
         writer.Put(gadgets.Length);
         foreach (InstalledGadgetData gadget in gadgets)
@@ -46,7 +49,7 @@ public class GadgetAnchorSnapshotData
 
     public static GadgetAnchorSnapshotData Deserialize(NetDataReader reader)
     {
-        GadgetAnchorSnapshotData data = new() { CarNetId = reader.GetUShort() };
+        GadgetAnchorSnapshotData data = new() { CarNetId = reader.GetUShort(), Revision = reader.GetUInt() };
         data.Gadgets = new InstalledGadgetData[reader.GetInt()];
         for (int i = 0; i < data.Gadgets.Length; i++)
             data.Gadgets[i] = InstalledGadgetData.Deserialize(reader);

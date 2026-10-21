@@ -162,6 +162,8 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         return worldInteraction || pageOnly;
     }
 
+    public void LeavingInstalled() => Gadgets.GadgetChangeApplier.TakeOffBeforeItemUpdate(item);
+
     public void SendLocalObservation(ItemState currentState, ItemState previousObservedState, string reason)
     {
         if (item.IsRemotePlayerAuthoritative())

@@ -41,6 +41,7 @@ public static class PacketSerializationRegistry
         packetProcessor.RegisterNestedType(ItemSpatialStateData.Serialize, ItemSpatialStateData.Deserialize);
         packetProcessor.RegisterNestedType(CustomizationHoleData.Serialize, CustomizationHoleData.Deserialize);
         packetProcessor.RegisterNestedType(GadgetAnchorSnapshotData.Serialize, GadgetAnchorSnapshotData.Deserialize);
+        packetProcessor.RegisterNestedType(GadgetChangeData.Serialize, GadgetChangeData.Deserialize);
         packetProcessor.RegisterNestedType(Vector2Serializer.Serialize, Vector2Serializer.Deserialize);
         packetProcessor.RegisterNestedType(Vector3Serializer.Serialize, Vector3Serializer.Deserialize);
         packetProcessor.RegisterNestedType(QuaternionSerializer.Serialize, QuaternionSerializer.Deserialize);

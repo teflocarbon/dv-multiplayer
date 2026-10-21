@@ -294,6 +294,9 @@ public partial class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundGadgetSettingPacket, ITransportPeer>(OnServerboundGadgetSettingPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetCommandPacket, ITransportPeer>(OnServerboundGadgetCommandPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetPanelPacket, ITransportPeer>(OnServerboundGadgetPanelPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundGadgetInstallPacket, ITransportPeer>(OnServerboundGadgetInstallPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundGadgetRemovePacket, ITransportPeer>(OnServerboundGadgetRemovePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundGadgetResyncRequestPacket, ITransportPeer>(OnServerboundGadgetResyncRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
@@ -363,6 +366,7 @@ public partial class NetworkServer : NetworkManager
 
         Log($"Track graph: {TrackGraph.Compute()}");
         Log($"Server loaded, processing {joinQueue.Count} queued players");
+        global::Multiplayer.Server.Gadgets.GadgetChangeLogServer.Reset();
         IsLoaded = true;
 
         //We should initialise object here for dedicated servers, rather than relying on the existance of a client
@@ -405,6 +409,7 @@ public partial class NetworkServer : NetworkManager
 
         HazmatServer.Tick(tick);
         global::Multiplayer.Server.Gadgets.GadgetStateServer.Tick(tick, this);
+        global::Multiplayer.Server.Gadgets.GadgetChangeLogServer.Flush(this);
         Shops.Tick(UnityEngine.Time.time);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)

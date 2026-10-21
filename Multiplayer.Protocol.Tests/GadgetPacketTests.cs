@@ -4,6 +4,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Protocol.Serialization;
 using NUnit.Framework;
+using System.Linq;
 
 namespace Multiplayer.Protocol.Tests;
 
@@ -109,6 +110,55 @@ public sealed class GadgetPacketTests
         Assert.That(result.Refused, Is.True);
         Assert.That(result.Keys, Is.EqualTo(new[] { "value" }));
         Assert.That(result.Values, Is.EqualTo(new[] { 0.75f }));
+    }
+
+    [Test]
+    public void Changes_RoundTripTheirEntriesInOrder()
+    {
+        ClientboundGadgetChangesPacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ClientboundGadgetChangesPacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundGadgetChangesPacket
+        {
+            CarNetId = 12,
+            Entries = new[]
+            {
+                new GadgetChangeData
+                    { Revision = 4, Kind = 1, ItemNetId = 801, Uid = 85, State = "{\"uid\":85}", PlayerId = 3, OperationId = 9 },
+                new GadgetChangeData
+                    { Revision = 5, Kind = 2, ItemNetId = 802, Uid = 86, Forced = true }
+            }
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.CarNetId, Is.EqualTo(12));
+        Assert.That(result.Entries.Select(e => e.Revision), Is.EqualTo(new uint[] { 4, 5 }));
+        Assert.That(result.Entries[0].State, Is.EqualTo("{\"uid\":85}"));
+        Assert.That((result.Entries[0].PlayerId, result.Entries[0].OperationId), Is.EqualTo(((byte)3, 9u)));
+        Assert.That(result.Entries[1].Forced, Is.True);
+        Assert.That(result.Entries[1].Kind, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void Install_RoundTripsItsPoseAndMount()
+    {
+        ServerboundGadgetInstallPacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ServerboundGadgetInstallPacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundGadgetInstallPacket
+        {
+            OperationId = 7, ItemNetId = 801, CarNetId = 12, LocalPosition = new UnityEngine.Vector3(0.3f, 1.5f, -2f),
+            LocalRotation = UnityEngine.Quaternion.identity, MountHostUid = 85, ColliderPath = "2/0/14", ColliderIndex = 1
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.LocalPosition, Is.EqualTo(new UnityEngine.Vector3(0.3f, 1.5f, -2f)));
+        Assert.That(result.MountHostUid, Is.EqualTo(85));
+        Assert.That((result.ColliderPath, result.ColliderIndex), Is.EqualTo(("2/0/14", (byte)1)));
     }
 
     [Test]

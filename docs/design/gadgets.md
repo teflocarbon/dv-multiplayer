@@ -319,6 +319,43 @@ entry whose anchor isn't spawned yet, or whose item hasn't arrived, waits in a p
 keeps the order; a queue older than 10 s, or an entry that fails (the native call returns false, or
 the state afterwards isn't what the entry says), asks for a [resync](#desync-and-rollback).
 
+**As built (3a).** Install and remove through the server, with no prediction yet:
+- **The log** (`Server/Gadgets/GadgetChangeLogServer`, `Core/Gadgets/GadgetChangeRecorder`) observes
+  `Link` (`Installed`) and `Unlink` (`Removed`; `ForceRemove` marks it forced) of a gadget on a car,
+  top-level only. A car's revision is given when an entry is recorded, so a snapshot taken in the
+  same tick (join, resync) carries the revision it includes; the join snapshot and the resync answer
+  (`ClientboundGadgetAnchorSnapshotPacket`) both carry it. Entries are flushed at the end of every
+  server tick in a `ClientboundGadgetChangesPacket` per car, each player getting the Creates of items
+  they don't know first. An `Installed` carries the item's vanilla save data, as the join snapshot
+  does; one taken off again in the same tick goes with no data and does nothing.
+- **Requests** (`Server/Gadgets/GadgetServer`): `ServerboundGadgetInstallPacket` (item, car, pose in
+  the car's parenting frame, mount host UID, the collider placed onto as a child-index path below the
+  car, `GadgetColliderPath`) and `ServerboundGadgetRemovePacket` (hammer or hand). The checks: loaded,
+  item in the requester's hand, car exists, pose finite and within 5 m (or riding the car), the mount
+  (exists on the car, takes it, free, fixed down; a gadget that needs one has one), not on a hole,
+  and vanilla's `CanPlace` with the car's placement surfaces switched on for it; for a removal,
+  vanilla's `CanBeRemovedUsingMethod` and reach. Applied natively in the apply scope with the request's
+  operation, so the entry answers it; refused ones get `ClientboundGadgetRejectPacket`, shown as
+  interaction text.
+- **The host's player** installs and removes in the server's game as vanilla does; the log sees it the
+  same way, so there is no request for them (as for their knobs).
+- **Clients** (`Client/Gadgets/GadgetIntentPatches`): `GadgetItem.TryPlace` (after vanilla's own
+  `CanPlace`), the hammer's `GadgetRemover.Remove`, the hand's `TryGrab` (non-VR and VR) and the
+  telegrab's `OnTelegrabbableChanged` send requests and change nothing locally. The
+  `GadgetChangeApplier` applies the log in revision order: `Installed` is vanilla's load of the save
+  data (as at join), `Removed` the native removal. An item update that takes an item out of
+  `Installed` while its gadget is still on (the update came first) takes the gadget off natively
+  first. A removal by hand ends, once confirmed, with the hand picking the item up as an ordinary grab.
+- **Resync** (`ServerboundGadgetResyncRequestPacket`): a gap, a failed entry or a 10 s wait. The client
+  takes off what the snapshot doesn't have (mount points freed first, so no holes), and places what it
+  lacks. Holes aren't in the snapshot yet (PR 4).
+- **A deleted car** (`GadgetServer.CollectFromDeletedCar`, before the car's items are collected):
+  its gadgets come off (riders first), forced, and go to their owners' Lost and Found, online or not;
+  an unowned one stays in the world. The log is flushed at once, so the removals reach clients before
+  the car's deletion.
+- Labels still install locally (PR 9); the owner's name on aim isn't shown yet.
+- Scenario `gadget-install`.
+
 ## Gadget state
 
 Settings and running state are typed fields per gadget class, kept by small adapters in
@@ -1018,4 +1055,7 @@ In three parts:
 - **PR 8 built** (`gadgets/dpu-panel`): DPU radio checked in every game; control panel inputs go
   through the server under the cab levers' lease rules; the rain fault is shared. Scenarios
   `gadget-dpu`, `gadget-control-panel`.
-- Next: 3a once owned-items 2a lands.
+- **PR 3a built** (`gadgets/install-remove`): installs and removals go through the server and its
+  change log; resync; deleted cars' gadgets to their owners' Lost and Found. Scenario
+  `gadget-install`.
+- Next: 3b (prediction), 4 (mount points, holes, tape), 5 (wiring, soldering).

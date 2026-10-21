@@ -122,6 +122,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "gadget-antislip|gadget-antislip|"
   "gadget-dpu|gadget-dpu|"
   "gadget-control-panel|gadget-control-panel|"
+  "gadget-install|gadget-install|"
   "borrowed-disconnect|borrowed-disconnect||player"
   "borrowed-disconnect-crash|borrowed-disconnect|LEAVE=crash|player"
   "borrowed-disconnect-absent|borrowed-disconnect|OWNER=absent"

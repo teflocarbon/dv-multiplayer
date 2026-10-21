@@ -30,4 +30,19 @@ public partial class NetworkClient
 
     internal void SendGadgetPanel(ServerboundGadgetPanelPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    private void OnClientboundGadgetChangesPacket(ClientboundGadgetChangesPacket packet) => GadgetChangeApplier.Receive(packet);
+
+    private void OnClientboundGadgetAnchorSnapshotPacket(ClientboundGadgetAnchorSnapshotPacket packet) => GadgetChangeApplier.Receive(packet);
+
+    private void OnClientboundGadgetRejectPacket(ClientboundGadgetRejectPacket packet) => GadgetIntentPatches.Rejected(packet);
+
+    internal void SendGadgetInstall(ServerboundGadgetInstallPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetRemove(ServerboundGadgetRemovePacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetResync(ServerboundGadgetResyncRequestPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }
