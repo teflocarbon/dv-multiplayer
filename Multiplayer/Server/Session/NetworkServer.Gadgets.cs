@@ -60,4 +60,38 @@ public partial class NetworkServer
         if (TryGetServerPlayer(peer, out ServerPlayer player))
             GadgetPanelServer.Handle(packet, player);
     }
+
+    /// <summary>The world has loaded: the gadget change log records from now (before, the snapshot covers it).</summary>
+    internal bool WorldLoaded => IsLoaded;
+
+    /// <summary>One car's gadget changes, to one player (the change log sends each player its own, after its Creates).</summary>
+    internal void SendGadgetChanges(ClientboundGadgetChangesPacket packet, ServerPlayer to) =>
+        SendPacket(to.Peer, packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetAnchorSnapshot(ClientboundGadgetAnchorSnapshotPacket packet, ServerPlayer to) =>
+        SendPacket(to.Peer, packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetReject(ClientboundGadgetRejectPacket packet, ServerPlayer to)
+    {
+        if (to.Peer != SelfPeer)
+            SendPacket(to.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundGadgetInstallPacket(ServerboundGadgetInstallPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleInstall(packet, player, this);
+    }
+
+    private void OnServerboundGadgetRemovePacket(ServerboundGadgetRemovePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleRemove(packet, player, this);
+    }
+
+    private void OnServerboundGadgetResyncRequestPacket(ServerboundGadgetResyncRequestPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleResync(packet, player, this);
+    }
 }

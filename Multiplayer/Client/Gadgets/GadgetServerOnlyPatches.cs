@@ -13,8 +13,9 @@ namespace Multiplayer.Client.Gadgets;
 /// train"): on a client with the cab loaded, a gadget's Controls.Move scrolls the player's own lever,
 /// which the mod sends as the player's input, so running it here as well would act twice. Off on a
 /// remote client for the gadgets the server sent (GadgetJoinApplier.ServerSent), which the server
-/// runs. A gadget this game installed itself isn't on the server until gadget PR 3a, so it keeps
-/// vanilla's logic here, as before. The distance tracker isn't here: it only counts, which this game
+/// runs. Since gadget PR 3a every
+/// gadget a remote client has came from the server (its own installs are requests); a label, which
+/// still installs locally until PR 9, keeps vanilla's logic here. The distance tracker isn't here: it only counts, which this game
 /// does too between the server's updates.
 /// </summary>
 [HarmonyPatch]

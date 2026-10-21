@@ -565,6 +565,8 @@ public partial class NetworkedItem
 
         if (appliesItemState)
         {
+            if (snapshot.ItemState != ItemState.Installed)
+                ClientPart?.LeavingInstalled();
             PrepareForStateChange(snapshot.PlayerId, snapshot.ItemState);
 
             switch (snapshot.ItemState)

@@ -44,6 +44,8 @@ internal static class GadgetJoinApplier
         GadgetStateClient.Reset();
         GadgetRunningClient.Reset();
         GadgetKnobLeases.Reset();
+        GadgetChangeApplier.Reset();
+        GadgetIntentPatches.Reset();
         Applying = true;
         List<(TrainCar car, InstalledGadgetData data)> wanted = new();
         foreach (GadgetAnchorSnapshotData anchor in packet.Anchors ?? [])
@@ -84,11 +86,14 @@ internal static class GadgetJoinApplier
             GadgetStateClient.Track(gadget);
         Applying = false;
         GadgetRunningClient.ApplyEarly();
+        GadgetChangeApplier.Joined(packet.Anchors);
         Multiplayer.Log($"Installed {placed.Count} of {wanted.Count} gadgets from the server");
         done?.Invoke();
     }
 
-    private static bool TryPlace(TrainCar car, InstalledGadgetData data, out ItemSaveData saveData)
+    /// <summary>Places one gadget the server described, as vanilla's load would (the change log's
+    /// <c>Installed</c> and a resync use it too). False if it was already there or couldn't be.</summary>
+    internal static bool TryPlace(TrainCar car, InstalledGadgetData data, out ItemSaveData saveData)
     {
         saveData = null;
         if (!NetworkedItem.TryGet(data.ItemNetId, out NetworkedItem item) || item == null)

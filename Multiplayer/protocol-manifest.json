@@ -1,13 +1,22 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1803+ec456d4ea9a5f7384b47d15979b394bac3b2447b",
-  "Fingerprint": "44e3aaae5f8baa46fb1fdd1eaa84ba513cdfc0303a9b0cd7577bdeb0ece60e67",
+  "BuildVersion": "2026.10.22-dev.0502+ff06e1504154efb38c83f72c2f2d1bad5fb609cd",
+  "Fingerprint": "e1fc09574afff8aa86a7e68caefe89a364278f5c90be8707e605a91ee86df32e",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Common.CommonChangeJunctionPacket",
       "Direction": "Bidirectional",
       "Category": "Common",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "06779FA2DB0ED8FB",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetInstallPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -256,6 +265,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "332FDF8E8BAA1D63",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetResyncRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "34D1C1507DB97F2D",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.World.ClientboundRailwayStatePacket",
       "Direction": "Clientbound",
@@ -373,6 +391,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "513B03D9609FC551",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetChangesPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "51FB3AF62F012021",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundLoadStateUpdatePacket",
       "Direction": "Serverbound",
@@ -422,15 +449,6 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundTimeAdvancePacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
-      "Hash": "5A1A47CAEBEEC730",
-      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundItemAdoptionPacket",
-      "Direction": "Clientbound",
-      "Category": "Clientbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -533,6 +551,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "70EB7C19A5495FC9",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetAnchorSnapshotPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "718C06F0EDBB93EA",
@@ -647,6 +674,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Train.ServerboundSandboxCarDamagePacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "91E521B31BB4253B",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetRejectPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -845,15 +881,6 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundWeatherPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
-      "Hash": "B0D1F945FFD9A7A8",
-      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundItemAdoptionPacket",
-      "Direction": "Serverbound",
-      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1088,6 +1115,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Unconnected.UnconnectedDiscoveryPacket",
       "Direction": "Bidirectional",
       "Category": "Unconnected",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "DAD010656AEAA44C",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetRemovePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1404,7 +1440,9 @@
       "HostCorrection": 23,
       "ThrownOutOfBin": 24,
       "InstalledAsGadget": 25,
-      "RemovedAsGadget": 26
+      "RemovedAsGadget": 26,
+      "Issued": 27,
+      "StarterKit": 28
     },
     "Multiplayer.Core.Items.ItemRemovalReason": {
       "Unknown": 0,

@@ -57,6 +57,13 @@ public interface INetworkedItemClientPart
     /// <summary>The local player changed the item: ask for adoption, or send the change to the host.</summary>
     void SendLocalObservation(ItemState currentState, ItemState previousObservedState, string reason);
 
+    /// <summary>
+    /// The server moved this item out of <c>Installed</c> while this game still has its gadget on a car:
+    /// take the gadget off natively first, so the order of the item update and the change log's
+    /// <c>Removed</c> doesn't matter (gadgets.md, "The installed gadget and its item").
+    /// </summary>
+    void LeavingInstalled();
+
     /// <summary>The revision a change sent now claims, ahead of the host's answer.</summary>
     uint ReserveRevision();
 
