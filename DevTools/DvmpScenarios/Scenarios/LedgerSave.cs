@@ -134,7 +134,24 @@ namespace Dvmp.Scenarios
                 if (born != null)
                     Expect.Equal(born, got.Born, $"{want.What}: how its entry was born {when}");
             }
-            Expect.Empty(await pair.Host.Run<string[]>(s => Owned.AuditFor(s, items.Select(i => i.Id).ToArray())), $"what the ledger disagrees with {when}");
+            Expect.Empty(await SettledAudit(pair, items.Select(i => i.Id).ToArray()), $"what the ledger disagrees with {when}");
+        }
+
+        /// <summary>
+        /// The audit for these ids, read until it is empty or 30 s pass. A joining client's Lost and
+        /// Found entries bind on a later server tick, and until then its inert items' records still
+        /// say World (on a dedicated host the client joins well after the host has loaded).
+        /// </summary>
+        internal static async Task<string[]> SettledAudit(Pair pair, string[] ids)
+        {
+            string[] audit = System.Array.Empty<string>();
+            for (int i = 0; i < 30; i++)
+            {
+                audit = await pair.Host.Run<string[]>(s => Owned.AuditFor(s, ids));
+                if (audit.Length == 0) break;
+                await Task.Delay(1000);
+            }
+            return audit;
         }
     }
 }
