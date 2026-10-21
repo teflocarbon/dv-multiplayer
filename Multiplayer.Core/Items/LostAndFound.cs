@@ -11,7 +11,9 @@ public enum LostItemReason : byte
     ContainerCleared,
     GadgetDestinationMissing,
     PurchasedDeliveryFallback,
-    SaveRecovery
+    SaveRecovery,
+    /// <summary>A player left carrying someone else's item: it goes to its owner (owned-items.md, "Leaving").</summary>
+    BorrowerLeft
 }
 
 public enum LostItemDecisionKind : byte
@@ -60,18 +62,22 @@ public static class LostItemCollectionPolicy
         float nearbyPlayerProtectionDistance, float graceSeconds)
     {
         if (item == null || item.NetId == 0 || item.PersistentOwnerPlayerId == 0)
-            return Ineligible("unowned-or-unbound");
+            return Ineligible("unowned");
         if (!item.IsPersonalItem)
             return Ineligible("not-a-personal-item");
         if (item.IsLicensePaper)
             return Ineligible("license-paper-excluded");
-        if (item.Placement != AuthorityPlacement.World)
+        // An offline owner counts as far away (decided by the user 2026-10-21), and their items are
+        // collected from train interiors and shelves too; an online owner's from the world only.
+        bool ownerAway = item.PersistentOwnerPlayerId == ItemTransitionCommand.AbsentOwnerId;
+        if (item.Placement != AuthorityPlacement.World &&
+            !(ownerAway && item.Placement is AuthorityPlacement.TrainInterior or AuthorityPlacement.StaticParent))
             return Ineligible("not-in-world");
         if (item.IsGrabbed || item.IsSnapped || item.IsInMachine)
             return Ineligible("actively-contained-or-interacted");
-        if (!item.OwnerPositionKnown)
+        if (!ownerAway && !item.OwnerPositionKnown)
             return Protected("owner-position-unknown");
-        if (item.OwnerDistanceSquared < ownerDistance * ownerDistance)
+        if (!ownerAway && item.OwnerDistanceSquared < ownerDistance * ownerDistance)
             return Protected("owner-nearby");
         if (!item.NearestPlayerPositionKnown)
             return Protected("player-positions-unknown");
@@ -79,7 +85,7 @@ public static class LostItemCollectionPolicy
             return Protected("another-player-nearby");
         if (item.EligibleDurationSeconds < graceSeconds)
             return new LostItemDecision(LostItemDecisionKind.WaitingForGrace, "collection-grace-period");
-        return new LostItemDecision(LostItemDecisionKind.Collect, "owner-distance-eligible");
+        return new LostItemDecision(LostItemDecisionKind.Collect, ownerAway ? "owner-away" : "owner-distance-eligible");
     }
 
     private static LostItemDecision Ineligible(string reason) =>

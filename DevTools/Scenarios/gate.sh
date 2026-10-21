@@ -52,6 +52,21 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "ledger-save|ledger-save|"
   "fixture-no-stash|fixture-no-stash|"
   "absent-owner|absent-owner|"
+  "offline-lost-and-found|offline-lost-and-found|"
+  "absent-owner-host|absent-owner|WHO=host|player"
+  "absent-owner-flashlight|absent-owner|PREFAB=Flashlight"
+  "owner-offline|owner-offline|"
+  "owner-offline-crash|owner-offline|LEAVE=crash"
+  "owner-offline-cab|owner-offline|WHERE=cab"
+  "car-delete-owner|car-delete-owner|"
+  "car-delete-owner-online|car-delete-owner|OWNER=online"
+  "car-delete-owner-absent|car-delete-owner|OWNER=absent"
+  "lost-and-found-many-owners|lost-and-found-many-owners|"
+  "offline-sweep-mid-save|offline-sweep-mid-save|"
+  "rejoin-mid-sweep|rejoin-mid-sweep|"
+  "rejoin-mid-sweep-crash|rejoin-mid-sweep|LEAVE=crash"
+  "deposit-refused|deposit-refused|"
+  "deposit-refused-host|deposit-refused|OWNER=host|player"
   "containers-host|containers|WHO=host|player"
   "client-fall-rescue|client-fall-rescue|"
   "manual-uncouple|manual-uncouple|N=3"
@@ -107,6 +122,10 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "gadget-dpu|gadget-dpu|"
   "gadget-control-panel|gadget-control-panel|"
   "borrowed-disconnect|borrowed-disconnect||player"
+  "borrowed-disconnect-crash|borrowed-disconnect|LEAVE=crash|player"
+  "borrowed-disconnect-absent|borrowed-disconnect|OWNER=absent"
+  "borrowed-disconnect-absent-hand|borrowed-disconnect|OWNER=absent HOLD=hand"
+  "borrowed-disconnect-absent-crash|borrowed-disconnect|OWNER=absent LEAVE=crash"
   "host-actions|host-actions|"
   "host-actions-host|host-actions|WHO=host"
   "server-world-changes|server-world-changes|"
@@ -138,10 +157,11 @@ teleport_home() { # puts both players back where every run starts (scenarios mov
   $DVMP eval -t client -m coroutine --timeout 60 'if (Hands.Held != null) yield return Hands.Drop(); yield return LocalPlayer.TeleportToGround(7190f, 6880f);' >/dev/null 2>&1
   # Scenarios hand players mugs and don't always take them back: after a few gates the client's
   # inventory was full (22 mugs) and every "put it in the inventory" step failed, and mugs left in
-  # the host's inventory failed host-player-persist's duplicate check. Drop them on both games (a
-  # synced drop) and destroy every mug on the host.
-  $DVMP eval -t all -m coroutine --timeout 60 'var inv = DV.InventorySystem.Inventory.Instance; foreach (var go in inv.GetItemsArray(false).Where(g => g != null && g.name.StartsWith("Mug")).ToList()) { inv.DropItemFromHandsOrInventory(go); yield return new WaitForSecondsRealtime(0.1f); } yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
-  $DVMP eval -t host -m coroutine --timeout 30 'foreach (var m in UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Items.NetworkedItem>().Where(i => i != null && i.name.StartsWith("Mug")).ToList()) UnityEngine.Object.Destroy(m.gameObject); yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
+  # the host's inventory failed host-player-persist's duplicate check. The flashlights, lanterns and
+  # boxes they spawn did the same (36 of 36 slots, 2026-10-21). Drop them on both games (a synced
+  # drop) and destroy every one of them on the host.
+  $DVMP eval -t all -m coroutine --timeout 60 'var inv = DV.InventorySystem.Inventory.Instance; foreach (var go in inv.GetItemsArray(false).Where(g => g != null && new[] { "Mug", "Flashlight", "Lantern", "ItemContainerToolbox", "ItemContainerBriefcase" }.Any(p => g.name.StartsWith(p))).ToList()) { inv.DropItemFromHandsOrInventory(go); yield return new WaitForSecondsRealtime(0.1f); } yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
+  $DVMP eval -t host -m coroutine --timeout 30 'foreach (var m in UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Items.NetworkedItem>().Where(i => i != null && new[] { "Mug", "Flashlight", "Lantern", "ItemContainerToolbox", "ItemContainerBriefcase" }.Any(p => i.name.StartsWith(p))).ToList()) UnityEngine.Object.Destroy(m.gameObject); yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
   # Rerails, car deletes and fees spend the shared wallet, and the save-writing runs keep what's
   # left: one batch left $1000 and the next rerail failed "not enough money". Top it up on the host
   # (AddMoney syncs to clients) to $MONEY; MONEY=0 leaves it.

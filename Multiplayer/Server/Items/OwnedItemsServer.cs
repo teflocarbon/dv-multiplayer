@@ -242,6 +242,30 @@ public static class OwnedItemsServer
         (owner == Guid.Empty ? ledger.All() : ledger.LiveOwnedBy(owner)).Select(entry => entry.ToString()));
 
     /// <summary>
+    /// The one way into an owner's Lost and Found for an owned item by its id (owned-items.md, "What
+    /// other systems read"): a purchase delivered far away, a deleted car's gadgets, and later
+    /// retrieval. The item must be lying somewhere, not with a player. False, with a reason, when it
+    /// can't go.
+    /// </summary>
+    public static bool SendToLostAndFound(Guid itemId, LostItemReason reason, string detail, out string refused)
+    {
+        refused = string.Empty;
+        AuthoritativeItemRegistry.Record record = AuthoritativeItemRegistry.GetAll()
+            .FirstOrDefault(r => r.PersistentItemId == itemId && itemId != Guid.Empty);
+        if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
+            refused = "unknown-item";
+        else if (record.PersistentOwnerPlayerId == 0)
+            refused = "item-has-no-owner";
+        else if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
+            refused = "item-is-with-a-player";
+        else if (record.Placement == ItemPlacementKind.LostAndFound)
+            return true;
+        else if (!NetworkedLostAndFoundManager.Collect(item, reason, detail))
+            refused = "collection-refused";
+        return refused.Length == 0;
+    }
+
+    /// <summary>
     /// The owner number for an owner's identity: their session's player number while they are
     /// connected, <see cref="ItemTransitionCommand.AbsentOwnerId"/> while they aren't, 0 for no owner.
     /// </summary>
