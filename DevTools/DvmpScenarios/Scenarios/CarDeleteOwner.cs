@@ -47,7 +47,9 @@ namespace Dvmp.Scenarios
             if (left)
             {
                 await pair.Client.Quit();
-                await Task.Delay(6000);   // the host notices the departure
+                // A killed client counts until its connection times out, which takes longer than a quit.
+                await Until.Value(() => pair.Host.Run(() => Ownership.RemotePlayers()), n => n == 0, 60, "the host to notice the client left");
+                await Task.Delay(2000);   // its departure is handled
             }
             try
             {

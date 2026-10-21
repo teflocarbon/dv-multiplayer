@@ -131,6 +131,12 @@ namespace Dvmp.Scenarios
             return bound + waiting;
         }
 
+        /// <summary>Host: how many players other than the host's own are connected (a killed client
+        /// counts until its connection times out).</summary>
+        [Step]
+        public static int RemotePlayers() =>
+            NetworkServer.Instance.ServerPlayers.Count(p => p != NetworkServer.Instance.LocalPlayer && p.PlayerId != 0);
+
         /// <summary>Host: the ledger's live entries for an owner.</summary>
         [Step]
         public static int LedgerCount(string owner) =>

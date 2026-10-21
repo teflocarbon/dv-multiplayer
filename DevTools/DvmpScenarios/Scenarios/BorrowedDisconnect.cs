@@ -62,7 +62,9 @@ namespace Dvmp.Scenarios
             else await pair.Client.Quit();
             try
             {
-                await Task.Delay(6000);   // the host notices the departure
+                // A killed client counts until its connection times out, which takes longer than a quit.
+                await Until.Value(() => pair.Host.Run(() => Ownership.RemotePlayers()), n => n == 0, 60, "the host to notice the client left");
+                await Task.Delay(2000);   // its departure is handled
                 OwnerInfo after = await pair.Host.Run(() => Ownership.Read(item));
                 Report.Note($"after the client left: {after}");
                 // Straight to its owner's Lost and Found (owned-items.md, "Leaving"), not left where the client stood.
