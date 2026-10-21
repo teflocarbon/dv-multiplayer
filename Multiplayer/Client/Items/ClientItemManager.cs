@@ -21,9 +21,6 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
     private readonly HashSet<NetworkedItem> DormantAuthoredClientProjections = new();
     private readonly Queue<NetworkedItem> PendingUnboundClientItems = new();
     private readonly HashSet<NetworkedItem> PendingUnboundClientItemSet = new();
-    // TEMPORARY: delete these coordinators with TemporaryClientAdoptionCompatibility after all DV
-    // runtime item producers have explicit host-authoritative operations.
-    private readonly AdoptionCoordinator<NetworkedItem> TemporaryClientAdoptions = new();
     private readonly Dictionary<ushort, ItemUpdateData> PendingSpecialItemSnapshots = new();
     private readonly Dictionary<ushort, PendingWorldProjection> PendingWorldProjections = new();
     private readonly HashSet<ushort> ClientLostAndFoundTombstones = new();
@@ -79,10 +76,6 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
                     item.Client()?.GateAsSceneObjectAwaitingHostCreate();
                     item.gameObject.SetActive(false);
                 }
-            }
-            else if (IsTemporaryClientAdoptionAllowed(item, out _))
-            {
-                item.Client()?.AllowUnboundLocalInteraction();
             }
             else
             {

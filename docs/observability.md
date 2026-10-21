@@ -233,21 +233,14 @@ Items include:
 Implemented item rejection reasons include `client-create-or-destroy-not-allowed`, `held-by-other-player`, `owned-by-other-player`, `unknown-sender`, and `unknown-network-entity`.
 
 Non-host ID-zero items are classified before any interaction gate is changed. Exact authored objects
-are made dormant pending stable-key host binding. A non-authored, non-job item is retained only when
-it is marked as player property, associated with player/storage state, and therefore admitted by
-`TemporaryClientAdoptionCompatibility`; every other unbound client object is interaction-gated and
-destroyed. Events include `item.unbound-classified`, `item.unbound-authored-item-dormant`,
+are made dormant pending stable-key host binding. Every other unbound client object is
+interaction-gated and destroyed: the server makes every item (owned-items.md, PR 5). Events include `item.unbound-classified`, `item.unbound-authored-item-dormant`,
 `item.authored-projection-dormant`, `item.dynamic-projection-destroyed`, and
 `item.unbound-client-object-destroyed`.
 
-The remaining ID-zero first-interaction adoption handshake is explicitly temporary compatibility
-for DV item producers not yet converted to host operations. Both client and host reject authored
-keys, job documents, and objects not marked as player property; the client additionally requires
-real player/storage association. Generic client `Create` and ordinary ID-zero state packets remain
-forbidden. Convert each producer to request -> host validation -> host Create, then delete the
-adoption packets and coordinators. Adoption events remain `item.adoption-requested`,
-`item.adoption-accepted`, `item.adoption-rejected`, and `item.adoption-complete` while this bridge
-exists.
+The ID-zero adoption handshake is gone (owned-items.md, PR 5): with starting items made by the
+server (PR 4), nothing legitimate needed it. Generic client `Create` and ordinary ID-zero state
+packets remain forbidden.
 
 Local item transitions are tracked against both the previously observed Unity state and the last state placed on the network. State precedence is `Thrown`, `InHand`, `InInventory`, `Attached`, `Removed`, then `Dropped`; a physics-held item therefore remains `InHand` even when its transform is still under `WorldMover.OriginShiftParent`. Grab/release/throw callbacks and postfix observation of `Inventory.EquipItem`, `Inventory.UnequipItem`, and `Inventory.DropItemFromHandsOrInventory` enqueue work on `NetworkedItemManager`, so an item that becomes inactive in inventory is still processed. `item.local-state-observed`, `item.local-state-unchanged`, `item.local-state-changed`, and `item.snapshot-suppressed` include the current state, previous observed state, previous sent state, previous sent placement player, network ID, inventory/container slot, equipped slot, active state, trigger, and suppression reason. Dirty callbacks request re-evaluation but do not themselves force an `ItemState` packet: repeated equip/grab callbacks with the same last-sent state and placement player are collapsed locally, while a same-state P1-to-P2 handoff, one-shot `Thrown`, and dirty tracked values still serialize. Adoption completion uses the same `GetSnapshot()` path and does not bypass or disable later transitions.
 

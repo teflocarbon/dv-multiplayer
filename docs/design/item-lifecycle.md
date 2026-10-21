@@ -61,9 +61,9 @@
 - **Not implemented:** revoking a spatial lease on Lost-and-Found collection (the revision
   advance makes late samples fail instead), the container retirement retry, and per-recipient
   projection state in the debug snapshot.
-- **Still temporary:** client item adoption (`TemporaryClientAdoptionCompatibility`). No starting
-  item uses it since PR 4, and the rejoin swap that matched a fresh copy to its original by prefab
-  is gone; PR 5 removes adoption.
+- **No client-made items:** client item adoption is gone (owned-items.md, PR 5). A client's game
+  never makes an item the server keeps: the server makes starting items (PR 4), purchases and
+  grants, and an unbound local item is destroyed (an authored scene object is kept dormant).
 
 ## Purpose
 
@@ -156,8 +156,8 @@ existing owner: ownership is retained when another player possesses the item.
 
 Planned ([`owned-items.md`](owned-items.md#what-an-owned-item-is)):
 
-- the host's own purchases go through the server like everyone's, which retires the
-  `ClientAdoption` path (the server makes the starter kit and essentials since PR 4; licence papers
+- the host's own purchases go through the server like everyone's (the `ClientAdoption` path is
+  gone since PR 5; the server makes the starter kit and essentials since PR 4; licence papers
   aren't made in multiplayer);
 - a replacement vanilla makes while using an item up is owned by the used item's owner;
 - job documents are never owned;

@@ -381,7 +381,7 @@ public static class OwnedItemsServer
         ItemMoveReason.Granted => OwnedItemBirth.Granted,
         ItemMoveReason.Issued => OwnedItemBirth.Issued,
         ItemMoveReason.StarterKit => OwnedItemBirth.StarterKit,
-        // A client-made item adopted by the server (none are starting items any more: PR 5 removes it).
+        // Nothing is adopted any more (owned-items.md, PR 5); the value stays in old logs.
         ItemMoveReason.Adopted => OwnedItemBirth.Issued,
         // Owned before the ledger saw it: restored, withdrawn, retrieved.
         ItemMoveReason.RestoredFromSave or ItemMoveReason.ReturnedToRejoiningOwner or

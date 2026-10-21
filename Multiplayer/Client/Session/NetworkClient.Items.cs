@@ -112,12 +112,6 @@ public partial class NetworkClient : IItemClient
         networkedItem.ReceiveSnapshot(packet.ItemData);
     }
 
-    private void OnClientboundItemAdoptionPacket(ClientboundItemAdoptionPacket packet)
-    {
-        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Item", null);
-        ClientItemManager.Instance?.ApplyItemAdoptionResult(packet.Result);
-    }
-
     private void OnClientboundItemRecallResultPacket(ClientboundItemRecallResultPacket packet)
     {
         Log($"[LostAndFound Recall] Recall result received: netId={packet.ItemNetId}, " +
@@ -219,15 +213,6 @@ public partial class NetworkClient : IItemClient
             ItemNetId = netId,
             AuthorityRevision = revision,
             Projected = projected
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void SendItemAdoption(ItemAdoptionRequestData request)
-    {
-        // TEMPORARY compatibility only. This is not a general client creation API.
-        SendPacketToServer(new ServerboundItemAdoptionPacket
-        {
-            Request = request
         }, DeliveryMethod.ReliableOrdered);
     }
 

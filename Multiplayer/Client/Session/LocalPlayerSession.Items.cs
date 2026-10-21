@@ -65,8 +65,6 @@ public partial class LocalPlayerSession : IItemClient
         Submit(new CommonItemUpdatePacket { ItemData = updateData });
     void IItemClient.SendWorldItemProjectionAck(ushort netId, uint revision, bool projected) =>
         Submit(new ServerboundWorldItemProjectionAckPacket { ItemNetId = netId, AuthorityRevision = revision, Projected = projected });
-    void IItemClient.SendItemAdoption(ItemAdoptionRequestData request) =>
-        Submit(new ServerboundItemAdoptionPacket { Request = request });
     void IItemClient.SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot) =>
         Submit(new ServerboundItemRecallPacket { ItemNetId = itemNetId, ExpectedRevision = expectedRevision, RequestedSlot = requestedSlot });
     void IItemClient.SendItemBelowMapReport(ushort itemNetId, float surfaceHeight) =>

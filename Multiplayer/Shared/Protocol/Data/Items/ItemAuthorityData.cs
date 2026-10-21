@@ -30,8 +30,8 @@ public enum ItemTransitionReason : byte
     InitialRegistration,
     HostLocalState,
     ClientState,
-    // TEMPORARY compatibility reason for unconverted DV item producers. Remove with the adoption
-    // protocol once all creation paths are explicit host operations.
+    // No longer used: adoption is gone (owned-items.md, PR 5). Kept so the reasons after it keep
+    // their numbers on the wire.
     ClientAdoption,
     OwnerRecall,
     JobBookletSummon,

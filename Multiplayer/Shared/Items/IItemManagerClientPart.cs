@@ -32,9 +32,6 @@ public interface IItemManagerClientPart
     /// <summary>A lifecycle-created object takes a host id another projection here holds: retire that one.</summary>
     void ResolveAuthoritativeBindingCollision(NetworkedItem incoming, ushort authoritativeId, Type trackedItemType);
 
-    /// <summary>TEMPORARY: ask the host to adopt an item only this game knows.</summary>
-    void RequestItemAdoption(NetworkedItem item, string reason);
-
     /// <summary>An authored office prop was taken into a hand or inventory: it lets go of its slot.</summary>
     void DetachAuthoredProjectionForPossession(NetworkedItem item, ItemUpdateData snapshot);
 }
