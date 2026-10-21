@@ -1106,7 +1106,11 @@ arrive):
   then stopped. "Coupled" is the host's trainset (the set the host sent the car with): right after a
   coupling impact the client applies the coupling a moment later, and placing the car alone as the
   joint formed held the consist metres off. A coupled car that can't be moved in 10 s is left for
-  10 s.
+  10 s. Every car of a consist holds to the consist's mean error, not its own
+  (`TryGetConsistAlongTrackError`): coupler slack is local physics, so the cars can't all be at the
+  host's poses at once. A parked FEF-3's tender coupler rested 9 cm apart on the host and 3 cm on
+  the client; each car driving to within 2 cm of its own pose dragged the other out of the 5 cm
+  deadband, and the loco rocked at 0.2 m/s every 1.6 s until the fix.
 
 A moving car touching a held one follows the host's speed only, with no position correction, so it
 doesn't shove the held car off its place.
