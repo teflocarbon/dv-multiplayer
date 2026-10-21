@@ -62,6 +62,12 @@ internal static class GadgetServerOnlyPatches
     private static bool CollisionDislodge(TrainCarCustomization __instance) =>
         !NetworkRole.IsRemoteClient || !__instance.Customizers.OfType<GadgetBase>().Any(GadgetJoinApplier.IsServerSent);
 
+    // A hanger's swing and its forced unsnap when it turns over are the server's (PR 10): this game shows
+    // the swing it sends (GadgetRunningState).
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Dangler), "LateUpdate")]
+    private static bool DanglerUpdate(Dangler __instance) => !ServerRuns(__instance.attachedCustomizer as GadgetBase);
+
     // Off its car it's nobody's: if this game installs it again itself, that install is its own.
     [HarmonyPostfix]
     [HarmonyPatch(typeof(Customization.CustomizerBase), nameof(Customization.CustomizerBase.Unlink))]

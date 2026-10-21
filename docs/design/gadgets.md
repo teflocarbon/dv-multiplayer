@@ -426,6 +426,24 @@ the state afterwards isn't what the entry says), asks for a [resync](#desync-and
   tracked values.
 - Scenario `gadget-labels`.
 
+**As built (10).** Hangers and shelves, in the gadget change log rather than as a new item placement:
+- **Entries:** `Snapped` and `Unsnapped` (the gadget, the item's NetId; forced or not) from vanilla's
+  `ItemSnapPointBase.SnapItem` / `UnsnapItem` on a `SnapPointGadget` on a car, whoever did it (a
+  request, the host's player, the server's own forced unsnap when a hanger turns over or comes off).
+- **Requests** (`ServerboundGadgetSnapPacket`): a remote client's own snap and unsnap (not forced) is
+  predicted (vanilla's snap runs) and sent; the server needs the item in the requester's hand and
+  vanilla's `CanSnapCheck` to hang it, and that item on it to take it off. Refused: unsnapped (it falls)
+  or snapped back.
+- **The item's own updates** no longer unsnap an item hanging on a gadget (a dropped or thrown state);
+  taking it in hand or inventory still does. The item placement stays the item code's (it lies in the
+  car's interior on the server); `SnappedAttachment` keyed by (car, UID) is left for the owned-items
+  work.
+- **The swing** (`Dangler`): the server runs the pendulum; its rotation relative to the gadget and its
+  angular velocity are running state (`GadgetRunningState`), sent while it moves at the watch's rate.
+  `Dangler.LateUpdate`, with its forced unsnap, is off on remote clients.
+- Not done: the sliding snap point's anchor offset comes from each game's own sphere casts, not sent.
+- Scenario `gadget-hangers`.
+
 ## Gadget state
 
 Settings and running state are typed fields per gadget class, kept by small adapters in
@@ -1132,4 +1150,5 @@ In three parts:
 - **PR 5 built** (`gadgets/wiring`): wiring and unwiring go through the server; soldering is predicted and the server clamps and sends its units. Scenario `gadget-wiring`.
 - **PR 3b built** (`gadgets/prediction`): installs, removals, mount points, holes and wires are predicted on a remote client and undone, newest first, when refused. Scenarios `gadget-install`, `gadget-mounting` at `LAG=250`.
 - **PR 9 built** (`gadgets/labels`): labels are spawned and installed by the server from the client's pose and text; text edits and deleting a label go through the server. Scenario `gadget-labels`.
+- **PR 10 built** (`gadgets/hangers`): items on gadget snap points go through the change log, predicted; the hanger's swing and its forced unsnap are the server's. Scenario `gadget-hangers`.
 - Next: 3b (prediction), 4 (mount points, holes, tape), 5 (wiring, soldering).

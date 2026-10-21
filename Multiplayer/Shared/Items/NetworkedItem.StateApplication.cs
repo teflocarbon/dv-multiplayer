@@ -29,8 +29,13 @@ public partial class NetworkedItem
     private void PrepareForStateChange(byte playerId, ItemState targetState)
     {
         // Cleanup from previous state/desyncs
-        if (Item.IsSnapped && !KeepsLocalBeltSnap(playerId, targetState))
-            Item.SnappableItem.SnappedTo.UnsnapItem(false); //Todo: should this be forced?
+        // An item on a gadget's hanger or shelf comes off by the gadget change log (gadgets.md, PR 10), or
+        // when someone takes it; the item's own updates while it hangs there don't unsnap it.
+        bool onGadget = Item.IsSnapped && Item.SnappableItem.SnappedTo is DV.Customization.Gadgets.Implementations.SnapPointGadget &&
+                        targetState is ItemState.Dropped or ItemState.Thrown;
+        if (Item.IsSnapped && !onGadget && !KeepsLocalBeltSnap(playerId, targetState))
+            using (global::Multiplayer.Shared.Gadgets.GadgetApplyScope.Enter())
+                Item.SnappableItem.SnappedTo.UnsnapItem(false); //Todo: should this be forced?
 
         if (playerBelongsTo != null && playerBelongsTo.PlayerId != playerId)
         {

@@ -1,6 +1,7 @@
 using DV.CabControls;
 using DV.Customization;
 using DV.Customization.Gadgets;
+using DV.Customization.Gadgets.Implementations;
 using DV.Utils;
 using Multiplayer.Client.Session;
 using Multiplayer.Core.Gadgets;
@@ -217,6 +218,31 @@ internal static class GadgetChangeApplier
                 }
                 GadgetIntentPatches.Confirmed(entry);
                 return GadgetWiringModule.WireLinkPort.AreWired(a, b) == (kind == GadgetChangeKind.Wired) ? ApplyResult.Applied : ApplyResult.Failed;
+            }
+            if (kind is GadgetChangeKind.Snapped or GadgetChangeKind.Unsnapped)
+            {
+                SnapPointGadget point = gadget != null && gadget.IsLinked ? gadget.GetComponentInChildren<SnapPointGadget>(true) : null;
+                if (point == null)
+                    return ApplyResult.Failed;
+                if (!NetworkedItem.TryGet((ushort)entry.OtherUid, out NetworkedItem snapItem) || snapItem == null || snapItem.Item == null)
+                    return kind == GadgetChangeKind.Unsnapped ? ApplyResult.Applied : ApplyResult.Wait;
+                using (GadgetApplyScope.Enter())
+                {
+                    if (kind == GadgetChangeKind.Snapped && point.SnappedItem != snapItem.Item)
+                    {
+                        if (point.SnappedItem != null)
+                            point.UnsnapItem(forced: true);
+                        if (snapItem.Item.IsSnapped)
+                            snapItem.Item.SnappableItem.SnappedTo.UnsnapItem(forced: true);
+                        point.SnapItem(snapItem.Item, forced: true);
+                    }
+                    else if (kind == GadgetChangeKind.Unsnapped && point.SnappedItem == snapItem.Item)
+                    {
+                        point.UnsnapItem(entry.Forced);
+                    }
+                }
+                GadgetIntentPatches.Confirmed(entry);
+                return ApplyResult.Applied;
             }
             if (kind == GadgetChangeKind.TextSet)
             {

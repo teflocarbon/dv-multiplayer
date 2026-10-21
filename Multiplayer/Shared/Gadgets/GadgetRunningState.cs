@@ -4,6 +4,7 @@ using DV.Customization.Gadgets.Implementations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 namespace Multiplayer.Shared.Gadgets;
 
@@ -117,6 +118,20 @@ public static class GadgetRunningState
         },
         new()
         {
+            // A hanger's swing (PR 10): the server runs the pendulum; every other game shows its angle and
+            // speed, sent while it moves.
+            Is = g => Dangler(g) != null,
+            Keys = new[]
+            {
+                Swing("qx", r => r.x), Swing("qy", r => r.y), Swing("qz", r => r.z), Swing("qw", r => r.w),
+                Spin("vx", v => v.x, (d, x) => d.angularVelocity.x = x),
+                Spin("vy", v => v.y, (d, y) => d.angularVelocity.y = y),
+                Spin("vz", v => v.z, (d, z) => d.angularVelocity.z = z)
+            },
+            Changed = g => Dangler(g).transform.localRotation = Dangler(g).transform.localRotation.normalized
+        },
+        new()
+        {
             // A plain gadget: its LOD is all there is of it, and has its snooze.
             Is = g => DefectDetector(g) != null,
             Keys = new[]
@@ -137,6 +152,37 @@ public static class GadgetRunningState
     private static int applying;
 
     public static bool Has(GadgetBase gadget) => FamilyOf(gadget) != null;
+
+    /// <summary>A hanger's pendulum, if the gadget has one.</summary>
+    public static Dangler Dangler(GadgetBase gadget) =>
+        gadget == null ? null : gadget.GetComponentInChildren<Dangler>(true);
+
+    // One component of the pendulum's rotation relative to the gadget (the car's frame, so it means the
+    // same in every game whichever way the car points).
+    private static Key Swing(string name, Func<UnityEngine.Quaternion, float> part) => new()
+    {
+        Name = name,
+        Kind = Kind.Step,
+        Get = g => part(Dangler(g).transform.localRotation),
+        Set = (g, v) =>
+        {
+            Transform t = Dangler(g).transform;
+            UnityEngine.Quaternion r = t.localRotation;
+            if (name == "qx") r.x = v;
+            else if (name == "qy") r.y = v;
+            else if (name == "qz") r.z = v;
+            else r.w = v;
+            t.localRotation = r;
+        }
+    };
+
+    private static Key Spin(string name, Func<UnityEngine.Vector3, float> part, Action<Dangler, float> set) => new()
+    {
+        Name = name,
+        Kind = Kind.Step,
+        Get = g => part(Dangler(g).angularVelocity),
+        Set = (g, v) => set(Dangler(g), v)
+    };
 
     /// <summary>The defect detector's LOD, which holds its snooze, if the gadget is one.</summary>
     public static GadgetDefectDetectorLOD DefectDetector(GadgetBase gadget) =>

@@ -61,6 +61,9 @@ public partial class NetworkClient
     internal void SendGadgetText(ServerboundGadgetTextPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 
+    internal void SendGadgetSnap(ServerboundGadgetSnapPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
     internal void SendGadgetResync(ServerboundGadgetResyncRequestPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }

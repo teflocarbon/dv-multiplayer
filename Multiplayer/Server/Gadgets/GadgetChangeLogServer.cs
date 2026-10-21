@@ -220,6 +220,32 @@ internal static class GadgetChangeLogServer
             otherUid: target.UID, otherIndex: target.wiring.wireLinkPorts.IndexOf(b));
     }
 
+    // Items on gadget snap points (PR 10): whoever snapped it (a request, the host's player), and the
+    // server's own forced unsnaps (a dangler upside down, a hanger taken off).
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(DV.Items.Snapping.ItemSnapPointBase), nameof(DV.Items.Snapping.ItemSnapPointBase.SnapItem),
+        new[] { typeof(DV.CabControls.ItemBase), typeof(bool) })]
+    private static void ItemSnapped(DV.Items.Snapping.ItemSnapPointBase __instance, DV.CabControls.ItemBase itemToSnap, bool __result)
+    {
+        if (__result && Recording && __instance is SnapPointGadget { gadgetBase: { IsLinked: true } gadget } &&
+            OnCar(gadget.Custom, out ushort carNetId) && itemToSnap != null && itemToSnap.GetComponent<NetworkedItem>() is { NetId: not 0 } item)
+            recorder.Record(carNetId, GadgetChangeKind.Snapped, gadget, otherUid: item.NetId);
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(DV.Items.Snapping.ItemSnapPointBase), nameof(DV.Items.Snapping.ItemSnapPointBase.UnsnapItem))]
+    private static void ItemUnsnapping(DV.Items.Snapping.ItemSnapPointBase __instance, out NetworkedItem __state) =>
+        __state = __instance is SnapPointGadget && __instance.SnappedItem != null ? __instance.SnappedItem.GetComponent<NetworkedItem>() : null;
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(DV.Items.Snapping.ItemSnapPointBase), nameof(DV.Items.Snapping.ItemSnapPointBase.UnsnapItem))]
+    private static void ItemUnsnapped(DV.Items.Snapping.ItemSnapPointBase __instance, bool forced, bool __result, NetworkedItem __state)
+    {
+        if (__result && Recording && __state != null && __state.NetId != 0 && __instance is SnapPointGadget { gadgetBase: { IsLinked: true } gadget } &&
+            OnCar(gadget.Custom, out ushort carNetId))
+            recorder.Record(carNetId, GadgetChangeKind.Unsnapped, gadget, forced, otherUid: __state.NetId);
+    }
+
     /// <summary>A label's text changed on the server (a request, or the host's player at the popup).</summary>
     internal static void RecordText(GadgetBase gadget, string text)
     {

@@ -225,6 +225,76 @@ internal static class GadgetIntentPatches
         return false;
     }
 
+    // An item put on a gadget's hanger or shelf, or taken off it by a player (PR 10): vanilla snaps it here
+    // at once (the prediction) and the server is told. A forced unsnap is the server's.
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(DV.Items.Snapping.ItemSnapPointBase), nameof(DV.Items.Snapping.ItemSnapPointBase.SnapItem),
+        new[] { typeof(ItemBase), typeof(bool) })]
+    private static void Snapping(DV.Items.Snapping.ItemSnapPointBase __instance, ItemBase itemToSnap, bool forced, out uint __state)
+    {
+        __state = 0;
+        if (!Intercepts || forced || !SnapTarget(__instance, itemToSnap, out NetworkedItem gadgetItem, out NetworkedItem item) ||
+            !__instance.CanSnapCheck(itemToSnap.SnappableItem, false))
+            return;
+        __state = SendSnap(gadgetItem, item, snap: true);
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(DV.Items.Snapping.ItemSnapPointBase), nameof(DV.Items.Snapping.ItemSnapPointBase.SnapItem),
+        new[] { typeof(ItemBase), typeof(bool) })]
+    private static void Snapped(DV.Items.Snapping.ItemSnapPointBase __instance, ItemBase itemToSnap, bool __result, uint __state)
+    {
+        if (__state == 0)
+            return;
+        // Undone: off the hanger again, onto the floor.
+        predictions.Predicted(__state, () =>
+        {
+            if (__instance != null && __instance.SnappedItem == itemToSnap && itemToSnap != null)
+                using (GadgetApplyScope.Enter())
+                    __instance.UnsnapItem(forced: true);
+        });
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(DV.Items.Snapping.ItemSnapPointBase), nameof(DV.Items.Snapping.ItemSnapPointBase.UnsnapItem))]
+    private static void Unsnapping(DV.Items.Snapping.ItemSnapPointBase __instance, bool forced)
+    {
+        ItemBase snapped = __instance.SnappedItem;
+        if (!Intercepts || forced || snapped == null || !SnapTarget(__instance, snapped, out NetworkedItem gadgetItem, out NetworkedItem item))
+            return;
+        uint operation = SendSnap(gadgetItem, item, snap: false);
+        predictions.Predicted(operation, () =>
+        {
+            if (__instance != null && snapped != null && __instance.SnappedItem == null && !snapped.IsGrabbed())
+                using (GadgetApplyScope.Enter())
+                    __instance.SnapItem(snapped, forced: true);
+        });
+    }
+
+    private static bool SnapTarget(DV.Items.Snapping.ItemSnapPointBase point, ItemBase item, out NetworkedItem gadgetItem, out NetworkedItem networked)
+    {
+        gadgetItem = null;
+        networked = null;
+        if (point is not SnapPointGadget { gadgetBase: { IsLinked: true } gadget } || !GadgetJoinApplier.IsServerSent(gadget) || item == null)
+            return false;
+        gadgetItem = gadget.GadgetItem?.GetComponent<NetworkedItem>();
+        networked = item.GetComponent<NetworkedItem>();
+        return gadgetItem is { NetId: not 0 } && networked is { NetId: not 0 };
+    }
+
+    private static uint SendSnap(NetworkedItem gadgetItem, NetworkedItem item, bool snap)
+    {
+        uint operation = NextOperation();
+        NetworkClient.Instance?.SendGadgetSnap(new ServerboundGadgetSnapPacket
+        {
+            OperationId = operation,
+            GadgetItemNetId = gadgetItem.NetId,
+            ItemNetId = item.NetId,
+            Snap = snap
+        });
+        return operation;
+    }
+
     // A label coming off destroys its item and makes a replacement: items only the server makes.
     [HarmonyPrefix]
     [HarmonyPatch(typeof(DestroyOnGadgetUnlink), "OnUnlinked")]

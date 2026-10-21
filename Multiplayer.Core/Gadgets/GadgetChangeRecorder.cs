@@ -16,7 +16,11 @@ public enum GadgetChangeKind : byte
     /// <summary>A gadget's soldering units, absolute (PR 5).</summary>
     Soldered = 8,
     /// <summary>A label's text (PR 9), carried as the entry's state.</summary>
-    TextSet = 9
+    TextSet = 9,
+    /// <summary>An item snapped onto a gadget's snap point (a hanger, a shelf), or taken off it (PR 10):
+    /// the item's NetId as the other UID.</summary>
+    Snapped = 10,
+    Unsnapped = 11
 }
 
 /// <summary>A change the server observed on one car's gadgets, waiting to be sent.</summary>

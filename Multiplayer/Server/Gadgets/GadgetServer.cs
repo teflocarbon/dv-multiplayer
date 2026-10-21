@@ -501,6 +501,45 @@ internal static class GadgetServer
         }
     }
 
+    /// <summary>
+    /// A player puts an item on a gadget's snap point or takes it off (PR 10). Putting it on needs the item
+    /// in their hand and vanilla's <c>CanSnapCheck</c>; taking it off needs that item on it.
+    /// </summary>
+    internal static void HandleSnap(ServerboundGadgetSnapPacket packet, ServerPlayer player, NetworkServer server)
+    {
+        GadgetBase gadget = GadgetStateServer.LinkedGadget(packet.GadgetItemNetId);
+        SnapPointGadget point = gadget != null ? gadget.GetComponentInChildren<SnapPointGadget>(true) : null;
+        NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item);
+        string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
+            : point == null ? "not a gadget with a snap point"
+            : item == null || item.Item == null ? "no such item"
+            : packet.Snap && (!AuthoritativeItemRegistry.TryGet(packet.ItemNetId, out AuthoritativeItemRegistry.Record record) ||
+                              record.Placement != ItemPlacementKind.PlayerHand || record.PlacementPlayerId != player.PlayerId) ? "not in their hand"
+            : packet.Snap && !point.CanSnapCheck(item.Item.SnappableItem, forced: false) ? "it doesn't go there"
+            : !packet.Snap && point.SnappedItem != item.Item ? "that isn't on it"
+            : GadgetStateServer.ReachRefusal(player, gadget);
+        if (refusal != null)
+        {
+            Reject(server, player, packet.OperationId, packet.ItemNetId, packet.Snap ? "snap" : "unsnap", refusal);
+            return;
+        }
+        GadgetChangeLogServer.BeginOperation(player, packet.OperationId);
+        try
+        {
+            using (GadgetApplyScope.Enter())
+            {
+                if (packet.Snap)
+                    point.SnapItem(item.Item, forced: true);
+                else
+                    point.UnsnapItem(forced: false);
+            }
+        }
+        finally
+        {
+            GadgetChangeLogServer.EndOperation();
+        }
+    }
+
     /// <summary>The tool of type <typeparamref name="T"/> in the player's hand, as the server has it.</summary>
     private static T Held<T>(ServerPlayer player) where T : Component
     {

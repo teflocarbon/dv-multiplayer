@@ -125,6 +125,12 @@ public partial class NetworkServer
             GadgetServer.HandleText(packet, player, this);
     }
 
+    private void OnServerboundGadgetSnapPacket(ServerboundGadgetSnapPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleSnap(packet, player, this);
+    }
+
     private void OnServerboundGadgetResyncRequestPacket(ServerboundGadgetResyncRequestPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))
