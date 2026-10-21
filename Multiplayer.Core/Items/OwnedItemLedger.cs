@@ -318,6 +318,9 @@ public sealed class OwnedItemLedger
             starterKitsGiven.Add(player);
     }
 
+    /// <summary>Forgets that a player had their starter kit: a re-keyed identity. Returns whether they had.</summary>
+    public bool ForgetStarterKit(Guid player) => starterKitsGiven.Remove(player);
+
     public IReadOnlyCollection<Guid> StarterKitsGiven => starterKitsGiven;
 
     /// <summary>

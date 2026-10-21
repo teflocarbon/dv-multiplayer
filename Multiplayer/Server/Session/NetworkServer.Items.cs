@@ -57,9 +57,6 @@ public partial class NetworkServer : IItemServer
 
     INetworkedItemServerPart IItemServer.CreateItemPart(NetworkedItem item) => new NetworkedItemServerPart(item);
 
-    IReadOnlyList<(string Prefab, int Slot)> IItemServer.OwnedItems(Guid playerIdentity, byte playerId) =>
-        OwnedItemsSummary.For(playerIdentity, playerId).Select(item => (item.Prefab, item.Slot)).ToList();
-
     Dictionary<string, object> IItemServer.AuthorityDebugState(ushort itemNetId) =>
         AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record)
             ? AuthoritativeItemRegistry.Snapshot(record) : null;
@@ -396,7 +393,7 @@ public partial class NetworkServer : IItemServer
 
         ItemAdoptionRequestData request = packet.Request;
         bool accepted = ServerItemManager.Instance.TryAdoptClientItem(player, request,
-            out ushort assignedNetId, out string rejectionReason, out ItemUpdateData restoredOriginal);
+            out ushort assignedNetId, out string rejectionReason);
         AuthoritativeItemRegistry.TryGet(assignedNetId, out AuthoritativeItemRegistry.Record authorityRecord);
         DebugRuntime.Publish("item", accepted ? "item.adoption-accepted" : "item.adoption-rejected",
             DebugRuntimeSide.Server, accepted ? DebugSeverity.Info : DebugSeverity.Warning,
@@ -425,11 +422,6 @@ public partial class NetworkServer : IItemServer
                 InventoryClaimFlags = authorityRecord?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None
             }
         }, DeliveryMethod.ReliableOrdered);
-
-        // Sent after the rejection on the same ordered channel: the client retires its fresh copy
-        // first, freeing the inventory slot the original is restored into.
-        if (restoredOriginal != null)
-            SendItemUpdatePacket(restoredOriginal, sendToPlayer: player);
     }
 
     private void OnServerboundItemBelowMapPacket(ServerboundItemBelowMapPacket packet, ITransportPeer peer)

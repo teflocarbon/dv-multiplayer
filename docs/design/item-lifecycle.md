@@ -20,8 +20,10 @@
   buyer (`NetworkServer.SpawnShopPurchase`, f796ca8). The host's own purchases still go through
   vanilla and are unowned until someone takes them. `AuthoritativeItemRegistry.Ensure` no longer
   throws for a host-created item registered without a seed snapshot (e827ce8).
-- **Starter kit:** given on a player's first join only (`SaveGameDataPacketBuilder.Create`
-  with `NetworkServer.StarterKitsGiven`, 2962fa7). `StarterKitsGiven` is in memory only.
+- **Starting items:** the server makes them (owned-items.md, PR 4: `StartingItemsIssuer`, when a
+  player has loaded). The starter kit comes once per player per career (the ledger's saved
+  starter-kit marker). Each of DV's essentials the player has no live item of is made into a
+  reserved slot. DV's safeguards are off in every game, and no game makes its own.
 - **Disconnect:** the departing player's hand item, and any item in their inventory that another
   player owns, is dropped where it is (`DropHeldItemsOfDepartingPlayer` in
   `Server/Items/ServerItemManager.PlayerItems.cs`, 2d52799). Items they own stay keyed to
@@ -59,9 +61,9 @@
 - **Not implemented:** revoking a spatial lease on Lost-and-Found collection (the revision
   advance makes late samples fail instead), the container retirement retry, and per-recipient
   projection state in the debug snapshot.
-- **Still temporary:** client item adoption (`TemporaryClientAdoptionCompatibility`) is used by the
-  starter kit, DV's client-generated essentials and rejoin restoration, which matches a returning
-  player's fresh copy to their original by prefab name.
+- **Still temporary:** client item adoption (`TemporaryClientAdoptionCompatibility`). No starting
+  item uses it since PR 4, and the rejoin swap that matched a fresh copy to its original by prefab
+  is gone; PR 5 removes adoption.
 
 ## Purpose
 
@@ -154,8 +156,9 @@ existing owner: ownership is retained when another player possesses the item.
 
 Planned ([`owned-items.md`](owned-items.md#what-an-owned-item-is)):
 
-- the server makes the starter kit, essentials and licence papers, and the host's own purchases go
-  through the server like everyone's, which retires the `ClientAdoption` path;
+- the host's own purchases go through the server like everyone's, which retires the
+  `ClientAdoption` path (the server makes the starter kit and essentials since PR 4; licence papers
+  aren't made in multiplayer);
 - a replacement vanilla makes while using an item up is owned by the used item's owner;
 - job documents are never owned;
 - nonpersonal items stay unowned even when carried (decided 2026-10-21).

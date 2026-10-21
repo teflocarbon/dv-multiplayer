@@ -748,10 +748,12 @@ public static class AuthoritativeItemRegistry
 
     /// <summary>
     /// Registers an item materialized from host-owned detached storage without allowing
-    /// the current holder to accidentally replace its persistent owner.
+    /// the current holder to accidentally replace its persistent owner. <paramref name="cause"/> is
+    /// how it came: a withdrawal when null, or the server making it (a player's starting items).
     /// </summary>
     public static Record RegisterMaterializedColdItem(NetworkedItem item, ServerPlayer holder,
-        byte persistentOwnerPlayerId, Guid persistentOwnerIdentity, ItemUpdateData snapshot, Guid persistentItemId)
+        byte persistentOwnerPlayerId, Guid persistentOwnerIdentity, ItemUpdateData snapshot, Guid persistentItemId,
+        ChangeCause<ItemMoveReason>? cause = null)
     {
         if (item == null || holder == null || snapshot == null || item.NetId == 0)
             return null;
@@ -795,7 +797,7 @@ public static class AuthoritativeItemRegistry
             owner.AddOwnedItem(item.NetId);
         }
         WriteToSnapshot(record, snapshot, record.LastReason);
-        ChangeCause<ItemMoveReason> withdrawn = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
+        ChangeCause<ItemMoveReason> withdrawn = cause ?? ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
             ItemChangeCauses.Detail(ItemChangeLog.Describe(
                     new ItemWhereabouts(AuthorityPlacement.Container, 0, persistentOwnerPlayerId),
                     ItemChangeLog.Whereabouts(record)),

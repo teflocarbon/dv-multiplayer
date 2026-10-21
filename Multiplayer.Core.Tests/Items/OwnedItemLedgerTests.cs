@@ -299,6 +299,16 @@ public sealed class OwnedItemLedgerTests
     }
 
     [Test]
+    public void ForgettingAStarterKit_ClearsTheMarker_Once()
+    {
+        ledger.MarkStarterKit(Liam);
+
+        Assert.That(ledger.ForgetStarterKit(Liam), Is.True);
+        Assert.That(ledger.HasStarterKit(Liam), Is.False);
+        Assert.That(ledger.ForgetStarterKit(Liam), Is.False);
+    }
+
+    [Test]
     public void EntriesHandedOut_AreCopies()
     {
         Guid lantern = Buy(G(1), "Lantern", Liam).Entry.Id;

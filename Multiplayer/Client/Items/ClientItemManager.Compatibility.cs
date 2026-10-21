@@ -227,41 +227,6 @@ internal sealed partial class ClientItemManager
             "Item", result.AssignedNetId.ToString(), data);
     }
 
-    /// <summary>
-    /// Client: retire an unbound local copy (fresh starting item, NetId 0) of the item the host is
-    /// placing into our inventory, preferring the copy in the original's reserved slot.
-    /// </summary>
-    /// <returns>The inventory slot the duplicate held, -1 if there was none.</returns>
-    public int DiscardUnboundLocalDuplicate(NetworkedItem original)
-    {
-        string prefab = original?.Item?.InventorySpecs?.ItemPrefabName;
-        Inventory inventory = Inventory.Instance;
-        if (string.IsNullOrEmpty(prefab) || inventory == null)
-            return -1;
-
-        NetworkedItem duplicate = null;
-        int duplicateSlot = -1;
-        int claimSlot = original.InventoryClaimSlot;
-        for (int slot = 0; slot < inventory.Capacity; slot++)
-        {
-            GameObject candidate = inventory.PeekItemAtSlot(slot, false);
-            NetworkedItem candidateItem = candidate != null ? candidate.GetComponent<NetworkedItem>() : null;
-            if (candidateItem == null || candidateItem == original || candidateItem.NetId != 0 ||
-                candidateItem.Item?.InventorySpecs?.ItemPrefabName != prefab)
-                continue;
-            duplicate = candidateItem;
-            duplicateSlot = slot;
-            if (slot == claimSlot)
-                break;
-        }
-        if (duplicate == null)
-            return -1;
-
-        Multiplayer.Log($"Replacing unbound local {prefab} with restored original {original.NetId}");
-        RetireClientProjection(duplicate, "superseded-by-restored-original");
-        return duplicateSlot;
-    }
-
     public void ResolveAuthoritativeBindingCollision(NetworkedItem incoming, ushort authoritativeId, Type trackedItemType)
     {
         if (incoming == null || authoritativeId == 0)

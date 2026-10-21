@@ -37,12 +37,6 @@ public static class PerPlayerSaveFormat
     private const string FormatKey = "PlayerStateFormat";
     private const int Version = 2;
 
-    /// <summary>
-    /// What the local player already owns according to the save, for DV's starting-item and
-    /// licence safeguards this load (StartingItemsControllerPatch). Null when not hosting.
-    /// </summary>
-    public static List<StorageItemData> LocalOwnedItems { get; private set; }
-
     /// <summary>The ID the local player logs in with: this game's Steam account's.</summary>
     private static Guid LocalId => PlayerIdentity.Local;
 
@@ -54,7 +48,6 @@ public static class PerPlayerSaveFormat
 
     public static void PrepareLoad(SaveGameData data)
     {
-        LocalOwnedItems = null;
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (data == null || !lifecycle.IsServerRunning)
             return;
@@ -85,13 +78,12 @@ public static class PerPlayerSaveFormat
                 data.SetVector3(SaveGameKeys.Player_rotation, new Vector3(0f, self.GetFloat(SaveGameKeys.Player_rotation) ?? 0f, 0f));
                 data.SetString(SaveGameKeys.Player_car_guid, string.Empty);
             }
-            LocalOwnedItems = OwnedInSave(root, LocalId);
         }
 
         // The local inventory comes back from the server at the local player's login, like any
         // player's, not from DV's copy. On a dedicated host that leaves the parked body empty.
         data.SetObject(SaveGameKeys.Storage_Inventory, new List<StorageItemData>());
-        Multiplayer.Log($"Save format: per-player (local player {(lifecycle.IsDedicatedHost ? "is the dedicated host's parked body" : $"owns {LocalOwnedItems?.Count ?? 0} saved item(s)")})");
+        Multiplayer.Log($"Save format: per-player (local player {(lifecycle.IsDedicatedHost ? "is the dedicated host's parked body" : PlayerIdentity.Describe(LocalId))})");
     }
 
     // A career saved before this format: the host player's state is only in DV's fields. Move it to
@@ -166,45 +158,5 @@ public static class PerPlayerSaveFormat
         byte[] hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(
             $"converted-inventory|{owner:D}|{index}|{item.inventorySlotIndex}|{item.itemPrefabName}"));
         return new Guid(hash);
-    }
-
-    /// <summary>
-    /// What a player ID owns according to the save: its item records, Lost and Found entries and
-    /// cold-container contents, by prefab and inventory slot.
-    /// </summary>
-    public static List<StorageItemData> OwnedInSave(JObject root, Guid owner)
-    {
-        List<StorageItemData> owned = new();
-        string identity = owner.ToString("D");
-
-        foreach (JObject value in (root[WorldItemPersistenceManager.SaveKey] as JArray ?? new JArray()).OfType<JObject>())
-        {
-            WorldItemPersistenceRecord record = WorldItemPersistenceRecord.FromJson(value);
-            if (record.IsTombstone || string.IsNullOrEmpty(record.PrefabName) ||
-                (record.OwnerIdentity != owner && record.PlacementPlayerIdentity != owner))
-                continue;
-            int slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.ClaimSlot : -1;
-            owned.Add(new StorageItemData(record.PrefabName, Vector3.zero, Quaternion.identity, belongsToPlayer: true, inventorySlotIndex: slot));
-        }
-
-        foreach (JObject value in (root["LostAndFound"] as JArray ?? new JArray()).OfType<JObject>())
-            if (string.Equals((string)value["ownerIdentity"], identity, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrEmpty((string)value["prefabName"]))
-                owned.Add(new StorageItemData((string)value["prefabName"], Vector3.zero, Quaternion.identity, belongsToPlayer: true));
-
-        try
-        {
-            string encoded = (string)root["ColdContainers"];
-            if (!string.IsNullOrWhiteSpace(encoded) &&
-                ColdContainerSnapshotCodec.TryDecode(System.Convert.FromBase64String(encoded), out ColdContainerGraphSnapshot snapshot, out _))
-                foreach (var item in snapshot.Items)
-                    if (string.Equals(item.PersistentOwnerIdentity, identity, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(item.PrefabName))
-                        owned.Add(new StorageItemData(item.PrefabName, Vector3.zero, Quaternion.identity, belongsToPlayer: true));
-        }
-        catch (Exception e)
-        {
-            Multiplayer.LogWarning($"Save format: couldn't read cold containers for the starting-item check: {e.Message}");
-        }
-        return owned;
     }
 }

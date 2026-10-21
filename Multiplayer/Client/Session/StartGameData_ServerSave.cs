@@ -26,24 +26,9 @@ public class StartGameData_ServerSave : AStartGameData
 
     public override bool IsStartingNewSession => false;
 
-    /// <summary>
-    /// What the host says this player already owns, for the starting-item safeguards of this load
-    /// (StartingItemsControllerPatch). Null when the load isn't a join.
-    /// </summary>
-    public static List<StorageItemData> OwnedItems { get; private set; }
-
     public void SetFromPacket(ClientboundSaveGameDataPacket packet)
     {
         this.packet = packet.Clone();
-
-        OwnedItems = new List<StorageItemData>();
-        string[] ownedPrefabs = packet.OwnedItemPrefabs ?? [];
-        for (int i = 0; i < ownedPrefabs.Length; i++)
-        {
-            int slot = packet.OwnedItemSlots != null && i < packet.OwnedItemSlots.Length ? packet.OwnedItemSlots[i] : -1;
-            OwnedItems.Add(new StorageItemData(ownedPrefabs[i], Vector3.zero, Quaternion.identity, belongsToPlayer: true,
-                inventorySlotIndex: slot));
-        }
 
         saveGameData = SaveGameManager.MakeEmptySave();
         saveGameData.SetString(SaveGameKeys.Game_mode, packet.GameMode);
@@ -74,31 +59,9 @@ public class StartGameData_ServerSave : AStartGameData
             return $"StartGameData_ServerSave.SetFromPacket() UnlockedGen: {{{unlockedGen}}}, PacketGen: {{{packetGen}}},  UnlockedJob: {{{unlockedJob}}}, PacketJob: {{{packetJob}}}";
         });
 
-        // Load player inventory
-        List<StorageItemData> items = [];
-
-        foreach (var item in packet.PlayerItems)
-        {
-            StorageItemData itemData = new
-            (
-                item.ItemPrefabName,
-                new Vector3(item.ItemPositionX, item.ItemPositionY, item.ItemPositionZ),
-                new Quaternion(item.ItemRotationX, item.ItemRotationY, item.ItemRotationZ, item.ItemRotationW),
-                item.BelongsToPlayer,
-                item.IsGrabbed,
-                item.CarGuid,
-                item.State,
-                item.InventorySlotIndex,
-                item.ContainerSlotIndex,
-                item.InLockedSlot,
-                item.IsDropped,
-                item.ContainerId
-            );
-
-            items.Add(itemData);
-        }
-        Multiplayer.LogDebug(() => $"StartGameData_ServerSave.SetFromPacket() PlayerItems count: {packet.PlayerItems.Length}, items string count: {items.Count()}");
-        saveGameData.SetObject(SaveGameKeys.Storage_Inventory, items);
+        // DV's inventory starts empty: the server makes this player's starting items and hands back
+        // everything else they carry (owned-items.md, PR 4).
+        saveGameData.SetObject(SaveGameKeys.Storage_Inventory, new List<StorageItemData>());
 
         //For clients we need to have a session - new users may not have a session and this may also be causing problems with licenses syncing
         if (NetworkLifecycle.Instance.IsHost())

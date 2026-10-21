@@ -24,13 +24,8 @@ public class ClientboundSaveGameDataPacket
     // public string Debt_deleted_jobless_cars { get; set; }
     // public string Debt_insurance { get; set; }
 
-    public PlayerItemSaveData[] PlayerItems { get; set; }
-
-    // What this player already owns somewhere the host keeps items (prefab names, and the
-    // inventory slot it holds, or -1). The client's own DV only adds starting items and licence
-    // papers missing from these, instead of a fresh set on every join (OwnedItemsSummary).
-    public string[] OwnedItemPrefabs { get; set; }
-    public int[] OwnedItemSlots { get; set; }
+    // No items: the server makes a player's starting items and hands back the rest itself
+    // (owned-items.md, PR 4).
 
     public float JobManagerTime { get; set; }
 

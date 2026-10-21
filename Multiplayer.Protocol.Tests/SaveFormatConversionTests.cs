@@ -89,22 +89,6 @@ public sealed class SaveFormatConversionTests
         Assert.That(Guid.Parse((string)Records(root)[0]["ownerIdentity"]), Is.EqualTo(Other));
     }
 
-    [Test]
-    public void OwnedInSave_ListsTheOwnersRecordsAndLostItems()
-    {
-        var root = new JObject();
-        PerPlayerSaveFormat.ConvertSave(root, Owner, null, 0f, new[] { Item("Lantern", 3) });
-        root["LostAndFound"] = new JArray(
-            new JObject { ["ownerIdentity"] = Owner.ToString("D"), ["prefabName"] = "CommsRadio" },
-            new JObject { ["ownerIdentity"] = Other.ToString("D"), ["prefabName"] = "Wallet" });
-
-        List<StorageItemData> owned = PerPlayerSaveFormat.OwnedInSave(root, Owner);
-
-        Assert.That(owned.Select(item => item.itemPrefabName), Is.EquivalentTo(new[] { "Lantern", "CommsRadio" }));
-        Assert.That(owned.Single(item => item.itemPrefabName == "Lantern").inventorySlotIndex, Is.EqualTo(3));
-        Assert.That(PerPlayerSaveFormat.OwnedInSave(root, Steam), Is.Empty);
-    }
-
     private static JObject SaveOf(Guid player)
     {
         Guid container = Guid.NewGuid();

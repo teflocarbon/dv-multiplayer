@@ -18,8 +18,10 @@ namespace Dvmp.Scenarios
     {
         public sealed class Options
         {
-            /// <summary>The essential item's inventory slot (0, the comms radio).</summary>
-            public int Slot;
+            /// <summary>The essential item's inventory slot; -1 (the default) is the first slot holding an
+            /// essential. The server puts each essential in a free slot (owned-items.md, PR 4), so slot 0
+            /// needn't be the comms radio.</summary>
+            public int Slot = -1;
             /// <summary>The host picks the item up before the recall.</summary>
             public bool Taken;
         }
@@ -28,15 +30,15 @@ namespace Dvmp.Scenarios
         {
             if (o.Taken && pair.Dedicated) throw new HarnessException("TAKEN=1 needs a player host: a dedicated host has no hands to take the item");
             Dropped d = await pair.Client.Run<Dropped>(s => InGame.DropEssential(s, o.Slot));
-            Report.Note($"the client dropped {d.Name} {d.Item} from slot {o.Slot}: {d.State}, slot reserved {d.Reserved}");
+            Report.Note($"the client dropped {d.Name} {d.Item} from slot {d.Slot}: {d.State}, slot reserved {d.Reserved}");
             Require.Equal("Dropped", d.State, "the essential item's state after the drop");
             if (o.Taken)
                 Require.Equal(d.Item, await pair.Host.Run<ushort>(s => InGame.Take(s, d.Item)), "the item the host holds");
 
             await pair.Client.Run<Abs>(s => Walk.Away(s, 40, 0));
-            Recalled r = await pair.Client.Run<Recalled>(s => InGame.Recall(s, d.Item, o.Slot));
+            Recalled r = await pair.Client.Run<Recalled>(s => InGame.Recall(s, d.Item, d.Slot));
             Report.Note($"client: slot {r.Slot}, {r.State} after {r.Seconds:0.#} s");
-            Expect.Equal(o.Slot, r.Slot, "the slot the item is back in");
+            Expect.Equal(d.Slot, r.Slot, "the slot the item is back in");
             await Task.Delay(2000);   // the recall's record settles on the host
             ItemRecord h = await pair.Host.Run(() => Items.Record(d.Item));
             Report.Note($"host: {h}");
@@ -48,6 +50,7 @@ namespace Dvmp.Scenarios
         public sealed class Dropped
         {
             public ushort Item;
+            public int Slot;
             public string Name, State;
             public bool Reserved;
         }
@@ -68,11 +71,15 @@ namespace Dvmp.Scenarios
             public static IEnumerator DropEssential(Step<Dropped> step, int slot)
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
+                if (slot < 0)
+                    for (int i = 0; i < inv.Capacity && slot < 0; i++)
+                        if (inv.PeekItemAtSlot(i, false)?.GetComponent<InventoryItemSpec>()?.IsEssential == true) slot = i;
+                if (slot < 0) throw new Exception("no essential in the inventory");
                 var go = inv.PeekItemAtSlot(slot, false) ?? throw new Exception("slot " + slot + " is empty");
                 var n = go.GetComponent<NetworkedItem>();
                 inv.DropItemFromHandsOrInventory(slot);
                 for (int i = 0; i < 90; i++) yield return null;
-                step.Result = new Dropped { Item = n.NetId, Name = go.name.Replace("(Clone)", ""), State = n.GetItemState().ToString(), Reserved = inv.GetSlotReservedState(slot) };
+                step.Result = new Dropped { Slot = slot, Item = n.NetId, Name = go.name.Replace("(Clone)", ""), State = n.GetItemState().ToString(), Reserved = inv.GetSlotReservedState(slot) };
             }
 
             /// <summary>Host: picks up another player's dropped item. Result: what it holds then.</summary>
