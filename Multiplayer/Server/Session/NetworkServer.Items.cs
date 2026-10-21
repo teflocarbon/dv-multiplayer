@@ -383,47 +383,6 @@ public partial class NetworkServer : IItemServer
         }
     }
 
-    private void OnServerboundItemAdoptionPacket(ServerboundItemAdoptionPacket packet, ITransportPeer peer)
-    {
-        // TEMPORARY: remove this handler after shops, receipts, and every other remaining DV item
-        // producer have explicit request/validation/host-create operations.
-        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Item", null);
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
-
-        ItemAdoptionRequestData request = packet.Request;
-        bool accepted = ServerItemManager.Instance.TryAdoptClientItem(player, request,
-            out ushort assignedNetId, out string rejectionReason);
-        AuthoritativeItemRegistry.TryGet(assignedNetId, out AuthoritativeItemRegistry.Record authorityRecord);
-        DebugRuntime.Publish("item", accepted ? "item.adoption-accepted" : "item.adoption-rejected",
-            DebugRuntimeSide.Server, accepted ? DebugSeverity.Info : DebugSeverity.Warning,
-            "Item", assignedNetId.ToString(), new()
-            {
-                ["adoptionToken"] = request.AdoptionToken ?? string.Empty,
-                ["prefab"] = request.PrefabName ?? string.Empty,
-                ["playerId"] = player.PlayerId,
-                ["assignedNetId"] = assignedNetId,
-                ["rejectionReason"] = rejectionReason ?? string.Empty,
-                ["snapshot"] = DebugTrace.ItemSnapshotData(request.Snapshot)
-            });
-
-        SendPacket(peer, new ClientboundItemAdoptionPacket
-        {
-            Result = new ItemAdoptionResultData
-            {
-                AdoptionToken = request.AdoptionToken,
-                Accepted = accepted,
-                AssignedNetId = assignedNetId,
-                RejectionReason = rejectionReason ?? string.Empty,
-                AuthorityRevision = authorityRecord?.Revision ?? 0,
-                PersistentOwnerPlayerId = authorityRecord?.PersistentOwnerPlayerId ?? 0,
-                InventoryClaimPlayerId = authorityRecord?.InventoryClaimPlayerId ?? 0,
-                InventoryClaimSlot = authorityRecord?.InventoryClaimSlot ?? -1,
-                InventoryClaimFlags = authorityRecord?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None
-            }
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
     private void OnServerboundItemBelowMapPacket(ServerboundItemBelowMapPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player) &&

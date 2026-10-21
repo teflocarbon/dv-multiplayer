@@ -127,7 +127,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         typeof(CommonPitStopInteractionPacket),
         typeof(CommonPitStopPlugInteractionPacket),
         typeof(CommonItemUpdatePacket),
-        typeof(ServerboundItemAdoptionPacket),
         typeof(ServerboundItemRecallPacket),
         typeof(ServerboundItemRecallPreparedPacket),
         typeof(ServerboundMoneyItemDepositPacket),
@@ -403,7 +402,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         // World Sync
         Handle<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
         Handle<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
-        Handle<ClientboundItemAdoptionPacket>(OnClientboundItemAdoptionPacket);
         Handle<ClientboundItemRecallPreparePacket>(OnClientboundItemRecallPreparePacket);
         Handle<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
         Handle<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
@@ -917,9 +915,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     {
         Log("World sync finished, removing loading screen");
         LoadingScreen.Finish();
-
-        // Starting items this game made itself are only this game's until the server adopts them.
-        ClientItemManager.Instance?.AdoptUnboundInventoryItemsSoon();
 
         chatGUI = ChatGUI.Create(isSinglePlayer);
     }

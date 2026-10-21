@@ -30,34 +30,6 @@ namespace Multiplayer.Server.Items;
 /// </summary>
 public static class NetworkedItemServer
 {
-    internal static void ServerInitialiseAdoptedItem(this NetworkedItem item, ServerPlayer owner, ItemUpdateData snapshot)
-    {
-        if (owner == null || item.NetId == 0 || snapshot == null)
-            return;
-
-        snapshot.ItemNetId = item.NetId;
-        snapshot.UpdateType = ItemUpdateData.ItemUpdateType.FullSync;
-        snapshot.PersistentOwnerPlayerId = owner.PlayerId;
-        // Registered already in the state it arrives in, so name the adoption: nothing else would.
-        if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, owner,
-                ItemTransitionReason.ClientAdoption, true, out string rejectionReason,
-                cause: ItemChangeLog.Move(ItemMoveReason.Adopted, owner,
-                    $"made by their game as {snapshot.ItemState}, owner {owner.Username}")))
-        {
-            Multiplayer.LogWarning($"Unable to initialize adopted item {item.NetId}: {rejectionReason}");
-            return;
-        }
-        item.UpdateHostPossessor(snapshot.PlayerId);
-        item.ApplyAuthorityMetadata(snapshot);
-        if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) && item.Item?.InventorySpecs != null)
-            item.Item.InventorySpecs.BelongsToPlayer = snapshot.BelongsToPlayer;
-        item.ReceiveSnapshot(snapshot);
-        // TEMPORARY compatibility adoption can change a newly registered projection from a
-        // spatial world item into a player-held item before the normal dirty-item pass runs.
-        // Remove this path after all producers use explicit host-authoritative operations.
-        ServerItemManager.Instance?.RegisterHostWorldItem(item);
-    }
-
     public static void Server_ReceiveItemUpdate(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(snapshot, DebugRuntimeSide.Server, "Item", snapshot?.ItemNetId.ToString());

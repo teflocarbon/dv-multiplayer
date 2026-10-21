@@ -28,7 +28,6 @@ public interface IItemClient
 
     void SendItemUpdatePacket(ItemUpdateData updateData);
     void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected);
-    void SendItemAdoption(ItemAdoptionRequestData request);
     void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot);
     void SendItemBelowMapReport(ushort itemNetId, float surfaceHeight);
     void SendItemSpatialSample(ItemSpatialStateData state);

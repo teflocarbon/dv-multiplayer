@@ -17,7 +17,9 @@ namespace Multiplayer.Client.Items;
 
 internal sealed partial class ClientItemManager
 {
-    // Dynamic projection creation, unbound local items and their temporary compatibility adoption.
+    // Dynamic projection creation and unbound local items. A client never makes an item of its own:
+    // the server makes every one (owned-items.md, PR 5), so an unbound item is an authored scene
+    // projection, kept dormant, or destroyed.
     // Dynamic client projections are fresh instances owned by one host-authoritative logical
     // lifetime.
     private bool CreateItem(ItemUpdateData snapshot, bool acknowledge = true)
@@ -57,8 +59,7 @@ internal sealed partial class ClientItemManager
         shell.EnsureAuthoredCatalogue();
 
         // The host owns canonical existence. Preserve exact authored scene projections in a
-        // dormant state, retain only the narrow temporary-adoption compatibility set, and
-        // destroy every other unbound client object.
+        // dormant state and destroy every other unbound client object.
         foreach (var item in NetworkedItem.GetAll())
         {
             try
@@ -70,10 +71,6 @@ internal sealed partial class ClientItemManager
                 if (item.IsSceneAuthored)
                 {
                     RetireClientProjection(item, "initial-authored-quarantine");
-                }
-                else if (IsTemporaryClientAdoptionAllowed(item, out _))
-                {
-                    item.Client()?.AllowUnboundLocalInteraction();
                 }
                 else
                 {
@@ -94,137 +91,13 @@ internal sealed partial class ClientItemManager
         if (item == null || item.NetId != 0 || DormantAuthoredClientProjections.Contains(item))
             return;
         shell.ScheduleTrackedValueFinalization(item);
-        Dictionary<string, object> classification = new();
-        bool allowInteraction = IsTemporaryClientAdoptionAllowed(item, out string compatibilityReason);
-        if (allowInteraction)
-            item.Client()?.AllowUnboundLocalInteraction();
-        else
-            item.Client()?.GateAsSceneObjectAwaitingHostCreate();
-        classification["classification"] = allowInteraction ? "temporary-client-adoption-compatibility" :
-            item.IsSceneAuthored ? "host-authored-projection" : "scene-authored-clutter";
-        classification["compatibilityReason"] = compatibilityReason;
-        NetworkedItemManager.TraceItem("item.unbound-classified", item, classification);
+        item.Client()?.GateAsSceneObjectAwaitingHostCreate();
+        NetworkedItemManager.TraceItem("item.unbound-classified", item, new()
+        {
+            ["classification"] = item.IsSceneAuthored ? "host-authored-projection" : "scene-authored-clutter"
+        });
         if (PendingUnboundClientItemSet.Add(item))
             PendingUnboundClientItems.Enqueue(item);
-    }
-
-    private const float UnboundInventoryAdoptionDelaySeconds = 10f;
-
-    /// <summary>
-    /// Starting items a player's own game makes as it joins (DV's safeguard adds what the server says
-    /// they don't own) stay unbound until first used, and until then only that game knows them: a
-    /// crash lost them for good (a sandbox's boombox and handheld console, 2026-10-17). Once the
-    /// server's originals have had time to arrive, ask it to adopt whatever is still unbound in the
-    /// inventory. Where the server holds an original, it hands that back instead
-    /// (TryAdoptClientItem), so this can't duplicate.
-    /// </summary>
-    internal void AdoptUnboundInventoryItemsSoon() => shell.StartCoroutine(AdoptUnboundInventoryItems());
-
-    private IEnumerator AdoptUnboundInventoryItems()
-    {
-        yield return new WaitForSecondsRealtime(UnboundInventoryAdoptionDelaySeconds);
-        if (NetworkLifecycle.Instance == null || !NetworkRole.IsRemoteClient)
-            yield break;
-        int requested = 0;
-        foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null && item.NetId == 0).ToArray())
-        {
-            bool inInventory;
-            try { inInventory = Inventory.Instance?.Contains(item.gameObject, false) == true; }
-            catch { inInventory = false; }
-            if (!inInventory)
-                continue;
-            RequestItemAdoption(item, "unbound-in-inventory-after-join");
-            requested++;
-        }
-        if (requested > 0)
-            Multiplayer.Log($"Asked the server to adopt {requested} item(s) only this game knew, from the inventory");
-    }
-
-    public void RequestItemAdoption(NetworkedItem item, string reason)
-    {
-        if (item == null || item.NetId != 0)
-            return;
-        if (!IsTemporaryClientAdoptionAllowed(item, out string compatibilityReason))
-        {
-            DebugRuntime.Publish("item", "item.adoption-rejected", DebugRuntimeSide.Client,
-                DebugSeverity.Error, "Item", "0", new()
-                {
-                    ["reason"] = "temporary-compatibility-policy-rejected",
-                    ["compatibilityReason"] = compatibilityReason,
-                    ["trigger"] = reason ?? string.Empty
-                });
-            RetireClientProjection(item, "temporary-adoption-policy-rejected");
-            return;
-        }
-        string token = Guid.NewGuid().ToString("N");
-        ItemAdoptionRequestData request = item.Client()?.CreateItemAdoptionRequest(token) ?? default;
-        if (request.Snapshot == null || string.IsNullOrWhiteSpace(request.PrefabName))
-        {
-            DebugRuntime.Publish("item", "item.adoption-rejected", DebugRuntimeSide.Client, DebugSeverity.Error,
-                "Item", "0", new() { ["reason"] = "local-snapshot-unavailable", ["trigger"] = reason ?? string.Empty });
-            RetireClientProjection(item, "temporary-adoption-snapshot-unavailable");
-            return;
-        }
-        AdoptionBeginStatus begin = TemporaryClientAdoptions.TryBegin(item, token);
-        if (begin != AdoptionBeginStatus.Started)
-        {
-            DebugRuntime.Publish("item", "item.adoption-request-suppressed", DebugRuntimeSide.Client,
-                DebugSeverity.Warning, "Item", "0", new()
-                {
-                    ["reason"] = begin.ToString(),
-                    ["adoptionToken"] = token
-                });
-            return;
-        }
-        Dictionary<string, object> data = item.LocalStateDebugData();
-        data["adoptionToken"] = token;
-        data["trigger"] = reason ?? string.Empty;
-        data["snapshot"] = DebugTrace.ItemSnapshotData(request.Snapshot);
-        DebugRuntime.Publish("item", "item.adoption-requested", DebugRuntimeSide.Client, DebugSeverity.Info,
-            "Item", "0", data);
-        ItemClient.Current?.SendItemAdoption(request);
-    }
-
-    internal void ApplyItemAdoptionResult(ItemAdoptionResultData result)
-    {
-        string token = result.AdoptionToken ?? string.Empty;
-        AdoptionResolution<NetworkedItem> resolution = TemporaryClientAdoptions.Resolve(token,
-            result.Accepted, result.AssignedNetId);
-        NetworkedItem item = resolution.Item;
-        if (resolution.Status is AdoptionResolutionStatus.UnknownToken or
-            AdoptionResolutionStatus.AlreadyCompleted)
-        {
-            DebugRuntime.Publish("item", "item.adoption-result-ignored", DebugRuntimeSide.Client,
-                DebugSeverity.Warning, "Item", result.AssignedNetId.ToString(), new()
-                {
-                    ["adoptionToken"] = token,
-                    ["reason"] = resolution.Status.ToString(),
-                    ["assignedNetId"] = result.AssignedNetId
-                });
-            return;
-        }
-        if (item == null)
-            return;
-
-        Dictionary<string, object> data = item.LocalStateDebugData();
-        data["adoptionToken"] = token;
-        data["assignedNetId"] = result.AssignedNetId;
-        data["rejectionReason"] = result.RejectionReason ?? string.Empty;
-        if (resolution.Status != AdoptionResolutionStatus.Accepted)
-        {
-            DebugRuntime.Publish("item", "item.adoption-rejected", DebugRuntimeSide.Client, DebugSeverity.Warning,
-                "Item", "0", new Dictionary<string, object>(data)
-                {
-                    ["coordinatorStatus"] = resolution.Status.ToString()
-                });
-            RetireClientProjection(item, "temporary-adoption-host-rejected");
-            return;
-        }
-
-        item.Client()?.CompleteItemAdoption(result);
-        shell.ScheduleTrackedValueFinalization(item);
-        DebugRuntime.Publish("item", "item.adoption-complete", DebugRuntimeSide.Client, DebugSeverity.Info,
-            "Item", result.AssignedNetId.ToString(), data);
     }
 
     public void ResolveAuthoritativeBindingCollision(NetworkedItem incoming, ushort authoritativeId, Type trackedItemType)
@@ -248,67 +121,6 @@ internal sealed partial class ClientItemManager
         // The job/lifecycle-created object is the authoritative representation. Retire any
         // earlier generic copy before the new object takes ownership of the ID lookup.
         RetireClientProjection(existing, "authoritative-binding-collision");
-    }
-
-    private bool IsTemporaryClientAdoptionAllowed(NetworkedItem item, out string reason)
-    {
-        if (!TemporaryClientAdoptionCompatibility.AllowsLocalItem(item,
-                shell.DoNotCreateItem, out reason))
-            return false;
-        if (IsPlayerOrStoredItem(item, out _))
-            return true;
-        reason = "not-player-or-storage-associated";
-        return false;
-    }
-
-    private static bool IsPlayerOrStoredItem(NetworkedItem item, out Dictionary<string, object> data)
-    {
-        bool belongsToPlayer = item?.Item?.InventorySpecs?.BelongsToPlayer == true;
-        bool grabbed = item?.Item?.IsGrabbed() == true;
-        bool inventoryMember = false;
-        bool itemContainerMember = false;
-        bool worldStorageMember = false;
-        bool storageInventoryMember = false;
-        bool storageLostAndFoundMember = false;
-        bool storageItemContainerMember = false;
-        bool storageAvailable = StorageController.Instance != null;
-        try
-        {
-            inventoryMember = Inventory.Instance?.Contains(item.gameObject, false) == true;
-            var container = Inventory.Instance?.ItemContainerRegistry?.GetItemContainerAndIndex(item.gameObject);
-            itemContainerMember = container.HasValue && container.Value.Item1 != null;
-            StorageController storage = StorageController.Instance;
-            worldStorageMember = storage?.StorageWorld?.ContainsItem(item.Item) == true;
-            storageInventoryMember = storage?.StorageInventory?.ContainsItem(item.Item) == true;
-            storageLostAndFoundMember = storage?.StorageLostAndFound?.ContainsItem(item.Item) == true;
-            storageItemContainerMember = storage?.StorageItemContainers?.ContainsItem(item.Item) == true;
-        }
-        catch (Exception exception)
-        {
-            data = new Dictionary<string, object>
-            {
-                ["classificationError"] = exception.Message,
-                ["storageAvailable"] = storageAvailable
-            };
-            // Unknown is safer than briefly disabling a legitimate grab. The reconciliation
-            // queue will classify it again once the storage systems are available.
-            return true;
-        }
-
-        data = new Dictionary<string, object>
-        {
-            ["belongsToPlayer"] = belongsToPlayer,
-            ["grabbed"] = grabbed,
-            ["inventoryMember"] = inventoryMember,
-            ["itemContainerMember"] = itemContainerMember,
-            ["worldStorageMember"] = worldStorageMember,
-            ["storageInventoryMember"] = storageInventoryMember,
-            ["storageLostAndFoundMember"] = storageLostAndFoundMember,
-            ["storageItemContainerMember"] = storageItemContainerMember,
-            ["storageAvailable"] = storageAvailable
-        };
-        return !storageAvailable || belongsToPlayer || grabbed || inventoryMember || itemContainerMember ||
-            worldStorageMember || storageInventoryMember || storageLostAndFoundMember || storageItemContainerMember;
     }
 
     private void RetireClientProjection(NetworkedItem netItem, string reason)

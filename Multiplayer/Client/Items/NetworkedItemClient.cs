@@ -15,8 +15,8 @@ namespace Multiplayer.Client.Items;
 
 /// <summary>
 /// The remote client's half of one <see cref="NetworkedItem"/> (<see cref="INetworkedItemClientPart"/>):
-/// whether it is bound to a host-issued id and so usable, its Lost and Found tombstone, its
-/// temporary adoption, the end of its network lifetime when the host retires it, the release grace
+/// whether it is bound to a host-issued id and so usable, its Lost and Found tombstone, the
+/// end of its network lifetime when the host retires it, the release grace
 /// and object-state send gate, and sending the local player's changes to the host (with the revision
 /// they claim). Made by the item from the local
 /// session (<see cref="Session.NetworkClient"/>) on a remote client only; client code reaches it as
@@ -107,58 +107,10 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         item.ForgetNetworkLifetime();
     }
 
-    internal void AllowUnboundLocalInteraction()
-    {
-        UnboundState = ClientItemUnboundState.None;
-        SetNetworkBinding(true);
-    }
-
     internal void GateAsSceneObjectAwaitingHostCreate()
     {
         UnboundState = ClientItemUnboundState.SceneObjectAwaitingHostCreate;
         SetNetworkBinding(false);
-    }
-
-    internal void CompleteItemAdoption(ItemAdoptionResultData result)
-    {
-        if (result.AssignedNetId == 0)
-            return;
-        item.NetId = result.AssignedNetId;
-        item.ApplyAuthorityMetadata(new ItemUpdateData
-        {
-            AuthorityRevision = result.AuthorityRevision,
-            PersistentOwnerPlayerId = result.PersistentOwnerPlayerId,
-            InventoryClaimPlayerId = result.InventoryClaimPlayerId,
-            InventoryClaimSlot = result.InventoryClaimSlot,
-            InventoryClaimFlags = result.InventoryClaimFlags,
-            TransitionReason = ItemTransitionReason.ClientAdoption
-        });
-        UnboundState = ClientItemUnboundState.None;
-        SetNetworkBinding(true);
-        item.CreatedDirty = false;
-        item.HasLastSentState = false;
-        item.StateDirty = true;
-        item.ProcessLocalStateObservation("adoption-complete");
-    }
-
-    internal ItemAdoptionRequestData CreateItemAdoptionRequest(string token)
-    {
-        ItemState currentState = item.GetItemState();
-        item.LastObservedState = currentState;
-        item.playerBelongsToId = currentState is ItemState.InHand or ItemState.InInventory
-            ? NetworkLifecycle.Instance.LocalSession.PlayerId
-            : (byte)0;
-        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
-        return new ItemAdoptionRequestData
-        {
-            AdoptionToken = token,
-            PrefabName = Item?.InventorySpecs?.ItemPrefabName ?? item.name,
-            PlayerProperty = Item?.InventorySpecs?.BelongsToPlayer == true,
-            AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
-            Position = transform.position - WorldMover.currentMove,
-            Rotation = transform.rotation,
-            Snapshot = snapshot
-        };
     }
 
     public void QueueObservation(string reason) =>
@@ -223,10 +175,10 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
 
         if (NetId == 0)
         {
-            NetworkedItemManager.Instance?.ClientPart?.RequestItemAdoption(item, reason);
+            // Not the server's: a client never makes its own items (owned-items.md, PR 5).
             item.StateDirty = false;
             item.PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
-                "awaiting-host-item-adoption");
+                "unbound-local-item");
             return;
         }
 

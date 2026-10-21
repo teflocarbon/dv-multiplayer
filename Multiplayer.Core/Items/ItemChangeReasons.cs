@@ -72,8 +72,8 @@ public enum ItemMoveReason : byte
     /// <summary>Given by an admin command.</summary>
     Granted,
     /// <summary>
-    /// TEMPORARY: a client-made item the host adopted (starter kit, Derail Valley's essentials).
-    /// Goes with the adoption protocol.
+    /// A client-made item the host adopted. No longer made: adoption is gone (owned-items.md, PR 5).
+    /// Kept so the members after it keep their numbers.
     /// </summary>
     Adopted,
     /// <summary>A rejoining player's original handed back in place of their game's fresh copy.</summary>

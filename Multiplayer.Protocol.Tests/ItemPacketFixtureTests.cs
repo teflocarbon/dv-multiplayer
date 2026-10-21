@@ -226,37 +226,6 @@ public sealed class ItemPacketFixtureTests
         Assert.That(RoundTrip(source).MoveCause, Is.Null);
     }
 
-    [Test]
-    public void TemporaryAdoptionEnvelopeRoundTripsCompatibilityClassification()
-    {
-        ItemAdoptionRequestData source = new()
-        {
-            AdoptionToken = "temporary-token",
-            PrefabName = "Flashlight",
-            PlayerProperty = true,
-            AuthoredItemKey = string.Empty,
-            Position = new Vector3(12f, 34f, 56f),
-            Rotation = Quaternion.identity,
-            Snapshot = Fixture(ItemUpdateData.ItemUpdateType.FullSync, ItemState.InInventory)
-        };
-        var writer = new NetDataWriter();
-        ItemAdoptionRequestData.Serialize(writer, source);
-        var reader = new NetDataReader(writer.Data, 0, writer.Length);
-        ItemAdoptionRequestData result = ItemAdoptionRequestData.Deserialize(reader);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(reader.AvailableBytes, Is.Zero);
-            Assert.That(result.AdoptionToken, Is.EqualTo(source.AdoptionToken));
-            Assert.That(result.PrefabName, Is.EqualTo(source.PrefabName));
-            Assert.That(result.PlayerProperty, Is.True);
-            Assert.That(result.AuthoredItemKey, Is.Empty);
-            Assert.That(result.Snapshot.UpdateType, Is.EqualTo(ItemUpdateData.ItemUpdateType.FullSync));
-            Assert.That(result.Snapshot.ItemState, Is.EqualTo(ItemState.InInventory));
-        });
-        AssertVector(result.Position, source.Position);
-    }
-
     [TestCase(ItemUpdateData.ItemUpdateType.ObjectState)]
     [TestCase(ItemUpdateData.ItemUpdateType.FullSync)]
     public void StateBearingUpdatesRoundTripTrackedState(ItemUpdateData.ItemUpdateType updateType)

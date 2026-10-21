@@ -63,6 +63,8 @@ on the server and in every client, are made to agree with it.
   the starter kit and missing essentials, the safeguards are off everywhere, and the join fields
   and the rejoin swap are gone (see [4](#4-server-made-starting-items)). Scenario:
   `starting-items`.
+- **PR 5, no adoption: built (2026-10-22), not yet run in game.** Client item adoption is deleted;
+  nothing legitimate still used it (see [5](#5-no-adoption)).
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -894,6 +896,34 @@ As built (2026-10-21):
   `shop WHO=host` scenario.
 - Scenario: `starting-items` and `rejoin` show that no adoption request is sent. A check in
   `ServerRequests` counts none.
+
+As built (2026-10-22):
+
+- **What still adopted, checked first** (the producers a client or a player host's game makes
+  locally):
+  - Purchases, change and refunds, admin grants, jobs' documents, Lost and Found, containers and
+    installed gadgets are made by the server.
+  - Receipts are client-local and aren't player property, so a client destroys its own.
+  - The host's own player never adopted: its items are server items as they're made.
+  - Two producers were left, both harmful:
+    - the wallet coin flick. Vanilla `Coin.MakeCoin`, and money is player property. Adopted and picked
+      up, it credited $1 on the host, from nothing (by reading the code; not tried in game).
+    - DV's developer console spawns.
+
+    Without adoption both vanish on the client. `/give` replaces the console.
+  - Vanilla's used-up replacements (an empty tape roll, a spool, a paint can, a label) aren't player
+    property, so a client destroyed them before adoption saw them. That is unchanged; gadget PRs 4, 5
+    and 9 make them server-side.
+- **Deleted:**
+  - `TemporaryClientAdoptionCompatibility` and `TemporaryHostAdoptionCompatibility`;
+  - both adoption packets and `ItemAdoptionData`;
+  - `AdoptionCoordinator` and `HostAdoptionRegistry`, with their tests;
+  - the client's request, result and 10-second inventory sweep;
+  - the server's `TryAdoptClientItem` and `ServerInitialiseAdoptedItem`.
+- **Unbound client items:** an unbound client item is now an authored scene projection (kept
+  dormant) or destroyed.
+- **Kept:** `ItemTransitionReason.ClientAdoption` and `ItemMoveReason.Adopted`, unused, so the members
+  after them keep their numbers on the wire.
 
 ### 6. The list and retrieval
 
