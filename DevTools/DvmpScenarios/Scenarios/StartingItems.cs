@@ -37,6 +37,12 @@ namespace Dvmp.Scenarios
             string radio = essentials.FirstOrDefault(p => p.StartsWith("CommsRadio", StringComparison.Ordinal)) ?? essentials[0];
             Report.Note($"essentials: {string.Join(", ", essentials)}; the one destroyed: {radio}");
 
+            // The radio must be in the client's inventory, where the other scenarios expect it, at the
+            // start and at the end: a failed run once left it in Lost and Found, and recall and the
+            // essential scenarios failed after it.
+            await BackInInventory(pair, client, radio);
+            pair.Cleanup(() => BackInInventory(pair, client, radio));
+
             Have before = await pair.Host.Run(() => InGame.Owned(client, essentials));
             Report.Note("before: " + before);
             ExpectOnceEach(before, essentials, "before the first rejoin");
@@ -91,6 +97,15 @@ namespace Dvmp.Scenarios
             ExpectOnceEach(after, essentials, "after the starter kit");
         }
 
+        private static async Task BackInInventory(Pair pair, string client, string prefab)
+        {
+            foreach (ushort net in await pair.Host.Run(() => InGame.InLostAndFound(client, prefab)))
+            {
+                int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, net), 60);
+                Report.Note($"took the client's {prefab} {net} out of its Lost and Found, into slot {slot}");
+            }
+        }
+
         private static void ExpectOnceEach(Have have, string[] prefabs, string when)
         {
             foreach (string prefab in prefabs)
@@ -138,6 +153,17 @@ namespace Dvmp.Scenarios
                     UnityEngine.Object.Destroy(item.gameObject);
                 for (int i = 0; i < 30; i++) yield return null;
                 step.Result = !NetworkedItem.TryGet(netId, out NetworkedItem left) || left == null;
+            }
+
+            /// <summary>Host: the net IDs of the owner's items of this prefab in their Lost and Found.</summary>
+            [Step]
+            public static ushort[] InLostAndFound(string owner, string prefab)
+            {
+                Guid who = Guid.Parse(owner);
+                var ids = OwnedItemsServer.Ledger.LiveOwnedBy(who)
+                    .Where(e => e.Prefab == prefab && e.Where.Place == Multiplayer.Core.Items.OwnedItemPlace.LostAndFound)
+                    .Select(e => e.Id).ToList();
+                return AuthoritativeItemRegistry.GetAll().Where(r => ids.Contains(r.PersistentItemId)).Select(r => r.NetId).ToArray();
             }
 
             /// <summary>Host: forgets the owner's starter-kit marker, as for a first join. Result: whether they had it.</summary>

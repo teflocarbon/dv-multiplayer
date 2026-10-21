@@ -74,8 +74,13 @@ public static class StartingItemsIssuer
             HashSet<int> taken = TakenSlots(player);
             List<(string Prefab, string State, bool Essential, ItemMoveReason Reason, int Slot)> wanted = new();
             foreach (string prefab in AdminItemGrants.StartingItemPrefabs().Distinct(StringComparer.Ordinal))
-                if (!Has(player, prefab))
+            {
+                bool has = Has(player, prefab);
+                Multiplayer.LogDebug(() => $"Starting items: {player.Username} {(has ? "has" : "lacks")} a {prefab} " +
+                                           $"(ledger: {string.Join(", ", OwnedItemsServer.Ledger.LiveOwnedBy(owner).Where(e => e.Prefab == prefab).Select(e => e.Id.ToString("D") + " " + e.Where.Place))})");
+                if (!has)
                     wanted.Add((prefab, null, true, ItemMoveReason.Issued, FreeSlot(taken, 0)));
+            }
             bool kit = !OwnedItemsServer.Ledger.HasStarterKit(owner);
             if (kit)
                 foreach ((string prefab, string state) in StarterKit)
