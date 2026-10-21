@@ -53,6 +53,10 @@ on the server and in every client, are made to agree with it.
 - **PR 2a, an offline owner keeps their items: built (2026-10-21), not yet run in game.** The absent
   owner number, and Lost and Found binding every entry at load (see [2a](#2a-identity-on-the-server)).
   Core tests: `AbsentOwnerTests`. Scenario: `absent-owner`.
+- **PR 3, Lost and Found for everyone: built (2026-10-21), not yet run in game.** An offline owner
+  counts as far, a departing borrower sends items home, `SendToLostAndFound` (see
+  [3](#3-lost-and-found-for-everyone)). Core tests: `LostAndFoundAwayOwnerTests`. Scenarios:
+  `offline-lost-and-found`, `borrowed-disconnect`.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -796,22 +800,36 @@ stop being stored and every check move to the identity:
 
 ### 3. Lost and Found for everyone
 
-- Offline counts as far, with the wider placements for offline owners. A borrower leaving sends
-  items to their owner's Lost and Found. The new reasons. The departing player's hand item goes into
-  their inventory.
-- An installed gadget whose car is missing at load goes to its owner's Lost and Found
-  (`GadgetDestinationMissing`), online or not, instead of down vanilla's path (left here by gadget
-  PR 1, #281). `gadget-save` gains the check.
+As built (2026-10-21):
+
+- **Offline counts as far.**
+  - In `LostItemCollectionPolicy`, an owner with the [absent number](#2a-identity-on-the-server)
+    skips the owner-distance checks.
+  - Their items are collected from train interiors and shelves as well as the world, under the
+    usual nearby-player protection and grace period.
+  - With nobody connected, nothing is collected (player positions unknown).
+  - `Collect` lets such an item leave a train or a shelf.
+- **A departing borrower** drops someone else's item where they stood, as before, and it is
+  collected into its owner's Lost and Found at once (`LostItemReason.BorrowerLeft`), whether the
+  owner is online or not.
+- **`OwnedItemsServer.SendToLostAndFound(id, reason, detail)`** is the one entry point by id, for
+  shops' delivery and later retrieval. It refuses an item that is with a player.
+- **Left for later PRs:**
+  - Attached and snapped items (an EOT lantern, a hanger) aren't swept yet: collecting them needs a
+    detach first.
+  - A departing player's own hand item is still dropped where they stood. It should go into their
+    inventory, as a save already treats it.
+  - `GadgetDestinationMissing` (an installed gadget whose car is gone at load) isn't routed yet. It
+    needs gadget sync to tell the item code about the missing car.
+- **Tests:** Core unit tests (`LostAndFoundAwayOwnerTests`).
 - Scenario **`offline-lost-and-found`** (both hosts):
-  1. With the policy tightened, the host places items owned by a made-up identity: one in the world,
-     one in a car's interior, one on a car's end.
-  2. The client stays within the protection distance: nothing is collected.
-  3. It walks away: after the grace period all three are in the absent identity's Lost and Found.
-  4. The online client's own item in that car's interior is not collected.
-- Scenario **`borrowed-disconnect`**, changed:
-  - The item goes to the owner's Lost and Found when the borrower leaves.
-  - On a dedicated host the owner is a made-up identity, so the scenario drops `Need.PlayerHost` and
-    covers the offline-owner case too.
+  1. The host gives two mugs to a made-up identity. The client carries one onto the ground and one
+     into a loco's cab, and its own third mug into the cab.
+  2. With the client nearby, nothing is collected.
+  3. It walks away: both absent player's mugs are in their Lost and Found, under their own ids.
+  4. The online client's own cab mug stays in the cab.
+- Scenario **`borrowed-disconnect`**, changed: the item must be in the owner's Lost and Found
+  after the borrower leaves.
 
 ### 4. Server-made starting items
 

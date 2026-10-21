@@ -38,7 +38,8 @@ namespace Dvmp.Scenarios
                 await Task.Delay(6000);   // the host notices the departure
                 ItemRecord after = await pair.Host.Run(() => Items.Record(item));
                 Report.Note($"after the client left: {after.Placement}, owner P{after.Owner}, in Lost and Found {after.Lost}");
-                Expect.That(after.Placement == "World" || after.Placement == "LostAndFound", "the host's mug stayed behind (in the world or Lost and Found)", after.Placement);
+                // Straight to its owner's Lost and Found (owned-items.md, "Leaving"), not left where the client stood.
+                Expect.Equal("LostAndFound", after.Placement, "where the host's mug went when the client left");
                 Expect.Equal(own.Host, after.Owner, "the mug's owner after the client left (the host's number)");
             }
             finally

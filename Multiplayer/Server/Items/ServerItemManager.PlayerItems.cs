@@ -243,8 +243,8 @@ internal sealed partial class ServerItemManager
     /// Host: a disconnecting player can't keep holding anything. Commit each item in their hand
     /// as dropped where it is, so the authority record matches the object lying in the world
     /// and anyone can pick it up. Their own inventory items stay keyed to them for when they
-    /// return; items in it that belong to someone else are dropped too, rather than leaving with
-    /// them, and go to their owner's Lost and Found if nobody picks them up.
+    /// return. Items in their hand or inventory that belong to someone else go to their owner's
+    /// Lost and Found, whether the owner is online or not (owned-items.md, "Leaving").
     /// </summary>
     internal void DropHeldItemsOfDepartingPlayer(ServerPlayer player)
     {
@@ -256,9 +256,7 @@ internal sealed partial class ServerItemManager
             if (record.PlacementPlayerId != player.PlayerId)
                 continue;
             bool inHand = record.Placement == ItemPlacementKind.PlayerHand;
-            bool borrowed = record.Placement == ItemPlacementKind.PlayerInventory &&
-                            record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId != player.PlayerId &&
-                            record.PersistentOwnerIdentity != player.Guid;
+            bool borrowed = record.Placement == ItemPlacementKind.PlayerInventory && IsSomeoneElses(record, player);
             if (!inHand && !borrowed)
                 continue;
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
@@ -285,8 +283,16 @@ internal sealed partial class ServerItemManager
             item.ApplyServerCanonicalSnapshot(snapshot);
             RegisterHostWorldItem(item);
             NetworkServer.Instance.SendItemUpdatePacket(snapshot, excludePlayer: player);
+            // Someone else's item goes straight to its owner's Lost and Found, online or not, rather
+            // than lie where the borrower stood (owned-items.md, "Leaving").
+            if (IsSomeoneElses(record, player))
+                NetworkedLostAndFoundManager.Collect(item, LostItemReason.BorrowerLeft, "left by " + player.Username);
         }
     }
+
+    private static bool IsSomeoneElses(AuthoritativeItemRegistry.Record record, ServerPlayer player) =>
+        record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId != player.PlayerId &&
+        record.PersistentOwnerIdentity != player.Guid;
 
     private static bool IsFinite(Vector3 value) =>
         !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&

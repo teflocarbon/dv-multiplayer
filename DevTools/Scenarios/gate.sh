@@ -52,6 +52,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "ledger-save|ledger-save|"
   "fixture-no-stash|fixture-no-stash|"
   "absent-owner|absent-owner|"
+  "offline-lost-and-found|offline-lost-and-found|"
   "containers-host|containers|WHO=host|player"
   "client-fall-rescue|client-fall-rescue|"
   "manual-uncouple|manual-uncouple|N=3"

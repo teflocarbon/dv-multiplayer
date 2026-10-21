@@ -318,9 +318,12 @@ public static class NetworkedLostAndFoundManager
         ItemPlacementKind previousPlacement = previousAuthority.Placement;
         byte previousPlacementPlayerId = previousAuthority.PlacementPlayerId;
         ItemTransitionReason previousReason = previousAuthority.LastReason;
+        // Distance collection takes only loose world items, except for an owner who isn't here, whose
+        // items in trains and on shelves go too (owned-items.md, PR 3).
+        bool ownerAway = previousAuthority.PersistentOwnerPlayerId == ItemTransitionCommand.AbsentOwnerId;
         if (!AuthoritativeItemRegistry.TryMoveToLostAndFound(item,
                 out AuthoritativeItemRegistry.Record authority, out string rejectionReason,
-                allowRecoveryPlacement: reason != LostItemReason.OwnerDistance))
+                allowRecoveryPlacement: reason != LostItemReason.OwnerDistance || ownerAway))
         {
             Publish("item.lost-and-found-collection-rejected", item,
                 new() { ["rejectionReason"] = rejectionReason }, DebugSeverity.Warning);
