@@ -53,7 +53,7 @@
     identities, Lost and Found owners, and the cold-container snapshot (decoded, re-keyed and
     encoded again). A system that imports later then finds the new ID.
   - It also re-keys what's already imported: the item registry, Lost and Found (restored and
-    pending entries), the cold-container graph and the starter kits given.
+    pending entries), the cold-container graph and the ledger's starter-kit marker.
   - The gate can't reach it, since `-mp-allow-unverified` keeps GUIDs. A verified dvmp pair
     (above) does.
 - **Step 1, starting items: built and tested.**
@@ -67,9 +67,10 @@
     skips both safeguards, so its parked body stays empty.
   - `rejoin`, `rejoin-crash` and `inventory-persist` passed. After a restart, the client's inventory
     held each item once.
-  - This is narrower than "the server gives starting items": a genuinely missing item is still made
-    by the player's own game, as in single player, and then adopted. It removes the duplicates
-    without new item spawning on the server.
+  - This was narrower than "the server gives starting items": a genuinely missing item was still made
+    by the player's own game, as in single player, and then adopted.
+  - Replaced by owned-items PR 4: the server makes the starter kit and essentials, both safeguards
+    are off in every game, and the two patches and packet fields are gone.
 - **Steps 2 and 3, the host's own player by player ID and the one-time conversion: built and
   tested** (2026-10-17, one pair: `host-player-persist`, `rejoin`, `rejoin-crash`, `save-reload`,
   `inventory-persist`, `borrowed-disconnect`, `lost-and-found`, `recall`, `shop`).

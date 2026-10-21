@@ -424,7 +424,7 @@ public static class NetworkedColdContainerManager
         }
     }
 
-    private static void PublishMaterializedItem(ItemUpdateData snapshot, NetworkedItem item)
+    internal static void PublishMaterializedItem(ItemUpdateData snapshot, NetworkedItem item)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (NetworkServer.Instance == null || snapshot == null || item == null)

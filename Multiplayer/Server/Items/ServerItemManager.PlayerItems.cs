@@ -83,17 +83,11 @@ internal sealed partial class ServerItemManager
             });
     }
 
-    /// <param name="restoredOriginal">
-    /// Set when the request was a fresh copy of an item the returning player already owns: the
-    /// adoption is rejected and the caller must send this snapshot to the player after the
-    /// rejection, so the original lands in the inventory slot the rejected copy vacates.
-    /// </param>
     public bool TryAdoptClientItem(ServerPlayer player, ItemAdoptionRequestData request,
-        out ushort assignedNetId, out string rejectionReason, out ItemUpdateData restoredOriginal)
+        out ushort assignedNetId, out string rejectionReason)
     {
         assignedNetId = 0;
         rejectionReason = string.Empty;
-        restoredOriginal = null;
         if (!NetworkLifecycle.Instance.IsHost() || player == null)
         {
             rejectionReason = "invalid-runtime-or-player";
@@ -146,13 +140,6 @@ internal sealed partial class ServerItemManager
                 : "invalid-adoption-token";
             return false;
         }
-        if (TryRestoreReturningOwnerItem(player, request.PrefabName, out restoredOriginal))
-        {
-            assignedNetId = restoredOriginal.ItemNetId;
-            rejectionReason = "returning-owner-original-restored:" + assignedNetId;
-            TemporaryHostAdoptions.Complete(player.PlayerId, token, false, assignedNetId, rejectionReason);
-            return false;
-        }
         if (!shell.TryGetItemPrefab(request.PrefabName, out GameObject prefab))
         {
             rejectionReason = "unknown-prefab";
@@ -178,65 +165,6 @@ internal sealed partial class ServerItemManager
         networkedItem.ServerInitialiseAdoptedItem(player, request.Snapshot);
         TemporaryHostAdoptions.Complete(player.PlayerId, token, true, assignedNetId, string.Empty);
         return true;
-    }
-
-    // Originals already handed back to each player this session, so two fresh copies of the
-    // same prefab never claim the same original.
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ServerPlayer, HashSet<ushort>>
-        restoredOriginals = new();
-
-    /// <summary>
-    /// A returning player's game spawns a fresh starting kit and essentials and asks for each to
-    /// be adopted, while the host still holds that player's originals (kept on disconnect, keyed
-    /// to their identity). Adopting the copies duplicated every item, and the original
-    /// essentials ended up on the floor because DV allows one of each. Instead, hand the
-    /// original back: move it into the player's inventory with a new canonical revision.
-    /// </summary>
-    private static bool TryRestoreReturningOwnerItem(ServerPlayer player, string prefabName,
-        out ItemUpdateData restored)
-    {
-        restored = null;
-        if (player == null || player.Guid == Guid.Empty || string.IsNullOrEmpty(prefabName))
-            return false;
-        HashSet<ushort> alreadyRestored = restoredOriginals.GetOrCreateValue(player);
-
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.Records.ToArray())
-        {
-            if (record.PersistentOwnerIdentity != player.Guid || alreadyRestored.Contains(record.NetId))
-                continue;
-            // Only items still with their owner; anything since picked up by someone else or
-            // left in the world stays where it is.
-            if (record.Placement is not (ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand) ||
-                record.PlacementPlayerIdentity != player.Guid && record.PlacementPlayerIdentity != Guid.Empty)
-                continue;
-            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem original) || original == null ||
-                original.Item?.InventorySpecs?.ItemPrefabName != prefabName)
-                continue;
-
-            ItemUpdateData snapshot = original.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
-            if (snapshot == null)
-                continue;
-            snapshot.ItemState = ItemState.InInventory;
-            snapshot.PlayerId = player.PlayerId;
-            snapshot.PlayerHand = PlayerHand.None;
-            snapshot.AuthorityRevision = record.Revision;
-            if (!AuthoritativeItemRegistry.TryApplyTransition(original, snapshot, player,
-                    ItemTransitionReason.PersistenceRestore, true, out string rejection,
-                    cause: ItemChangeLog.Move(ItemMoveReason.ReturnedToRejoiningOwner, player,
-                        "their game's fresh copy is not adopted")))
-            {
-                Multiplayer.LogWarning($"Could not restore item {record.NetId} ({prefabName}) to returning player {player.Username}: {rejection}");
-                continue;
-            }
-
-            alreadyRestored.Add(record.NetId);
-            original.ApplyServerCanonicalSnapshot(snapshot);
-            player.KnownItems[original] = NetworkLifecycle.Instance.Tick;
-            Multiplayer.Log($"Restored {prefabName} ({record.NetId}) to returning player {player.Username} instead of adopting a duplicate");
-            restored = snapshot;
-            return true;
-        }
-        return false;
     }
 
     /// <summary>

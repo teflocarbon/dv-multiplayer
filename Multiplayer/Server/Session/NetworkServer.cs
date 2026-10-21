@@ -23,6 +23,7 @@ using Multiplayer.Server.Chat;
 using Multiplayer.Server.Coverage;
 using Multiplayer.Server.Dedicated;
 using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.OwnedItems;
 using Multiplayer.Server.Jobs;
 using Multiplayer.Server.Trains;
 using Multiplayer.Server.World;
@@ -1255,6 +1256,8 @@ public partial class NetworkServer : NetworkManager
         ITransportPeer peer = player.Peer;
         player.CompletedLoadingAt = Time.realtimeSinceStartup;
         Log($"Player {player.Username} has completed loading");
+        // The server makes what they're missing of their starting items (owned-items.md, PR 4).
+        StartingItemsIssuer.OnPlayerLoaded(player);
 
         // Send the new player to all other players
         ClientboundPlayerJoinedPacket clientboundPlayerJoinedPacket = new()
@@ -1425,9 +1428,6 @@ public partial class NetworkServer : NetworkManager
         //Log($"OnUnconnectedPingPacket({endPoint.Address})");
         //SendUnconnectedPacket(packet, endPoint.Address.ToString(), endPoint.Port);
     }
-
-    // Players given the first-join starter kit this session (ones with saved data never get it).
-    internal readonly HashSet<Guid> StarterKitsGiven = new();
 
     private sealed class PendingItemRecall
     {

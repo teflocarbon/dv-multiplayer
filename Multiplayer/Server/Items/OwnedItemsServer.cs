@@ -144,8 +144,6 @@ public static class OwnedItemsServer
         // Before the check against the stores, the saved ledger stays as it was loaded.
         if (multiplayerRoot == null || !loaded)
             return;
-        foreach (Guid player in NetworkServer.Instance?.StarterKitsGiven ?? Enumerable.Empty<Guid>())
-            ledger.MarkStarterKit(player);
         multiplayerRoot[SaveKey] = OwnedItemsSaveCodec.Write(ledger);
     }
 
@@ -381,7 +379,9 @@ public static class OwnedItemsServer
     {
         ItemMoveReason.Purchased => OwnedItemBirth.Purchased,
         ItemMoveReason.Granted => OwnedItemBirth.Granted,
-        // A starting item or essential a player's game made, adopted by the server.
+        ItemMoveReason.Issued => OwnedItemBirth.Issued,
+        ItemMoveReason.StarterKit => OwnedItemBirth.StarterKit,
+        // A client-made item adopted by the server (none are starting items any more: PR 5 removes it).
         ItemMoveReason.Adopted => OwnedItemBirth.Issued,
         // Owned before the ledger saw it: restored, withdrawn, retrieved.
         ItemMoveReason.RestoredFromSave or ItemMoveReason.ReturnedToRejoiningOwner or

@@ -45,36 +45,6 @@ public static class SaveGameDataPacketBuilder
             return $"SaveGameDataPacketBuilder.Create() UnlockedGen: {{{unlockedGen}}}, PacketGen: {{{packetGen}}},  UnlockedJob: {{{unlockedJob}}}, PacketJob: {{{packetJob}}}";
         });
 
-        // A starter kit for a player joining this world for the first time. It used to be handed out
-        // on every join, a free set of tools each time someone reconnected.
-        List<PlayerItemSaveData> playerItems = [];
-        bool firstJoin = playerData == null && NetworkServer.Instance.StarterKitsGiven.Add(player.Guid);
-        string[] items = firstJoin ? ["shovel", "lighter", "Oiler", "Lantern", "Flashlight", "Hanger", "DuctTape"] : [];
-        string[] states = ["", "", "", "", "{\"Restock\": true,\"Battery_power\": 100}", "", ""];
-
-        for (int i = 0; i < items.Length; i++)
-        {
-            JObject state;
-
-            if (!string.IsNullOrEmpty(states[i]))
-                state = JObject.Parse(states[i]);
-            else
-                state = [];
-
-            var starterItem = new PlayerItemSaveData()
-            {
-                ItemPrefabName = items[i],
-                BelongsToPlayer = true,
-                InventorySlotIndex = 14 + i,
-                State = state
-            };
-            playerItems.Add(starterItem);
-        }
-
-        IReadOnlyList<(string Prefab, int Slot)> owned =
-            ItemServer.Current?.OwnedItems(player.Guid, player.PlayerId) ?? Array.Empty<(string, int)>();
-        Multiplayer.LogDebug(() => $"SaveGameDataPacketBuilder.Create() {player.Username} already owns {owned.Count} item(s)");
-
         return new ClientboundSaveGameDataPacket
         {
             GameMode = data.GetString(SaveGameKeys.Game_mode),
@@ -96,9 +66,6 @@ public static class SaveGameDataPacketBuilder
 
             JobManagerTime = JobsManager.Instance.Time,
 
-            PlayerItems = playerItems.ToArray(),
-            OwnedItemPrefabs = owned.Select(item => item.Prefab).ToArray(),
-            OwnedItemSlots = owned.Select(item => item.Slot).ToArray(),
         };
     }
 }

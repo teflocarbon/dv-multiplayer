@@ -97,7 +97,14 @@ public enum ItemMoveReason : byte
     /// <summary>Installed on a car as a gadget (gadgets.md).</summary>
     InstalledAsGadget,
     /// <summary>Taken off the car it was installed on, by a player or forced (a deleted car, broken glass).</summary>
-    RemovedAsGadget
+    RemovedAsGadget,
+    /// <summary>
+    /// Made by the server for its owner, into their inventory: one of Derail Valley's essentials
+    /// they had none of (owned-items.md, PR 4).
+    /// </summary>
+    Issued,
+    /// <summary>Made by the server for its owner, into their inventory: their starter kit, at their first join.</summary>
+    StarterKit
 }
 
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>

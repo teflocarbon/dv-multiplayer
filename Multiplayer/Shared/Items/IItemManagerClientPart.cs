@@ -35,12 +35,6 @@ public interface IItemManagerClientPart
     /// <summary>TEMPORARY: ask the host to adopt an item only this game knows.</summary>
     void RequestItemAdoption(NetworkedItem item, string reason);
 
-    /// <summary>
-    ///     Retire an unbound local copy of the item the host is placing into our inventory.
-    ///     Returns the slot it held, -1 if there was none.
-    /// </summary>
-    int DiscardUnboundLocalDuplicate(NetworkedItem original);
-
     /// <summary>An authored office prop was taken into a hand or inventory: it lets go of its slot.</summary>
     void DetachAuthoredProjectionForPossession(NetworkedItem item, ItemUpdateData snapshot);
 }

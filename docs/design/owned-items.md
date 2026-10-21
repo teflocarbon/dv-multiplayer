@@ -59,6 +59,10 @@ on the server and in every client, are made to agree with it.
   `offline-lost-and-found`, `borrowed-disconnect`, and for 2a and 3 together `owner-offline`,
   `car-delete-owner` (item-review L1), `lost-and-found-many-owners`, `offline-sweep-mid-save`,
   `rejoin-mid-sweep` and `deposit-refused`, with their variants ([testing.md](../testing.md)).
+- **PR 4, server-made starting items: built (2026-10-21), not yet run in game.** The server makes
+  the starter kit and missing essentials, the safeguards are off everywhere, and the join fields
+  and the rejoin swap are gone (see [4](#4-server-made-starting-items)). Scenario:
+  `starting-items`.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -428,9 +432,8 @@ The server decides what a player has. No game makes its own items any more.
    claim slot. "Has" means a live entry anywhere: in Lost and Found, with another player, in a
    container. An ended or never-made one doesn't count. First join is just the case where all are
    missing.
-5. **Licence papers:** the same rule for the career's licences. PR 4 checks how licence papers are
-   made in multiplayer today before settling this. The rule also runs for everyone online when a
-   licence is bought.
+5. **Licence papers:** none. Multiplayer doesn't make them at all (`PhysicalLicensePaperPatch`, found
+   in PR 4), so a licence is an entitlement only.
 6. **The list:** the player's Lost and Found and owned-items lists are sent when asked, as Lost and
    Found is today.
 
@@ -835,20 +838,50 @@ As built (2026-10-21):
 
 ### 4. Server-made starting items
 
-The kit, essentials and licence papers are spawned by the server, the safeguards are off in every
-game, and the join-packet fields and the rejoin swap go.
+The kit and essentials are spawned by the server, the safeguards are off in every game, and the
+join-packet fields and the rejoin swap go.
 
-- Scenario **`starting-items`** (`[Needs(Need.RestartsGames)]`, both hosts):
-  1. The client's install GUID is set to a new one (allowed with `-mp-allow-unverified`), then
-     `pair.Rejoin()`.
-  2. The client has the kit and every essential, each once, owned by its new identity, born
-     `StarterKit`/`Issued`. No adoption request was sent.
-  3. Rejoin: the same ids in the same slots, nothing duplicated.
-  4. A server step destroys the comms radio, then rejoin: a new radio with a new id, and the old entry
-     ended `DestroyedByGame`.
-  5. The radio is given to a made-up identity's Lost and Found instead, then rejoin: no new radio is
-     issued.
-  6. Cleanup restores the client's GUID.
+As built (2026-10-21):
+
+- **`StartingItemsIssuer`** (`Server/Items/OwnedItems/`) runs when a player has loaded
+  (`NetworkServer.CompleteLoading`, so the host's own player too, which skips `ReadyForItems`). It
+  waits for the ledger's load check, then makes:
+  - each of DV's essentials for the career (`AdminItemGrants.StartingItemPrefabs`) the player owns
+    no live item of, by the ledger or the stores (`OwnedItemsSummary`), into a free slot with a
+    Reserved claim. Born `Issued`.
+  - the starter kit (shovel, lighter, oiler, lantern, flashlight, hanger, duct tape), when the
+    ledger's saved starter-kit marker is unset, into free slots from 14. Born `StarterKit`. Then the
+    marker is set. A migrated save marks every saved player, as before.
+  - Each item is made as a cold-container withdrawal makes one
+    (`RegisterMaterializedColdItem`, which now takes the move cause): at DV's safety position, its
+    state a frame later, registered with owner and slot, and sent to everyone loaded.
+  - If the ledger never loads, nothing is made and the next join tries again: better none than a
+    second set.
+- **Off:** `StartingItemsSafeguard` and `LicensesSafeguard` in every multiplayer game
+  (`Shared/Career/StartingItemsControllerPatch`). The client's DV inventory starts empty.
+- **Gone:**
+  - `PlayerItems`, `OwnedItemPrefabs` and `OwnedItemSlots` from `ClientboundSaveGameDataPacket`, and
+    `PlayerItemSaveData`;
+  - `StartingItemsClientPatch`, `StartingItemsServerPatch`, `PerPlayerSaveFormat.LocalOwnedItems` and
+    `OwnedInSave`, and `IItemServer.OwnedItems`;
+  - `NetworkServer.StarterKitsGiven` (`InstallGuidRekey` re-keys the ledger's marker);
+  - the rejoin swap: `TryRestoreReturningOwnerItem`, `restoredOriginals` and
+    `DiscardUnboundLocalDuplicate`.
+- **Licence papers:** none are made in multiplayer today. `PhysicalLicensePaperPatch` returns null
+  from all four `CreateLicense` overloads while a session runs, and Lost and Found destroys saved
+  ones. So none are issued; licences stay entitlements.
+- **Not yet:** claim-slot repair still runs (`EnsureDistinctClaimSlots`). Item-review's E3, E4,
+  E5 and E9 stay open until the batch shows what's left.
+- Scenario **`starting-items`** (`[Needs(Need.RestartsGames)]`, both hosts). A pair's client keeps
+  its identity (the GUID can't be changed from a scenario), so a first join is the client's
+  starter-kit marker forgotten:
+  1. The client has every essential once. After a rejoin, the same ids.
+  2. A server step destroys the comms radio, then rejoin: a new radio with a new id, born `Issued`,
+     in the inventory, and the old entry has ended.
+  3. The radio is collected into the client's own Lost and Found, then rejoin: no new radio. The
+     client retrieves it.
+  4. The marker is forgotten, then rejoin: the seven kit items, born `StarterKit`, in the client's
+     inventory, and the marker is set again.
 - `host-player-persist` and `rejoin-crash` also run on a player host.
 
 ### 5. No adoption

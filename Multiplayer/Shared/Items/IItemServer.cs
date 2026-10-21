@@ -43,12 +43,6 @@ public interface IItemServer
     /// <summary>The server's half of a new item.</summary>
     INetworkedItemServerPart CreateItemPart(NetworkedItem item);
 
-    /// <summary>
-    ///     What a player already owns anywhere the server keeps items (prefab, and the inventory
-    ///     slot it holds or -1), sent with their join (OwnedItemsSummary).
-    /// </summary>
-    IReadOnlyList<(string Prefab, int Slot)> OwnedItems(Guid playerIdentity, byte playerId);
-
     // Debugging: the in-game observability overlay and entity inspector.
     /// <summary>The server's authority record of an item; null if it has none.</summary>
     Dictionary<string, object> AuthorityDebugState(ushort itemNetId);
