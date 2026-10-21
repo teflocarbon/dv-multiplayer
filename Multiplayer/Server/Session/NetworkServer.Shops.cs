@@ -74,7 +74,7 @@ public partial class NetworkServer
     /// the register like anyone's), or to one joining player.
     /// </summary>
     internal void SendShopRegisterState(int shopIndex, ShopBasket basket, ShopRegisterEvent ev, byte playerId,
-        int module = 0, ITransportPeer peer = null)
+        int module = 0, ITransportPeer peer = null, uint ack = 0)
     {
         ClientboundShopRegisterStatePacket packet = new()
         {
@@ -87,7 +87,9 @@ public partial class NetworkServer
             Delivering = basket.Delivering,
             Event = (byte)ev,
             EventPlayerId = playerId,
-            EventModule = (byte)module
+            EventModule = (byte)module,
+            AckPlayerId = ack != 0 ? playerId : (byte)0,
+            AckRequestId = ack
         };
         if (peer != null)
             SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);
@@ -128,16 +130,16 @@ public partial class NetworkServer
     }
 
     private void HandleShopScan(ServerboundShopScanPacket packet, ServerPlayer player) =>
-        Answer(player, packet.ShopIndex, ShopRequestKind.Scan, Shops.Scan(player, packet.ShopIndex, packet.ModuleIndex));
+        Answer(player, packet.ShopIndex, ShopRequestKind.Scan, Shops.Scan(player, packet.ShopIndex, packet.ModuleIndex, packet.RequestId), packet.RequestId);
 
     private void HandleShopDeposit(ServerboundShopDepositPacket packet, ServerPlayer player) =>
-        Answer(player, packet.ShopIndex, ShopRequestKind.Deposit, Shops.Deposit(player, packet.ShopIndex, packet.MoneyNetId));
+        Answer(player, packet.ShopIndex, ShopRequestKind.Deposit, Shops.Deposit(player, packet.ShopIndex, packet.MoneyNetId, packet.RequestId), packet.RequestId);
 
     private void HandleShopBuy(ServerboundShopBuyPacket packet, ServerPlayer player) =>
-        Answer(player, packet.ShopIndex, ShopRequestKind.Buy, Shops.Buy(player, packet.ShopIndex, packet.Revision));
+        Answer(player, packet.ShopIndex, ShopRequestKind.Buy, Shops.Buy(player, packet.ShopIndex, packet.Revision, packet.RequestId), packet.RequestId);
 
     private void HandleShopCancel(ServerboundShopCancelPacket packet, ServerPlayer player) =>
-        Answer(player, packet.ShopIndex, ShopRequestKind.Cancel, Shops.Cancel(player, packet.ShopIndex));
+        Answer(player, packet.ShopIndex, ShopRequestKind.Cancel, Shops.Cancel(player, packet.ShopIndex, packet.RequestId), packet.RequestId);
 
     // A wrong aim (not the sender's scanner) is dropped: it's presentation, with nothing to refuse.
     private void HandleShopScannerAim(ServerboundShopScannerAimPacket packet, ServerPlayer player)
@@ -155,7 +157,7 @@ public partial class NetworkServer
         }, DeliveryMethod.ReliableOrdered);
 
     // A refusal goes back to the player who asked; an accepted request shows in the register's state.
-    private void Answer(ServerPlayer player, byte shopIndex, ShopRequestKind request, ShopRefusal refusal)
+    private void Answer(ServerPlayer player, byte shopIndex, ShopRequestKind request, ShopRefusal refusal, uint requestId)
     {
         if (refusal == ShopRefusal.None)
             return;
@@ -164,6 +166,7 @@ public partial class NetworkServer
             SendShopRegisterState(shopIndex, Shops.Basket(shopIndex), ShopRegisterEvent.ScanRefused, player.PlayerId);
         SendPacket(player.Peer, new ClientboundShopRequestResultPacket
         {
+            RequestId = requestId,
             ShopIndex = shopIndex,
             Request = (byte)request,
             Refusal = (byte)refusal

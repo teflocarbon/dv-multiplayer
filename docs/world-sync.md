@@ -210,7 +210,7 @@ included (`Client/Shops/ShopRegisterPatches.cs`, through `IShopsClient`: `Networ
 | --- | --- | --- |
 | Scan (`ScanItemCashRegisterModule.AddItemsToBuy`) | `ServerboundShopScanPacket` | the item is the shop's, the player is within 6 m of it and holds a shop scanner, nothing is being delivered, the game mode, the MU licence, an unlocked garage, the stock (this basket's units included) |
 | Pay with the wallet or a banknote (`MoneyUse.HandleUse`, `CashRegisterBase.OnTriggerEnter`) | `ServerboundShopDepositPacket` | reach, something is owed; the wallet pays what is owed (or what it has), a banknote all of it (`NetworkServer.TrySpendMoneyItem`, the checks a wallet deposit makes) |
-| Buy (`CashRegisterWithModules.OnBuyPressed`) | `ServerboundShopBuyPacket` with the basket revision the presser saw | reach, not delivering, the same revision, then each line again (lines that can no longer be bought are cut or dropped), then the cash |
+| Buy (`CashRegisterWithModules.OnBuyPressed`) | `ServerboundShopBuyPacket` with the basket revision the presser saw | reach, not delivering, nobody else changed the basket since that revision (the presser's own scans and payment still on their way back don't count: `ShopBasket.ChangedByOthersSince`), then each line again (lines that can no longer be bought are cut or dropped), then the cash |
 | Cancel (the Cancel button) | `ServerboundShopCancelPacket` | reach, not delivering |
 
 A Buy takes the total out of the deposit and prints any change as a banknote at the register
@@ -231,6 +231,20 @@ on every game: `ReturnMoneyToPlayerCheck` (`CashRegisterBasePatch.OnEnable`) and
 `OnDisable` (`CashRegisterWithModulesPatch`). `GlobalShopControllerClientPatch` turns vanilla's
 purchase queue off. Shop registers aren't numbered as service registers
 (`NetworkedCashRegisterWithModules`) any more.
+
+Prediction: a player's own requests show on their game at once, so a player at 250 ms doesn't wait
+for the round trip. Each request carries a request id (a counter on the player's game). Its
+expected effect goes into the register's prediction (`Multiplayer.Core/Shops/ShopPrediction.cs`):
+a scan's line, a payment's cash (what is owed, from the wallet, or the whole banknote), a Buy's empty
+basket and "processing", a Cancel's empty basket. `ShopRegisterView` shows the server's last state
+with those applied, in order, and plays the predicted sound at once (the scanner's scan sound, add
+cash, buy and printer, cancel). The server's state names the request it answers (`AckPlayerId`,
+`AckRequestId`): that request and any earlier ones leave the prediction, and their events' sounds
+aren't played again. A refusal names its request too, so it leaves the prediction, and the register
+shows the server's state again: the line disappears, and the error or not-enough-money sound plays.
+A request with no answer within 5 s is dropped. The wallet isn't predicted: its balance follows the
+server's money updates a round trip later. On the client, a scan this game can already see is out
+of stock isn't sent (the scanner plays its error sound, as vanilla's own check did).
 
 Cash nobody is using (`ServerShops.Tick`, every 2 s): once no player is within 20 m of a register,
 its cash goes back to the wallet, as vanilla's `ReturnMoneyToPlayerCheck` did for the one player;
@@ -284,7 +298,9 @@ own player), `shop-basket` (the shared basket matches on server and client; each
 whoever scanned it), `shop-cash` (the save counts the till; walking away returns it; an abandoned
 basket empties), `shop-licence` (the MU controller is off sale on a client without the licence),
 `shop-layout`, `shop-restock` (a deposit through a container doesn't restock; destroying the item does),
-`shop-scanner` (the server has the client's scanner's aim; on a player host the host's game shows its laser and screen).
+`shop-scanner` (the server has the client's scanner's aim; on a player host the host's game shows its laser and screen),
+`shop-predict` (at 250 ms the client's scan shows at once; a refused one rolls back). `shop` and
+`shop-basket` take `LAG=250`.
 
 ## Service stations
 
