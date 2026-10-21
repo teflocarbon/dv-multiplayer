@@ -96,9 +96,22 @@ public static class OwnedItemRetrieval
             if (stored == null)
                 break;
             ColdContainerRecord container = cold.Containers.FirstOrDefault(c => c.PersistentContainerId == stored.ParentContainerId);
-            if (container?.ParentItemId is not Guid parent)
+            if (container == null)
                 break;
-            AuthoritativeItemRegistry.Record shell = Find(parent);
+            // A container stored inside another names its shell item (ParentItemId); one lying in the
+            // world or carried is a live shell, bound by its container id.
+            AuthoritativeItemRegistry.Record shell = null;
+            Guid parent = container.ParentItemId ?? Guid.Empty;
+            if (container.ParentItemId == null && NetworkedColdContainerManager.TryGetShellNetId(container.PersistentContainerId, out ushort shellNetId) &&
+                AuthoritativeItemRegistry.TryGet(shellNetId, out AuthoritativeItemRegistry.Record live))
+            {
+                shell = live;
+                parent = live.PersistentItemId;
+            }
+            else if (parent != Guid.Empty)
+                shell = Find(parent);
+            else
+                break;
             if (shell != null)
             {
                 bool withOwner = shell.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
