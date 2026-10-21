@@ -50,7 +50,7 @@ on the server and in every client, are made to agree with it.
     - A client skipped a host correction of its own hold as superseded. It now never skips one.
     - Applying the correction left the item in DV's inventory. A refused stash now drops at the
       player's feet.
-- **PR 2a, an offline owner keeps their items: built (2026-10-21), not yet run in game.** The absent
+- **PR 2a, an offline owner keeps their items: built, and tested in game with PR 3 on both host kinds (2026-10-22).** The absent
   owner number, and Lost and Found binding every entry at load (see [2a](#2a-identity-on-the-server)).
   Core tests: `AbsentOwnerTests`. Scenario: `absent-owner`.
 - **Everything else: not started.** See the [plan](#plan).
