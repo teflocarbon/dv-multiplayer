@@ -12,11 +12,12 @@ on the server and in every client, are made to agree with it.
 
 ## Implementation status
 
-- **PR 1a, the ledger in Core: built (2026-10-21)**, unit tested, not yet wired to the server.
+- **PR 1a, the ledger in Core: merged (#278, 2026-10-21).**
   - Built: `OwnedItemLedger`, `OwnedItemEntry` and `OwnedItemReconciler` in `Multiplayer.Core/Items/`.
-  - Tests: 31 tests in `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`.
-- **PR 1b, the ledger on the server: written (2026-10-21), not yet run in game.** It is in shadow:
-  it follows the records, is checked against the stores at load, and is saved, but nothing reads it.
+  - Tests: 32 tests in `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`.
+- **PR 1b, the ledger on the server: built and tested in game on a player host and a dedicated host
+  (#282, 2026-10-21).** It is in shadow: it follows the records, is checked against the stores at
+  load, and is saved, but nothing reads it.
   - `OwnedItemsServer` and `OwnedItemsSaveCodec` (`Multiplayer/Server/Items/`).
   - The ledger follows the moves and removals `ItemChangeLog` records, and cold deposits.
   - Its load check waits for all three stores to have loaded. In shadow, a step that would move an
@@ -32,8 +33,9 @@ on the server and in every client, are made to agree with it.
   - Tests:
     - the save format in `Multiplayer.Protocol.Tests/OwnedItemsSaveCodecTests.cs`;
     - migration in Core's `OwnedItemReconcilerTests`;
-    - scenarios `item-id-roundtrip` and `ledger-save`, not run yet.
-- **Everything else: not started.** See the [plan](#plan).
+    - scenarios `item-id-roundtrip` and `ledger-save`, both passing on both host kinds.
+  - The runs found four bugs, fixed in the same PR (see [Known bugs](#known-bugs-the-ledger-removes)).
+- **Everything else: not started.** See the [plan](#plan). PR 1c (`ItemAccess`) comes next.
 
 ## Why
 
@@ -94,6 +96,15 @@ Found in game by the PR 1b scenarios (2026-10-21) and fixed there:
   is kept, and restoring an owned item sets the flag again.
 - **A mug in vanilla's Lost and Found lost its id at load.** See
   [Where the id travels](#one-id-for-life).
+- **A pending Lost and Found entry looked like a second copy.** Until its owner joins, the entry's
+  inert item has a record of its own that says World. The load check takes the entry as the item's
+  place.
+- **A just-joined owner's items on the ground went to Lost and Found seconds after they loaded.**
+  Lost and Found took a player's position before their game had sent one: it reads as the origin.
+  It also took their first positions, which can be from before the game put them at their saved
+  spot. Now an owner's position counts once they have been loaded for a grace period, and a nearby
+  player's once they have sent one. It showed on a dedicated host, where no host player stands near
+  to protect the items.
 
 ## Decisions
 
@@ -831,8 +842,18 @@ After gadget PR 3a (install and remove, confirmed by the server).
 
 ### 9. `ItemAccess`
 
-The one decision point with today's rules, called by every item request handler. No behaviour
-change: unit tests for the default policy, and the item scenarios as they are.
+Moved up: it is PR 1c, right after 1b, because shops PR 2c (station
+[fixtures](#fixtures)) plugs into it, and the shop scanner gap is in play today.
+
+- **The one decision point,** `ItemAccess.Decide(actor, action, item)`, pure in `Multiplayer.Core`
+  with unit tests. It covers these actions: stash, belt, deposit, withdraw, take from the world,
+  take from a player, remove a gadget, retrieve, recall.
+- **Called from the server's existing request checks.** Its default policy is today's rules, so no
+  behaviour changes.
+- **A fixture list, empty to start.** `Decide` refuses stash, belt and deposit for an item on the
+  list. Shops PR 2c fills it and adds the return to its spot.
+- **Tests:** unit tests for the default policy and the fixture refusal, and the item scenarios as
+  they are.
 
 ## Migration
 
