@@ -1,0 +1,109 @@
+using System;
+using System.Collections;
+using System.Linq;
+using System.Threading.Tasks;
+using Dvmp.Agent;
+using Dvmp.Lib;
+using Multiplayer.Server.Items;
+using Multiplayer.Shared.Items;
+using UnityEngine;
+
+namespace Dvmp.Scenarios
+{
+    /// <summary>
+    /// Known item bug (expected to fail on beta, docs/research/item-bug-review.md): the client drops
+    /// an essential (the comms radio) in the world, leaving its red silhouette in its slot, and
+    /// rejoins with ordinary items in its inventory. Those arrive in any order and take the lowest
+    /// free slots, the dropped essential's claim slot among them; the silhouette that arrives after
+    /// is refused (EnsureDroppedClaim never makes room), so the owner has nothing to recall it from.
+    /// The order varies, so the run rejoins up to REJOINS times and fails on the first refusal.
+    /// </summary>
+    [Scenario("item-bug-dropped-essential-rejoin", "Known bug: a dropped essential's silhouette must be back in its slot after a rejoin, with ordinary items in the inventory")]
+    [Needs(Need.RestartsGames)]
+    [Budget(900)]
+    public sealed class ItemBugDroppedEssentialRejoin : Scenario<ItemBugDroppedEssentialRejoin.Options>
+    {
+        public sealed class Options
+        {
+            /// <summary>The essential's slot (0, the comms radio).</summary>
+            public int Slot;
+            /// <summary>How many rejoins to try before the run passes.</summary>
+            public int Rejoins = 3;
+        }
+
+        protected override async Task Run(Pair pair, Options o)
+        {
+            Recall.Dropped d = await pair.Client.Run<Recall.Dropped>(s => Recall.InGame.DropEssential(s, o.Slot));
+            Report.Note($"the client dropped {d.Name} {d.Item} from slot {o.Slot}: {d.State}, silhouette {d.Reserved}");
+            Require.Equal("Dropped", d.State, "the essential's state after the drop");
+            pair.Cleanup(() => pair.Client.Run(() => InGame.Fetch(d.Item, o.Slot), 90));
+            await pair.Client.Run<Abs>(s => Walk.Away(s, 15, 0));
+            Report.Note("server: " + await pair.Host.Run(() => InGame.ServerClaim(d.Item)));
+
+            for (int i = 1; i <= o.Rejoins; i++)
+            {
+                await pair.Client.Quit();
+                await Task.Delay(4000);
+                await pair.Rejoin();
+                await Task.Delay(12000);   // the client receives its items
+                string slot = await pair.Client.Run(() => InGame.Silhouette(d.Item));
+                Report.Note($"rejoin {i}: {slot}; server: {await pair.Host.Run(() => InGame.ServerClaim(d.Item))}");
+                Expect.That(slot.StartsWith("silhouette in slot"), $"rejoin {i}: the dropped {d.Name}'s silhouette is in the client's inventory", slot);
+                if (!slot.StartsWith("silhouette in slot")) return;
+            }
+        }
+
+        // ---- runs inside the games
+        public static class InGame
+        {
+            /// <summary>Host: the server's record of the item, its placement and claim.</summary>
+            [Step]
+            public static string ServerClaim(ushort id) =>
+                AuthoritativeItemRegistry.TryGet(id, out var r)
+                    ? $"{r.Placement} owner {r.PersistentOwnerPlayerId}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
+                    : "no record";
+
+            /// <summary>Client: where the dropped essential's silhouette is, or what holds its claim
+            /// slot instead.</summary>
+            [Step]
+            public static string Silhouette(ushort id)
+            {
+                var inv = DV.InventorySystem.Inventory.Instance;
+                if (!NetworkedItem.TryGet(id, out NetworkedItem n) || n == null) return "the client has no item " + id;
+                int slot = inv.IndexOf(n.gameObject);
+                if (slot >= 0) return $"silhouette in slot {slot} (dropped {inv.GetSlotDroppedState(slot)}, reserved {inv.GetSlotReservedState(slot)})";
+                int claim = n.InventoryClaimSlot;
+                GameObject at = claim >= 0 ? inv.PeekItemAtSlot(claim, true) : null;
+                return $"no silhouette: {n.GetItemState()}, claim slot {claim} holds {(at != null ? at.name.Replace("(Clone)", "") : "nothing")}";
+            }
+
+            /// <summary>Client, cleanup: recalls the essential into <paramref name="slot"/>, or walks
+            /// to it, picks it up and stashes it there.</summary>
+            [Step]
+            public static IEnumerator Fetch(ushort id, int slot)
+            {
+                var inv = DV.InventorySystem.Inventory.Instance;
+                if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) yield break;
+                if (inv.IndexOf(item.gameObject) >= 0)
+                {
+                    NetworkedItemManager.Instance.RequestItemRecall(item, inv.IndexOf(item.gameObject));
+                    float t0 = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - t0 < 10f && item.GetItemState() != ItemState.InInventory) yield return null;
+                }
+                if (item.GetItemState() != ItemState.InInventory)
+                {
+                    if (Hands.Held != null) yield return Hands.Drop();
+                    yield return LocalPlayer.GoTo(item);
+                    yield return Hands.Pickup(id);
+                    if (inv.PeekItemAtSlot(slot, true) is GameObject other && other != item.gameObject)
+                        inv.MoveItemFromTo(slot, inv.GetLastFreeSlot(), false);
+                    inv.AddItemToInventory(item.gameObject, slot, false);
+                    for (int i = 0; i < 60; i++) yield return null;
+                }
+                int now = inv.IndexOf(item.gameObject);
+                if (now >= 0 && now != slot && inv.PeekItemAtSlot(slot, true) == null) inv.MoveItemFromTo(now, slot, false);
+                if (item.GetItemState() != ItemState.InInventory) throw new Exception($"couldn't get {item.name} back: {item.GetItemState()}");
+            }
+        }
+    }
+}
