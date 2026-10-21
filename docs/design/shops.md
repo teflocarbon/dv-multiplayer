@@ -360,7 +360,7 @@ confirmed or undone when the server answers.
 | Action | Predicted on the actor's game | Confirmed by | When refused |
 | --- | --- | --- | --- |
 | Scan | the line on the register, scan sound, scanner count | register state with the request acknowledged | line removed, error sound, reason on the HUD |
-| Pay | register cash, add-cash sound, wallet balance | register state, money update | cash and wallet restored, reason on the HUD |
+| Pay | register cash, add-cash sound (the wallet follows the server's money update a round trip later) | register state, money update | cash restored, reason on the HUD |
 | Buy | buy sound, basket cleared, "processing" | register state `Delivering` | basket and cash restored, not-enough-money sound if that was the reason |
 | Cancel | basket and cash cleared, cancel sound | register state | restored |
 | Item delivery | nothing: items come from the server | item sync | — |

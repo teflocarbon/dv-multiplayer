@@ -144,6 +144,33 @@ public sealed class ShopPacketTests
     }
 
     [Test]
+    public void ShopRequests_RoundTripTheirRequestIdsAndTheAnswersNameThem()
+    {
+        ServerboundShopScanPacket scan = null;
+        ClientboundShopRequestResultPacket refusal = null;
+        ClientboundShopRegisterStatePacket state = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ServerboundShopScanPacket>(p => scan = new ServerboundShopScanPacket
+            { RequestId = p.RequestId, ShopIndex = p.ShopIndex, ModuleIndex = p.ModuleIndex });
+        processor.SubscribeReusable<ClientboundShopRequestResultPacket>(p => refusal = new ClientboundShopRequestResultPacket
+            { RequestId = p.RequestId, ShopIndex = p.ShopIndex, Request = p.Request, Refusal = p.Refusal });
+        processor.SubscribeReusable<ClientboundShopRegisterStatePacket>(p => state = new ClientboundShopRegisterStatePacket
+            { AckPlayerId = p.AckPlayerId, AckRequestId = p.AckRequestId });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundShopScanPacket { RequestId = 3_000_000_001, ShopIndex = 1, ModuleIndex = 9 });
+        processor.Write(writer, new ClientboundShopRequestResultPacket { RequestId = 77, ShopIndex = 1, Request = 0, Refusal = 3 });
+        processor.Write(writer, new ClientboundShopRegisterStatePacket
+        {
+            LineModules = new byte[0], LineOwners = new byte[0], LineUnits = new byte[0], AckPlayerId = 2, AckRequestId = 78
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That((scan.RequestId, scan.ShopIndex, scan.ModuleIndex), Is.EqualTo((3_000_000_001u, (byte)1, (byte)9)));
+        Assert.That((refusal.RequestId, refusal.Refusal), Is.EqualTo((77u, (byte)3)));
+        Assert.That((state.AckPlayerId, state.AckRequestId), Is.EqualTo(((byte)2, 78u)));
+    }
+
+    [Test]
     public void ShopLayout_RoundTripsANegativeSeed()
     {
         ClientboundShopLayoutPacket result = null;
