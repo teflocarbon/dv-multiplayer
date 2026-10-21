@@ -110,9 +110,40 @@ public static class StartingItemsIssuer
     }
 
     /// <summary>Whether the player owns a live item of this prefab anywhere: the ledger, or the stores themselves.</summary>
-    private static bool Has(ServerPlayer player, string prefab) =>
-        OwnedItemsServer.Ledger.CountLive(player.Guid, prefab) > 0 ||
-        OwnedItemsSummary.For(player).Any(item => string.Equals(item.Prefab, prefab, StringComparison.Ordinal));
+    private static bool Has(ServerPlayer player, string prefab)
+    {
+        if (OwnedItemsServer.Ledger.CountLive(player.Guid, prefab) > 0)
+            return true;
+        if (!OwnedItemsSummary.For(player).Any(item => string.Equals(item.Prefab, prefab, StringComparison.Ordinal)))
+            return false;
+        // The ledger has none, but a store has one: nothing is made (no second copy), and where it
+        // is gets logged, as the ledger is still in shadow (a destroyed radio wasn't made again at
+        // the next rejoin, starting-items 2026-10-22).
+        Multiplayer.LogWarning($"Starting items: the ledger has no live {prefab} of {player.Username}'s, but " +
+                               StoresHolding(player, prefab) + "; none made");
+        return true;
+    }
+
+    private static string StoresHolding(ServerPlayer player, string prefab)
+    {
+        List<string> found = new();
+        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
+            if (string.Equals(record.PrefabName, prefab, StringComparison.Ordinal) &&
+                (record.PersistentOwnerIdentity == player.Guid ||
+                 record.PersistentOwnerIdentity == Guid.Empty && record.PersistentOwnerPlayerId == player.PlayerId))
+                found.Add($"record {record.NetId} {record.PersistentItemId:D} {record.Placement}, last {record.LastMove.Reason}");
+        int pending = NetworkedLostAndFoundManager.PendingPrefabsOwnedBy(player.Guid)
+            .Count(p => string.Equals(p, prefab, StringComparison.Ordinal));
+        if (pending > 0)
+            found.Add($"{pending} saved Lost and Found entr{(pending == 1 ? "y" : "ies")} not restored");
+        string identity = player.Guid.ToString("D");
+        int stored = NetworkedColdContainerManager.Graph.ExportSnapshot().Items.Count(item =>
+            string.Equals(item.PersistentOwnerIdentity, identity, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(item.PrefabName, prefab, StringComparison.Ordinal));
+        if (stored > 0)
+            found.Add($"{stored} in containers");
+        return "the stores hold " + string.Join("; ", found);
+    }
 
     // The slots the player's inventory items are in, and the ones their essentials keep wherever
     // those are (a silhouette, or an essential in Lost and Found).

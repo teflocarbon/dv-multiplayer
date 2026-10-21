@@ -52,10 +52,10 @@ namespace Dvmp.Scenarios
             ushort oldNet = await pair.Host.Run(() => Owned.NetIdOf(oldRadio));
             Require.That(oldNet != 0, $"the client's {radio} exists", oldRadio);
             await pair.Client.Run(() => Owned.DropFromInventory(oldNet), 60);
-            await pair.Host.Run<bool>(s => InGame.Destroy(s, oldNet));
+            Require.That(await pair.Host.Run<bool>(s => InGame.Destroy(s, oldNet)), $"the host destroyed the {radio}");
             await pair.Rejoin();
-            await Task.Delay(10000);
-            Have issued = await pair.Host.Run(() => InGame.Owned(client, essentials));
+            Have issued = await Until.Value(() => pair.Host.Run(() => InGame.Owned(client, essentials)), h => h.Count(radio) > 0, 30,
+                $"a new {radio} made for the client after the rejoin");
             ExpectOnceEach(issued, essentials, "after the radio was destroyed and the client rejoined");
             string newRadio = issued.Id(radio);
             Expect.That(newRadio.Length > 0 && newRadio != oldRadio, $"a new {radio}, under a new id", $"{oldRadio} -> {newRadio}");
