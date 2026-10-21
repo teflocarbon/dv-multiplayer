@@ -4,6 +4,7 @@ using DV.Customization.Gadgets.Implementations;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
 using System.Linq;
+using UnityEngine;
 
 namespace Multiplayer.Client.Gadgets;
 
@@ -13,7 +14,8 @@ namespace Multiplayer.Client.Gadgets;
 /// which the mod sends as the player's input, so running it here as well would act twice. Off on a
 /// remote client for the gadgets the server sent (GadgetJoinApplier.ServerSent), which the server
 /// runs. A gadget this game installed itself isn't on the server until gadget PR 3a, so it keeps
-/// vanilla's logic here, as before.
+/// vanilla's logic here, as before. The distance tracker isn't here: it only counts, which this game
+/// does too between the server's updates.
 /// </summary>
 [HarmonyPatch]
 internal static class GadgetServerOnlyPatches
@@ -21,9 +23,20 @@ internal static class GadgetServerOnlyPatches
     private static bool ServerRuns(GadgetBase gadget) =>
         NetworkRole.IsRemoteClient && GadgetJoinApplier.IsServerSent(gadget);
 
+    // The countdown shows here between the server's updates (GadgetRunningClient); the braking at
+    // its end is the server's.
     [HarmonyPrefix]
     [HarmonyPatch(typeof(GadgetATS), "Update")]
-    private static bool AtsUpdate(GadgetATS __instance) => !ServerRuns(__instance);
+    private static bool AtsUpdate(GadgetATS __instance)
+    {
+        if (!ServerRuns(__instance))
+            return true;
+        if (__instance.IsActive)
+            __instance.currentTimer -= Time.deltaTime;
+        else
+            __instance.currentTimer = __instance.CurrentRegimeTimerLength;
+        return false;
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(GadgetAntiSlip), "Update")]
@@ -32,10 +45,6 @@ internal static class GadgetServerOnlyPatches
     [HarmonyPrefix]
     [HarmonyPatch(typeof(GadgetOverheatProtection), "Update")]
     private static bool OverheatUpdate(GadgetOverheatProtection __instance) => !ServerRuns(__instance);
-
-    [HarmonyPrefix]
-    [HarmonyPatch(typeof(GadgetRoadrunner), "Update")]
-    private static bool RoadrunnerUpdate(GadgetRoadrunner __instance) => !ServerRuns(__instance);
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(AlternatingController), "Update")]

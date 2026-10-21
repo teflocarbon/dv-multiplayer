@@ -336,6 +336,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundCustomizationsPacket>(OnClientboundCustomizationsPacket);
         Handle<ClientboundGadgetJoinSnapshotPacket>(OnClientboundGadgetJoinSnapshotPacket);
         Handle<ClientboundGadgetStatePacket>(OnClientboundGadgetStatePacket);
+        Handle<ClientboundGadgetRunningPacket>(OnClientboundGadgetRunningPacket);
 
 
         // General Sync

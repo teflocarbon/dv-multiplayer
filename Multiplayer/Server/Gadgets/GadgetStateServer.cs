@@ -49,9 +49,12 @@ internal static class GadgetStateServer
                      .Where(r => r.Placement == ItemPlacementKind.Installed).ToList())
         {
             GadgetBase gadget = LinkedGadget(record.NetId);
-            if (gadget == null || !GadgetSettings.Has(gadget))
+            if (gadget == null)
                 continue;
             seen.Add(record.NetId);
+            GadgetRunningServer.Watch(record.NetId, gadget, server);
+            if (!GadgetSettings.Has(gadget))
+                continue;
             Dictionary<string, float> settings = GadgetSettings.Capture(gadget);
             // First sight: a joining player gets these in its snapshot, and the rest already have them.
             if (!watched.TryGetValue(record.NetId, out Watched entry))
@@ -67,6 +70,7 @@ internal static class GadgetStateServer
         }
         foreach (ushort gone in watched.Keys.Where(id => !seen.Contains(id)).ToList())
             watched.Remove(gone);
+        GadgetRunningServer.Forget(seen);
     }
 
     internal static void HandleRequest(ServerboundGadgetSettingPacket packet, ServerPlayer player, NetworkServer server)
@@ -103,6 +107,12 @@ internal static class GadgetStateServer
             return $"{gadget.name} has no settings";
         if (packet.Keys == null || packet.Values == null || packet.Keys.Length != packet.Values.Length)
             return "malformed";
+        return ReachRefusal(player, gadget);
+    }
+
+    /// <summary>Why <paramref name="player"/> can't touch <paramref name="gadget"/>, or null if they can.</summary>
+    internal static string ReachRefusal(ServerPlayer player, GadgetBase gadget)
+    {
         // Riding the gadget's car puts it in reach wherever it is on the car.
         bool onItsCar = gadget.Custom is TrainCarCustomization { TrainCar: { } car } &&
                         NetworkedTrainCar.TryGetNetId(car, out ushort carNetId) && player.CarId == carNetId;
@@ -113,7 +123,7 @@ internal static class GadgetStateServer
         return null;
     }
 
-    private static GadgetBase LinkedGadget(ushort itemNetId) =>
+    internal static GadgetBase LinkedGadget(ushort itemNetId) =>
         AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record) &&
         record.Placement == ItemPlacementKind.Installed &&
         NetworkedItem.TryGet(itemNetId, out NetworkedItem item) && item != null &&
