@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1119+d003ab24ce5a2ca78749ce4442f99c9cd58db01d",
-  "Fingerprint": "ccfa68b8c0f7302f93fe10ced536d090dc171f32ada233345010d0df6a743e04",
+  "BuildVersion": "2026.10.21-dev.1124+4b03f57acef4499e93bb42bbfcadb40782f6696e",
+  "Fingerprint": "11f93202ea89aa9a2c37c8955f0013b87ff60a41d84310632ce921038fc3b124",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -512,6 +512,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundLostItemsRequestPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "6D5C836BECD21446",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.World.ClientboundShopScannerAimPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1196,6 +1205,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Train.ClientboundDestroyTrainCarPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "FF017E1A7806B7F4",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundShopScannerAimPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
