@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1116+30007bb5408786bd6182062ebb7f422e15f11daa",
-  "Fingerprint": "ca59400d3736e1a40be650286fcfaa0152c4024488d99289779229caedc77227",
+  "BuildVersion": "2026.10.21-dev.1132+f6bcfc734f9769de7be3bbe027287b12bc433f4b",
+  "Fingerprint": "aa78c5da1e8125009da27de9b307a5337ef9e6429cd86a7aec94e9153e7eac59",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -517,6 +517,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "6D5C836BECD21446",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.World.ClientboundShopScannerAimPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "704BFBCE9E9863F6",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundPingUpdatePacket",
       "Direction": "Clientbound",
@@ -575,6 +584,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundItemRecallPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "80D0EECAB83201A5",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetStatePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1075,6 +1093,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "E8E5EBC1AB1870F8",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetSettingPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "EA85A33D000FC2CA",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs.ServerboundWarehouseMachineControllerRequestPacket",
       "Direction": "Serverbound",
@@ -1160,6 +1187,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Train.ClientboundDestroyTrainCarPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "FF017E1A7806B7F4",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundShopScannerAimPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

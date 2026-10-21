@@ -367,7 +367,31 @@ from the synced derail and brake-heat state.
 - **Modded gadgets** with no adapter get correct state from snapshots (install, join, resync) but no
   live settings.
 
-`GadgetSwitchPatch` is deleted when switches move to this.
+**As built (6a).** The settings half: families instead of an adapter folder, in
+`Shared/Gadgets/GadgetSettings.cs`. Each family is a gadget class, its keys and a setter per key. It
+reads the fields from the gadget's own `SaveDataRequested`, so a knob turned by hand and a change made
+from the HUD read the same. Families exist for the switch, switch setter, amp limiter, overheat, ATS,
+roadrunner, DPU, proximity screen and control panel tilt. The alternating controller is left out
+until 6b, because its interval and its running phase share one key.
+- **The watch** (`Server/Gadgets/GadgetStateServer`) runs every `TICK_RATE / 10` ticks.
+- **A request is checked** for:
+  - the player's loading state;
+  - an installed, linked gadget with a family;
+  - a well-formed packet;
+  - reach: 5 m, or riding the gadget's car.
+- **The server always answers a request.** If the request changed something, the answer is the
+  broadcast. If it changed nothing, the server echoes to the sender alone. If it was refused, the
+  server sends the current values back with `Refused` set.
+- **The client** (`Client/Gadgets/GadgetStateClient`) tracks the gadgets the server sent.
+  - **Finding changes:** it compares their settings each tick with what it last showed, and sends a
+    change at most every 0.1 s per gadget.
+  - **Keeping its prediction** (`Multiplayer.Core/Gadgets/GadgetSettingEcho`): it keeps what it shows
+    until the answer to its latest change arrives, and applies the server's values if that change was
+    refused. A pending change it never hears back about is dropped after 5 s.
+- **Not yet, until 6b:** leases, bounds checks beyond the vanilla setters' own clamps, commands,
+  running state and the snooze.
+
+`GadgetSwitchPatch` is deleted (6a).
 
 ### Shared motion and randomness
 
@@ -557,14 +581,14 @@ The server is never rolled back. Clients converge on it.
 | Packet | Direction | Contents |
 | --- | --- | --- |
 | `ServerboundGadgetRequestPacket` | client → server | operation id, a `GadgetRequest` (kind and its fields, per [Requests](#requests)) |
-| `ServerboundGadgetSettingPacket` | client → server | operation id, item, fields |
+| `ServerboundGadgetSettingPacket` (built, 6a) | client → server | operation id, item, keys and values |
 | `ServerboundGadgetCommandPacket` | client → server | operation id, item, command, argument |
 | `ServerboundGadgetResyncRequestPacket` | client → server | anchor, applied revision |
 | `ClientboundGadgetChangesPacket` | server → clients | anchor, first revision, `GadgetChange[]` with operation ids |
 | `ClientboundGadgetRequestResultPacket` | server → requester | operation id, rejected, reason |
 | `ClientboundGadgetJoinSnapshotPacket` (built, PR 2) | server → joining client | per car, `InstalledGadgetData[]`: item, UID, the item's vanilla save data as JSON |
 | `ClientboundGadgetAnchorSnapshotPacket` (3a) | server → client | one car's resync: revision, holes, `InstalledGadgetData[]` |
-| `ClientboundGadgetStatePacket` | server → clients | item, state revision, operation id, fields |
+| `ClientboundGadgetStatePacket` (built, 6a) | server → clients | item, state revision, the player and operation id it answers, refused, keys and values |
 | `ServerboundGadgetToolUsePacket` | client → server | tool item, target (item and mount point, or a hole), started or stopped |
 | `ClientboundGadgetToolUsePacket` | server → clients | player, tool item, target, started or stopped |
 
@@ -788,6 +812,15 @@ predict their own actions with.
 
 ### 6. Gadget state
 
+In two parts:
+- **6a, built:** the settings channel. It has the families, `Setting` requests, the watch and the echo
+  rule. Its scenario, `gadget-settings`, has three steps:
+  - the client, riding the car, turns a switch, and the server's switch and wired light follow;
+  - the server turns an amp limiter, and the client's follows;
+  - the client turns the switch from 40 m away, and the change is refused and put back.
+- **6b:** everything else below. That is commands, the snooze, beacon timing, the alternating
+  controller, leases and the rest of the scenario.
+
 - The adapters, `Setting` and `Command` requests, the server's watch, prediction and rollback, the
   HUD path. Switches, alternating controller, switch setter, amp limiter, overheat and ATS settings,
   DPU settings, proximity screen, control panel tilt, the defect detector's shared snooze; beacon
@@ -856,8 +889,11 @@ predict their own actions with.
 
 - **PR 1 built** (#281): installed items are `Installed`; vehicles only. `gadget-save` passes on both
   host kinds.
-- **PR 2 built** (`gadgets/join-snapshot`): late joiners get every installed gadget; the server-only
+- **PR 2 merged** (#286): late joiners get every installed gadget; the server-only
   logic is off on a client for the gadgets the server sent. `gadget-join`, `gadget-save` and `rejoin`
   pass on both host kinds. The comparison the plan gave `dvmp_desync` is a scenario step for now
   (`Gadgets.Digest`: each gadget's own vanilla save data, wires sorted).
-- Next: 3a.
+- **PR 6a built** (`gadgets/state-channel`): installed gadgets' settings sync both ways, with
+  prediction and refusal ([Gadget state](#gadget-state), "As built"). Done ahead of 3a, which waits for
+  owned-items 2a.
+- Next: 6b; 3a once owned-items 2a lands.

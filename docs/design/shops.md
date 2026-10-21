@@ -1,6 +1,6 @@
 # Shops
 
-> Status: designed 2026-10-21, in progress: PRs 0, 1 and 2a are merged (#280, #279, #284), 2b is open (#291), the rest isn't built. Vanilla behaviour is in
+> Status: designed 2026-10-21, in progress: PRs 0 to 2b and 5 are merged (#280, #279, #284, #291, #294), 4 is open, the rest isn't built. Vanilla behaviour is in
 > [`../research/DERAIL_VALLEY_SHOP_LOGIC.md`](../research/DERAIL_VALLEY_SHOP_LOGIC.md); this doc
 > refers to it rather than repeating it. What the mod does today is in [Today](#today), and in
 > [`../world-sync.md`](../world-sync.md#shops) until this lands.
@@ -28,10 +28,15 @@ In progress (2026-10-21). See the [plan](#plan).
   both host kinds, and `shop WHO=host` and `host-register-empty-basket` on a player host, on a career
   save and a sandbox save.
 - PR 2b, the cash rules (walk-away, leaving the shop, disconnect, saved money), money as a `double`,
-  and licence limits on clients (#7): open as #291. Passed `shop`, `shop-basket`, `shop-restock`,
+  and licence limits on clients (#7): merged (#291). Passed `shop`, `shop-basket`, `shop-restock`,
   `shop-licence` and `shop-cash` on both host kinds, on fresh career saves.
-- PR 2c, station fixtures (the scanner stays in its shop): not started.
-- PRs 3 to 6: not started.
+- PR 2c, station fixtures (the scanner stays in its shop): waits for owned-items PR 1c (`ItemAccess`,
+  with the fixture list it checks).
+- PR 5, the scanner (laser, screen and hover sound for other players): merged (#294). Passed `shop-scanner` and
+  `shop` on both host kinds.
+- PR 4, prediction (a player's own scans, payments, Buy and Cancel show at once): open. Passed
+  `shop-predict`, and `shop` and `shop-basket` with and without `LAG=250`, on both host kinds.
+- PRs 3 and 6: not started.
 
 ## Decisions
 

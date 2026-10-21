@@ -184,6 +184,33 @@ public sealed class ServerShops
         return ShopRefusal.None;
     }
 
+    // A scanner's aim goes to the players who can see it.
+    private const float ScannerAimRange = 50f;
+
+    private readonly Dictionary<ushort, (byte Shop, byte Module)> scannerAims = new();
+
+    /// <summary>What each scanner last pointed at, by its NetId (module 255: nothing).</summary>
+    public IReadOnlyDictionary<ushort, (byte Shop, byte Module)> ScannerAims => scannerAims;
+
+    /// <summary>
+    /// A holder's scanner points at another shelf item: kept, and relayed to the players near it.
+    /// False if the player doesn't hold that scanner or the shelf item doesn't exist.
+    /// </summary>
+    public bool Aim(ServerPlayer player, ushort scannerNetId, byte shopIndex, byte moduleIndex)
+    {
+        if (!NetworkedItem.TryGet(scannerNetId, out NetworkedItem item) || item == null ||
+            !item.TryGetComponent(out ShopScanner _) || !HeldBy(item, player))
+            return false;
+        if (moduleIndex != byte.MaxValue && !ShopRegisters.TryGetModule(shopIndex, moduleIndex, out _))
+            return false;
+
+        scannerAims[scannerNetId] = (shopIndex, moduleIndex);
+        foreach (ServerPlayer other in server.ServerPlayers)
+            if (other != player && (other.WorldPosition - item.transform.position).sqrMagnitude <= ScannerAimRange * ScannerAimRange)
+                server.SendShopScannerAim(other, scannerNetId, shopIndex, moduleIndex);
+        return true;
+    }
+
     // Vanilla's ReturnMoneyToPlayerCheck: every 2 s, cash goes back to the wallet once nobody is
     // within 20 m of the register. Measured from every player, so a player who walked off, fast
     // travelled or disconnected gets it back the same way.
@@ -294,10 +321,13 @@ public sealed class ServerShops
             if (scanner == null || !scanner.gameObject.scene.IsValid() ||
                 !NetworkedItem.TryGetNetworkedItem(scanner.GetComponent<ItemBase>(), out NetworkedItem item) || item == null)
                 continue;
-            if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
-                record.Placement == ItemPlacementKind.PlayerHand && record.PlacementPlayerId == player.PlayerId)
+            if (HeldBy(item, player))
                 return true;
         }
         return false;
     }
+
+    private static bool HeldBy(NetworkedItem item, ServerPlayer player) =>
+        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
+        record.Placement == ItemPlacementKind.PlayerHand && record.PlacementPlayerId == player.PlayerId;
 }
