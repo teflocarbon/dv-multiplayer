@@ -63,7 +63,7 @@ on the server and in every client, are made to agree with it.
   the starter kit and missing essentials, the safeguards are off everywhere, and the join fields
   and the rejoin swap are gone (see [4](#4-server-made-starting-items)). Scenario:
   `starting-items`.
-- **PR 5, no adoption: built (2026-10-22), not yet run in game.** Client item adoption is deleted;
+- **PR 5, no adoption: built, and tested in game with PR 4 on both host kinds (2026-10-22).** Client item adoption is deleted;
   nothing legitimate still used it (see [5](#5-no-adoption)).
 - **Everything else: not started.** See the [plan](#plan).
 
