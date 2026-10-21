@@ -751,10 +751,14 @@ public static class AuthoritativeItemRegistry
     /// the current holder to accidentally replace its persistent owner.
     /// </summary>
     public static Record RegisterMaterializedColdItem(NetworkedItem item, ServerPlayer holder,
-        byte persistentOwnerPlayerId, ItemUpdateData snapshot, Guid persistentItemId)
+        byte persistentOwnerPlayerId, Guid persistentOwnerIdentity, ItemUpdateData snapshot, Guid persistentItemId)
     {
         if (item == null || holder == null || snapshot == null || item.NetId == 0)
             return null;
+        // The owner is the cold record's identity, as numbers come and go (owned-items.md, 2a). The
+        // holder's own number stands: two local debug games share one identity.
+        if (persistentOwnerIdentity != Guid.Empty && persistentOwnerIdentity != holder.Guid)
+            persistentOwnerPlayerId = OwnedItemsServer.OwnerNumber(persistentOwnerIdentity);
         // The item keeps its id through the container (owned-items.md, "Known bugs"): without it the
         // record wasn't saved.
         persistentItemId = OwnedItemsServer.ClaimPersistentId(item, persistentItemId);
@@ -781,11 +785,13 @@ public static class AuthoritativeItemRegistry
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty
         };
         records[item.NetId] = record;
+        record.PersistentOwnerIdentity = persistentOwnerIdentity;
         if (persistentOwnerPlayerId != 0 &&
             NetworkServer.Instance.TryGetServerPlayer(persistentOwnerPlayerId,
                 out ServerPlayer owner))
         {
-            record.PersistentOwnerIdentity = owner.Guid;
+            if (record.PersistentOwnerIdentity == Guid.Empty)
+                record.PersistentOwnerIdentity = owner.Guid;
             owner.AddOwnedItem(item.NetId);
         }
         WriteToSnapshot(record, snapshot, record.LastReason);

@@ -7,6 +7,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
+using Multiplayer.Core.Items;
 using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
@@ -27,7 +28,7 @@ public class ServerPlayer : IDisposable
     private static NetIdAllocator<byte> CreateIdAllocator()
     {
         NetIdAllocator<byte> allocator = new(value => unchecked((byte)(value + 1)));
-        allocator.TryReserve(Multiplayer.Core.Items.ItemTransitionCommand.AbsentOwnerId);
+        allocator.TryReserve(ItemTransitionCommand.AbsentOwnerId);
         return allocator;
     }
 

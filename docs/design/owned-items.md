@@ -773,8 +773,12 @@ stop being stored and every check move to the identity:
   and rebinds it to their session's number when they join. Before, an entry waited, unbound, for
   its owner. A claim takes the owner's number now, not the one saved with the entry.
 - **Unchanged:** Lost and Found still doesn't collect an offline owner's items. The owner's position
-  is unknown, so they stay protected until PR 3. Cold-container withdrawal stays as it was: only a
-  container's owner opens it, so the owner is always the one withdrawing.
+  is unknown, so they stay protected until PR 3. Cold-container withdrawal still refuses an offline
+  owner's item.
+- **A withdrawal takes its owner from the cold record's identity,** not from a number worked out a
+  frame earlier (item-review's L6). If the withdrawing player leaves in the frame the item wakes,
+  the withdrawal is aborted (`withdraw-actor-left`) and the item stays in the box. Before, it became
+  an inventory item with nobody holding it and an empty owner.
 - **Tests:** Core unit tests (`AbsentOwnerTests`).
 - Scenario **`absent-owner`** (`[Needs(Need.RestartsGames)]`, both hosts):
   1. The host gives a personal item to a made-up identity.
