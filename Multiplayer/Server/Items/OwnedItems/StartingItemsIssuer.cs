@@ -45,8 +45,13 @@ public static class StartingItemsIssuer
     /// <summary>Once the player has loaded (a client, or the host's own player): makes what they're missing.</summary>
     public static void OnPlayerLoaded(ServerPlayer player)
     {
-        if (player == null || player.Guid == Guid.Empty || !issuing.Add(player.Guid))
+        if (player == null || player.Guid == Guid.Empty)
             return;
+        if (!issuing.Add(player.Guid))
+        {
+            Multiplayer.LogWarning($"Starting items: still making {player.Username}'s from before; not again");
+            return;
+        }
         CoroutineManager.Instance.StartCoroutine(Issue(player));
     }
 
@@ -76,8 +81,8 @@ public static class StartingItemsIssuer
             foreach (string prefab in AdminItemGrants.StartingItemPrefabs().Distinct(StringComparer.Ordinal))
             {
                 bool has = Has(player, prefab);
-                Multiplayer.LogDebug(() => $"Starting items: {player.Username} {(has ? "has" : "lacks")} a {prefab} " +
-                                           $"(ledger: {string.Join(", ", OwnedItemsServer.Ledger.LiveOwnedBy(owner).Where(e => e.Prefab == prefab).Select(e => e.Id.ToString("D") + " " + e.Where.Place))})");
+                Multiplayer.Log($"Starting items: {player.Username} {(has ? "has" : "lacks")} a {prefab} " +
+                                $"(ledger: {string.Join(", ", OwnedItemsServer.Ledger.LiveOwnedBy(owner).Where(e => e.Prefab == prefab).Select(e => e.Id.ToString("D") + " " + e.Where.Place))})");
                 if (!has)
                     wanted.Add((prefab, null, true, ItemMoveReason.Issued, FreeSlot(taken, 0)));
             }
