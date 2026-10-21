@@ -107,6 +107,7 @@ internal static class GadgetToolPresence
         }
         foreach (ushort gone in othersWorking.Where(pair => now - pair.Value >= Expiry).Select(pair => pair.Key).ToList())
             othersWorking.Remove(gone);
+        ShowSoldering();
     }
 
     private static bool Shown(Component tool) =>
@@ -139,15 +140,29 @@ internal static class GadgetToolPresence
         showing = false;
     }
 
-    // The soldering iron: sparks and its sound, for the other player holding it.
-    [HarmonyPostfix]
-    [HarmonyPatch(typeof(GadgetSolderingTool), "Update")]
-    private static void SolderingShown(GadgetSolderingTool __instance)
+    // The soldering iron: sparks and its sound, for the other player holding it. Its own update runs only
+    // in its holder's game, so the tick turns them on and off here.
+    private static readonly HashSet<GadgetSolderingTool> sparking = new();
+
+    private static void ShowSoldering()
     {
-        if (!Shown(__instance))
-            return;
-        __instance.SetParticles(on: true);
-        if (__instance.soundSoldering != null && !__instance.soundSoldering.isPlaying)
-            __instance.soundSoldering.Play();
+        foreach (ushort netId in othersWorking.Keys)
+        {
+            if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null ||
+                item.GetComponentInChildren<GadgetSolderingTool>(true) is not { } iron)
+                continue;
+            iron.SetParticles(on: true);
+            if (iron.soundSoldering != null && !iron.soundSoldering.isPlaying)
+                iron.soundSoldering.Play();
+            sparking.Add(iron);
+        }
+        foreach (GadgetSolderingTool iron in sparking.Where(i => i == null || !Shown(i)).ToList())
+        {
+            sparking.Remove(iron);
+            if (iron == null)
+                continue;
+            iron.SetParticles(on: false);
+            iron.soundSoldering?.Stop();
+        }
     }
 }
