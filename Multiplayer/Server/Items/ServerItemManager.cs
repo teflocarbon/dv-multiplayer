@@ -61,6 +61,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         NetworkedLostAndFoundManager.HostTick(tick);
         NetworkedColdContainerManager.HostTick(tick);
         WorldItemPersistenceManager.HostTick();
+        OwnedItemsServer.HostTick();
         UpdatePlayerItemLists();
         ProcessChanged(tick);
         RunConvergence();
@@ -75,6 +76,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         HostSpatial.Clear();
         Replenishment.Clear();
         WorldItemPersistenceManager.Clear();
+        OwnedItemsServer.Clear();
         AuthoritativeItemRegistry.Clear();
     }
 
