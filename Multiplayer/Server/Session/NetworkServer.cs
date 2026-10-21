@@ -400,6 +400,7 @@ public partial class NetworkServer : NetworkManager
             return;
 
         HazmatServer.Tick(tick);
+        Shops.Tick(UnityEngine.Time.time);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)
         {

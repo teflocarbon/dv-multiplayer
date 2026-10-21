@@ -60,7 +60,8 @@ public partial class NetworkServer
         ClientboundShopStockPacket packet = new()
         {
             ItemPrefabNames = shopController.shopItemsData.Select(d => d.item.ItemPrefabName).ToArray(),
-            PurchasedItems = shopController.shopItemsData.Select(d => d.purchasedItems).ToArray()
+            PurchasedItems = shopController.shopItemsData.Select(d => d.purchasedItems).ToArray(),
+            AllowedToHaveAmount = shopController.shopItemsData.Select(ServerShops.Allowed).ToArray()
         };
         if (peer != null)
             SendPacket(peer, packet, DeliveryMethod.ReliableOrdered);

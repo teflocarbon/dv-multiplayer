@@ -49,7 +49,7 @@ public class StartGameData_ServerSave : AStartGameData
         saveGameData.SetString(SaveGameKeys.Game_mode, packet.GameMode);
         DifficultyToUse = DifficultyDataUtils.GetDifficultyFromJSON(JObject.Parse(packet.SerializedDifficulty), false);
 
-        saveGameData.SetFloat(SaveGameKeys.Player_money, packet.Money);
+        saveGameData.SetDouble(SaveGameKeys.Player_money, packet.Money);
 
         saveGameData.SetStringArray(SaveGameKeys.Licenses_Jobs, packet.AcquiredJobLicenses);
         saveGameData.SetStringArray(SaveGameKeys.Licenses_General, packet.AcquiredGeneralLicenses);

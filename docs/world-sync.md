@@ -139,7 +139,8 @@ to build its `StartGameData_ServerSave` (`Client/Session/StartGameData_ServerSav
 
 There is one wallet, the host's `Inventory.PlayerMoney`. `Server/Career/
 NetworkedSaveGameManager.cs` listens to `Inventory.MoneyChanged` on the host and broadcasts the new
-balance as `ClientboundMoneyPacket`; clients `SetMoney` it. A client's own balance is a mirror:
+balance as `ClientboundMoneyPacket` (a `double`, as the game keeps it, with a revision: it is sent
+unordered, and a client keeps the newest); clients `SetMoney` it. A client's own balance is a mirror:
 anything it adds or removes locally is overwritten by the host's next update, so every way a client
 spends or earns money has to reach the host:
 
@@ -231,14 +232,25 @@ on every game: `ReturnMoneyToPlayerCheck` (`CashRegisterBasePatch.OnEnable`) and
 purchase queue off. Shop registers aren't numbered as service registers
 (`NetworkedCashRegisterWithModules`) any more.
 
-Stock: `NetworkServer.SendShopStock` sends `ClientboundShopStockPacket` (prefab names and
-`purchasedItems`) on join, after every purchase and after `Restock`. `Restock` runs on the host
-only, so a client destroying its copy of a bought item doesn't restock. Vanilla's
-`ShopRestocker.OnDestroy` restocks on any destroy, but the server also destroys a GameObject when
-the item lives on elsewhere: a cold-container deposit, an aborted withdrawal's fresh copy, a
-replaced scene item. `Server/Shops/ShopRestockerRetirementPatch.cs` skips the restock for those
-(they are marked `NetworkedItem.ColdStorageRetirement` first). Before it, a bought lighter put
-through a toolbox put another on the shelf.
+Cash nobody is using (`ServerShops.Tick`, every 2 s): once no player is within 20 m of a register,
+its cash goes back to the wallet, as vanilla's `ReturnMoneyToPlayerCheck` did for the one player;
+a player who walked off, fast travelled or disconnected gets it back the same way. A basket nobody
+has been within 200 m of for a minute empties, as vanilla's cancel did when the register unloaded.
+Vanilla saves the wallet plus every register's cash as the money. `Server/Shops/ShopTillSavePatch.cs`
+writes the wallet, the service registers' cash and the server's tills instead, so a dedicated host
+(whose vanilla registers show nothing) saves the till too, and a player host doesn't count it twice.
+
+Stock: `NetworkServer.SendShopStock` sends `ClientboundShopStockPacket` (prefab names,
+`purchasedItems`, and how many of each may exist) on join, after every purchase, after `Restock`,
+and when a licence or garage is acquired. A client's own load never runs vanilla's rules that take
+the wireless MU controller off sale without the MU licence, or a garage key once its garage is
+unlocked, so it showed those as for sale; the server works them out live (`ServerShops.Allowed`)
+and sends them. `Restock` runs on the host only, so a client destroying its copy of a bought item
+doesn't restock. Vanilla's `ShopRestocker.OnDestroy` restocks on any destroy, but the server also
+destroys a GameObject when the item lives on elsewhere: a cold-container deposit, an aborted
+withdrawal's fresh copy, a replaced scene item. `Server/Shops/ShopRestockerRetirementPatch.cs`
+skips the restock for those (they are marked `NetworkedItem.ColdStorageRetirement` first). Before
+it, a bought lighter put through a toolbox put another on the shelf.
 
 Shelves: vanilla's `ShopShelves.Start` seeds each shop's layout from `UnityEngine.Random`, so every
 game put the shelf items in different places (38 of 244 displays at the shop by the shop scenario's
@@ -269,7 +281,9 @@ HUD. Scan and error sounds come with the register's state.
 Scenarios: `shop` (a player scans, pays and buys: the wallet pays once, one NetId on both, owned by
 the buyer, stock drops; a cancelled basket's cash is one banknote on both; `WHO=host` for the host's
 own player), `shop-basket` (the shared basket matches on server and client; each item is owned by
-whoever scanned it), `shop-layout`, `shop-restock` (a deposit through a container doesn't restock; destroying the item does),
+whoever scanned it), `shop-cash` (the save counts the till; walking away returns it; an abandoned
+basket empties), `shop-licence` (the MU controller is off sale on a client without the licence),
+`shop-layout`, `shop-restock` (a deposit through a container doesn't restock; destroying the item does),
 `shop-scanner` (the server has the client's scanner's aim; on a player host the host's game shows its laser and screen).
 
 ## Service stations
@@ -556,9 +570,6 @@ weather, sleep, difficulty, junctions, switches and service stations have none.
   debt-flag change broadcast in between never reaches that client. Money corrects itself on the next
   change; the debt flag and licences stay wrong until something changes them again or the player
   rejoins.
-- **Money is a `float` sent `ReliableUnordered`.** `ClientboundMoneyPacket.Amount` (and the
-  save-game packet's `Money`) lose cents on large balances, and two updates arriving out of order
-  leave the older balance.
 - **Client fast-travel fee.** Nothing forwards a client's fast-travel cost to the host, so the next
   money update hands it back (flagged in `CODE_AUDIT.md`; not checked in game).
 - **Fast travel skips aren't validated.** The host relays any amount, including negative ones.
@@ -567,9 +578,6 @@ weather, sleep, difficulty, junctions, switches and service stations have none.
   The bed menu shows the shared cooldown, so this needs a race or stale state.
 - **Weather lags up to 30 s.** The host changing time or weather reaches clients on the next
   periodic update. A client's weather editor changes are local and overwritten.
-- **Cash in a shop register stays there.** It comes back only through Buy (change) or Cancel (a
-  banknote): nobody walking away returns it to the wallet yet, and a server restart loses it
-  (the save doesn't include it). Shops PR 2b ([design/shops.md](design/shops.md)) adds those rules.
 - **Shop receipts exist only on the presser's game** when a client presses Buy, as before (shops PR 3).
 - **Junctions and turntables are relayed, not owned.** No player, distance or occupancy check; two
   players switching within one round trip can end up with different junctions.

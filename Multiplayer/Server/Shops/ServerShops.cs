@@ -209,6 +209,61 @@ public sealed class ServerShops
         return true;
     }
 
+    // Vanilla's ReturnMoneyToPlayerCheck: every 2 s, cash goes back to the wallet once nobody is
+    // within 20 m of the register. Measured from every player, so a player who walked off, fast
+    // travelled or disconnected gets it back the same way.
+    private const float CashCheckInterval = 2f;
+    private const float CashReturnDistance = 20f;
+    // Vanilla's OnDisable cancel happened when the register unloaded with its player gone: here, a
+    // minute with nobody within 200 m.
+    private const float LeftShopDistance = 200f;
+    private const float LeftShopSeconds = 60f;
+
+    private readonly Dictionary<int, float> lastPlayerNearShop = new();
+    private float nextCashCheck;
+
+    /// <summary>Called every server tick: returns cash nobody is using and clears abandoned baskets.</summary>
+    public void Tick(float now)
+    {
+        if (now < nextCashCheck)
+            return;
+        nextCashCheck = now + CashCheckInterval;
+
+        foreach (KeyValuePair<int, ShopBasket> entry in baskets)
+        {
+            ShopBasket basket = entry.Value;
+            if (basket.Delivering || !ShopRegisters.TryGetShop(entry.Key, out Shop shop))
+                continue;
+            float nearest = shop.cashRegister.transform.position.AnyPlayerSqrMag();
+
+            if (basket.Deposited > 0 && nearest > CashReturnDistance * CashReturnDistance)
+            {
+                double cash = basket.TakeDeposit();
+                Inventory.Instance.AddMoney(cash); // MoneyChanged broadcasts the new balance
+                Multiplayer.Log($"{shop.name}: nobody within {CashReturnDistance} m, ${cash:N2} back to the wallet");
+                server.SendShopRegisterState(entry.Key, basket, ShopRegisterEvent.CashReturned, 0);
+            }
+
+            if (nearest <= LeftShopDistance * LeftShopDistance || basket.IsEmpty)
+                lastPlayerNearShop[entry.Key] = now;
+            else if (!lastPlayerNearShop.TryGetValue(entry.Key, out float lastNear))
+                lastPlayerNearShop[entry.Key] = now;
+            else if (now - lastNear > LeftShopSeconds)
+            {
+                basket.ClearLines();
+                Multiplayer.Log($"{shop.name}: nobody within {LeftShopDistance} m for {LeftShopSeconds} s, basket emptied");
+                server.SendShopRegisterState(entry.Key, basket, ShopRegisterEvent.LinesDropped, 0);
+            }
+        }
+    }
+
+    /// <summary>The cash in every shop's till, which the save counts as the wallet's (vanilla does the same).</summary>
+    public double CashInTills() => baskets.Values.Sum(b => b.Deposited);
+
+    /// <summary>How many of the item may exist right now: none while a gate is shut (game mode, licence, garage).</summary>
+    public static int Allowed(ShopItemData data) =>
+        Availability(data, 0) == ShopRefusal.None ? data.allowedToHaveAmount : 0;
+
     // One line after the other, as vanilla: the items appear on the counter one every 0.5 s.
     private IEnumerator Deliver(int shopIndex, Shop shop, IReadOnlyList<ShopBasketLine> bought)
     {

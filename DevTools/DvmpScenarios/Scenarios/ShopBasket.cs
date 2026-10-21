@@ -41,8 +41,14 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             await Places.Shop(pair, 2f);
+            await pair.Host.Run(() => Shop.InGame.ResetRegisters());
+            pair.Cleanup(async () =>
+            {
+                await pair.Client.Run<bool>(s => Shop.InGame.ReturnHeldScanner(s));
+                if (!pair.Dedicated) await pair.Host.Run<bool>(s => Shop.InGame.ReturnHeldScanner(s));
+            });
 
-            Scanned a = await pair.Client.Run<Scanned>(s => InGame.Scan(s, o.First));
+            Scanned a =await pair.Client.Run<Scanned>(s => InGame.Scan(s, o.First));
             Report.Note($"client scanned {a.Prefab} at shop {a.Shop}: basket revision {a.Revision}, {a.Units} unit(s)");
             await Task.Delay(1000);
             await Compare(pair, a.Shop, "after the client's scan");
@@ -121,15 +127,7 @@ namespace Dvmp.Scenarios
                 global::Shop shop = NearestShop();
                 int shopIndex = GlobalShopController.Instance.globalShopList.IndexOf(shop);
                 ScanItemCashRegisterModule mod = shop.scanItemResourceModules.First(m => m.name.StartsWith(item));
-                NetworkedItem scanner = UnityEngine.Object.FindObjectsOfType<ShopScanner>()
-                    .OrderBy(s => Vector3.Distance(s.transform.position, shop.cashRegister.transform.position))
-                    .Select(s => s.GetComponent<NetworkedItem>()).First(n => n != null);
-                if (Hands.Held != scanner)
-                {
-                    if (Hands.Held != null) yield return Hands.Drop();
-                    yield return LocalPlayer.GoTo(scanner);
-                    yield return Hands.Pickup(scanner.NetId);
-                }
+                yield return Shop.InGame.TakeScanner(shop);
                 yield return Shop.InGame.StandAt(mod.transform);
                 float units = mod.Data.unitsToBuy;
                 mod.AddItemsToBuy();
