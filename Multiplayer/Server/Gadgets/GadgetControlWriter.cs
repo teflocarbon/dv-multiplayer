@@ -29,8 +29,10 @@ namespace Multiplayer.Server.Gadgets;
 [HarmonyPatch]
 internal static class GadgetControlWriter
 {
-    // The server-run gadget whose Update is running, if any.
+    // The server-run gadget whose Update is running, if any, or the control panel whose input is being
+    // applied; whether what it moves is taken from its holder (a panel is refused a held lever instead).
     private static GadgetBase driving;
+    private static bool takes;
     private static readonly Dictionary<(string livery, string port), float> steps = new();
 
     [HarmonyPrefix]
@@ -57,7 +59,32 @@ internal static class GadgetControlWriter
     [HarmonyPatch(typeof(GadgetOverheatProtection), "Update")]
     private static void OverheatEnd() => driving = null;
 
-    private static void Start(GadgetBase gadget) => driving = NetworkRole.IsServer ? gadget : null;
+    private static void Start(GadgetBase gadget)
+    {
+        driving = NetworkRole.IsServer ? gadget : null;
+        takes = true;
+    }
+
+    /// <summary>
+    /// Runs a control panel's move on the server: stepped as a gadget's, but nobody's lever is taken
+    /// (GadgetPanelServer checks the lease first, as for a cab lever).
+    /// </summary>
+    internal static void Stepping(GadgetBase panel, System.Action move)
+    {
+        GadgetBase wasDriving = driving;
+        bool wasTaking = takes;
+        driving = panel;
+        takes = false;
+        try
+        {
+            move();
+        }
+        finally
+        {
+            driving = wasDriving;
+            takes = wasTaking;
+        }
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(OverridableBaseControl), nameof(OverridableBaseControl.Move))]
@@ -66,7 +93,8 @@ internal static class GadgetControlWriter
     {
         if (driving == null || ___car == null)
             return true;
-        TakeFromHolder(___car, __instance);
+        if (takes)
+            TakeFromHolder(___car, __instance);
         if (___interiorControlsManager != null || __instance.IsNotched || __instance.IsControlBlocked)
             return true;
         __instance.Set(__instance.Value + notches * Step(___car, __instance.portId));
@@ -77,7 +105,7 @@ internal static class GadgetControlWriter
     [HarmonyPatch(typeof(OverridableBaseControl), nameof(OverridableBaseControl.Set))]
     private static void Set(OverridableBaseControl __instance, TrainCar ___car)
     {
-        if (driving != null && ___car != null)
+        if (driving != null && takes && ___car != null)
             TakeFromHolder(___car, __instance);
     }
 
