@@ -1527,6 +1527,8 @@ public sealed class NetworkedTrainCarClient : ITrainCarClientPart
             locallyOwnedPortAuthorities.Remove(portNetId);
 
         Multiplayer.LogDebug(() => $"ReceiveAuthorityUpdate({portNetId}, {state}) for [{CurrentID}, {NetId}]");
+        // A gadget's knobs lease on its car under an id of their own (GadgetKnobLease).
+        Gadgets.GadgetKnobLeases.ReceiveAuthorityUpdate(portNetId, state);
 
         if (portNetIdToLocalInputWriters.TryGetValue(portNetId, out Behaviour[] writers))
             foreach (Behaviour writer in writers)

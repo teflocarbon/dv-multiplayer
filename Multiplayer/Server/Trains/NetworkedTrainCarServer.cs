@@ -693,6 +693,25 @@ public sealed class NetworkedTrainCarServer : ITrainCarServerPart
         }
     }
 
+    /// <summary>
+    /// Takes a control from the player holding it (gadgets.md, "The gadget always wins"): a gadget the
+    /// server runs is moving it, as vanilla makes its own player let go. The holder's game is told the
+    /// control is blocked, which lets go of the lever, then every game that it is free. Returns who held
+    /// it, or null if nobody did.
+    /// </summary>
+    public ServerPlayer RevokeLease(uint portNetId, string why)
+    {
+        ServerPlayer holder = leases.HolderOf(portNetId);
+        if (holder == null)
+            return null;
+        leases.Release(portNetId, holder);
+        NetworkServer server = NetworkServer.Instance;
+        server.LogDebug(() => $"Took a control on car {CurrentID} from \"{holder.Username}\": {why}");
+        server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Blocked, holder);
+        server.SendTrainControlAuthorityUpdate(NetId, portNetId, ControlAuthorityState.Released);
+        return holder;
+    }
+
     /// <summary>Who holds the lease on a control's port, if anyone.</summary>
     public ServerPlayer LeaseHolder(uint portNetId) => leases.HolderOf(portNetId);
 

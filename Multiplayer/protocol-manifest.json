@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1132+c04fea44c7cc9b4712a905513e884e7302326a15",
-  "Fingerprint": "b18e45bf9e48a2a9828af9e02be99cc829a285d5d9a59c45abec836b4cf8c1af",
+  "BuildVersion": "2026.10.21-dev.1803+ec456d4ea9a5f7384b47d15979b394bac3b2447b",
+  "Fingerprint": "44e3aaae5f8baa46fb1fdd1eaa84ba513cdfc0303a9b0cd7577bdeb0ece60e67",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -688,6 +688,15 @@
       "SuppressByDefault": true
     },
     {
+      "Hash": "9C32F524B330444F",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetRunningPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "9D8C7E64515465EA",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Common.CommonPitStopPlugInteractionPacket",
       "Direction": "Bidirectional",
@@ -913,6 +922,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "BBED2AE06069FB69",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetCommandPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "BF45B9AD7F34D9CD",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.World.ClientboundGameParamsPacket",
       "Direction": "Clientbound",
@@ -1088,6 +1106,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Train.ServerboundTrainsetRelocationAckPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "E85BCF274370E44A",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetPanelPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

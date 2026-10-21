@@ -36,11 +36,14 @@ namespace Dvmp.Scenarios
             public string First = "Lighter";
             /// <summary>The second shelf item's name prefix (the host's on a player host).</summary>
             public string Second = "Stopwatch";
+            /// <summary>Delay on every packet the client receives, in ms.</summary>
+            public int Lag = 0;
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
             await Places.Shop(pair, 2f);
+            using var lag = await pair.Client.Lag(o.Lag);
             await pair.Host.Run(() => Shop.InGame.ResetRegisters());
             pair.Cleanup(async () =>
             {
@@ -158,7 +161,7 @@ namespace Dvmp.Scenarios
                 if (cost > reg.DepositedCash)
                 {
                     Wallet w = Resources.FindObjectsOfTypeAll<Wallet>().First(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Shared.Players.NetworkedPlayer>() == null);
-                    w.GetComponent<MoneyUse>().HandleUse(reg.GetComponent<ItemUseTarget>());
+                    Shop.InGame.WalletUse(w).HandleUse(reg.GetComponent<ItemUseTarget>());
                     yield return Wait.Until(() => reg.DepositedCash >= cost, 10f, "the payment on the register");
                 }
                 reg.OnBuyPressed();

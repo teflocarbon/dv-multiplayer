@@ -15,4 +15,7 @@ public class ClientboundShopRegisterStatePacket
     public byte Event { get; set; }
     public byte EventPlayerId { get; set; }
     public byte EventModule { get; set; }
+    // The request this state answers: its player's game drops that request (and earlier ones) from its prediction.
+    public byte AckPlayerId { get; set; }
+    public uint AckRequestId { get; set; }
 }

@@ -37,6 +37,8 @@ namespace Dvmp.Scenarios
             public string Item = "Lighter";
             /// <summary>Who buys: client or host.</summary>
             public string Who = "client";
+            /// <summary>Delay on every packet the client receives, in ms (the client's own requests show at once anyway).</summary>
+            public int Lag = 0;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -45,6 +47,7 @@ namespace Dvmp.Scenarios
             Peer buyer = o.Who == "host" ? pair.Host : pair.Client;
             Peer other = o.Who == "host" ? pair.Client : pair.Host;
             await Places.Shop(pair, 2f);
+            using var lag = await pair.Client.Lag(o.Lag);
             await pair.Host.Run(() => InGame.ResetRegisters());
 
             Report.Note($"{o.Who} buys a {o.Item}");
@@ -138,7 +141,7 @@ namespace Dvmp.Scenarios
                 double cost = reg.GetTotalCost();
                 if (cost > 0)
                 {
-                    w.GetComponent<MoneyUse>().HandleUse(reg.GetComponent<ItemUseTarget>());
+                    Shop.InGame.WalletUse(w).HandleUse(reg.GetComponent<ItemUseTarget>());
                     yield return Wait.Until(() => reg.DepositedCash >= cost, 10f, "the payment on the register");
                 }
                 double deposited = reg.DepositedCash;
@@ -220,6 +223,14 @@ namespace Dvmp.Scenarios
                     NetworkServer.Instance.SendShopRegisterState(entry.Key, entry.Value, Multiplayer.Core.Shops.ShopRegisterEvent.None, 0);
                 }
             }
+
+            /// <summary>
+            /// The wallet's "use on a register" action. Vanilla adds it in <c>Wallet.Start</c>, which a
+            /// wallet that has stayed in the inventory since a save loaded hasn't run (a player takes it
+            /// out first, which runs it): add it as Start would.
+            /// </summary>
+            public static MoneyUse WalletUse(Wallet wallet) =>
+                wallet.GetComponent<MoneyUse>() ?? wallet.gameObject.AddComponent<MoneyUse>();
 
             // A metre from something, as a player using it stands.
             public static IEnumerator StandAt(Transform target)

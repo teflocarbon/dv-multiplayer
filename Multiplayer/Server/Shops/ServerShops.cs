@@ -46,7 +46,7 @@ public sealed class ServerShops
         return basket;
     }
 
-    public ShopRefusal Scan(ServerPlayer player, int shopIndex, int moduleIndex)
+    public ShopRefusal Scan(ServerPlayer player, int shopIndex, int moduleIndex, uint requestId = 0)
     {
         if (!ShopRegisters.TryGetModule(shopIndex, moduleIndex, out ScanItemCashRegisterModule module))
             return ShopRefusal.NotSoldHere;
@@ -63,12 +63,12 @@ public sealed class ServerShops
             return available;
 
         basket.Add(moduleIndex, player.PlayerId);
-        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.Scanned, player.PlayerId, moduleIndex);
+        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.Scanned, player.PlayerId, moduleIndex, ack: requestId);
         return ShopRefusal.None;
     }
 
     /// <summary>Pays in from the wallet (<paramref name="moneyNetId"/> 0) or with a banknote.</summary>
-    public ShopRefusal Deposit(ServerPlayer player, int shopIndex, ushort moneyNetId)
+    public ShopRefusal Deposit(ServerPlayer player, int shopIndex, ushort moneyNetId, uint requestId = 0)
     {
         if (!ShopRegisters.TryGetShop(shopIndex, out Shop shop))
             return ShopRefusal.NotSoldHere;
@@ -91,12 +91,12 @@ public sealed class ServerShops
             return ShopRefusal.MoneyNotYours;
 
         Multiplayer.Log($"P{player.PlayerId} paid ${paid:N2} into {shop.name} ({(moneyNetId == 0 ? "wallet" : $"banknote {moneyNetId}")})");
-        basket.Deposit(paid);
-        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.CashAdded, player.PlayerId);
+        basket.Deposit(paid, player.PlayerId);
+        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.CashAdded, player.PlayerId, ack: requestId);
         return ShopRefusal.None;
     }
 
-    public ShopRefusal Buy(ServerPlayer player, int shopIndex, uint revision)
+    public ShopRefusal Buy(ServerPlayer player, int shopIndex, uint revision, uint requestId = 0)
     {
         if (!ShopRegisters.TryGetShop(shopIndex, out Shop shop))
             return ShopRefusal.NotSoldHere;
@@ -105,7 +105,9 @@ public sealed class ServerShops
         ShopBasket basket = Basket(shopIndex);
         if (basket.Delivering)
             return ShopRefusal.Busy;
-        if (revision != basket.Revision)
+        // Only someone else's change since the presser's view: their own scans and payment, still on the
+        // way back to them, are what they meant to buy.
+        if (basket.ChangedByOthersSince(revision, player.PlayerId))
             return ShopRefusal.BasketChanged;
         if (basket.IsEmpty)
             return ShopRefusal.BasketEmpty;
@@ -138,8 +140,8 @@ public sealed class ServerShops
             return ShopRefusal.NotEnoughCash;
         }
 
-        IReadOnlyList<ShopBasketLine> bought = basket.Checkout(module => UnitPrice(shopIndex, module));
-        double change = basket.TakeDeposit();
+        IReadOnlyList<ShopBasketLine> bought = basket.Checkout(module => UnitPrice(shopIndex, module), player.PlayerId);
+        double change = basket.TakeDeposit(player.PlayerId);
         if (change > 0)
             shop.cashRegister.moneyPrinter.PrintMoney(change);
         Multiplayer.Log($"P{player.PlayerId} bought at {shop.name} for ${total:N2} (change ${change:N2}): " +
@@ -157,13 +159,13 @@ public sealed class ServerShops
         shops.Fire_GlobalShopDataChanged();
         server.SendShopStock();
 
-        basket.SetDelivering(true);
-        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.Bought, player.PlayerId);
+        basket.SetDelivering(true, player.PlayerId);
+        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.Bought, player.PlayerId, ack: requestId);
         CoroutineManager.Instance.StartCoroutine(Deliver(shopIndex, shop, bought));
         return ShopRefusal.None;
     }
 
-    public ShopRefusal Cancel(ServerPlayer player, int shopIndex)
+    public ShopRefusal Cancel(ServerPlayer player, int shopIndex, uint requestId = 0)
     {
         if (!ShopRegisters.TryGetShop(shopIndex, out Shop shop))
             return ShopRefusal.NotSoldHere;
@@ -173,12 +175,12 @@ public sealed class ServerShops
         if (basket.Delivering)
             return ShopRefusal.Busy;
 
-        basket.ClearLines();
-        double cash = basket.TakeDeposit();
+        basket.ClearLines(player.PlayerId);
+        double cash = basket.TakeDeposit(player.PlayerId);
         if (cash > 0)
             shop.cashRegister.moneyPrinter.PrintMoney(cash);
         Multiplayer.Log($"P{player.PlayerId} cancelled the basket at {shop.name}, ${cash:N2} printed");
-        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.Cancelled, player.PlayerId);
+        server.SendShopRegisterState(shopIndex, basket, ShopRegisterEvent.Cancelled, player.PlayerId, ack: requestId);
         return ShopRefusal.None;
     }
 

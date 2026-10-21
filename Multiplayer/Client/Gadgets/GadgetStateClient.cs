@@ -87,22 +87,38 @@ internal static class GadgetStateClient
                 entry.Pending = 0;
             if (now - entry.LastSent < SendIntervalSeconds)
                 continue;
-            Dictionary<string, float> settings = GadgetSettings.Capture(gadget);
-            if (!GadgetSettings.Differ(settings, entry.Shown))
-                continue;
-            ushort itemNetId = gadget.GadgetItem?.GetComponent<NetworkedItem>()?.NetId ?? 0;
-            if (itemNetId == 0)
-                continue;
-            entry.Shown = settings;
-            entry.Pending = ++nextOperation;
-            entry.PendingSince = entry.LastSent = now;
-            NetworkClient.Instance?.SendGadgetSetting(new ServerboundGadgetSettingPacket
-            {
-                ItemNetId = itemNetId,
-                OperationId = entry.Pending,
-                Keys = settings.Keys.ToArray(),
-                Values = settings.Values.ToArray()
-            });
+            SendIfChanged(gadget, entry, now);
         }
+    }
+
+    /// <summary>
+    /// Sends this player's change to the gadget now, if there is one, without waiting for the next
+    /// tick: before its knobs' lease is given back (GadgetKnobLeases), so the change isn't refused
+    /// because someone else took them meanwhile.
+    /// </summary>
+    internal static void SendNow(GadgetBase gadget)
+    {
+        if (NetworkRole.IsRemoteClient && gadget != null && gadget.IsLinked && tracked.TryGetValue(gadget, out Tracked entry))
+            SendIfChanged(gadget, entry, Time.realtimeSinceStartup);
+    }
+
+    private static void SendIfChanged(GadgetBase gadget, Tracked entry, float now)
+    {
+        Dictionary<string, float> settings = GadgetSettings.Capture(gadget);
+        if (!GadgetSettings.Differ(settings, entry.Shown))
+            return;
+        ushort itemNetId = gadget.GadgetItem?.GetComponent<NetworkedItem>()?.NetId ?? 0;
+        if (itemNetId == 0)
+            return;
+        entry.Shown = settings;
+        entry.Pending = ++nextOperation;
+        entry.PendingSince = entry.LastSent = now;
+        NetworkClient.Instance?.SendGadgetSetting(new ServerboundGadgetSettingPacket
+        {
+            ItemNetId = itemNetId,
+            OperationId = entry.Pending,
+            Keys = settings.Keys.ToArray(),
+            Values = settings.Values.ToArray()
+        });
     }
 }

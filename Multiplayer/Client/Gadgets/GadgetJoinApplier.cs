@@ -32,10 +32,19 @@ internal static class GadgetJoinApplier
     /// </summary>
     internal static readonly HashSet<GadgetBase> ServerSent = new();
 
+    /// <summary>While a join snapshot is being placed: what comes for its gadgets meanwhile waits.</summary>
+    internal static bool Applying { get; private set; }
+
     internal static bool IsServerSent(GadgetBase gadget) => gadget != null && ServerSent.Contains(gadget);
 
     internal static IEnumerator Apply(ClientboundGadgetJoinSnapshotPacket packet, Action done)
     {
+        // A rejoin's snapshot replaces what the last one sent.
+        ServerSent.Clear();
+        GadgetStateClient.Reset();
+        GadgetRunningClient.Reset();
+        GadgetKnobLeases.Reset();
+        Applying = true;
         List<(TrainCar car, InstalledGadgetData data)> wanted = new();
         foreach (GadgetAnchorSnapshotData anchor in packet.Anchors ?? [])
         {
@@ -53,9 +62,6 @@ internal static class GadgetJoinApplier
                Time.realtimeSinceStartup < deadline)
             yield return null;
 
-        // A rejoin's snapshot replaces what the last one sent.
-        ServerSent.Clear();
-        GadgetStateClient.Reset();
         List<ItemSaveData> placed = new();
         foreach ((TrainCar car, InstalledGadgetData data) in wanted)
         {
@@ -76,6 +82,8 @@ internal static class GadgetJoinApplier
         // After the after-load pass, which can still move a setting (a knob binding its LOD).
         foreach (GadgetBase gadget in ServerSent)
             GadgetStateClient.Track(gadget);
+        Applying = false;
+        GadgetRunningClient.ApplyEarly();
         Multiplayer.Log($"Installed {placed.Count} of {wanted.Count} gadgets from the server");
         done?.Invoke();
     }

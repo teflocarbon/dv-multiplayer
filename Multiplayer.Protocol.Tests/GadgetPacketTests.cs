@@ -110,4 +110,64 @@ public sealed class GadgetPacketTests
         Assert.That(result.Keys, Is.EqualTo(new[] { "value" }));
         Assert.That(result.Values, Is.EqualTo(new[] { 0.75f }));
     }
+
+    [Test]
+    public void Command_RoundTrips()
+    {
+        ServerboundGadgetCommandPacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ServerboundGadgetCommandPacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundGadgetCommandPacket { ItemNetId = 801, OperationId = 7, Command = 4 });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.ItemNetId, Is.EqualTo(801));
+        Assert.That(result.OperationId, Is.EqualTo(7));
+        Assert.That(result.Command, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void Panel_RoundTrips()
+    {
+        ServerboundGadgetPanelPacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ServerboundGadgetPanelPacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundGadgetPanelPacket { ItemNetId = 801, Input = 1, Control = 2, Value = -1f });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.ItemNetId, Is.EqualTo(801));
+        Assert.That(result.Input, Is.EqualTo(1));
+        Assert.That(result.Control, Is.EqualTo(2));
+        Assert.That(result.Value, Is.EqualTo(-1f));
+    }
+
+    [Test]
+    public void Running_RoundTripsWhoseCommandItAnswers()
+    {
+        ClientboundGadgetRunningPacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ClientboundGadgetRunningPacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundGadgetRunningPacket
+        {
+            ItemNetId = 801,
+            PlayerId = 3,
+            OperationId = 7,
+            Refused = true,
+            Keys = new[] { "countup", "completed" },
+            Values = new[] { 12.5f, 0f }
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.ItemNetId, Is.EqualTo(801));
+        Assert.That(result.PlayerId, Is.EqualTo(3));
+        Assert.That(result.OperationId, Is.EqualTo(7));
+        Assert.That(result.Refused, Is.True);
+        Assert.That(result.Keys, Is.EqualTo(new[] { "countup", "completed" }));
+        Assert.That(result.Values, Is.EqualTo(new[] { 12.5f, 0f }));
+    }
 }
