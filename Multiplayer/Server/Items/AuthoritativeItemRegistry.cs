@@ -245,10 +245,6 @@ public static class AuthoritativeItemRegistry
                 ItemWorldParentKind.StaticParent => ItemPlacementKind.StaticParent,
                 _ => requestedPlacement
             };
-        if (actor != null && requestedPlacement == ItemPlacementKind.PlayerInventory &&
-            record.Placement != ItemPlacementKind.PlayerInventory &&
-            !ItemAccessServer.Allows(actor, ItemAccessAction.Stash, item, record, out rejectionReason))
-            return false;
         byte previousPersistentOwner = record.PersistentOwnerPlayerId;
         int previousClaimSlot = record.InventoryClaimSlot;
         ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(currentState, new ItemTransitionCommand
@@ -270,6 +266,18 @@ public static class AuthoritativeItemRegistry
         if (!result.Accepted)
         {
             rejectionReason = result.RejectionReason;
+            PublishRejected(item, record, actor, snapshot, rejectionReason);
+            return false;
+        }
+        // Into a player's inventory, whatever route it took and whoever commits it: on a dedicated
+        // host the server's own copy of a client's item reports the client's stash with no actor
+        // (fixture-no-stash, 2026-10-21).
+        if (result.State.Placement == AuthorityPlacement.PlayerInventory && record.Placement != ItemPlacementKind.PlayerInventory &&
+            (actor ?? (NetworkServer.Instance != null &&
+                       NetworkServer.Instance.TryGetServerPlayer(result.State.PlacementPlayerId, out ServerPlayer holder) ? holder : null))
+                is ServerPlayer stasher &&
+            !ItemAccessServer.Allows(stasher, ItemAccessAction.Stash, item, record, out rejectionReason))
+        {
             PublishRejected(item, record, actor, snapshot, rejectionReason);
             return false;
         }
