@@ -127,6 +127,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "gadget-wiring|gadget-wiring|"
   "gadget-install-lag|gadget-install|LAG=250"
   "gadget-mounting-lag|gadget-mounting|LAG=250"
+  "gadget-labels|gadget-labels|"
   "borrowed-disconnect|borrowed-disconnect||player"
   "borrowed-disconnect-crash|borrowed-disconnect|LEAVE=crash|player"
   "borrowed-disconnect-absent|borrowed-disconnect|OWNER=absent"

@@ -14,7 +14,9 @@ public enum GadgetChangeKind : byte
     Wired = 6,
     Unwired = 7,
     /// <summary>A gadget's soldering units, absolute (PR 5).</summary>
-    Soldered = 8
+    Soldered = 8,
+    /// <summary>A label's text (PR 9), carried as the entry's state.</summary>
+    TextSet = 9
 }
 
 /// <summary>A change the server observed on one car's gadgets, waiting to be sent.</summary>
@@ -33,6 +35,8 @@ public sealed class GadgetChange<TGadget>
     /// <summary>Wired, Unwired: the other gadget's UID and its port.</summary>
     public int OtherUid;
     public int OtherIndex;
+    /// <summary>TextSet: the text.</summary>
+    public string Text;
     /// <summary>The request that caused it: its player and operation, 0 for none.</summary>
     public byte PlayerId;
     public uint OperationId;
@@ -84,7 +88,7 @@ public sealed class GadgetChangeRecorder<TGadget>
     /// top-level). Returns the car's new revision.
     /// </summary>
     public uint Record(ushort anchor, GadgetChangeKind kind, TGadget gadget, bool forced = false,
-        int index = 0, byte value = 0, float[] point = null, int otherUid = 0, int otherIndex = 0)
+        int index = 0, byte value = 0, float[] point = null, int otherUid = 0, int otherIndex = 0, string text = null)
     {
         uint revision = Revision(anchor) + 1;
         revisions[anchor] = revision;
@@ -100,6 +104,7 @@ public sealed class GadgetChangeRecorder<TGadget>
             Point = point,
             OtherUid = otherUid,
             OtherIndex = otherIndex,
+            Text = text,
             PlayerId = operationPlayer,
             OperationId = operation
         });

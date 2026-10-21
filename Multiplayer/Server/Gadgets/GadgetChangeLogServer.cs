@@ -1,10 +1,13 @@
 using DV.Customization;
 using DV.Customization.Gadgets;
+using DV.Customization.Gadgets.Implementations;
+using DV.UIFramework;
 using HarmonyLib;
 using LiteNetLib;
 using Multiplayer.Core.Gadgets;
 using Multiplayer.Server.Items;
 using Multiplayer.Server.Session;
+using Multiplayer.Shared.Gadgets;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Gadgets;
@@ -217,6 +220,22 @@ internal static class GadgetChangeLogServer
             otherUid: target.UID, otherIndex: target.wiring.wireLinkPorts.IndexOf(b));
     }
 
+    /// <summary>A label's text changed on the server (a request, or the host's player at the popup).</summary>
+    internal static void RecordText(GadgetBase gadget, string text)
+    {
+        if (Recording && gadget != null && gadget.IsLinked && OnCar(gadget.Custom, out ushort carNetId))
+            recorder.Record(carNetId, GadgetChangeKind.TextSet, gadget, text: text ?? string.Empty);
+    }
+
+    // The host's player confirming a label's popup: vanilla sets the text with no primitive to observe.
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(TextGadget), "PopupClosed")]
+    private static void HostTextSet(TextGadget __instance, PopupResult result)
+    {
+        if (NetworkRole.IsServer && !GadgetApplyScope.Active && result.closedBy == PopupClosedByAction.Positive)
+            RecordText(__instance.ThisGadget, result.data);
+    }
+
     // Soldering moves a little every frame while a player holds the iron: rather than an entry per call,
     // the watch (GadgetStateServer.Tick, 10 Hz) sends the absolute units when they changed.
     private static readonly Dictionary<GadgetBase, int> solderSent = new();
@@ -292,6 +311,7 @@ internal static class GadgetChangeLogServer
             Value = change.Value,
             OtherUid = change.OtherUid,
             OtherIndex = change.OtherIndex,
+            State = change.Kind == GadgetChangeKind.TextSet ? change.Text ?? string.Empty : string.Empty,
             PlayerId = change.PlayerId,
             OperationId = change.OperationId
         };

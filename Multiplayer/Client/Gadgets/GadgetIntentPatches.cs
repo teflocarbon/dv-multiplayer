@@ -3,6 +3,7 @@ using DV.Customization;
 using DV.Customization.Gadgets;
 using DV.Customization.Gadgets.Implementations;
 using DV.Interaction;
+using DV.UIFramework;
 using DV.Utils;
 using HarmonyLib;
 using Multiplayer.Client.Session;
@@ -88,8 +89,10 @@ internal static class GadgetIntentPatches
     private static bool TryPlace(Customization destination, Vector3 position, Quaternion rotation, GadgetItem gadgetItem,
         Collider colliderForPlacementData, bool instantiateGadget, ref GadgetBase gadget, ref bool __result)
     {
-        if (!Intercepts || instantiateGadget)
+        if (!Intercepts)
             return true;
+        if (instantiateGadget)
+            return !Label(destination, position, rotation, gadgetItem, colliderForPlacementData, ref __result);
         gadget = null;
         __result = false;
         // Vanilla's first check, before anything is asked of the server.
@@ -149,6 +152,83 @@ internal static class GadgetIntentPatches
             Send(mountHostUid);
         return false;
     }
+
+    /// <summary>
+    /// The label maker (PR 9): a label is a new item, which only the server makes, so nothing is placed
+    /// here. The text popup opens from the label maker's own label template, and its text goes with the
+    /// pose in a <c>SpawnInstall</c>; the change log's <c>Installed</c> brings the label. A cancel sends
+    /// nothing.
+    /// </summary>
+    private static bool Label(Customization destination, Vector3 position, Quaternion rotation, GadgetItem maker, Collider collider, ref bool result)
+    {
+        result = false;
+        if (maker == null || maker.Gadget == null || maker.Gadget.GetComponentInChildren<TextGadget>(true) is not { } template ||
+            !GadgetItem.CanPlace(position, rotation, maker.gadgetPrefab) ||
+            destination is not TrainCarCustomization { TrainCar: { } car } || !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId) ||
+            maker.GetComponent<NetworkedItem>() is not { NetId: not 0 } tool)
+            return true;
+        Transform frame = destination.GetParentingTransform();
+        Vector3 localPosition = frame.InverseTransformPoint(position);
+        Quaternion localRotation = Quaternion.Inverse(frame.rotation) * rotation;
+        int mountHostUid = hitMount != null && hitMount.GetComponent<GadgetBase>() is { IsLinked: true } host && host.Custom == destination &&
+                           maker.gadgetPrefab.RequiredMountPoints > 0 ? host.UID : 0;
+        GadgetColliderPath.TryDescribe(car, collider, out string colliderPath, out byte colliderIndex);
+        template.ShowPopup(useExistingText: false, removeButton: false, resultHandler: (ok, text) =>
+        {
+            if (!ok || string.IsNullOrEmpty(text))
+                return;
+            NetworkClient.Instance?.SendGadgetSpawnInstall(new ServerboundGadgetSpawnInstallPacket
+            {
+                OperationId = NextOperation(),
+                ToolItemNetId = tool.NetId,
+                CarNetId = carNetId,
+                LocalPosition = localPosition,
+                LocalRotation = localRotation,
+                MountHostUid = mountHostUid,
+                ColliderPath = colliderPath,
+                ColliderIndex = colliderIndex,
+                Text = text
+            });
+        });
+        return true;
+    }
+
+    // An installed label's popup (PR 9): a new text shows at once and goes to the server; deleting the
+    // label asks the server, whose removal destroys its item and makes the replacement.
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(TextGadget), "PopupClosed")]
+    private static bool LabelPopupClosed(TextGadget __instance, PopupResult result)
+    {
+        if (!Intercepts || __instance.ThisGadget is not { IsLinked: true } gadget || !GadgetJoinApplier.IsServerSent(gadget) ||
+            gadget.GadgetItem?.GetComponent<NetworkedItem>() is not { NetId: not 0 } item)
+            return true;
+        if (result.closedBy == PopupClosedByAction.Positive)
+        {
+            __instance.textMesh.text = result.data;
+            __instance.UpdateItemText();
+            gadget.PlayPlaceSound(__instance.soundSourceOverride);
+        }
+        if (__instance.currentPopup != null)
+            __instance.currentPopup.Closed -= __instance.PopupClosed;
+        __instance.currentPopup = null;
+        TextGadget.PopupResultHandler handler = __instance.currentResultHandler;
+        __instance.currentResultHandler = null;
+        handler?.Invoke(result.closedBy == PopupClosedByAction.Positive, result.data);
+        if (result.closedBy is PopupClosedByAction.Positive or PopupClosedByAction.Negative)
+            NetworkClient.Instance?.SendGadgetText(new ServerboundGadgetTextPacket
+            {
+                OperationId = NextOperation(),
+                ItemNetId = item.NetId,
+                Text = result.closedBy == PopupClosedByAction.Positive ? result.data ?? string.Empty : string.Empty,
+                Remove = result.closedBy == PopupClosedByAction.Negative
+            });
+        return false;
+    }
+
+    // A label coming off destroys its item and makes a replacement: items only the server makes.
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(DestroyOnGadgetUnlink), "OnUnlinked")]
+    private static bool LabelItemSwap() => !NetworkRole.IsRemoteClient;
 
     // A refused install: off again (nothing of it is bolted, its own later predictions undone first), and
     // the item back in the hand.

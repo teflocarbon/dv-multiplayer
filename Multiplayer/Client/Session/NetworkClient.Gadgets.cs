@@ -55,6 +55,12 @@ public partial class NetworkClient
     internal void SendGadgetSolder(ServerboundGadgetSolderPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 
+    internal void SendGadgetSpawnInstall(ServerboundGadgetSpawnInstallPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetText(ServerboundGadgetTextPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
     internal void SendGadgetResync(ServerboundGadgetResyncRequestPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }

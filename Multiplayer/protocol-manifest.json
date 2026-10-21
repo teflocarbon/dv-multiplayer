@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.22-dev.0526+706defd1ce1a3ff3d974450f068792d5a7ae7842",
-  "Fingerprint": "7d72f592be90c9bb75a7468ccb9a17bd2c8a0de873a13cecc7cc6dfed8b6e5aa",
+  "BuildVersion": "2026.10.22-dev.0534",
+  "Fingerprint": "86155ff4bf8c7e353b5f3c63b86cc3e6dc36c35180edea0a6c0e4f14a7470eec",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -859,6 +859,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "AB86636660EF9262",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetSpawnInstallPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "AD6332113713B5FE",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Common.CommonItemsBulkUpdatePacket",
       "Direction": "Bidirectional",
@@ -1115,6 +1124,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Train.ClientboundWindowsRepairedPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "D7FA8AD977D416FF",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetTextPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

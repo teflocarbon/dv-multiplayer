@@ -113,6 +113,18 @@ public partial class NetworkServer
             GadgetServer.HandleSolder(packet, player, this);
     }
 
+    private void OnServerboundGadgetSpawnInstallPacket(ServerboundGadgetSpawnInstallPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleSpawnInstall(packet, player, this);
+    }
+
+    private void OnServerboundGadgetTextPacket(ServerboundGadgetTextPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleText(packet, player, this);
+    }
+
     private void OnServerboundGadgetResyncRequestPacket(ServerboundGadgetResyncRequestPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))

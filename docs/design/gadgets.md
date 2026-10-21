@@ -409,6 +409,23 @@ the state afterwards isn't what the entry says), asks for a [resync](#desync-and
 - Scenarios: `gadget-install` and `gadget-mounting` at `LAG=250` check the install and the bolts show
   before the server's answer.
 
+**As built (9).** Labels:
+- **A new label** (`ServerboundGadgetSpawnInstallPacket`): on a remote client the label maker's
+  `TryPlace` (with `instantiateGadget`) places nothing. The text popup opens from the label maker's own
+  label template, and on OK the pose and the text go to the server; a cancel sends nothing. The server
+  checks the label maker in hand, the pose, the mount and vanilla's placement check, then makes the
+  label as vanilla does (a copy of the label maker's gadget item, with an identity of its own, owned
+  by the player), waits for its NetId, installs it and sets its text, so the change log's `Installed`
+  carries all of it. A label waits for the server (it is a new item); it isn't predicted.
+- **Text and deletion** (`ServerboundGadgetTextPacket`): an installed label's popup on a remote client
+  shows a new text at once and sends it; the server sets it and records `TextSet` (the text as the
+  entry's state). The host's player's popup is recorded the same way. Delete asks the server, whose
+  forced removal runs `DestroyOnGadgetUnlink` (the item destroyed, the replacement made) there only:
+  it is off on remote clients, where items come and go with the server's.
+- Not done: `LabelableItem` text (labels on item containers) and the proximity sensor's knobs as item
+  tracked values.
+- Scenario `gadget-labels`.
+
 ## Gadget state
 
 Settings and running state are typed fields per gadget class, kept by small adapters in
@@ -1114,4 +1131,5 @@ In three parts:
 - **PR 4 built** (`gadgets/mount-points`): bolting, taping, untaping and filling holes go through the server; holes in the change log and the resync. Scenario `gadget-mounting`.
 - **PR 5 built** (`gadgets/wiring`): wiring and unwiring go through the server; soldering is predicted and the server clamps and sends its units. Scenario `gadget-wiring`.
 - **PR 3b built** (`gadgets/prediction`): installs, removals, mount points, holes and wires are predicted on a remote client and undone, newest first, when refused. Scenarios `gadget-install`, `gadget-mounting` at `LAG=250`.
+- **PR 9 built** (`gadgets/labels`): labels are spawned and installed by the server from the client's pose and text; text edits and deleting a label go through the server. Scenario `gadget-labels`.
 - Next: 3b (prediction), 4 (mount points, holes, tape), 5 (wiring, soldering).

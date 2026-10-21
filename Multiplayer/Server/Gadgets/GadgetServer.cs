@@ -365,6 +365,142 @@ internal static class GadgetServer
             solderable.SetSolderingUnits(units);
     }
 
+    private const int MaxLabelText = 128;
+
+    /// <summary>
+    /// A player labels a car (PR 9). The label maker in their hand is checked like an install's item (the
+    /// pose, the mount, vanilla's placement check); the label itself is a copy of the label maker's
+    /// gadget item, as vanilla's labelling makes it, spawned here (new items get their NetIds only from
+    /// the server), owned by the player, installed and given its text, so the change log's
+    /// <c>Installed</c> carries all of it.
+    /// </summary>
+    internal static void HandleSpawnInstall(ServerboundGadgetSpawnInstallPacket packet, ServerPlayer player, NetworkServer server)
+    {
+        GadgetItem maker = null;
+        TrainCar car = null;
+        string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
+            : !NetworkedItem.TryGet(packet.ToolItemNetId, out NetworkedItem tool) || tool == null ||
+              (maker = tool.GetComponent<GadgetItem>()) == null || maker.gadgetPrefab?.GetComponentInChildren<TextGadget>(true) == null ? "not a label maker"
+            : !AuthoritativeItemRegistry.TryGet(packet.ToolItemNetId, out AuthoritativeItemRegistry.Record record) ||
+              record.Placement != ItemPlacementKind.PlayerHand || record.PlacementPlayerId != player.PlayerId ? "the label maker isn't in their hand"
+            : string.IsNullOrEmpty(packet.Text) || packet.Text.Length > MaxLabelText ? "no text, or too long"
+            : !NetworkedTrainCar.TryGet(packet.CarNetId, out car) || car == null || car.Customization == null ? "no such car"
+            : !IsFinite(packet.LocalPosition) || !IsFinite(packet.LocalRotation) ? "malformed pose"
+            : null;
+        Collider collider = null;
+        Mount mount = null;
+        if (refusal == null)
+        {
+            Transform frame = car.Customization.GetParentingTransform();
+            Vector3 position = frame.TransformPoint(packet.LocalPosition);
+            Quaternion rotation = frame.rotation * packet.LocalRotation;
+            float distance = Vector3.Distance(player.WorldPosition, position);
+            if (player.CarId != packet.CarNetId && distance > ReachMetres)
+                refusal = $"out of reach ({distance:0.0} m)";
+            else if (packet.MountHostUid != 0 && (!car.Customization.TryGetCustomizerByUID(packet.MountHostUid, out var host) ||
+                                                  !host.TryGetComponent(out mount) || mount.IsInUse))
+                refusal = $"no free mount {packet.MountHostUid}";
+            else if ((collider = GadgetColliderPath.Resolve(car, packet.ColliderPath, packet.ColliderIndex)) != null && car.Customization.IsHole(collider))
+                refusal = "on a hole";
+            else if (!CanPlaceWithSurfaces(car, position, rotation, maker.gadgetPrefab))
+                refusal = "obstructed (vanilla's placement check)";
+        }
+        if (refusal != null)
+        {
+            Reject(server, player, packet.OperationId, packet.ToolItemNetId, "label", refusal);
+            return;
+        }
+        SingletonBehaviour<CoroutineManager>.Instance.StartCoroutine(SpawnLabel(packet, player, server, maker, car, mount, collider));
+    }
+
+    private static System.Collections.IEnumerator SpawnLabel(ServerboundGadgetSpawnInstallPacket packet, ServerPlayer player,
+        NetworkServer server, GadgetItem maker, TrainCar car, Mount mount, Collider collider)
+    {
+        Transform frame = car.Customization.GetParentingTransform();
+        GameObject copy = Object.Instantiate(maker.gameObject, frame.TransformPoint(packet.LocalPosition),
+            frame.rotation * packet.LocalRotation, WorldMover.OriginShiftParent);
+        // A copy of the label maker: its own identity, not the maker's.
+        if (copy.TryGetComponent(out PersistentWorldItemIdentity identity))
+            identity.Value = System.Guid.NewGuid();
+        GadgetItem label = copy.GetComponent<GadgetItem>();
+        label.Item = copy.GetComponent<ItemBase>();
+        NetworkedItem item = copy.GetComponent<NetworkedItem>();
+        AuthoritativeItemRegistry.Record record = null;
+        for (float end = Time.realtimeSinceStartup + 5f;
+             Time.realtimeSinceStartup < end && (item == null || item.NetId == 0 || (record = AuthoritativeItemRegistry.Ensure(item)) == null);)
+            yield return null;
+        if (record == null || car == null || label.Gadget == null)
+        {
+            Reject(server, player, packet.OperationId, packet.ToolItemNetId, "label", "the label couldn't be made");
+            if (copy != null)
+                Object.Destroy(copy);
+            yield break;
+        }
+        record.PersistentOwnerIdentity = player.Guid;
+        record.PersistentOwnerPlayerId = player.PlayerId;
+        player.AddOwnedItem(item.NetId);
+        if (copy.TryGetComponent(out InventoryItemSpec spec))
+            spec.BelongsToPlayer = true;
+
+        GadgetChangeLogServer.BeginOperation(player, packet.OperationId);
+        try
+        {
+            using (GadgetApplyScope.Enter())
+            {
+                GadgetBase gadget = GadgetItem.Place(car.Customization, packet.LocalPosition, packet.LocalRotation, label, collider);
+                if (gadget != null && mount != null)
+                    mount.MountGadget(gadget);
+                if (gadget != null && gadget.GetComponentInChildren<TextGadget>(true) is { } text)
+                {
+                    text.textMesh.text = packet.Text;
+                    text.UpdateItemText();
+                }
+            }
+        }
+        finally
+        {
+            GadgetChangeLogServer.EndOperation();
+        }
+    }
+
+    /// <summary>A player edits a label's text with the label maker, or deletes the label (PR 9).</summary>
+    internal static void HandleText(ServerboundGadgetTextPacket packet, ServerPlayer player, NetworkServer server)
+    {
+        GadgetBase gadget = GadgetStateServer.LinkedGadget(packet.ItemNetId);
+        TextGadget text = gadget != null ? gadget.GetComponentInChildren<TextGadget>(true) : null;
+        string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
+            : text == null ? "not an installed label"
+            : !packet.Remove && (string.IsNullOrEmpty(packet.Text) || packet.Text.Length > MaxLabelText) ? "no text, or too long"
+            : GadgetStateServer.ReachRefusal(player, gadget);
+        if (refusal != null)
+        {
+            Reject(server, player, packet.OperationId, packet.ItemNetId, "label text", refusal);
+            return;
+        }
+        GadgetChangeLogServer.BeginOperation(player, packet.OperationId);
+        try
+        {
+            using (GadgetApplyScope.Enter())
+            {
+                if (packet.Remove)
+                {
+                    // Its DestroyOnGadgetUnlink destroys the item and makes the replacement, here only.
+                    gadget.ForceRemove();
+                }
+                else
+                {
+                    text.textMesh.text = packet.Text;
+                    text.UpdateItemText();
+                    GadgetChangeLogServer.RecordText(gadget, packet.Text);
+                }
+            }
+        }
+        finally
+        {
+            GadgetChangeLogServer.EndOperation();
+        }
+    }
+
     /// <summary>The tool of type <typeparamref name="T"/> in the player's hand, as the server has it.</summary>
     private static T Held<T>(ServerPlayer player) where T : Component
     {

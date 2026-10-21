@@ -218,6 +218,15 @@ internal static class GadgetChangeApplier
                 GadgetIntentPatches.Confirmed(entry);
                 return GadgetWiringModule.WireLinkPort.AreWired(a, b) == (kind == GadgetChangeKind.Wired) ? ApplyResult.Applied : ApplyResult.Failed;
             }
+            if (kind == GadgetChangeKind.TextSet)
+            {
+                if (gadget == null || !gadget.IsLinked || gadget.GetComponentInChildren<DV.Customization.Gadgets.Implementations.TextGadget>(true) is not { } text)
+                    return ApplyResult.Failed;
+                text.textMesh.text = entry.State ?? string.Empty;
+                text.UpdateItemText();
+                GadgetIntentPatches.Confirmed(entry);
+                return ApplyResult.Applied;
+            }
             if (kind == GadgetChangeKind.Soldered)
             {
                 if (gadget is not TrainCarCustomization.TrainCarCustomizerBase solderable || !gadget.IsLinked)
