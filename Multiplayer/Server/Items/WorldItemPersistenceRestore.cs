@@ -82,6 +82,10 @@ internal static partial class WorldItemPersistenceManager
         NetworkedItem item = FindOrCreateRepresentation(saved);
         if (item == null)
             return false;
+        // A fresh copy of the prefab: an owned item is a player's, as it was when it was saved, so
+        // vanilla (its world storage, Lost and Found) treats it as one.
+        if (saved.OwnerIdentity != Guid.Empty && item.Item?.InventorySpecs != null)
+            item.Item.InventorySpecs.BelongsToPlayer = true;
         // Older builds saved installed gadgets here as world items as well as in vanilla's installed
         // storage. Binding the row to the installed item would make it a loose item and place it again.
         if (GadgetItemTransitions.IsInstalled(item))

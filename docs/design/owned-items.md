@@ -12,10 +12,30 @@ on the server and in every client, are made to agree with it.
 
 ## Implementation status
 
-- **PR 1a, the ledger in Core: built (2026-10-21)**, unit tested, not yet wired to the server.
+- **PR 1a, the ledger in Core: merged (#278, 2026-10-21).**
   - Built: `OwnedItemLedger`, `OwnedItemEntry` and `OwnedItemReconciler` in `Multiplayer.Core/Items/`.
-  - Tests: 31 tests in `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`.
-- **Everything else: not started.** See the [plan](#plan).
+  - Tests: 32 tests in `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`.
+- **PR 1b, the ledger on the server: built and tested in game on a player host and a dedicated host
+  (#282, 2026-10-21).** It is in shadow: it follows the records, is checked against the stores at
+  load, and is saved, but nothing reads it.
+  - `OwnedItemsServer` and `OwnedItemsSaveCodec` (`Multiplayer/Server/Items/`).
+  - The ledger follows the moves and removals `ItemChangeLog` records, and cold deposits.
+  - Its load check waits for all three stores to have loaded. In shadow, a step that would move an
+    item (dropping a copy, recovering another player's item) is logged, not carried out.
+  - An item that registers with an id another live item has is re-minted
+    (`OwnedItemsServer.ClaimPersistentId`, from `AuthoritativeItemRegistry.Ensure` and cold
+    withdrawal).
+  - Cold and Lost and Found records use the item's own id. A withdrawn item keeps its id, which
+    fixes the known bug.
+  - Saved Lost and Found entries take their item's id at load, and bind by it.
+  - `OwnedItemsServer.Audit()` is the check that the ledger, the records and vanilla's storage agree.
+    Scenarios call it; nothing runs it on a timer.
+  - Tests:
+    - the save format in `Multiplayer.Protocol.Tests/OwnedItemsSaveCodecTests.cs`;
+    - migration in Core's `OwnedItemReconcilerTests`;
+    - scenarios `item-id-roundtrip` and `ledger-save`, both passing on both host kinds.
+  - The runs found four bugs, fixed in the same PR (see [Known bugs](#known-bugs-the-ledger-removes)).
+- **Everything else: not started.** See the [plan](#plan). PR 1c (`ItemAccess`) comes next.
 
 ## Why
 
@@ -67,6 +87,24 @@ left in saves.
     or in a player's inventory.
 - **One item, several ids.** Lost and Found (`NetworkedLostAndFoundManager.cs:325`) and cold
   containers (`NetworkedColdContainerManager.cs:177`) mint record ids of their own.
+
+Found in game by the PR 1b scenarios (2026-10-21) and fixed there:
+
+- **An owned item in the world survived one restart but not two.** `ShouldPersist` kept a world
+  item only with vanilla's `BelongsToPlayer`. A restored item is a fresh prefab copy, and a mug's
+  prefab doesn't have that flag, so the save after the restart dropped it. Now an item with an owner
+  is kept, and restoring an owned item sets the flag again.
+- **A mug in vanilla's Lost and Found lost its id at load.** See
+  [Where the id travels](#one-id-for-life).
+- **A pending Lost and Found entry looked like a second copy.** Until its owner joins, the entry's
+  inert item has a record of its own that says World. The load check takes the entry as the item's
+  place.
+- **A just-joined owner's items on the ground went to Lost and Found seconds after they loaded.**
+  Lost and Found took a player's position before their game had sent one: it reads as the origin.
+  It also took their first positions, which can be from before the game put them at their saved
+  spot. Now an owner's position counts once they have been loaded for a grace period, and a nearby
+  player's once they have sent one. It showed on a dedicated host, where no host player stands near
+  to protect the items.
 
 ## Decisions
 
@@ -153,6 +191,12 @@ it uses the GUID the item already has. Nothing else mints an item id. Specifical
 **Where the id travels.** The id is carried in vanilla's own item save data
 (`dvmpPersistentWorldItemId`, `PersistentWorldItemIdentityPatch`), so every store that holds an
 item's save data carries it.
+
+The exception is an item with no `ItemSaveData` component, such as a mug. Vanilla saves no state for
+it (`StorageSerializer` calls `SaveItemData` only when the component exists), so a mug in vanilla's
+Lost and Found storage comes back with no id. The mod's own record for it then carries the id: the
+Lost and Found entry, or a cold record, which has the item's id as its key. At load the item takes
+the id back from its entry (found in game 2026-10-21 by `item-id-roundtrip`).
 
 | Placement | Who holds the id |
 | --- | --- |
@@ -798,8 +842,18 @@ After gadget PR 3a (install and remove, confirmed by the server).
 
 ### 9. `ItemAccess`
 
-The one decision point with today's rules, called by every item request handler. No behaviour
-change: unit tests for the default policy, and the item scenarios as they are.
+Moved up: it is PR 1c, right after 1b, because shops PR 2c (station
+[fixtures](#fixtures)) plugs into it, and the shop scanner gap is in play today.
+
+- **The one decision point,** `ItemAccess.Decide(actor, action, item)`, pure in `Multiplayer.Core`
+  with unit tests. It covers these actions: stash, belt, deposit, withdraw, take from the world,
+  take from a player, remove a gadget, retrieve, recall.
+- **Called from the server's existing request checks.** Its default policy is today's rules, so no
+  behaviour changes.
+- **A fixture list, empty to start.** `Decide` refuses stash, belt and deposit for an item on the
+  list. Shops PR 2c fills it and adds the return to its spot.
+- **Tests:** unit tests for the default policy and the fixture refusal, and the item scenarios as
+  they are.
 
 ## Migration
 
