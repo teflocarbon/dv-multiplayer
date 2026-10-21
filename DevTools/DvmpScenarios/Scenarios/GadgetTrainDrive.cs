@@ -24,7 +24,8 @@ namespace Dvmp.Scenarios
     /// rejoins, rides the loco and holds the throttle open. The server pushes the loco and lets the ATS
     /// run out: the ATS takes the throttle from the client (its lease is revoked, its hand let go),
     /// steps it down and the train brake up, in both games; on a dedicated host, with no cab loaded,
-    /// by the cab lever's steps rather than in one jump. The loco stops. The client acknowledges: the
+    /// by the cab lever's steps rather than in one jump. (Whether it stops is noted only: the loco's
+    /// engine is off, so its brakes have no air.) The client acknowledges: the
     /// server's countdown starts again.
     /// </summary>
     [Scenario("gadget-ats", "A server-run ATS takes the throttle from the client holding it and brakes the loco in both games")]
@@ -66,7 +67,7 @@ namespace Dvmp.Scenarios
                 Expect.That(Math.Abs(client.ThrottleAfter - host.ThrottleAfter) < 0.05f && Math.Abs(client.BrakeAfter - host.BrakeAfter) < 0.05f,
                     "the ATS braked: the client's throttle and brake, against the server's", $"client {client}; server {host}");
                 Expect.That(!client.OwnsThrottle, "the ATS braked: the client no longer holds the throttle", client.ToString());
-                Report.Note($"stopped: server {await pair.Host.Run<float>(s => Cars.WaitUntilStopped(s, loco.Id, 30f), 45):0.00} m/s, " +
+                Report.Note($"speed 30 s later (no air for the brakes): server {await pair.Host.Run<float>(s => Cars.WaitUntilStopped(s, loco.Id, 30f), 45):0.00} m/s, " +
                             $"client {await pair.Client.Run<float>(s => Cars.WaitUntilStopped(s, loco.Id, 10f), 25):0.00} m/s");
 
                 await pair.Client.Run(() => GadgetButtons.InGame.Press(built.Gadget, "ats"));
@@ -244,6 +245,9 @@ namespace Dvmp.Scenarios
         {
             TrainCar car = Dvmp.Lib.Trains.Find(loco);
             var ats = (GadgetATS)Gadget(atsNetId);
+            // A loco spawns with its train brake applied: off, so the ATS has a brake to step up.
+            Controls(car).Brake.Set(0f);
+            yield return new WaitForSecondsRealtime(0.5f);
             Drive drive = new() { ThrottleBefore = Controls(car).Throttle.Value, BrakeBefore = Controls(car).Brake.Value, HeldBefore = ThrottleHolder(car) };
             CoroutineManager.Instance.StartCoroutine(Dvmp.Lib.Trains.Push(car, 3f, seconds + 2f, 1f));
             float until = Time.realtimeSinceStartup + 5f;
