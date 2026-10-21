@@ -1,6 +1,7 @@
 using LiteNetLib.Utils;
 using Multiplayer.Shared.Protocol.Data.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;
+using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Protocol.Serialization;
 using NUnit.Framework;
 
@@ -56,5 +57,57 @@ public sealed class GadgetPacketTests
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result.Anchors, Is.Empty);
+    }
+
+    [Test]
+    public void SettingRequest_RoundTripsItsKeysAndValues()
+    {
+        ServerboundGadgetSettingPacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ServerboundGadgetSettingPacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundGadgetSettingPacket
+        {
+            ItemNetId = 801,
+            OperationId = 42,
+            Keys = new[] { "mode", "cut" },
+            Values = new[] { 2f, 1f }
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.ItemNetId, Is.EqualTo(801));
+        Assert.That(result.OperationId, Is.EqualTo(42));
+        Assert.That(result.Keys, Is.EqualTo(new[] { "mode", "cut" }));
+        Assert.That(result.Values, Is.EqualTo(new[] { 2f, 1f }));
+    }
+
+    [Test]
+    public void State_RoundTripsWhoseRequestItAnswers()
+    {
+        ClientboundGadgetStatePacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ClientboundGadgetStatePacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ClientboundGadgetStatePacket
+        {
+            ItemNetId = 801,
+            Revision = 5,
+            PlayerId = 3,
+            OperationId = 42,
+            Refused = true,
+            Keys = new[] { "value" },
+            Values = new[] { 0.75f }
+        });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.ItemNetId, Is.EqualTo(801));
+        Assert.That(result.Revision, Is.EqualTo(5));
+        Assert.That(result.PlayerId, Is.EqualTo(3));
+        Assert.That(result.OperationId, Is.EqualTo(42));
+        Assert.That(result.Refused, Is.True);
+        Assert.That(result.Keys, Is.EqualTo(new[] { "value" }));
+        Assert.That(result.Values, Is.EqualTo(new[] { 0.75f }));
     }
 }

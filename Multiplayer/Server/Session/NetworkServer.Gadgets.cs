@@ -1,9 +1,13 @@
 using LiteNetLib;
 using Multiplayer.Server.Gadgets;
+using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;
+using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
+using Multiplayer.Shared.Transport;
 
 namespace Multiplayer.Server.Session;
 
-// NetworkServer's gadget sends (see docs/design/gadgets.md).
+// NetworkServer's gadget handlers and sends (see docs/design/gadgets.md).
 public partial class NetworkServer
 {
     /// <summary>
@@ -18,5 +22,20 @@ public partial class NetworkServer
         SendPacket(player.Peer, snapshot.Packet, DeliveryMethod.ReliableOrdered);
         Log($"Sent {player.Username} {snapshot.ItemCreates.Count} installed gadgets on " +
             $"{snapshot.Packet.Anchors.Length} cars");
+    }
+
+    /// <summary>An installed gadget's settings, to one player or (null) every player who has its gadgets.</summary>
+    internal void SendGadgetState(ClientboundGadgetStatePacket packet, ServerPlayer to = null)
+    {
+        if (to == null)
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForCustomizers, excludeSelf: true);
+        else if (to.Peer != SelfPeer)
+            SendPacket(to.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    private void OnServerboundGadgetSettingPacket(ServerboundGadgetSettingPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetStateServer.HandleRequest(packet, player, this);
     }
 }

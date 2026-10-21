@@ -53,6 +53,9 @@ internal static class GadgetJoinApplier
                Time.realtimeSinceStartup < deadline)
             yield return null;
 
+        // A rejoin's snapshot replaces what the last one sent.
+        ServerSent.Clear();
+        GadgetStateClient.Reset();
         List<ItemSaveData> placed = new();
         foreach ((TrainCar car, InstalledGadgetData data) in wanted)
         {
@@ -70,6 +73,9 @@ internal static class GadgetJoinApplier
                 Multiplayer.LogException($"Installed gadget {saveData.name}: after-load failed", exception);
             }
         }
+        // After the after-load pass, which can still move a setting (a knob binding its LOD).
+        foreach (GadgetBase gadget in ServerSent)
+            GadgetStateClient.Track(gadget);
         Multiplayer.Log($"Installed {placed.Count} of {wanted.Count} gadgets from the server");
         done?.Invoke();
     }
@@ -89,8 +95,12 @@ internal static class GadgetJoinApplier
             Multiplayer.LogWarning($"Item {data.ItemNetId} ({item.name}) isn't a gadget: skipped");
             return false;
         }
+        // Already there (a rejoin without a reload): the server's all the same.
         if (gadgetItem.Gadget.IsLinked)
+        {
+            ServerSent.Add(gadgetItem.Gadget);
             return false;
+        }
         try
         {
             JObject state = JObject.Parse(data.State);
