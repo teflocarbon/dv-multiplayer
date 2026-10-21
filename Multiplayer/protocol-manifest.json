@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.22-dev.0543+5c9c412f494961b00e80158cfe6f7b622c4f5236",
-  "Fingerprint": "675f466ae782437c5c0e7a97f3b6044e440d0e21ff0b0bc50a5dd7ae57d07e10",
+  "BuildVersion": "2026.10.22-dev.0551+f730429e755fb1c3bd1bae40f74ea20656381095",
+  "Fingerprint": "762acc4ca92969f5512616f9d723303b8122377f7d4cdbf8c0dd8cd2ff057788",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -89,6 +89,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundShopScanPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "116C5CCAF4363745",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetToolUsePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -998,6 +1007,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetCommandPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "BD0505EE68D89385",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetToolUsePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

@@ -131,6 +131,16 @@ public partial class NetworkServer
             GadgetServer.HandleSnap(packet, player, this);
     }
 
+    /// <summary>Another player's tool use, to one player (the host's own through its local session).</summary>
+    internal void SendGadgetToolUse(ClientboundGadgetToolUsePacket packet, ServerPlayer to) =>
+        SendPacket(to.Peer, packet, DeliveryMethod.ReliableOrdered);
+
+    private void OnServerboundGadgetToolUsePacket(ServerboundGadgetToolUsePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetToolPresenceServer.Relay(player, packet.ToolItemNetId, packet.Working, this);
+    }
+
     private void OnServerboundGadgetResyncRequestPacket(ServerboundGadgetResyncRequestPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))

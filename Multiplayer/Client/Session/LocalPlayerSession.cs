@@ -75,6 +75,7 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
         RegisterJobs();
         RegisterCareer();
         RegisterPlayers();
+        RegisterGadgets();
 
         Settings.OnSettingsUpdated += OnSettingsUpdated;
     }
@@ -88,6 +89,7 @@ public partial class LocalPlayerSession : ILocalPlayerSession, IPolledSession, I
     partial void RegisterJobs();
     partial void RegisterCareer();
     partial void RegisterPlayers();
+    partial void RegisterGadgets();
 
     /// <summary>The server admitted the host's player (<c>NetworkServer.AddLocalPlayer</c>).</summary>
     public void OnAdmitted(byte playerId, string username)

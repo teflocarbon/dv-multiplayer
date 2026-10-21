@@ -64,6 +64,11 @@ public partial class NetworkClient
     internal void SendGadgetSnap(ServerboundGadgetSnapPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 
+    internal void SendGadgetToolUse(ServerboundGadgetToolUsePacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    private void OnClientboundGadgetToolUsePacket(ClientboundGadgetToolUsePacket packet) => GadgetToolPresence.Receive(packet);
+
     internal void SendGadgetResync(ServerboundGadgetResyncRequestPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }

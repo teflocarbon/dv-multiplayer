@@ -444,6 +444,20 @@ the state afterwards isn't what the entry says), asks for a [resync](#desync-and
 - Not done: the sliding snap point's anchor offset comes from each game's own sphere casts, not sent.
 - Scenario `gadget-hangers`.
 
+**As built (11).** Tool use other players see:
+- **Reported** (`Client/Gadgets/GadgetToolPresence`, every game with a player): a gadget interactor in
+  the player's hand (drill, soldering iron, tape, wiring tool, hole filler, hammer) starting or
+  stopping work, from vanilla's `GadgetInteractor.IsPressed`, and every second while it works
+  (`ServerboundGadgetToolUsePacket`; the host's player through its local session).
+- **Relayed** (`Server/Gadgets/GadgetToolPresenceServer`): only for a tool in that player's hand, to
+  players within 60 m past `ReadyForCustomizers` (`ClientboundGadgetToolUsePacket`).
+- **Shown**: the drill runs its motor and spinning head as if pressed on a target (`DrillEffects`
+  with the drill's pressed state set around its update), the soldering iron its sparks and sound. A
+  tool not heard of for 2.5 s stops (let go, the player gone).
+- Not done: the tape's, wiring tool's, hole filler's and hammer's own working loops (their one-shot
+  sounds come with the change log's entries: placing and removing so far).
+- Scenario `gadget-tool-use`.
+
 ## Gadget state
 
 Settings and running state are typed fields per gadget class, kept by small adapters in
@@ -1151,4 +1165,5 @@ In three parts:
 - **PR 3b built** (`gadgets/prediction`): installs, removals, mount points, holes and wires are predicted on a remote client and undone, newest first, when refused. Scenarios `gadget-install`, `gadget-mounting` at `LAG=250`.
 - **PR 9 built** (`gadgets/labels`): labels are spawned and installed by the server from the client's pose and text; text edits and deleting a label go through the server. Scenario `gadget-labels`.
 - **PR 10 built** (`gadgets/hangers`): items on gadget snap points go through the change log, predicted; the hanger's swing and its forced unsnap are the server's. Scenario `gadget-hangers`.
+- **PR 11 built** (`gadgets/tool-use`): a player's gadget tool working is relayed to players in hearing range, whose games run the drill's and the soldering iron's working effects on it. Scenario `gadget-tool-use`.
 - Next: 3b (prediction), 4 (mount points, holes, tape), 5 (wiring, soldering).

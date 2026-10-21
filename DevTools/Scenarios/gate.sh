@@ -129,6 +129,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "gadget-mounting-lag|gadget-mounting|LAG=250"
   "gadget-labels|gadget-labels|"
   "gadget-hangers|gadget-hangers|"
+  "gadget-tool-use|gadget-tool-use|"
   "borrowed-disconnect|borrowed-disconnect||player"
   "borrowed-disconnect-crash|borrowed-disconnect|LEAVE=crash|player"
   "borrowed-disconnect-absent|borrowed-disconnect|OWNER=absent"

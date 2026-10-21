@@ -339,6 +339,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundGadgetChangesPacket>(OnClientboundGadgetChangesPacket);
         Handle<ClientboundGadgetAnchorSnapshotPacket>(OnClientboundGadgetAnchorSnapshotPacket);
         Handle<ClientboundGadgetRejectPacket>(OnClientboundGadgetRejectPacket);
+        Handle<ClientboundGadgetToolUsePacket>(OnClientboundGadgetToolUsePacket);
 
 
         // General Sync
