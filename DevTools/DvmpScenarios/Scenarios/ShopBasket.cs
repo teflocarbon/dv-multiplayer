@@ -158,7 +158,7 @@ namespace Dvmp.Scenarios
                 if (cost > reg.DepositedCash)
                 {
                     Wallet w = Resources.FindObjectsOfTypeAll<Wallet>().First(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Shared.Players.NetworkedPlayer>() == null);
-                    w.GetComponent<MoneyUse>().HandleUse(reg.GetComponent<ItemUseTarget>());
+                    Shop.InGame.WalletUse(w).HandleUse(reg.GetComponent<ItemUseTarget>());
                     yield return Wait.Until(() => reg.DepositedCash >= cost, 10f, "the payment on the register");
                 }
                 reg.OnBuyPressed();

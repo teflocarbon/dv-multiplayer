@@ -138,7 +138,7 @@ namespace Dvmp.Scenarios
                 double cost = reg.GetTotalCost();
                 if (cost > 0)
                 {
-                    w.GetComponent<MoneyUse>().HandleUse(reg.GetComponent<ItemUseTarget>());
+                    Shop.InGame.WalletUse(w).HandleUse(reg.GetComponent<ItemUseTarget>());
                     yield return Wait.Until(() => reg.DepositedCash >= cost, 10f, "the payment on the register");
                 }
                 double deposited = reg.DepositedCash;
@@ -220,6 +220,14 @@ namespace Dvmp.Scenarios
                     NetworkServer.Instance.SendShopRegisterState(entry.Key, entry.Value, Multiplayer.Core.Shops.ShopRegisterEvent.None, 0);
                 }
             }
+
+            /// <summary>
+            /// The wallet's "use on a register" action. Vanilla adds it in <c>Wallet.Start</c>, which a
+            /// wallet that has stayed in the inventory since a save loaded hasn't run (a player takes it
+            /// out first, which runs it): add it as Start would.
+            /// </summary>
+            public static MoneyUse WalletUse(Wallet wallet) =>
+                wallet.GetComponent<MoneyUse>() ?? wallet.gameObject.AddComponent<MoneyUse>();
 
             // A metre from something, as a player using it stands.
             public static IEnumerator StandAt(Transform target)
