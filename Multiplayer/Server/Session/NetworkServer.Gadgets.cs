@@ -20,6 +20,7 @@ public partial class NetworkServer
         if (snapshot.ItemCreates.Count > 0)
             SendItemsBulkUpdatePacket(snapshot.ItemCreates, player);
         SendPacket(player.Peer, snapshot.Packet, DeliveryMethod.ReliableOrdered);
+        GadgetRunningServer.SendAll(player, this);
         Log($"Sent {player.Username} {snapshot.ItemCreates.Count} installed gadgets on " +
             $"{snapshot.Packet.Anchors.Length} cars");
     }
@@ -33,9 +34,30 @@ public partial class NetworkServer
             SendPacket(to.Peer, packet, DeliveryMethod.ReliableOrdered);
     }
 
+    /// <summary>An installed gadget's running state, to one player or (null) every player who has its gadgets.</summary>
+    internal void SendGadgetRunning(ClientboundGadgetRunningPacket packet, ServerPlayer to = null)
+    {
+        if (to == null)
+            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForCustomizers, excludeSelf: true);
+        else if (to.Peer != SelfPeer)
+            SendPacket(to.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
     private void OnServerboundGadgetSettingPacket(ServerboundGadgetSettingPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))
             GadgetStateServer.HandleRequest(packet, player, this);
+    }
+
+    private void OnServerboundGadgetCommandPacket(ServerboundGadgetCommandPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetRunningServer.HandleCommand(packet, player, this);
+    }
+
+    private void OnServerboundGadgetPanelPacket(ServerboundGadgetPanelPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetPanelServer.Handle(packet, player);
     }
 }

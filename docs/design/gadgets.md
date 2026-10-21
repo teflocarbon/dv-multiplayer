@@ -388,10 +388,118 @@ until 6b, because its interval and its running phase share one key.
   - **Keeping its prediction** (`Multiplayer.Core/Gadgets/GadgetSettingEcho`): it keeps what it shows
     until the answer to its latest change arrives, and applies the server's values if that change was
     refused. A pending change it never hears back about is dropped after 5 s.
-- **Not yet, until 6b:** leases, bounds checks beyond the vanilla setters' own clamps, commands,
-  running state and the snooze.
+- **Leases and bounds came in 6c** (below).
+
+**As built (6b).** Running state and buttons, beside the settings:
+- **Running families** (`Shared/Gadgets/GadgetRunningState.cs`): the ATS `timer`, the distance
+  tracker's `countup` and `completed`, the alternating controller's `phase` and the defect
+  detector's `snoozed` (kept in its LOD, which exists as a component in every game, loaded or not).
+  The alternating controller's interval became a setting (`value`).
+  - Each key is a step or a count that runs one way. The server's watch sends a step, or a count
+    moving the other way (a reset), at once, and a running count once a second
+    (`Server/Gadgets/GadgetRunningServer.cs`).
+  - A joining player gets every gadget's running state right after its snapshot. The client holds
+    what arrives while its snapshot is still being placed.
+  - Between updates the client counts on its own:
+    - the ATS countdown: its prefix counts down or resets as vanilla does, and leaves the braking to
+      the server;
+    - the distance tracker: it only counts, so it runs vanilla's `Update` on the client.
+- **Commands** (`GadgetCommand`, `ServerboundGadgetCommandPacket`): ATS acknowledge, distance
+  tracker start and acknowledge, the defect detector's snooze.
+  - They are caught at the vanilla methods every input ends in (`GadgetCommandPatches`): the ATS
+    LOD's `OnAckButton`, the tracker's `StartMeasure` and `Acknowledge` (not from its own `Update`),
+    and the detector LOD's `Snooze`.
+  - The client shows the effect at once. The server checks reach as for a setting, runs vanilla's
+    effect and always answers with `ClientboundGadgetRunningPacket`, under the same echo rule.
+- **The snooze on the server** (`GadgetRunningServer.DefectRules`) follows vanilla's rules from the
+  server's own trains, because a dedicated host never loads the LOD that works them out:
+  - a defect is a powered detector with a car of its train derailed or with overheating brakes;
+  - a car newly derailed or newly overheating wakes it;
+  - no defect, no snooze;
+  - a snooze takes the server's own answer to whether there is a defect.
+- **Beacon and oscillating light** (`GadgetSharedMotionPatches`): the angle is the session's tick
+  clock times the speed, plus an offset from the UID. A speed change moves the phase at once.
+  Measured: 15° apart (one tick) on a player host, 0° on a dedicated host.
+- **A guard** (`GadgetDefectDetectorGuardPatch`): a client deleting a car whose defect detector is
+  still installed hit vanilla's NullReferenceException in the LOD's trainset handler, which broke
+  off the client's car-destroy handler. Until 3a syncs removals, a client's gadgets stay installed
+  when the server's are destroyed.
+
+**As built (6c).** Knob leases and bounds:
+- **One lease per gadget** (`Core/Gadgets/GadgetKnobLease`), not per knob: two players never turn
+  two knobs of one gadget at once, and the server can check a setting without knowing which knob
+  makes it. Its id is the FNV-1a hash of `gadget/<item NetId>`, in the same space as the car's port
+  ids (the hash of the port's id), so it goes through the cab-control path unchanged:
+  `ServerboundTrainControlAuthorityPacket` on the gadget's car, the car's `ControlLeases` (range: the
+  car's length, as for a lever), the `Blocked`/`Denied`/`Released` updates, freed when the player
+  leaves.
+- **The client** (`Client/Gadgets/GadgetKnobLeases`, every game with a player, the host's too) hooks
+  the controls of a gadget's LOD a frame after it loads (a postfix on `SetLODState`) and unhooks them
+  when it unloads. A grab takes the lease, letting go gives it back (after a sprung control settles),
+  and a press without a grab holds it for 0.5 s, as for cab controls. The last change goes to the
+  server before the release (`GadgetStateClient.SendNow`). While another player holds it, the
+  gadget's controls are blocked (`BlockControl`, `InteractionAllowed`), and a grab is let go at once.
+  On a remote client only the gadgets the server sent take leases.
+- **The server** refuses a setting or a command while another player holds the gadget's lease
+  (`GadgetStateServer.TouchRefusal`); the holder's own and anyone's with no holder go through. So the
+  HUD, which has no grab, is refused while someone holds the knob, and put back by the refusal.
+- **Bounds** (`Core/Gadgets/GadgetSettingBounds`, a `Bounds` per family): each key's range as the
+  vanilla knob reaches it (a mode's step count, a toggle, the switch's 0..1, the distance tracker's
+  0..2000 m, the panel's 0..360°), whole steps where the setting is one. NaN, out of range, half a
+  step or an unknown key is refused instead of clamped.
+- Not done: the host's player's HUD isn't blocked while a client holds the knob (the host's own
+  changes aren't requests); a gadget removed while its lease is held keeps the lease until the
+  holder lets go or leaves (removals sync in 3a).
+- Scenario `gadget-knobs` (also at `LAG=250`).
 
 `GadgetSwitchPatch` is deleted (6a).
+
+**As built (7).** Gadgets that drive the train ([Logic that writes the train](#logic-that-writes-the-train)):
+- ATS, anti-slip and overheat protection already ran only on the server (PR 2's server-only patches);
+  `Server/Gadgets/GadgetControlWriter` marks the gadget whose `Update` is running and catches the
+  `Move` and `Set` it makes on the car's `OverridableBaseControl`s.
+- **The gadget wins:** a control it moves or sets is taken from the player holding its lease
+  (`NetworkedTrainCarServer.RevokeLease`): the holder is sent `Blocked`, which lets go of the lever
+  in their game, then every game `Released`. The server's own move is then committed and broadcast as
+  any server-side control change.
+- **The step without an interior:** a `Move` on a control that isn't notched, on a car with no cab
+  loaded on the server, steps by the cab lever's scroll step (`Core/Gadgets/GadgetControlStep`: a
+  stepped lever's notch gap, a free lever's scroll in degrees over its range, a puller's scroll), read
+  from the livery's interior prefab by the control's port and cached; 0.1 when there is no such
+  lever. A notched control and a car with its cab loaded keep vanilla's.
+- **Running state:** anti-slip `active` and overheat protection `limit` (their lamps) join the running
+  families, sent on change.
+- Not done: anti-slip's notch count still falls back to 1 with no interior (it only tunes when it
+  notices the player pulling the throttle down further); the ATS's "a remote controller is in
+  control" reads the server's own remote controllers only; the distance tracker (roadrunner) never
+  wrote the train and was done in 6b.
+- Scenarios `gadget-ats`, `gadget-antislip`.
+
+**As built (8).** DPU and the control panel:
+- **DPU:** nothing new on the wire. Its channel and regime are settings (6a), and their setters join
+  the car's MU module to the radio channel in every game, so every game has the same transmitters and
+  receivers, its receivers' controls blocked by vanilla's radio. The transmitter's lever is a cab
+  lever under its lease; each game's radio overrides its own copy of the receivers, and the server's
+  receivers' ports are committed and broadcast like any server-side control change. Scenario
+  `gadget-dpu` checks the two agree.
+- **Control panel inputs** (`ServerboundGadgetPanelPacket`, `GadgetPanelInput`): on a remote client a
+  server-sent panel's joystick steps, horn and starter and power-off buttons go to the server
+  (`Client/Gadgets/GadgetPanelClientPatches`, after vanilla's own power, dead-zone and fault checks)
+  instead of writing the car's controls there. The server (`Server/Gadgets/GadgetPanelServer`)
+  refuses one from out of reach or while another player holds the panel's knobs (6c), while the
+  panel is unpowered or faulted, or while another player holds the lever it would move (the cab
+  lever's lease rule; nothing is taken from anyone). It applies a joystick step with the cab lever's
+  step when no cab is loaded (`GadgetControlWriter.Stepping`). The host's player's joystick goes
+  through vanilla under the same lease check and stepping. The panel's knobs and joysticks take the
+  panel's lease when grabbed (6c).
+- **The rain fault** (`Shared/Gadgets/GadgetControlPanels`): in a session the 0.125 s roll is the
+  shared clock's step hashed with the panel's UID (`Core/Gadgets/GadgetSharedRandom`), against the
+  rain rounded to 0.05, so every game faults on the same steps and the server knows a panel is
+  faulted without its LOD. Rounding is there because each game moves its weather on its own between
+  the server's weather updates; two games disagree only when the rain sits on a rounding boundary.
+- Not done: the panel's input isn't predicted on the client (at 250 ms a joystick step shows a round
+  trip later); its display reads the client's own synced ports.
+- Scenarios `gadget-dpu`, `gadget-control-panel`.
 
 ### Shared motion and randomness
 
@@ -812,14 +920,16 @@ predict their own actions with.
 
 ### 6. Gadget state
 
-In two parts:
-- **6a, built:** the settings channel. It has the families, `Setting` requests, the watch and the echo
-  rule. Its scenario, `gadget-settings`, has three steps:
+In three parts:
+- **6a, merged (#293):** the settings channel. It has the families, `Setting` requests, the watch and
+  the echo rule. Its scenario, `gadget-settings`, has three steps:
   - the client, riding the car, turns a switch, and the server's switch and wired light follow;
   - the server turns an amp limiter, and the client's follows;
   - the client turns the switch from 40 m away, and the change is refused and put back.
-- **6b:** everything else below. That is commands, the snooze, beacon timing, the alternating
-  controller, leases and the rest of the scenario.
+- **6b, built:** running state, commands, the snooze, beacon and sweep timing, and the alternating
+  controller ([Gadget state](#gadget-state), "As built (6b)"). Its scenario is `gadget-buttons`.
+- **6c:** gadget knobs, levers and joysticks taking leases through the cab-control path, the HUD
+  path's own scenario steps, and the control panel's commands (PR 8).
 
 - The adapters, `Setting` and `Command` requests, the server's watch, prediction and rollback, the
   HUD path. Switches, alternating controller, switch setter, amp limiter, overheat and ATS settings,
@@ -893,7 +1003,19 @@ In two parts:
   logic is off on a client for the gadgets the server sent. `gadget-join`, `gadget-save` and `rejoin`
   pass on both host kinds. The comparison the plan gave `dvmp_desync` is a scenario step for now
   (`Gadgets.Digest`: each gadget's own vanilla save data, wires sorted).
-- **PR 6a built** (`gadgets/state-channel`): installed gadgets' settings sync both ways, with
+- **6a as built:** installed gadgets' settings sync both ways, with
   prediction and refusal ([Gadget state](#gadget-state), "As built"). Done ahead of 3a, which waits for
   owned-items 2a.
-- Next: 6b; 3a once owned-items 2a lands.
+- **PR 6a merged** (#293).
+- **PR 6b built** (`gadgets/state-commands`): running state, buttons, the shared snooze, beacons and
+  sweeps on the shared clock. `gadget-buttons` (also at `LAG=250`), `gadget-settings` and
+  `gadget-join` pass on both host kinds.
+- **PR 6c built** (`gadgets/control-leases`): gadget knobs take leases through the cab-control path;
+  settings out of a knob's range are refused. Scenario `gadget-knobs`.
+- **PR 7 built** (`gadgets/drive-train`): server-run gadgets take the controls they move from the
+  player holding them and step them as the cab lever would with no cab loaded; anti-slip and overheat
+  lamps sync. Scenarios `gadget-ats`, `gadget-antislip`.
+- **PR 8 built** (`gadgets/dpu-panel`): DPU radio checked in every game; control panel inputs go
+  through the server under the cab levers' lease rules; the rain fault is shared. Scenarios
+  `gadget-dpu`, `gadget-control-panel`.
+- Next: 3a once owned-items 2a lands.

@@ -103,7 +103,7 @@ namespace Dvmp.Scenarios
                 if (cost > 0)
                 {
                     Wallet w = Resources.FindObjectsOfTypeAll<Wallet>().First(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Shared.Players.NetworkedPlayer>() == null);
-                    w.GetComponent<MoneyUse>().HandleUse(reg.GetComponent<ItemUseTarget>());
+                    Shop.InGame.WalletUse(w).HandleUse(reg.GetComponent<ItemUseTarget>());
                     yield return Wait.Until(() => reg.DepositedCash >= cost, 10f, "the payment on the register");
                 }
                 // Leave the scanner at the shop: the player walks away next.
