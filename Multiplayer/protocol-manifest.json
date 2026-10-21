@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1049+5c9b053cb2c59bdc540d2b53c055c8aea84859ca",
-  "Fingerprint": "2a733386e210a8c7e168e6507df7ae7069aa93ccb19f4c63a743412b3b46396c",
+  "BuildVersion": "2026.10.21-dev.1110+fef15095f0d2aae352bd680e042e9d728c2ea257",
+  "Fingerprint": "c0d17022469573c6e11f9cbe0ab237adf0f47f542d634b12c22eb87c0bd00943",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -580,6 +580,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "80D0EECAB83201A5",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetStatePacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "81AB671EA5D38885",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundPlayerPreferencesUpdatePacket",
       "Direction": "Clientbound",
@@ -1070,6 +1079,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Train.ServerboundTrainsetRelocationAckPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "E8E5EBC1AB1870F8",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetSettingPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
