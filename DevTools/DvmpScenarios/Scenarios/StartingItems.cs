@@ -44,9 +44,19 @@ namespace Dvmp.Scenarios
             pair.Cleanup(() => BackInInventory(pair, client, radio));
 
             Have before = await pair.Host.Run(() => InGame.Owned(client, essentials));
+            if (essentials.Any(p => before.Count(p) != 1))
+            {
+                // An earlier run (or a game) left one missing: a rejoin has the server make it first.
+                Report.Note("an essential is missing or doubled at the start (" + before + "); rejoining first");
+                await pair.Client.Quit();
+                await pair.Rejoin();
+                before = await Until.Value(() => pair.Host.Run(() => InGame.Owned(client, essentials)),
+                    h => essentials.All(p => h.Count(p) >= 1), 30, "every essential made for the client");
+            }
             Report.Note("before: " + before);
             ExpectOnceEach(before, essentials, "before the first rejoin");
 
+            await pair.Client.Quit();   // Rejoin only starts a client that isn't running
             await pair.Rejoin();
             await Task.Delay(10000);
             Have again = await pair.Host.Run(() => InGame.Owned(client, essentials));
@@ -59,6 +69,7 @@ namespace Dvmp.Scenarios
             Require.That(oldNet != 0, $"the client's {radio} exists", oldRadio);
             await pair.Client.Run(() => Owned.DropFromInventory(oldNet), 60);
             Require.That(await pair.Host.Run<bool>(s => InGame.Destroy(s, oldNet)), $"the host destroyed the {radio}");
+            await pair.Client.Quit();   // Rejoin only starts a client that isn't running
             await pair.Rejoin();
             Have issued = await Until.Value(() => pair.Host.Run(() => InGame.Owned(client, essentials)), h => h.Count(radio) > 0, 30,
                 $"a new {radio} made for the client after the rejoin");
@@ -75,6 +86,7 @@ namespace Dvmp.Scenarios
             ushort newNet = await pair.Host.Run(() => Owned.NetIdOf(newRadio));
             await pair.Client.Run(() => Owned.DropFromInventory(newNet), 60);
             Require.That(await pair.Host.Run<bool>(s => Ownership.Collect(s, newNet, "SaveRecovery")), $"the new {radio} collected into the client's Lost and Found");
+            await pair.Client.Quit();   // Rejoin only starts a client that isn't running
             await pair.Rejoin();
             await Task.Delay(10000);
             Have lost = await pair.Host.Run(() => InGame.Owned(client, essentials));
@@ -85,6 +97,7 @@ namespace Dvmp.Scenarios
 
             // The starter kit, once per career.
             Require.That(await pair.Host.Run(() => InGame.ForgetStarterKit(client)), "the client had its starter kit");
+            await pair.Client.Quit();   // Rejoin only starts a client that isn't running
             await pair.Rejoin();
             await Task.Delay(10000);
             Kit kit = await pair.Host.Run(() => InGame.KitSince(client));
