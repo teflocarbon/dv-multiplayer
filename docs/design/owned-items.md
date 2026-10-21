@@ -56,7 +56,9 @@ on the server and in every client, are made to agree with it.
 - **PR 3, Lost and Found for everyone: built (2026-10-21), not yet run in game.** An offline owner
   counts as far, a departing borrower sends items home, `SendToLostAndFound` (see
   [3](#3-lost-and-found-for-everyone)). Core tests: `LostAndFoundAwayOwnerTests`. Scenarios:
-  `offline-lost-and-found`, `borrowed-disconnect`.
+  `offline-lost-and-found`, `borrowed-disconnect`, and for 2a and 3 together `owner-offline`,
+  `car-delete-owner` (item-review L1), `lost-and-found-many-owners`, `offline-sweep-mid-save`,
+  `rejoin-mid-sweep` and `deposit-refused`, with their variants ([testing.md](../testing.md)).
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
