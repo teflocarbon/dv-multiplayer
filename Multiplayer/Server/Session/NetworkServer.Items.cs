@@ -604,6 +604,7 @@ public partial class NetworkServer : IItemServer
     {
         HandleLocal<ServerboundLostItemsRequestPacket>(HandleLostItemsRequest);
         HandleLocal<ServerboundOwnedItemsRequestPacket>(HandleOwnedItemsRequest);
+        HandleLocal<ServerboundOwnedItemRetrievePacket>(HandleOwnedItemRetrieve);
         HandleLocal<ServerboundLostItemRetrievePacket>(HandleLostItemRetrieve);
         HandleLocal<ServerboundContainerBrowsePacket>(HandleContainerBrowse);
         HandleLocal<ServerboundContainerMutationPacket>(HandleContainerMutation);
@@ -622,6 +623,30 @@ public partial class NetworkServer : IItemServer
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))
             HandleOwnedItemsRequest(packet, player);
+    }
+
+    private void OnServerboundOwnedItemRetrievePacket(ServerboundOwnedItemRetrievePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleOwnedItemRetrieve(packet, player);
+    }
+
+    // An owner takes an item back into their Lost and Found (owned-items.md, PR 6b), then gets a fresh list.
+    private void HandleOwnedItemRetrieve(ServerboundOwnedItemRetrievePacket packet, ServerPlayer player)
+    {
+        if (player?.Peer == null) return;
+        string reason = OwnedItemRetrieval.Unknown;
+        bool accepted = OwnedItemRows.TryResolve(packet.Handle, out Guid itemId) &&
+                        OwnedItemRetrieval.Retrieve(player, itemId, out reason);
+        Log($"{player.Username} retrieved owned item {packet.Handle}: {(accepted ? "to Lost and Found" : "refused, " + reason)}");
+        SendPacket(player.Peer, new ClientboundOwnedItemRetrieveResultPacket
+        {
+            RequestId = packet.RequestId,
+            Handle = packet.Handle,
+            Accepted = accepted,
+            RejectionReason = accepted ? string.Empty : reason ?? string.Empty
+        }, DeliveryMethod.ReliableOrdered);
+        HandleOwnedItemsRequest(new ServerboundOwnedItemsRequestPacket { RequestId = packet.RequestId }, player);
     }
 
     // The player's owned-items list (owned-items.md, PR 6a), worded here for every game alike.

@@ -24,6 +24,9 @@ public interface IItemClient
     void RequestLostItems(uint requestId);
     /// <summary>Asks for the local player's owned-items list (owned-items.md, PR 6a): OwnedItemsList gets it.</summary>
     void RequestOwnedItems(uint requestId);
+    /// <summary>Retrieves an owned item into Lost and Found by its row's handle (owned-items.md, PR 6b).</summary>
+    void RequestOwnedItemRetrieval(uint requestId, uint handle);
+    event Action<ClientboundOwnedItemRetrieveResultPacket> OwnedItemRetrieveCompleted;
     void RequestContainerView(uint requestId, ushort shellNetId, uint containerHandle = 0, int offset = 0,
         byte count = 64);
     void RequestContainerMutation(ServerboundContainerMutationPacket packet);

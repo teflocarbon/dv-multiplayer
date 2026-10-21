@@ -68,6 +68,9 @@ on the server and in every client, are made to agree with it.
 - **PR 6a, the owned-items list: built (2026-10-22), not yet run in game.** The packets, the
   server's rows from the ledger, and an Owned Items page in the career manager (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-list`.
+- **PR 6b, retrieval: built (2026-10-22), not yet run in game.** From the owned-items list into Lost
+  and Found: lying items, containers whole, and items with another player (see
+  [6](#6-the-list-and-retrieval)). Scenario: `owned-retrieve`.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -986,6 +989,30 @@ Split in two, as small PRs: **6a the list**, **6b retrieval**.
 - **Scenario `owned-list`:** step 3 uses a destroyed mug, not a banknote; money is PR 7's.
 - **Strings:** the page's labels are English, like the Lost Items page's. Localising both pages is
   left for later.
+
+6b as built (2026-10-22):
+
+- **Packets:** `ServerboundOwnedItemRetrievePacket(handle)` and `ClientboundOwnedItemRetrieveResultPacket`.
+  The server answers with the result, then a fresh list. The host's own player is handled in-process.
+- **`OwnedItemRetrieval`** (`Server/Items/OwnedItems/`) follows the [retrieval](#retrieval) table, with
+  the rule by place in Core (`OwnedItemRetrievalRule`, unit-tested). It decides each row's
+  retrievable flag too.
+  - **Collected now:** the ground, a train's cab, a shelf. Reason `RetrievedByOwner`, with no
+    nearby-player protection or grace.
+  - **In a container:** the outermost container that isn't with the owner goes, whole: the walk goes
+    up the cold graph to the live shell. One the owner carries means nothing to do.
+  - **With another player, hand included:** dropped out of their hand or inventory as a departing
+    borrower's are, then collected. The holder gets a whisper ("Liam took back their Lantern"), and
+    the change log names the owner.
+  - **Refused:**
+    - nothing to do: with you, in Lost and Found, or missing;
+    - not yet: attached and snapped items (detaching first), and installed gadgets (PR 8);
+    - busy, try again: mid-recall;
+    - `ItemAccess`'s Retrieve refusals.
+- **The Owned Items page:** Confirm retrieves the selected row when it can go, and the status line
+  says what happened.
+- **Not yet:** detaching attached and snapped items, and the busy check for a container
+  mid-withdrawal.
 
 ### 7. Lineage
 

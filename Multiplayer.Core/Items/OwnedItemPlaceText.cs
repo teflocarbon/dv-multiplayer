@@ -67,3 +67,30 @@ public static class OwnedItemPlaceText
     private static bool Anchored(OwnedItemWhere where, string prefix) =>
         where.Anchor != null && where.Anchor.StartsWith(prefix, StringComparison.Ordinal);
 }
+
+/// <summary>What retrieving an owned item from its place means (owned-items.md, "Retrieval").</summary>
+public enum OwnedItemRetrievalKind : byte
+{
+    /// <summary>With its owner, in Lost and Found, or missing: no button.</summary>
+    NothingToDo,
+    /// <summary>Lying somewhere: collected into Lost and Found now.</summary>
+    Collect,
+    /// <summary>In a container: the outermost container that isn't with its owner goes, whole.</summary>
+    OutermostContainer,
+    /// <summary>With another player: taken from them first.</summary>
+    TakeFromHolder,
+    /// <summary>Attached, snapped or installed: not yet (detaching first; gadget removal is PR 8).</summary>
+    NotYet
+}
+
+public static class OwnedItemRetrievalRule
+{
+    public static OwnedItemRetrievalKind For(OwnedItemWhere where, Guid owner) => where.Place switch
+    {
+        OwnedItemPlace.With => where.Holder == owner ? OwnedItemRetrievalKind.NothingToDo : OwnedItemRetrievalKind.TakeFromHolder,
+        OwnedItemPlace.LostAndFound or OwnedItemPlace.Missing => OwnedItemRetrievalKind.NothingToDo,
+        OwnedItemPlace.Container => OwnedItemRetrievalKind.OutermostContainer,
+        OwnedItemPlace.Attached or OwnedItemPlace.Snapped or OwnedItemPlace.Installed => OwnedItemRetrievalKind.NotYet,
+        _ => OwnedItemRetrievalKind.Collect
+    };
+}

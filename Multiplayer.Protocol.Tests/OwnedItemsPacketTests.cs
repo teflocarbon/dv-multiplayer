@@ -43,6 +43,27 @@ public sealed class OwnedItemsPacketTests
     }
 
     [Test]
+    public void Retrieval_RoundTripsTheHandleAndTheAnswer()
+    {
+        uint handle = 0;
+        ClientboundOwnedItemRetrieveResultPacket answer = null;
+        NetPacketProcessor processor = new();
+        processor.SubscribeReusable<ServerboundOwnedItemRetrievePacket>(packet => handle = packet.Handle);
+        processor.SubscribeReusable<ClientboundOwnedItemRetrieveResultPacket>(packet => answer = new ClientboundOwnedItemRetrieveResultPacket
+        {
+            RequestId = packet.RequestId, Handle = packet.Handle, Accepted = packet.Accepted, RejectionReason = packet.RejectionReason
+        });
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundOwnedItemRetrievePacket { RequestId = 3, Handle = 17 });
+        processor.Write(writer, new ClientboundOwnedItemRetrieveResultPacket { RequestId = 3, Handle = 17, Accepted = false, RejectionReason = "busy-try-again" });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(handle, Is.EqualTo(17));
+        Assert.That(answer.Accepted, Is.False);
+        Assert.That(answer.RejectionReason, Is.EqualTo("busy-try-again"));
+    }
+
+    [Test]
     public void Request_RoundTripsItsId()
     {
         uint got = 0;

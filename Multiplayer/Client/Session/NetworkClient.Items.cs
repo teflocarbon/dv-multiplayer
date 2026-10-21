@@ -228,6 +228,14 @@ public partial class NetworkClient : IItemClient
             DeliveryMethod.ReliableOrdered);
     }
 
+    public void RequestOwnedItemRetrieval(uint requestId, uint handle)
+    {
+        SendPacketToServer(new ServerboundOwnedItemRetrievePacket { RequestId = requestId, Handle = handle },
+            DeliveryMethod.ReliableOrdered);
+    }
+
+    public event Action<ClientboundOwnedItemRetrieveResultPacket> OwnedItemRetrieveCompleted;
+
     public void RequestContainerView(uint requestId, ushort shellNetId,
         uint containerHandle = 0, int offset = 0, byte count = 64)
     {
