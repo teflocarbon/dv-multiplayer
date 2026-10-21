@@ -79,8 +79,10 @@ public enum OwnedItemRetrievalKind : byte
     OutermostContainer,
     /// <summary>With another player: taken from them first.</summary>
     TakeFromHolder,
-    /// <summary>Attached, snapped or installed: not yet (detaching first; gadget removal is PR 8).</summary>
-    NotYet
+    /// <summary>Attached or snapped: not yet (detaching first).</summary>
+    NotYet,
+    /// <summary>Installed on a car: the gadget comes off, then goes to Lost and Found (PR 8).</summary>
+    RemoveGadget
 }
 
 public static class OwnedItemRetrievalRule
@@ -90,7 +92,8 @@ public static class OwnedItemRetrievalRule
         OwnedItemPlace.With => where.Holder == owner ? OwnedItemRetrievalKind.NothingToDo : OwnedItemRetrievalKind.TakeFromHolder,
         OwnedItemPlace.LostAndFound or OwnedItemPlace.Missing => OwnedItemRetrievalKind.NothingToDo,
         OwnedItemPlace.Container => OwnedItemRetrievalKind.OutermostContainer,
-        OwnedItemPlace.Attached or OwnedItemPlace.Snapped or OwnedItemPlace.Installed => OwnedItemRetrievalKind.NotYet,
+        OwnedItemPlace.Installed => OwnedItemRetrievalKind.RemoveGadget,
+        OwnedItemPlace.Attached or OwnedItemPlace.Snapped => OwnedItemRetrievalKind.NotYet,
         _ => OwnedItemRetrievalKind.Collect
     };
 }

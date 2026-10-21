@@ -75,6 +75,9 @@ on the server and in every client, are made to agree with it.
   depositing an essential (`essential-not-in-containers`, item-review L7). Scenario: `deposit-refused
 - **PR 7, lineage: built ahead (2026-10-22), not yet run in game.** `RecordReplacement` for the
   gadget PRs' server-side swaps (see [7](#7-lineage)). Scenario: `item-lineage`.
+- **PR 8, retrieving installed gadgets: built on gadget PR 3a (2026-10-22), not yet run in game.** The
+  gadget comes off through the gadget server, then goes to Lost and Found (see
+  [8](#8-retrieving-installed-gadgets)). Scenario: `gadget-retrieve`.
   OWNER=essential`.
 - **Everything else: not started.** See the [plan](#plan).
 
@@ -1058,6 +1061,15 @@ After gadget PR 3a (install and remove, confirmed by the server).
      host.
   2. The client retrieves it from its list: the gadget is removed in every game (change-log reason
      `gadget-retrieved`) and is in the client's Lost and Found, still with its id.
+
+As built on gadget PR 3a (2026-10-22):
+
+- `OwnedItemRetrievalRule` gives an installed item `RemoveGadget`, and the row is retrievable.
+- `GadgetServer.RemoveForRetrieval(owner, item)` takes the gadget off as a hand removal does
+  (`gadget.Remove`), inside a change-log operation under the owner, and flushes the log.
+- The item, now loose, goes to the owner's Lost and Found (`RetrievedByOwner`).
+- **Not done:** the change log names no `gadget-retrieved` reason. 3a's log records operations by
+  player, not by reason.
 
 ### 9. `ItemAccess`
 

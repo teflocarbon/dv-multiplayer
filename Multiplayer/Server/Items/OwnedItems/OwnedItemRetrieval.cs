@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Multiplayer.Core.Containers;
 using Multiplayer.Core.Items;
+using Multiplayer.Server.Gadgets;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -17,7 +18,8 @@ namespace Multiplayer.Server.Items.OwnedItems;
 /// - In a container: the outermost container that isn't with them goes, with everything in it.
 /// - With another player, in their hand or inventory: taken from them, and they're told.
 /// - With them already, in Lost and Found, or missing: nothing to do.
-/// - Attached, snapped or installed: not yet (detaching first, and gadget removal, PR 8).
+/// - Installed on a car: the gadget comes off through the gadget server, then goes (PR 8).
+/// - Attached or snapped: not yet (detaching first).
 /// - In the middle of a recall: busy.
 /// </summary>
 public static class OwnedItemRetrieval
@@ -77,6 +79,8 @@ public static class OwnedItemRetrieval
 
         if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
             !TakeFromHolder(owner, item, record, out reason))
+            return false;
+        if (entry.Where.Place == OwnedItemPlace.Installed && !GadgetServer.RemoveForRetrieval(owner, item, out reason))
             return false;
         return OwnedItemsServer.SendToLostAndFound(record.PersistentItemId, LostItemReason.RetrievedByOwner,
             "retrieved by " + owner.Username, out reason);

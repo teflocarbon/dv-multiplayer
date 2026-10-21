@@ -99,6 +99,40 @@ internal static class GadgetServer
         }
     }
 
+    /// <summary>
+    /// The gadget's owner retrieves it from their owned-items list (owned-items.md, "Retrieval", PR 8): it
+    /// comes off as removing it by hand does, recorded in the car's change log under the owner, and stays
+    /// in the world for the caller to send to their Lost and Found. False, with a reason, when it can't.
+    /// </summary>
+    internal static bool RemoveForRetrieval(ServerPlayer owner, NetworkedItem item, out string reason)
+    {
+        reason = string.Empty;
+        GadgetBase gadget = item != null ? GadgetStateServer.LinkedGadget(item.NetId) : null;
+        if (gadget == null)
+        {
+            reason = "not-an-installed-gadget";
+            return false;
+        }
+        if (!gadget.CanBeRemovedUsingMethod(GadgetBase.GadgetRemovalMethod.Any))
+        {
+            reason = "gadget-cant-come-off";
+            return false;
+        }
+        GadgetChangeLogServer.BeginOperation(owner, 0);
+        try
+        {
+            using (GadgetApplyScope.Enter())
+                gadget.Remove(reparentToTrainCar: false);
+        }
+        finally
+        {
+            GadgetChangeLogServer.EndOperation();
+        }
+        if (NetworkServer.Instance != null)
+            GadgetChangeLogServer.Flush(NetworkServer.Instance);
+        return true;
+    }
+
     internal static void HandleResync(ServerboundGadgetResyncRequestPacket packet, ServerPlayer player, NetworkServer server)
     {
         if (player.LoadingState < PlayerLoadingState.ReadyForCustomizers || !NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar _))

@@ -67,6 +67,6 @@ public sealed class OwnedItemRetrievalRuleTests
         Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.World("car:x"), Owner), Is.EqualTo(OwnedItemRetrievalKind.Collect));
         Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Container(Guid.NewGuid()), Owner), Is.EqualTo(OwnedItemRetrievalKind.OutermostContainer));
         Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Attached("car:x"), Owner), Is.EqualTo(OwnedItemRetrievalKind.NotYet));
-        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Installed("car:x", 1), Owner), Is.EqualTo(OwnedItemRetrievalKind.NotYet));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Installed("car:x", 1), Owner), Is.EqualTo(OwnedItemRetrievalKind.RemoveGadget));
     }
 }
