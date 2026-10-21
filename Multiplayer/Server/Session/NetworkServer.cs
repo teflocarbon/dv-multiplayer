@@ -403,6 +403,7 @@ public partial class NetworkServer : NetworkManager
 
         HazmatServer.Tick(tick);
         global::Multiplayer.Server.Gadgets.GadgetStateServer.Tick(tick, this);
+        Shops.Tick(UnityEngine.Time.time);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)
         {

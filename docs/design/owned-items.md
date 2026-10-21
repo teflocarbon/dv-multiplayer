@@ -96,6 +96,10 @@ All were decided with the user on 2026-10-21.
 - **Found items aren't yours.** A non-personal item you pick up and keep (a mug, an office bin, a
   spray can) stays unowned. It is saved while you carry it, as today, and isn't listed, retrievable
   or sent to Lost and Found.
+- **Fixtures stay where they belong.** A station fixture, a scene item that is part of a place
+  (a shop's scanner, and other station equipment), belongs to the world, never to a player
+  (the shops work found the gap: a player who logged out holding a scanner kept it, and that shop had
+  none). See [Fixtures](#fixtures).
 - **The list shows only what still exists.** A replacement (the empty tape roll, the empty spool) is
   yours and listed. The spent item disappears from the list, while the ledger records what replaced
   what, for logs and "where did my X go".
@@ -403,6 +407,26 @@ When a player leaves (or their game crashes), the server goes through what they 
 
 So an offline player's saved possessions are only their own items and unowned items. Migration
 enforces that on old saves too.
+
+### Fixtures
+
+A fixture is a scene-authored item that is part of a place: a shop's scanner, and other station
+equipment like it. It is never owned and never leaves its place (decided by the user 2026-10-21).
+
+- **Hand only.** A fixture can't go into an inventory, a belt or a container. A player may carry it
+  in their hand, within its place.
+- **It can't leave its place.** Carried out of its place's area (the shop it belongs to), the server
+  takes it from the hand and puts it back on its authored spot. A fixture never reaches Lost and
+  Found.
+- **Leaving and saving put it back.** When its carrier leaves, and in every save, a fixture goes back
+  to its authored spot. It is saved as part of the scene, never as anyone's possession.
+- **Which items are fixtures** is a list the server keeps, by authored key or prefab, starting with
+  the shop scanner. The shops work defines which station items belong on it
+  ([shops.md](shops.md#owned-items)). It isn't the office stock (mugs, office bins), which a player
+  may take away and keep while carrying it.
+- **Where it plugs in:** the server's item checks refuse a stash, belt or deposit of a fixture
+  (`ItemAccess`, [Permissions](#permissions)), and the item manager watches where carried fixtures
+  are.
 
 ### Lost and Found for every owned item
 

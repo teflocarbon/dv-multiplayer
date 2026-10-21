@@ -579,6 +579,14 @@ coupler, or MU connector. Missing components are valid data, not lookup failures
 `TrainEndpointCapabilities` flags are `Mechanical`, `Hose`, `Cock` and `MultipleUnit`; chain state
 is one of `Parked`, `Dangling`, `BeingDragged`, `AttachedLoose`, `AttachedTight`, `Disabled`.
 
+Both ends of one coupling can have their chain attached. Vanilla's `CoupleTo` tightens the chain of
+the coupler that takes the joint and leaves the other's alone, and a chain that is switched on
+(a player is near) hooks itself on when told of a coupling. So a spawned car that auto-couples to
+a parked one leaves both chains `AttachedTight`, the joint on the spawned car's coupler. The
+client reproduces that as is: `SetChainTight` acts only on the joint's coupler, so the other end's
+state is set directly, and with both attached either end may own the joint (#285, scenario
+`rejoin-autocouple`).
+
 ### Topology invariants
 
 After every host commit and client reconciliation:

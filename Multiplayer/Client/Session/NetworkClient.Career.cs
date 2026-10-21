@@ -25,8 +25,17 @@ public partial class NetworkClient
         TimeAdvancePatch.FastTravelAdvancesTime = packet.FastTravelAdvancesTime;
     }
 
+    // Money updates are unordered: an older balance arriving late must not overwrite a newer one.
+    private uint moneyRevision;
+
     private void OnClientboundMoneyPacket(ClientboundMoneyPacket packet)
     {
+        if (moneyRevision != 0 && unchecked((int)(packet.Revision - moneyRevision)) <= 0)
+        {
+            LogDebug(() => $"Ignored money ${packet.Amount} (revision {packet.Revision}, have {moneyRevision})");
+            return;
+        }
+        moneyRevision = packet.Revision;
         LogDebug(() => $"Received new money amount ${packet.Amount}");
         Inventory.Instance.SetMoney(packet.Amount);
     }

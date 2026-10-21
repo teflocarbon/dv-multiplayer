@@ -1,6 +1,6 @@
 # Shops
 
-> Status: designed 2026-10-21, in progress: PRs 0 and 1 are merged (#280, #279), 2a is open (#284), the rest isn't built. Vanilla behaviour is in
+> Status: designed 2026-10-21, in progress: PRs 0, 1 and 2a are merged (#280, #279, #284), 2b is open (#291), the rest isn't built. Vanilla behaviour is in
 > [`../research/DERAIL_VALLEY_SHOP_LOGIC.md`](../research/DERAIL_VALLEY_SHOP_LOGIC.md); this doc
 > refers to it rather than repeating it. What the mod does today is in [Today](#today), and in
 > [`../world-sync.md`](../world-sync.md#shops) until this lands.
@@ -24,11 +24,13 @@ In progress (2026-10-21). See the [plan](#plan).
 - PR 1, the same shelves everywhere: merged (#279). Passed `shop-layout` and `shop` on both host
   kinds. It sends only the shelf seed and the shop check. Prices and availability aren't sent: every
   game has the same scene data, and from PR 2a the server decides with its own.
-- PR 2a, the register on the server: open as #284. Passed `shop`, `shop-basket` and
-  `pit-stop` on both host kinds, and `shop WHO=host` and `host-register-empty-basket` on a player host,
-  on a career save and a sandbox save.
+- PR 2a, the register on the server: merged (#284). Passed `shop`, `shop-basket` and `pit-stop` on
+  both host kinds, and `shop WHO=host` and `host-register-empty-basket` on a player host, on a career
+  save and a sandbox save.
 - PR 2b, the cash rules (walk-away, leaving the shop, disconnect, saved money), money as a `double`,
-  and licence limits on clients (#7): coded, stacked on #284, waiting for its in-game run.
+  and licence limits on clients (#7): open as #291. Passed `shop`, `shop-basket`, `shop-restock`,
+  `shop-licence` and `shop-cash` on both host kinds, on fresh career saves.
+- PR 2c, station fixtures (the scanner stays in its shop): not started.
 - PRs 3 to 6: not started.
 
 ## Decisions
@@ -117,6 +119,7 @@ to confirm each one.
 | 16 | Money is a `float`, sent unordered. | `world-sync.md` known issues | Large balances lose cents, so the price you see and the price you pay can differ by cents. Two updates out of order leave the older balance. | [PR 2](#2-the-register-on-the-server) |
 | 17 | A used garage key keeps restocking on the server (code). | `PadlockKey.KeyUsed` clears `restockOnItemDestroyed` on the game that used the key, which is the client's copy | The server's copy still restocks if it's destroyed later. | [PR 6](#6-per-player-stock) |
 | 18 | `world-sync.md` says shops are "Synced, escrowed". | `docs/world-sync.md` | True of money and items. The registers, shelves and scanner are not synced. | PR 2 updates it |
+| 19 | A shop's scanner can leave with a player (seen in game, 2026-10-21). | the scanner is a scene item: a player may put it in their inventory, and a carried item is saved as theirs | A player who leaves holding the scanner keeps it in their saved inventory, and that shop has no scanner for anyone. Test careers lost every shop scanner this way. | [PR 2c](#2c-station-fixtures) |
 
 ## The model
 
@@ -494,6 +497,25 @@ and written into both docs:
      offline buyer's delivery has nowhere to go.
    - [PR 6](#6-per-player-stock) needs owned-items PRs 1 and 2.
 
+### Station fixtures
+
+A shop's scanner is a scene item, so today a player can put it in their inventory, and a player who
+leaves holding it keeps it in their saved inventory (gap 19). The user decided on 2026-10-21 that
+station equipment like it is a *fixture*, recorded in [`owned-items.md`](owned-items.md#fixtures):
+
+- **Never owned,** and it never reaches Lost and Found.
+- **Hand only:** no inventory, belt or container.
+- **It stays in its place.** Carried out of its shop's area, the server takes it from the hand and
+  puts it back on its authored spot.
+- **Leaving and saving put it back.** When its carrier leaves, and in every save, it goes back to its
+  authored spot.
+
+The server keeps the list of fixtures, by authored key or prefab. Shops defines the station items on
+it: **the shop scanner, one per shop.** Each fixture belongs to the shop nearest its authored spot,
+and that shop's area is 30 m from its register (the scanner reaches 4 m, the shelves are within
+about 10 m). Office stock (mugs, office bins) isn't on the list: a player may take it away and keep
+it while carrying it. Built in [PR 2c](#2c-station-fixtures).
+
 ## Gadgets
 
 For [`gadgets.md`](gadgets.md) (PR #273):
@@ -605,6 +627,29 @@ Fixes #1, #3–#9, #16, #18. No prediction yet: the actor waits a round trip, as
   - the client pays and the server saves, and the save's money includes the till.
 - **`shop-licence`** (new): without the MU licence the client can't scan the wireless MU
   controller (`NeedsLicence`). With it, the client buys it.
+
+### 2c. Station fixtures
+
+The rule in [Station fixtures](#station-fixtures), from `origin/beta` after 2b.
+
+- **The list.** The server keeps a fixture list in `Multiplayer.Core` (by prefab, and by authored key
+  where one prefab is used for both), starting with the shop scanner. Each fixture's place is its
+  authored spot and its shop's area.
+- **Hand only.** The server refuses a fixture going into an inventory, a belt or a container. The
+  client doesn't offer it: vanilla's inventory add of a fixture is refused on the player's game.
+- **Back to its spot.** The server watches carried fixtures. One more than 30 m from its shop's
+  register, or whose carrier leaves, is taken from the hand and put back on its authored spot, at rest.
+- **Saves.** A fixture is saved on its authored spot, never as anyone's possession. A save that
+  already has one in a player's inventory (gap 19's leftovers) puts it back at load.
+
+Fixes #19.
+
+- **`shop-fixture`** (new), on both host kinds:
+  - the client takes the scanner and tries to put it in its inventory and in a toolbox, and both are
+    refused;
+  - it walks 40 m away holding it, and the scanner is back on its spot on both games;
+  - it takes it again and disconnects, and the scanner is back on its spot when it rejoins;
+  - it takes it again and the server saves: the save has it on its spot, in nobody's inventory.
 
 ### 3. Delivery, receipts and the buyer's own effects
 
