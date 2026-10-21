@@ -96,11 +96,13 @@ namespace Dvmp.Scenarios
             Report.Note($"retrieved the {radio} into slot {slot}");
 
             // The starter kit, once per career.
+            // Kits from earlier runs may still be the client's (a save kept them): only new ones count.
+            string[] earlierKits = (await pair.Host.Run(() => InGame.KitSince(client, new string[0]))).Ids;
             Require.That(await pair.Host.Run(() => InGame.ForgetStarterKit(client)), "the client had its starter kit");
             await pair.Client.Quit();   // Rejoin only starts a client that isn't running
             await pair.Rejoin();
             await Task.Delay(10000);
-            Kit kit = await pair.Host.Run(() => InGame.KitSince(client));
+            Kit kit = await pair.Host.Run(() => InGame.KitSince(client, earlierKits));
             Report.Note("starter kit: " + string.Join(", ", kit.Items));
             await pair.Host.Run(() => InGame.Track(kit.NetIds));
             Expect.Equal(7, kit.Items.Length, "the starter kit's items made at the rejoin");
@@ -137,7 +139,7 @@ namespace Dvmp.Scenarios
 
         public sealed class Kit
         {
-            public string[] Items = new string[0];
+            public string[] Items = new string[0], Ids = new string[0];
             public ushort[] NetIds = new ushort[0];
             public bool Marked;
         }
@@ -185,10 +187,10 @@ namespace Dvmp.Scenarios
 
             /// <summary>Host: the owner's live items born StarterKit, where they are, and whether their marker is set.</summary>
             [Step]
-            public static Kit KitSince(string owner)
+            public static Kit KitSince(string owner, string[] except)
             {
                 Guid who = Guid.Parse(owner);
-                var kit = OwnedItemsServer.Ledger.LiveOwnedBy(who).Where(e => e.Born.Reason == Multiplayer.Core.Items.OwnedItemBirth.StarterKit).ToList();
+                var kit = OwnedItemsServer.Ledger.LiveOwnedBy(who).Where(e => e.Born.Reason == Multiplayer.Core.Items.OwnedItemBirth.StarterKit && !except.Contains(e.Id.ToString("D"))).ToList();
                 var nets = new List<ushort>();
                 foreach (var e in kit)
                 {
@@ -198,6 +200,7 @@ namespace Dvmp.Scenarios
                 return new Kit
                 {
                     Items = kit.Select(e => e.Prefab + " " + e.Where.Place + "/" + e.Where.Hold).ToArray(),
+                    Ids = kit.Select(e => e.Id.ToString("D")).ToArray(),
                     NetIds = nets.ToArray(),
                     Marked = OwnedItemsServer.Ledger.HasStarterKit(who)
                 };
