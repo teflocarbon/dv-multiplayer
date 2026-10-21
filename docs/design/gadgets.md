@@ -388,8 +388,42 @@ until 6b, because its interval and its running phase share one key.
   - **Keeping its prediction** (`Multiplayer.Core/Gadgets/GadgetSettingEcho`): it keeps what it shows
     until the answer to its latest change arrives, and applies the server's values if that change was
     refused. A pending change it never hears back about is dropped after 5 s.
-- **Not yet, until 6b:** leases, bounds checks beyond the vanilla setters' own clamps, commands,
-  running state and the snooze.
+- **Not yet, until 6c:** leases, and bounds checks beyond the vanilla setters' own clamps.
+
+**As built (6b).** Running state and buttons, beside the settings:
+- **Running families** (`Shared/Gadgets/GadgetRunningState.cs`): the ATS `timer`, the distance
+  tracker's `countup` and `completed`, the alternating controller's `phase` and the defect
+  detector's `snoozed` (kept in its LOD, which exists as a component in every game, loaded or not).
+  The alternating controller's interval became a setting (`value`).
+  - Each key is a step or a count that runs one way. The server's watch sends a step, or a count
+    moving the other way (a reset), at once, and a running count once a second
+    (`Server/Gadgets/GadgetRunningServer.cs`).
+  - A joining player gets every gadget's running state right after its snapshot. The client holds
+    what arrives while its snapshot is still being placed.
+  - Between updates the client counts on its own:
+    - the ATS countdown: its prefix counts down or resets as vanilla does, and leaves the braking to
+      the server;
+    - the distance tracker: it only counts, so it runs vanilla's `Update` on the client.
+- **Commands** (`GadgetCommand`, `ServerboundGadgetCommandPacket`): ATS acknowledge, distance
+  tracker start and acknowledge, the defect detector's snooze.
+  - They are caught at the vanilla methods every input ends in (`GadgetCommandPatches`): the ATS
+    LOD's `OnAckButton`, the tracker's `StartMeasure` and `Acknowledge` (not from its own `Update`),
+    and the detector LOD's `Snooze`.
+  - The client shows the effect at once. The server checks reach as for a setting, runs vanilla's
+    effect and always answers with `ClientboundGadgetRunningPacket`, under the same echo rule.
+- **The snooze on the server** (`GadgetRunningServer.DefectRules`) follows vanilla's rules from the
+  server's own trains, because a dedicated host never loads the LOD that works them out:
+  - a defect is a powered detector with a car of its train derailed or with overheating brakes;
+  - a car newly derailed or newly overheating wakes it;
+  - no defect, no snooze;
+  - a snooze takes the server's own answer to whether there is a defect.
+- **Beacon and oscillating light** (`GadgetSharedMotionPatches`): the angle is the session's tick
+  clock times the speed, plus an offset from the UID. A speed change moves the phase at once.
+  Measured: 15° apart (one tick) on a player host, 0° on a dedicated host.
+- **A guard** (`GadgetDefectDetectorGuardPatch`): a client deleting a car whose defect detector is
+  still installed hit vanilla's NullReferenceException in the LOD's trainset handler, which broke
+  off the client's car-destroy handler. Until 3a syncs removals, a client's gadgets stay installed
+  when the server's are destroyed.
 
 `GadgetSwitchPatch` is deleted (6a).
 
@@ -812,14 +846,16 @@ predict their own actions with.
 
 ### 6. Gadget state
 
-In two parts:
-- **6a, built:** the settings channel. It has the families, `Setting` requests, the watch and the echo
-  rule. Its scenario, `gadget-settings`, has three steps:
+In three parts:
+- **6a, merged (#293):** the settings channel. It has the families, `Setting` requests, the watch and
+  the echo rule. Its scenario, `gadget-settings`, has three steps:
   - the client, riding the car, turns a switch, and the server's switch and wired light follow;
   - the server turns an amp limiter, and the client's follows;
   - the client turns the switch from 40 m away, and the change is refused and put back.
-- **6b:** everything else below. That is commands, the snooze, beacon timing, the alternating
-  controller, leases and the rest of the scenario.
+- **6b, built:** running state, commands, the snooze, beacon and sweep timing, and the alternating
+  controller ([Gadget state](#gadget-state), "As built (6b)"). Its scenario is `gadget-buttons`.
+- **6c:** gadget knobs, levers and joysticks taking leases through the cab-control path, the HUD
+  path's own scenario steps, and the control panel's commands (PR 8).
 
 - The adapters, `Setting` and `Command` requests, the server's watch, prediction and rollback, the
   HUD path. Switches, alternating controller, switch setter, amp limiter, overheat and ATS settings,
@@ -893,7 +929,11 @@ In two parts:
   logic is off on a client for the gadgets the server sent. `gadget-join`, `gadget-save` and `rejoin`
   pass on both host kinds. The comparison the plan gave `dvmp_desync` is a scenario step for now
   (`Gadgets.Digest`: each gadget's own vanilla save data, wires sorted).
-- **PR 6a built** (`gadgets/state-channel`): installed gadgets' settings sync both ways, with
+- **6a as built:** installed gadgets' settings sync both ways, with
   prediction and refusal ([Gadget state](#gadget-state), "As built"). Done ahead of 3a, which waits for
   owned-items 2a.
-- Next: 6b; 3a once owned-items 2a lands.
+- **PR 6a merged** (#293).
+- **PR 6b built** (`gadgets/state-commands`): running state, buttons, the shared snooze, beacons and
+  sweeps on the shared clock. `gadget-buttons` (also at `LAG=250`), `gadget-settings` and
+  `gadget-join` pass on both host kinds.
+- Next: 6c (knob leases); 3a once owned-items 2a lands.
