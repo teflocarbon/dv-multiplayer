@@ -266,12 +266,25 @@ Shop check at join: shops and their items are named by index, so the client send
 in order) with `ReadyForWorldState`. The server refuses a client whose shops differ, as it refuses
 a different railway ([design/track-graph-check.md](design/track-graph-check.md)).
 
+The scanner (`Client/Shops/ShopScannerView.cs`): vanilla's `ShopScanner` works only for its holder,
+so another player's scanner showed no laser, no screen and made no sound. The holder's game sends
+the shelf item it points at whenever that changes (`ServerboundShopScannerAimPacket`, at most ten a
+second, from a postfix on `ShopScanner.UpdateText`). The server checks the sender holds that scanner,
+keeps the aim (`ServerShops.ScannerAims`) and relays it to the players within 50 m
+(`ClientboundShopScannerAimPacket`). Their games set the scanner's hovered item and run vanilla's
+`UpdateText`, so the screen shows the same name, units against stock and price, and play the hover
+sound at the scanner. A `ShopScannerHolder` on every scanner turns its laser on while another
+player holds it, pointing the way the scanner does (vanilla aims a held laser along this game's
+camera), and clears the screen when they let go. The description notification stays on the holder's
+HUD. Scan and error sounds come with the register's state.
+
 Scenarios: `shop` (a player scans, pays and buys: the wallet pays once, one NetId on both, owned by
 the buyer, stock drops; a cancelled basket's cash is one banknote on both; `WHO=host` for the host's
 own player), `shop-basket` (the shared basket matches on server and client; each item is owned by
 whoever scanned it), `shop-cash` (the save counts the till; walking away returns it; an abandoned
 basket empties), `shop-licence` (the MU controller is off sale on a client without the licence),
-`shop-layout`, `shop-restock` (a deposit through a container doesn't restock; destroying the item does).
+`shop-layout`, `shop-restock` (a deposit through a container doesn't restock; destroying the item does),
+`shop-scanner` (the server has the client's scanner's aim; on a player host the host's game shows its laser and screen).
 
 ## Service stations
 

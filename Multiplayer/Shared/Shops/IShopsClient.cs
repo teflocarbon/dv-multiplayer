@@ -14,6 +14,8 @@ public interface IShopsClient
     void SendShopDeposit(byte shopIndex, ushort moneyNetId);
     void SendShopBuy(byte shopIndex, uint revision);
     void SendShopCancel(byte shopIndex);
+    /// <summary>The shelf item this player's scanner points at now (module 255: none).</summary>
+    void SendShopScannerAim(ushort scannerNetId, byte shopIndex, byte moduleIndex);
 }
 
 public static class ShopsClient

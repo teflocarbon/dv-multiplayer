@@ -22,6 +22,13 @@ public partial class NetworkClient : IShopsClient
     public void SendShopCancel(byte shopIndex) =>
         SendPacketToServer(new ServerboundShopCancelPacket { ShopIndex = shopIndex }, DeliveryMethod.ReliableOrdered);
 
+    public void SendShopScannerAim(ushort scannerNetId, byte shopIndex, byte moduleIndex) =>
+        SendPacketToServer(new ServerboundShopScannerAimPacket { ScannerNetId = scannerNetId, ShopIndex = shopIndex, ModuleIndex = moduleIndex },
+            DeliveryMethod.ReliableOrdered);
+
+    private void OnClientboundShopScannerAimPacket(ClientboundShopScannerAimPacket packet) =>
+        ShopScannerView.ShowAim(packet.ScannerNetId, packet.ShopIndex, packet.ModuleIndex);
+
     private void OnClientboundShopRegisterStatePacket(ClientboundShopRegisterStatePacket packet) =>
         ShopRegisterView.Apply(packet, PlayerId);
 

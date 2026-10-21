@@ -109,6 +109,7 @@ public partial class NetworkServer
         HandleLocal<ServerboundShopDepositPacket>(HandleShopDeposit);
         HandleLocal<ServerboundShopBuyPacket>(HandleShopBuy);
         HandleLocal<ServerboundShopCancelPacket>(HandleShopCancel);
+        HandleLocal<ServerboundShopScannerAimPacket>(HandleShopScannerAim);
     }
 
     private void SubscribeShops()
@@ -117,6 +118,7 @@ public partial class NetworkServer
         netPacketProcessor.SubscribeReusable<ServerboundShopDepositPacket, ITransportPeer>((p, peer) => FromPeer(peer, p, HandleShopDeposit));
         netPacketProcessor.SubscribeReusable<ServerboundShopBuyPacket, ITransportPeer>((p, peer) => FromPeer(peer, p, HandleShopBuy));
         netPacketProcessor.SubscribeReusable<ServerboundShopCancelPacket, ITransportPeer>((p, peer) => FromPeer(peer, p, HandleShopCancel));
+        netPacketProcessor.SubscribeReusable<ServerboundShopScannerAimPacket, ITransportPeer>((p, peer) => FromPeer(peer, p, HandleShopScannerAim));
     }
 
     private void FromPeer<T>(ITransportPeer peer, T packet, Action<T, ServerPlayer> handler)
@@ -136,6 +138,21 @@ public partial class NetworkServer
 
     private void HandleShopCancel(ServerboundShopCancelPacket packet, ServerPlayer player) =>
         Answer(player, packet.ShopIndex, ShopRequestKind.Cancel, Shops.Cancel(player, packet.ShopIndex));
+
+    // A wrong aim (not the sender's scanner) is dropped: it's presentation, with nothing to refuse.
+    private void HandleShopScannerAim(ServerboundShopScannerAimPacket packet, ServerPlayer player)
+    {
+        if (!Shops.Aim(player, packet.ScannerNetId, packet.ShopIndex, packet.ModuleIndex))
+            LogDebug(() => $"Scanner aim from P{player.PlayerId} dropped: scanner {packet.ScannerNetId} isn't in their hand");
+    }
+
+    internal void SendShopScannerAim(ServerPlayer player, ushort scannerNetId, byte shopIndex, byte moduleIndex) =>
+        SendPacket(player.Peer, new ClientboundShopScannerAimPacket
+        {
+            ScannerNetId = scannerNetId,
+            ShopIndex = shopIndex,
+            ModuleIndex = moduleIndex
+        }, DeliveryMethod.ReliableOrdered);
 
     // A refusal goes back to the player who asked; an accepted request shows in the register's state.
     private void Answer(ServerPlayer player, byte shopIndex, ShopRequestKind request, ShopRefusal refusal)

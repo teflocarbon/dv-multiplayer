@@ -23,9 +23,13 @@ public partial class LocalPlayerSession : IShopsClient
     public void SendShopCancel(byte shopIndex) =>
         Submit(new ServerboundShopCancelPacket { ShopIndex = shopIndex });
 
+    public void SendShopScannerAim(ushort scannerNetId, byte shopIndex, byte moduleIndex) =>
+        Submit(new ServerboundShopScannerAimPacket { ScannerNetId = scannerNetId, ShopIndex = shopIndex, ModuleIndex = moduleIndex });
+
     partial void RegisterShops()
     {
         Handle<ClientboundShopRegisterStatePacket>(packet => ShopRegisterView.Apply(packet, PlayerId));
         Handle<ClientboundShopRequestResultPacket>(packet => ShopRegisterView.ShowRefusal((ShopRefusal)packet.Refusal));
+        Handle<ClientboundShopScannerAimPacket>(packet => ShopScannerView.ShowAim(packet.ScannerNetId, packet.ShopIndex, packet.ModuleIndex));
     }
 }
