@@ -475,6 +475,32 @@ until 6b, because its interval and its running phase share one key.
   wrote the train and was done in 6b.
 - Scenarios `gadget-ats`, `gadget-antislip`.
 
+**As built (8).** DPU and the control panel:
+- **DPU:** nothing new on the wire. Its channel and regime are settings (6a), and their setters join
+  the car's MU module to the radio channel in every game, so every game has the same transmitters and
+  receivers, its receivers' controls blocked by vanilla's radio. The transmitter's lever is a cab
+  lever under its lease; each game's radio overrides its own copy of the receivers, and the server's
+  receivers' ports are committed and broadcast like any server-side control change. Scenario
+  `gadget-dpu` checks the two agree.
+- **Control panel inputs** (`ServerboundGadgetPanelPacket`, `GadgetPanelInput`): on a remote client a
+  server-sent panel's joystick steps, horn and starter and power-off buttons go to the server
+  (`Client/Gadgets/GadgetPanelClientPatches`, after vanilla's own power, dead-zone and fault checks)
+  instead of writing the car's controls there. The server (`Server/Gadgets/GadgetPanelServer`)
+  refuses one from out of reach or while another player holds the panel's knobs (6c), while the
+  panel is unpowered or faulted, or while another player holds the lever it would move (the cab
+  lever's lease rule; nothing is taken from anyone). It applies a joystick step with the cab lever's
+  step when no cab is loaded (`GadgetControlWriter.Stepping`). The host's player's joystick goes
+  through vanilla under the same lease check and stepping. The panel's knobs and joysticks take the
+  panel's lease when grabbed (6c).
+- **The rain fault** (`Shared/Gadgets/GadgetControlPanels`): in a session the 0.125 s roll is the
+  shared clock's step hashed with the panel's UID (`Core/Gadgets/GadgetSharedRandom`), against the
+  rain rounded to 0.05, so every game faults on the same steps and the server knows a panel is
+  faulted without its LOD. Rounding is there because each game moves its weather on its own between
+  the server's weather updates; two games disagree only when the rain sits on a rounding boundary.
+- Not done: the panel's input isn't predicted on the client (at 250 ms a joystick step shows a round
+  trip later); its display reads the client's own synced ports.
+- Scenarios `gadget-dpu`, `gadget-control-panel`.
+
 ### Shared motion and randomness
 
 Vanilla drives some gadgets from local time, local physics or `Random`, so two games show different
@@ -989,4 +1015,7 @@ In three parts:
 - **PR 7 built** (`gadgets/drive-train`): server-run gadgets take the controls they move from the
   player holding them and step them as the cab lever would with no cab loaded; anti-slip and overheat
   lamps sync. Scenarios `gadget-ats`, `gadget-antislip`.
-- Next: 8 (DPU and the control panel); 3a once owned-items 2a lands.
+- **PR 8 built** (`gadgets/dpu-panel`): DPU radio checked in every game; control panel inputs go
+  through the server under the cab levers' lease rules; the rain fault is shared. Scenarios
+  `gadget-dpu`, `gadget-control-panel`.
+- Next: 3a once owned-items 2a lands.

@@ -54,4 +54,10 @@ public partial class NetworkServer
         if (TryGetServerPlayer(peer, out ServerPlayer player))
             GadgetRunningServer.HandleCommand(packet, player, this);
     }
+
+    private void OnServerboundGadgetPanelPacket(ServerboundGadgetPanelPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetPanelServer.Handle(packet, player);
+    }
 }

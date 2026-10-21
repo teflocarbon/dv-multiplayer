@@ -128,6 +128,23 @@ public sealed class GadgetPacketTests
     }
 
     [Test]
+    public void Panel_RoundTrips()
+    {
+        ServerboundGadgetPanelPacket result = null;
+        NetPacketProcessor processor = new();
+        PacketSerializationRegistry.Register(processor);
+        processor.SubscribeReusable<ServerboundGadgetPanelPacket>(packet => result = packet);
+        NetDataWriter writer = new();
+        processor.Write(writer, new ServerboundGadgetPanelPacket { ItemNetId = 801, Input = 1, Control = 2, Value = -1f });
+        processor.ReadAllPackets(new NetDataReader(writer.CopyData()));
+
+        Assert.That(result.ItemNetId, Is.EqualTo(801));
+        Assert.That(result.Input, Is.EqualTo(1));
+        Assert.That(result.Control, Is.EqualTo(2));
+        Assert.That(result.Value, Is.EqualTo(-1f));
+    }
+
+    [Test]
     public void Running_RoundTripsWhoseCommandItAnswers()
     {
         ClientboundGadgetRunningPacket result = null;

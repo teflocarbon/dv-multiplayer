@@ -20,7 +20,7 @@ internal static class GadgetSharedMotionPatches
 
     /// <summary>The session's time in seconds, the same in every game to a tick: the shared tick
     /// count, and the time since this game last saw it advance.</summary>
-    private static double SessionSeconds()
+    internal static double SessionSeconds()
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         float now = Time.realtimeSinceStartup;

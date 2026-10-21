@@ -27,4 +27,7 @@ public partial class NetworkClient
 
     internal void SendGadgetCommand(ServerboundGadgetCommandPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetPanel(ServerboundGadgetPanelPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }

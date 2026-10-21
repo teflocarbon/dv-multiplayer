@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1803+779b0bdc9fb4d7d380dee234995e3f712c6a99af",
-  "Fingerprint": "f19b09cbee9f70bec14050fe6272d32b44135ac769f75db6835463d143f4773f",
+  "BuildVersion": "2026.10.21-dev.1803+ec456d4ea9a5f7384b47d15979b394bac3b2447b",
+  "Fingerprint": "44e3aaae5f8baa46fb1fdd1eaa84ba513cdfc0303a9b0cd7577bdeb0ece60e67",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1106,6 +1106,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Train.ServerboundTrainsetRelocationAckPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Train",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "E85BCF274370E44A",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetPanelPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
