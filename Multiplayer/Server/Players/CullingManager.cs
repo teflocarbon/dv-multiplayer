@@ -53,8 +53,10 @@ public class CullingManager : IDisposable
 
     public void Dispose()
     {
-        if (checkCoro != null)
-            CoroutineManager.Instance.Stop(checkCoro);
+        // Quitting the game destroys the coroutine manager first, and its coroutines with it.
+        CoroutineManager coroutines = CoroutineManager.Instance;
+        if (checkCoro != null && coroutines != null)
+            coroutines.Stop(checkCoro);
 
         if (NetworkServer.Instance != null)
             NetworkServer.Instance.PlayerDisconnected -= OnPlayerDisconnected;

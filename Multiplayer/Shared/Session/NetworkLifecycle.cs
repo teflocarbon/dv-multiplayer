@@ -151,6 +151,11 @@ public class NetworkLifecycle : SingletonBehaviour<NetworkLifecycle>
     private IEnumerator TriggerMainMenuEvent()
     {
         yield return null;
+        // A client that loses its server asks for this from the game scene, and queues its
+        // disconnect popup for the menu. Run then, the popup found no menu and was dropped; the
+        // menu's own sceneLoaded runs the queue once it's there.
+        if (!SceneManager.GetSceneByBuildIndex((int)DVScenes.MainMenu).isLoaded)
+            yield break;
         while (mainMenuLoadedQueue.Count > 0)
             mainMenuLoadedQueue.Dequeue().Invoke();
     }

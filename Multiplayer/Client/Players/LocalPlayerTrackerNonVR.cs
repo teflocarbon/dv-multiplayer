@@ -12,13 +12,15 @@ internal class LocalPlayerTrackerNonVR : LocalPlayerTrackerBase
     {
         base.OnDestroy();
 
-        if (UnloadWatcher.isQuitting)
+        // Leaving for the main menu can destroy the player controller before this.
+        if (UnloadWatcher.isQuitting || fps == null)
             return;
 
         if (fps.Locomotion != null)
             fps.Locomotion.LeanDirectionChanged -= LeanDirectionChanged;
 
-        fps.provider.OnPlayerHeightAdjusted -= OnPlayerHeightAdjusted;
+        if (fps.provider != null)
+            fps.provider.OnPlayerHeightAdjusted -= OnPlayerHeightAdjusted;
     }
 
     protected override void Initialize()

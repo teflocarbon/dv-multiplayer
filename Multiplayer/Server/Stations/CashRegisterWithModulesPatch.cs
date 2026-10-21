@@ -26,7 +26,9 @@ public class CashRegisterWithModulesPatch
 
         // Prevent clients from cancelling/returning cash on cash registers when loading the game or leaving the area
         // A shop register is the server's (Server/Shops/ServerShops): no game cancels it or returns its cash.
-        return NetworkLifecycle.Instance.IsHost() && !ShopRegisters.IsServerOwnedShop(__instance);
+        // Quitting the game destroys the lifecycle before the registers.
+        NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
+        return lifecycle != null && lifecycle.IsHost() && !ShopRegisters.IsServerOwnedShop(__instance);
     }
 
     [HarmonyPrefix]
