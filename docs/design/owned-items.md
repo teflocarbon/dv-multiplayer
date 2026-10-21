@@ -35,14 +35,21 @@ on the server and in every client, are made to agree with it.
     - migration in Core's `OwnedItemReconcilerTests`;
     - scenarios `item-id-roundtrip` and `ledger-save`, both passing on both host kinds.
   - The runs found four bugs, fixed in the same PR (see [Known bugs](#known-bugs-the-ledger-removes)).
-- **PR 1c, `ItemAccess`: built (2026-10-21), not yet run in game.**
+- **PR 1c, `ItemAccess`: built and tested in game on both host kinds (2026-10-21).**
   - Core: `ItemAccess.Decide` and `ItemFixtureList` (`Multiplayer.Core/Items/ItemAccess.cs`, 12 tests).
   - Server: `ItemAccessServer`, with `ItemAccessServer.Fixtures` empty.
   - Wired: a player's transition into their inventory (the VR belt included) and a cold-container
     deposit. The deposit's ownership rule moved into the policy, with the same reason string.
     Withdraw, retrieve, recall and gadget removal are in the policy and get wired by the PRs that
     change them.
-  - Scenario: `fixture-no-stash`.
+  - Scenario: `fixture-no-stash`. It passes on both host kinds, alongside `item-release`, `recall`,
+    `containers`, `inventory-persist` and `lost-and-found`.
+  - The runs found three gaps, fixed in the same PR:
+    - On a dedicated host, the server's observation path committed a stash with no actor. The
+      check now runs after the state machine accepts, with the holder as the actor.
+    - A client skipped a host correction of its own hold as superseded. It now never skips one.
+    - Applying the correction left the item in DV's inventory. A refused stash now drops at the
+      player's feet.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
