@@ -218,7 +218,8 @@ public class TrainSpeedQueue : TickedQueue<float>
         if (HostCoupled || (trainCar.trainset != null && trainCar.trainset.cars.Count > 1))
         {
             Release();
-            HoldCoupled(hasError, error, off);
+            hasError = TryGetConsistAlongTrackError(out error);
+            HoldCoupled(hasError, error, hasError ? Mathf.Abs(error) : 0f);
             return;
         }
 
@@ -284,7 +285,8 @@ public class TrainSpeedQueue : TickedQueue<float>
 
     /// <summary>
     /// Hold for a car coupled to others: drive it (and through the joints its consist) back to
-    /// within 2 cm at 0.2-0.5 m/s, then stop it. Left alone within 5 cm so it can sleep.
+    /// within 2 cm at 0.2-0.5 m/s, then stop it. Left alone within 5 cm so it can sleep. The error
+    /// is the consist's (<see cref="TryGetConsistAlongTrackError"/>), so its cars move as one.
     /// </summary>
     private void HoldCoupled(bool hasError, float error, float off)
     {
@@ -406,6 +408,35 @@ public class TrainSpeedQueue : TickedQueue<float>
             touchingFollowing |= queue.Following;
             touchingHeld |= queue.Held;
         }
+    }
+
+    /// <summary>
+    /// The mean along-track error of the cars coupled to ours, along our car's forward axis. The
+    /// coupler slack between them is local physics: the host's FEF-3 rested with its tender's
+    /// coupler 9 cm apart, ours at 3, so the two cars could never both be within 2 cm of the
+    /// host's. Each car holding to its own error drove itself there and dragged the other out of
+    /// its 5 cm deadband, which then drove back: the loco rocked at 0.2 m/s forever. Every car of
+    /// the consist sees the same mean, so they all stop, or move, together.
+    /// </summary>
+    private bool TryGetConsistAlongTrackError(out float error)
+    {
+        error = 0f;
+        if (trainCar.trainset == null || trainCar.trainset.cars.Count < 2)
+            return TryGetAlongTrackError(out error);
+
+        int samples = 0;
+        foreach (TrainCar car in trainCar.trainset.cars)
+        {
+            if (car == null || !car.TryGetComponent(out TrainSpeedQueue queue) || !queue.TryGetAlongTrackError(out float carError))
+                continue;
+            // Each car's error is along its own forward axis; a car can face either way.
+            error += carError * Mathf.Sign(Vector3.Dot(car.transform.forward, trainCar.transform.forward));
+            samples++;
+        }
+        if (samples == 0)
+            return false;
+        error /= samples;
+        return true;
     }
 
     private bool TryGetAlongTrackError(out float error)
