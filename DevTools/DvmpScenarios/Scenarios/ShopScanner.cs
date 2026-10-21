@@ -45,11 +45,12 @@ namespace Dvmp.Scenarios
                 Seen h = await pair.Host.Run(() => InGame.Look(a.Scanner));
                 Report.Note($"host's game: laser {h.Laser}, screen '{h.Name}' '{h.Amount}' '{h.Price}'");
                 Expect.That(h.Laser, "the host's game shows the client's scanner's laser");
+                Expect.That(h.Shown, "the host's game shows the scanner's screen");
                 Expect.That(h.Name.StartsWith(a.Name), "the host's game shows the aimed item's name on the scanner", h.Name);
                 Expect.That(h.Amount.Contains("/"), "the host's game shows units against stock on the scanner", h.Amount);
             }
 
-            await pair.Client.Run(() => InGame.AimAt(-1, -1));
+            await pair.Client.Run<bool>(s => InGame.LookAway(s, a.Shop, a.Module));
             await Task.Delay(1500);
             Server s2 = await pair.Host.Run(() => InGame.ServerAim(a.Scanner));
             Expect.Equal(255, s2.Module, "the server's record after the client points at nothing");
@@ -113,8 +114,11 @@ namespace Dvmp.Scenarios
                 }
                 int shopIndex = GlobalShopController.Instance.globalShopList.IndexOf(shop);
                 int module = Array.FindIndex(shop.scanItemResourceModules, m => m.name.StartsWith(item));
-                AimAt(shopIndex, module);
-                for (int i = 0; i < 10; i++) yield return null;
+                ScanItemCashRegisterModule target = shop.scanItemResourceModules[module];
+                yield return Shop.InGame.StandAt(target.transform);
+                yield return Look(target.transform, true);
+                ShopScanner held = Held();
+                yield return Wait.Until(() => held.currentlyHoveredScanItem == target, 5f, "the scanner to point at the shelf item");
                 step.Result = new Aimed
                 {
                     Scanner = Held().GetComponent<NetworkedItem>().NetId, Shop = shopIndex, Module = module,
@@ -122,16 +126,31 @@ namespace Dvmp.Scenarios
                 };
             }
 
-            /// <summary>
-            /// Points the held scanner at a shelf item (-1: nothing), as its raycast does when the player
-            /// looks at one: the hovered item and vanilla's screen update.
-            /// </summary>
+            /// <summary>Turns the player towards <paramref name="target"/> (or away from it): vanilla's scanner raycasts from the camera.</summary>
+            private static IEnumerator Look(Transform target, bool towards)
+            {
+                var controller = UnityEngine.Object.FindObjectOfType<CustomFirstPersonController>();
+                Camera camera = PlayerManager.ActiveCamera;
+                if (controller == null || camera == null) throw new InvalidOperationException("no first-person controller to turn");
+                Collider collider = target.GetComponentsInChildren<Collider>(true).FirstOrDefault(c => c != null && c.enabled);
+                Vector3 direction = (collider != null ? collider.bounds.center : target.position) - camera.transform.position;
+                if (!towards) direction = -direction;
+                Quaternion rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+                for (int frame = 0; frame < 4; frame++)
+                {
+                    controller.ForceLookRotationNoTilt(rotation);
+                    yield return null;
+                }
+            }
+
+            /// <summary>The player looks away from the shelf item: the held scanner points at nothing.</summary>
             [Step]
-            public static void AimAt(int shop, int module)
+            public static IEnumerator LookAway(Step<bool> step, int shop, int module)
             {
                 ShopScanner scanner = Held() ?? throw new InvalidOperationException("not holding a scanner");
-                scanner.currentlyHoveredScanItem = module < 0 ? null : GlobalShopController.Instance.globalShopList[shop].scanItemResourceModules[module];
-                scanner.UpdateText();
+                yield return Look(GlobalShopController.Instance.globalShopList[shop].scanItemResourceModules[module].transform, false);
+                yield return Wait.Until(() => scanner.currentlyHoveredScanItem == null, 5f, "the scanner to point at nothing");
+                step.Result = true;
             }
 
             [Step]
