@@ -10,10 +10,10 @@ namespace Multiplayer.Shared.Shops;
 /// </summary>
 public interface IShopsClient
 {
-    void SendShopScan(byte shopIndex, byte moduleIndex);
-    void SendShopDeposit(byte shopIndex, ushort moneyNetId);
-    void SendShopBuy(byte shopIndex, uint revision);
-    void SendShopCancel(byte shopIndex);
+    void SendShopScan(uint requestId, byte shopIndex, byte moduleIndex);
+    void SendShopDeposit(uint requestId, byte shopIndex, ushort moneyNetId);
+    void SendShopBuy(uint requestId, byte shopIndex, uint revision);
+    void SendShopCancel(uint requestId, byte shopIndex);
     /// <summary>The shelf item this player's scanner points at now (module 255: none).</summary>
     void SendShopScannerAim(ushort scannerNetId, byte shopIndex, byte moduleIndex);
 }

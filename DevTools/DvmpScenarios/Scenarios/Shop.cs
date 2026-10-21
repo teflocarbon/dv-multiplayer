@@ -37,6 +37,8 @@ namespace Dvmp.Scenarios
             public string Item = "Lighter";
             /// <summary>Who buys: client or host.</summary>
             public string Who = "client";
+            /// <summary>Delay on every packet the client receives, in ms (the client's own requests show at once anyway).</summary>
+            public int Lag = 0;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -45,6 +47,7 @@ namespace Dvmp.Scenarios
             Peer buyer = o.Who == "host" ? pair.Host : pair.Client;
             Peer other = o.Who == "host" ? pair.Client : pair.Host;
             await Places.Shop(pair, 2f);
+            using var lag = await pair.Client.Lag(o.Lag);
             await pair.Host.Run(() => InGame.ResetRegisters());
 
             Report.Note($"{o.Who} buys a {o.Item}");

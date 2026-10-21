@@ -11,17 +11,17 @@ namespace Multiplayer.Client.Session;
 // shows the register from it, as a client's does (docs/design/shops.md).
 public partial class LocalPlayerSession : IShopsClient
 {
-    public void SendShopScan(byte shopIndex, byte moduleIndex) =>
-        Submit(new ServerboundShopScanPacket { ShopIndex = shopIndex, ModuleIndex = moduleIndex });
+    public void SendShopScan(uint requestId, byte shopIndex, byte moduleIndex) =>
+        Submit(new ServerboundShopScanPacket { RequestId = requestId, ShopIndex = shopIndex, ModuleIndex = moduleIndex });
 
-    public void SendShopDeposit(byte shopIndex, ushort moneyNetId) =>
-        Submit(new ServerboundShopDepositPacket { ShopIndex = shopIndex, MoneyNetId = moneyNetId });
+    public void SendShopDeposit(uint requestId, byte shopIndex, ushort moneyNetId) =>
+        Submit(new ServerboundShopDepositPacket { RequestId = requestId, ShopIndex = shopIndex, MoneyNetId = moneyNetId });
 
-    public void SendShopBuy(byte shopIndex, uint revision) =>
-        Submit(new ServerboundShopBuyPacket { ShopIndex = shopIndex, Revision = revision });
+    public void SendShopBuy(uint requestId, byte shopIndex, uint revision) =>
+        Submit(new ServerboundShopBuyPacket { RequestId = requestId, ShopIndex = shopIndex, Revision = revision });
 
-    public void SendShopCancel(byte shopIndex) =>
-        Submit(new ServerboundShopCancelPacket { ShopIndex = shopIndex });
+    public void SendShopCancel(uint requestId, byte shopIndex) =>
+        Submit(new ServerboundShopCancelPacket { RequestId = requestId, ShopIndex = shopIndex });
 
     public void SendShopScannerAim(ushort scannerNetId, byte shopIndex, byte moduleIndex) =>
         Submit(new ServerboundShopScannerAimPacket { ScannerNetId = scannerNetId, ShopIndex = shopIndex, ModuleIndex = moduleIndex });
@@ -29,7 +29,8 @@ public partial class LocalPlayerSession : IShopsClient
     partial void RegisterShops()
     {
         Handle<ClientboundShopRegisterStatePacket>(packet => ShopRegisterView.Apply(packet, PlayerId));
-        Handle<ClientboundShopRequestResultPacket>(packet => ShopRegisterView.ShowRefusal((ShopRefusal)packet.Refusal));
+        Handle<ClientboundShopRequestResultPacket>(packet =>
+            ShopRegisterView.Refused(packet.ShopIndex, packet.RequestId, (ShopRequestKind)packet.Request, (ShopRefusal)packet.Refusal));
         Handle<ClientboundShopScannerAimPacket>(packet => ShopScannerView.ShowAim(packet.ScannerNetId, packet.ShopIndex, packet.ModuleIndex));
     }
 }

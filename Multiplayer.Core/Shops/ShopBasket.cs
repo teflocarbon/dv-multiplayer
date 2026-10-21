@@ -31,12 +31,16 @@ public readonly struct ShopBasketLine : IEquatable<ShopBasketLine>
 /// <summary>
 /// A shop register as the server keeps it: one basket that everyone at the shop shares, the cash
 /// paid in, and whether a purchase is still being delivered. Every change bumps
-/// <see cref="Revision"/>, so a game applies only newer states and a Buy can name the basket its
-/// presser saw. See docs/design/shops.md.
+/// <see cref="Revision"/>, so a game applies only newer states, and remembers who made it, so a Buy
+/// can be refused when someone else changed the basket its presser saw. See docs/design/shops.md.
 /// </summary>
 public sealed class ShopBasket
 {
+    // Enough of who changed what for a Buy pressed a few round trips after the basket it names.
+    private const int ChangesKept = 64;
+
     private readonly List<ShopBasketLine> lines = new();
+    private readonly Queue<(uint Revision, byte Actor)> changes = new();
 
     public IReadOnlyList<ShopBasketLine> Lines => lines;
     public double Deposited { get; private set; }
@@ -54,6 +58,23 @@ public sealed class ShopBasket
     /// <summary>What is still owed: the price less what has been paid in, never below zero.</summary>
     public double Owed(Func<int, double> unitPrice) => Math.Max(0, Total(unitPrice) - Deposited);
 
+    /// <summary>
+    /// Whether anyone but <paramref name="player"/> changed the basket since <paramref name="revision"/>
+    /// (the server itself counts as someone else). A player's own changes in between are theirs to
+    /// have seen: they made them, whether or not their game had heard back yet.
+    /// </summary>
+    public bool ChangedByOthersSince(uint revision, byte player)
+    {
+        if (revision == Revision)
+            return false;
+        if (revision > Revision)
+            return true;
+        uint oldestKept = changes.Count == 0 ? Revision : changes.Peek().Revision;
+        if (revision + 1 < oldestKept)
+            return true;
+        return changes.Any(c => c.Revision > revision && c.Actor != player);
+    }
+
     /// <summary>Adds one unit of <paramref name="module"/> to <paramref name="owner"/>'s line.</summary>
     public void Add(int module, byte owner)
     {
@@ -62,25 +83,25 @@ public sealed class ShopBasket
             lines.Add(new ShopBasketLine(module, owner, 1));
         else
             lines[index] = new ShopBasketLine(module, owner, lines[index].Units + 1);
-        Revision++;
+        Changed(owner);
     }
 
-    public void Deposit(double amount)
+    public void Deposit(double amount, byte actor = 0)
     {
         if (amount <= 0)
             return;
         Deposited += amount;
-        Revision++;
+        Changed(actor);
     }
 
     /// <summary>Takes all the cash out (handed back, or as change), leaving the basket.</summary>
-    public double TakeDeposit()
+    public double TakeDeposit(byte actor = 0)
     {
         double taken = Deposited;
         if (taken > 0)
         {
             Deposited = 0;
-            Revision++;
+            Changed(actor);
         }
         return taken;
     }
@@ -89,7 +110,7 @@ public sealed class ShopBasket
     /// Pays for the basket: takes its total out of the deposit and empties it. Returns the lines
     /// bought; the change stays in <see cref="Deposited"/> for the caller to hand back.
     /// </summary>
-    public IReadOnlyList<ShopBasketLine> Checkout(Func<int, double> unitPrice)
+    public IReadOnlyList<ShopBasketLine> Checkout(Func<int, double> unitPrice, byte actor = 0)
     {
         double total = Total(unitPrice);
         if (total > Deposited)
@@ -98,21 +119,21 @@ public sealed class ShopBasket
         ShopBasketLine[] bought = lines.ToArray();
         Deposited -= total;
         lines.Clear();
-        Revision++;
+        Changed(actor);
         return bought;
     }
 
     /// <summary>Empties the basket (Cancel), leaving the cash.</summary>
-    public void ClearLines()
+    public void ClearLines(byte actor = 0)
     {
         if (lines.Count == 0)
             return;
         lines.Clear();
-        Revision++;
+        Changed(actor);
     }
 
     /// <summary>Cuts or drops lines: <paramref name="unitsAllowed"/> says how many of a line's units may stay.</summary>
-    public int Trim(Func<ShopBasketLine, int> unitsAllowed)
+    public int Trim(Func<ShopBasketLine, int> unitsAllowed, byte actor = 0)
     {
         int removed = 0;
         for (int i = lines.Count - 1; i >= 0; i--)
@@ -127,15 +148,23 @@ public sealed class ShopBasket
                 lines[i] = new ShopBasketLine(lines[i].Module, lines[i].Owner, allowed);
         }
         if (removed > 0)
-            Revision++;
+            Changed(actor);
         return removed;
     }
 
-    public void SetDelivering(bool delivering)
+    public void SetDelivering(bool delivering, byte actor = 0)
     {
         if (Delivering == delivering)
             return;
         Delivering = delivering;
+        Changed(actor);
+    }
+
+    private void Changed(byte actor)
+    {
         Revision++;
+        changes.Enqueue((Revision, actor));
+        while (changes.Count > ChangesKept)
+            changes.Dequeue();
     }
 }
