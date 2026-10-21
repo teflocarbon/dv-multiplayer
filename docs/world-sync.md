@@ -19,7 +19,7 @@ own player is also a client and goes through the same request paths unless noted
 | Difficulty (`GameParams`) | Host | Yes (`ReadyForGameData`) | Synced on every change |
 | Wallet, licences, garages | Host | Yes (save-game packet) | Synced; some client spends not forwarded |
 | Debt | Host | Yes (save-game packet) | Flag only; an admin client pays all fees at once |
-| Shops | Host (stock, payment, spawn) | Stock yes | Synced, escrowed |
+| Shops | Host (registers, money, stock, spawn) | Yes (`ReadyForWorldState`) | Synced: one server-owned register per shop |
 | Service stations | Host | On entering the station's range | Synced; station interactions not validated |
 | Junctions, turntables | Last writer | Yes (`ReadyForWorldState`) | Relayed, not validated |
 | Generic switches | Host | Yes (`ReadyForWorldState`) | Synced, reach-checked |
@@ -39,7 +39,7 @@ sends world state at these steps:
 | State | Sent by the host |
 | --- | --- |
 | `ReadyForGameData` | `ClientboundGameParamsPacket`, `ClientboundSaveGameDataPacket` (wallet, licences, garages, debt flag, job clock) |
-| `ReadyForWorldState` | `ClientboundWeatherPacket`, `ClientboundSleepStatePacket`, `ClientboundShopStockPacket`, `ClientboundRailwayStatePacket`, one `CommonGenericSwitchStatePacket` per switch, `ClientboundCustomizationsPacket` |
+| `ReadyForWorldState` | `ClientboundWeatherPacket`, `ClientboundSleepStatePacket`, `ClientboundShopStockPacket`, `ClientboundShopLayoutPacket`, `ClientboundRailwayStatePacket`, one `CommonGenericSwitchStatePacket` per switch, `ClientboundCustomizationsPacket` |
 | `ReadyForTrainSets` | Train baseline, which carries each car's exploded flag and cargo |
 | `ReadyForTiles` | Every hazmat tile (`HazmatServer.SendAll`) |
 
@@ -139,7 +139,8 @@ to build its `StartGameData_ServerSave` (`Client/Session/StartGameData_ServerSav
 
 There is one wallet, the host's `Inventory.PlayerMoney`. `Server/Career/
 NetworkedSaveGameManager.cs` listens to `Inventory.MoneyChanged` on the host and broadcasts the new
-balance as `ClientboundMoneyPacket`; clients `SetMoney` it. A client's own balance is a mirror:
+balance as `ClientboundMoneyPacket` (a `double`, as the game keeps it, with a revision: it is sent
+unordered, and a client keeps the newest); clients `SetMoney` it. A client's own balance is a mirror:
 anything it adds or removes locally is overwritten by the host's next update, so every way a client
 spends or earns money has to reach the host:
 
@@ -190,37 +191,100 @@ aboard; the repair and refill still happen.
 
 Vanilla shops are a `CashRegisterWithModules` per shop plus `GlobalShopController`, which spawns
 bought items through `AddItemToInstantiationQueue`/`InstantiatePurchasedItems` and tracks stock as
-`ShopItemData.purchasedItems`. The register runs on each game; the money, stock and items are the
-host's.
+`ShopItemData.purchasedItems`. In a session the server owns the registers, the money, the stock
+and the items: no game's vanilla register decides anything. The design, and what is still to come,
+is [design/shops.md](design/shops.md).
 
-Payment (`Client/Stations/CashRegisterBasePatch.cs`): when a client pays cash into a shop register,
-`AddCash` sends `ServerboundShopPaymentPacket` with a positive amount; change and cancelled baskets
-(`ReturnLeftoverDepositedCash`) send a negative one instead of printing a banknote that would only
-exist on that client. `NetworkServer.OnServerboundShopPaymentPacket` rejects NaN, zero and amounts
-above `MaxShopPayment` (1,000,000). A payment takes what the wallet has, up to the amount, and adds
-it to that player's escrow (`ServerPlayer.ShopCashInRegisters`); a refund is capped by the escrow.
+The register (`Server/Shops/ServerShops.cs`): one basket per shop (`Multiplayer.Core/Shops/ShopBasket.cs`)
+that everyone at the shop shares. Each line is units of a shelf item owned by the player who
+scanned them. The basket also holds the cash paid in and whether a purchase is being delivered,
+and every change bumps its revision. A shop is its index in `GlobalShopController.globalShopList`
+and a shelf item its index in the shop's `scanItemResourceModules` (the join check below makes
+those agree).
 
-Purchase (`Client/World/GlobalShopControllerClientPatch.cs`; the host's stock sends are in
-`Server/World/GlobalShopControllerPatch.cs`): a client's `AddItemToInstantiationQueue` sends
-`ServerboundShopPurchasePacket` (shop index, item prefab, amount) instead of spawning, and
-bumps its local stock count so the shelf updates at once. The host rejects an unknown shop or item,
-an escrow short of the price by more than 0.5, too little stock, or a buyer more than 50 m from
-`shop.itemSpawnTransform`. A rejection refunds the price from escrow and resends the stock to the
-buyer. On success the host takes the price out of escrow, adds to `purchasedItems`, unlocks the
-item, broadcasts the stock and runs `NetworkServer.SpawnShopPurchase`: like vanilla's
-`InstantiatePurchasedItems`, but always at the shop's spawn point (vanilla sends items to Lost and
-Found when the host isn't near), one item every 0.5 s, each with a persistent owner of the buyer.
+What a player does at a shop register is a request, on every game, the host's own player's
+included (`Client/Shops/ShopRegisterPatches.cs`, through `IShopsClient`: `NetworkClient.Shops.cs`,
+`LocalPlayerSession.Shops.cs`):
 
-Stock: `NetworkServer.SendShopStock` sends `ClientboundShopStockPacket` (prefab names and
-`purchasedItems`) on join, after every purchase and after `Restock`. `Restock` runs on the host
-only, so a client destroying its copy of a bought item doesn't restock.
+| Player action (vanilla entry point) | Request | The server checks |
+| --- | --- | --- |
+| Scan (`ScanItemCashRegisterModule.AddItemsToBuy`) | `ServerboundShopScanPacket` | the item is the shop's, the player is within 6 m of it and holds a shop scanner, nothing is being delivered, the game mode, the MU licence, an unlocked garage, the stock (this basket's units included) |
+| Pay with the wallet or a banknote (`MoneyUse.HandleUse`, `CashRegisterBase.OnTriggerEnter`) | `ServerboundShopDepositPacket` | reach, something is owed; the wallet pays what is owed (or what it has), a banknote all of it (`NetworkServer.TrySpendMoneyItem`, the checks a wallet deposit makes) |
+| Buy (`CashRegisterWithModules.OnBuyPressed`) | `ServerboundShopBuyPacket` with the basket revision the presser saw | reach, not delivering, the same revision, then each line again (lines that can no longer be bought are cut or dropped), then the cash |
+| Cancel (the Cancel button) | `ServerboundShopCancelPacket` | reach, not delivering |
 
-The host's own purchases run vanilla and broadcast the stock afterwards.
-`CashRegisterWithModulesPatch` doesn't replay the host's shop buy or cancel on clients: each
-game's shop register is separate.
+A Buy takes the total out of the deposit and prints any change as a banknote at the register
+(server-made, so everyone has it), adds to `purchasedItems`, unlocks the items and sends the stock.
+The register is then "delivering" (vanilla's "processing" screen, Buy and Cancel refused) while
+`Server/Shops/ShopDelivery.cs` puts the items on the counter one every 0.5 s, each owned by its
+line's owner from birth. A Cancel empties the basket and prints all the cash as a banknote. A
+refused request comes back to the player who asked (`ClientboundShopRequestResultPacket`), with the
+reason on their HUD; a refused scan also plays the error sound for everyone.
 
-Scenario: `DevTools/Scenarios/shop` (client buys, host wallet pays once, one NetId on both, stock
-drops; cancelled basket refunds without a banknote).
+Every change goes to every game, the host's own player's included, as the register's whole state
+(`ClientboundShopRegisterStatePacket`: lines, cash, delivering, revision, and the event that caused
+it), and to a joining player at `ReadyForWorldState`. `Client/Shops/ShopRegisterView.cs` writes it
+into vanilla's modules and `DepositedCash`, so vanilla's screens show it, and plays the event's
+sound at the register (buy, cancel, not enough money, add cash, the scanner's scan and error). The
+presser's game prints the receipt, as before. Vanilla's own cash handling is off for shop registers
+on every game: `ReturnMoneyToPlayerCheck` (`CashRegisterBasePatch.OnEnable`) and the cancel in
+`OnDisable` (`CashRegisterWithModulesPatch`). `GlobalShopControllerClientPatch` turns vanilla's
+purchase queue off. Shop registers aren't numbered as service registers
+(`NetworkedCashRegisterWithModules`) any more.
+
+Cash nobody is using (`ServerShops.Tick`, every 2 s): once no player is within 20 m of a register,
+its cash goes back to the wallet, as vanilla's `ReturnMoneyToPlayerCheck` did for the one player;
+a player who walked off, fast travelled or disconnected gets it back the same way. A basket nobody
+has been within 200 m of for a minute empties, as vanilla's cancel did when the register unloaded.
+Vanilla saves the wallet plus every register's cash as the money. `Server/Shops/ShopTillSavePatch.cs`
+writes the wallet, the service registers' cash and the server's tills instead, so a dedicated host
+(whose vanilla registers show nothing) saves the till too, and a player host doesn't count it twice.
+
+Stock: `NetworkServer.SendShopStock` sends `ClientboundShopStockPacket` (prefab names,
+`purchasedItems`, and how many of each may exist) on join, after every purchase, after `Restock`,
+and when a licence or garage is acquired. A client's own load never runs vanilla's rules that take
+the wireless MU controller off sale without the MU licence, or a garage key once its garage is
+unlocked, so it showed those as for sale; the server works them out live (`ServerShops.Allowed`)
+and sends them. `Restock` runs on the host only, so a client destroying its copy of a bought item
+doesn't restock. Vanilla's `ShopRestocker.OnDestroy` restocks on any destroy, but the server also
+destroys a GameObject when the item lives on elsewhere: a cold-container deposit, an aborted
+withdrawal's fresh copy, a replaced scene item. `Server/Shops/ShopRestockerRetirementPatch.cs`
+skips the restock for those (they are marked `NetworkedItem.ColdStorageRetirement` first). Before
+it, a bought lighter put through a toolbox put another on the shelf.
+
+Shelves: vanilla's `ShopShelves.Start` seeds each shop's layout from `UnityEngine.Random`, so every
+game put the shelf items in different places (38 of 244 displays at the shop by the shop scenario's
+station, up to 5.6 m apart). The server picks a seed per session once its world has loaded
+(`NetworkServer.InitialiseShopShelves`, in `Server/Session/NetworkServer.Shops.cs`) and sends it at
+`ReadyForWorldState` (`ClientboundShopLayoutPacket`). `Shared/Shops/ShopShelfLayout.cs` makes every
+game, the host's included, pick the shop's verified seed from it and the shop's index
+(`Multiplayer.Core/Shops/ShopShelfSeed.cs`), and lays out again any shelves already laid out
+before the seed arrived. Outside a session vanilla's random layout is unchanged.
+
+Shop check at join: shops and their items are named by index, so the client sends a
+`ShopCatalogueFingerprint` (`Multiplayer.Core/Shops/`: the stock table's prefabs, then each shop's,
+in order) with `ReadyForWorldState`. The server refuses a client whose shops differ, as it refuses
+a different railway ([design/track-graph-check.md](design/track-graph-check.md)).
+
+The scanner (`Client/Shops/ShopScannerView.cs`): vanilla's `ShopScanner` works only for its holder,
+so another player's scanner showed no laser, no screen and made no sound. The holder's game sends
+the shelf item it points at whenever that changes (`ServerboundShopScannerAimPacket`, at most ten a
+second, from a postfix on `ShopScanner.UpdateText`). The server checks the sender holds that scanner,
+keeps the aim (`ServerShops.ScannerAims`) and relays it to the players within 50 m
+(`ClientboundShopScannerAimPacket`). Their games set the scanner's hovered item and run vanilla's
+`UpdateText`, so the screen shows the same name, units against stock and price, and play the hover
+sound at the scanner. A `ShopScannerHolder` on every scanner turns its laser on while another
+player holds it, pointing the way the scanner does (vanilla aims a held laser along this game's
+camera), and clears the screen when they let go. The description notification stays on the holder's
+HUD. Scan and error sounds come with the register's state.
+
+Scenarios: `shop` (a player scans, pays and buys: the wallet pays once, one NetId on both, owned by
+the buyer, stock drops; a cancelled basket's cash is one banknote on both; `WHO=host` for the host's
+own player), `shop-basket` (the shared basket matches on server and client; each item is owned by
+whoever scanned it), `shop-cash` (the save counts the till; walking away returns it; an abandoned
+basket empties), `shop-licence` (the MU controller is off sale on a client without the licence),
+`shop-layout`, `shop-restock` (a deposit through a container doesn't restock; destroying the item does),
+`shop-scanner` (the server has the client's scanner's aim; on a player host the host's game shows its laser and screen).
 
 ## Service stations
 
@@ -506,9 +570,6 @@ weather, sleep, difficulty, junctions, switches and service stations have none.
   debt-flag change broadcast in between never reaches that client. Money corrects itself on the next
   change; the debt flag and licences stay wrong until something changes them again or the player
   rejoins.
-- **Money is a `float` sent `ReliableUnordered`.** `ClientboundMoneyPacket.Amount` (and the
-  save-game packet's `Money`) lose cents on large balances, and two updates arriving out of order
-  leave the older balance.
 - **Client fast-travel fee.** Nothing forwards a client's fast-travel cost to the host, so the next
   money update hands it back (flagged in `CODE_AUDIT.md`; not checked in game).
 - **Fast travel skips aren't validated.** The host relays any amount, including negative ones.
@@ -517,8 +578,7 @@ weather, sleep, difficulty, junctions, switches and service stations have none.
   The bed menu shows the shared cooldown, so this needs a race or stale state.
 - **Weather lags up to 30 s.** The host changing time or weather reaches clients on the next
   periodic update. A client's weather editor changes are local and overwritten.
-- **Shop escrow is per session.** `ShopCashInRegisters` lives on `ServerPlayer`; cash a player paid
-  into a shop register and didn't spend is gone when they disconnect.
+- **Shop receipts exist only on the presser's game** when a client presses Buy, as before (shops PR 3).
 - **Junctions and turntables are relayed, not owned.** No player, distance or occupancy check; two
   players switching within one round trip can end up with different junctions.
 - **Service-station interactions are not validated** (`NetworkedPitStopStation.ValidateInteraction`

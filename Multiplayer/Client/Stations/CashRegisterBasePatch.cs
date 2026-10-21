@@ -2,13 +2,18 @@ using DV.CashRegister;
 using DV.InventorySystem;
 using HarmonyLib;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Utils;
 using System;
-using Multiplayer.Client.Session;
 
 namespace Multiplayer.Client.Stations;
 
+/// <summary>
+/// Service-station registers (one with modules, not a shop's): paying in goes through the server.
+/// Shop registers are the server's entirely and show its state (<c>Client/Shops/</c>), so these
+/// leave them alone apart from turning vanilla's own cash handling off.
+/// </summary>
 [HarmonyPatch(typeof(CashRegisterBase))]
 public class CashRegisterBasePatch
 {
@@ -16,7 +21,7 @@ public class CashRegisterBasePatch
     [HarmonyPatch(nameof(CashRegisterBase.AddCash))]
     private static bool AddCash(CashRegisterBase __instance, double amount)
     {
-        if (__instance is not CashRegisterWithModules cashRegisterWithModules)
+        if (__instance is not CashRegisterWithModules cashRegisterWithModules || ShopRegisters.IsServerOwnedShop(__instance))
             return true;
 
         Multiplayer.LogDebug(() => $"AddCash() {__instance.GetObjectPath()}, Deposited: {amount}\r\n{Environment.StackTrace}");
@@ -24,17 +29,6 @@ public class CashRegisterBasePatch
         if (!NetworkedCashRegisterWithModules.TryGet(cashRegisterWithModules, out var netCashRegister))
         {
             Multiplayer.LogWarning($"Attempting to AddCash, but NetworkedCashRegisterWithModules not found for {cashRegisterWithModules.GetObjectPath()}");
-            return true;
-        }
-
-        if (netCashRegister.IsShopRegister)
-        {
-            // Shops run on the client, but the money paid in came out of the client's copy of the
-            // shared wallet (or a banknote the host has just credited to it): the host's balance
-            // never paid, and its next update handed the money back - clients shopped for free.
-            if (!NetworkLifecycle.Instance.IsHost() && !NetworkLifecycle.Instance.IsProcessingPacket &&
-                amount > double.Epsilon)
-                NetworkClient.Instance?.SendShopPayment(amount);
             return true;
         }
 
@@ -46,32 +40,17 @@ public class CashRegisterBasePatch
     }
 
     [HarmonyPrefix]
-    [HarmonyPatch("ReturnLeftoverDepositedCash")]
-    private static bool ReturnLeftoverDepositedCash(CashRegisterBase __instance)
-    {
-        if (__instance.DepositedCash <= double.Epsilon || NetworkLifecycle.Instance.IsHost() ||
-            NetworkLifecycle.Instance.IsProcessingPacket)
-            return true;
-
-        if (__instance is not CashRegisterWithModules cashRegisterWithModules ||
-            !NetworkedCashRegisterWithModules.TryGet(cashRegisterWithModules, out var netCashRegister) ||
-            !netCashRegister.IsShopRegister)
-            return true;
-
-        // A printed note would only exist on this client, so spending it later would credit nothing.
-        // Hand the change back through the host, which caps it at what this player paid in.
-        NetworkClient.Instance?.SendShopPayment(-__instance.DepositedCash);
-        __instance.SetCash(0);
-        return false;
-    }
-
-    [HarmonyPrefix]
     [HarmonyPatch(nameof(CashRegisterBase.OnEnable))]
     private static bool OnEnable(CashRegisterBase __instance)
     {
         //Multiplayer.LogDebug(() => $"CashRegisterBase.OnEnable({__instance.GetObjectPath()}) {__instance.GetType()}");
         if (__instance is not CashRegisterWithModules)
             return true;
+
+        // Vanilla's "walked away, cash back to the wallet" check: the server's for a shop register
+        // (ServerShops), on every game, the host's included.
+        if (ShopRegisters.IsServerOwnedShop(__instance))
+            return false;
 
         return NetworkLifecycle.Instance.IsHost();
     }
@@ -86,6 +65,6 @@ public class CashRegisterBasePatch
 
         // Prevent clients from cancelling/returning cash on cash registers when loading the game or leaving the area
         __instance.StopAllCoroutines();
-        return NetworkLifecycle.Instance.IsHost();
+        return NetworkLifecycle.Instance.IsHost() && !ShopRegisters.IsServerOwnedShop(__instance);
     }
 }

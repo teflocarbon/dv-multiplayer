@@ -45,6 +45,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Common.Train;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
+using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Train;
 using Multiplayer.Shared.Protocol.Packets.Unconnected;
@@ -54,11 +55,13 @@ using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Shared.Utils;
+using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.World;
 using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Trains;
+using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
 using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
@@ -135,6 +138,7 @@ public partial class NetworkServer : NetworkManager
     {
         Log($"Server created for {(singlePlayer ? "single player" : "multiplayer")} game");
         HazmatServer.Reset();
+        ShopShelfLayout.Reset();
         global::Multiplayer.Server.Trains.CargoFireServer.Clear();
 
         IsSinglePlayer = singlePlayer;
@@ -286,13 +290,13 @@ public partial class NetworkServer : NetworkManager
         // Items
         //netPacketProcessor.SubscribeNetSerializable<CommonItemsBulkUpdatePacket, ITransportPeer>(OnCommonItemChangePacket);
         netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket, ITransportPeer>(OnCommonItemUpdatePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundGadgetSettingPacket, ITransportPeer>(OnServerboundGadgetSettingPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemAdoptionPacket, ITransportPeer>(OnServerboundItemAdoptionPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
         netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundShopPaymentPacket, ITransportPeer>(OnServerboundShopPaymentPacket);
         netPacketProcessor.SubscribeReusable<ServerboundHazmatIgnitePacket, ITransportPeer>(OnServerboundHazmatIgnitePacket);
-        netPacketProcessor.SubscribeReusable<ServerboundShopPurchasePacket, ITransportPeer>(OnServerboundShopPurchasePacket);
+        SubscribeShops();
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
@@ -361,6 +365,7 @@ public partial class NetworkServer : NetworkManager
 
         //We should initialise object here for dedicated servers, rather than relying on the existance of a client
         InitialiseStations();
+        InitialiseShopShelves();
 
         while (gameDataQueue.Count > 0)
         {
@@ -397,6 +402,8 @@ public partial class NetworkServer : NetworkManager
             return;
 
         HazmatServer.Tick(tick);
+        global::Multiplayer.Server.Gadgets.GadgetStateServer.Tick(tick, this);
+        Shops.Tick(UnityEngine.Time.time);
 
         if ((NetworkLifecycle.Instance.Tick - lastTick) > NetworkLifecycle.TICK_RATE * WEATHER_UPDATE_INTERVAL)
         {
@@ -730,7 +737,6 @@ public partial class NetworkServer : NetworkManager
         KickPlayer(player, mismatch);
         return false;
     }
-
     // Why couplings came apart since the last broadcast topology snapshot, sent with the next one.
     private const int MaxPendingUncoupleCauses = 256;
     private readonly List<TrainUncoupleCauseData> pendingUncoupleCauses = new();
@@ -1021,6 +1027,8 @@ public partial class NetworkServer : NetworkManager
                 // The join queue replays this state with an empty packet: keep the first report.
                 if (packet.TrackGraphHash != 0)
                     player.TrackGraph = new TrackGraphFingerprint(packet.TrackGraphHash, packet.TrackCount, packet.JunctionCount, packet.TurntableCount);
+                if (packet.ShopCatalogueHash != 0)
+                    player.ShopCatalogue = new ShopCatalogueFingerprint(packet.ShopCatalogueHash, packet.ShopCount, packet.ShopItemCount);
 
                 if (!IsLoaded)
                 {
@@ -1038,8 +1046,8 @@ public partial class NetworkServer : NetworkManager
 
                 // Tracks, junctions and turntables are numbered as they wake in each game, so a
                 // client whose railway differs would put every car on the wrong track. Refuse it
-                // before it gets any world state or train baseline.
-                if (!NetworkLifecycle.Instance.IsHost(player) && !CheckTrackGraph(player))
+                // before it gets any world state or train baseline. Shops are named by index too.
+                if (!NetworkLifecycle.Instance.IsHost(player) && (!CheckTrackGraph(player) || !CheckShopCatalogue(player)))
                     return;
 
                 // Unpause physics
@@ -1060,6 +1068,8 @@ public partial class NetworkServer : NetworkManager
                 SendWeatherState(peer);
                 SendSleepState(peer);
                 SendShopStock(peer);
+                SendShopLayout(peer);
+                SendShopRegisters(peer);
 
                 // Send junctions and turntables
                 SendPacket(peer, new ClientboundRailwayStatePacket
@@ -1175,13 +1185,16 @@ public partial class NetworkServer : NetworkManager
 
                 break;
 
+            case PlayerLoadingState.ReadyForCustomizers:
+                // Every car exists on the player's game: its installed gadgets (gadgets.md, "Late joiners").
+                SendGadgetJoinSnapshot(player);
+                break;
+
             case PlayerLoadingState.ReadyForItems:
                 // Before the player's items go out: a save may hold two of their essentials on one
                 // slot, which left one with no silhouette and no recall.
                 AuthoritativeItemRegistry.EnsureDistinctClaimSlots(player, "owner-loading");
                 // World items will be spawned when the player is within the culling range
-                // Installed gadgets may be spawnable in the culling range but needs more thought as there are a lot of extra parameters
-                var installedGadgets = StorageController.Instance.StorageInstalledGadgets.GetStorageItemList();
                 break;
 
             case PlayerLoadingState.ReadyForJobs:
@@ -1413,13 +1426,6 @@ public partial class NetworkServer : NetworkManager
 
     // Players given the first-join starter kit this session (ones with saved data never get it).
     internal readonly HashSet<Guid> StarterKitsGiven = new();
-
-    // Well above any basket; refunds are further capped by what the player has paid in.
-    private const double MaxShopPayment = 1_000_000;
-
-    // Players buy within a few metres of the till; the margin covers walking off while it sends.
-    private const float MaxShopPurchaseDistance = 50f;
-    private const double ShopPriceTolerance = 0.5;
 
     private sealed class PendingItemRecall
     {

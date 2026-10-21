@@ -46,12 +46,14 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
 
     private static void Server_OnMoneyChanged(double oldAmount, double newAmount)
     {
-        NetworkServer.Instance.SendMoney((float)newAmount);
+        NetworkServer.Instance.SendMoney(newAmount);
     }
 
     private static void Server_OnLicenseAcquired(GeneralLicenseType_v2 license)
     {
         NetworkServer.Instance.SendLicense(license.id, false);
+        // A licence can make a shop item buyable (the wireless MU controller).
+        NetworkServer.Instance.SendShopStock();
     }
 
     private static void Server_OnJobLicenseAcquired(JobLicenseType_v2 license)
@@ -62,6 +64,8 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
     private static void Server_OnGarageUnlocked(GarageType_v2 garage)
     {
         NetworkServer.Instance.SendGarage(garage.id);
+        // An unlocked garage takes its key off sale.
+        NetworkServer.Instance.SendShopStock();
     }
 
     public void Server_UpdateInternalData(SaveGameData data)

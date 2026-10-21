@@ -7,6 +7,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
+using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.Stations;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
@@ -43,10 +44,20 @@ public partial class NetworkClient : IStationsClient
         for (int i = 0; i < packet.ItemPrefabNames.Length && i < packet.PurchasedItems.Length; i++)
         {
             ShopItemData data = shops.GetShopItemData(packet.ItemPrefabNames[i]);
-            if (data != null)
-                data.purchasedItems = packet.PurchasedItems[i];
+            if (data == null)
+                continue;
+            data.purchasedItems = packet.PurchasedItems[i];
+            // The licence and garage limits: a client's own load never applied them.
+            if (packet.AllowedToHaveAmount != null && i < packet.AllowedToHaveAmount.Length)
+                data.allowedToHaveAmount = packet.AllowedToHaveAmount[i];
         }
         shops.Fire_GlobalShopDataChanged();
+    }
+
+    private void OnClientboundShopLayoutPacket(ClientboundShopLayoutPacket packet)
+    {
+        Log($"Shop shelf seed {packet.Seed}");
+        ShopShelfLayout.Apply(packet.Seed);
     }
 
     private void OnCommonPitStopInteractionPacket(CommonPitStopInteractionPacket packet)
@@ -144,22 +155,6 @@ public partial class NetworkClient : IStationsClient
         if (NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true)
             return;
         SendNetSerializablePacketToServer(packet, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void SendShopPurchase(int shopIndex, string itemPrefabName, int amount)
-    {
-        SendPacketToServer(new ServerboundShopPurchasePacket
-        {
-            ShopIndex = shopIndex,
-            ItemPrefabName = itemPrefabName,
-            Amount = amount
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void SendShopPayment(double amount)
-    {
-        SendPacketToServer(new ServerboundShopPaymentPacket { Amount = amount },
-            DeliveryMethod.ReliableOrdered);
     }
 
     public void SendCashRegisterAction(ushort netId, CashRegisterAction action, double amount = 0.0f)

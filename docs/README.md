@@ -29,6 +29,7 @@ host-authority model works end to end, then points at the rest.
 | [design/item-world-sync.md](design/item-world-sync.md) | Scene-authored items, cell-based interest and world item streaming |
 | [design/item-spatial-physics.md](design/item-spatial-physics.md) | Thrown and dropped items: simulation leases, sampling and settlement |
 | [design/container-storage.md](design/container-storage.md) | Cold container storage on the host |
+| [design/shops.md](design/shops.md) | Planned: shops as a server transaction (shared registers and shelves, per-player stock, delivery to the owner, prediction), with an audit of today's shop code |
 | [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | Ownership rules that are decided, and the game-design questions that are still open |
 | [design/item-sync-review.md](design/item-sync-review.md) | The July review of item sync, with the status of each finding |
 
@@ -41,6 +42,7 @@ host-authority model works end to end, then points at the rest.
 | [design/code-layout.md](design/code-layout.md) | Splitting `Multiplayer` into Shared, Server and Client (with `Multiplayer.Core` for the rules): the roles, where each folder goes, the boundary test, and the steps from namespaces to assemblies |
 | [design/host-local-session.md](design/host-local-session.md) | Removing the host's loopback client in stages while keeping one process: the host player's requests go straight to the server's handlers, then a local player session replaces the client; what moves, the dedicated host without a service identity, and the scenarios for each stage |
 | [design/owned-items.md](design/owned-items.md) | One id for life for every item a player owns, and a server-owned ledger of them: inventories, rejoin, Lost and Found, the player's list of their items and retrieving them, built on it; the migration from today's saves |
+| [design/gadgets.md](design/gadgets.md) | Syncing installable gadgets: the server owns installs, removals, mounts, holes, wiring, soldering and gadget state; requests, the per-anchor change log, `Installed` item placement, persistence in the vanilla save, dedicated hosts, late joiners, rollback, and the PR plan with its scenarios |
 | [design/dedicated-host.md](design/dedicated-host.md) | The full game as a host with no local player (`-mp-dedicated`, partly built): the investigation, the service identity, the world following a player, running unattended, and what's left |
 
 ## Tooling

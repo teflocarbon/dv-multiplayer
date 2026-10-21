@@ -106,11 +106,11 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
-            /// <summary>Host: the module register (not a shop's) nearest an absolute x/z.</summary>
+            /// <summary>Host: the module register nearest an absolute x/z (shop registers aren't numbered: they're the server's).</summary>
             [Step]
             public static Found Find(float x, float z)
             {
-                var nearest = NetworkedCashRegisterWithModules.All.Where(r => r != null && r.CashRegister != null && !r.IsShopRegister)
+                var nearest = NetworkedCashRegisterWithModules.All.Where(r => r != null && r.CashRegister != null)
                     .OrderBy(r => { var a = Dev.Abs(r.transform.position); return new Vector2(a.x - x, a.z - z).magnitude; }).First();
                 var abs = Dev.Abs(nearest.transform.position);
                 return new Found { Register = nearest.NetId, Name = nearest.transform.parent?.parent?.name + " - " + nearest.transform.parent?.name, X = abs.x, Z = abs.z };

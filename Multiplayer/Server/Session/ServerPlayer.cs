@@ -7,6 +7,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
+using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
 using System;
@@ -131,8 +132,6 @@ public class ServerPlayer : IDisposable
     public Dictionary<NetworkedItem, uint> KnownItems { get; private set; } = new Dictionary<NetworkedItem, uint>(); //NetworkedItem, last updated tick
     public Dictionary<NetworkedItem, float> NearbyItems { get; private set; } = new Dictionary<NetworkedItem, float>(); //NetworkedItem, time since near the item
     public HashSet<ushort> OwnedItems { get; private set; } = new HashSet<ushort>();
-    // Cash this player has paid into shop registers and not yet had back or spent (host only).
-    public double ShopCashInRegisters { get; set; }
     public HashSet<ushort> AcknowledgedWorldItems { get; } = new HashSet<ushort>();
     // Items this player failed to project: when the host may send their Create again.
     internal Dictionary<ushort, float> ProjectionRetryAt { get; } = new Dictionary<ushort, float>();
@@ -143,6 +142,8 @@ public class ServerPlayer : IDisposable
     // The track graph this player reported with ReadyForWorldState, kept because a join that
     // waits for the host to load is replayed without the packet.
     internal TrackGraphFingerprint TrackGraph { get; set; }
+    // Its shops, reported and kept the same way.
+    internal ShopCatalogueFingerprint ShopCatalogue { get; set; }
     public bool WorldItemCatalogueAccepted { get; internal set; }
     public StorageBase Inventory { get; private set; }
 

@@ -79,7 +79,7 @@ public static class SaveGameDataPacketBuilder
         {
             GameMode = data.GetString(SaveGameKeys.Game_mode),
             SerializedDifficulty = difficulty.ToString(Formatting.None),
-            Money = StartingItemsController.Instance == null || !StartingItemsController.Instance.itemsLoaded ? data.GetFloat(SaveGameKeys.Player_money).GetValueOrDefault(0) : (float)Inventory.Instance.PlayerMoney,
+            Money = StartingItemsController.Instance == null || !StartingItemsController.Instance.itemsLoaded ? data.GetDouble(SaveGameKeys.Player_money).GetValueOrDefault(0) : Inventory.Instance.PlayerMoney,
             AcquiredGeneralLicenses = data.GetStringArray(SaveGameKeys.Licenses_General),
             AcquiredJobLicenses = data.GetStringArray(SaveGameKeys.Licenses_Jobs),
             UnlockedGarages = data.GetStringArray(SaveGameKeys.Garages),
