@@ -51,6 +51,23 @@ public sealed class ItemAccessTests
     }
 
     [Test]
+    public void AnEssential_CantBeDeposited_EvenByItsOwner()
+    {
+        // item-review L7: a deposited essential came back without its claim (decided by the user 2026-10-22).
+        ItemAccessDecision decision = ItemAccess.Decide(new ItemAccessRequest(ItemAccessAction.Deposit,
+            actorOwnsItem: true, isFixture: false, isEssential: true));
+
+        Assert.That(decision.Allowed, Is.False);
+        Assert.That(decision.Reason, Is.EqualTo(ItemAccess.EssentialStaysOut));
+    }
+
+    [Test]
+    public void AnEssential_IsStashedAsUsual()
+    {
+        Assert.That(ItemAccess.Decide(new ItemAccessRequest(ItemAccessAction.Stash, true, false, isEssential: true)).Allowed, Is.True);
+    }
+
+    [Test]
     public void AFixture_CanStillBeCarriedInTheHand()
     {
         Assert.That(ItemAccess.Decide(new ItemAccessRequest(ItemAccessAction.TakeFromWorld, false, true)).Allowed, Is.True);

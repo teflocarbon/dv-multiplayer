@@ -30,17 +30,20 @@ public enum ItemAccessAction : byte
 /// </summary>
 public readonly struct ItemAccessRequest
 {
-    public ItemAccessRequest(ItemAccessAction action, bool actorOwnsItem, bool isFixture)
+    public ItemAccessRequest(ItemAccessAction action, bool actorOwnsItem, bool isFixture, bool isEssential = false)
     {
         Action = action;
         ActorOwnsItem = actorOwnsItem;
         IsFixture = isFixture;
+        IsEssential = isEssential;
     }
 
     public ItemAccessAction Action { get; }
     public bool ActorOwnsItem { get; }
     /// <summary>The item is a station fixture (owned-items.md, "Fixtures"): part of a place, never a player's.</summary>
     public bool IsFixture { get; }
+    /// <summary>One of Derail Valley's essentials (comms radio, maps, wallet, ...): it never goes in a container.</summary>
+    public bool IsEssential { get; }
 }
 
 public readonly struct ItemAccessDecision
@@ -67,12 +70,17 @@ public readonly struct ItemAccessDecision
 public static class ItemAccess
 {
     public const string FixtureStaysInPlace = "fixture-stays-in-its-place";
+    public const string EssentialStaysOut = "essential-not-in-containers";
 
     public static ItemAccessDecision Decide(ItemAccessRequest request)
     {
         // A fixture is hand-only and never leaves its place (decided by the user 2026-10-21).
         if (request.IsFixture && request.Action is ItemAccessAction.Stash or ItemAccessAction.Deposit)
             return ItemAccessDecision.Refuse(FixtureStaysInPlace);
+        // An essential stays out of containers, so its claim slot and recall always work (owned-items.md,
+        // item-review L7; decided by the user 2026-10-22).
+        if (request.IsEssential && request.Action == ItemAccessAction.Deposit)
+            return ItemAccessDecision.Refuse(EssentialStaysOut);
         return request.Action switch
         {
             // Containers hold only their owner's own items (container-storage.md).
