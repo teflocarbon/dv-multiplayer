@@ -388,7 +388,7 @@ until 6b, because its interval and its running phase share one key.
   - **Keeping its prediction** (`Multiplayer.Core/Gadgets/GadgetSettingEcho`): it keeps what it shows
     until the answer to its latest change arrives, and applies the server's values if that change was
     refused. A pending change it never hears back about is dropped after 5 s.
-- **Not yet, until 6c:** leases, and bounds checks beyond the vanilla setters' own clamps.
+- **Leases and bounds came in 6c** (below).
 
 **As built (6b).** Running state and buttons, beside the settings:
 - **Running families** (`Shared/Gadgets/GadgetRunningState.cs`): the ATS `timer`, the distance
@@ -424,6 +424,33 @@ until 6b, because its interval and its running phase share one key.
   still installed hit vanilla's NullReferenceException in the LOD's trainset handler, which broke
   off the client's car-destroy handler. Until 3a syncs removals, a client's gadgets stay installed
   when the server's are destroyed.
+
+**As built (6c).** Knob leases and bounds:
+- **One lease per gadget** (`Core/Gadgets/GadgetKnobLease`), not per knob: two players never turn
+  two knobs of one gadget at once, and the server can check a setting without knowing which knob
+  makes it. Its id is the FNV-1a hash of `gadget/<item NetId>`, in the same space as the car's port
+  ids (the hash of the port's id), so it goes through the cab-control path unchanged:
+  `ServerboundTrainControlAuthorityPacket` on the gadget's car, the car's `ControlLeases` (range: the
+  car's length, as for a lever), the `Blocked`/`Denied`/`Released` updates, freed when the player
+  leaves.
+- **The client** (`Client/Gadgets/GadgetKnobLeases`, every game with a player, the host's too) hooks
+  the controls of a gadget's LOD a frame after it loads (a postfix on `SetLODState`) and unhooks them
+  when it unloads. A grab takes the lease, letting go gives it back (after a sprung control settles),
+  and a press without a grab holds it for 0.5 s, as for cab controls. The last change goes to the
+  server before the release (`GadgetStateClient.SendNow`). While another player holds it, the
+  gadget's controls are blocked (`BlockControl`, `InteractionAllowed`), and a grab is let go at once.
+  On a remote client only the gadgets the server sent take leases.
+- **The server** refuses a setting or a command while another player holds the gadget's lease
+  (`GadgetStateServer.TouchRefusal`); the holder's own and anyone's with no holder go through. So the
+  HUD, which has no grab, is refused while someone holds the knob, and put back by the refusal.
+- **Bounds** (`Core/Gadgets/GadgetSettingBounds`, a `Bounds` per family): each key's range as the
+  vanilla knob reaches it (a mode's step count, a toggle, the switch's 0..1, the distance tracker's
+  0..2000 m, the panel's 0..360°), whole steps where the setting is one. NaN, out of range, half a
+  step or an unknown key is refused instead of clamped.
+- Not done: the host's player's HUD isn't blocked while a client holds the knob (the host's own
+  changes aren't requests); a gadget removed while its lease is held keeps the lease until the
+  holder lets go or leaves (removals sync in 3a).
+- Scenario `gadget-knobs` (also at `LAG=250`).
 
 `GadgetSwitchPatch` is deleted (6a).
 
@@ -936,4 +963,6 @@ In three parts:
 - **PR 6b built** (`gadgets/state-commands`): running state, buttons, the shared snooze, beacons and
   sweeps on the shared clock. `gadget-buttons` (also at `LAG=250`), `gadget-settings` and
   `gadget-join` pass on both host kinds.
-- Next: 6c (knob leases); 3a once owned-items 2a lands.
+- **PR 6c built** (`gadgets/control-leases`): gadget knobs take leases through the cab-control path;
+  settings out of a knob's range are refused. Scenario `gadget-knobs`.
+- Next: 7 (gadgets that drive the train), 8 (DPU and the control panel); 3a once owned-items 2a lands.

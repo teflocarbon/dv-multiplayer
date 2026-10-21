@@ -1,6 +1,8 @@
 using DV.Customization;
 using DV.Customization.Gadgets;
+using Multiplayer.Core.Gadgets;
 using Multiplayer.Server.Items;
+using Multiplayer.Server.Trains;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Gadgets;
 using Multiplayer.Shared.Items;
@@ -107,8 +109,25 @@ internal static class GadgetStateServer
             return $"{gadget.name} has no settings";
         if (packet.Keys == null || packet.Values == null || packet.Keys.Length != packet.Values.Length)
             return "malformed";
-        return ReachRefusal(player, gadget);
+        return GadgetSettings.Refusal(gadget, packet.Keys, packet.Values) ?? TouchRefusal(player, gadget, packet.ItemNetId);
     }
+
+    /// <summary>
+    /// Why <paramref name="player"/> can't change <paramref name="gadget"/> now, or null if they can: out of
+    /// reach, or another player holds its knobs (GadgetKnobLease). A change with no grab (the HUD, a
+    /// button) needs nobody else to hold them; the holder's own changes go through.
+    /// </summary>
+    internal static string TouchRefusal(ServerPlayer player, GadgetBase gadget, ushort itemNetId) =>
+        ReachRefusal(player, gadget) ?? (KnobHolder(gadget, itemNetId) is { } holder && holder != player
+            ? $"{holder.Username} holds its knobs"
+            : null);
+
+    /// <summary>Who holds the lease on the gadget's knobs, if anyone.</summary>
+    internal static ServerPlayer KnobHolder(GadgetBase gadget, ushort itemNetId) =>
+        gadget.Custom is TrainCarCustomization { TrainCar: { } car } &&
+        NetworkedTrainCar.TryGetFromTrainCar(car, out NetworkedTrainCar networked)
+            ? networked.Server()?.LeaseHolder(GadgetKnobLease.IdOf(itemNetId))
+            : null;
 
     /// <summary>Why <paramref name="player"/> can't touch <paramref name="gadget"/>, or null if they can.</summary>
     internal static string ReachRefusal(ServerPlayer player, GadgetBase gadget)
