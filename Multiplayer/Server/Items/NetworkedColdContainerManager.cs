@@ -510,6 +510,17 @@ public static class NetworkedColdContainerManager
         return true;
     }
 
+    /// <summary>The live shell (a container item in the world or with a player) of a cold container, if it has one.</summary>
+    internal static bool TryGetShellNetId(Guid containerId, out ushort shellNetId)
+    {
+        shellNetId = shellByNetId.FirstOrDefault(pair => pair.Value == containerId).Key;
+        if (shellNetId != 0) return true;
+        NetworkedItem shell = NetworkedItem.GetAll().FirstOrDefault(item => item != null &&
+            item.GetComponent<ColdContainerIdentity>() is ColdContainerIdentity identity && identity.PersistentId == containerId);
+        shellNetId = shell?.NetId ?? 0;
+        return shellNetId != 0;
+    }
+
     // Shells are bound by a once-a-second scan; one picked up and opened straight away (a new
     // purchase) wasn't bound yet and the request failed. Bind it on demand.
     private static bool TryGetOrBindShell(ushort shellNetId, out Guid id)
