@@ -373,6 +373,22 @@ the state afterwards isn't what the entry says), asks for a [resync](#desync-and
 - **Resync** carries the car's holes (`GadgetAnchorSnapshotData.Holes`); the client replaces its own.
 - Scenario `gadget-mounting`.
 
+**As built (5).** Wiring and soldering:
+- **Wiring** (`ServerboundGadgetWirePacket`): the crimping tool's `WireLinkPort.Wire` / `Unwire` of two
+  ports on a remote client becomes a request naming each port by its gadget's UID and its index in
+  the gadget's wiring module. The server needs the crimping tool in the requester's hand and vanilla's
+  own rule (`ReadyToWire`, `AreWired`); the log records a top-level wire or unwire as `Wired` /
+  `Unwired` (a removal's unwiring is its consequence).
+- **Soldering** is predicted, as designed: the iron solders in the player's game at once (vanilla's
+  `ProcessSoldering` without the spool swap), and `GadgetSolderingClient` sends the absolute units at
+  5 Hz and once when the player stops (`ServerboundGadgetSolderPacket`). The server takes them up to
+  what the time since allows (twice vanilla's speed), never backwards, with the iron in hand; its
+  10 Hz watch records a changed gadget's units as a `Soldered` entry. While the player holds the iron
+  on a gadget their game shows the larger of its own and the server's units.
+- Not done: the iron's spool (its units, the spent spool swapped for an empty one, a new item) is the
+  player's game's alone; the server doesn't check the spool.
+- Scenario `gadget-wiring`.
+
 ## Gadget state
 
 Settings and running state are typed fields per gadget class, kept by small adapters in
@@ -1076,4 +1092,5 @@ In three parts:
   change log; resync; deleted cars' gadgets to their owners' Lost and Found. Scenario
   `gadget-install`.
 - **PR 4 built** (`gadgets/mount-points`): bolting, taping, untaping and filling holes go through the server; holes in the change log and the resync. Scenario `gadget-mounting`.
+- **PR 5 built** (`gadgets/wiring`): wiring and unwiring go through the server; soldering is predicted and the server clamps and sends its units. Scenario `gadget-wiring`.
 - Next: 3b (prediction), 4 (mount points, holes, tape), 5 (wiring, soldering).

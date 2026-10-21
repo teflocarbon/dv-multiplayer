@@ -47,6 +47,7 @@ internal static class GadgetJoinApplier
         GadgetKnobLeases.Reset();
         GadgetChangeApplier.Reset();
         GadgetIntentPatches.Reset();
+        GadgetSolderingClient.Reset();
         Applying = true;
         List<(TrainCar car, InstalledGadgetData data)> wanted = new();
         foreach (GadgetAnchorSnapshotData anchor in packet.Anchors ?? [])

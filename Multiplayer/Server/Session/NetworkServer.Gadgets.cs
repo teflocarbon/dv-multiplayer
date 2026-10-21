@@ -101,6 +101,18 @@ public partial class NetworkServer
             GadgetServer.HandleFillHole(packet, player, this);
     }
 
+    private void OnServerboundGadgetWirePacket(ServerboundGadgetWirePacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleWire(packet, player, this);
+    }
+
+    private void OnServerboundGadgetSolderPacket(ServerboundGadgetSolderPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            GadgetServer.HandleSolder(packet, player, this);
+    }
+
     private void OnServerboundGadgetResyncRequestPacket(ServerboundGadgetResyncRequestPacket packet, ITransportPeer peer)
     {
         if (TryGetServerPlayer(peer, out ServerPlayer player))

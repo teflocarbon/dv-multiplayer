@@ -197,6 +197,34 @@ internal static class GadgetChangeApplier
                     ?.Play(placed.transform.position);
                 return ApplyResult.Applied;
             }
+            if (kind is GadgetChangeKind.Wired or GadgetChangeKind.Unwired)
+            {
+                if (gadget == null || !gadget.IsLinked || !car.Customization.TryGetCustomizerByUID(entry.OtherUid, out var other) ||
+                    other is not GadgetBase otherGadget || entry.Index < 0 || entry.Index >= gadget.wiring.wireLinkPorts.Count ||
+                    entry.OtherIndex < 0 || entry.OtherIndex >= otherGadget.wiring.wireLinkPorts.Count)
+                    return ApplyResult.Failed;
+                var a = gadget.wiring.wireLinkPorts[entry.Index];
+                var b = otherGadget.wiring.wireLinkPorts[entry.OtherIndex];
+                using (GadgetApplyScope.Enter())
+                {
+                    if (kind == GadgetChangeKind.Wired)
+                        GadgetWiringModule.WireLinkPort.Wire(a, b);
+                    else
+                        GadgetWiringModule.WireLinkPort.Unwire(a, b);
+                }
+                GadgetIntentPatches.Confirmed(entry);
+                return GadgetWiringModule.WireLinkPort.AreWired(a, b) == (kind == GadgetChangeKind.Wired) ? ApplyResult.Applied : ApplyResult.Failed;
+            }
+            if (kind == GadgetChangeKind.Soldered)
+            {
+                if (gadget is not TrainCarCustomization.TrainCarCustomizerBase solderable || !gadget.IsLinked)
+                    return ApplyResult.Failed;
+                // While this player solders it, its own units lead the server's.
+                if (!(GadgetSolderingClient.Holding(gadget) && GadgetSolderingClient.Units(solderable) >= entry.Index))
+                    using (GadgetApplyScope.Enter())
+                        solderable.SetSolderingUnits(entry.Index);
+                return ApplyResult.Applied;
+            }
             if (kind == GadgetChangeKind.MountPoint)
             {
                 if (gadget == null || !gadget.IsLinked || !gadget.TryGetComponent(out Drillable drillable) ||

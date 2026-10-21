@@ -9,7 +9,12 @@ public enum GadgetChangeKind : byte
     /// <summary>A mount point bolted, taped or freed (PR 4).</summary>
     MountPoint = 3,
     HoleAdded = 4,
-    HoleRemoved = 5
+    HoleRemoved = 5,
+    /// <summary>Two ports wired or unwired (PR 5): the gadget's port and the other gadget's.</summary>
+    Wired = 6,
+    Unwired = 7,
+    /// <summary>A gadget's soldering units, absolute (PR 5).</summary>
+    Soldered = 8
 }
 
 /// <summary>A change the server observed on one car's gadgets, waiting to be sent.</summary>
@@ -25,6 +30,9 @@ public sealed class GadgetChange<TGadget>
     public byte Value;
     /// <summary>A hole: its position and direction in the car's parenting frame, six numbers.</summary>
     public float[] Point;
+    /// <summary>Wired, Unwired: the other gadget's UID and its port.</summary>
+    public int OtherUid;
+    public int OtherIndex;
     /// <summary>The request that caused it: its player and operation, 0 for none.</summary>
     public byte PlayerId;
     public uint OperationId;
@@ -76,7 +84,7 @@ public sealed class GadgetChangeRecorder<TGadget>
     /// top-level). Returns the car's new revision.
     /// </summary>
     public uint Record(ushort anchor, GadgetChangeKind kind, TGadget gadget, bool forced = false,
-        int index = 0, byte value = 0, float[] point = null)
+        int index = 0, byte value = 0, float[] point = null, int otherUid = 0, int otherIndex = 0)
     {
         uint revision = Revision(anchor) + 1;
         revisions[anchor] = revision;
@@ -90,6 +98,8 @@ public sealed class GadgetChangeRecorder<TGadget>
             Index = index,
             Value = value,
             Point = point,
+            OtherUid = otherUid,
+            OtherIndex = otherIndex,
             PlayerId = operationPlayer,
             OperationId = operation
         });

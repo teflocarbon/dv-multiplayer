@@ -47,6 +47,7 @@ internal static class GadgetStateServer
             return;
         lastWatchTick = tick;
         HashSet<ushort> seen = new();
+        HashSet<GadgetBase> seenGadgets = new();
         foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll()
                      .Where(r => r.Placement == ItemPlacementKind.Installed).ToList())
         {
@@ -54,6 +55,8 @@ internal static class GadgetStateServer
             if (gadget == null)
                 continue;
             seen.Add(record.NetId);
+            seenGadgets.Add(gadget);
+            GadgetChangeLogServer.WatchSoldering(gadget);
             GadgetRunningServer.Watch(record.NetId, gadget, server);
             if (!GadgetSettings.Has(gadget))
                 continue;
@@ -73,6 +76,7 @@ internal static class GadgetStateServer
         foreach (ushort gone in watched.Keys.Where(id => !seen.Contains(id)).ToList())
             watched.Remove(gone);
         GadgetRunningServer.Forget(seen);
+        GadgetChangeLogServer.ForgetSoldering(seenGadgets);
     }
 
     internal static void HandleRequest(ServerboundGadgetSettingPacket packet, ServerPlayer player, NetworkServer server)

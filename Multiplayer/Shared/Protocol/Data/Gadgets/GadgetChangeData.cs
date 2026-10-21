@@ -26,6 +26,9 @@ public class GadgetChangeData
     /// <summary>A hole: its position and direction in the car's parenting frame.</summary>
     public Vector3 Position;
     public Vector3 Direction;
+    /// <summary>Wired, Unwired: the other gadget's UID and its port (Index is this one's port).</summary>
+    public int OtherUid;
+    public int OtherIndex;
     /// <summary>The request it answers: its player and operation, 0 for none.</summary>
     public byte PlayerId;
     public uint OperationId;
@@ -44,6 +47,8 @@ public class GadgetChangeData
         writer.Put(data.Value);
         Put(writer, data.Position);
         Put(writer, data.Direction);
+        writer.Put(data.OtherUid);
+        writer.Put(data.OtherIndex);
     }
 
     public static GadgetChangeData Deserialize(NetDataReader reader) => new()
@@ -59,7 +64,9 @@ public class GadgetChangeData
         Index = reader.GetInt(),
         Value = reader.GetByte(),
         Position = GetVector(reader),
-        Direction = GetVector(reader)
+        Direction = GetVector(reader),
+        OtherUid = reader.GetInt(),
+        OtherIndex = reader.GetInt()
     };
 
     private static void Put(NetDataWriter writer, Vector3 v)

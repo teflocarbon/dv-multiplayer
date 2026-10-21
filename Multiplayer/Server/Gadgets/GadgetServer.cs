@@ -283,6 +283,88 @@ internal static class GadgetServer
         }
     }
 
+    /// <summary>
+    /// A player wires or unwires two gadgets on a car with the crimping tool in their hand (PR 5):
+    /// vanilla's own rules decide (<c>ReadyToWire</c> for a wire, <c>AreWired</c> for an unwire).
+    /// </summary>
+    internal static void HandleWire(ServerboundGadgetWirePacket packet, ServerPlayer player, NetworkServer server)
+    {
+        GadgetWiringModule.WireLinkPort source = null, target = null;
+        string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
+            : !NetworkedTrainCar.TryGet(packet.CarNetId, out TrainCar car) || car == null || car.Customization == null ? "no such car"
+            : !TryPort(car, packet.SourceUid, packet.SourcePort, out source) || !TryPort(car, packet.TargetUid, packet.TargetPort, out target) ? "no such ports"
+            : Held<GadgetWiringTool>(player) == null ? "no crimping tool in hand"
+            : packet.Wire && !GadgetWiringModule.WireLinkPort.ReadyToWire(source, target) ? "those ports can't be wired"
+            : !packet.Wire && !GadgetWiringModule.WireLinkPort.AreWired(source, target) ? "those ports aren't wired"
+            : GadgetStateServer.ReachRefusal(player, source.owner);
+        if (refusal != null)
+        {
+            Reject(server, player, packet.OperationId, 0, packet.Wire ? "wire" : "unwire", refusal);
+            return;
+        }
+        GadgetChangeLogServer.BeginOperation(player, packet.OperationId);
+        try
+        {
+            using (GadgetApplyScope.Enter())
+            {
+                if (packet.Wire)
+                    GadgetWiringModule.WireLinkPort.Wire(source, target);
+                else
+                    GadgetWiringModule.WireLinkPort.Unwire(source, target);
+            }
+        }
+        finally
+        {
+            GadgetChangeLogServer.EndOperation();
+        }
+    }
+
+    private static bool TryPort(TrainCar car, int uid, int index, out GadgetWiringModule.WireLinkPort port)
+    {
+        port = null;
+        if (!car.Customization.TryGetCustomizerByUID(uid, out var customizer) || customizer is not GadgetBase gadget ||
+            index < 0 || index >= gadget.wiring.wireLinkPorts.Count)
+            return false;
+        port = gadget.wiring.wireLinkPorts[index];
+        return true;
+    }
+
+    // Twice vanilla's iron (32768 units a second), for lag.
+    private const float SolderUnitsPerSecond = 65536f;
+    private static readonly Dictionary<(byte player, ushort item), float> lastSolder = new();
+
+    /// <summary>
+    /// A player soldering a gadget sends the units their game reached (PR 5). The server takes them up to
+    /// what the time since their last allows, with the soldering iron in their hand; the watch's
+    /// <c>Soldered</c> entry carries the result. Soldering never goes backwards here.
+    /// </summary>
+    internal static void HandleSolder(ServerboundGadgetSolderPacket packet, ServerPlayer player, NetworkServer server)
+    {
+        GadgetBase gadget = GadgetStateServer.LinkedGadget(packet.ItemNetId);
+        var solderable = gadget as TrainCarCustomization.TrainCarCustomizerBase;
+        string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
+            : solderable == null || !solderable.IsSolderable ? "not a gadget that's soldered"
+            : !gadget.ArePlacementRequirementsMet ? "its placement isn't complete"
+            : Held<GadgetSolderingTool>(player) == null ? "no soldering iron in hand"
+            : GadgetStateServer.ReachRefusal(player, gadget);
+        if (refusal != null)
+        {
+            Reject(server, player, packet.OperationId, packet.ItemNetId, "soldering", refusal);
+            return;
+        }
+        float now = Time.realtimeSinceStartup;
+        var key = (player.PlayerId, packet.ItemNetId);
+        float since = lastSolder.TryGetValue(key, out float last) ? Mathf.Min(now - last, 1f) : 0.25f;
+        lastSolder[key] = now;
+        int current = 65536 - solderable.SolderingUnitsRequired;
+        int allowed = current + Mathf.CeilToInt(since * SolderUnitsPerSecond);
+        int units = Mathf.Clamp(packet.Units, current, Mathf.Min(allowed, 65536));
+        if (units == current)
+            return;
+        using (GadgetApplyScope.Enter())
+            solderable.SetSolderingUnits(units);
+    }
+
     /// <summary>The tool of type <typeparamref name="T"/> in the player's hand, as the server has it.</summary>
     private static T Held<T>(ServerPlayer player) where T : Component
     {

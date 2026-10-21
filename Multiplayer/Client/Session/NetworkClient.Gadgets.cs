@@ -49,6 +49,12 @@ public partial class NetworkClient
     internal void SendGadgetFillHole(ServerboundGadgetFillHolePacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 
+    internal void SendGadgetWire(ServerboundGadgetWirePacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    internal void SendGadgetSolder(ServerboundGadgetSolderPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
     internal void SendGadgetResync(ServerboundGadgetResyncRequestPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }

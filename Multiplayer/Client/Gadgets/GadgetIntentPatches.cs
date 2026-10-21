@@ -187,6 +187,40 @@ internal static class GadgetIntentPatches
         return false;
     }
 
+    // The crimping tool wiring two gadgets, or unwiring them (PR 5). A removal's unwiring isn't a player's.
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Wire))]
+    private static bool Wire(GadgetWiringModule.WireLinkPort a, GadgetWiringModule.WireLinkPort b, ref bool __result) =>
+        !WireRequest(a, b, true, ref __result);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Unwire),
+        new[] { typeof(GadgetWiringModule.WireLinkPort), typeof(GadgetWiringModule.WireLinkPort) })]
+    private static bool Unwire(GadgetWiringModule.WireLinkPort a, GadgetWiringModule.WireLinkPort b, ref bool __result) =>
+        !WireRequest(a, b, false, ref __result);
+
+    private static bool WireRequest(GadgetWiringModule.WireLinkPort a, GadgetWiringModule.WireLinkPort b, bool wire, ref bool result)
+    {
+        if (!Intercepts || unlinking > 0 || a?.owner is not { IsLinked: true } source || b?.owner is not { IsLinked: true } target ||
+            source.Custom != target.Custom || !GadgetJoinApplier.IsServerSent(source) || !GadgetJoinApplier.IsServerSent(target) ||
+            source.Custom is not TrainCarCustomization { TrainCar: { } car } || !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId))
+            return false;
+        result = false;
+        uint operation = ++nextOperation;
+        pending[operation] = new Pending();
+        NetworkClient.Instance?.SendGadgetWire(new ServerboundGadgetWirePacket
+        {
+            OperationId = operation,
+            CarNetId = carNetId,
+            SourceUid = source.UID,
+            SourcePort = source.wiring.wireLinkPorts.IndexOf(a),
+            TargetUid = target.UID,
+            TargetPort = target.wiring.wireLinkPorts.IndexOf(b),
+            Wire = wire
+        });
+        return true;
+    }
+
     // The hole filler (PR 4).
     [HarmonyPrefix]
     [HarmonyPatch(typeof(Customization), nameof(Customization.RemoveHole))]

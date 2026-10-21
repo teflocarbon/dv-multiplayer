@@ -172,6 +172,79 @@ internal static class GadgetChangeLogServer
     [HarmonyPatch(typeof(Customization), nameof(Customization.RemoveHole))]
     private static void HoleRemoveEnd((int scope, float[] point) __state) => End(__state.scope);
 
+    // Wiring two ports (PR 5); unwiring as part of a removal is the removal's consequence.
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Wire))]
+    private static void WireStart(out int __state) => __state = Start();
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Wire))]
+    private static void Wired(GadgetWiringModule.WireLinkPort a, GadgetWiringModule.WireLinkPort b, bool __result, int __state)
+    {
+        if (__state == 2 && __result)
+            RecordWire(GadgetChangeKind.Wired, a, b);
+    }
+
+    [HarmonyFinalizer]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Wire))]
+    private static void WireEnd(int __state) => End(__state);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Unwire),
+        new[] { typeof(GadgetWiringModule.WireLinkPort), typeof(GadgetWiringModule.WireLinkPort) })]
+    private static void UnwireStart(out int __state) => __state = Start();
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Unwire),
+        new[] { typeof(GadgetWiringModule.WireLinkPort), typeof(GadgetWiringModule.WireLinkPort) })]
+    private static void Unwired(GadgetWiringModule.WireLinkPort a, GadgetWiringModule.WireLinkPort b, bool __result, int __state)
+    {
+        if (__state == 2 && __result)
+            RecordWire(GadgetChangeKind.Unwired, a, b);
+    }
+
+    [HarmonyFinalizer]
+    [HarmonyPatch(typeof(GadgetWiringModule.WireLinkPort), nameof(GadgetWiringModule.WireLinkPort.Unwire),
+        new[] { typeof(GadgetWiringModule.WireLinkPort), typeof(GadgetWiringModule.WireLinkPort) })]
+    private static void UnwireEnd(int __state) => End(__state);
+
+    private static void RecordWire(GadgetChangeKind kind, GadgetWiringModule.WireLinkPort a, GadgetWiringModule.WireLinkPort b)
+    {
+        GadgetBase source = a?.owner, target = b?.owner;
+        if (source == null || target == null || !source.IsLinked || !OnCar(source.Custom, out ushort carNetId))
+            return;
+        recorder.Record(carNetId, kind, source, index: source.wiring.wireLinkPorts.IndexOf(a),
+            otherUid: target.UID, otherIndex: target.wiring.wireLinkPorts.IndexOf(b));
+    }
+
+    // Soldering moves a little every frame while a player holds the iron: rather than an entry per call,
+    // the watch (GadgetStateServer.Tick, 10 Hz) sends the absolute units when they changed.
+    private static readonly Dictionary<GadgetBase, int> solderSent = new();
+
+    internal static void WatchSoldering(GadgetBase gadget)
+    {
+        if (gadget is not TrainCarCustomization.TrainCarCustomizerBase solderable || !solderable.IsSolderable ||
+            !OnCar(gadget.Custom, out ushort carNetId))
+            return;
+        int units = 65536 - solderable.SolderingUnitsRequired;
+        if (!solderSent.TryGetValue(gadget, out int sent))
+        {
+            // First sight: a joining player has these in the gadget's data; everyone else already does.
+            solderSent[gadget] = units;
+            return;
+        }
+        if (sent == units)
+            return;
+        solderSent[gadget] = units;
+        recorder.Record(carNetId, GadgetChangeKind.Soldered, gadget, index: units);
+    }
+
+    internal static void ForgetSoldering(HashSet<GadgetBase> installed)
+    {
+        foreach (GadgetBase gone in solderSent.Keys.Where(g => g == null || !installed.Contains(g)).ToList())
+            solderSent.Remove(gone);
+    }
+
     private static float[] Point(Vector3 position, Vector3 direction) =>
         new[] { position.x, position.y, position.z, direction.x, direction.y, direction.z };
 
@@ -217,6 +290,8 @@ internal static class GadgetChangeLogServer
             Forced = change.Forced,
             Index = change.Index,
             Value = change.Value,
+            OtherUid = change.OtherUid,
+            OtherIndex = change.OtherIndex,
             PlayerId = change.PlayerId,
             OperationId = change.OperationId
         };
