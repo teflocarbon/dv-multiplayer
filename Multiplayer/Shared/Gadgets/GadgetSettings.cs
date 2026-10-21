@@ -27,11 +27,15 @@ public static class GadgetSettings
         public Action<GadgetBase, string, float> Set;
     }
 
-    // Most derived first. The alternating controller is a switch whose "value" is an interval with
-    // a phase that runs: its own family, with running state, comes later (gadget PR 6b).
+    // Most derived first. The alternating controller is a switch whose "value" is its interval; its
+    // phase is running state (GadgetRunningState).
     private static readonly Family[] families =
     {
-        new() { Type = typeof(AlternatingController), Keys = Array.Empty<string>() },
+        new()
+        {
+            Type = typeof(AlternatingController), Keys = new[] { "value" },
+            Set = (g, _, v) => ((AlternatingController)g).SelectedInterval = (int)Math.Round(v)
+        },
         new()
         {
             Type = typeof(GadgetSwitch), Keys = new[] { "value" },

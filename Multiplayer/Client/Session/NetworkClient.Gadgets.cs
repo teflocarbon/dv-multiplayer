@@ -22,4 +22,9 @@ public partial class NetworkClient
 
     internal void SendGadgetSetting(ServerboundGadgetSettingPacket packet) =>
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
+
+    private void OnClientboundGadgetRunningPacket(ClientboundGadgetRunningPacket packet) => GadgetRunningClient.Receive(packet);
+
+    internal void SendGadgetCommand(ServerboundGadgetCommandPacket packet) =>
+        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
 }

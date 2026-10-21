@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1110+fef15095f0d2aae352bd680e042e9d728c2ea257",
-  "Fingerprint": "c0d17022469573c6e11f9cbe0ab237adf0f47f542d634b12c22eb87c0bd00943",
+  "BuildVersion": "2026.10.21-dev.1119+d003ab24ce5a2ca78749ce4442f99c9cd58db01d",
+  "Fingerprint": "ccfa68b8c0f7302f93fe10ced536d090dc171f32ada233345010d0df6a743e04",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -679,6 +679,15 @@
       "SuppressByDefault": true
     },
     {
+      "Hash": "9C32F524B330444F",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets.ClientboundGadgetRunningPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.Gadgets",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "9D8C7E64515465EA",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Common.CommonPitStopPlugInteractionPacket",
       "Direction": "Bidirectional",
@@ -899,6 +908,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundSaveGameDataPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "BBED2AE06069FB69",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets.ServerboundGadgetCommandPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound.Gadgets",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
