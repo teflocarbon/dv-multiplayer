@@ -30,6 +30,8 @@ namespace Dvmp.Scenarios
             public string Car = "";
             /// <summary>How long a change may take to reach the other game, in seconds.</summary>
             public float Seconds = 10f;
+            /// <summary>Delay on what the client receives once it has joined, in ms (a far player).</summary>
+            public int Lag;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -46,7 +48,12 @@ namespace Dvmp.Scenarios
             string host = await pair.Host.Run<string>(() => Gadgets.Digest(car));
             Expect.Equal(host, await pair.Client.Run<string>(s => Gadgets.DigestWhenEqual(s, car, host, 20f)),
                 "after joining: the client's gadgets on the car, against the server's");
+            using (await pair.Client.Lag(o.Lag))
+                await Changes(pair, o, car, built);
+        }
 
+        private static async Task Changes(Pair pair, Options o, string car, Built built)
+        {
             // The client at the switch, riding the car.
             await pair.Client.Run(() => Players.Board(car));
             await Task.Delay(2000);
