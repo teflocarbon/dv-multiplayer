@@ -1,6 +1,7 @@
 using DV.Customization;
 using DV.Customization.Gadgets;
 using DV.Customization.Gadgets.Implementations;
+using Multiplayer.Core.Gadgets;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -25,6 +26,8 @@ public static class GadgetSettings
         // channel before its regime).
         public string[] Keys;
         public Action<GadgetBase, string, float> Set;
+        // What vanilla's knob reaches, per key: the server refuses a request outside it.
+        public Func<GadgetBase, string, GadgetSettingBounds> Bounds;
     }
 
     // Most derived first. The alternating controller is a switch whose "value" is its interval; its
@@ -34,17 +37,20 @@ public static class GadgetSettings
         new()
         {
             Type = typeof(AlternatingController), Keys = new[] { "value" },
-            Set = (g, _, v) => ((AlternatingController)g).SelectedInterval = (int)Math.Round(v)
+            Set = (g, _, v) => ((AlternatingController)g).SelectedInterval = (int)Math.Round(v),
+            Bounds = (g, _) => GadgetSettingBounds.Steps(((AlternatingController)g).IntervalCount)
         },
         new()
         {
             Type = typeof(GadgetSwitch), Keys = new[] { "value" },
-            Set = (g, _, v) => ((GadgetSwitch)g).SetOutputValue(v)
+            Set = (g, _, v) => ((GadgetSwitch)g).SetOutputValue(v),
+            Bounds = (_, _) => new GadgetSettingBounds(0f, 1f, false)
         },
         new()
         {
             Type = typeof(GadgetAmpLimiter), Keys = new[] { "mode" },
-            Set = (g, _, v) => ((GadgetAmpLimiter)g).ModeIndex = (int)Math.Round(v)
+            Set = (g, _, v) => ((GadgetAmpLimiter)g).ModeIndex = (int)Math.Round(v),
+            Bounds = (g, _) => GadgetSettingBounds.Steps(((GadgetAmpLimiter)g).ModeCount)
         },
         new()
         {
@@ -54,17 +60,20 @@ public static class GadgetSettings
                 var gadget = (GadgetOverheatProtection)g;
                 if (key == "mode") gadget.ModeIndex = (int)Math.Round(v);
                 else gadget.cutEngine = v > 0.5f;
-            }
+            },
+            Bounds = (g, key) => key == "mode" ? GadgetSettingBounds.Steps(((GadgetOverheatProtection)g).ModeCount) : GadgetSettingBounds.Toggle
         },
         new()
         {
             Type = typeof(GadgetATS), Keys = new[] { "mode" },
-            Set = (g, _, v) => ((GadgetATS)g).SetRegime((int)Math.Round(v))
+            Set = (g, _, v) => ((GadgetATS)g).SetRegime((int)Math.Round(v)),
+            Bounds = (g, _) => GadgetSettingBounds.Steps(((GadgetATS)g).RegimesCount)
         },
         new()
         {
             Type = typeof(GadgetRoadrunner), Keys = new[] { "target" },
-            Set = (g, _, v) => ((GadgetRoadrunner)g).LengthMeters = (int)Math.Round(v)
+            Set = (g, _, v) => ((GadgetRoadrunner)g).LengthMeters = (int)Math.Round(v),
+            Bounds = (g, _) => new GadgetSettingBounds(0f, ((GadgetRoadrunner)g).MaxLength, true)
         },
         new()
         {
@@ -75,7 +84,10 @@ public static class GadgetSettings
                 if (key == "channel") gadget.Channel = (int)Math.Round(v);
                 else if (key == "reverse") gadget.ReverseOrientation = v > 0.5f;
                 else gadget.Regime = (GadgetDPU.WirelessMode)(int)Math.Round(v);
-            }
+            },
+            Bounds = (_, key) => key == "channel" ? GadgetSettingBounds.Steps(8)
+                : key == "reverse" ? GadgetSettingBounds.Toggle
+                : GadgetSettingBounds.Steps(3)
         },
         new()
         {
@@ -86,7 +98,10 @@ public static class GadgetSettings
                 if (key == "dir") gadget.DirectionMode = (int)Math.Round(v);
                 else if (key == "sideCorrection") gadget.SideCorrectRegime = v > 0.5f;
                 else gadget.Mode = (int)Math.Round(v);
-            }
+            },
+            Bounds = (g, key) => key == "dir" ? GadgetSettingBounds.Steps(3)
+                : key == "sideCorrection" ? GadgetSettingBounds.Toggle
+                : GadgetSettingBounds.Steps(((GadgetSwitchSetter)g).ModeCount)
         },
         new()
         {
@@ -96,12 +111,14 @@ public static class GadgetSettings
                 var gadget = (GadgetProximityScreen)g;
                 if (key == "channel") gadget.CurrentChannel = (int)Math.Round(v);
                 else gadget.CurrentMode = (int)Math.Round(v);
-            }
+            },
+            Bounds = (_, key) => key == "channel" ? GadgetSettingBounds.Steps(GadgetProximityScreen.CHANNEL_COUNT) : GadgetSettingBounds.Toggle
         },
         new()
         {
             Type = typeof(GadgetControlPanel), Keys = new[] { "tilt" },
-            Set = (g, _, v) => ((GadgetControlPanel)g).tilt = v
+            Set = (g, _, v) => ((GadgetControlPanel)g).tilt = v,
+            Bounds = (_, _) => new GadgetSettingBounds(0f, 360f, false)
         }
     };
 
@@ -155,6 +172,26 @@ public static class GadgetSettings
         {
             applying--;
         }
+    }
+
+    /// <summary>
+    /// Why the server won't apply these settings to the gadget, or null if it will: a key the gadget
+    /// doesn't have, or a value its knob can't reach (GadgetSettingBounds).
+    /// </summary>
+    public static string Refusal(GadgetBase gadget, IReadOnlyList<string> keys, IReadOnlyList<float> values)
+    {
+        Family family = FamilyOf(gadget);
+        if (family == null)
+            return "no settings";
+        for (int i = 0; i < keys.Count; i++)
+        {
+            if (Array.IndexOf(family.Keys, keys[i]) < 0)
+                return $"no setting \"{keys[i]}\"";
+            string refusal = family.Bounds?.Invoke(gadget, keys[i]).Refusal(values[i]);
+            if (refusal != null)
+                return $"{keys[i]}: {refusal}";
+        }
+        return null;
     }
 
     /// <summary>Whether two captures differ by more than a knob's rounding.</summary>

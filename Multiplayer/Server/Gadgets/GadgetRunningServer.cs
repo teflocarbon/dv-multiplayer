@@ -87,7 +87,7 @@ internal static class GadgetRunningServer
         string refusal = player.LoadingState < PlayerLoadingState.ReadyForCustomizers ? "still loading"
             : gadget == null ? "not an installed gadget"
             : !GadgetCommands.Fits(gadget, command) ? $"{gadget.name} has no {command}"
-            : GadgetStateServer.ReachRefusal(player, gadget);
+            : GadgetStateServer.TouchRefusal(player, gadget, packet.ItemNetId);
         if (refusal != null)
         {
             Multiplayer.LogWarning($"Gadget command {command} from {player.Username} on item {packet.ItemNetId} refused: {refusal}");

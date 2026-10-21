@@ -99,6 +99,8 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "gadget-settings-lag|gadget-settings|LAG=250"
   "gadget-buttons|gadget-buttons|"
   "gadget-buttons-lag|gadget-buttons|LAG=250"
+  "gadget-knobs|gadget-knobs|"
+  "gadget-knobs-lag|gadget-knobs|LAG=250"
   "borrowed-disconnect|borrowed-disconnect||player"
   "host-actions|host-actions|"
   "host-actions-host|host-actions|WHO=host"
