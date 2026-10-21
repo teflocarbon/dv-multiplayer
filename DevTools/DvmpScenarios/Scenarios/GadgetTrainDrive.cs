@@ -44,7 +44,7 @@ namespace Dvmp.Scenarios
 
         protected override async Task Run(Pair pair, Options o)
         {
-            Loco loco = await pair.Host.Run<Loco>(s => Cars.SpawnLocoNear(s, o.Livery, false, "client"));
+            Loco loco = await pair.Host.Run<Loco>(s => Cars.SpawnLocoNear(s, o.Livery, true, "client"));
             pair.Cleanup(() => pair.Host.Run<string[]>(s => Cars.Delete(s, loco.Cars)));
             GadgetDrive.Built built = await pair.Host.Run<GadgetDrive.Built>(s => GadgetDrive.Build(s, loco.Id, "ats"));
             pair.Cleanup(() => pair.Host.Run(() => Gadgets.DestroyByPersistentId(built.PersistentIds)));
@@ -209,7 +209,8 @@ namespace Dvmp.Scenarios
         {
             NetworkedTrainCar.TryGetFromTrainCar(car, out NetworkedTrainCar networked);
             uint port = NetworkedTrainCar.GetPortNetId(Controls(car).Throttle.portId);
-            return Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(networked).locallyOwnedPortAuthorities.Contains(port);
+            // A dedicated host's cars have no client part: nobody there holds anything.
+            return Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(networked)?.locallyOwnedPortAuthorities.Contains(port) == true;
         }
 
         private static Drive Read(TrainCar car) => new()
@@ -226,8 +227,18 @@ namespace Dvmp.Scenarios
         public static IEnumerator HoldThrottle(Step<Drive> step, string loco, float value)
         {
             TrainCar car = Dvmp.Lib.Trains.Find(loco);
-            InteriorControlsManager manager = car.loadedInterior.GetComponent<InteriorControlsManager>();
-            manager.TryGetControl(InteriorControlsManager.ControlType.Throttle, out var throttle);
+            NetworkedTrainCar.TryGetFromTrainCar(car, out NetworkedTrainCar networked);
+            var client = Multiplayer.Client.Trains.NetworkedTrainCarClient.Of(networked);
+            InteriorControlsManager.ControlReference throttle = default;
+            // The cab loads, then hooks its controls for leases: a grab before that takes none.
+            for (float end = Time.realtimeSinceStartup + 20f; Time.realtimeSinceStartup < end; )
+            {
+                InteriorControlsManager manager = car.loadedInterior != null ? car.loadedInterior.GetComponent<InteriorControlsManager>() : null;
+                if (manager != null && manager.TryGetControl(InteriorControlsManager.ControlType.Throttle, out throttle) &&
+                    throttle.controlImplBase != null && client.controlToPortNetId.ContainsKey(throttle.controlImplBase))
+                    break;
+                yield return new WaitForSecondsRealtime(0.25f);
+            }
             throttle.controlImplBase.FireGrabbed();
             yield return new WaitForSecondsRealtime(0.5f);
             throttle.controlImplBase.SetValue(value);
@@ -245,7 +256,9 @@ namespace Dvmp.Scenarios
         {
             TrainCar car = Dvmp.Lib.Trains.Find(loco);
             var ats = (GadgetATS)Gadget(atsNetId);
-            // A loco spawns with its train brake applied: off, so the ATS has a brake to step up.
+            // Held by its handbrake until now, so it didn't roll and run the ATS out during the setup. A
+            // loco spawns with its train brake applied: off, so the ATS has a brake to step up.
+            foreach (TrainCar c in car.trainset.cars) c.brakeSystem.SetHandbrakePosition(0f);
             Controls(car).Brake.Set(0f);
             yield return new WaitForSecondsRealtime(0.5f);
             Drive drive = new() { ThrottleBefore = Controls(car).Throttle.Value, BrakeBefore = Controls(car).Brake.Value, HeldBefore = ThrottleHolder(car) };
