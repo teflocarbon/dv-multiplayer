@@ -348,8 +348,11 @@ public partial class NetworkedItem
         // drop we sent since follows it; applying the hold made it our last sent state, so the drop
         // went out again, was refused as stale, and the host's correction stopped the item dead.
         // After a VR belt clip, the InInventory we sent since follows it; applying the hold
-        // unsnapped the belt item.
-        if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+        // unsnapped the belt item. A correction is never such an echo: the host refused what we did
+        // (a fixture stashed, owned-items PR 1c), and its "in your hand" must undo our stash, not be
+        // skipped because the item is in our inventory.
+        bool correction = snapshot.MoveCause?.Reason == ItemMoveReason.HostCorrection;
+        if (!correction && ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
             (ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
                     NetworkRole.IsServer,
                     NetworkRole.LocalPlayerId,

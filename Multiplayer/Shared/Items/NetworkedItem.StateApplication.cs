@@ -688,6 +688,15 @@ public partial class NetworkedItem
             else if (plan.Activate)
                 gameObject.SetActive(true);
 
+            // A refused stash (a station fixture, owned-items PR 1c): the host keeps it in our hand,
+            // but DV already put it in our inventory, and applying "in your hand" alone left it there,
+            // so we sent the stash again and again. It drops at our feet; the drop we then send is
+            // one the host takes, and both games agree.
+            if (plan.Action == RemoteItemProjectionAction.LocalHand &&
+                snapshot.MoveCause?.Reason == ItemMoveReason.HostCorrection &&
+                InventoryIntegration.ContainsActive(gameObject) && Item?.IsGrabbed() != true)
+                Inventory.Instance?.DropItemFromHandsOrInventory(gameObject);
+
             DebugRuntime.Publish("item", snapshot.TransitionReason == ItemTransitionReason.OwnerRecall
                     ? "item.recall-applied" : "item.local-authority-projection-applied",
                 NetworkRole.DebugSide,
