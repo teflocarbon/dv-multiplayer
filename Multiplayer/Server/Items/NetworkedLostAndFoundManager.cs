@@ -650,9 +650,16 @@ public static class NetworkedLostAndFoundManager
                     $"({prefab}) with no stored item");
                 continue;
             }
-            ServerPlayer owner = NetworkServer.Instance.ServerPlayers.FirstOrDefault(player =>
-                string.Equals(player.Guid.ToString("D"), ownerIdentity, StringComparison.OrdinalIgnoreCase));
-            if (owner == null) continue;
+            if (!Guid.TryParse(ownerIdentity, out Guid ownerId) || ownerId == Guid.Empty)
+            {
+                pendingSaveImports.Remove(value);
+                Multiplayer.LogWarning($"Dropping Lost and Found save record {persistentItemId:D} ({prefab}) with no owner");
+                continue;
+            }
+            // Bound at load whether its owner is here or not: an offline owner's entry is theirs under
+            // the absent owner number, rebound to their session's when they join (owned-items PR 2a).
+            byte ownerNumber = OwnedItemsServer.OwnerNumber(ownerId);
+            string ownerName = ItemChangeLog.PlayerName(ownerNumber) ?? ownerIdentity;
             ItemBase baseItem = FindStoredItem(restoredItems, available, persistentItemId, storageIndex, prefab);
             if (baseItem == null)
             {
@@ -660,7 +667,7 @@ public static class NetworkedLostAndFoundManager
                 // entry, and it won't gain anything later. Kept, it showed nowhere but still
                 // counted as the owner's item: DV made them no new radio and /give refused one.
                 pendingSaveImports.Remove(value);
-                Multiplayer.LogWarning($"Lost and Found: {owner.Username}'s saved {prefab} ({persistentItemId:D}) " +
+                Multiplayer.LogWarning($"Lost and Found: {ownerName}'s saved {prefab} ({persistentItemId:D}) " +
                                        "isn't in the game's Lost and Found storage; dropping the entry");
                 continue;
             }
@@ -671,17 +678,18 @@ public static class NetworkedLostAndFoundManager
                 item.AdoptAuthoredItemKey(authoredItemKey);
             available.Remove(baseItem);
             uint revision = (uint?)value["revision"] ?? 0;
-            byte claimPlayerId = (byte?)value["inventoryClaimPlayerId"] ?? 0;
             int claimSlot = (int?)value["inventoryClaimSlot"] ?? -1;
+            // The claim is the owner's: their number now, not the one saved with the entry.
+            byte claimPlayerId = claimSlot >= 0 && ownerNumber != ItemTransitionCommand.AbsentOwnerId ? ownerNumber : (byte)0;
             ItemInventoryClaimFlags claimFlags = (ItemInventoryClaimFlags)((byte?)value["inventoryClaimFlags"] ?? 0);
-            AuthoritativeItemRegistry.RestoreLostRecord(item, owner.PlayerId, revision, prefab,
-                claimPlayerId, claimSlot, claimFlags, ItemMoveReason.RestoredFromSave);
+            AuthoritativeItemRegistry.RestoreLostRecord(item, ownerNumber, revision, prefab,
+                claimPlayerId, claimSlot, claimFlags, ItemMoveReason.RestoredFromSave, ownerId);
             LostItemRecord restored = new()
             {
                 PersistentItemId = persistentItemId,
                 NetId = item.NetId,
                 Revision = revision,
-                OwnerPlayerId = owner.PlayerId,
+                OwnerPlayerId = ownerNumber,
                 OwnerIdentity = ownerIdentity,
                 PrefabName = prefab,
                 DisplayName = (string)value["displayName"] ?? baseItem.name,

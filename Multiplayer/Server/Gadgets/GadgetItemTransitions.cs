@@ -155,11 +155,9 @@ internal static class GadgetItemTransitions
         if (saved == Guid.Empty)
             return;
         record.PersistentOwnerIdentity = saved;
+        record.PersistentOwnerPlayerId = OwnedItemsServer.OwnerNumber(saved);
         ServerPlayer owner = NetworkServer.Instance?.ServerPlayers.FirstOrDefault(player => player.Guid == saved);
-        if (owner == null)
-            return;
-        record.PersistentOwnerPlayerId = owner.PlayerId;
-        owner.AddOwnedItem(item.NetId);
+        owner?.AddOwnedItem(item.NetId);
     }
 
     private static void SendToPlayersWhoKnow(NetworkedItem item, ItemUpdateData snapshot)

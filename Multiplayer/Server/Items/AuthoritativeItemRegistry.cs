@@ -706,7 +706,7 @@ public static class AuthoritativeItemRegistry
     public static Record RestoreLostRecord(NetworkedItem item, byte ownerPlayerId, uint revision,
         string prefabName, byte inventoryClaimPlayerId = 0, int inventoryClaimSlot = -1,
         ItemInventoryClaimFlags inventoryClaimFlags = ItemInventoryClaimFlags.None,
-        ItemMoveReason reason = ItemMoveReason.HostCorrection)
+        ItemMoveReason reason = ItemMoveReason.HostCorrection, Guid ownerIdentity = default)
     {
         if (item == null || item.NetId == 0 || ownerPlayerId == 0)
             return null;
@@ -721,6 +721,8 @@ public static class AuthoritativeItemRegistry
         record.InventoryClaimPlayerId = inventoryClaimPlayerId;
         record.InventoryClaimSlot = inventoryClaimSlot;
         record.InventoryClaimFlags = inventoryClaimFlags;
+        if (ownerIdentity != Guid.Empty)
+            record.PersistentOwnerIdentity = ownerIdentity;
         record.PrefabName = string.IsNullOrWhiteSpace(prefabName) ? record.PrefabName : prefabName;
         record.LastReason = ItemTransitionReason.LostAndFoundCollection;
         ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(reason,
@@ -980,7 +982,8 @@ public static class AuthoritativeItemRegistry
         foreach (Record record in records.Values)
         {
             if (record.PersistentOwnerIdentity != player.Guid) continue;
-            record.PersistentOwnerPlayerId = 0;
+            // Still owned, by someone not here: not unowned (owned-items.md, PR 2a).
+            record.PersistentOwnerPlayerId = ItemTransitionCommand.AbsentOwnerId;
             if (record.InventoryClaimSlot >= 0)
                 record.InventoryClaimPlayerId = 0;
         }

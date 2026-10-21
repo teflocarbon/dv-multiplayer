@@ -290,7 +290,7 @@ public sealed class LostItemRegistry
         {
             if (record.OwnerPlayerId != ownerPlayerId || string.IsNullOrEmpty(record.OwnerIdentity))
                 continue;
-            record.OwnerPlayerId = 0;
+            record.OwnerPlayerId = ItemTransitionCommand.AbsentOwnerId;
             changed++;
         }
         return changed;

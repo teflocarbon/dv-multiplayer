@@ -241,6 +241,18 @@ public static class OwnedItemsServer
     public static string Describe(Guid owner = default) => string.Join("\n",
         (owner == Guid.Empty ? ledger.All() : ledger.LiveOwnedBy(owner)).Select(entry => entry.ToString()));
 
+    /// <summary>
+    /// The owner number for an owner's identity: their session's player number while they are
+    /// connected, <see cref="ItemTransitionCommand.AbsentOwnerId"/> while they aren't, 0 for no owner.
+    /// </summary>
+    public static byte OwnerNumber(Guid owner)
+    {
+        if (owner == Guid.Empty)
+            return 0;
+        ServerPlayer player = NetworkServer.Instance?.ServerPlayers.FirstOrDefault(p => p.Guid == owner);
+        return player != null ? player.PlayerId : ItemTransitionCommand.AbsentOwnerId;
+    }
+
     /// <summary>Where a record says its item is, as the ledger puts it.</summary>
     public static OwnedItemWhere WhereOf(AuthoritativeItemRegistry.Record record) => record.Placement switch
     {

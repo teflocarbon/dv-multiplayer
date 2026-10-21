@@ -73,6 +73,15 @@ public sealed class ItemTransitionCommand
     /// </summary>
     public const byte ServerActorId = 0;
 
+    /// <summary>
+    /// The owner number of an item whose owner isn't connected (owned-items.md, PR 2a). Player
+    /// numbers are per session, so an offline owner has none; this one is reserved and never given to
+    /// a player. Every check that reads 0 as "unowned" then sees the item as owned, and no player
+    /// matches it, so nobody else becomes its owner or recalls it, and it is someone else's to a
+    /// borrower.
+    /// </summary>
+    public const byte AbsentOwnerId = 255;
+
     public byte ActorPlayerId { get; set; }
     public uint ExpectedRevision { get; set; }
     public bool Force { get; set; }
