@@ -50,10 +50,10 @@ on the server and in every client, are made to agree with it.
     - A client skipped a host correction of its own hold as superseded. It now never skips one.
     - Applying the correction left the item in DV's inventory. A refused stash now drops at the
       player's feet.
-- **PR 2a, an offline owner keeps their items: built (2026-10-21), not yet run in game.** The absent
+- **PR 2a, an offline owner keeps their items: built, and tested in game with PR 3 on both host kinds (2026-10-22).** The absent
   owner number, and Lost and Found binding every entry at load (see [2a](#2a-identity-on-the-server)).
   Core tests: `AbsentOwnerTests`. Scenario: `absent-owner`.
-- **PR 3, Lost and Found for everyone: built (2026-10-21), not yet run in game.** An offline owner
+- **PR 3, Lost and Found for everyone: built, and tested in game with 2a on both host kinds (2026-10-22); the failures left are [older bugs](#found-in-testing-not-the-ledgers).** An offline owner
   counts as far, a departing borrower sends items home, `SendToLostAndFound` (see
   [3](#3-lost-and-found-for-everyone)). Core tests: `LostAndFoundAwayOwnerTests`. Scenarios:
   `offline-lost-and-found`, `borrowed-disconnect`, and for 2a and 3 together `owner-offline`,
@@ -133,6 +133,28 @@ Found in game by the PR 1b scenarios (2026-10-21) and fixed there:
   spot. Now an owner's position counts once they have been loaded for a grace period, and a nearby
   player's once they have sent one. It showed on a dedicated host, where no host player stands near
   to protect the items.
+
+### Found in testing, not the ledger's
+
+The 2a and 3 batches (2026-10-21/22) turned these up. Each predates the ledger work; the new
+scenarios are what show them.
+
+- **LF-inert.** When an item is collected into Lost and Found, every client that knew it keeps an
+  inactive inert copy (`ApplyLostAndFoundProjection`), and `Collect` drops the item from every
+  player's known items. If the host later destroys it while it is in Lost and Found, no destroy
+  reaches the clients, and the copy stays for good. It shows as the leak check's "client: items the
+  run spawned that couldn't be destroyed" in `offline-lost-and-found` and `car-delete-owner`
+  (online, absent). Fixed by PR 6 (retrieval), or by sending the destroy to clients holding a
+  tombstone.
+- **CAB-POS.** On a dedicated host, a client standing in a loco's cab doesn't count as near an item
+  20 m away. The nearby-player protection collected an absent owner's ground mug 4 s after the
+  client boarded (`offline-lost-and-found` @dedicated). On a player host the host's own player
+  covers it. Suspected: `ServerPlayer.AbsoluteWorldPosition` while `CarId` is set. Needs a probe.
+- **SR+.** `save-reload` on a dedicated host has one or two more items after the second load. Which
+  ones isn't recorded yet.
+- **COIN.** A client's wallet coin flick was adopted, and picking the coin up credited money on the
+  host from nothing (read in the code). PR 5 ends adoption, so the coin vanishes; the flick itself
+  should go to the server (shops, money).
 
 ## Decisions
 
