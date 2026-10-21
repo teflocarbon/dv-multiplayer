@@ -6,6 +6,7 @@ using DV.Interaction;
 using DV.Utils;
 using HarmonyLib;
 using Multiplayer.Client.Session;
+using Multiplayer.Core.Gadgets;
 using Multiplayer.Shared.Gadgets;
 using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Gadgets;
@@ -13,20 +14,26 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Client.Gadgets;
 
 /// <summary>
-/// A remote client's gadget installs and removals become requests where vanilla would commit them
-/// (gadgets.md, "Requests"): <c>GadgetItem.TryPlace</c>, which every install path ends in, and the
-/// hammer's, the hand's and the telegrab's removals. Until gadget PR 3b predicts them, nothing changes
-/// in this game until the server's change log says so: the item stays in hand until the
-/// <c>Installed</c> entry places it, and a removed gadget stays until the <c>Removed</c> entry. A gadget
-/// taken off by hand is then picked up as an ordinary grab. Vanilla's own checks run first, so a request
-/// is only sent for what vanilla would have done. Inside the apply scope, and in the host's game, they
-/// pass straight through. Labels (an install that makes a new item) are gadget PR 9's.
+/// A remote client's gadget actions become requests where vanilla would commit them (gadgets.md,
+/// "Requests"), and are predicted (PR 3b, "Optimistic"): the change shows in this game at once, in the
+/// apply scope, and the server's change log entry confirms it or its rejection undoes it, with every
+/// later prediction, newest first (GadgetPredictionLog). Caught: <c>GadgetItem.TryPlace</c> (every install
+/// path), the hammer's, the hand's and the telegrab's removals, <c>Drillable.SetMountPointState</c> (drill,
+/// tape, untape), <c>Customization.RemoveHole</c> (hole filler) and <c>WireLinkPort.Wire</c>/<c>Unwire</c>
+/// (crimping tool). Vanilla's own checks run first, so only what vanilla would have done is predicted.
+/// An install takes a provisional negative UID until the server's arrives; a request naming one waits for
+/// it. A removal is undone by resyncing the car (only the server still has the gadget's UID, soldering
+/// and wires); one by hand ends, once confirmed, with the hand picking the item up as an ordinary grab.
+/// Inside the apply scope, and in the host's game, they pass straight through. Labels (an install that
+/// makes a new item) are gadget PR 9's.
 /// </summary>
 [HarmonyPatch]
 internal static class GadgetIntentPatches
@@ -34,20 +41,39 @@ internal static class GadgetIntentPatches
     private sealed class Pending
     {
         public NetworkedItem Item;
-        public GadgetBase.GadgetRemovalMethod Method;
         // Who picks the item up once the removal is confirmed.
         public GadgetHandNonVR HandNonVR;
         public GadgetHandVR HandVR;
     }
 
     private static readonly Dictionary<uint, Pending> pending = new();
+    // What undoes each prediction; a request held for a provisional UID gets the server's.
+    private static readonly GadgetPredictionLog<Action, Action<int>> predictions = new();
     private static uint nextOperation;
     // What TryPlaceOnHit hit, which TryPlace isn't told.
     private static Mount hitMount;
 
-    internal static void Reset() => pending.Clear();
+    internal static void Reset()
+    {
+        pending.Clear();
+        predictions.Clear();
+    }
 
     private static bool Intercepts => NetworkRole.IsRemoteClient && !GadgetApplyScope.Active;
+
+    private static uint NextOperation(Pending request = null)
+    {
+        uint operation = ++nextOperation;
+        pending[operation] = request ?? new Pending();
+        return operation;
+    }
+
+    private static void Predict(uint operation, Action apply, Action undo, int provisionalUid = 0)
+    {
+        using (GadgetApplyScope.Enter())
+            apply();
+        predictions.Predicted(operation, undo, provisionalUid);
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(GadgetItem), "TryPlaceOnHit")]
@@ -76,26 +102,65 @@ internal static class GadgetIntentPatches
             return false;
 
         Transform frame = destination.GetParentingTransform();
+        Vector3 localPosition = frame.InverseTransformPoint(position);
+        Quaternion localRotation = Quaternion.Inverse(frame.rotation) * rotation;
+        Mount mount = null;
         int mountHostUid = 0;
         if (hitMount != null && gadgetItem.gadgetPrefab.RequiredMountPoints > 0 &&
             hitMount.GetComponent<GadgetBase>() is { IsLinked: true } host && host.Custom == destination)
+        {
+            mount = hitMount;
             mountHostUid = host.UID;
+        }
         GadgetColliderPath.TryDescribe(car, colliderForPlacementData, out string colliderPath, out byte colliderIndex);
 
-        uint operation = ++nextOperation;
-        pending[operation] = new Pending { Item = item };
-        NetworkClient.Instance?.SendGadgetInstall(new ServerboundGadgetInstallPacket
+        uint operation = NextOperation(new Pending { Item = item });
+        int provisionalUid = predictions.NewProvisionalUid();
+        GadgetBase placed = null;
+        gadgetItem.Item ??= item.GetComponent<ItemBase>();
+        Predict(operation, () =>
+        {
+            gadgetItem.Gadget.AssignUID(provisionalUid);
+            placed = GadgetItem.Place(destination, localPosition, localRotation, gadgetItem, colliderForPlacementData);
+            if (placed != null && mount != null)
+                mount.MountGadget(placed);
+            if (placed != null)
+                GadgetJoinApplier.ServerSent.Add(placed);
+        }, () => UndoInstall(item), provisionalUid);
+        if (placed != null)
+            (placed.SoundOnPlaced != null ? placed.SoundOnPlaced : SingletonBehaviour<GadgetSystemUtility>.Instance.SoundOnGadgetPlaced)
+                ?.Play(position);
+        gadget = placed;
+
+        void Send(int hostUid) => NetworkClient.Instance?.SendGadgetInstall(new ServerboundGadgetInstallPacket
         {
             OperationId = operation,
             ItemNetId = item.NetId,
             CarNetId = carNetId,
-            LocalPosition = frame.InverseTransformPoint(position),
-            LocalRotation = Quaternion.Inverse(frame.rotation) * rotation,
-            MountHostUid = mountHostUid,
+            LocalPosition = localPosition,
+            LocalRotation = localRotation,
+            MountHostUid = hostUid,
             ColliderPath = colliderPath,
             ColliderIndex = colliderIndex
         });
+        if (GadgetPredictionLog<Action, Action<int>>.IsProvisional(mountHostUid))
+            predictions.Hold(mountHostUid, Send);
+        else
+            Send(mountHostUid);
         return false;
+    }
+
+    // A refused install: off again (nothing of it is bolted, its own later predictions undone first), and
+    // the item back in the hand.
+    private static void UndoInstall(NetworkedItem item)
+    {
+        if (item == null || item.GetComponent<GadgetItem>()?.Gadget is not { IsLinked: true } gadget)
+            return;
+        using (GadgetApplyScope.Enter())
+            gadget.Remove(reparentToTrainCar: false);
+        GadgetJoinApplier.ServerSent.Remove(gadget);
+        Resources.FindObjectsOfTypeAll<GadgetHandNonVR>().FirstOrDefault(h => h.gameObject.scene.IsValid())?.grabber?.InteractionHandler
+            ?.RequestForceHold(item.GetComponent<AGrabHandler>());
     }
 
     // The hammer.
@@ -103,9 +168,9 @@ internal static class GadgetIntentPatches
     [HarmonyPatch(typeof(GadgetRemover), "Remove")]
     private static bool HammerRemove(GadgetBase target, ref GadgetItem __result)
     {
-        if (!Request(target, GadgetBase.GadgetRemovalMethod.Remover, null, null))
+        if (!Request(target, GadgetBase.GadgetRemovalMethod.Remover, null, null, forced: false))
             return true;
-        __result = null;
+        __result = target.GadgetItem;
         return false;
     }
 
@@ -114,7 +179,7 @@ internal static class GadgetIntentPatches
     [HarmonyPatch(typeof(GadgetHandNonVR), "TryGrab")]
     private static bool HandRemove(GadgetHandNonVR __instance, GadgetBase target, ref bool __result)
     {
-        if (!Request(target, GadgetBase.GadgetRemovalMethod.EmptyHand, __instance, null))
+        if (!Request(target, GadgetBase.GadgetRemovalMethod.EmptyHand, __instance, null, forced: false))
             return true;
         __result = true;
         return false;
@@ -124,7 +189,7 @@ internal static class GadgetIntentPatches
     [HarmonyPatch(typeof(GadgetHandVR), "TryGrab")]
     private static bool HandRemoveVR(GadgetHandVR __instance, GadgetBase target, ref bool __result)
     {
-        if (!Request(target, GadgetBase.GadgetRemovalMethod.EmptyHand, null, __instance))
+        if (!Request(target, GadgetBase.GadgetRemovalMethod.EmptyHand, null, __instance, forced: false))
             return true;
         __result = true;
         return false;
@@ -134,7 +199,36 @@ internal static class GadgetIntentPatches
     [HarmonyPrefix]
     [HarmonyPatch(typeof(GadgetBase), nameof(GadgetBase.OnTelegrabbableChanged))]
     private static bool TelegrabRemove(GadgetBase __instance, bool isBeingTelegrabbed) =>
-        !(isBeingTelegrabbed && __instance.IsLinked && Request(__instance, GadgetBase.GadgetRemovalMethod.EmptyHand, null, null));
+        !(isBeingTelegrabbed && __instance.IsLinked &&
+          Request(__instance, GadgetBase.GadgetRemovalMethod.EmptyHand, null, null, forced: true));
+
+    private static bool Request(GadgetBase target, GadgetBase.GadgetRemovalMethod method, GadgetHandNonVR handNonVR,
+        GadgetHandVR handVR, bool forced)
+    {
+        if (!Intercepts || target == null || !target.IsLinked || !GadgetJoinApplier.IsServerSent(target))
+            return false;
+        NetworkedItem item = target.GadgetItem?.GetComponent<NetworkedItem>();
+        if (item == null || item.NetId == 0 || target.Custom is not TrainCarCustomization { TrainCar: { } car } ||
+            !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId))
+            return false;
+        if (IsPending(item))
+            return true;
+        uint operation = NextOperation(new Pending { Item = item, HandNonVR = handNonVR, HandVR = handVR });
+        Predict(operation, () =>
+        {
+            if (forced)
+                target.ForceRemove();
+            else
+                target.Remove();
+        }, () => GadgetChangeApplier.Resync(carNetId, "a removal was refused"));
+        NetworkClient.Instance?.SendGadgetRemove(new ServerboundGadgetRemovePacket
+        {
+            OperationId = operation,
+            ItemNetId = item.NetId,
+            Method = (byte)method
+        });
+        return true;
+    }
 
     // While this game takes a gadget off, its mount points are freed as part of the removal, not by a player.
     private static int unlinking;
@@ -159,8 +253,14 @@ internal static class GadgetIntentPatches
         NetworkedItem item = gadget.GadgetItem?.GetComponent<NetworkedItem>();
         if (item == null || item.NetId == 0)
             return true;
-        uint operation = ++nextOperation;
-        pending[operation] = new Pending();
+        MountPoint.States before = __instance.GetMountPointState(index);
+        uint operation = NextOperation();
+        Predict(operation, () => __instance.SetMountPointState(index, newState), () =>
+        {
+            if (__instance != null && gadget != null && gadget.IsLinked)
+                using (GadgetApplyScope.Enter())
+                    __instance.SetMountPointState(index, before);
+        });
         NetworkClient.Instance?.SendGadgetMountPoint(new ServerboundGadgetMountPointPacket
         {
             OperationId = operation,
@@ -205,20 +305,55 @@ internal static class GadgetIntentPatches
             source.Custom != target.Custom || !GadgetJoinApplier.IsServerSent(source) || !GadgetJoinApplier.IsServerSent(target) ||
             source.Custom is not TrainCarCustomization { TrainCar: { } car } || !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId))
             return false;
-        result = false;
-        uint operation = ++nextOperation;
-        pending[operation] = new Pending();
+        bool ready = wire ? GadgetWiringModule.WireLinkPort.ReadyToWire(a, b) : GadgetWiringModule.WireLinkPort.AreWired(a, b);
+        if (!ready)
+            return false;   // vanilla's own answer: nothing to do
+        uint operation = NextOperation();
+        Predict(operation, () => Apply(wire), () =>
+        {
+            using (GadgetApplyScope.Enter())
+                Apply(!wire);
+        });
+        result = true;
+
+        void Apply(bool on)
+        {
+            if (on)
+                GadgetWiringModule.WireLinkPort.Wire(a, b);
+            else
+                GadgetWiringModule.WireLinkPort.Unwire(a, b);
+        }
+
+        int sourcePort = source.wiring.wireLinkPorts.IndexOf(a), targetPort = target.wiring.wireLinkPorts.IndexOf(b);
+        SendWire(operation, carNetId, source.UID, sourcePort, target.UID, targetPort, wire);
+        return true;
+    }
+
+    // A wire to a gadget whose install isn't confirmed yet waits for its UID.
+    private static void SendWire(uint operation, ushort carNetId, int sourceUid, int sourcePort, int targetUid, int targetPort, bool wire)
+    {
+        if (GadgetPredictionLog<Action, Action<int>>.IsProvisional(sourceUid))
+        {
+            int provisional = sourceUid;
+            predictions.Hold(provisional, uid => SendWire(operation, carNetId, uid, sourcePort, targetUid == provisional ? uid : targetUid, targetPort, wire));
+            return;
+        }
+        if (GadgetPredictionLog<Action, Action<int>>.IsProvisional(targetUid))
+        {
+            int provisional = targetUid;
+            predictions.Hold(provisional, uid => SendWire(operation, carNetId, sourceUid, sourcePort, uid, targetPort, wire));
+            return;
+        }
         NetworkClient.Instance?.SendGadgetWire(new ServerboundGadgetWirePacket
         {
             OperationId = operation,
             CarNetId = carNetId,
-            SourceUid = source.UID,
-            SourcePort = source.wiring.wireLinkPorts.IndexOf(a),
-            TargetUid = target.UID,
-            TargetPort = target.wiring.wireLinkPorts.IndexOf(b),
+            SourceUid = sourceUid,
+            SourcePort = sourcePort,
+            TargetUid = targetUid,
+            TargetPort = targetPort,
             Wire = wire
         });
-        return true;
     }
 
     // The hole filler (PR 4).
@@ -229,36 +364,23 @@ internal static class GadgetIntentPatches
         if (!Intercepts || holeCollider == null || __instance is not TrainCarCustomization { TrainCar: { } car } ||
             !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId) || !__instance.IsHole(holeCollider))
             return true;
-        __result = false;
-        uint operation = ++nextOperation;
-        pending[operation] = new Pending();
+        Vector3 position = holeCollider.transform.localPosition;
+        Vector3 direction = holeCollider.transform.localRotation * Vector3.forward;
+        uint operation = NextOperation();
+        Predict(operation, () => __instance.RemoveHole(holeCollider), () =>
+        {
+            if (__instance != null)
+                using (GadgetApplyScope.Enter())
+                    __instance.AddHole(position, direction);
+        });
+        __result = true;
         NetworkClient.Instance?.SendGadgetFillHole(new ServerboundGadgetFillHolePacket
         {
             OperationId = operation,
             CarNetId = carNetId,
-            LocalPosition = holeCollider.transform.localPosition
+            LocalPosition = position
         });
         return false;
-    }
-
-    private static bool Request(GadgetBase target, GadgetBase.GadgetRemovalMethod method, GadgetHandNonVR handNonVR, GadgetHandVR handVR)
-    {
-        if (!Intercepts || target == null || !target.IsLinked || !GadgetJoinApplier.IsServerSent(target))
-            return false;
-        NetworkedItem item = target.GadgetItem?.GetComponent<NetworkedItem>();
-        if (item == null || item.NetId == 0)
-            return false;
-        if (IsPending(item))
-            return true;
-        uint operation = ++nextOperation;
-        pending[operation] = new Pending { Item = item, Method = method, HandNonVR = handNonVR, HandVR = handVR };
-        NetworkClient.Instance?.SendGadgetRemove(new ServerboundGadgetRemovePacket
-        {
-            OperationId = operation,
-            ItemNetId = item.NetId,
-            Method = (byte)method
-        });
-        return true;
     }
 
     private static bool IsPending(NetworkedItem item)
@@ -267,6 +389,32 @@ internal static class GadgetIntentPatches
             if (request.Item == item)
                 return true;
         return false;
+    }
+
+    /// <summary>
+    /// An entry from the server that answers one of this player's predictions, which already shows it: an
+    /// install takes the server's UID (and the requests waiting for it go). Returns false for anything
+    /// else, which the change applier then applies (an entry whose prediction a rejection undid too).
+    /// </summary>
+    internal static bool Reconcile(GadgetChangeData entry)
+    {
+        if (entry.OperationId == 0 || entry.PlayerId != NetworkRole.LocalPlayerId || !predictions.IsLive(entry.OperationId))
+            return false;
+        if (entry.Kind == (byte)GadgetChangeKind.Installed &&
+            (!NetworkedItem.TryGet(entry.ItemNetId, out NetworkedItem item) || item.GetComponent<GadgetItem>()?.Gadget is not { IsLinked: true }))
+            return false;   // the prediction didn't hold here: place it as the server did
+        predictions.Confirm(entry.OperationId, out int provisionalUid);
+        if (entry.Kind == (byte)GadgetChangeKind.Installed &&
+            NetworkedItem.TryGet(entry.ItemNetId, out NetworkedItem installed) && installed.GetComponent<GadgetItem>()?.Gadget is { } gadget)
+        {
+            gadget.AssignUID(entry.Uid);
+            GadgetStateClient.Track(gadget);
+        }
+        if (provisionalUid != 0)
+            foreach (Action<int> held in predictions.Release(provisionalUid))
+                held(entry.Uid);
+        Confirmed(entry);
+        return true;
     }
 
     /// <summary>
@@ -279,7 +427,7 @@ internal static class GadgetIntentPatches
             !pending.TryGetValue(entry.OperationId, out Pending request))
             return;
         pending.Remove(entry.OperationId);
-        if (entry.Kind != (byte)global::Multiplayer.Core.Gadgets.GadgetChangeKind.Removed || request.Item == null)
+        if (entry.Kind != (byte)GadgetChangeKind.Removed || request.Item == null)
             return;
         if (request.HandNonVR != null && request.Item.TryGetComponent(out AGrabHandler grab))
             request.HandNonVR.grabber.InteractionHandler.RequestForceHold(grab);
@@ -290,6 +438,17 @@ internal static class GadgetIntentPatches
     internal static void Rejected(ClientboundGadgetRejectPacket packet)
     {
         pending.Remove(packet.OperationId);
+        foreach (Action undo in predictions.Reject(packet.OperationId))
+        {
+            try
+            {
+                undo();
+            }
+            catch (Exception exception)
+            {
+                Multiplayer.LogException("Undoing a refused gadget prediction failed", exception);
+            }
+        }
         Multiplayer.LogWarning($"The server refused a gadget request (item {packet.ItemNetId}): {packet.Reason}");
         if (!VRManager.IsVREnabled())
             SingletonBehaviour<InteractionTextControllerNonVr>.Instance?.DisplayText(packet.Reason);

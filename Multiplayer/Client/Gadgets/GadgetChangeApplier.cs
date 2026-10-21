@@ -176,6 +176,9 @@ internal static class GadgetChangeApplier
     private static ApplyResult Apply(TrainCar car, GadgetChangeData entry)
     {
         var kind = (GadgetChangeKind)entry.Kind;
+        // This player's own prediction, already showing (PR 3b).
+        if (GadgetIntentPatches.Reconcile(entry))
+            return ApplyResult.Applied;
         if (kind == GadgetChangeKind.Installed && string.IsNullOrEmpty(entry.State))
             return ApplyResult.Applied;   // installed and taken off again within one server tick
         if (kind is GadgetChangeKind.HoleAdded or GadgetChangeKind.HoleRemoved)
@@ -298,6 +301,9 @@ internal static class GadgetChangeApplier
                 gadget.Remove(reparentToTrainCar: onCar);
         }
     }
+
+    /// <summary>Asks the server for the car's gadgets (a refused removal: only the server still has them).</summary>
+    internal static void Resync(ushort carNetId, string why) => RequestResync(carNetId, AnchorOf(carNetId), why);
 
     private static void RequestResync(ushort carNetId, Anchor anchor, string why)
     {

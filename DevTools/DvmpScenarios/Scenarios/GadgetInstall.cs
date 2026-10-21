@@ -52,6 +52,9 @@ namespace Dvmp.Scenarios
             {
                 // Install.
                 await pair.Client.Run(() => InGame.Install(kit.Gadget, loco.Id, 0f));
+                if (o.Lag > 0)
+                    Expect.Equal(1, await pair.Client.Run<int>(s => InGame.InstalledWhen(s, kit.Gadget, 0.1f)),
+                        "the client installed it: in its own game at once, before the server answers (3b)");
                 await Installed(pair, o, kit.Gadget, loco.Id, "the client installed it");
 
                 // Off by hand: into the client's hand.

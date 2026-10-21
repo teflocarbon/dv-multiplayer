@@ -389,6 +389,26 @@ the state afterwards isn't what the entry says), asks for a [resync](#desync-and
   player's game's alone; the server doesn't check the spool.
 - Scenario `gadget-wiring`.
 
+**As built (3b).** Prediction and undo (written after 4 and 5, on their requests):
+- Every request of `GadgetIntentPatches` is applied in the player's game at once, in the apply scope,
+  and kept in `Core/Gadgets/GadgetPredictionLog` with what undoes it. An install takes a provisional
+  negative UID (`AssignUID` before `Place`, so vanilla allocates none) and the item leaves the hand;
+  a removal, a mount point, a filled hole and a wire show at once.
+- **Confirmed** (`Reconcile`, called by the change applier before it applies an entry): an entry that
+  answers a live prediction isn't applied again; an install takes the server's UID, starts its
+  settings tracking, and releases the requests held for its provisional UID (an install onto a plate
+  just placed, a wire to a gadget just placed), rewritten with the server's UID.
+- **Refused**: the prediction and every later one are undone, newest first (they sat on top of it, and
+  the server rejects or answers each of them anyway): an install comes off again (nothing of it bolted
+  by then) and the item goes back to the hand; a mount point goes back to its state; a filled hole is
+  added back; a wire is unwired (and the reverse). A refused removal resyncs the car, since only the
+  server still has the gadget's UID, soldering and wires. One undone and then confirmed is applied as
+  the server's.
+- A removal by hand shows at once but the hand picks the item up only once confirmed, as an ordinary
+  grab, so the server's record and the hand never disagree.
+- Scenarios: `gadget-install` and `gadget-mounting` at `LAG=250` check the install and the bolts show
+  before the server's answer.
+
 ## Gadget state
 
 Settings and running state are typed fields per gadget class, kept by small adapters in
@@ -1093,4 +1113,5 @@ In three parts:
   `gadget-install`.
 - **PR 4 built** (`gadgets/mount-points`): bolting, taping, untaping and filling holes go through the server; holes in the change log and the resync. Scenario `gadget-mounting`.
 - **PR 5 built** (`gadgets/wiring`): wiring and unwiring go through the server; soldering is predicted and the server clamps and sends its units. Scenario `gadget-wiring`.
+- **PR 3b built** (`gadgets/prediction`): installs, removals, mount points, holes and wires are predicted on a remote client and undone, newest first, when refused. Scenarios `gadget-install`, `gadget-mounting` at `LAG=250`.
 - Next: 3b (prediction), 4 (mount points, holes, tape), 5 (wiring, soldering).

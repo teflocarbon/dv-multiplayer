@@ -48,6 +48,9 @@ namespace Dvmp.Scenarios
                     await Hold(pair, kit.Drill, loco.Id);
                     await pair.Client.Run(() => InGame.SetPoint(kit.Plate, 0, "Mounted"));
                     await pair.Client.Run(() => InGame.SetPoint(kit.Plate, 1, "Mounted"));
+                    if (o.Lag > 0)
+                        Expect.Equal("Mounted Mounted None", await pair.Client.Run<string>(s => InGame.PointsWhen(s, kit.Plate, "Mounted Mounted None", 0.1f)),
+                            "the client bolted points 0 and 1: its own plate at once, before the server answers (3b)");
                     Expect.Equal("Mounted Mounted None", await pair.Host.Run<string>(s => InGame.PointsWhen(s, kit.Plate, "Mounted Mounted None", o.Seconds)),
                         "the client bolted points 0 and 1: the server's plate");
                     await Digests(pair, o, loco.Id, "the client bolted two points");
