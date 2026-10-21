@@ -344,6 +344,18 @@ public static class NetworkedColdContainerManager
         // dependencies in Awake/Start and throw when state is loaded in the creation frame.
         yield return null;
 
+        if (actor.PlayerId == 0)
+        {
+            // The withdrawer left while the item woke (owned-items.md, 2a): it stays in the box,
+            // rather than becoming a held item with nobody holding it.
+            item?.AbortColdMaterialization();
+            UnityEngine.Object.Destroy(instance);
+            graph.AbortWithdrawal(operationId, "withdraw-actor-left");
+            completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
+                ContainerOperationStatus.InvalidState, "withdraw-actor-left", operationId), 0);
+            yield break;
+        }
+
         try
         {
             ItemSaveData saveData = instance.GetComponent<ItemSaveData>();
@@ -375,8 +387,9 @@ public static class NetworkedColdContainerManager
                                                    instance.AddComponent<PersistentWorldItemIdentity>();
             if (identity.Value == Guid.Empty)
                 identity.Value = OwnedItemsServer.ItemIdOf(record);
+            Guid.TryParse(record.PersistentOwnerIdentity, out Guid ownerIdentity);
             if (AuthoritativeItemRegistry.RegisterMaterializedColdItem(item, actor,
-                    persistentOwnerPlayerId, snapshot, identity.Value) == null)
+                    persistentOwnerPlayerId, ownerIdentity, snapshot, identity.Value) == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
             // The item was indexed by its spawn position when it woke, before it had a record;

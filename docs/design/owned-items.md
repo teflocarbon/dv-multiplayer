@@ -50,6 +50,9 @@ on the server and in every client, are made to agree with it.
     - A client skipped a host correction of its own hold as superseded. It now never skips one.
     - Applying the correction left the item in DV's inventory. A refused stash now drops at the
       player's feet.
+- **PR 2a, an offline owner keeps their items: built, and tested in game with PR 3 on both host kinds (2026-10-22).** The absent
+  owner number, and Lost and Found binding every entry at load (see [2a](#2a-identity-on-the-server)).
+  Core tests: `AbsentOwnerTests`. Scenario: `absent-owner`.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -748,19 +751,41 @@ Two PRs, so the protocol change is one small PR of its own.
 
 #### 2a. Identity on the server
 
-The ledger becomes the owner's source. `PersistentOwnerPlayerId` is derived, every server check uses
-the identity, and Unbind/Rebind go (see [What goes away](#joining-and-rejoining)). The wire doesn't
-change. Gadget PR 3a waits for this one.
+An offline owner's items stay owned. Gadget PR 3a waits for this one.
 
-- The first-taker rule checks the ledger, so an offline owner's item is never taken over.
-- Lost and Found binds every entry at load. Cold containers take the owner from the ledger and
-  withdraw while the owner is offline.
+As built (2026-10-21), the change is narrower than the first plan, which had the owner number
+stop being stored and every check move to the identity:
+
+- **The absent number.** The owner number stays the per-session player number, as the wire and the
+  Core state machine use it. An owner who isn't connected has
+  `ItemTransitionCommand.AbsentOwnerId` (255), which the player-number allocator reserves, so it is
+  never a player's. Before, they had 0, which every check reads as "unowned".
+- **Where it is set:** at disconnect (`UnbindPersistentOwner`, and Lost and Found's `UnbindOwner`),
+  and when a save restores an owner who isn't here (`OwnedItemsServer.OwnerNumber`, used by
+  WorldItemsV1, Lost and Found and installed gadgets).
+- **What follows from it:**
+  - The first-taker rule (owner 0) never takes over an offline owner's item.
+  - Nobody else's recall matches it.
+  - A departing borrower's test ("someone else's") counts it.
+  - Vanilla's own Lost and Found path stays blocked for it.
+  - A client sees it as someone else's.
+- **Lost and Found binds every entry at load,** with the absent number when the owner isn't here,
+  and rebinds it to their session's number when they join. Before, an entry waited, unbound, for
+  its owner. A claim takes the owner's number now, not the one saved with the entry.
+- **Unchanged:** Lost and Found still doesn't collect an offline owner's items. The owner's position
+  is unknown, so they stay protected until PR 3. Cold-container withdrawal still refuses an offline
+  owner's item.
+- **A withdrawal takes its owner from the cold record's identity,** not from a number worked out a
+  frame earlier (item-review's L6). If the withdrawing player leaves in the frame the item wakes,
+  the withdrawal is aborted (`withdraw-actor-left`) and the item stays in the box. Before, it became
+  an inventory item with nobody holding it and an empty owner.
+- **Tests:** Core unit tests (`AbsentOwnerTests`).
 - Scenario **`absent-owner`** (`[Needs(Need.RestartsGames)]`, both hosts):
   1. The host gives a personal item to a made-up identity.
   2. The client picks it up: the owner is still the absent identity, not the client.
-  3. The client drops it. Before a restart a Lost and Found entry is made for the absent identity
-     (server step); after the restart it is bound at load, not pending.
-  4. `owned-items` still passes, with its explanation updated: there is no number to shift any more.
+  3. A server step puts it in the absent player's Lost and Found. After a save and restart, the
+     entry is bound to the mug at load, with the absent number, not left pending.
+  4. `owned-items` still passes.
 
 #### 2b. Red for every item someone else owns
 

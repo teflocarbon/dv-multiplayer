@@ -48,10 +48,11 @@ Ordinary foreign-owned items do not appear red. Red is reserved for items that a
 
 - **Unowned personal items** belong to the first player who puts them in their hand or inventory;
   nonpersonal items never gain an owner. Pickup never transfers an existing owner.
-  `ItemAuthorityStateMachine.Apply` (`MayEstablishPersistentOwner`), 9e641a2. Known gap: while
-  the owner is offline their owner ID is unbound, so the item looks unowned and the next player
-  to take it is recorded as owner ID (the owner identity stays the original owner's, and their
-  ID is restored when they log in).
+  `ItemAuthorityStateMachine.Apply` (`MayEstablishPersistentOwner`), 9e641a2.
+  - The gap where an offline owner's item looked unowned, so the next taker became its owner, is
+    closed by owned-items PR 2a.
+  - An offline owner now has the reserved absent owner number, not 0
+    ([owned-items.md](owned-items.md#2a-identity-on-the-server)).
 - **Creation paths:**
   - starting inventory: given on a player's first join only and owned by them through the
     temporary adoption path (`SaveGameDataPacketBuilder.Create`,

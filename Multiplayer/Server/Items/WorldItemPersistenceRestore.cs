@@ -165,7 +165,7 @@ internal static partial class WorldItemPersistenceManager
         record.PlacementPlayerId = holder?.PlayerId ?? 0;
         record.PlacementHand = PlayerHand.None;
         record.PlacementPlayerIdentity = saved.PlacementPlayerIdentity;
-        record.PersistentOwnerPlayerId = owner?.PlayerId ?? 0;
+        record.PersistentOwnerPlayerId = owner?.PlayerId ?? OwnedItemsServer.OwnerNumber(saved.OwnerIdentity);
         record.PersistentOwnerIdentity = saved.OwnerIdentity;
         record.InventoryClaimPlayerId = owner?.PlayerId ?? 0;
         record.InventoryClaimSlot = saved.ClaimSlot;

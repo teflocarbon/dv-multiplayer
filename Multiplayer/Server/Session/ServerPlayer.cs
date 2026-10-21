@@ -7,6 +7,7 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
+using Multiplayer.Core.Items;
 using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
@@ -21,7 +22,15 @@ public class ServerPlayer : IDisposable
 {
     public const byte MAX_CREW_NAME_LENGTH = 6;
     #region ID Management
-    private static readonly NetIdAllocator<byte> idAllocator = new(value => unchecked((byte)(value + 1)));
+    private static readonly NetIdAllocator<byte> idAllocator = CreateIdAllocator();
+
+    // The owner number of an owner who isn't connected is never a player's.
+    private static NetIdAllocator<byte> CreateIdAllocator()
+    {
+        NetIdAllocator<byte> allocator = new(value => unchecked((byte)(value + 1)));
+        allocator.TryReserve(ItemTransitionCommand.AbsentOwnerId);
+        return allocator;
+    }
 
     public void Dispose()
     {
