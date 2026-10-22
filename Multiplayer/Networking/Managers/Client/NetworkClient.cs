@@ -1351,9 +1351,9 @@ public class NetworkClient : NetworkManager
                         entries[index].Item2.Add(packet);
                     }
 
-                    foreach (var nsc in StationController.allStations.Select(sc => sc?.GetComponent<NetworkedStationController>()))
+                    foreach (var nsc in NetworkedStationController.stationControllerToNetworkedStationController.Values)
                     {
-                        if (nsc?.TimeoutJobs.Contains(packet.JobNetId) == true)
+                        if (nsc.TimeoutJobs.Contains(packet.JobNetId) == true)
                         {
                             SendJobsRequest(nsc, [], false, [packet.JobNetId]);
                             break;
@@ -1963,17 +1963,20 @@ public class NetworkClient : NetworkManager
         }, DeliveryMethod.ReliableUnordered);
     }
 
-    public void SendJobsRequest(NetworkedStationController station, ushort[] alreadyPresent, bool generateJobs, ushort[] specificJobs)
+    public void SendJobsRequest(NetworkedStationController station, ushort[] alreadyPresent, bool generateJobs, HashSet<ushort> specificJobs)
     {
-        LogDebug(() => $"Client asking for jobs in {station.StationController.stationInfo.YardID}, excluding {alreadyPresent.Length} already present jobs ");
+        LogDebug(() => $"Client asking for jobs in {station.StationController.stationInfo.YardID}, excluding {alreadyPresent.Length} already present jobs.");
         noCarTimeout = true;
         NetworkedStationController.WaitingNSCs.Add(station.NetId);
+
+        specificJobs.ExceptWith(NetworkedStationController.PendingJobRequests);
+        NetworkedStationController.PendingJobRequests.UnionWith(specificJobs);
 
         SendPacketToServer(new ServerboundJobsRequestPacket
         {
             StationNetId = station.NetId,
             GenerateJobs = generateJobs,
-            SpecificJobsNetIds = specificJobs,
+            SpecificJobsNetIds = specificJobs.ToArray(),
             ExcludeJobNetId = alreadyPresent
         }, DeliveryMethod.ReliableUnordered);
     }

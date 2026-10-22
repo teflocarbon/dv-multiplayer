@@ -10,6 +10,7 @@ using Multiplayer.Networking.Data.Items;
 using Multiplayer.Networking.Data.Jobs;
 using Multiplayer.Networking.Packets.Clientbound.Jobs;
 using Multiplayer.Networking.Packets.Serverbound.Jobs;
+using Multiplayer.Networking.TransportLayers;
 using Multiplayer.Utils;
 using System;
 using System.Collections;
@@ -22,7 +23,7 @@ namespace Multiplayer.Components.Networking.World;
 public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStationController>
 {
     #region Lookup Cache
-    private static readonly Dictionary<StationController, NetworkedStationController> stationControllerToNetworkedStationController = [];
+    public static readonly Dictionary<StationController, NetworkedStationController> stationControllerToNetworkedStationController = [];
     private static readonly Dictionary<string, NetworkedStationController> stationIdToNetworkedStationController = [];
     private static readonly Dictionary<string, StationController> stationIdToStationController = [];
     private static readonly Dictionary<Station, NetworkedStationController> stationToNetworkedStationController = [];
@@ -173,6 +174,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
     public static readonly HashSet<uint> WaitingNSCs = [];
     public static readonly HashSet<ushort> DelayedJobs = [];
+    public static readonly HashSet<ushort> PendingJobRequests = [];
 
     private static readonly Dictionary<ushort, List<JobUpdateStruct>> jobNetIdToPendingJobUpdates = [];
     public static readonly Dictionary<ushort, List<(ushort, List<ClientboundTaskUpdatePacket>)>> JobNetIdToTaskNetIdPendingTaskUpdatesTuples = [];
@@ -328,7 +330,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         }
     }
 
-    public IEnumerator SendJobsToClientsOnRequest(ServerboundJobsRequestPacket packet)
+    public IEnumerator SendJobsToClientsOnRequest(ServerboundJobsRequestPacket packet, ITransportPeer peer = null)
     {
         if (PersistentJobs.Active)
         {
@@ -373,7 +375,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
             ? this.NetworkedJobs.Where(nj => packet.SpecificJobsNetIds.Contains(nj.NetId)).ToArray()
             : this.NetworkedJobs.Where(nj => !packet.ExcludeJobNetId.Contains(nj.NetId)).ToArray();
 
-        NetworkLifecycle.Instance.Server.SendJobsCreatePacket(this, send);
+        NetworkLifecycle.Instance.Server.SendJobsCreatePacket(this, send, peer);
     }
 
     #endregion Server
@@ -385,7 +387,7 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
         //Try get previously timed out jobs if player is in station (not on every tick)
         if ((TimeoutJobs.Count > 0) && tick % 50 == 0 && StationController.playerEnteredJobGenerationZone)
         {
-            NetworkLifecycle.Instance.Client.SendJobsRequest(this, [], false, TimeoutJobs.ToArray());
+            NetworkLifecycle.Instance.Client.SendJobsRequest(this, [], false, TimeoutJobs);
         }
     }
 
@@ -394,6 +396,8 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
 
         foreach (JobData jobData in jobs)
         {
+            PendingJobRequests.Remove(jobData.NetID);
+
             //check for duplicates and not let them pass  --> !!!TODO: this shouldn´t be neccesarry - need to find reason for second send of the jobs
             var duplicate = NetworkedJobs.FirstOrDefault(nj => nj.Job.ID == jobData.ID);
             if (duplicate != null)
@@ -448,6 +452,8 @@ public class NetworkedStationController : IdMonoBehaviour<uint, NetworkedStation
                     Multiplayer.LogError($"Job [{jobData.ID}, {jobData.NetID}] doesn´t have task with id {tuple.Item1}");
                 }
             }
+
+            JobNetIdToTaskNetIdPendingTaskUpdatesTuples.Remove(jobData.NetID);
         }
 
         switch (networkedJob.Job.State)

@@ -2097,7 +2097,7 @@ public class NetworkServer : NetworkManager
             return;
         }
 
-        CoroutineManager.Instance.Run(networkedStationController.SendJobsToClientsOnRequest(packet));
+        CoroutineManager.Instance.Run(networkedStationController.SendJobsToClientsOnRequest(packet, peer));
     }
 
     private void OnServerboundWarehouseMachineControllerRequestPacket(ServerboundWarehouseMachineControllerRequestPacket packet, ITransportPeer peer)
