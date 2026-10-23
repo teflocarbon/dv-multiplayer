@@ -804,14 +804,14 @@ and says only what the code does then.
 | --- | --- | --- | --- |
 | `items/README.md` | The overview: the guarantee, the three names, the homes, the subsystem table with each doc and code folder, the rule for conflicts. Short | R0 (the layout and names; the model's parts say "planned, R*n*" until built) | — |
 | `items/wire.md` | Naming items and players on the wire, the update, the request and result, the list, the refusal codes | R2 | — |
-| `items/ledger.md` | The entry, homes, owners (`OwnerRef`), births and ends, ledger changes, the invariant check | R3 | `owned-items.md`, `item-ownership-open-questions.md` (the questions still open move to the ledger doc's "Open" section, re-asked, not copied) |
+| `items/ledger.md` | The entry, homes, cold and live homes (D12: what is cold, going cold, going live, no duplicate on the server), owners (`OwnerRef`), births and ends, ledger changes, the invariant check | R3 | `owned-items.md`, `item-ownership-open-questions.md` (the questions still open move to the ledger doc's "Open" section, re-asked, not copied) |
 | `items/live-state.md` | The live item, the state machine, revisions, what follows the ledger | R3 | `item-lifecycle.md` |
-| `items/inventory.md` | Slots for every item, the belt, slot moves, how a client shows claims and red | R3 | — |
+| `items/inventory.md` | Slots for every item, the belt, slot moves, every inventory as server data with an optimistic client (the move shown at once, sent as a request, committed or rolled back), a leaver's inventory going cold and made in its exact slots at join, how a client shows claims and red | R3 | — |
 | `items/essentials.md` | Starting items, the issuer, claims, recall | R3 | — |
 | `items/owned-list.md` | The owned-items page and retrieval | R3 | — |
 | `items/access.md` | `ItemAccess` and fixtures (the fixture rules marked paused with shops) | R3 | — |
 | `items/change-causes.md` | Why an item moved or went away, on the server and clients | R3 | `item-change-causes.md` |
-| `items/save-load.md` | `Multiplayer.Items`, loading, old saves, the vanilla mirror, `Unloadable` | R4 | `item-persistence.md` |
+| `items/save-load.md` | `Multiplayer.Items`, loading, cold items left as data at load (OI-COLD-03), old saves, the vanilla mirror, `Unloadable` | R4 | `item-persistence.md` |
 | `items/containers.md` | Containers as homes, deposit, withdrawal, depth, the UI | R5 | `container-storage.md` |
 | `items/lost-and-found.md` | Collection, entries, retrieval, every route into Lost and Found | R6 | `lost-and-found.md` |
 | `items/vanilla-storage.md` | Every vanilla path, blocked or routed, and the guards | R6 | — |
