@@ -211,6 +211,9 @@ public static class NetworkedLostAndFoundManager
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
+        // The transition indexed the item while its entry still held it, which skips it: index it
+        // now, or a player who joins later (its owner, rejoining) is never sent it.
+        ServerItemManager.Instance?.RegisterHostWorldItem(item);
         generation++;
         if (NetworkServer.Instance.TryGetServerPlayer(player.PlayerId,
                 out ServerPlayer owner))
