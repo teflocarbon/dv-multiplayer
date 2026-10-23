@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.21-dev.1803+ec456d4ea9a5f7384b47d15979b394bac3b2447b",
-  "Fingerprint": "44e3aaae5f8baa46fb1fdd1eaa84ba513cdfc0303a9b0cd7577bdeb0ece60e67",
+  "BuildVersion": "2026.10.23-dev.2019+5c79e615187520d880b38db697a57e447b3e5c0a",
+  "Fingerprint": "5353d56507d8f9ff8b0fc4b2bc2cc64a5939b6d4d07102475018624b66560f28",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -78,6 +78,15 @@
     {
       "Hash": "10AC90CE9EED1F5E",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundShopScanPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "1209958743E0454D",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundOwnedItemsRequestPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
       "SemanticDecoder": null,
@@ -427,15 +436,6 @@
       "SuppressByDefault": false
     },
     {
-      "Hash": "5A1A47CAEBEEC730",
-      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundItemAdoptionPacket",
-      "Direction": "Clientbound",
-      "Category": "Clientbound",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
       "Hash": "5BC1A335A916DA09",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs.ClientboundJobsCreatePacket",
       "Direction": "Clientbound",
@@ -517,6 +517,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "6C23A9B10C18F66F",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundOwnedItemRetrievePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "6D5C836BECD21446",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.World.ClientboundShopScannerAimPacket",
       "Direction": "Clientbound",
@@ -578,6 +587,15 @@
       "SemanticDecoder": null,
       "HighFrequency": true,
       "SuppressByDefault": true
+    },
+    {
+      "Hash": "7F4B7DEAC6BB6AD0",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundOwnedItemsPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
     },
     {
       "Hash": "80059B8839C4A395",
@@ -850,15 +868,6 @@
       "SuppressByDefault": false
     },
     {
-      "Hash": "B0D1F945FFD9A7A8",
-      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundItemAdoptionPacket",
-      "Direction": "Serverbound",
-      "Category": "Serverbound",
-      "SemanticDecoder": null,
-      "HighFrequency": false,
-      "SuppressByDefault": false
-    },
-    {
       "Hash": "B131CE429AC42449",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundItemBelowMapPacket",
       "Direction": "Serverbound",
@@ -1052,6 +1061,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs.ClientboundJobReportArtifactPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "CEC75B6E1984C12A",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundOwnedItemRetrieveResultPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false
@@ -1404,7 +1422,9 @@
       "HostCorrection": 23,
       "ThrownOutOfBin": 24,
       "InstalledAsGadget": 25,
-      "RemovedAsGadget": 26
+      "RemovedAsGadget": 26,
+      "Issued": 27,
+      "StarterKit": 28
     },
     "Multiplayer.Core.Items.ItemRemovalReason": {
       "Unknown": 0,
