@@ -49,3 +49,24 @@ public sealed class OwnedItemPlaceTextTests
         Assert.That(Text(OwnedItemWhere.Missing), Is.EqualTo("missing"));
     }
 }
+
+/// <summary>What retrieving from each place means (owned-items.md, "Retrieval", PR 6b).</summary>
+[TestFixture]
+public sealed class OwnedItemRetrievalRuleTests
+{
+    private static readonly Guid Owner = new("00000000-0000-0000-0000-0000000000a1");
+    private static readonly Guid Other = new("00000000-0000-0000-0000-0000000000b2");
+
+    [Test]
+    public void EachPlace_HasItsRetrieval()
+    {
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.With(Owner, OwnedItemHold.Inventory), Owner), Is.EqualTo(OwnedItemRetrievalKind.NothingToDo));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.With(Other, OwnedItemHold.Hand), Owner), Is.EqualTo(OwnedItemRetrievalKind.TakeFromHolder));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.LostAndFound, Owner), Is.EqualTo(OwnedItemRetrievalKind.NothingToDo));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Missing, Owner), Is.EqualTo(OwnedItemRetrievalKind.NothingToDo));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.World("car:x"), Owner), Is.EqualTo(OwnedItemRetrievalKind.Collect));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Container(Guid.NewGuid()), Owner), Is.EqualTo(OwnedItemRetrievalKind.OutermostContainer));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Attached("car:x"), Owner), Is.EqualTo(OwnedItemRetrievalKind.NotYet));
+        Assert.That(OwnedItemRetrievalRule.For(OwnedItemWhere.Installed("car:x", 1), Owner), Is.EqualTo(OwnedItemRetrievalKind.NotYet));
+    }
+}

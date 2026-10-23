@@ -13,7 +13,9 @@ public enum LostItemReason : byte
     PurchasedDeliveryFallback,
     SaveRecovery,
     /// <summary>A player left carrying someone else's item: it goes to its owner (owned-items.md, "Leaving").</summary>
-    BorrowerLeft
+    BorrowerLeft,
+    /// <summary>Its owner retrieved it from their owned-items list (owned-items.md, "Retrieval").</summary>
+    RetrievedByOwner
 }
 
 public enum LostItemDecisionKind : byte

@@ -133,6 +133,8 @@ public partial class NetworkServer : NetworkManager
     private uint nextItemRecallOperationId;
     private readonly Dictionary<uint, PendingItemRecall> pendingItemRecalls = new();
     private readonly Dictionary<ushort, uint> pendingItemRecallByItem = new();
+    /// <summary>Whether the item is in the middle of an essential recall (owned-items.md, "Retrieval": busy).</summary>
+    internal bool RecallPending(ushort itemNetId) => pendingItemRecallByItem.ContainsKey(itemNetId);
     private const uint ItemRecallTimeoutTicks = NetworkLifecycle.TICK_RATE * 5;
 
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
@@ -302,6 +304,7 @@ public partial class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundOwnedItemsRequestPacket, ITransportPeer>(OnServerboundOwnedItemsRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundOwnedItemRetrievePacket, ITransportPeer>(OnServerboundOwnedItemRetrievePacket);
         netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
         netPacketProcessor.SubscribeReusable<ServerboundContainerBrowsePacket, ITransportPeer>(OnServerboundContainerBrowsePacket);
         netPacketProcessor.SubscribeReusable<ServerboundContainerMutationPacket, ITransportPeer>(OnServerboundContainerMutationPacket);

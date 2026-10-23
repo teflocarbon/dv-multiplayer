@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.23-dev.2018",
-  "Fingerprint": "ac5e14689e933ad9f76d4cb45e7defd69aa98a6786873e8955a099827330fea7",
+  "BuildVersion": "2026.10.23-dev.2123+b458c58cd1670214e5ff82165b8c1d686c858ed6",
+  "Fingerprint": "2ec499777db2ab3b2e30e9a57cba77d4e756f46d11e3162506b9d43b30a5d2ef",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -510,6 +510,15 @@
     {
       "Hash": "6ABD0536B2496CDC",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundLostItemsRequestPacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "6C23A9B10C18F66F",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundOwnedItemRetrievePacket",
       "Direction": "Serverbound",
       "Category": "Serverbound",
       "SemanticDecoder": null,
@@ -1052,6 +1061,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs.ClientboundJobReportArtifactPacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "CEC75B6E1984C12A",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.ClientboundOwnedItemRetrieveResultPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

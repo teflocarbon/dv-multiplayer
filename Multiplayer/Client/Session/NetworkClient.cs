@@ -139,6 +139,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         typeof(ServerboundItemBelowMapPacket),
         typeof(ServerboundContainerMutationPacket),
         typeof(ServerboundLostItemRetrievePacket),
+        typeof(ServerboundOwnedItemRetrievePacket),
         typeof(ServerboundItemSpatialSamplePacket),
         typeof(ServerboundItemSpatialSettlementPacket),
         typeof(ServerboundItemTrainWakeWitnessPacket),
@@ -406,6 +407,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
         Handle<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
         Handle<ClientboundOwnedItemsPacket>(OwnedItemsList.Apply);
+        Handle<ClientboundOwnedItemRetrieveResultPacket>(packet => OwnedItemRetrieveCompleted?.Invoke(packet));
         Handle<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
         Handle<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
         Handle<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);

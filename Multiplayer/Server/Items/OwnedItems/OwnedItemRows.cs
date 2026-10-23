@@ -27,6 +27,7 @@ public sealed class OwnedItemRow
 public static class OwnedItemRows
 {
     private static readonly Dictionary<Guid, uint> handles = new();
+    private static readonly Dictionary<uint, Guid> byHandle = new();
     private static uint lastHandle;
 
     public static List<OwnedItemRow> For(ServerPlayer player)
@@ -64,17 +65,22 @@ public static class OwnedItemRows
                 Prefab = entry.Prefab ?? string.Empty,
                 DisplayName = !string.IsNullOrEmpty(inContainer?.DisplayName) ? inContainer.DisplayName : NameOf(entry.Prefab),
                 Where = OwnedItemPlaceText.Describe(entry.Where, facts),
-                // Retrieval comes with PR 6b.
-                Retrievable = false
+                Retrievable = OwnedItemRetrieval.CanRetrieve(player, entry, out _)
             });
         }
         return rows;
     }
 
+    /// <summary>The item a handle from this session's lists names.</summary>
+    public static bool TryResolve(uint handle, out Guid id) => byHandle.TryGetValue(handle, out id);
+
     private static uint HandleOf(Guid id)
     {
         if (!handles.TryGetValue(id, out uint handle))
+        {
             handles[id] = handle = ++lastHandle;
+            byHandle[handle] = id;
+        }
         return handle;
     }
 

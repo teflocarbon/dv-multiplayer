@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using DV.ServicePenalty.UI;
 using Multiplayer.Client.Items;
 using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using TMPro;
 using UnityEngine;
 
@@ -10,21 +11,26 @@ namespace Multiplayer.Client.Career;
 
 /// <summary>
 /// The career manager's Owned Items page (owned-items.md, "The owned-items list", PR 6a): every
-/// item the player owns, wherever it is, as the server words it. Retrieving from here comes with
-/// PR 6b; until then the page only lists.
+/// item the player owns, wherever it is, as the server words it. Confirm retrieves the selected
+/// item into Lost and Found when it can go (PR 6b), and the server sends a fresh list.
 /// </summary>
 internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerScreen
 {
     private readonly List<OwnedItemListRow> items = new();
     private int first;
     private bool loading;
+    private bool pending;
+    private string message = string.Empty;
     private uint requestId;
 
     public override void Activate(IDisplayScreen previousScreen)
     {
         Previous = previousScreen;
         OwnedItemsList.Changed += OnListChanged;
+        if (ItemClient.Current != null)
+            ItemClient.Current.OwnedItemRetrieveCompleted += OnRetrieveCompleted;
         loading = true;
+        message = string.Empty;
         ItemClient.Current?.RequestOwnedItems(++requestId);
         RefreshFromModel();
     }
@@ -32,6 +38,8 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
     public override void Disable()
     {
         OwnedItemsList.Changed -= OnListChanged;
+        if (ItemClient.Current != null)
+            ItemClient.Current.OwnedItemRetrieveCompleted -= OnRetrieveCompleted;
         Clear();
     }
 
@@ -42,9 +50,16 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
             Host.Switcher.SetActiveDisplay(Host.HubScreen);
             return;
         }
-        if (items.Count == 0) return;
+        if (pending || items.Count == 0) return;
         if (input == InputAction.Up) Selected = Wrapped(Selected - 1, items.Count);
         else if (input == InputAction.Down) Selected = Wrapped(Selected + 1, items.Count);
+        else if (input == InputAction.Confirm && items[Selected].Retrievable)
+        {
+            pending = true;
+            message = "RETRIEVING...";
+            ItemClient.Current?.RequestOwnedItemRetrieval(++requestId, items[Selected].Handle);
+        }
+        if (input is InputAction.Up or InputAction.Down) message = string.Empty;
         EnsureVisible();
         Render();
     }
@@ -53,6 +68,13 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
     {
         loading = false;
         RefreshFromModel();
+    }
+
+    private void OnRetrieveCompleted(ClientboundOwnedItemRetrieveResultPacket result)
+    {
+        pending = false;
+        message = result.Accepted ? "SENT TO LOST AND FOUND" : "FAILED: " + (result.RejectionReason ?? "UNKNOWN").ToUpperInvariant();
+        Render();
     }
 
     private void RefreshFromModel()
@@ -87,7 +109,9 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
                 ? Host.Switcher.HIGHLIGHTED_COLOR : Host.Switcher.REGULAR_COLOR;
         }
         Texts.Rows[itemRows].text = loading ? "LOADING..." :
-            items.Count == 0 ? "NO OWNED ITEMS" : $"{Selected + 1}/{items.Count}";
+            items.Count == 0 ? "NO OWNED ITEMS" :
+            !string.IsNullOrEmpty(message) ? message :
+            $"{Selected + 1}/{items.Count}" + (items[Selected].Retrievable ? "  CONFIRM: RETRIEVE" : string.Empty);
         Texts.Rows[itemRows].color = Host.Switcher.REGULAR_COLOR;
     }
 
