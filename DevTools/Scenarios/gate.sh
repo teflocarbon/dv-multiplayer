@@ -180,6 +180,10 @@ coupler_breaks() { local n=0 t; for t in host client; do n=$(( n + $($DVMP logs 
 # A run that failed because dvmp couldn't reach its pair (games not answering yet, or gone) says
 # nothing about the code: it's an ERROR, reported apart from FAILs (and retried once with PAIRS).
 harness_error() { grep -qE "no agent matches|no game is running|no (host|client) running|No connection could be made|actively refused|Connection refused" "$1"; }
+# A run's result from run_scenario's exit code (in $1). A [KnownBug] C# scenario
+# (docs/research/item-bug-review.md) exits 4 when it fails as expected (KNOWN) and 5 when it
+# passes (FIXED?: the bug may be fixed, remove the attribute). Neither is a regression.
+result_of() { case $1 in 0) echo PASS;; 3) echo ERROR;; 4) echo KNOWN;; 5) echo 'FIXED?';; *) echo FAIL;; esac; }
 
 # Scenarios are bash (DevTools/Scenarios/<name>/run.sh) or C# (DevTools/DvmpScenarios, run by
 # `dvmp scenario run`; docs/design/scenarios.md) while they're ported. Same variables either way: a
@@ -357,9 +361,9 @@ if [ -n "$parallel" ]; then
     export DVMP_SESSION=$session
     [ -f "$S/$dir/run.sh" ] && teleport_home   # a C# scenario resets in process (ScenarioRun.ResetAsync)
     start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-    if run_scenario "$dir" "$vars" >"$log" 2>&1; then r=PASS; else [ $? = 3 ] && r=ERROR || r=FAIL; note_logs "$logs" >>"$log"; fi
+    if run_scenario "$dir" "$vars" >"$log" 2>&1; then r=PASS; else r=$(result_of $?); note_logs "$logs" >>"$log"; fi
     [ $r = FAIL ] && harness_error "$log" && r=ERROR
-    first=$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game' "$log" | head -1 | cut -c1-90)
+    first=$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game|FIXED[?]' "$log" | head -1 | cut -c1-90)
     breaks=$(( $(coupler_breaks) - breaks )); [ $breaks -gt 0 ] && first="$first [$breaks coupler break(s) logged]"
     first+=${retry:-}
     result "$label" $r "$(( $(date +%s) - start ))" "$session" "$first"
@@ -431,11 +435,13 @@ if [ -n "$parallel" ]; then
   cat "$Q"/result/* 2>/dev/null | node -e '
     const rows=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean).map(l=>l.split("|"));
     const by={};for(const [label,r,secs,session,first] of rows){const n=label.replace(/#\d+$/,"");(by[n]||=[]).push({r,secs:+secs,session,first});}
-    let fails=0,errors=0,passed=0;for(const n of Object.keys(by).sort()){const g=by[n],p=g.filter(x=>x.r==="PASS").length;passed+=p;
+    let fails=0,errors=0,passed=0,known=0,fixed=[];for(const n of Object.keys(by).sort()){const g=by[n],p=g.filter(x=>x.r==="PASS").length;passed+=p;
       const f=g.find(x=>x.r==="FAIL"),e=g.find(x=>x.r==="ERROR"),ne=g.filter(x=>x.r==="ERROR").length;if(f)fails++;else if(e)errors++;
+      const nk=g.filter(x=>x.r==="KNOWN").length,nx=g.filter(x=>x.r==="FIXED?").length;known+=nk;if(nx)fixed.push(n);
       const rt=g.filter(x=>/retried after a harness error/.test(x.first)).length,ran=g.filter(x=>x.r!=="ERROR"),avg=ran.length?Math.round(ran.reduce((a,x)=>a+x.secs,0)/ran.length)+"s":"-",max=ran.length?Math.max(...ran.map(x=>x.secs))+"s":"-";
-      console.log(`${n.padEnd(34)} ${p}/${g.length}${ne?` (${ne} ERROR)`:""}${rt?` (${rt} retried)`:""}  avg ${avg} max ${max}${f?"  first FAIL on "+f.session+": "+f.first:e?"  ERROR on "+e.session+": "+e.first:""}`);}
+      console.log(`${n.padEnd(34)} ${p}/${g.length}${nk?` (${nk} KNOWN bug, failing as expected)`:""}${nx?` (${nx} FIXED?: a known bug passed, remove its [KnownBug])`:""}${ne?` (${ne} ERROR)`:""}${rt?` (${rt} retried)`:""}  avg ${avg} max ${max}${f?"  first FAIL on "+f.session+": "+f.first:e?"  ERROR on "+e.session+": "+e.first:""}`);}
     console.log(`\n${passed} run(s) passed; ${fails} name(s) with a FAIL; ${errors} more with only harness ERRORs (dvmp couldn\x27t reach the pair: not a test result)`);
+    if(known||fixed.length)console.log(`known bugs (docs/research/item-bug-review.md, not regressions): ${known} run(s) failed as expected${fixed.length?`; passed, so fixed? remove [KnownBug] from: ${fixed.join(", ")}`:""}`);
     process.exit(fails||errors?1:0);'
   status=$?
   echo "logs: $LOG_DIR"
@@ -447,9 +453,10 @@ for it in "${all[@]}"; do
   IFS='|' read -r name dir vars _ <<<"$it"
   [ -f "$S/$dir/run.sh" ] && teleport_home   # a C# scenario resets in process (ScenarioRun.ResetAsync)
   start=$(date +%s); breaks=$(coupler_breaks); logs=$(game_logs)
-  if run_scenario "$dir" "$vars" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else [ $? = 3 ] && r=ERROR || r=FAIL; failed=1; note_logs "$logs" >>"$LOG_DIR/$name.log"; harness_error "$LOG_DIR/$name.log" && r=ERROR; fi
+  if run_scenario "$dir" "$vars" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=$(result_of $?); note_logs "$logs" >>"$LOG_DIR/$name.log"; [ $r = FAIL ] && harness_error "$LOG_DIR/$name.log" && r=ERROR; fi
+  case $r in FAIL|ERROR) failed=1;; esac
   breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"
-  printf '%-32s %-5s %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
+  printf '%-32s %-5s %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game|FIXED[?]' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
 done
 echo "logs: $LOG_DIR"
 exit $failed

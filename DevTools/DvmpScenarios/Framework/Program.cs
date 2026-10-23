@@ -14,11 +14,12 @@ namespace Dvmp.Scenarios
     ///   list                                   scenarios, their options and defaults
     ///   check                                  every scenario and step is well formed (no games)
     ///   run NAME [--arg K=V]... [--log-dir D] [--no-reset]  one run against $DVMP_SESSION's pair, after the reset (ScenarioRun.ResetAsync)
-    /// Exit codes: 0 pass, 1 fail, 2 usage, 3 harness error (not a test result).
+    /// Exit codes: 0 pass, 1 fail, 2 usage, 3 harness error (not a test result); a [KnownBug]
+    /// scenario: 4 failed as expected, 5 passed (fixed? remove the attribute).
     /// </summary>
     internal static class Program
     {
-        public const int Pass = 0, Fail = 1, Usage = 2, HarnessError = 3;
+        public const int Pass = 0, Fail = 1, Usage = 2, HarnessError = 3, KnownBugFailed = 4, KnownBugPassed = 5;
 
         public static int Main(string[] args)
         {
@@ -72,6 +73,7 @@ namespace Dvmp.Scenarios
             {
                 object defaults = Activator.CreateInstance(((IScenario)Activator.CreateInstance(type)).OptionsType);
                 string needs = type.GetCustomAttribute<NeedsAttribute>() is { } n ? "  [needs " + string.Join(", ", n.Needs) + "]" : string.Empty;
+                if (type.GetCustomAttribute<KnownBugAttribute>() is { } bug) needs += "  [known bug " + bug.Id + ": expected to fail]";
                 Console.WriteLine($"{info.Name}{needs}\n    {info.Description}");
                 foreach (FieldInfo f in defaults.GetType().GetFields())
                     Console.WriteLine($"    {Options.EnvName(f.Name)}={Options.Show(f.GetValue(defaults))}");
@@ -118,6 +120,8 @@ namespace Dvmp.Scenarios
             ScenarioRun run = new(session, GameDir, dvmp);
             Pair pair = run.Pair;
             run.Out.Text($"== {name}  session {session}  {Options.Describe(options)}");
+            if (found.Type.GetCustomAttribute<KnownBugAttribute>() is { } knownBug)
+                run.Out.Text($"   known bug {knownBug.Id} (docs/research/item-bug-review.md): expected to fail until its fix lands");
             bool started = false;
             Dictionary<string, long> logStart = new();
             string error = null;
@@ -147,9 +151,14 @@ namespace Dvmp.Scenarios
             bool passed = error == null && run.Failures.Count == 0;
             if (!passed && !harness)
                 await run.SaveArtifactsAsync(Path.Combine(logDir, $"{name}-{DateTime.Now:yyyyMMdd-HHmmss}-{session}"), logStart);
-            string summary = passed ? "PASS" : harness ? "ERROR" : "FAIL";
+            // A known bug's scenario failing is the expected result (KNOWN); passing means the bug
+            // may be fixed, and its [KnownBug] should go (FIXED?). Neither is a regression.
+            KnownBugAttribute known = harness ? null : found.Type.GetCustomAttribute<KnownBugAttribute>();
+            string summary = known != null ? (passed ? "FIXED?" : "KNOWN") : passed ? "PASS" : harness ? "ERROR" : "FAIL";
             run.Out.Text($"{summary}  {name}  {run.Out.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)}s" +
+                         (known != null ? (passed ? $"  known bug {known.Id} passed: fixed? remove [KnownBug]" : $"  known bug {known.Id}, failing as expected:") : string.Empty) +
                          (run.Failures.Count > 0 ? "  " + string.Join("; ", run.Failures) : string.Empty));
+            if (known != null) return passed ? KnownBugPassed : KnownBugFailed;
             return passed ? Pass : harness ? HarnessError : Fail;
         }
 
