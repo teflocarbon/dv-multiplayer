@@ -1,7 +1,9 @@
 # Owned items
 
-> Status: designed 2026-10-21, not started. Nothing below is built. It replaces how player
-> inventories, rejoin, Lost and Found and item returns work today
+> Status: PRs 1a to 5 are merged into beta (2026-10-22). 6a to 8 (the list, retrieval, essentials kept
+> out of containers, lineage, retrieving installed gadgets) are a stack in review; see
+> [Implementation status](#implementation-status). It replaces how player
+> inventories, rejoin, Lost and Found and item returns worked before
 > ([`item-lifecycle.md`](item-lifecycle.md), [`item-ownership-open-questions.md`](item-ownership-open-questions.md)),
 > and it is what the gadget design's [Owned items](gadgets.md#owned-items) section points to.
 
@@ -65,13 +67,13 @@ on the server and in every client, are made to agree with it.
   `starting-items`.
 - **PR 5, no adoption: built, and tested in game with PR 4 on both host kinds (2026-10-22).** Client item adoption is deleted;
   nothing legitimate still used it (see [5](#5-no-adoption)).
-- **PR 6a, the owned-items list: built (2026-10-22), not yet run in game.** The packets, the
+- **PR 6a, the owned-items list: built (2026-10-22), and tested in game with 6b, L7 and 7 on both host kinds (2026-10-23).** The packets, the
   server's rows from the ledger, and an Owned Items page in the career manager (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-list`.
-- **PR 6b, retrieval: built (2026-10-22), not yet run in game.** From the owned-items list into Lost
+- **PR 6b, retrieval: built (2026-10-22), and tested in game with 6a, L7 and 7 on both host kinds (2026-10-23).** From the owned-items list into Lost
   and Found: lying items, containers whole, and items with another player (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-retrieve`.
-- **Essentials stay out of containers: built (2026-10-22), not yet run in game.** `ItemAccess` refuses
+- **Essentials stay out of containers: built (2026-10-22), and tested in game with 6a, 6b and 7 on both host kinds (2026-10-23).** `ItemAccess` refuses
   depositing an essential (`essential-not-in-containers`, item-review L7). Scenario: `deposit-refused
 - **PR 7, lineage: built ahead (2026-10-22), not yet run in game.** `RecordReplacement` for the
   gadget PRs' server-side swaps (see [7](#7-lineage)). Scenario: `item-lineage`.
@@ -1025,6 +1027,11 @@ Split in two, as small PRs: **6a the list**, **6b retrieval**.
   says what happened.
 - **Not yet:** detaching attached and snapped items, and the busy check for a container
   mid-withdrawal.
+- **Found by the batch, fixed here:** an item retrieved from Lost and Found (the Lost Items page, or
+  the reserved slot's Return) was never indexed for interest again. The retrieval's transition
+  indexed it while the entry still held it, which skips it, so a player who joined later, its owner
+  rejoining included, was never sent it (`starting-items` @dedicated). It is indexed once the entry
+  goes.
 
 ### 7. Lineage
 
