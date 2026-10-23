@@ -167,6 +167,11 @@ gh pr create --base beta
 Don't use GitHub's stacked-PR flow to land a stack: it rewrites the commits, which drops their
 signatures. Merge each PR into `beta` on its own instead.
 
+**Item PRs tick the [item overhaul checklist](item-overhaul-checklist.md).** Every PR that touches
+items lists the checklist IDs it closes and ticks them in the same PR. A box needs merged code plus
+a proving scenario on both host kinds (or a Core unit test for a Core-only rule), and any scope the
+PR cuts or defers becomes a new unticked row in that PR.
+
 ## Versions
 
 Versions are calendar dates: **`YYYY.M.D.N`**, where N counts the releases built that day
