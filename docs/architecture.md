@@ -288,9 +288,10 @@ A client connects with `ServerboundClientLoginPacket` as the connection payload.
 7. the client's mod list passes `ModCompatibilityManager.ValidateClientMods`.
 
 Failures reject the request with a `ClientboundLoginResponsePacket` carrying a locale key (and
-missing/extra mods). On accept the host creates the `ServerPlayer`, rebinds items the player
-persistently owns (`LiveItems.RebindPersistentOwner`, plus Lost and Found and
-saved world items waiting for this owner), and replies with the player id and its **protocol
+missing/extra mods). On accept the host creates the `ServerPlayer`, re-keys an install GUID's data to a
+Steam ID the first time (`InstallGuidRekey`), gives back saved items held for this player
+(`ItemSaveLoad.OnOwnerConnected`); nothing is re-bound, since owners and holders are identities,
+not session numbers. It replies with the player id and its **protocol
 fingerprint**.
 
 The fingerprint comes from `Tools/ProtocolManifestGenerator`, which runs after every build of

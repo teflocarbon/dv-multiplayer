@@ -82,7 +82,7 @@ starting items have loaded:
 4. An owned record makes the item personal again. A record for an item vanilla already has installed
    is ignored.
 5. The record is registered and then overwritten from the save: revision, placement, holder, owner
-   (their session number if connected, else the absent owner number), claim, pose, parents (a train by
+   and holder (identities: nothing waits for them to connect), claim, pose, parents (a train by
    its car GUID), flags, and `LastMove` = `RestoredFromSave` (not logged). A train-interior item is
    restored straight away at its saved pose: nothing waits for its car, and a missing car has no
    recovery path.

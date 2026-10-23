@@ -189,24 +189,23 @@ follows the records:
 
 **What reads the ledger:** the owned-items list (`OwnedItemRows`), retrieval (`OwnedItemRetrieval`),
 `StartingItemsIssuer`, the starter-kit markers (and `InstallGuidRekey`, which moves a re-keyed
-player's marker), and the scenarios. Everything else (Lost and Found, recall, claim slots,
+player's entries and marker), and the scenarios. Everything else (Lost and Found, recall, claim slots,
 containers, the disconnect rules, the first-taker rule) reads the record.
 
-**Owner numbers.** The record keeps the owner twice: `PersistentOwnerIdentity` and
-`PersistentOwnerPlayerId`, the owner's session player number, which the wire and the Core state
-machine use. An owner who isn't connected has `ItemTransitionCommand.AbsentOwnerId` (255), which the
-player-number allocator reserves, so it is never a player's (decided 2026-10-21, PR 2a). 0 means
-unowned. `OwnedItemsServer.OwnerNumber(identity)` gives the number for an identity: their session's,
-255, or 0. It is set:
+**Owners and holders are identities** (item-refactor.md, "Identity only"; R1). The record keeps
+`Owner` and `Holder` as player identities, and so does everything that decides by them: the Core
+state machine, `ItemAccess`, Lost and Found, recall, claim slots, containers and the disconnect
+rules. A claim is always its owner's, so it has no player of its own. An offline owner is an
+identity with no session: nothing is bound at login or unbound at logout. `PlayerNumbers` turns an
+identity into a session number only at the wire and the session edge: when the server sends a
+packet, applies a change or asks where a player is. Until R2 an update still carries an owner
+number, worked out there: the owner's session number, `ItemUpdateData.OfflineOwnerNumber` (255,
+which the player-number allocator reserves) while they're offline, 0 for no owner.
 
-- at disconnect, by `AuthoritativeItemRegistry.UnbindPersistentOwner` and Lost and Found's
-  `UnbindOwner`, which also clear the claim's player number and the holder's number;
-- at login, by `RebindPersistentOwner` and Lost and Found's `RebindOwner`, from the identity;
-- when a save restores an owner who isn't here (`WorldItemsV1`, Lost and Found, installed gadgets).
-
-So with an absent owner: the first-taker rule (owner 0) doesn't take the item over, nobody else's
+So with an offline owner: the first-taker rule (no owner) doesn't take the item over, nobody else's
 recall matches it, a departing borrower's test counts it as someone else's, vanilla's own Lost and
-Found path stays blocked, and a client sees it as someone else's.
+Found path stays blocked, and a client sees it as someone else's. An item in an offline player's
+inventory stays held by them, so nobody else takes it out.
 
 **The audit.** `OwnedItemsServer.Audit()` lists every disagreement: a live owned record the ledger
 doesn't have or has elsewhere or under another owner, an owned item in vanilla's Lost and Found list
@@ -354,8 +353,9 @@ in-process (`ServerItemManager.RequestHostRecall`).
 ### Red
 
 `InventoryPresentationPlanner` shows an item red when its owner number isn't the local player's
-**and** it is recallable (an essential with a retrieval claim). An absent owner's number (255) is
-someone else's, so their essential shows red too. Any other item someone else owns shows normally.
+**and** it is recallable (an essential with a retrieval claim). An offline owner's number on the wire
+(`ItemUpdateData.OfflineOwnerNumber`, 255) is someone else's, so their essential shows red too. Any
+other item someone else owns shows normally.
 
 ## The owned-items list
 

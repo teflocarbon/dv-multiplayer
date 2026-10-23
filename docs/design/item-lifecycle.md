@@ -39,7 +39,7 @@ These are different facts. None is inferred from another.
 | Runtime identity | the `ushort` NetId, while the item has a live object; the server prefers ids not issued yet this session | |
 | Placement | `ItemPlacementKind`, [below](#placements) | |
 | Holder | `PlacementPlayerId` and `PlacementPlayerIdentity`, for a hand or inventory | |
-| Owner | `PersistentOwnerIdentity` and `PersistentOwnerPlayerId` (0 unowned, 255 owned by someone offline) | [owned-items.md](owned-items.md#the-ledger-and-the-records) |
+| Owner | `Owner`, an identity (empty for unowned); on the wire until R2 an owner number (0 unowned, 255 owned by someone offline) | [owned-items.md](owned-items.md#the-ledger-and-the-records) |
 | Retrieval claim | an essential's slot and flags (`Reserved`, `Locked`, `Dropped`, `Stolen`); not the same as owning it | [owned-items.md](owned-items.md#essentials-claim-slots-and-recall) |
 | Revision | `Revision`, advanced by every accepted logical change; the run at its tip that changed only object state | [below](#the-state-machine) |
 | Projection | per player: nearby, known, acknowledged | [item-world-sync.md](item-world-sync.md#cells-and-interest) |
