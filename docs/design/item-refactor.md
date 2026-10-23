@@ -844,7 +844,7 @@ Marked `paused: <workstream>` in the checklist (D4), kept and unticked, for when
 
 - **Shops:** OI-SHOP-02 to -10; OI-FIX-02 to -06 (fixtures are shops 2c); OI-ACC-09 (the
   permissions system). OI-SHOP-01 stays done.
-- **Gadgets:** OI-GAD-03, -05, -07, -08, -09, -11; OI-LIST-13, -15, -16; OI-LIN-02, -03, -04; OI-ACC-06.
+- **Gadgets:** OI-GAD-03, -05, -07, -08, -09, -11; OI-LIST-13, -15, -16; OI-LIN-02, -03, -04; OI-ACC-06; OI-GAD-12.
   The seam rows OI-GAD-04, -06, -10 and OI-LF-22 are in (R3, R7, R3, R4).
 - **Companies:** OI-ID-14, -15. The ledger's owner is an `OwnerRef` with room for a company; nothing
   else.

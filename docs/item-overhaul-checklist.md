@@ -76,10 +76,10 @@ On 2026-10-24, with R2 (#339):
 | Vanilla paths | 0 | 0 | 0 | 6 | 0 | 0 | 0 |
 | Layout and names | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
 | Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
-| Gadgets seam | 1 | 1 | 0 | 3 | 0 | 6 | 0 |
+| Gadgets seam | 1 | 1 | 0 | 3 | 0 | 7 | 0 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 263** | **63** | **27** | **10** | **105** | **0** | **48** | **10** |
+| **All 264** | **63** | **27** | **10** | **105** | **0** | **49** | **10** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -491,6 +491,7 @@ An item in a home nobody is using is data only, and every inventory is server da
 | OI-GAD-09 | Aiming at an installed gadget shows its owner's name, also while they're offline | GD §The installed gadget and its item | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ] |
 | OI-GAD-10 | **An `Installed` home names a car or the world** (vanilla's `WorldCustomization`, key `:global:`): a world-installed gadget is an owned item like a car's, saved and restored at its pose, and never sent to Lost and Found for a missing anchor | User correction 2026-10-23 (G5: world installs, which some mods need; custom_item_mod builds its gadgets with no car requirement) | `[ ]` | R3. `WhereOf` and the save know only a car today |
 | OI-GAD-11 | Installing on and removing from the world works in multiplayer like on a car (preview, install, removal and its sync); the player house, the Lost and Found shed and the paint station stay refused | User correction 2026-10-23 (G5) | `paused: gadgets` | The legacy gadget design refuses every non-car anchor (gadgets.md, Off-train installs) |
+| OI-GAD-12 | **Every vanilla gadget is named here and checked in game** against the gadget design: each prefab's components, and any part a player can move (which then has to sync). The manual's gadgets: Amp Limiter, Anti-wheelslip Computer, Automatic Train Stop, Battery Charger, Clinometer, Defect Detector, Distance Tracker, Infrared Thermometer, Overheating Protection, Remote Signal Booster, Switch Setter, Universal Control Stand, Wireless MU Controller, Proximity Sensor and Proximity Reader. The controllers: button, rotary, lever, slider, analog and alternating. In code with no manual page: the brake LED bar, digital clock and digital speedometer. The cosmetics: head, tail and ditch lights, light bars, beacons, oscillating lights, shelves, the shovel mount, sliding snap points, sun visors, hangers, nameplates, flags and labels | User 2026-10-24; [research](research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md#the-games-own-list) §The game's own list | `paused: gadgets` | Not checked. The research matches each to a class; the sun visor, nameplates and flags have no class of their own (plain `GadgetBase` prefabs), and the prefabs can only be listed in game. Check them when gadgets resume, before the gadget PRs are called done |
 
 ## Mod items
 
