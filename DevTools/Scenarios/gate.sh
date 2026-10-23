@@ -50,6 +50,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "full-inventory-essential|item-bug-full-inventory-essential|"
   "containers|containers|"
   "containers-briefcase-flashlight|containers|CONTAINER=ItemContainerBriefcase PREFAB=Flashlight"
+  "containers-unowned|containers|UNOWNED=1"
   "item-id-roundtrip|item-id-roundtrip|"
   "ledger-save|ledger-save|"
   "fixture-no-stash|fixture-no-stash|"
