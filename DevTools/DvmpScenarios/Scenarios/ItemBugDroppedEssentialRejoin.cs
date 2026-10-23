@@ -30,6 +30,10 @@ namespace Dvmp.Scenarios
             public int Slot;
             /// <summary>How many rejoins to try before the run passes.</summary>
             public int Rejoins = 3;
+            /// <summary>Personal mugs the client stashes first, so ordinary items are more likely to arrive before the silhouette.</summary>
+            public int Mugs = 6;
+            /// <summary>The essential is collected into the client's Lost and Found while it is away (the host's player walks off too), and the silhouette must come back from there.</summary>
+            public bool Lost;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -38,8 +42,33 @@ namespace Dvmp.Scenarios
             Report.Note($"the client dropped {d.Name} {d.Item} from slot {o.Slot}: {d.State}, silhouette {d.Reserved}");
             Require.Equal("Dropped", d.State, "the essential's state after the drop");
             pair.Cleanup(() => pair.Client.Run(() => InGame.Fetch(d.Item, o.Slot), 90));
+            if (o.Mugs > 0)
+            {
+                ushort[] mugs = await pair.Host.Run<ushort[]>(s => ItemBugFullInventoryEssential.InGame.SpawnMany(s, "Mug", o.Mugs), 120);
+                pair.Cleanup(() => pair.Host.Run<ushort[]>(s => Items.Destroy(s, mugs)));
+                await pair.Client.Run<int>(s => ItemBugFullInventoryEssential.InGame.StashAll(s, mugs), 300);
+            }
             await pair.Client.Run<Abs>(s => Walk.Away(s, 15, 0));
             Report.Note("server: " + await pair.Host.Run(() => InGame.ServerClaim(d.Item)));
+            if (o.Lost)
+            {
+                if (!pair.Dedicated) await pair.Host.Run<Abs>(s => Walk.Away(s, 400, 0));
+                await pair.Client.Quit();
+                bool lost = false;
+                for (int t = 0; t < 30 && !lost; t++)
+                {
+                    await Task.Delay(2000);
+                    lost = (await pair.Host.Run(() => Items.Record(d.Item))).Lost;
+                }
+                Report.Note($"with the client gone: in its Lost and Found {lost}; server: " + await pair.Host.Run(() => InGame.ServerClaim(d.Item)));
+                Require.That(lost, "the dropped essential is collected into the absent client's Lost and Found");
+                await pair.Rejoin();
+                await Task.Delay(12000);
+                string at = await pair.Client.Run(() => InGame.Silhouette(d.Item));
+                Report.Note("after the rejoin: " + at);
+                Expect.That(at.StartsWith("silhouette in slot"), $"the {d.Name} in Lost and Found has its silhouette in the client's inventory", at);
+                return;
+            }
 
             for (int i = 1; i <= o.Rejoins; i++)
             {
@@ -76,6 +105,16 @@ namespace Dvmp.Scenarios
                 int claim = n.InventoryClaimSlot;
                 GameObject at = claim >= 0 ? inv.PeekItemAtSlot(claim, true) : null;
                 return $"no silhouette: {n.GetItemState()}, claim slot {claim} holds {(at != null ? at.name.Replace("(Clone)", "") : "nothing")}";
+            }
+
+            /// <summary>Client, cleanup: <see cref="Fetch"/> for the item of this name the player
+            /// owns (net IDs change across a restart).</summary>
+            [Step]
+            public static IEnumerator FetchByName(string name, int slot)
+            {
+                byte me = Multiplayer.Shared.Session.NetworkLifecycle.Instance.LocalSession.PlayerId;
+                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.PersistentOwnerPlayerId == me && n.name.Replace("(Clone)", "") == name);
+                if (item != null) yield return Fetch(item.NetId, slot);
             }
 
             /// <summary>Client, cleanup: recalls the essential into <paramref name="slot"/>, or walks
