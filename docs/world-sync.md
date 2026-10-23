@@ -4,7 +4,7 @@ How the state of the world that isn't rolling stock, items or jobs is kept the s
 player: the clock, weather and sleep, difficulty settings, the shared wallet, shops, service
 stations, junctions and turntables, switches, explosions, hazmat ground tiles and the sandbox cargo
 loader. Trains are in [design/trains.md](design/trains.md), items in the `design/item-*.md` docs and
-[design/container-storage.md](design/container-storage.md), jobs and warehouse machines in
+[design/container-storage.md](legacy/items/container-storage.md), jobs and warehouse machines in
 [jobs.md](jobs.md). The overall model (host commits, clients send intent) is in
 [architecture.md](architecture.md).
 

@@ -55,7 +55,7 @@ rarely on open ground. Any small item with a convex mesh collider is likely to b
 ## The terrain guard (2026-10-21)
 
 The mod now guards against it (`NetworkedItemManager.TerrainGuard.cs`,
-[design](../design/item-spatial-physics.md#landing-on-the-terrain)): right after each physics step,
+[design](../legacy/items/item-spatial-physics.md#landing-on-the-terrain)): right after each physics step,
 on the game simulating the item, an item that crossed the terrain collider in that step is put back
 on the surface where it crossed, without the velocity into the ground.
 

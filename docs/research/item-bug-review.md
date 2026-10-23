@@ -3,7 +3,7 @@
 > Status: 2026-10-23, against beta ff06e150 (owned-items PRs 1a-5 merged). A deliberate hunt for
 > ways a player loses an item, essential items first. Each bug is proved by an `item-bug-*`
 > scenario that fails today, or marked "code only" when no game run reproduced it. Fixes belong to
-> the owned-items work ([owned-items.md](../design/owned-items.md)) or the home named below; this
+> the owned-items work ([owned-items.md](../legacy/items/owned-items.md)) or the home named below; this
 > review changes no mod code.
 
 The rule to hold: **a player never loses an essential item, by any path.** Severity, worst first:

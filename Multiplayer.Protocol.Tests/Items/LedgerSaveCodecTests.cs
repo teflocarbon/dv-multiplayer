@@ -10,7 +10,7 @@ using NUnit.Framework;
 namespace Multiplayer.Protocol.Tests.Items;
 
 /// <summary>
-/// The owned-items ledger in the save (<c>Multiplayer.OwnedItemsV1</c>, docs/design/owned-items.md):
+/// The owned-items ledger in the save (<c>Multiplayer.OwnedItemsV1</c>, docs/legacy/items/owned-items.md):
 /// every entry comes back as it was written, enums are names, and what can't be read is skipped,
 /// never guessed.
 /// </summary>

@@ -792,7 +792,7 @@ makes that safe: **no PR leaves `beta` worse than today**, so a release can be c
 point. Whether to hand out a release while gadgets are part-done (between 3a and 5 they sync but
 can't yet be powered) is a release decision, not a branch.
 
-It runs beside the owned-items work ([owned-items.md](owned-items.md), PR #275), which redoes the item
+It runs beside the owned-items work ([owned-items.md](../legacy/items/owned-items.md), PR #275), which redoes the item
 lifecycle. They meet at four points:
 
 - **Gadget PR 1 goes first.** The ledger counts installed gadgets as one of its stores and its

@@ -1,3 +1,5 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/live-state.md` (R3). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Item lifecycle
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`, the top of the owned-items
@@ -25,9 +27,9 @@ object, on the server or a client, is a disposable presentation of that record.
 | [item-persistence.md](item-persistence.md) | Which store saves each item, `WorldItemsV1`, loading |
 | [item-change-causes.md](item-change-causes.md) | Why each move and removal happened, on the server and clients |
 | [item-ownership-open-questions.md](item-ownership-open-questions.md) | The ownership questions still open |
-| [gadgets.md](gadgets.md), [shops.md](shops.md) | Installed gadgets and shop purchases, as their own systems; they use the item rules here |
-| [research/item-bug-review.md](../research/item-bug-review.md) | The catalogue of known ways a player loses an item, each with the `item-bug-*` scenario that proves it. The "Known issues" sections in the docs above are read from the code; this is where they are tracked. |
-| [item-sync-review.md](../legacy/items/item-sync-review.md) | Historical: the July 2026 review and its findings |
+| [gadgets.md](../../design/gadgets.md), [shops.md](../../design/shops.md) | Installed gadgets and shop purchases, as their own systems; they use the item rules here |
+| [research/item-bug-review.md](../../research/item-bug-review.md) | The catalogue of known ways a player loses an item, each with the `item-bug-*` scenario that proves it. The "Known issues" sections in the docs above are read from the code; this is where they are tracked. |
+| [item-sync-review.md](item-sync-review.md) | Historical: the July 2026 review and its findings |
 
 ## What describes an item
 
@@ -180,7 +182,7 @@ None of these happens as a side effect of presentation or possession:
 Each item's debug snapshot (`AuthoritativeItemRegistry`, the F12 overlay, `dvmp_eval`) shows its NetId,
 id or key, prefab, placement and holder, owner number and identity, claim, container and Lost and
 Found membership, the stock-fork mark, world parent and committed pose, revision and last reason,
-`lastMove`, and its lease. Events are listed in [observability.md](../observability.md). Scenarios
+`lastMove`, and its lease. Events are listed in [observability.md](../../observability.md). Scenarios
 check cleanup as well as disappearance: no record, stored record, storage membership, inventory slot,
 NetId binding or client projection may be left after a destructive cleanup
-([testing.md](../testing.md)).
+([testing.md](../../testing.md)).

@@ -73,11 +73,11 @@ replaced (`wire.md`, R2).
 
 These describe the item system before the refactor, with the class and file names from before R0
 ([the rename map](../item-refactor.md#rename-map) translates them). They are evidence of today's
-behaviour, not design, and each moves to `docs/legacy/items/` in the PR that writes its replacement:
-[item-lifecycle.md](../item-lifecycle.md), [owned-items.md](../owned-items.md),
-[lost-and-found.md](../lost-and-found.md), [container-storage.md](../container-storage.md),
-[item-world-sync.md](../item-world-sync.md), [item-spatial-physics.md](../item-spatial-physics.md),
-[train-item-wake.md](../train-item-wake.md), [item-persistence.md](../item-persistence.md),
-[item-change-causes.md](../item-change-causes.md),
-[item-ownership-open-questions.md](../item-ownership-open-questions.md), and, moved already,
+behaviour, not design. They are in `docs/legacy/items/` (moved 2026-10-24), each with a banner naming its replacement:
+[item-lifecycle.md](../../legacy/items/item-lifecycle.md), [owned-items.md](../../legacy/items/owned-items.md),
+[lost-and-found.md](../../legacy/items/lost-and-found.md), [container-storage.md](../../legacy/items/container-storage.md),
+[item-world-sync.md](../../legacy/items/item-world-sync.md), [item-spatial-physics.md](../../legacy/items/item-spatial-physics.md),
+[train-item-wake.md](../../legacy/items/train-item-wake.md), [item-persistence.md](../../legacy/items/item-persistence.md),
+[item-change-causes.md](../../legacy/items/item-change-causes.md),
+[item-ownership-open-questions.md](../../legacy/items/item-ownership-open-questions.md), and, moved already,
 [item-sync-review.md](../../legacy/items/item-sync-review.md).

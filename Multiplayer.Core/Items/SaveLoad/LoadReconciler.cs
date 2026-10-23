@@ -105,7 +105,7 @@ public readonly struct OwnedItemLoadStep
 /// ledger decides where each item is; when it disagrees with the stores, the store that has the
 /// item's state wins and the ledger is corrected, since a disagreement means the ledger is stale
 /// (a build without it played the save). A save with no ledger is the case where every item is
-/// new to it: that is the migration. See docs/design/owned-items.md, "Loading".
+/// new to it: that is the migration. See docs/legacy/items/owned-items.md, "Loading".
 /// </summary>
 public static class LoadReconciler
 {

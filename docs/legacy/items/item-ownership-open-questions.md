@@ -1,3 +1,5 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by the "Open" section of `items/ledger.md` (R3), each question asked again. The item docs start at [items/README.md](../../design/items/README.md).
+
 # Item ownership: open questions
 
 > Status: the game-design questions about item ownership that are still open (2026-10-23). What is

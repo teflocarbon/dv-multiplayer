@@ -1,11 +1,13 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/save-load.md` (R4). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Item persistence
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Where every item is
 > saved, when, and how a load rebuilds it. Vanilla's own item save is in
-> [research/DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md](../research/DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md).
+> [research/DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md](../../research/DERAIL_VALLEY_ITEM_SAVE_LOAD_LOGIC.md).
 
 The server keeps the vanilla save as its store (decided 2026-10-19,
-[server-player-split.md](server-player-split.md#save-format)). The mod's item state is in the save's
+[server-player-split.md](../../design/server-player-split.md#save-format)). The mod's item state is in the save's
 `Multiplayer` section, beside vanilla's own. Each item is saved by exactly one store, and vanilla's
 `ItemSaveData` stays the serializer for each item's own state: the mod wraps it, never reimplements
 it.
@@ -19,10 +21,10 @@ it.
 | Everything any player carries, the host's own player included, owned or not | `Multiplayer.WorldItemsV1`, keyed by the holder's identity |
 | Cold-container contents | `Multiplayer.ColdContainers` ([container-storage.md](container-storage.md#saving)) |
 | Lost and Found entries | `Multiplayer.LostAndFound`, with the inert items in vanilla's Lost and Found storage ([lost-and-found.md](lost-and-found.md#saving-and-loading)) |
-| Installed gadgets | vanilla's `Storage_InstalledGadgets`, with `dvmpPersistentOwner` and the item's id in each one's state ([gadgets.md](gadgets.md)) |
+| Installed gadgets | vanilla's `Storage_InstalledGadgets`, with `dvmpPersistentOwner` and the item's id in each one's state ([gadgets.md](../../design/gadgets.md)) |
 | Owned items' index | `Multiplayer.OwnedItemsV1` ([owned-items.md](owned-items.md#saving-and-loading)) |
 | Unmoved authored items | nothing: the scene has them |
-| Job overviews and booklets | nothing: the job system saves the job and remakes them ([jobs.md](../jobs.md)) |
+| Job overviews and booklets | nothing: the job system saves the job and remakes them ([jobs.md](../../jobs.md)) |
 
 Not saved: unowned, non-personal dynamic items lying in the world (the paint station's spray can is
 respawned by its source each load, so saving it added a copy every load), including office stock forks
@@ -110,7 +112,7 @@ doesn't wipe it.
 | `Multiplayer/Server/Items/PersistentWorldItemIdentity.cs`, `PersistentWorldItemIdentityPatch.cs` | The id in the item's save data |
 | `Multiplayer/Server/Career/NetworkedSaveGameManager.cs` | The save pass |
 | `Multiplayer/Server/Career/PerPlayerSaveFormat.cs` | Per-player saves and the conversion of old careers |
-| Scenarios | `save-reload`, `inventory-persist`, `host-player-persist`, `rejoin`, `ledger-save`, `item-id-roundtrip` ([testing.md](../testing.md)) |
+| Scenarios | `save-reload`, `inventory-persist`, `host-player-persist`, `rejoin`, `ledger-save`, `item-id-roundtrip` ([testing.md](../../testing.md)) |
 
 ## Known issues
 

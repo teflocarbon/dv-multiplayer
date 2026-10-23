@@ -3,7 +3,7 @@ using Multiplayer.Core.Items.ChangeCauses;
 
 namespace Multiplayer.Core.Items.Ledger;
 
-/// <summary>Which kind of place an owned item is in. Saved by name; see docs/design/owned-items.md.</summary>
+/// <summary>Which kind of place an owned item is in. Saved by name; see docs/legacy/items/owned-items.md.</summary>
 public enum HomeKind : byte
 {
     /// <summary>In a player's hand, inventory or belt.</summary>
