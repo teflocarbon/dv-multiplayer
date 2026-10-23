@@ -3,36 +3,40 @@ using Multiplayer.Core.Items.ChangeCauses;
 
 namespace Multiplayer.Core.Items.Ledger;
 
-/// <summary>Which kind of place an owned item is in. Saved by name; see docs/legacy/items/owned-items.md.</summary>
+/// <summary>
+/// The kind of home an owned item has (docs/design/items/ledger.md, "Homes"). Saved by name, so
+/// the order means nothing and values may be appended.
+/// </summary>
 public enum HomeKind : byte
 {
-    /// <summary>In a player's hand, inventory or belt.</summary>
-    With,
-    /// <summary>Loose in the world, in a train interior or on a static parent (a shelf).</summary>
+    /// <summary>An exact inventory slot of a player, by identity (the VR belt is slots 33-35).</summary>
+    Slot,
+    /// <summary>A player's hand, by identity. Never saved: a save writes a hand item to a free slot.</summary>
+    Hand,
+    /// <summary>Loose in the world, with its pose (live state keeps the pose).</summary>
     World,
-    /// <summary>Attached to a car, as an EOT lantern is.</summary>
-    Attached,
-    /// <summary>Snapped to a snap point (a hanger, a mount).</summary>
-    Snapped,
-    /// <summary>Stored in a cold container.</summary>
+    /// <summary>Loose in a car, by the car's GUID.</summary>
+    TrainInterior,
+    /// <summary>On a static parent (a station shelf), by its key.</summary>
+    Shelf,
+    /// <summary>In a cold container's slot, by the container's id.</summary>
     Container,
+    /// <summary>Its owner's Lost and Found.</summary>
     LostAndFound,
-    /// <summary>Installed on a car as a gadget.</summary>
+    /// <summary>A gadget installed on a car (by its GUID) or on the world (<see cref="Home.WorldAnchor"/>). The gadget keeps its own UID (D13).</summary>
     Installed,
-    /// <summary>The store its last place named didn't hold it at load. Kept, and looked for again.</summary>
+    /// <summary>An end-of-train lantern on a car's end, by the car's GUID.</summary>
+    Attached,
+    /// <summary>Snapped to a snap point (a hanger, a mount), by its parent's key.</summary>
+    Snapped,
+    /// <summary>
+    /// The load found no store holding it. Kept, and looked for again at the next load, until the
+    /// save-load PR (R4) recovers such an item instead (D9).
+    /// </summary>
     Missing
 }
 
-/// <summary>How a player holds an item that is <see cref="HomeKind.With"/> them.</summary>
-public enum HoldKind : byte
-{
-    None,
-    Hand,
-    Inventory,
-    Belt
-}
-
-/// <summary>How an owned item came to be owned. Saved by name.</summary>
+/// <summary>How an owned item became owned. Saved by name.</summary>
 public enum BirthReason : byte
 {
     Purchased,
@@ -57,75 +61,89 @@ public enum BirthReason : byte
 }
 
 /// <summary>
-/// Where an owned item is: the kind of place and what names it there. It says which store must hold
-/// the item, not its pose; the pose stays with the store.
+/// Where an owned item is, exactly (docs/design/items/ledger.md, "Homes"): which kind of home and
+/// what names it there. Every inventory item names its slot. The pose stays with live state.
 /// </summary>
 public readonly struct Home : IEquatable<Home>
 {
-    private Home(HomeKind place, Guid holder, HoldKind hold, int slot, string anchor,
-        int gadgetUid)
+    /// <summary>The anchor of a gadget installed on the world (vanilla's <c>WorldCustomization</c>).</summary>
+    public const string WorldAnchor = ":global:";
+
+    private Home(HomeKind kind, Guid holder = default, int slot = -1, byte hand = 0, string anchor = null, bool front = false)
     {
-        Place = place;
+        Kind = kind;
         Holder = holder;
-        Hold = hold;
         Slot = slot;
+        Hand = hand;
         Anchor = anchor ?? string.Empty;
-        GadgetUid = gadgetUid;
+        Front = front;
     }
 
-    public HomeKind Place { get; }
-    /// <summary>The identity of the player who has it (<see cref="HomeKind.With"/> only).</summary>
+    public HomeKind Kind { get; }
+    /// <summary>The identity of the player whose slot or hand it is (<see cref="HomeKind.Slot"/>, <see cref="HomeKind.Hand"/>).</summary>
     public Guid Holder { get; }
-    public HoldKind Hold { get; }
-    /// <summary>The inventory slot, or -1.</summary>
+    /// <summary>The inventory slot, or the container slot; -1 for any other home.</summary>
     public int Slot { get; }
+    /// <summary>The hand, as the wire's <c>PlayerHand</c> numbers it (0 none or desktop, 1 left, 2 right).</summary>
+    public byte Hand { get; }
     /// <summary>
-    /// What it is in or on: a car's GUID (train interior, attached, installed), a static parent's key,
-    /// a snap parent, or a cold container's id. Empty for loose in the world, Lost and Found and with a
-    /// player.
+    /// What it is in or on: a car's GUID (train interior, attached, installed), <see cref="WorldAnchor"/>
+    /// for a gadget on the world, a shelf's key, a snap parent's key, or a container's id.
     /// </summary>
     public string Anchor { get; }
-    /// <summary>The gadget's customizer UID (<see cref="HomeKind.Installed"/> only).</summary>
-    public int GadgetUid { get; }
+    /// <summary>The car's front end (<see cref="HomeKind.Attached"/> only).</summary>
+    public bool Front { get; }
 
-    public bool IsWithPlayer => Place == HomeKind.With;
+    /// <summary>In a player's slot or hand.</summary>
+    public bool IsWithPlayer => Kind is HomeKind.Slot or HomeKind.Hand;
+    /// <summary>Loose in the world, in a car or on a shelf: where live state keeps a pose.</summary>
+    public bool IsLoose => Kind is HomeKind.World or HomeKind.TrainInterior or HomeKind.Shelf;
 
-    public static Home With(Guid holder, HoldKind hold, int slot = -1) =>
-        new(HomeKind.With, holder, hold, slot, null, 0);
-    public static Home World(string parent = null) => new(HomeKind.World, Guid.Empty, HoldKind.None, -1, parent, 0);
-    public static Home Attached(string car) => new(HomeKind.Attached, Guid.Empty, HoldKind.None, -1, car, 0);
-    public static Home Snapped(string parent) => new(HomeKind.Snapped, Guid.Empty, HoldKind.None, -1, parent, 0);
-    public static Home Container(Guid containerId) =>
-        new(HomeKind.Container, Guid.Empty, HoldKind.None, -1, containerId.ToString("D"), 0);
-    public static Home LostAndFound => new(HomeKind.LostAndFound, Guid.Empty, HoldKind.None, -1, null, 0);
-    public static Home Installed(string car, int gadgetUid) =>
-        new(HomeKind.Installed, Guid.Empty, HoldKind.None, -1, car, gadgetUid);
-    public static Home Missing => new(HomeKind.Missing, Guid.Empty, HoldKind.None, -1, null, 0);
+    public static Home InSlot(Guid holder, int slot) => new(HomeKind.Slot, holder, slot);
+    public static Home InHand(Guid holder, byte hand = 0) => new(HomeKind.Hand, holder, hand: hand);
+    public static Home World => new(HomeKind.World);
+    public static Home TrainInterior(string car) => new(HomeKind.TrainInterior, anchor: car);
+    public static Home Shelf(string key) => new(HomeKind.Shelf, anchor: key);
+    public static Home Container(Guid containerId, int slot = -1) =>
+        new(HomeKind.Container, slot: slot, anchor: containerId.ToString("D"));
+    public static Home LostAndFound => new(HomeKind.LostAndFound);
+    public static Home Installed(string anchor) =>
+        new(HomeKind.Installed, anchor: string.IsNullOrEmpty(anchor) ? WorldAnchor : anchor);
+    public static Home Attached(string car, bool front) => new(HomeKind.Attached, anchor: car, front: front);
+    public static Home Snapped(string parent) => new(HomeKind.Snapped, anchor: parent);
+    public static Home Missing => new(HomeKind.Missing);
 
-    /// <summary>Rebuilds a saved place. Fields a place doesn't use are dropped.</summary>
-    public static Home From(HomeKind place, Guid holder, HoldKind hold, int slot, string anchor,
-        int gadgetUid) => place switch
+    /// <summary>Rebuilds a saved home. Fields a kind doesn't use are dropped.</summary>
+    public static Home From(HomeKind kind, Guid holder, int slot, byte hand, string anchor, bool front) => kind switch
     {
-        HomeKind.With => With(holder, hold, slot),
-        HomeKind.Installed => Installed(anchor, gadgetUid),
-        HomeKind.World or HomeKind.Attached or HomeKind.Snapped or HomeKind.Container =>
-            new(place, Guid.Empty, HoldKind.None, -1, anchor, 0),
-        _ => new(place, Guid.Empty, HoldKind.None, -1, null, 0)
+        HomeKind.Slot => InSlot(holder, slot),
+        HomeKind.Hand => InHand(holder, hand),
+        HomeKind.TrainInterior => TrainInterior(anchor),
+        HomeKind.Shelf => Shelf(anchor),
+        HomeKind.Container => Guid.TryParse(anchor, out Guid container) ? Container(container, slot) : Missing,
+        HomeKind.Installed => Installed(anchor),
+        HomeKind.Attached => Attached(anchor, front),
+        HomeKind.Snapped => Snapped(anchor),
+        _ => new Home(kind)
     };
 
-    public bool Equals(Home other) => Place == other.Place && Holder == other.Holder &&
-        Hold == other.Hold && Slot == other.Slot && GadgetUid == other.GadgetUid &&
+    public bool Equals(Home other) => Kind == other.Kind && Holder == other.Holder && Slot == other.Slot &&
+        Hand == other.Hand && Front == other.Front &&
         string.Equals(Anchor, other.Anchor, StringComparison.Ordinal);
     public override bool Equals(object obj) => obj is Home other && Equals(other);
-    public override int GetHashCode() => ((int)Place * 397) ^ Holder.GetHashCode() ^ (Anchor?.GetHashCode() ?? 0) ^ Slot;
+    public override int GetHashCode() =>
+        ((int)Kind * 397) ^ Holder.GetHashCode() ^ (Anchor?.GetHashCode() ?? 0) ^ (Slot * 31);
     public static bool operator ==(Home a, Home b) => a.Equals(b);
     public static bool operator !=(Home a, Home b) => !a.Equals(b);
 
-    public override string ToString() => Place switch
+    public override string ToString() => Kind switch
     {
-        HomeKind.With => $"with {Holder:D} ({Hold}{(Slot >= 0 ? ", slot " + Slot : "")})",
-        HomeKind.Installed => $"installed on {Anchor} (UID {GadgetUid})",
-        _ => Anchor.Length == 0 ? Place.ToString() : $"{Place} {Anchor}"
+        HomeKind.Slot => $"slot {Slot} of {Holder:D}",
+        HomeKind.Hand => $"hand of {Holder:D}",
+        HomeKind.Container => $"container {Anchor} slot {Slot}",
+        HomeKind.Installed => $"installed on {Anchor}",
+        HomeKind.Attached => $"attached to {Anchor} ({(Front ? "front" : "rear")})",
+        _ => Anchor.Length == 0 ? Kind.ToString() : $"{Kind} {Anchor}"
     };
 }
 
@@ -174,26 +192,32 @@ public sealed class End
 /// </summary>
 public sealed class LedgerEntry
 {
-    public LedgerEntry(Guid id, Guid owner, string prefab, Home where, Birth born,
-        int claimSlot = -1, bool shopStocked = false, End ended = null)
+    public LedgerEntry(Guid id, OwnerRef owner, string prefab, Home home, Birth born,
+        int claimSlot = -1, bool shopStocked = false, End ended = null, bool essential = false)
     {
         Id = id;
         Owner = owner;
         Prefab = prefab ?? string.Empty;
-        Where = where;
+        Home = home;
         Born = born;
         ClaimSlot = claimSlot;
         ShopStocked = shopStocked;
         Ended = ended;
+        Essential = essential || claimSlot >= 0;
     }
 
     public Guid Id { get; }
-    /// <summary>The owner's identity: a player's ID now, a company's later.</summary>
-    public Guid Owner { get; internal set; }
+    public OwnerRef Owner { get; internal set; }
     public string Prefab { get; }
-    public Home Where { get; internal set; }
-    /// <summary>An essential's retrieval claim slot in its owner's inventory, or -1.</summary>
+    /// <summary>Where it is, exactly. Only a ledger change moves it.</summary>
+    public Home Home { get; internal set; }
+    /// <summary>
+    /// An essential's claim: the slot of its owner's inventory it comes back to, or -1. Its home is
+    /// wherever it is; the ledger assigns the claim, one per slot per owner.
+    /// </summary>
     public int ClaimSlot { get; internal set; }
+    /// <summary>An essential (a radio, a map): it gets a claim slot when it is issued or first stashed.</summary>
+    public bool Essential { get; }
     /// <summary>The item still has vanilla's Restock flag, so it counts against its owner's shop stock.</summary>
     public bool ShopStocked { get; internal set; }
     public Birth Born { get; internal set; }
@@ -201,8 +225,8 @@ public sealed class LedgerEntry
 
     public bool IsLive => Ended == null;
 
-    public LedgerEntry Clone() => new(Id, Owner, Prefab, Where, Born, ClaimSlot, ShopStocked, Ended);
+    public LedgerEntry Clone() => new(Id, Owner, Prefab, Home, Born, ClaimSlot, ShopStocked, Ended, Essential);
 
     public override string ToString() =>
-        $"{Prefab} {Id:D} of {Owner:D}: {(IsLive ? Where.ToString() : "ended " + Ended.Reason)}";
+        $"{Prefab} {Id:D} of {Owner}: {(IsLive ? Home + (ClaimSlot >= 0 ? $", claims slot {ClaimSlot}" : "") : "ended " + Ended.Reason)}";
 }
