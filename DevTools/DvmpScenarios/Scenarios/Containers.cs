@@ -5,11 +5,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
-using CUI = Multiplayer.Client.Items.ColdContainerUiIntegration;
+using CUI = Multiplayer.Client.Items.Containers.ContainerUi;
 
 namespace Dvmp.Scenarios
 {
@@ -164,8 +165,8 @@ namespace Dvmp.Scenarios
             public static Browse HostBrowse(ushort box)
             {
                 var host = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer;
-                AuthoritativeItemRegistry.TryGet(box, out var r);
-                var result = NetworkedColdContainerManager.Browse(host, box, 0, 64, out var view);
+                LiveItems.TryGet(box, out var r);
+                var result = ContainerServer.Browse(host, box, 0, 64, out var view);
                 return new Browse
                 {
                     Owner = r?.PersistentOwnerPlayerId ?? 0, HostId = host.PlayerId, Status = result.Status.ToString(),

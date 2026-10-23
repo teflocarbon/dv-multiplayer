@@ -21,7 +21,7 @@ describes what the code does. Paths are under `Multiplayer/` unless stated.
 - Clients send `ServerboundTrainTopologyCommandPacket` for every coupler, hose, cock, MU and chain
   placement change: by hand, from the coupling menu and loco cabs
   (`Client/Trains/UICouplingHelperPatch.cs`), the remote controller
-  (`Client/Items/RemoteControllerModulePatch.cs`) and the in-cab decoupler
+  (`Client/Trains/RemoteControllerModulePatch.cs`) and the in-cab decoupler
   (`Client/Trains/DecouplerDeviceLogicPatch.cs`). Remote and decoupler commands set
   `ViaRemote`, which skips the player-distance check but not the 4 m coupler-gap check.
 - The host's own changes, and native changes nobody commanded (spawn auto-couple, joint breaks,
@@ -301,7 +301,7 @@ decision changes (`NetworkedTrainCarServer.KeepCompressorSignal`).
   to trains (`Server/Trains/ExplosionServerPatch.cs`, `Client/Trains/ExplosionClientPatch.cs`; see [`../world-sync.md`](../world-sync.md)).
 - Deleting a car steps any player on it off first, so players are no longer destroyed with it
   (`Shared/Trains/CarDeletePlayerSafetyPatch.cs`); the items lying in it go to Lost and Found on the
-  host after that (`Server/Trains/CarDeleteLostAndFoundPatch.cs`).
+  host after that (`Server/Items/LostAndFound/CarDeleteLostAndFoundPatch.cs`).
 - Not done: there is no `motionEpoch`. A full sync more than 5 m off (`POSITION_UPDATE_THRESHOLD`),
   a derail, a rerail (host or client-only) and a host move-to-track are the only things that clear
   a client's motion queues. `NetworkServer.SendTrainsetRelocation` has no caller, so the

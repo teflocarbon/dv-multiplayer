@@ -392,7 +392,7 @@ internal static class Session
     {
         Mark($"{agent.Label}: installing tracer");
         JsonObject r = await Operations.EvalAsync(LoadProbe("trace-install"), agent.Pid.ToString(), "class",
-            "using Multiplayer.Server.Items; using Multiplayer.Shared.Items; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World;", null, 180);
+            "using Multiplayer.Server.Items.LiveState; using Multiplayer.Shared.Items.LiveState; using Multiplayer.Shared.Jobs; using Multiplayer.Shared.Stations; using Multiplayer.Shared.World;", null, 180);
         if (r["compileError"] is { } compile) throw new Exception("tracer failed to compile: " + compile);
     }
 

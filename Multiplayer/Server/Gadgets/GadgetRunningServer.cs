@@ -1,6 +1,6 @@
 using DV.Customization.Gadgets;
 using DV.Customization.Gadgets.Implementations;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Gadgets;
 using Multiplayer.Shared.Protocol.Data;
@@ -64,7 +64,7 @@ internal static class GadgetRunningServer
     /// data has only some of it).</summary>
     internal static void SendAll(ServerPlayer player, NetworkServer server)
     {
-        foreach (ushort itemNetId in AuthoritativeItemRegistry.GetAll()
+        foreach (ushort itemNetId in LiveItems.GetAll()
                      .Where(r => r.Placement == ItemPlacementKind.Installed)
                      .Select(r => r.NetId).ToList())
         {

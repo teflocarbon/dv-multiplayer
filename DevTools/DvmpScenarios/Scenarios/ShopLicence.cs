@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using DV.Shops;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Shared.Items;
 using UnityEngine;
 
 namespace Dvmp.Scenarios

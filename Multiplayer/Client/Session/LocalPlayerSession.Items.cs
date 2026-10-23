@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
-using Multiplayer.Client.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Client.Items.LostAndFound;
+using Multiplayer.Client.Items.OwnedList;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Protocol.Packets.Common;

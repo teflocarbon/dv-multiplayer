@@ -146,7 +146,7 @@ public partial class NetworkedPlayer
     public void ReleaseAllItems()
     {
         DropProjectedItem(null);
-        foreach (global::Multiplayer.Shared.Items.NetworkedItem item in GetComponentsInChildren<global::Multiplayer.Shared.Items.NetworkedItem>(true))
+        foreach (global::Multiplayer.Shared.Items.LiveState.NetworkedItem item in GetComponentsInChildren<global::Multiplayer.Shared.Items.LiveState.NetworkedItem>(true))
             if (item != null)
                 item.transform.SetParent(WorldMover.OriginShiftParent, true);
     }

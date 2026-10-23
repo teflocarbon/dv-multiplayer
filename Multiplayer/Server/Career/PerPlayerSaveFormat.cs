@@ -2,12 +2,10 @@ using DV;
 using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using DV.ThingTypes;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Players;
-using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
-using Multiplayer.Core.Containers;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -121,7 +119,7 @@ public static class PerPlayerSaveFormat
         }
         root.SetJObject(PlayersKey, players);
 
-        JArray records = root[WorldItemPersistenceManager.SaveKey] as JArray ?? new JArray();
+        JArray records = root[ItemSaveLoad.SaveKey] as JArray ?? new JArray();
         HashSet<Guid> known = new(records.OfType<JObject>()
             .Select(value => Guid.TryParse((string)value["persistentItemId"], out Guid id) ? id : Guid.Empty));
         int moved = 0;
@@ -129,13 +127,13 @@ public static class PerPlayerSaveFormat
         foreach (StorageItemData item in inventory ?? new List<StorageItemData>())
         {
             index++;
-            if (item == null || string.IsNullOrEmpty(item.itemPrefabName) || WorldItemPersistenceManager.IsJobSystemDocument(item.itemPrefabName))
+            if (item == null || string.IsNullOrEmpty(item.itemPrefabName) || ItemSaveLoad.IsJobSystemDocument(item.itemPrefabName))
                 continue;
-            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Server.Items.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
+            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Server.Items.SaveLoad.ItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
                 ? saved : ConvertedItemId(owner, index, item);
             if (!known.Add(id))
                 continue;   // already a record: nothing to move
-            records.Add(new WorldItemPersistenceRecord
+            records.Add(new SavedItemRow
             {
                 PersistentItemId = id,
                 PrefabName = item.itemPrefabName,
@@ -147,7 +145,7 @@ public static class PerPlayerSaveFormat
             }.ToJson());
             moved++;
         }
-        root[WorldItemPersistenceManager.SaveKey] = records;
+        root[ItemSaveLoad.SaveKey] = records;
         return moved;
     }
 

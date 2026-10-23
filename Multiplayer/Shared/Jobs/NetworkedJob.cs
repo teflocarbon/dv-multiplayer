@@ -1,7 +1,8 @@
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.Logic.Job;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.Inventory;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Session;
 using Multiplayer.Core.Jobs;

@@ -1,5 +1,5 @@
 using System.Threading.Tasks;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 
 namespace Dvmp.Scenarios
 {

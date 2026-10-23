@@ -5,10 +5,14 @@
 using System;
 using System.Collections;
 using System.Linq;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
+using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Core.Items.LostAndFound;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 
 namespace Dvmp.Scenarios
@@ -24,7 +28,7 @@ namespace Dvmp.Scenarios
         public int ClientNumber, HostNumber;
 
         public bool Lost => LostEntry.Length > 0;
-        public bool Absent => Number == ItemTransitionCommand.AbsentOwnerId;
+        public bool Absent => Number == ItemTransition.AbsentOwnerId;
 
         public override string ToString() => Exists
             ? $"{NetId} {Id}: {Placement}{(Holder.Length > 0 ? " of " + Holder : "")}, owner {Owner} (number {Number}){(Lost ? ", in Lost and Found" : "")}; ledger {LedgerWhere}"
@@ -41,7 +45,7 @@ namespace Dvmp.Scenarios
         [Step]
         public static OwnerInfo Give(ushort netId, string who)
         {
-            if (!AuthoritativeItemRegistry.TryGet(netId, out var record)) throw new Exception("no record for " + netId);
+            if (!LiveItems.TryGet(netId, out var record)) throw new Exception("no record for " + netId);
             NetworkServer server = NetworkServer.Instance;
             Guid owner;
             if (!Guid.TryParse(who, out owner))
@@ -58,15 +62,15 @@ namespace Dvmp.Scenarios
             if (NetworkedItem.TryGet(netId, out NetworkedItem item) && item.Item?.InventorySpecs != null)
                 item.Item.InventorySpecs.BelongsToPlayer = true;
             record.PersistentOwnerIdentity = owner;
-            record.PersistentOwnerPlayerId = OwnedItemsServer.OwnerNumber(owner);
-            if (!OwnedItemsServer.Ledger.IsLive(record.PersistentItemId))
-                OwnedItemsServer.Ledger.Register(new OwnedItemBirthRequest
+            record.PersistentOwnerPlayerId = ServerLedger.OwnerNumber(owner);
+            if (!ServerLedger.Ledger.IsLive(record.PersistentItemId))
+                ServerLedger.Ledger.Register(new BirthRequest
                 {
                     Id = record.PersistentItemId,
                     Owner = owner,
                     Prefab = record.PrefabName,
-                    Where = OwnedItemsServer.WhereOf(record),
-                    Reason = OwnedItemBirth.Granted,
+                    Where = ServerLedger.WhereOf(record),
+                    Reason = BirthReason.Granted,
                     Detail = "ownership scenario"
                 });
             return Read(netId);
@@ -84,8 +88,8 @@ namespace Dvmp.Scenarios
                 ClientNumber = client?.PlayerId ?? 0,
                 HostNumber = server.LocalPlayer?.PlayerId ?? 0
             };
-            if (!AuthoritativeItemRegistry.TryGet(netId, out var record)) return info;
-            Guid entry = NetworkedLostAndFoundManager.EntryId(netId);
+            if (!LiveItems.TryGet(netId, out var record)) return info;
+            Guid entry = LostAndFoundServer.EntryId(netId);
             info.Exists = true;
             info.Id = record.PersistentItemId.ToString("D");
             info.Owner = record.PersistentOwnerIdentity.ToString("D");
@@ -94,7 +98,7 @@ namespace Dvmp.Scenarios
             info.PlacementPlayer = record.PlacementPlayerId;
             info.Holder = record.PlacementPlayerIdentity == Guid.Empty ? "" : record.PlacementPlayerIdentity.ToString("D");
             info.LostEntry = entry == Guid.Empty ? "" : entry.ToString("D");
-            if (OwnedItemsServer.Ledger.TryGet(record.PersistentItemId, out OwnedItemEntry ledger))
+            if (ServerLedger.Ledger.TryGet(record.PersistentItemId, out Multiplayer.Core.Items.Ledger.LedgerEntry ledger))
             {
                 info.LedgerOwner = ledger.Owner.ToString("D");
                 info.LedgerWhere = ledger.IsLive ? ledger.Where.ToString() : "ended " + ledger.Ended.Reason;
@@ -107,7 +111,7 @@ namespace Dvmp.Scenarios
         public static OwnerInfo ById(string id)
         {
             if (!Guid.TryParse(id, out Guid wanted)) return new OwnerInfo { Id = id ?? "" };
-            AuthoritativeItemRegistry.Record record = AuthoritativeItemRegistry.GetAll().FirstOrDefault(r => r.PersistentItemId == wanted);
+            LiveItems.LiveItem record = LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == wanted);
             return record == null ? new OwnerInfo { Id = id } : Read(record.NetId);
         }
 
@@ -117,7 +121,7 @@ namespace Dvmp.Scenarios
         {
             NetworkedItem.TryGet(netId, out NetworkedItem item);
             LostItemReason why = (LostItemReason)Enum.Parse(typeof(LostItemReason), reason);
-            step.Result = item != null && NetworkedLostAndFoundManager.Collect(item, why, "ownership scenario");
+            step.Result = item != null && LostAndFoundServer.Collect(item, why, "ownership scenario");
             for (int i = 0; i < 30; i++) yield return null;
         }
 
@@ -126,8 +130,8 @@ namespace Dvmp.Scenarios
         public static int LostCount(string owner)
         {
             if (!Guid.TryParse(owner, out Guid who)) return -1;
-            int bound = AuthoritativeItemRegistry.GetAll().Count(r => r.Placement == ItemPlacementKind.LostAndFound && r.PersistentOwnerIdentity == who);
-            int waiting = NetworkedLostAndFoundManager.PendingEntries().Count(p => p.Owner == who);
+            int bound = LiveItems.GetAll().Count(r => r.Placement == ItemPlacementKind.LostAndFound && r.PersistentOwnerIdentity == who);
+            int waiting = LostAndFoundServer.PendingEntries().Count(p => p.Owner == who);
             return bound + waiting;
         }
 
@@ -140,6 +144,6 @@ namespace Dvmp.Scenarios
         /// <summary>Host: the ledger's live entries for an owner.</summary>
         [Step]
         public static int LedgerCount(string owner) =>
-            Guid.TryParse(owner, out Guid who) ? OwnedItemsServer.Ledger.LiveOwnedBy(who).Count : -1;
+            Guid.TryParse(owner, out Guid who) ? ServerLedger.Ledger.LiveOwnedBy(who).Count : -1;
     }
 }

@@ -3,10 +3,13 @@ using DV.Customization;
 using DV.Customization.Gadgets;
 using DV.Utils;
 using HarmonyLib;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
+using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
@@ -83,7 +86,7 @@ internal static class GadgetItemTransitions
             RemoveOffTrain(gadget, item);
             return;
         }
-        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record existing) &&
+        if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem existing) &&
             existing.Placement == ItemPlacementKind.Installed)
             return;
 
@@ -98,7 +101,7 @@ internal static class GadgetItemTransitions
         snapshot.WorldParentNetId = 0;
         snapshot.ItemPosition = gadget.transform.position - WorldMover.currentMove;
         snapshot.ItemRotation = gadget.transform.rotation;
-        if (!AuthoritativeItemRegistry.TryApplyGadgetTransition(item, snapshot, null,
+        if (!LiveItems.TryApplyGadgetTransition(item, snapshot, null,
                 ItemTransitionReason.GadgetInstalled, out string rejection,
                 ItemChangeLog.Move(ItemMoveReason.InstalledAsGadget, detail: "on " + car.ID)))
         {
@@ -106,7 +109,7 @@ internal static class GadgetItemTransitions
                                    $"record refused it: {rejection}");
             return;
         }
-        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
+        if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
         {
             record.AttachedCarPersistentId = car.CarGUID ?? string.Empty;
             AdoptSavedOwner(item, record);
@@ -116,7 +119,7 @@ internal static class GadgetItemTransitions
 
     private static void CommitRemoved(NetworkedItem item)
     {
-        if (!AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) ||
+        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
             record.Placement != ItemPlacementKind.Installed)
             return;
         ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
@@ -131,7 +134,7 @@ internal static class GadgetItemTransitions
         snapshot.WorldParentNetId = 0;
         snapshot.ItemPosition = item.transform.position - WorldMover.currentMove;
         snapshot.ItemRotation = item.transform.rotation;
-        if (!AuthoritativeItemRegistry.TryApplyGadgetTransition(item, snapshot, null,
+        if (!LiveItems.TryApplyGadgetTransition(item, snapshot, null,
                 ItemTransitionReason.GadgetRemoved, out string rejection,
                 ItemChangeLog.Move(ItemMoveReason.RemovedAsGadget)))
         {
@@ -144,18 +147,18 @@ internal static class GadgetItemTransitions
 
     /// <summary>
     /// The owner of an installed gadget is saved with it in vanilla's installed storage
-    /// (<see cref="PersistentWorldItemIdentityPatch.OwnerKey"/>), since the mod's own records don't
+    /// (<see cref="ItemIdentityPatch.OwnerKey"/>), since the mod's own records don't
     /// keep installed items. A record made at load takes it back.
     /// </summary>
-    private static void AdoptSavedOwner(NetworkedItem item, AuthoritativeItemRegistry.Record record)
+    private static void AdoptSavedOwner(NetworkedItem item, LiveItems.LiveItem record)
     {
         if (record.PersistentOwnerIdentity != Guid.Empty)
             return;
-        Guid saved = item.GetComponent<PersistentWorldItemIdentity>()?.Owner ?? Guid.Empty;
+        Guid saved = item.GetComponent<ItemIdentity>()?.Owner ?? Guid.Empty;
         if (saved == Guid.Empty)
             return;
         record.PersistentOwnerIdentity = saved;
-        record.PersistentOwnerPlayerId = OwnedItemsServer.OwnerNumber(saved);
+        record.PersistentOwnerPlayerId = ServerLedger.OwnerNumber(saved);
         ServerPlayer owner = NetworkServer.Instance?.ServerPlayers.FirstOrDefault(player => player.Guid == saved);
         owner?.AddOwnedItem(item.NetId);
     }

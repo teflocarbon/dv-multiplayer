@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -136,7 +136,7 @@ namespace Dvmp.Scenarios
                     foreach (var item in client.KnownItems.Keys.ToList())
                     {
                         if (item == null || nudged.ContainsKey(item.NetId) || item.GetTrackedItem<JobOverview>() == null ||
-                            client.AcknowledgedWorldItems.Contains(item.NetId) || !AuthoritativeItemRegistry.TryGet(item.NetId, out var record))
+                            client.AcknowledgedWorldItems.Contains(item.NetId) || !LiveItems.TryGet(item.NetId, out var record))
                             continue;
                         nudged[item.NetId] = record.Revision;
                         item.transform.position += Vector3.up * 0.05f;
@@ -147,7 +147,7 @@ namespace Dvmp.Scenarios
                 step.Result = new Nudged
                 {
                     Count = nudged.Count,
-                    Moved = nudged.Count(kv => AuthoritativeItemRegistry.TryGet(kv.Key, out var r) && r.Revision > kv.Value)
+                    Moved = nudged.Count(kv => LiveItems.TryGet(kv.Key, out var r) && r.Revision > kv.Value)
                 };
             }
 
@@ -200,7 +200,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static Recorded Recorded(ushort id)
             {
-                AuthoritativeItemRegistry.TryGet(id, out var r);
+                LiveItems.TryGet(id, out var r);
                 return new Recorded { Placement = r?.Placement.ToString(), Mine = r != null && r.PlacementPlayerId == Client().PlayerId };
             }
 

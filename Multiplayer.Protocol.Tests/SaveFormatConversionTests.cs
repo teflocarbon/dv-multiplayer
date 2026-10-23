@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Multiplayer.Core.Containers;
+using Multiplayer.Core.Items.Containers;
 using Multiplayer.Server.Career;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -92,10 +92,10 @@ public sealed class SaveFormatConversionTests
     private static JObject SaveOf(Guid player)
     {
         Guid container = Guid.NewGuid();
-        var cold = new ColdContainerGraphSnapshot();
-        cold.Containers.Add(new ColdContainerRecord { PersistentContainerId = container, OwnerIdentity = player.ToString("D"), Capacity = 4 });
-        cold.Items.Add(new ColdStoredItemRecord { PersistentItemId = Guid.NewGuid(), ParentContainerId = container, PersistentOwnerIdentity = player.ToString("D"), PrefabName = "Lantern", Slot = 0 });
-        cold.Items.Add(new ColdStoredItemRecord { PersistentItemId = Guid.NewGuid(), ParentContainerId = container, PersistentOwnerIdentity = Other.ToString("D"), PrefabName = "Wallet", Slot = 1 });
+        var cold = new ContainerGraphSnapshot();
+        cold.Containers.Add(new ContainerRecord { PersistentContainerId = container, OwnerIdentity = player.ToString("D"), Capacity = 4 });
+        cold.Items.Add(new StoredItemRecord { PersistentItemId = Guid.NewGuid(), ParentContainerId = container, PersistentOwnerIdentity = player.ToString("D"), PrefabName = "Lantern", Slot = 0 });
+        cold.Items.Add(new StoredItemRecord { PersistentItemId = Guid.NewGuid(), ParentContainerId = container, PersistentOwnerIdentity = Other.ToString("D"), PrefabName = "Wallet", Slot = 1 });
         return new JObject
         {
             ["Players"] = new JObject { [player.ToString()] = new JObject { ["Player_rotation"] = 10f }, [Other.ToString()] = new JObject() },
@@ -104,14 +104,14 @@ public sealed class SaveFormatConversionTests
                 new JObject { ["persistentItemId"] = Guid.NewGuid().ToString("D"), ["ownerIdentity"] = Other.ToString("D"), ["placementPlayerIdentity"] = player.ToString("D") },
                 new JObject { ["persistentItemId"] = Guid.NewGuid().ToString("D"), ["ownerIdentity"] = Other.ToString("D"), ["placementPlayerIdentity"] = Other.ToString("D") }),
             ["LostAndFound"] = new JArray(new JObject { ["ownerIdentity"] = player.ToString("D") }),
-            ["ColdContainers"] = Convert.ToBase64String(ColdContainerSnapshotCodec.Encode(cold))
+            ["ColdContainers"] = Convert.ToBase64String(ContainerSnapshotCodec.Encode(cold))
         };
     }
 
-    private static ColdContainerGraphSnapshot Cold(JObject root)
+    private static ContainerGraphSnapshot Cold(JObject root)
     {
-        Assert.That(ColdContainerSnapshotCodec.TryDecode(Convert.FromBase64String((string)root["ColdContainers"]),
-            out ColdContainerGraphSnapshot snapshot, out _), Is.True);
+        Assert.That(ContainerSnapshotCodec.TryDecode(Convert.FromBase64String((string)root["ColdContainers"]),
+            out ContainerGraphSnapshot snapshot, out _), Is.True);
         return snapshot;
     }
 
@@ -130,7 +130,7 @@ public sealed class SaveFormatConversionTests
         Assert.That(root["Players"]![Other.ToString()], Is.Not.Null, "other players are untouched");
         Assert.That(Records(root).Count, Is.EqualTo(3), "nothing lost or added");
         Assert.That(Records(root).Count(r => Guid.Parse((string)r["ownerIdentity"]) == Other), Is.EqualTo(2));
-        ColdContainerGraphSnapshot cold = Cold(root);
+        ContainerGraphSnapshot cold = Cold(root);
         Assert.That(cold.Containers.Single().OwnerIdentity, Is.EqualTo(Steam.ToString("D")));
         Assert.That(cold.Items.Select(item => item.PersistentOwnerIdentity),
             Is.EquivalentTo(new[] { Steam.ToString("D"), Other.ToString("D") }));

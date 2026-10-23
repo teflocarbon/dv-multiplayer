@@ -3,10 +3,10 @@ using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Client.Items;
-using Multiplayer.Server.Items.OwnedItems;
+using Multiplayer.Client.Items.OwnedList;
+using Multiplayer.Server.Items.OwnedList;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios

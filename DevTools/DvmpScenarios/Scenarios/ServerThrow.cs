@@ -4,9 +4,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -121,14 +123,14 @@ namespace Dvmp.Scenarios
                 ServerPlayer actor = actorName == "host" ? server.LocalPlayer : server.ServerPlayers.First(p => p != server.LocalPlayer);
                 var spatial = NetworkedItemManager.Instance.Spatial;
                 NetworkedItem item = null;
-                AuthoritativeItemRegistry.Record record = null;
+                LiveItems.LiveItem record = null;
                 bool leased = false, held = false;
                 float t0 = Time.realtimeSinceStartup, inCabAt = -1f;
                 while (Time.realtimeSinceStartup - t0 < 60f)
                 {
                     yield return null;
                     if (item == null) NetworkedItem.TryGet(id, out item);
-                    if (item == null || !AuthoritativeItemRegistry.TryGet(id, out record)) continue;
+                    if (item == null || !LiveItems.TryGet(id, out record)) continue;
                     // The mug is spawned at the actor's feet in the cab and may already lie there,
                     // recorded in it: only a cab placement after the actor has picked it up is the drop.
                     if (record.Placement == ItemPlacementKind.PlayerHand) held = true;
@@ -168,14 +170,14 @@ namespace Dvmp.Scenarios
                 snapshot.InventoryClaimPlayerId = 0;
                 snapshot.InventoryClaimSlot = -1;
                 snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
-                if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, actor, ItemTransitionReason.Unknown, true,
-                        out string rejection, cause: ItemChangeLog.Move(Multiplayer.Core.Items.ItemMoveReason.Thrown, actor, "dvmp server-throw")))
+                if (!LiveItems.TryApplyTransition(item, snapshot, actor, ItemTransitionReason.Unknown, true,
+                        out string rejection, cause: ItemChangeLog.Move(Multiplayer.Core.Items.ChangeCauses.ItemMoveReason.Thrown, actor, "dvmp server-throw")))
                     throw new Exception("the throw was refused: " + rejection);
                 var manager = ServerItemManager.Instance;
                 // In its world cell the moment the transition is committed, before anything applies it.
                 bool indexedOnCommit = manager.HostCellByItem.ContainsKey(item) && !manager.HostNonSpatialItems.Contains(item);
-                AuthoritativeItemRegistry.TryGet(id, out record);
-                AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, ItemTransitionReason.Unknown);
+                LiveItems.TryGet(id, out record);
+                LiveItems.WriteToSnapshot(record, snapshot, ItemTransitionReason.Unknown);
                 snapshot.ItemState = ItemState.Thrown;
                 item.ApplyServerCanonicalSnapshot(snapshot);
                 server.SendItemUpdatePacket(snapshot);

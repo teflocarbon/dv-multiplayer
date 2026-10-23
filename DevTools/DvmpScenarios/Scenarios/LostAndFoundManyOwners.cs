@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Multiplayer.Core.Items;
 
 namespace Dvmp.Scenarios
 {

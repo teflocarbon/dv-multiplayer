@@ -1,6 +1,5 @@
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Core.Items;
 
 namespace Dvmp.Scenarios
 {

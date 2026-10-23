@@ -1,8 +1,8 @@
 using DV.Customization;
 using DV.Customization.Gadgets;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Gadgets;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;
@@ -36,7 +36,7 @@ internal sealed class GadgetJoinSnapshot
         GadgetJoinSnapshot result = new();
         Dictionary<ushort, List<InstalledGadgetData>> byCar = new();
         uint tick = NetworkLifecycle.Instance?.Tick ?? 0;
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll()
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll()
                      .Where(r => r.Placement == ItemPlacementKind.Installed).ToList())
         {
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
@@ -50,7 +50,7 @@ internal sealed class GadgetJoinSnapshot
             if (state == null || create == null)
                 continue;
 
-            AuthoritativeItemRegistry.WriteToSnapshot(record, create, record.LastReason);
+            LiveItems.WriteToSnapshot(record, create, record.LastReason);
             create.ItemState = ItemState.Installed;
             create.CarNetId = carNetId;
             result.ItemCreates.Add(create);

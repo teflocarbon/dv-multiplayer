@@ -7,7 +7,7 @@ using DV.Customization;
 using DV.Customization.Gadgets;
 using DV.Customization.Gadgets.Implementations;
 using Multiplayer.Shared.Gadgets;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -194,7 +194,7 @@ namespace Dvmp.Scenarios
                     Detector = NetId(detector),
                     Alternator = NetId(alternator),
                     Beacon = NetId(beacon),
-                    PersistentIds = items.Select(i => i.GetComponent<Multiplayer.Server.Items.PersistentWorldItemIdentity>().Value.ToString("D")).ToArray(),
+                    PersistentIds = items.Select(i => i.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>().Value.ToString("D")).ToArray(),
                     Note = string.Join("; ", notes.Prepend($"built on {carId}: {string.Join(", ", new[] { roadrunner, ats, detector, alternator, lightA, lightB, beacon, sw }.Where(g => g != null).Select(g => g.name))}"))
                 };
             }

@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios

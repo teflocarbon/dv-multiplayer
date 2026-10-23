@@ -2,8 +2,8 @@
 // Runs identically on host and client. Positions are absolute (origin shift removed) or
 // local to the car an item rides in, so they are comparable across peers.
 using DV.InventorySystem;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
@@ -87,7 +87,7 @@ public static class Probe
                 k = rb != null ? (bool?)rb.isKinematic : null,
                 // Host only: where the authority registry says the item is.
                 rp = NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsServerRunning &&
-                     AuthoritativeItemRegistry.TryGet(item.NetId, out var record) ? record.Placement.ToString() : null,
+                     LiveItems.TryGet(item.NetId, out var record) ? record.Placement.ToString() : null,
                 sl = rb != null && rb.IsSleeping(),
                 v = rb != null && !rb.isKinematic ? (float)Math.Round(rb.velocity.magnitude, 2) : 0f
             });

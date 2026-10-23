@@ -11,9 +11,9 @@ using DV.Shops;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using Multiplayer.Client.Shops;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
@@ -248,7 +248,7 @@ namespace Dvmp.Scenarios
             public static HostView HostView(string prefab, ushort netId, int shop = -1)
             {
                 var d = GlobalShopController.Instance.GetShopItemData(prefab);
-                AuthoritativeItemRegistry.TryGet(netId, out var rec);
+                LiveItems.TryGet(netId, out var rec);
                 var basket = shop >= 0 ? NetworkServer.Instance.Shops.Basket(shop) : null;
                 return new HostView
                 {

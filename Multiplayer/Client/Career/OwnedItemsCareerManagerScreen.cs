@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using DV.ServicePenalty.UI;
-using Multiplayer.Client.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Client.Items.OwnedList;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using TMPro;
 using UnityEngine;

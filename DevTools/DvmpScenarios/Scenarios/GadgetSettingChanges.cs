@@ -7,7 +7,7 @@ using Dvmp.Agent;
 using DV.Customization;
 using DV.Customization.Gadgets;
 using DV.Customization.Gadgets.Implementations;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -152,7 +152,7 @@ namespace Dvmp.Scenarios
                 {
                     Switch = NetId(sw),
                     AmpLimiter = NetId(amp),
-                    PersistentIds = items.Select(i => i.GetComponent<Multiplayer.Server.Items.PersistentWorldItemIdentity>().Value.ToString("D")).ToArray(),
+                    PersistentIds = items.Select(i => i.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>().Value.ToString("D")).ToArray(),
                     Note = string.Join("; ", notes.Prepend($"built on {carId}: {string.Join(", ", new[] { sw, light, amp }.Where(g => g != null).Select(g => g.name))}"))
                 };
             }

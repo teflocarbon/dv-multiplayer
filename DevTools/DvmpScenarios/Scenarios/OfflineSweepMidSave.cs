@@ -2,8 +2,7 @@ using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LostAndFound;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -87,7 +86,7 @@ namespace Dvmp.Scenarios
                 string when = "before the sweep (it never started)";
                 while (Time.realtimeSinceStartup - t0 < seconds)
                 {
-                    int lost = ids.Count(NetworkedLostAndFoundManager.Contains);
+                    int lost = ids.Count(LostAndFoundServer.Contains);
                     SaveGameManager.Instance.Save(DV.Common.SaveType.Manual);
                     saves++;
                     if (lost == ids.Length) { when = "after the sweep (it took one step)"; break; }

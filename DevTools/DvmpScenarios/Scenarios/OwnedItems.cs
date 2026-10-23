@@ -2,8 +2,9 @@ using System;
 using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.Essentials;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
@@ -89,8 +90,8 @@ namespace Dvmp.Scenarios
                 var go = UnityEngine.Object.Instantiate(spec.gameObject, PlayerManager.PlayerTransform.position + Vector3.up * 0.6f + Vector3.right * 1.5f, Quaternion.identity, WorldMover.OriginShiftParent);
                 go.GetComponent<InventoryItemSpec>().BelongsToPlayer = true;
                 NetworkedItem item = null;
-                AuthoritativeItemRegistry.Record record = null;
-                yield return Wait.Until(() => (item = go.GetComponent<NetworkedItem>()) != null && item.NetId != 0 && AuthoritativeItemRegistry.TryGet(item.NetId, out record),
+                LiveItems.LiveItem record = null;
+                yield return Wait.Until(() => (item = go.GetComponent<NetworkedItem>()) != null && item.NetId != 0 && LiveItems.TryGet(item.NetId, out record),
                     10f, $"the spawned {spec.ItemPrefabName}'s server record");
                 Items.Track(item.NetId);
                 record.PersistentOwnerIdentity = Guid.NewGuid();

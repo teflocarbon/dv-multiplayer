@@ -1,10 +1,14 @@
 using System;
 using System.Linq;
 using DV.JObjectExtstensions;
-using Multiplayer.Server.Items;
+using Multiplayer.Core.Items.Containers;
+using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Session;
-using Multiplayer.Core.Containers;
 using Newtonsoft.Json.Linq;
 
 namespace Multiplayer.Server.Career;
@@ -52,21 +56,21 @@ public static class InstallGuidRekey
     public static bool Owns(JObject root, Guid id) =>
         id != Guid.Empty &&
         (SaveOwns(root, id) ||
-         AuthoritativeItemRegistry.HasIdentity(id) ||
-         NetworkedLostAndFoundManager.HasOwner(id) ||
-         NetworkedColdContainerManager.Graph.HasOwner(id.ToString("D")) ||
-         OwnedItemsServer.Ledger.HasStarterKit(id));
+         LiveItems.HasIdentity(id) ||
+         LostAndFoundServer.HasOwner(id) ||
+         ContainerServer.Graph.HasOwner(id.ToString("D")) ||
+         ServerLedger.Ledger.HasStarterKit(id));
 
     /// <summary>Re-keys the save root and the imported state. Returns how many records changed.</summary>
     public static int Rekey(JObject root, Guid from, Guid to)
     {
         int changed = root != null ? RekeySave(root, from, to) : 0;
-        changed += AuthoritativeItemRegistry.RekeyIdentity(from, to);
-        changed += NetworkedLostAndFoundManager.RekeyOwner(from, to);
-        changed += NetworkedColdContainerManager.Graph.RekeyOwner(from.ToString("D"), to.ToString("D"));
-        if (OwnedItemsServer.Ledger.ForgetStarterKit(from))
+        changed += LiveItems.RekeyIdentity(from, to);
+        changed += LostAndFoundServer.RekeyOwner(from, to);
+        changed += ContainerServer.Graph.RekeyOwner(from.ToString("D"), to.ToString("D"));
+        if (ServerLedger.Ledger.ForgetStarterKit(from))
         {
-            OwnedItemsServer.Ledger.MarkStarterKit(to);
+            ServerLedger.Ledger.MarkStarterKit(to);
             changed++;
         }
         return changed;
@@ -79,12 +83,12 @@ public static class InstallGuidRekey
         string key = id.ToString("D");
         if ((root[PlayersKey] as JObject)?.Properties().Any(p => SameId(p.Name, id)) == true)
             return true;
-        if (Records(root, WorldItemPersistenceManager.SaveKey)
+        if (Records(root, ItemSaveLoad.SaveKey)
             .Any(value => SameId(value["ownerIdentity"], id) || SameId(value["placementPlayerIdentity"], id)))
             return true;
         if (Records(root, LostAndFoundKey).Any(value => SameId(value["ownerIdentity"], id)))
             return true;
-        ColdContainerGraphSnapshot snapshot = ColdContainers(root);
+        ContainerGraphSnapshot snapshot = ColdContainers(root);
         return snapshot != null &&
                (snapshot.Containers.Any(container => container.OwnerIdentity == key) ||
                 snapshot.Items.Any(item => item.PersistentOwnerIdentity == key));
@@ -107,7 +111,7 @@ public static class InstallGuidRekey
             }
         }
 
-        foreach (JObject value in Records(root, WorldItemPersistenceManager.SaveKey))
+        foreach (JObject value in Records(root, ItemSaveLoad.SaveKey))
         {
             bool touched = false;
             foreach (string field in new[] { "ownerIdentity", "placementPlayerIdentity" })
@@ -127,11 +131,11 @@ public static class InstallGuidRekey
             changed++;
         }
 
-        ColdContainerGraphSnapshot snapshot = ColdContainers(root);
+        ContainerGraphSnapshot snapshot = ColdContainers(root);
         int cold = snapshot?.RekeyOwner(from.ToString("D"), target) ?? 0;
         if (cold > 0)
         {
-            root[NetworkedColdContainerManager.SaveKey] = Convert.ToBase64String(ColdContainerSnapshotCodec.Encode(snapshot));
+            root[ContainerServer.SaveKey] = Convert.ToBase64String(ContainerSnapshotCodec.Encode(snapshot));
             changed += cold;
         }
 
@@ -147,15 +151,15 @@ public static class InstallGuidRekey
     private static System.Collections.Generic.IEnumerable<JObject> Records(JObject root, string key) =>
         (root[key] as JArray ?? new JArray()).OfType<JObject>();
 
-    private static ColdContainerGraphSnapshot ColdContainers(JObject root)
+    private static ContainerGraphSnapshot ColdContainers(JObject root)
     {
-        string encoded = (string)root[NetworkedColdContainerManager.SaveKey];
+        string encoded = (string)root[ContainerServer.SaveKey];
         if (string.IsNullOrWhiteSpace(encoded))
             return null;
         try
         {
-            return ColdContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded),
-                out ColdContainerGraphSnapshot snapshot, out _) ? snapshot : null;
+            return ContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded),
+                out ContainerGraphSnapshot snapshot, out _) ? snapshot : null;
         }
         catch (FormatException)
         {

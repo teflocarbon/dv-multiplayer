@@ -4,8 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -106,7 +106,7 @@ namespace Dvmp.Scenarios
             /// <summary>Host: the server's record of the item, its placement and claim.</summary>
             [Step]
             public static string ServerClaim(ushort id) =>
-                AuthoritativeItemRegistry.TryGet(id, out var r)
+                LiveItems.TryGet(id, out var r)
                     ? $"{r.Placement} owner {r.PersistentOwnerPlayerId}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
                     : "no record";
 

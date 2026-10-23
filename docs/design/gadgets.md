@@ -98,7 +98,7 @@ Every change works the same on a player host and a dedicated host: the host's pl
 ## The installed gadget and its item
 
 `Installed` already exists in the item model (`ItemPlacementKind.Installed`,
-`AuthorityPlacement.Installed`), is already non-spatial, not persisted by the mod's own records and
+`LivePlacement.Installed`), is already non-spatial, not persisted by the mod's own records and
 not eligible for Lost and Found. Nothing assigns it. Gadgets make it real:
 
 - **The record.** `Installed` gains the anchor: the car NetId and `CarGUID`, as `Attached` keeps them
@@ -609,7 +609,7 @@ own.
 - **One save owner.** `WorldItemsV1` skips `Installed` records (it already would, once they are
   `Installed`), and the save-time dedupe strips installed items as it strips world and inventory ones.
 - **The owner.** An item's persistent owner lives in the mod's records, which `Installed` items are
-  not in. `PersistentWorldItemIdentityPatch` adds the owner's GUID to the item's vanilla save data
+  not in. `ItemIdentityPatch` adds the owner's GUID to the item's vanilla save data
   (`dvmpPersistentOwner`) beside the persistent id, and restores it on load.
 - **A missing anchor on load.** Vanilla sends the item to its Lost and Found, which
   `StorageControllerAddLostItemPatch` blocks for owned items. Owned: the owner's Lost and Found with
@@ -713,8 +713,8 @@ change gadgets). `gadgetData` is server-made JSON; the server never applies JSON
 | Role | Files |
 | --- | --- |
 | Core | `Multiplayer.Core/Gadgets/`: `GadgetAnchorModel` (revisions, installed set, wires, holes, idempotent apply, the rebuild plan), `GadgetRequestRules` (the checks that don't need the game: possession, reach, bounds, units), `GadgetChangeLog` (nesting, ordering, flush), `GadgetPredictionLog` (a client's pending operations, their dependencies, reconciling echoes, the undo order), `GadgetStateSync` (setting prediction and echo rules). Tests in `Multiplayer.Core.Tests/Gadgets/`. |
-| Shared | `Shared/Gadgets/`: `GadgetApplyScope`, `GadgetAnchorRef` resolution, `GadgetNative` (place with a UID, remove, the on-glass flags), `State/*` adapters, `IGadgetServer`/`IGadgetClient`. `Shared/Protocol/Packets/{Serverbound,Clientbound}/Gadgets/`, `Shared/Protocol/Data/Gadgets/`. Item touchpoints: `Shared/Items/StorageIntegration.cs` (installed storage as a membership). |
-| Server | `Server/Gadgets/`: `GadgetServer` (handlers, checks, native apply, item transitions), `GadgetObserverPatches` (the change log), `GadgetSnapshots`, `GadgetStateWatch`, `GadgetControlWriter` (lease revoke, step emulation), `GadgetServerPatches` (dangler camera, pool holes). `Server/Session/NetworkServer.Gadgets.cs` (subscriptions, `RegisterLocalGadgets`, the `ReadyForCustomizers` case). Item touchpoints: `AuthoritativeItemRegistry`, `ServerItemManager.Interest`, `WorldItemPersistence*`, `PersistentWorldItemIdentityPatch`. |
+| Shared | `Shared/Gadgets/`: `GadgetApplyScope`, `GadgetAnchorRef` resolution, `GadgetNative` (place with a UID, remove, the on-glass flags), `State/*` adapters, `IGadgetServer`/`IGadgetClient`. `Shared/Protocol/Packets/{Serverbound,Clientbound}/Gadgets/`, `Shared/Protocol/Data/Gadgets/`. Item touchpoints: `Shared/Items/VanillaStorage/StorageIntegration.cs` (installed storage as a membership). |
+| Server | `Server/Gadgets/`: `GadgetServer` (handlers, checks, native apply, item transitions), `GadgetObserverPatches` (the change log), `GadgetSnapshots`, `GadgetStateWatch`, `GadgetControlWriter` (lease revoke, step emulation), `GadgetServerPatches` (dangler camera, pool holes). `Server/Session/NetworkServer.Gadgets.cs` (subscriptions, `RegisterLocalGadgets`, the `ReadyForCustomizers` case). Item touchpoints: `LiveItems`, `ServerItemManager.Interest`, `WorldItemPersistence*`, `ItemIdentityPatch`. |
 | Client | `Client/Gadgets/`: `GadgetIntentPatches`, `GadgetChangeApplier` (queue, reconcile, resync, rebuild), `GadgetPrediction` (applying and undoing predictions), `GadgetStatePrediction`, `GadgetServerOnlyPatches`, `GadgetItemLifecyclePatches`. `Client/Session/NetworkClient.Gadgets.cs`, `LocalPlayerSession.Gadgets.cs` (results and state the host's player needs). Item touchpoint: the `Installed` apply in `NetworkedItem.Snapshots`/`StateApplication`. |
 | Tests | `Multiplayer.Protocol.Tests/GadgetPacketTests.cs` (round trips). |
 | Scenarios | `DevTools/DvmpScenarios/Library/Gadgets.cs` (spawn a gadget item, install, remove, drill, tape, wire, solder, set and read state through the vanilla tool methods, the digest); `Scenarios/Gadget*.cs`; runs in `DevTools/Scenarios/gate.sh`. |
@@ -797,7 +797,7 @@ lifecycle. They meet at four points:
 
 - **Gadget PR 1 goes first.** The ledger counts installed gadgets as one of its stores and its
   migration reads `dvmpPersistentOwner`; both come from it.
-- **`AuthoritativeItemRegistry.cs` is shared.** Owned-items PR 1 hooks the ledger into every registry
+- **`LiveItems.cs` is shared.** Owned-items PR 1 hooks the ledger into every registry
   commit and moves ownership out of that file; gadget PR 3a adds the install and remove transitions,
   in a file of their own that calls the registry. The two are never in flight at once.
 - **Gadget PR 3a after owned-items PR 2** (ownership by identity), so a deleted car's gadgets reach an

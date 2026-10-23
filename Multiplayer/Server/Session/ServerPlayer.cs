@@ -1,13 +1,14 @@
 using DV.JObjectExtstensions;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Player;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
-using Multiplayer.Core.Items;
 using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
@@ -28,7 +29,7 @@ public class ServerPlayer : IDisposable
     private static NetIdAllocator<byte> CreateIdAllocator()
     {
         NetIdAllocator<byte> allocator = new(value => unchecked((byte)(value + 1)));
-        allocator.TryReserve(ItemTransitionCommand.AbsentOwnerId);
+        allocator.TryReserve(ItemTransition.AbsentOwnerId);
         return allocator;
     }
 
@@ -37,8 +38,8 @@ public class ServerPlayer : IDisposable
         Multiplayer.LogDebug(() => $"Disposing ServerPlayer {Username} ({PlayerId})");
         if (PlayerId != 0)
         {
-            AuthoritativeItemRegistry.UnbindPersistentOwner(this);
-            NetworkedLostAndFoundManager.OnOwnerDisconnected(this);
+            LiveItems.UnbindPersistentOwner(this);
+            LostAndFoundServer.OnOwnerDisconnected(this);
             idAllocator.Release(PlayerId);
             PlayerId = 0;
         }

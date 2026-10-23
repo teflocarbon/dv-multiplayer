@@ -1,5 +1,5 @@
 using LiteNetLib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;

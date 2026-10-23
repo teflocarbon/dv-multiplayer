@@ -12,7 +12,7 @@ using DV.Simulation.Cars;
 using DV.Simulation.Controllers;
 using HarmonyLib;
 using Multiplayer.Shared.Gadgets;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Trains;
 using UnityEngine;
 
@@ -191,7 +191,7 @@ namespace Dvmp.Scenarios
             step.Result = new Built
             {
                 Gadget = gadget != null && gadget.IsLinked ? item.NetId : (ushort)0,
-                PersistentIds = new[] { item.GetComponent<Multiplayer.Server.Items.PersistentWorldItemIdentity>().Value.ToString("D") },
+                PersistentIds = new[] { item.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>().Value.ToString("D") },
                 Note = $"{spec.ItemPrefabName} on {carId}: linked {gadget != null && gadget.IsLinked}"
             };
         }

@@ -1,8 +1,8 @@
 using LiteNetLib.Utils;
-using Multiplayer.Shared.Items;
+using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Serialization;
 using Multiplayer.Core.Diagnostics;
-using Multiplayer.Core.Items;
 using System;
 using System.Collections.Generic;
 using UnityEngine;

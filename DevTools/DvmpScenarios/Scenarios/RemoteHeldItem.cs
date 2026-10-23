@@ -2,8 +2,8 @@ using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
@@ -90,7 +90,7 @@ namespace Dvmp.Scenarios
             {
                 var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
-                AuthoritativeItemRegistry.TryGet(id, out var r);
+                LiveItems.TryGet(id, out var r);
                 NetworkedItem.TryGet(id, out NetworkedItem n);
                 var lantern = n == null ? null : n.GetComponentInChildren<Lantern>(true);
                 return new Held { State = r?.Placement.ToString() ?? "none", Player = r?.PlacementPlayerId ?? 0, Client = client.PlayerId, Lit = lantern != null && lantern.Ignited };

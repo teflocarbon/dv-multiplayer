@@ -1,6 +1,6 @@
 using DV.Logic.Job;
 using HarmonyLib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 
 
 namespace Multiplayer.Shared.Jobs;

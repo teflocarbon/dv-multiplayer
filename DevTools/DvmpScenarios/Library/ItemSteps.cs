@@ -7,8 +7,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 
@@ -171,12 +172,12 @@ namespace Dvmp.Scenarios
             var client = UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Players.NetworkedPlayer>().FirstOrDefault();
             var result = new ItemRecord
             {
-                Lost = NetworkedLostAndFoundManager.Contains(netId),
+                Lost = LostAndFoundServer.Contains(netId),
                 Exists = NetworkedItem.TryGet(netId, out NetworkedItem n) && n != null,
                 ClientId = client != null ? client.PlayerId : 0,
                 HostId = Multiplayer.Server.Session.NetworkServer.Instance.LocalPlayer?.PlayerId ?? 0
             };
-            if (!AuthoritativeItemRegistry.TryGet(netId, out var r)) return result;
+            if (!LiveItems.TryGet(netId, out var r)) return result;
             result.Known = true;
             result.Placement = r.Placement.ToString();
             result.Owner = r.PersistentOwnerPlayerId;

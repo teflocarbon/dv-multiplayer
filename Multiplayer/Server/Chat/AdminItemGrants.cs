@@ -7,13 +7,17 @@ using DV;
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.Utils;
-using Multiplayer.Server.Items;
+using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Essentials;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using UnityEngine;
-using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
+using ItemMoveReason = Multiplayer.Core.Items.ChangeCauses.ItemMoveReason;
 
 namespace Multiplayer.Server.Chat;
 
@@ -113,7 +117,7 @@ internal static class AdminItemGrants
                 Multiplayer.LogWarning($"Couldn't give {player.Username} a {spec.ItemPrefabName}: it has no net id");
                 continue;
             }
-            AuthoritativeItemRegistry.Record record = AuthoritativeItemRegistry.Ensure(networked);
+            LiveItems.LiveItem record = LiveItems.Ensure(networked);
             if (record != null && record.PersistentOwnerPlayerId == 0)
             {
                 record.PersistentOwnerPlayerId = player.PlayerId;
@@ -132,7 +136,7 @@ internal static class AdminItemGrants
 
     // As a saved inventory item comes back at the owner's login (WorldItemPersistenceRestore): the
     // host makes it "in this player's inventory", and their game puts it in a free slot.
-    private static bool PutInInventory(ServerPlayer player, NetworkedItem item, AuthoritativeItemRegistry.Record record)
+    private static bool PutInInventory(ServerPlayer player, NetworkedItem item, LiveItems.LiveItem record)
     {
         if (record == null)
             return false;
@@ -143,14 +147,14 @@ internal static class AdminItemGrants
         snapshot.PlayerId = player.PlayerId;
         snapshot.PlayerHand = PlayerHand.None;
         snapshot.AuthorityRevision = record.Revision;
-        if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, player,
+        if (!LiveItems.TryApplyTransition(item, snapshot, player,
                 ItemTransitionReason.HostLocalState, true, out string rejection,
                 cause: ItemChangeLog.Move(ItemMoveReason.Granted, player, "by an admin command")))
         {
             Multiplayer.LogWarning($"Couldn't put {item.name} in {player.Username}'s inventory ({rejection}); leaving it at their feet");
             return false;
         }
-        AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, ItemTransitionReason.HostLocalState);
+        LiveItems.WriteToSnapshot(record, snapshot, ItemTransitionReason.HostLocalState);
         item.ApplyServerCanonicalSnapshot(snapshot);
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
         NetworkServer.Instance.SendItemUpdatePacket(snapshot);

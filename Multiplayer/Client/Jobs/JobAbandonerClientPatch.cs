@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using DV.ThingTypes;
 using HarmonyLib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using UnityEngine;
 

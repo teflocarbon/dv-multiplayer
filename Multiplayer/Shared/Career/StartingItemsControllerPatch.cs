@@ -7,7 +7,7 @@ namespace Multiplayer.Shared.Career;
 /// While loading, DV adds any starting items (comms radio, maps, compass, wallet, ...) and licence
 /// papers missing from the items it was given (StartingItemsSafeguard, LicensesSafeguard). In
 /// multiplayer the server makes every player's starting items itself, owned and in their slots
-/// (owned-items.md, PR 4: Server/Items/OwnedItems/StartingItemsIssuer), so neither runs in any
+/// (owned-items.md, PR 4: Server/Items/Essentials/StartingItemsIssuer), so neither runs in any
 /// game: a client, a player host or a dedicated host. DV's inventory starts empty in each.
 /// Licence papers aren't made in multiplayer at all (PhysicalLicensePaperPatch).
 /// </summary>

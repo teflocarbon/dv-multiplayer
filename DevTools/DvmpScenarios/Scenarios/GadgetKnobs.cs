@@ -7,7 +7,7 @@ using DV.Customization.Gadgets;
 using Multiplayer.Client.Gadgets;
 using Multiplayer.Core.Gadgets;
 using Multiplayer.Shared.Gadgets;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;

@@ -1,8 +1,7 @@
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Shared.Items.LiveState;
 
 namespace Dvmp.Scenarios
 {
@@ -130,7 +129,7 @@ namespace Dvmp.Scenarios
             {
                 if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item?.Item == null) return false;
                 bool vanilla = StorageController.Instance?.StorageLostAndFound?.ContainsItem(item.Item) == true;
-                return vanilla && !NetworkedLostAndFoundManager.Contains(netId);
+                return vanilla && !LostAndFoundServer.Contains(netId);
             }
         }
     }

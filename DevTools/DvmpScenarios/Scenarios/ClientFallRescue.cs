@@ -4,8 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using HarmonyLib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.Projection;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 

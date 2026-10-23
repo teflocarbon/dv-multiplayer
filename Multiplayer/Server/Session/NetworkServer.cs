@@ -17,19 +17,22 @@ using LiteNetLib;
 using LiteNetLib.Utils;
 using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
+using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Server.Api;
 using Multiplayer.Server.Career;
 using Multiplayer.Server.Chat;
 using Multiplayer.Server.Coverage;
 using Multiplayer.Server.Dedicated;
-using Multiplayer.Server.Items;
-using Multiplayer.Server.Items.OwnedItems;
+using Multiplayer.Server.Items.Essentials;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Server.Items.Projection;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Jobs;
 using Multiplayer.Server.Trains;
 using Multiplayer.Server.World;
 using Multiplayer.Shared.Api;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -58,14 +61,13 @@ using Multiplayer.Shared.Transport;
 using Multiplayer.Shared.Utils;
 using Multiplayer.Shared.Shops;
 using Multiplayer.Shared.World;
-using Multiplayer.Core.Containers;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Core.Trains;
 using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
-using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
-using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
+using ItemMoveReason = Multiplayer.Core.Items.ChangeCauses.ItemMoveReason;
+using ItemRemovalReason = Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -939,9 +941,9 @@ public partial class NetworkServer : NetworkManager
         if (isLocalPlayer)
             LocalPlayer = serverPlayer;
         global::Multiplayer.Server.Career.InstallGuidRekey.OnLogin(serverPlayer);
-        AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
-        NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
-        WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
+        LiveItems.RebindPersistentOwner(serverPlayer);
+        LostAndFoundServer.OnOwnerConnected(serverPlayer);
+        ItemSaveLoad.OnOwnerConnected(serverPlayer);
         DedicatedHost.OnPlayersChanged(someoneLeft: false);
         return serverPlayer;
     }
@@ -1199,7 +1201,7 @@ public partial class NetworkServer : NetworkManager
             case PlayerLoadingState.ReadyForItems:
                 // Before the player's items go out: a save may hold two of their essentials on one
                 // slot, which left one with no silhouette and no recall.
-                AuthoritativeItemRegistry.EnsureDistinctClaimSlots(player, "owner-loading");
+                LiveItems.EnsureDistinctClaimSlots(player, "owner-loading");
                 // World items will be spawned when the player is within the culling range
                 break;
 

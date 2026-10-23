@@ -1,9 +1,8 @@
 using System.Collections;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 
 namespace Dvmp.Scenarios
@@ -98,7 +97,7 @@ namespace Dvmp.Scenarios
                 for (int i = 0; i < 30; i++) yield return null;
                 yield return Hands.Drop();
                 for (int i = 0; i < 60; i++) yield return null;
-                AuthoritativeItemRegistry.TryGet(id, out var r);
+                LiveItems.TryGet(id, out var r);
                 step.Result = new Owned { Owner = r?.PersistentOwnerPlayerId ?? 0, Host = NetworkLifecycle.Instance.LocalSession.PlayerId };
             }
         }

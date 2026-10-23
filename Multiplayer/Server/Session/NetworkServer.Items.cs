@@ -1,10 +1,17 @@
 ﻿using DV.InventorySystem;
 using LiteNetLib;
-using Multiplayer.Server.Items;
-using Multiplayer.Server.Items.OwnedItems;
+using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Containers;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Server.Items.OwnedList;
+using Multiplayer.Server.Items.Projection;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Jobs;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
@@ -12,10 +19,9 @@ using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Transport;
-using Multiplayer.Core.Containers;
 using Multiplayer.Debugging.Protocol;
-using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
-using ItemRemovalReason = Multiplayer.Core.Items.ItemRemovalReason;
+using ItemMoveReason = Multiplayer.Core.Items.ChangeCauses.ItemMoveReason;
+using ItemRemovalReason = Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,25 +32,25 @@ namespace Multiplayer.Server.Session;
 // NetworkServer's items handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkServer : IItemServer
 {
-    bool IItemServer.IsInLostAndFound(ushort itemNetId) => NetworkedLostAndFoundManager.Contains(itemNetId);
+    bool IItemServer.IsInLostAndFound(ushort itemNetId) => LostAndFoundServer.Contains(itemNetId);
 
     bool IItemServer.TryGetPersistentOwner(ushort itemNetId, out byte ownerPlayerId)
     {
-        bool known = AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record);
+        bool known = LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record);
         ownerPlayerId = known ? record.PersistentOwnerPlayerId : (byte)0;
         return known;
     }
 
     bool IItemServer.TryGetPlacement(ushort itemNetId, out ItemPlacementKind placement)
     {
-        bool known = AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record);
+        bool known = LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record);
         placement = known ? record.Placement : default;
         return known;
     }
 
-    void IItemServer.MarkAuthoredIdentity(NetworkedItem item) => AuthoritativeItemRegistry.MarkAuthoredIdentity(item);
+    void IItemServer.MarkAuthoredIdentity(NetworkedItem item) => LiveItems.MarkAuthoredIdentity(item);
 
-    void IItemServer.PromoteAuthoredToPersistent(NetworkedItem item) => AuthoritativeItemRegistry.PromoteAuthoredToPersistent(item);
+    void IItemServer.PromoteAuthoredToPersistent(NetworkedItem item) => LiveItems.PromoteAuthoredToPersistent(item);
 
     void IItemServer.OnItemDestroyed(NetworkedItem item, bool suppressNetworkDestroy)
     {
@@ -52,19 +58,19 @@ public partial class NetworkServer : IItemServer
         JobReportArtifactRegistry.Remove(item.NetId);
     }
 
-    bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => WorldItemPersistenceManager.OwnsWorldPersistence(item);
+    bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => ItemSaveLoad.OwnsWorldPersistence(item);
 
     IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);
 
     INetworkedItemServerPart IItemServer.CreateItemPart(NetworkedItem item) => new NetworkedItemServerPart(item);
 
     Dictionary<string, object> IItemServer.AuthorityDebugState(ushort itemNetId) =>
-        AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record)
-            ? AuthoritativeItemRegistry.Snapshot(record) : null;
+        LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record)
+            ? LiveItems.Snapshot(record) : null;
 
-    Dictionary<string, object>[] IItemServer.LostAndFoundDebugSnapshot() => NetworkedLostAndFoundManager.DebugSnapshot();
+    Dictionary<string, object>[] IItemServer.LostAndFoundDebugSnapshot() => LostAndFoundServer.DebugSnapshot();
 
-    Dictionary<string, object>[] IItemServer.ColdContainerDebugSnapshot() => NetworkedColdContainerManager.DebugSnapshot();
+    Dictionary<string, object>[] IItemServer.ColdContainerDebugSnapshot() => ContainerServer.DebugSnapshot();
 
     private void OnServerboundItemSpatialSamplePacket(ServerboundItemSpatialSamplePacket packet,
         ITransportPeer peer)
@@ -128,7 +134,7 @@ public partial class NetworkServer : IItemServer
         // later revisions follow it on the same reliable ordered channel, so an older one still
         // means the client has the item. Only an ack from beyond the server's revision is wrong.
         // Requiring an exact match left those items unacknowledged, and their pickups refused.
-        bool revisionMatches = known && AuthoritativeItemRegistry.TryGet(packet.ItemNetId, out var record) &&
+        bool revisionMatches = known && LiveItems.TryGet(packet.ItemNetId, out var record) &&
                                packet.AuthorityRevision <= record.Revision;
         if (packet.Projected && (!known || !revisionMatches || !player.KnownItems.ContainsKey(item)))
         {
@@ -154,8 +160,8 @@ public partial class NetworkServer : IItemServer
             {
                 ["playerId"] = player.PlayerId,
                 ["authorityRevision"] = packet.AuthorityRevision,
-                ["authoredItemKey"] = known && AuthoritativeItemRegistry.TryGet(packet.ItemNetId,
-                    out AuthoritativeItemRegistry.Record acknowledgedRecord)
+                ["authoredItemKey"] = known && LiveItems.TryGet(packet.ItemNetId,
+                    out LiveItems.LiveItem acknowledgedRecord)
                     ? acknowledgedRecord.AuthoredItemKey ?? string.Empty
                     : string.Empty
             });
@@ -259,11 +265,11 @@ public partial class NetworkServer : IItemServer
     public void SendLostItemsSnapshot(ServerPlayer player, uint requestId = 0)
     {
         if (player?.Peer == null) return;
-        LostItemData[] items = NetworkedLostAndFoundManager.SnapshotFor(player);
+        LostItemData[] items = LostAndFoundServer.SnapshotFor(player);
         SendPacket(player.Peer, new ClientboundLostItemsSnapshotPacket
         {
             RequestId = requestId,
-            Generation = NetworkedLostAndFoundManager.Generation,
+            Generation = LostAndFoundServer.Generation,
             Handles = items.Select(item => item.Handle).ToArray(),
             NetIds = items.Select(item => item.NetId).ToArray(),
             Revisions = items.Select(item => item.Revision).ToArray(),
@@ -417,7 +423,7 @@ public partial class NetworkServer : IItemServer
             return false;
         }
 
-        if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
+        if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) &&
             (record.Placement is ItemPlacementKind.LostAndFound or ItemPlacementKind.Container ||
              record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
              record.PlacementPlayerId != player.PlayerId))
@@ -452,12 +458,12 @@ public partial class NetworkServer : IItemServer
         ItemUpdateData snapshot = null;
         if (!NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) || item == null)
             rejectionReason = "unknown-network-entity";
-        else if (storedInLostAndFound = NetworkedLostAndFoundManager.Contains(item.NetId))
-            accepted = NetworkedLostAndFoundManager.TryRetrieveForRecall(player, item,
+        else if (storedInLostAndFound = LostAndFoundServer.Contains(item.NetId))
+            accepted = LostAndFoundServer.TryRetrieveForRecall(player, item,
                 packet.ExpectedRevision, packet.RequestedSlot, out snapshot, out rejectionReason);
         else if (pendingItemRecallByItem.ContainsKey(item.NetId))
             rejectionReason = "recall-already-pending";
-        else if (AuthoritativeItemRegistry.TryPrepareRecall(item, player, packet.RequestedSlot,
+        else if (LiveItems.TryPrepareRecall(item, player, packet.RequestedSlot,
                      packet.ExpectedRevision, out snapshot, out rejectionReason))
         {
             uint operationId = NextItemRecallOperationId();
@@ -531,7 +537,7 @@ public partial class NetworkServer : IItemServer
         }
         string rejectionReason = string.Empty;
         if (!NetworkedItem.TryGet(pending.ItemNetId, out NetworkedItem item) || item == null ||
-            !AuthoritativeItemRegistry.TryCommitPreparedRecall(item, pending.Player,
+            !LiveItems.TryCommitPreparedRecall(item, pending.Player,
                 pending.RequestedSlot, pending.BaseRevision, out ItemUpdateData snapshot,
                 out rejectionReason))
         {
@@ -557,7 +563,7 @@ public partial class NetworkServer : IItemServer
         RemovePendingItemRecall(pending);
         uint revision = 0;
         if (NetworkedItem.TryGet(pending.ItemNetId, out NetworkedItem item) && item != null &&
-            AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction,
+            LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction,
                 ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "recall cancelled: " + reason)))
         {
             revision = correction.AuthorityRevision;
@@ -635,9 +641,9 @@ public partial class NetworkServer : IItemServer
     private void HandleOwnedItemRetrieve(ServerboundOwnedItemRetrievePacket packet, ServerPlayer player)
     {
         if (player?.Peer == null) return;
-        string reason = OwnedItemRetrieval.Unknown;
+        string reason = Retrieval.Unknown;
         bool accepted = OwnedItemRows.TryResolve(packet.Handle, out Guid itemId) &&
-                        OwnedItemRetrieval.Retrieve(player, itemId, out reason);
+                        Retrieval.Retrieve(player, itemId, out reason);
         Log($"{player.Username} retrieved owned item {packet.Handle}: {(accepted ? "to Lost and Found" : "refused, " + reason)}");
         SendPacket(player.Peer, new ClientboundOwnedItemRetrieveResultPacket
         {
@@ -682,7 +688,7 @@ public partial class NetworkServer : IItemServer
             $"request={packet.RequestId}, handle={packet.LostHandle}, revision={packet.ExpectedRevision}, " +
             $"requestedSlot={packet.RequestedSlot}, existingSlot={packet.ExistingItemSlot}, " +
             $"capacity={packet.InventoryCapacity}, occupied=[{string.Join(",", packet.OccupiedSlots ?? System.Array.Empty<int>())}]");
-        bool accepted = NetworkedLostAndFoundManager.TryRetrieve(player, packet.LostHandle,
+        bool accepted = LostAndFoundServer.TryRetrieve(player, packet.LostHandle,
             packet.ExpectedRevision, packet.RequestedSlot, packet.ExistingItemSlot, packet.InventoryCapacity,
             packet.OccupiedSlots, out ItemUpdateData snapshot, out string rejectionReason);
         if (accepted)
@@ -713,11 +719,11 @@ public partial class NetworkServer : IItemServer
 
     private void HandleContainerBrowse(ServerboundContainerBrowsePacket packet, ServerPlayer player)
     {
-        ColdContainerView view;
+        ContainerView view;
         ContainerOperationResult result = packet.ShellNetId != 0
-            ? NetworkedColdContainerManager.Browse(player, packet.ShellNetId, packet.Offset,
+            ? ContainerServer.Browse(player, packet.ShellNetId, packet.Offset,
                 packet.Count, out view)
-            : NetworkedColdContainerManager.Browse(player, packet.ContainerHandle, packet.Offset,
+            : ContainerServer.Browse(player, packet.ContainerHandle, packet.Offset,
                 packet.Count, out view);
         SendPacket(player.Peer, ProjectContainerView(packet.RequestId, result, view),
             DeliveryMethod.ReliableOrdered);
@@ -751,14 +757,14 @@ public partial class NetworkServer : IItemServer
             switch ((ContainerOperationKind)packet.Kind)
             {
                 case ContainerOperationKind.Deposit:
-                    result = NetworkedColdContainerManager.Deposit(player, operationId,
+                    result = ContainerServer.Deposit(player, operationId,
                         packet.ShellNetId, packet.DestinationContainerHandle,
                         packet.ExpectedDestinationRevision,
                         packet.DestinationSlot, packet.ItemNetId);
                     break;
                 case ContainerOperationKind.Withdraw:
                     CoroutineManager.Instance.StartCoroutine(
-                        NetworkedColdContainerManager.Withdraw(player, operationId,
+                        ContainerServer.Withdraw(player, operationId,
                         packet.SourceContainerHandle, packet.ExpectedSourceRevision,
                         packet.SourceSlot, packet.DestinationSlot,
                         (withdrawalResult, withdrawnNetId) =>
@@ -766,7 +772,7 @@ public partial class NetworkServer : IItemServer
                                 withdrawalResult, withdrawnNetId)));
                     return;
                 case ContainerOperationKind.Move:
-                    result = NetworkedColdContainerManager.Move(player, operationId,
+                    result = ContainerServer.Move(player, operationId,
                         packet.SourceContainerHandle, packet.ExpectedSourceRevision,
                         packet.SourceSlot, packet.DestinationContainerHandle,
                         packet.ExpectedDestinationRevision, packet.DestinationSlot);
@@ -804,9 +810,9 @@ public partial class NetworkServer : IItemServer
     }
 
     private static ClientboundContainerViewPacket ProjectContainerView(uint requestId,
-        ContainerOperationResult result, ColdContainerView view)
+        ContainerOperationResult result, ContainerView view)
     {
-        ColdContainerSlotView[] slots = view?.Slots?.ToArray() ?? Array.Empty<ColdContainerSlotView>();
+        ContainerSlotView[] slots = view?.Slots?.ToArray() ?? Array.Empty<ContainerSlotView>();
         return new ClientboundContainerViewPacket
         {
             RequestId = requestId,

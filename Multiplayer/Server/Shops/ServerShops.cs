@@ -6,10 +6,10 @@ using DV.InventorySystem;
 using DV.Shops;
 using DV.ThingTypes;
 using Multiplayer.Core.Shops;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Players;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Shops;
 using UnityEngine;
@@ -328,6 +328,6 @@ public sealed class ServerShops
     }
 
     private static bool HeldBy(NetworkedItem item, ServerPlayer player) =>
-        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
+        LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) &&
         record.Placement == ItemPlacementKind.PlayerHand && record.PlacementPlayerId == player.PlayerId;
 }
