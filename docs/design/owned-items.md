@@ -3,8 +3,9 @@
 > Status: as built, checked against the code on 2026-10-23 (`beta`, with #308–#312 merged). PRs 1a
 > to 7 are merged and tested in game on a player host and a dedicated host; see
 > [Built in](#built-in). What isn't built is listed under [Not built yet](#not-built-yet). Known
-> ways items are lost are catalogued in [item-bug-review.md](../research/item-bug-review.md). The rest of an item's life
-> (placement, projection, motion, persistence) is in [`item-lifecycle.md`](item-lifecycle.md).
+> ways items are lost are catalogued in [item-bug-review.md](../research/item-bug-review.md). The
+> rest of an item's life (placement, projection, motion, persistence) is in
+> [`item-lifecycle.md`](item-lifecycle.md).
 
 Every item a player owns has one id for its whole life, and the server keeps a ledger of those items:
 whose each one is, where it is now, and how its life began and ended. The owned-items list,
