@@ -73,7 +73,7 @@ on the server and in every client, are made to agree with it.
 - **PR 6b, retrieval: built (2026-10-22), and tested in game with 6a, L7 and 7 on both host kinds (2026-10-23).** From the owned-items list into Lost
   and Found: lying items, containers whole, and items with another player (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-retrieve`.
-- **Essentials stay out of containers: built (2026-10-22), not yet run in game.** `ItemAccess` refuses
+- **Essentials stay out of containers: built (2026-10-22), and tested in game with 6a, 6b and 7 on both host kinds (2026-10-23).** `ItemAccess` refuses
   depositing an essential (`essential-not-in-containers`, item-review L7). Scenario: `deposit-refused
   OWNER=essential`.
 - **Everything else: not started.** See the [plan](#plan).
