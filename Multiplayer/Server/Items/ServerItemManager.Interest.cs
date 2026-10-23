@@ -66,6 +66,11 @@ internal sealed partial class ServerItemManager
                     !player.KnownItems.ContainsKey(item) &&
                     NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out ItemUpdateData tombstone))
                 {
+                    // An essential in its owner's Lost and Found keeps the owner's red silhouette,
+                    // their recall. A tombstone only projects a copy the game already has, and an
+                    // owner who joined after the collection has none: send them the item first.
+                    if (TryCreateLostEssentialForOwner(item, player, out ItemUpdateData create))
+                        NetworkServer.Instance.SendItemUpdatePacket(create, player);
                     NetworkServer.Instance.SendItemUpdatePacket(tombstone, player);
                     player.KnownItems[item] = NetworkLifecycle.Instance.Tick;
                 }
@@ -205,6 +210,23 @@ internal sealed partial class ServerItemManager
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
         }
         return false;
+    }
+
+    // The Create for an essential in Lost and Found, for its owner only (item-lifecycle.md,
+    // "Retrieval claim slots"): the tombstone sent after it makes it inert and leaves its silhouette.
+    private static bool TryCreateLostEssentialForOwner(NetworkedItem item, ServerPlayer player,
+        out ItemUpdateData create)
+    {
+        create = null;
+        if (!AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) ||
+            record.PersistentOwnerPlayerId != player.PlayerId || !HasOwnerRecallClaim(record) ||
+            item.Item?.InventorySpecs?.IsEssential != true)
+            return false;
+        create = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+        if (create == null)
+            return false;
+        AuthoritativeItemRegistry.WriteToSnapshot(record, create, record.LastReason);
+        return true;
     }
 
     private static bool HasOwnerRecallClaim(AuthoritativeItemRegistry.Record record) =>

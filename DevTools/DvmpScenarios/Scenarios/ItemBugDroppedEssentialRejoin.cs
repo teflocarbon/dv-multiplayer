@@ -15,17 +15,16 @@ namespace Dvmp.Scenarios
     /// its slot, stashes MUGS ordinary items and leaves. When it rejoins, the silhouette must be back
     /// in the essential's claim slot (item-lifecycle.md, "Retrieval claim slots"), wherever the
     /// essential is.
-    /// - Known item bug E10 (default, LOST=1; expected to fail on beta,
-    ///   docs/research/item-bug-review.md): the client walks 300 m off with nobody near the radio,
-    ///   and the server collects it into the client's Lost and Found. At the rejoin the server
-    ///   never sends it to its owner, so the owner has no silhouette and no recall; only a shed's
-    ///   Lost and Found shows it.
+    /// - Default (LOST=1), bug E10 (docs/research/item-bug-review.md), fixed: the client walks 300 m
+    ///   off with nobody near the radio, and the server collects it into the client's Lost and
+    ///   Found. After the rejoin the silhouette must be there and recall the radio into its slot.
+    ///   Before the fix the server never sent the rejoined owner the item, so there was no
+    ///   silhouette, only a shed's Lost and Found.
     /// - LOST=0 checks E1: the essential stays in the world, and ordinary items arriving first might
     ///   take its slot, the silhouette then refused (EnsureDroppedClaim never makes room). It rejoins
     ///   REJOINS times and fails on the first refusal. It held on a player host (6 rejoins).
     /// </summary>
-    [Scenario("item-bug-dropped-essential-rejoin", "Known bug E10: a dropped essential's silhouette must be back in its slot after a rejoin, from Lost and Found (default) or the world (LOST=0, E1)")]
-    [KnownBug("E10")]
+    [Scenario("item-bug-dropped-essential-rejoin", "A dropped essential's silhouette is back in its slot after a rejoin, from Lost and Found (default, E10: and recalls it) or the world (LOST=0, E1)")]
     [Needs(Need.RestartsGames)]
     [Budget(900)]
     public sealed class ItemBugDroppedEssentialRejoin : Scenario<ItemBugDroppedEssentialRejoin.Options>
@@ -78,7 +77,11 @@ namespace Dvmp.Scenarios
                 await Task.Delay(12000);
                 string at = await pair.Client.Run(() => InGame.Silhouette(d.Item));
                 Report.Note("after the rejoin: " + at);
-                Expect.That(at.StartsWith("silhouette in slot"), $"the {d.Name} in Lost and Found has its silhouette in the client's inventory", at);
+                if (!Expect.That(at.StartsWith("silhouette in slot"), $"the {d.Name} in Lost and Found has its silhouette in the client's inventory", at))
+                    return;
+                Recall.Recalled r = await pair.Client.Run<Recall.Recalled>(s => Recall.InGame.Recall(s, d.Item, o.Slot));
+                Report.Note($"recalled from Lost and Found: slot {r.Slot}, {r.State} after {r.Seconds:0.#} s");
+                Expect.Equal(o.Slot, r.Slot, $"the {d.Name} recalled from its silhouette is back in its slot");
                 return;
             }
             await pair.Client.Run<Abs>(s => Walk.Away(s, 15, 0));
