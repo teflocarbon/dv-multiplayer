@@ -75,10 +75,9 @@ on the server and in every client, are made to agree with it.
   [6](#6-the-list-and-retrieval)). Scenario: `owned-retrieve`.
 - **Essentials stay out of containers: built (2026-10-22), and tested in game with 6a, 6b and 7 on both host kinds (2026-10-23).** `ItemAccess` refuses
   depositing an essential (`essential-not-in-containers`, item-review L7). Scenario: `deposit-refused
-- **PR 7, lineage: built ahead (2026-10-22), not yet run in game.** `RecordReplacement` for the
-  gadget PRs' server-side swaps (see [7](#7-lineage)). Scenario: `item-lineage`.
   OWNER=essential`.
-- **Everything else: not started.** See the [plan](#plan).
+- **PR 7, lineage: built ahead (2026-10-22), and tested in game with 6a, 6b and L7 on both host kinds (2026-10-23).** `RecordReplacement` for the
+  gadget PRs' server-side swaps (see [7](#7-lineage)). Scenario: `item-lineage`.- **Everything else: not started.** See the [plan](#plan).
 
 ## Why
 
