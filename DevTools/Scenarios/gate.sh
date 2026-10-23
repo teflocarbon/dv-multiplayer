@@ -47,6 +47,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "recall|recall|"
   "recall-taken|recall|TAKEN=1|player"
   "lost-essential-rejoin|item-bug-dropped-essential-rejoin|"
+  "full-inventory-essential|item-bug-full-inventory-essential|"
   "containers|containers|"
   "containers-briefcase-flashlight|containers|CONTAINER=ItemContainerBriefcase PREFAB=Flashlight"
   "item-id-roundtrip|item-id-roundtrip|"
