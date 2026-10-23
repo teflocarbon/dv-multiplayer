@@ -93,6 +93,9 @@ public static class StartingItemsIssuer
             if (wanted.Count == 0)
                 yield break;
 
+            // Everything they carry takes a slot, and the server knows only the essentials' slots: a
+            // full inventory sends what's made to their Lost and Found instead (InventoryOverflow).
+            int carried = Carried(player);
             int made = 0;
             foreach (var item in wanted)
             {
@@ -103,8 +106,12 @@ public static class StartingItemsIssuer
                     Multiplayer.LogWarning($"Starting items: no free slot for {player.Username}'s {item.Prefab}");
                     continue;
                 }
+                bool overflow = carried >= Slots;
+                if (!overflow)
+                    carried++;
                 bool ok = false;
-                yield return Make(player, item.Prefab, item.State, item.Essential, item.Reason, item.Slot, result => ok = result);
+                yield return Make(player, item.Prefab, item.State, item.Essential, item.Reason, item.Slot, overflow,
+                    result => ok = result);
                 if (ok) made++;
             }
             // Marked even if one of them failed: a kit is given once, as before.
@@ -174,6 +181,11 @@ public static class StartingItemsIssuer
         return taken;
     }
 
+    // How many items the player has in their inventory and hands.
+    private static int Carried(ServerPlayer player) => AuthoritativeItemRegistry.GetAll().Count(record =>
+        record.Placement is ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand &&
+        (record.PlacementPlayerIdentity == player.Guid || record.PlacementPlayerId == player.PlayerId));
+
     private static int FreeSlot(HashSet<int> taken, int from)
     {
         for (int i = 0; i < Slots; i++)
@@ -187,9 +199,11 @@ public static class StartingItemsIssuer
 
     // As a cold-container withdrawal makes an item into a player's inventory
     // (NetworkedColdContainerManager.Withdraw): made at DV's safety position, its state loaded a
-    // frame later, registered with its owner and slot, and sent to everyone.
+    // frame later, registered with its owner and slot, and sent to everyone. With overflow (their
+    // inventory is full) it is made at their feet and goes straight to their Lost and Found, keeping
+    // its claim: never into a full inventory, where it was in no slot at all (item-bug-review.md, E2a).
     private static IEnumerator Make(ServerPlayer player, string prefab, string state, bool essential,
-        ItemMoveReason reason, int slot, Action<bool> done)
+        ItemMoveReason reason, int slot, bool overflow, Action<bool> done)
     {
         InventoryItemSpec spec = Globals.G?.Items?.items?.FirstOrDefault(candidate => candidate != null &&
             string.Equals(candidate.ItemPrefabName, prefab, StringComparison.Ordinal));
@@ -227,25 +241,36 @@ public static class StartingItemsIssuer
             item.Initialize(itemBase, item.NetId, true);
             item.FinaliseTrackedValuesAutomatically();
 
+            if (overflow)
+                instance.transform.position = player.AbsoluteWorldPosition + WorldMover.currentMove + Vector3.up * 0.3f;
             ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
-            snapshot.ItemState = ItemState.InInventory;
-            snapshot.PlayerId = player.PlayerId;
+            snapshot.ItemState = overflow ? ItemState.Dropped : ItemState.InInventory;
+            snapshot.PlayerId = overflow ? (byte)0 : player.PlayerId;
+            if (overflow)
+                snapshot.ItemPosition = player.AbsoluteWorldPosition + Vector3.up * 0.3f;
             snapshot.InventoryClaimPlayerId = player.PlayerId;
             snapshot.InventoryClaimSlot = slot;
             // An essential's slot is reserved for it (its silhouette, and recall).
             snapshot.InventoryClaimFlags = essential ? ItemInventoryClaimFlags.Reserved : ItemInventoryClaimFlags.None;
             PersistentWorldItemIdentity identity = instance.GetComponent<PersistentWorldItemIdentity>() ??
                                                    instance.AddComponent<PersistentWorldItemIdentity>();
-            ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(reason, player, "slot " + slot);
+            ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(reason, player,
+                overflow ? "inventory full, slot " + slot + " kept" : "slot " + slot);
             if (AuthoritativeItemRegistry.RegisterMaterializedColdItem(item, player, player.PlayerId, player.Guid,
                     snapshot, identity.Ensure(), cause) == null)
                 throw new InvalidOperationException("registration failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
             ServerItemManager.Instance?.RegisterHostWorldItem(item);
-            if (player.PlayerId == InventoryIntegration.LocalPlayerId && !InventoryIntegration.ContainsActive(instance))
+            if (!overflow && player.PlayerId == InventoryIntegration.LocalPlayerId && !InventoryIntegration.ContainsActive(instance))
                 throw new InvalidOperationException("not in the host's own inventory");
             item.CompleteColdMaterialization();
             NetworkedColdContainerManager.PublishMaterializedItem(snapshot, item);
+            // If Lost and Found refuses it, it stays at their feet: in sight either way.
+            if (overflow && !NetworkedLostAndFoundManager.Collect(item, LostItemReason.InventoryOverflow,
+                    "made with the inventory full"))
+                Multiplayer.LogWarning($"Starting items: {player.Username}'s inventory is full and Lost and Found refused their {prefab}; it is at their feet");
+            else if (overflow)
+                Multiplayer.Log($"Starting items: {player.Username}'s inventory is full; their {prefab} is in their Lost and Found");
             done(true);
         }
         catch (Exception exception)

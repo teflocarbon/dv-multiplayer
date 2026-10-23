@@ -12,16 +12,15 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Known item bug E2a (expected to fail on beta, docs/research/item-bug-review.md): the client's
-    /// compass is destroyed and its inventory is full of its own mugs when it rejoins. The server
-    /// issues a new compass into a claim slot it thinks free (it can't see where ordinary items
-    /// sit), the client finds the slot taken and nowhere to move the mug, the restore is refused,
-    /// and a refused Reserved claim still counts as placed (NetworkedItem.StateApplication), so the
-    /// compass is in no slot: left in the world wherever it was made. The fix should put it in
-    /// some slot, or send it to Lost and Found (InventoryOverflow), never leave it unseen.
+    /// Item bug E2a (docs/research/item-bug-review.md), fixed: the client's compass is destroyed and
+    /// its inventory is full of its own mugs when it rejoins. The server issues a new compass, which
+    /// must end up in a slot or in the client's Lost and Found. Before the fix the server made it
+    /// into a claim slot it thought free (it can't see where ordinary items sit), the client found
+    /// the slot taken and nowhere to move the mug, and the compass was in no slot, at the world
+    /// origin. Now the issuer counts what the player carries and sends what doesn't fit to Lost and
+    /// Found (InventoryOverflow).
     /// </summary>
-    [Scenario("item-bug-full-inventory-essential", "Known bug E2a: an essential issued into a full inventory at a rejoin must end up somewhere the player can see it")]
-    [KnownBug("E2a")]
+    [Scenario("item-bug-full-inventory-essential", "An essential issued into a full inventory at a rejoin goes to the player's Lost and Found, never into no slot (E2a)")]
     [Needs(Need.RestartsGames)]
     [Budget(900)]
     public sealed class ItemBugFullInventoryEssential : Scenario<ItemBugFullInventoryEssential.Options>

@@ -59,6 +59,13 @@ doc when you change how a system syncs.
 `beta` is protected: work on a branch off `beta` and merge through a pull request (merge commits
 only, signed commits). See `docs/development.md`.
 
+**Ask before narrowing anything.** Don't build less than a design, a plan or a decision says without
+asking the user first. That covers dropping a planned PR, deferring part of one ("left for later"),
+building a narrower version, or leaving a decision unbuilt. Stop and ask, with the reason and the
+options. If the user agrees to defer it, add it as an unticked row to the area's checklist (for items,
+`docs/item-overhaul-checklist.md`) in the same PR, never only in prose. Work counts as done when its
+checklist rows are ticked, not when its PRs merge.
+
 **Work in your own worktree, never in the main checkout.** The main checkout (the repository folder
 itself, not `.claude/worktrees/...`) is the user's: don't switch its branch, commit, stash, pull or
 build in it unless the user asks you to. Do your work in your session's worktree (or create one with
