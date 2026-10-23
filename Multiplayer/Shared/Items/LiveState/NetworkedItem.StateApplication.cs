@@ -563,7 +563,9 @@ public partial class NetworkedItem
         }
 
         ItemReparentingBase reparenting = GetComponent<ItemReparentingBase>();
-        state["reparentingCurrentParent"] = reparenting?.CurrentParent?.gameObject?.GetPath() ?? string.Empty;
+        // The parent a reparenting remembers can be a car deleted since; ?. lets a destroyed one through.
+        Transform reparentingParent = reparenting != null ? reparenting.CurrentParent : null;
+        state["reparentingCurrentParent"] = reparentingParent != null ? reparentingParent.gameObject.GetPath() : string.Empty;
 
         try
         {

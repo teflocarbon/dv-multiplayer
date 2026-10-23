@@ -224,6 +224,11 @@ public class SteamWorksTransport : ITransport
         SteamNetworkingUtils.SendBufferSize = 16 * 1024 * 1024;
         SteamNetworkingUtils.SendRateMin = 256 * 1024;
         SteamNetworkingUtils.SendRateMax = 4 * 1024 * 1024;
+
+        // Steam drops a connection that hears nothing for 10 s. A relay route can stall for that
+        // long and recover; a tester's pair (Linux host, Windows client) lost a session to one
+        // after 26 minutes, both sides timing out together.
+        SteamNetworkingUtils.Timeout = 20000;
     }
 
     #endregion
