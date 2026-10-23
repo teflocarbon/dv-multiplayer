@@ -154,6 +154,7 @@ internal sealed partial class ClientItemManager
             }
             else
             {
+                ClientLostAndFoundTombstones.Remove(snapshot.ItemNetId);
                 if (netItem != null)
                 {
                     if (coldContainerProjection)
