@@ -56,7 +56,7 @@ On 2026-10-23, at beta 1a0b732f:
 | Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision | Paused | Not needed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Identity and what is owned | 8 | 3 | 0 | 3 | 0 | 4 | 0 |
-| The ledger as the source of truth | 4 | 4 | 0 | 8 | 0 | 0 | 0 |
+| The ledger as the source of truth | 4 | 3 | 0 | 8 | 0 | 0 | 1 |
 | Joining, rejoining and leaving | 3 | 2 | 0 | 6 | 0 | 0 | 0 |
 | Starting items | 4 | 3 | 1 | 2 | 0 | 0 | 0 |
 | Essentials and claims | 4 | 0 | 1 | 10 | 0 | 0 | 1 |
@@ -71,7 +71,7 @@ On 2026-10-23, at beta 1a0b732f:
 | Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
 | Gadgets seam | 1 | 1 | 0 | 1 | 0 | 6 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 230** | **55** | **31** | **2** | **88** | **0** | **45** | **9** |
+| **All 230** | **55** | **30** | **2** | **88** | **0** | **45** | **10** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -135,7 +135,7 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-LED-08 | Vanilla never moves an owned item; a check reports an owned item in vanilla's Lost and Found list whose `where` isn't `LostAndFound`, and any item in a dedicated host's own vanilla inventory | OI §Making vanilla agree | `[~] built, unproved` | `OwnedItemsServer.Audit` (`:232-266`) reports an owned item in vanilla's Lost and Found whose *record* (not ledger entry) isn't there, and anything in a dedicated host's vanilla inventory; but that line carries no id, so the scenarios' `AuditFor` filters it out and it never fails a run. It skips `Container` records, live entries with no record, and items in several vanilla storages |
 | OI-LED-09 | The check runs in debug builds as well as from the `ledger-*` scenarios | OI §Making vanilla agree, §1b | `[ ]` | Only scenarios call `Audit` (`DevTools/DvmpScenarios/Library/OwnedItems.cs:78, 88`) |
 | OI-LED-10 | Inactive is not gone: the ledger and the load check find items by id among inactive objects too, never by `FindObjectsOfType` | OI §Making vanilla agree | `[~] built, unproved` | Lookups go through the registry and `NetworkedItem`'s id maps, never `FindObjectsOfType`. No scenario checks an inactive (LOD'd) item |
-| OI-LED-11 | `Missing`: an entry whose store didn't hold it at load is kept, shown in the list as lost track of, and checked again at each load | OI §Loading, §The owned-items list | `[~] built, unproved` | `MarkMissing` keeps the entry live and later loads re-check it (`OwnedItemReconciler.cs:134-139, 182-185`); the list shows it as "missing". No scenario makes an item go missing. D9 (user 2026-10-23) replaces `Missing` with OI-LED-16 |
+| OI-LED-11 | `Missing`: an entry whose store didn't hold it at load is kept, shown in the list as lost track of, and checked again at each load | OI §Loading, §The owned-items list | `not needed: replaced by OI-LED-16 (user 2026-10-23, D9)` | Was built, unproved: `MarkMissing` keeps the entry live and later loads re-check it (`OwnedItemReconciler.cs:134-139, 182-185`); the list shows it as "missing". No scenario makes an item go missing. D9 (user 2026-10-23) replaces `Missing` with OI-LED-16 |
 | OI-LED-12 | Ended entries are kept for lineage, the newest 100 per owner, and pruned beyond that | OI §In the vanilla save | `[x]` | #278 · `OwnedItemLedger.cs` · Core `OwnedItemLedgerTests` |
 | OI-LED-13 | A dvmp eval helper dumps the ledger (`Ledger.Dump()`) | OI §1b | `[ ]` | None. `OwnedItemsServer.Describe` (`:269`) has no callers; scenarios read entries through `Library/OwnedItems.cs` |
 | OI-LED-14 | Code comments cite item docs that exist: none points at a removed section or describes the shadow ledger | F14; F2 | `[ ]` | `OwnedItemsServer.cs:19-24, 354-356`; `AuthoritativeItemRegistry.cs:764`; `NetworkedLostAndFoundManager.cs:488-489`. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
