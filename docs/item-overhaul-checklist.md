@@ -72,15 +72,16 @@ On 2026-10-23, at beta 1a0b732f:
 | Vanilla paths | 0 | 0 | 0 | 6 | 0 | 0 | 0 |
 | Layout and names | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
 | Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
-| Gadgets seam | 1 | 1 | 0 | 2 | 0 | 5 | 0 |
+| Gadgets seam | 1 | 1 | 0 | 3 | 0 | 6 | 0 |
+| Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 246** | **55** | **30** | **2** | **107** | **0** | **42** | **10** |
+| **All 253** | **55** | **30** | **2** | **108** | **0** | **48** | **10** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
   never losing them.
   - **Paused:** rows outside it are `paused: shops`, `gadgets`, `companies`, `physics and wake
-    fidelity`, `list wording` or `not about loss` (the plan's D4). They stay rows, unticked, for
+    fidelity`, `list wording`, `not about loss` (the plan's D4) or `mod items` (D11). They stay rows, unticked, for
     that workstream. OI-PHY-05 and OI-PHY-12 are in the refactor.
   - **Not needed:** old saves start every player's items fresh (D1), so the migration rows aren't
     needed.
@@ -113,7 +114,7 @@ on both host kinds without unticking them.
 | R0 Rename | none (OI-LAY-01 starts here, ticks in R8) | the item regression set and the known bugs, same results before and after |
 | R1 Identity only | OI-LED-06, OI-LED-07, OI-ESS-05, OI-ACC-08, OI-LF-06, OI-JOIN-09, OI-ID-08, OI-CON-08 | OI-JOIN-03, OI-LF-05 |
 | R2 The wire | OI-ID-07, OI-ESS-10, OI-ESS-12, OI-CON-07, OI-SYNC-19, OI-SYNC-20, OI-LIST-17, OI-LIST-22 | OI-ESS-06 |
-| R3 The ledger decides | OI-LED-04, OI-LED-05, OI-LED-08, OI-LED-09, OI-LED-10, OI-LED-13, OI-LED-15, OI-ID-05, OI-ID-06, OI-ID-13, OI-ID-18, OI-ESS-01, OI-ESS-02, OI-ESS-03, OI-ESS-04, OI-ESS-08, OI-ESS-09, OI-START-04, OI-START-06, OI-START-08, OI-START-09, OI-SLOT-01, OI-SLOT-03, OI-ACC-05, OI-ACC-07, OI-LF-08, OI-LF-20, OI-GAD-04, OI-LIST-12, OI-LIST-20, OI-LIST-21, OI-LIN-07 | OI-ID-01, OI-ID-09, OI-ID-10, OI-ID-11, OI-LED-01, OI-LED-03, OI-LED-12, OI-ESS-14, OI-ESS-15, OI-START-02, OI-START-03, OI-START-05, OI-LIST-01, OI-LIST-02, OI-LIST-03, OI-LIST-08, OI-LIST-11, OI-LIST-19, OI-LIN-01, OI-LIN-06, OI-ACC-01, OI-ACC-02, OI-ACC-03, OI-FIX-01 |
+| R3 The ledger decides | OI-LED-04, OI-LED-05, OI-LED-08, OI-LED-09, OI-LED-10, OI-LED-13, OI-LED-15, OI-GAD-10, OI-ID-05, OI-ID-06, OI-ID-13, OI-ID-18, OI-ESS-01, OI-ESS-02, OI-ESS-03, OI-ESS-04, OI-ESS-08, OI-ESS-09, OI-START-04, OI-START-06, OI-START-08, OI-START-09, OI-SLOT-01, OI-SLOT-03, OI-ACC-05, OI-ACC-07, OI-LF-08, OI-LF-20, OI-GAD-04, OI-LIST-12, OI-LIST-20, OI-LIST-21, OI-LIN-07 | OI-ID-01, OI-ID-09, OI-ID-10, OI-ID-11, OI-LED-01, OI-LED-03, OI-LED-12, OI-ESS-14, OI-ESS-15, OI-START-02, OI-START-03, OI-START-05, OI-LIST-01, OI-LIST-02, OI-LIST-03, OI-LIST-08, OI-LIST-11, OI-LIST-19, OI-LIN-01, OI-LIN-06, OI-ACC-01, OI-ACC-02, OI-ACC-03, OI-FIX-01 |
 | R4 Saving and loading | OI-PER-01, OI-PER-03, OI-PER-04, OI-PER-06, OI-PER-07, OI-PER-09, OI-PER-10, OI-PER-12, OI-PER-13, OI-PER-14, OI-PER-15, OI-PER-16, OI-PER-17, OI-PER-18, OI-PER-19, OI-PER-20, OI-PER-21, OI-PER-22, OI-PER-23, OI-SLOT-02, OI-JOIN-01, OI-JOIN-02, OI-JOIN-05, OI-JOIN-07, OI-JOIN-08, OI-LED-16, OI-LF-16, OI-LF-21, OI-LF-22, OI-CON-04, OI-CON-05, OI-START-01, OI-GAD-01, OI-GAD-02, OI-ID-02, OI-ID-03, OI-ID-04 | OI-LF-15; OI-LED-02, OI-PER-05 and OI-PER-08 are rewritten to the new format (no stores to reconcile, no `Migrated`, no `Missing`) |
 | R5 Containers on the ledger | OI-CON-02, OI-CON-03, OI-CON-06, OI-CON-09, OI-CON-11, OI-CON-12, OI-CON-13, OI-CON-15, OI-ACC-04, OI-LIST-18 | OI-CON-01, OI-LIST-10, OI-LF-07, OI-ESS-07 |
 | R6 Every vanilla path | OI-LF-02, OI-LF-04, OI-LF-10, OI-LF-11, OI-LF-17, OI-ID-12, OI-JOIN-06, OI-JOIN-10, OI-JOIN-11, OI-START-07, OI-START-10, OI-ESS-13, OI-LIST-06, OI-LIST-14, OI-LIN-05, OI-VAN-01, OI-VAN-02, OI-VAN-03, OI-VAN-04, OI-VAN-05, OI-VAN-06 | OI-LF-01, OI-LF-03, OI-LF-09, OI-LF-12, OI-LF-13, OI-LF-14, OI-JOIN-04 |
@@ -455,6 +456,22 @@ updates the links here.
 | OI-GAD-07 | The gadget server's install and removal checks call `ItemAccess` | OI §Permissions | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Not on #314's branch |
 | OI-GAD-08 | Old installed gadgets with no owner (saves from before gadget PR 1) | OI §Open decisions | `paused: not about loss` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. Recommended: unowned, anyone may remove them, rather than the career owner's |
 | OI-GAD-09 | Aiming at an installed gadget shows its owner's name, also while they're offline | GD §The installed gadget and its item | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ] |
+| OI-GAD-10 | **An `Installed` home names a car or the world** (vanilla's `WorldCustomization`, key `:global:`): a world-installed gadget is an owned item like a car's, saved and restored at its pose, and never sent to Lost and Found for a missing anchor | User correction 2026-10-23 (G5: world installs, which some mods need; custom_item_mod builds its gadgets with no car requirement) | `[ ]` | R3. `WhereOf` and the save know only a car today |
+| OI-GAD-11 | Installing on and removing from the world works in multiplayer like on a car (preview, install, removal and its sync); the player house, the Lost and Found shed and the paint station stay refused | User correction 2026-10-23 (G5) | `paused: gadgets` | The legacy gadget design refuses every non-car anchor (gadgets.md, Off-train installs) |
+
+## Mod items
+
+Items other mods add, through custom_item_mod and its item packs (refactor D11). Paused by the user
+2026-10-23, for after the refactor.
+Proving these needs an item pack in the test install.
+
+| ID | Requirement | Source | Status | Proof, or what's missing |
+| --- | --- | --- | --- | --- |
+| OI-MOD-01 | An item whose prefab comes from a mod (custom_item_mod's `custom_item_mod/<name>/prefab`, resolved by its `Resources.Load` patch) is spawned, saved and restored by the server and built on every client by the same prefab name, like a vanilla item; a name a game can't resolve is logged and kept `Unloadable` (D9), never dropped | Refactor D11 (user, 2026-10-23) | `paused: mod items` | Paused by the user 2026-10-23 (later, after the refactor). **Broken today:** both prefab lookups read only vanilla's `Globals.G.Items.items`, which custom_item_mod never adds to (it adds shop data and patches `Resources.Load`). So a client can't build a custom item another game has (`ClientItemManager.Compatibility.cs:33` → `NetworkedItemManager.TryGetItemPrefab`), and the server can't restore a saved one (`WorldItemPersistenceRestore.cs:127`), which then erases it at the next save (SL5). The lookup has to fall back to `Resources.Load(prefabName)`, as vanilla's own load does. Untested with any mod item |
+| OI-MOD-02 | **Each item's own saved state reaches clients:** its `ItemSaveData` JSON (where mods keep their state) goes with the item when a client first sees it and again when the server's copy changes, applied through `ItemSaveDataLoaded`; the server's copy is the truth, and a client's goes up with the request that changes the item | Refactor D11 (user, 2026-10-23) | `paused: mod items` | Paused by the user 2026-10-23 (later, after the refactor). Today item state is saved on the server only |
+| OI-MOD-03 | **The same item mods on join:** a client missing custom_item_mod or an item pack the server has is refused, with the mod named; custom_item_mod is registered `All` in `ModCompatibilityManager` | Refactor D11 (user, 2026-10-23) | `paused: mod items` | Paused by the user 2026-10-23 (later, after the refactor). `ModCompatibilityManager.ValidateClientMods` already compares undefined mods; no registration, no scenario |
+| OI-MOD-04 | custom_item_mod's shop items are bought through the server like vanilla stock | Refactor D11 | `paused: shops` | |
+| OI-MOD-05 | custom_item_mod's gadgets (its `GadgetBase` map) install, sync and save like vanilla gadgets, on a car or the world | Refactor D11; G5 | `paused: gadgets` | |
 
 ## Migration
 

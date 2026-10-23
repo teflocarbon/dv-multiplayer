@@ -46,11 +46,12 @@ The homes:
 | `Shelf(key)` | on a static parent, by its key | an item on a station shelf |
 | `Container(container, slot)` | in a cold container, by the container's id | a flashlight in a toolbox |
 | `LostAndFound` | its owner's Lost and Found, with the reason and time | a lantern left 300 m away |
-| `Installed(car, gadget uid)` | a gadget on a car (the [seam](#the-gadget-seam) only) | a bolted plate |
+| `Installed(anchor, gadget uid)` | a gadget on a car (by its GUID) or on the world (vanilla's `WorldCustomization`, key `:global:`) (the [seam](#the-gadget-seam) only) | a bolted plate; a mod's trackside gadget |
 | `Attached(car, front)` | an EOT lantern on a car's end | |
 | `Snapped(parent)` | a hanger, a mount | |
 
-Gadgets stay vehicles-only (the user, 2026-10-21), so `Installed` always names a car.
+Gadgets install on a car or on the world (G5), so `Installed` names one of the two. The world
+anchor is never missing; a car can be.
 
 `Hand` is a home while the player is connected. A save writes a hand item to a free inventory
 slot of its holder (as today), so a saved home is never `Hand`.
@@ -63,7 +64,7 @@ slot of its holder (as today), so a saved home is never `Hand`.
 | G2 | The guarantee, the homes, and the three names below | user, 2026-10-23 |
 | G3 | **No migration.** Existing careers may break and start fresh. Migration rows and converters for old item data are dropped (noted in the checklist, rows kept) | user, 2026-10-23 |
 | G4 | Save keys and packet classes may change | user, 2026-10-23 |
-| G5 | Gadgets stay vehicles-only | user, 2026-10-21 |
+| G5 | **Gadgets install on vehicles and on the world** (`WorldCustomization`), because some mods need world installs; not on the player house, the Lost and Found shed or the paint station | user, 2026-10-21 (vehicles only); world added 2026-10-23 |
 | G6 | Keep the vanilla save as the server's store, for other mods' save data | user, 2026-10-19 |
 | G7 | Ended ledger entries: the newest 100 per owner are kept | user, 2026-10-21 (built, #278) |
 | D1 | **An old save** loads the world and the career (money, licences, trains, jobs) and starts every player's items fresh: the old item keys are ignored and dropped at the next save, everyone gets a new starter kit and essentials, and the server logs once what it dropped | user, 2026-10-23 |
@@ -76,6 +77,7 @@ slot of its holder (as today), so a saved home is never `Hand`.
 | D8 | **An integration branch,** `items/refactor`, off `beta` | user, 2026-10-23 |
 | D9 | **An item whose saved state won't load** is made fresh from its prefab, with the same id, in its owner's Lost and Found (`SaveRecovery`), and an error is logged: its own state (a lighter's fuel) is lost, the item isn't. If the prefab itself is gone (an item mod removed), the entry stays `Unloadable`, its saved row kept verbatim and retried at each load, so putting the mod back brings it back. `Missing` goes | user, 2026-10-23 |
 | D10 | **Binning** destroys the item, as in vanilla, and ends its entry `Discarded`, by the player who binned it; an essential is issued again at its owner's next join; only your own or unowned items can be binned (someone else's is refused and drops by the bin) | user, 2026-10-23 |
+| D11 | **Items from other mods** (custom_item_mod and the item packs it loads) will be built like vanilla items (their prefabs spawn on every game, each item's own saved state reaches clients, a client joins only with the same item mods), **paused for after the refactor** (the user, later the same day). Mod-specific compatibility (Railway Brake Shoe) isn't planned: the user is talking to that mod's developer | user, 2026-10-23 |
 | L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and each legacy doc moves to `docs/legacy/items/` in the PR that replaces it ([Docs](#docs)) | user, 2026-10-23 |
 | C1 | Cold containers start fresh (D1), and their new save must make the failures behind F18 (an empty graph written over a save the import refused), the depth check and quarantine impossible by design, not by a stopgap | user, 2026-10-23 |
 
@@ -245,7 +247,7 @@ One key, `Multiplayer.Items`, written in one pass and read in one pass (G4):
   check's "in several stores" case by construction (OI-PER-06 becomes a property of the format).
   The one exception is an installed gadget: vanilla's gadget system rebuilds it from
   `Storage_InstalledGadgets`, so its state stays there, and the mod's key holds only its ledger
-  entry (`Installed(car, uid)`); its owner is no longer written into that state.
+  entry (`Installed(anchor, uid)`); its owner is no longer written into that state.
 - **Rows stand alone** (C1). A row that won't load is kept verbatim and written back unchanged
   (OI-PER-15, F18); one bad row never empties the rest. There is no whole-graph blob to refuse, and
   nesting depth is checked when a deposit is decided (OI-CON-15), so a save can't hold a deeper
@@ -319,7 +321,7 @@ The new protocol:
 - **One update.** `ClientboundItemUpdatesPacket`: a list of `ItemUpdate` (Create, Change, Destroy),
   each with NetId, revision, cause, the home as the client needs it (`World` and pose,
   `TrainInterior(car NetId)` and car-local pose, `Shelf(key)`, `Hand(holder, hand)`,
-  `Slot(holder, slot)`, `Attached(car NetId, front)`, `Snapped(parent)`, `Installed(car NetId, uid)`;
+  `Slot(holder, slot)`, `Attached(car NetId, front)`, `Snapped(parent)`, `Installed(car NetId or world, uid)`;
   an item going into a container or Lost and Found is a Destroy with its cause), relation, claim
   (owner only), prefab and authored key on Create, and object state. Built per recipient (relation
   and claim differ), sent by interest. It replaces both of today's update packets.
@@ -390,17 +392,46 @@ Every behaviour PR proves its rows on both host kinds.
 
 Only what installed gadgets need, nothing of their features (paused):
 
-- the `Installed(car, gadget uid)` home, with the real UID (OI-GAD-04);
+- the `Installed(anchor, gadget uid)` home, the anchor a car or the world, with the real UID
+  (OI-GAD-04, OI-GAD-10);
 - an install and a removal are ledger changes like any other; the gadget server calls the ledger,
   the ledger doesn't call the gadget server;
 - an installed gadget's owner is the ledger's: `dvmpPersistentOwner` goes (it saved the owner a
   second time);
 - at load an `Installed` entry whose car is gone goes to its owner's Lost and Found
   (`GadgetDestinationMissing`, OI-LF-22); at runtime a deleted car does the same (as #314 does);
+  a world-installed gadget has no car to lose, and is saved and restored like a car's;
 - the item code never destroys an installed item and logs a refused destroy (OI-GAD-06, D6).
 
 The paused gadget drafts (#313–#320) rebase onto the new names after the rename PR; the
 [rename map](#rename-map) is their guide.
+
+### Mod items
+
+Other mods add items, and some need them to work in multiplayer (D11). custom_item_mod is the common
+one: it loads item packs (UMM mods with an `item_info.json`), names each item's prefab
+`custom_item_mod/<name>/prefab` and patches `Resources.Load` to resolve that name. Its gadgets have
+no car requirement and no soldering, which is why world installs matter (G5). Paused for after the refactor (D11); when it
+resumes, it builds the item layer, nothing mod-specific:
+
+- **Prefabs from mods** (OI-MOD-01): the server spawns, saves and restores a mod item by its
+  prefab name like a vanilla item, and every client builds it from the same name. A name a game
+  can't resolve is logged and kept `Unloadable` (D9), never dropped. Today both lookups read only
+  vanilla's item list, so a custom item can't be built on a client or restored at load (and is
+  then erased at the next save); the lookup falls back to `Resources.Load`, as vanilla's load does.
+- **Each item's own state** (OI-MOD-02): an item's `ItemSaveData` JSON, where mods keep their
+  state, goes with the item when a client first sees it and again when the server's copy changes,
+  applied through vanilla's `ItemSaveDataLoaded`. The server's copy is the truth; a client's goes up
+  with the request that changes the item (a placement, a drop).
+- **The same item mods on join** (OI-MOD-03): `ModCompatibilityManager` already refuses a client
+  missing a mod the server has; custom_item_mod is registered `All`, and a scenario proves a client
+  without an item pack is refused with its name.
+
+Shop stock from custom_item_mod (OI-MOD-04) waits for shops, its gadgets (OI-MOD-05) for gadgets.
+Railway Brake Shoe, which builds on custom_item_mod, isn't planned here (the user is talking to its
+developer).
+Testing needs an item pack in the test install; test games otherwise load only Multiplayer and the
+dev tools.
 
 ## Every vanilla path
 
@@ -786,8 +817,8 @@ Marked `paused: <workstream>` in the checklist (D4), kept and unticked, for when
 
 - **Shops:** OI-SHOP-02 to -10; OI-FIX-02 to -06 (fixtures are shops 2c); OI-ACC-09 (the
   permissions system). OI-SHOP-01 stays done.
-- **Gadgets:** OI-GAD-03, -05, -07, -08, -09; OI-LIST-13, -15, -16; OI-LIN-02, -03, -04; OI-ACC-06.
-  The seam rows OI-GAD-04, -06 and OI-LF-22 are in (R3, R7, R4).
+- **Gadgets:** OI-GAD-03, -05, -07, -08, -09, -11; OI-LIST-13, -15, -16; OI-LIN-02, -03, -04; OI-ACC-06.
+  The seam rows OI-GAD-04, -06, -10 and OI-LF-22 are in (R3, R7, R3, R4).
 - **Companies:** OI-ID-14, -15. The ledger's owner is an `OwnerRef` with room for a company; nothing
   else.
 - **Physics and wake fidelity, no item lost:** OI-PHY-13, -14, -15; OI-SYNC-14, -15, -16; OI-CON-14.
@@ -795,6 +826,7 @@ Marked `paused: <workstream>` in the checklist (D4), kept and unticked, for when
   OI-GAD-06: the user's D4 didn't pause them.
 - **The list's wording:** OI-LIST-04, -05, -07. The list's data moves to the new ledger; its words
   don't change.
+- **Mod items:** OI-MOD-01 to -03 (D11); OI-MOD-04 also waits for shops, OI-MOD-05 for gadgets.
 - **Decisions not about loss:** OI-ID-16 (gifts), OI-ID-17 (made items), OI-SYNC-12 (office stock in
   a cab, unowned).
 
