@@ -144,13 +144,15 @@ Found in game by the PR 1b scenarios (2026-10-21) and fixed there:
 The 2a and 3 batches (2026-10-21/22) turned these up. Each predates the ledger work; the new
 scenarios are what show them.
 
-- **LF-inert.** When an item is collected into Lost and Found, every client that knew it keeps an
-  inactive inert copy (`ApplyLostAndFoundProjection`), and `Collect` drops the item from every
-  player's known items. If the host later destroys it while it is in Lost and Found, no destroy
-  reaches the clients, and the copy stays for good. It shows as the leak check's "client: items the
-  run spawned that couldn't be destroyed" in `offline-lost-and-found` and `car-delete-owner`
-  (online, absent). Fixed by PR 6 (retrieval), or by sending the destroy to clients holding a
-  tombstone.
+- **LF-inert (fixed in 6a).** When an item is collected into Lost and Found, every client that knew
+  it keeps an inactive inert copy (`ApplyLostAndFoundProjection`), which only a Destroy ends. The
+  host's item kept its collection as its last transition, so its final Destroy, when the server
+  later destroyed it, said `LostAndFoundCollection` too, and each client took it for another
+  collection and kept its copy for good. (The Destroy did reach them: Lost and Found's interest pass
+  puts the item back in every player's known items.) Now the final Destroy never carries a
+  projection's reason, and a client forgets its tombstone for a destroyed item. It showed as the
+  leak check's "client: items the run spawned that couldn't be destroyed" in `owned-list`,
+  `owned-retrieve`, `offline-lost-and-found` and `car-delete-owner` (online, absent).
 - **CAB-POS.** On a dedicated host, a client standing in a loco's cab doesn't count as near an item
   20 m away. The nearby-player protection collected an absent owner's ground mug 4 s after the
   client boarded (`offline-lost-and-found` @dedicated). On a player host the host's own player
