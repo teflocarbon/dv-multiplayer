@@ -28,6 +28,8 @@ Statuses:
 | `[~] built, unproved` | The code is on beta, but nothing proves it. It needs a scenario or a test |
 | `[ ]` | Not started |
 | `needs decision` | A product decision for the user, never built |
+| `paused: <workstream>` | Kept and unticked, but outside the item refactor; it waits for that workstream |
+| `not needed: …` | The user decided it isn't needed; kept so the record stays complete |
 
 Sources, as cited in the rows:
 
@@ -51,36 +53,45 @@ the named PR; scenario line numbers are at beta 1a0b732f.
 
 On 2026-10-23, at beta 1a0b732f:
 
-| Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision |
-| --- | --- | --- | --- | --- | --- |
-| Identity and what is owned | 8 | 3 | 0 | 4 | 3 |
-| The ledger as the source of truth | 4 | 4 | 0 | 6 | 0 |
-| Joining, rejoining and leaving | 3 | 2 | 0 | 5 | 1 |
-| Starting items | 4 | 3 | 1 | 2 | 0 |
-| Essentials and claims | 4 | 0 | 1 | 9 | 1 |
-| Lost and Found | 9 | 4 | 0 | 8 | 1 |
-| The list and retrieval | 7 | 7 | 1 | 7 | 0 |
-| Lineage | 2 | 2 | 0 | 3 | 0 |
-| Fixtures and `ItemAccess` | 4 | 0 | 0 | 9 | 2 |
-| Containers | 1 | 1 | 0 | 13 | 0 |
-| Persistence | 7 | 1 | 0 | 11 | 0 |
-| Projection and world sync | 1 | 2 | 0 | 14 | 1 |
-| Physics and train wake | 0 | 1 | 0 | 14 | 0 |
-| Shops seam | 1 | 1 | 0 | 8 | 0 |
-| Gadgets seam | 1 | 1 | 2 | 4 | 1 |
-| Migration | 1 | 2 | 0 | 4 | 0 |
-| **All 227** | **57** | **34** | **5** | **121** | **10** |
+| Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision | Paused | Not needed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Identity and what is owned | 8 | 3 | 0 | 2 | 1 | 4 | 0 |
+| The ledger as the source of truth | 4 | 4 | 0 | 6 | 0 | 0 | 0 |
+| Joining, rejoining and leaving | 3 | 2 | 0 | 5 | 1 | 0 | 0 |
+| Starting items | 4 | 3 | 1 | 2 | 0 | 0 | 0 |
+| Essentials and claims | 4 | 0 | 1 | 9 | 1 | 0 | 0 |
+| Lost and Found | 9 | 4 | 0 | 8 | 1 | 0 | 0 |
+| The list and retrieval | 7 | 7 | 0 | 2 | 0 | 6 | 0 |
+| Lineage | 2 | 2 | 0 | 0 | 0 | 3 | 0 |
+| Fixtures and `ItemAccess` | 4 | 0 | 0 | 4 | 0 | 7 | 0 |
+| Containers | 1 | 1 | 0 | 12 | 0 | 1 | 0 |
+| Persistence | 7 | 1 | 0 | 11 | 0 | 0 | 0 |
+| Projection and world sync | 1 | 2 | 0 | 11 | 0 | 4 | 0 |
+| Physics and train wake | 0 | 1 | 0 | 9 | 0 | 5 | 0 |
+| Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
+| Gadgets seam | 1 | 1 | 0 | 1 | 0 | 6 | 0 |
+| Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| **All 227** | **56** | **31** | **2** | **82** | **4** | **45** | **7** |
 
-- **Waiting for the user:** OI-ID-12 and OI-LF-17 (job papers), OI-ID-16 (gifts), OI-ID-17 (items
-  made by machines), OI-JOIN-06 (a leaving player's hand item), OI-ESS-12 (red for every owned
-  item), OI-FIX-03 and OI-FIX-04 (fixtures going back to their spot), OI-SYNC-12 (office stock in a
-  parked cab), OI-GAD-08 (old gadgets with no owner).
+- **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
+  `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
+  never losing them.
+  - **Paused:** rows outside it are `paused: shops`, `gadgets`, `companies`, `physics and wake
+    fidelity`, `list wording` or `not about loss` (the plan's D4). They stay rows, unticked, for
+    that workstream. OI-PHY-05 and OI-PHY-12 are in the refactor.
+  - **Not needed:** old saves start every player's items fresh (D1), so the migration rows aren't
+    needed.
+- **Waiting for the user:** OI-ID-12 and OI-LF-17 (job papers), OI-JOIN-06 (a leaving player's hand
+  item) and OI-ESS-12 (red for every owned item). The refactor plan asks about these (its D3 and D5).
 - **Built, unproved** rows each need a scenario (or a Core test) before they can be ticked.
 - **The 49 findings** each carry the item-review session's triage (2026-10-23, from the code): 15
   real bugs, 16 decided but not built, 18 doc-only. A doc-only row is one where the code does
-  something reasonable that the old design described differently. It stays a row until the
-  coordinator decides whether it is rewritten to the code's rule (and then proved) or built as the
-  design said.
+  something reasonable that the old design described differently. The user decided them on
+  2026-10-23:
+  - seven are real gaps and keep the design's rule: OI-CON-08, OI-SYNC-09, OI-SYNC-10, OI-PHY-05,
+    OI-PHY-11, OI-PHY-12 and OI-GAD-06;
+  - the other 11 are rewritten to the code's rule. Each stays unticked until the new doc and a
+    scenario or test prove it.
 - Every one of the 49 findings and every id in the bug review has a row.
 
 ## Identity and what is owned
@@ -100,10 +111,10 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-ID-11 | Ownership changes only through a named, accepted server transition; every accepted transition advances the revision, and a refused one changes nothing | LC §Canonical lifecycle; OQ §Invariants | `[x]` | `ItemAuthorityStateMachine` · Core `ItemAuthorityStateMachineTests.AcceptedTransition_HasOnePlacementAndIncreasesRevisionExactlyOnce`, `StaleRevision_IsRejectedWithoutChangingCanonicalState`, `RecallByNonOwner_IsRejectedWithoutMutation`, the transition fuzz test |
 | OI-ID-12 | Job papers (booklets, overviews, reports) are the job's, never owned items or listed | OI §Decisions; F7 | `needs decision` | Nothing excludes them from the first-taker rule (`ItemAuthorityStateMachine.cs:174-177`) or the ledger. Whether they become owned and listed is unchecked in game (F7). Decided 2026-10-21, never built: confirm, then build. Item-review triage: decided, not built. An owned booklet also becomes Missing at each load |
 | OI-ID-13 | An admin `/give` is owned by its target, born `Granted` | OI §What an owned item is | `[~] built, unproved` | `AdminItemGrants.cs:117-148` sets the owner and moves it `Granted`, which the ledger takes as its birth (`OwnedItemsServer.cs:411`). `owned-items` :53 checks only that the item arrives |
-| OI-ID-14 | An owner can be a company (an owner kind beside the GUID); gadgets, garage keys, loco paint, the MU controller and the loco remote are company-owned | OI §Companies | `[ ]` | Decided in outline 2026-10-21; details are company-career.md's |
-| OI-ID-15 | A company Lost and Found, and retrieval and red by membership | OI §Companies | `[ ]` | As OI-ID-14 |
-| OI-ID-16 | Giving an item to another player (an explicit gift that changes the owner) | OI §Open decisions; OQ §When should ownership transfer | `needs decision` | Open since 2026-10-21. The ledger supports an owner change with a reason |
-| OI-ID-17 | Items made by machines or printers (outside gadgets): owned by whoever operated or paid, born `Made` | OI §Open decisions; OQ §Which creation paths | `needs decision` | Recommended, not decided. Decide when one is synced |
+| OI-ID-14 | An owner can be a company (an owner kind beside the GUID); gadgets, garage keys, loco paint, the MU controller and the loco remote are company-owned | OI §Companies | `paused: companies` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Decided in outline 2026-10-21; details are company-career.md's |
+| OI-ID-15 | A company Lost and Found, and retrieval and red by membership | OI §Companies | `paused: companies` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. As OI-ID-14 |
+| OI-ID-16 | Giving an item to another player (an explicit gift that changes the owner) | OI §Open decisions; OQ §When should ownership transfer | `paused: not about loss` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. Open since 2026-10-21. The ledger supports an owner change with a reason |
+| OI-ID-17 | Items made by machines or printers (outside gadgets): owned by whoever operated or paid, born `Made` | OI §Open decisions; OQ §Which creation paths | `paused: not about loss` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. Recommended, not decided. Decide when one is synced |
 | OI-ID-18 | A re-minted copy's ledger entry is born `Duplicate`, with the original's id as `from` | OI §Duplicates, §Lineage | `[ ]` | `ClaimPersistentId` re-mints before the ledger sees the copy, so a live copy is born `Claimed` (or not at all, if unowned) with no `from`. Only an id the ledger already holds reaches `Duplicate` (`OwnedItemLedger.cs:137-145`). Found by this checklist |
 
 ## The ledger as the source of truth
@@ -123,7 +134,7 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-LED-11 | `Missing`: an entry whose store didn't hold it at load is kept, shown in the list as lost track of, and checked again at each load | OI §Loading, §The owned-items list | `[~] built, unproved` | `MarkMissing` keeps the entry live and later loads re-check it (`OwnedItemReconciler.cs:134-139, 182-185`); the list shows it as "missing". No scenario makes an item go missing |
 | OI-LED-12 | Ended entries are kept for lineage, the newest 100 per owner, and pruned beyond that | OI §In the vanilla save | `[x]` | #278 · `OwnedItemLedger.cs` · Core `OwnedItemLedgerTests` |
 | OI-LED-13 | A dvmp eval helper dumps the ledger (`Ledger.Dump()`) | OI §1b | `[ ]` | None. `OwnedItemsServer.Describe` (`:269`) has no callers; scenarios read entries through `Library/OwnedItems.cs` |
-| OI-LED-14 | Code comments that cite removed doc sections or describe the shadow ledger ("nothing reads it yet", "until PR 2a", "Known bugs", "What other systems read", Lost and Found's `WriteSave` owner-number comment) are brought up to date | F14; F2 | `[ ]` | `OwnedItemsServer.cs:19-24, 354-356`; `AuthoritativeItemRegistry.cs:764`; `NetworkedLostAndFoundManager.cs:488-489`. Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-LED-14 | Code comments cite item docs that exist: none points at a removed section or describes the shadow ledger | F14; F2 | `[ ]` | `OwnedItemsServer.cs:19-24, 354-356`; `AuthoritativeItemRegistry.cs:764`; `NetworkedLostAndFoundManager.cs:488-489`. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 
 ## Joining, rejoining and leaving
 
@@ -197,8 +208,8 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-LF-15 | An entry lives as long as its item: the reconcile removes an entry whose item is gone or moved out, and a destroyed item isn't saved | LC §Lost and Found lifecycle | `[x]` | `LostItemEntryReconciler.Classify` (Core) · Core `LostAndFoundTests.Reconcile_*` |
 | OI-LF-16 | Nothing expires: an absent player's items wait however long they're away | OI §Decisions | `[~] built, unproved` | No expiry exists in the code. Nothing proves an entry survives a long absence across restarts |
 | OI-LF-17 | A lost job booklet goes to the Lost and Found of the player it was issued to, issued by identity, not number | OI §Lost and Found ("Job papers"); F7 | `needs decision` | With OI-ID-12. Issuance is by number today, used only for summoning (`NetworkedJob.cs:102-113`). Item-review triage: decided, not built. |
-| OI-LF-18 | Lost and Found's distance checks use the item's last committed pose, not its live transform | LC §Placement and motion; F15 | `[ ]` | `BuildCandidate` uses `transform.position` (`NetworkedLostAndFoundManager.cs:744-746`). Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
-| OI-LF-19 | Retrieval materializes the record with a fresh runtime binding | LC §Lost and Found lifecycle; F16 | `[ ]` | The item keeps its NetId and object, inert, and is revived (`NetworkedLostAndFoundManager.cs:155-210`). Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-LF-18 | Lost and Found's distance checks measure from the item's live position on the server | LC §Placement and motion; F15 | `[ ]` | `BuildCandidate` uses `transform.position` (`NetworkedLostAndFoundManager.cs:744-746`). Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
+| OI-LF-19 | Retrieval revives the same object, which kept its NetId while it lay inert in vanilla's Lost and Found storage | LC §Lost and Found lifecycle; F16 | `[ ]` | The item keeps its NetId and object, inert, and is revived (`NetworkedLostAndFoundManager.cs:155-210`). Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 | OI-LF-20 | Reasons on the wire, append only: `OwnerDistance` (offline owners too), `ContainerCleared`, `BorrowerLeft` and `RetrievedByOwner` in use | OI §Lost and Found ("Reasons") | `[~] built, unproved` | The paths that use them are proved (OI-LF-01, -02, -09, OI-JOIN-04, OI-LIST-08); no scenario checks the reason an entry records |
 | OI-LF-21 | `SaveRecovery` is used, by migration and load reconciliation | OI §Lost and Found ("Reasons") | `[ ]` | Unused. See OI-PER-07, OI-PER-12, OI-MIG-04 |
 | OI-LF-22 | `GadgetDestinationMissing` is used: an installed gadget whose car is gone at load goes to its owner's Lost and Found | OI §Lost and Found ("Reasons"); #305 "left for later"; GD §Persistence | `[ ]` | Not routed on beta. Gadget 3a (#314) uses this reason for a car deleted at runtime, not for a car missing at load |
@@ -210,19 +221,19 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-LIST-01 | An Owned Items page in the career manager lists the player's live items, built by the server from the ledger, each with a per-session handle and where it is | OI §The owned-items list; #308 | `[x]` | #308 · `Server/Items/OwnedItems/OwnedItemRows.cs`, the client's `OwnedItemsList` · `owned-list` :72, :79-80 (p+d) |
 | OI-LIST-02 | Ended items aren't listed: a used-up or destroyed item leaves the list | OI §Decisions ("The list shows only what still exists") | `[x]` | #308 · `OwnedItemRows` (live entries only) · `owned-list` :76, `item-lineage` :51-52 (p+d) |
 | OI-LIST-03 | Where it is, worded on the server: with you; with another player; in a car's interior; on a shelf; in a container; in Lost and Found; installed on a car | OI §The owned-items list; #308 | `[x]` | #308 · `Multiplayer.Core/Items/OwnedItemPlaceText.cs` · Core `OwnedItemPlaceTextTests`. Which place the server picks is OI-LIST-21 |
-| OI-LIST-04 | A lying item says where: "near Harbor (HB), 1.2 km", not "on the ground" | OI §The owned-items list | `[ ]` | As built (#308) it says "on the ground" |
-| OI-LIST-05 | A contained item names the nesting: "in your Toolbox, in your inventory" | OI §The owned-items list | `[ ]` | As built (#308) it names the container only |
+| OI-LIST-04 | A lying item says where: "near Harbor (HB), 1.2 km", not "on the ground" | OI §The owned-items list | `paused: list wording` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. As built (#308) it says "on the ground" |
+| OI-LIST-05 | A contained item names the nesting: "in your Toolbox, in your inventory" | OI §The owned-items list | `paused: list wording` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. As built (#308) it names the container only |
 | OI-LIST-06 | An attached item says "on the end of car L-042"; a missing one says "lost track of it" | OI §The owned-items list | `[~] built, unproved` | Worded "attached to L-042" and "missing" (`OwnedItemPlaceText.cs:34-65`). No scenario lists either |
-| OI-LIST-07 | The page's labels are localised (with the Lost Items page) | #308 "left for later" | `[ ]` | English only |
+| OI-LIST-07 | The page's labels are localised (with the Lost Items page) | #308 "left for later" | `paused: list wording` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. English only |
 | OI-LIST-08 | Retrieval sends the item to its owner's Lost and Found (`RetrievedByOwner`), with no nearby-player protection or grace; from the ground and a train interior | OI §Decisions, §Retrieval; #310 | `[x]` | #310 · `Server/Items/OwnedItems/OwnedItemRetrieval.cs` · `owned-retrieve` :59-61, ground and cab (p+d) |
 | OI-LIST-09 | Retrieval from a shelf (static parent) | OI §Retrieval | `[~] built, unproved` | `OwnedItemRetrievalRule` allows it. No scenario puts an item on a shelf |
 | OI-LIST-10 | Retrieval from a container takes the outermost container that isn't with the owner, whole, as one entry | OI §Retrieval; #310 | `[x]` | #310 · `OwnedItemRetrieval` (walks up the cold graph) · `owned-retrieve` :66-70 (p+d) |
 | OI-LIST-11 | Retrieval from another player's hand, even mid-use: it leaves their hand, they get a message, the change log names the owner | OI §Decisions, §Retrieval; #310 | `[x]` | #310 · `OwnedItemRetrieval` · `owned-retrieve` :84-88 (p only: needs the host's player). The holder's message and the change log aren't checked |
 | OI-LIST-12 | Retrieval from another player's inventory or belt | OI §Retrieval; #310 | `[~] built, unproved` | Same path as the hand. No scenario retrieves from another player's inventory or belt |
-| OI-LIST-13 | Retrieval from another player's hand stops a tool-use presence on the item | OI §Retrieval | `[ ]` | Tool-use presences are gadget PR 11 (#320, draft) |
+| OI-LIST-13 | Retrieval from another player's hand stops a tool-use presence on the item | OI §Retrieval | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Tool-use presences are gadget PR 11 (#320, draft) |
 | OI-LIST-14 | Attached and snapped items (an EOT lantern, a hanger) are detached and retrieved | OI §Retrieval; #310 "not in this PR"; Not built | `[ ]` | Refused as "not yet" |
-| OI-LIST-15 | An installed gadget is retrieved from any car, any time: removed natively in every game with change reason `gadget-retrieved`, into Lost and Found | OI §Decisions, §Retrieval, §8 | `[~] #313` | Draft, waits for gadget 3a (#314). #313 cut the `gadget-retrieved` reason (3a's change log records operations by player, not reason): a new row, OI-LIST-16 |
-| OI-LIST-16 | The change log carries the `gadget-retrieved` reason for a retrieval | #313 "not done" | `[ ]` | Cut from #313 |
+| OI-LIST-15 | An installed gadget is retrieved from any car, any time: removed natively in every game with change reason `gadget-retrieved`, into Lost and Found | OI §Decisions, §Retrieval, §8 | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [~] #313. Draft, waits for gadget 3a (#314). #313 cut the `gadget-retrieved` reason (3a's change log records operations by player, not reason): a new row, OI-LIST-16 |
+| OI-LIST-16 | The change log carries the `gadget-retrieved` reason for a retrieval | #313 "not done" | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Cut from #313 |
 | OI-LIST-17 | Mid-transaction retrieval is refused, "busy, try again": mid-recall | OI §Retrieval; #310 | `[~] built, unproved` | `OwnedItemRetrieval.cs:70-74` (`busy-try-again` while a recall is pending). No scenario |
 | OI-LIST-18 | Mid-transaction retrieval is refused for a container mid-withdrawal or mid-deposit | OI §Retrieval; #310 "not in this PR"; Not built | `[ ]` | |
 | OI-LIST-19 | Nothing to do (with you, in Lost and Found, missing) is refused with its reason | OI §The owned-items list, §Retrieval; #310 | `[x]` | #310 · `OwnedItemRetrievalRule` (`OwnedItemPlaceText.cs:86-96`) · `owned-retrieve` :74-75 (`nothing-to-retrieve`, p+d); Core `OwnedItemRetrievalRuleTests` (Snapped and plain World left out) |
@@ -235,9 +246,9 @@ On 2026-10-23, at beta 1a0b732f:
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
 | OI-LIN-01 | `RecordReplacement`: a server-side swap makes the replacement the used item's owner's, born `Replaced` from it, and ends the used item with `replacedBy` | OI §Lineage, §7; #312 | `[x]` | #312 · `OwnedItemsServer.RecordReplacement` (`:131`) · `item-lineage` :43-48 (p+d). The scenario calls it directly: no production code does yet (OI-LIN-02 to -04) |
-| OI-LIN-02 | Duct tape's last use, through the gadget server, records its empty roll as the replacement | OI §Lineage, §7; #312 "left to gadget PRs" | `[ ]` | Gadget 4 (#315, draft) doesn't call `RecordReplacement` (checked on `origin/gadgets/mount-points`) |
-| OI-LIN-03 | The solder spool's first use records its empty spool | OI §Lineage, §7; #312 | `[ ]` | Gadget 5 (#316, draft) doesn't call it |
-| OI-LIN-04 | A label's `DestroyOnGadgetUnlink` records its replacement | OI §Lineage, §7; #312 | `[ ]` | Gadget 9 (#318, draft) runs the native swap server-side but doesn't call it |
+| OI-LIN-02 | Duct tape's last use, through the gadget server, records its empty roll as the replacement | OI §Lineage, §7; #312 "left to gadget PRs" | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Gadget 4 (#315, draft) doesn't call `RecordReplacement` (checked on `origin/gadgets/mount-points`) |
+| OI-LIN-03 | The solder spool's first use records its empty spool | OI §Lineage, §7; #312 | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Gadget 5 (#316, draft) doesn't call it |
+| OI-LIN-04 | A label's `DestroyOnGadgetUnlink` records its replacement | OI §Lineage, §7; #312 | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Gadget 9 (#318, draft) runs the native swap server-side but doesn't call it |
 | OI-LIN-05 | A money deposit ends its entry `MoneyDeposited`, with nothing replacing it | OI §Lineage, §7 | `[~] built, unproved` | `OwnedItemsServer.OnRemoved` ends the entry with the removal cause. No scenario deposits money (`item-lineage` leaves it for the money work) |
 | OI-LIN-06 | Any other destroy of an owned item ends its entry with its recorded removal cause (`DestroyedByGame` when unknown) | OI §Lineage; #312 | `[x]` | #282 · `OwnedItemsServer.OnRemoved` (`:103`) · `item-lineage` :59-61, `starting-items` :83 (p+d) |
 | OI-LIN-07 | Each way an item becomes owned records its birth reason, time and actor: `Purchased`, `StarterKit`, `Issued`, `Granted`, `Claimed`, `Replaced`, `Made`, `Migrated`, `Duplicate` | OI §What an owned item is, §Lineage | `[~] built, unproved` | Proved: `StarterKit`, `Issued` (`starting-items`), `Migrated` (`ledger-save`), `Replaced` (`item-lineage`, scenario-driven). Built, unproved: `Purchased` (`ShopDelivery.cs:44`), `Granted` (`AdminItemGrants.cs:125,148`), `Claimed` (the default). Not reachable: `Duplicate` (OI-ID-18). Never produced: `Made` (OI-ID-17) |
@@ -251,16 +262,16 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-ACC-03 | Wired: a cold-container deposit (owner only, own items only) | #296 | `[x]` | #296 · `NetworkedColdContainerManager.cs:158` · `deposit-refused` :52-63 (p+d) |
 | OI-ACC-04 | Wired: withdraw (and the withdrawal uses the server's slot, not the client's: BR LF3) | #296 "not wired yet"; BR LF3 | `[ ]` | Not called. The withdrawal trusts the client's slot (`NetworkedColdContainerManager.cs:265, 382`) |
 | OI-ACC-05 | Wired: recall | #296 "not wired yet" | `[ ]` | Not called |
-| OI-ACC-06 | Wired: remove a gadget (the gadget server's request checks call it) | #296 "not wired yet"; OI §Permissions | `[ ]` | Not called on beta; gadget removal is gadget 3a (#314) |
+| OI-ACC-06 | Wired: remove a gadget (the gadget server's request checks call it) | #296 "not wired yet"; OI §Permissions | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Not called on beta; gadget removal is gadget 3a (#314) |
 | OI-ACC-07 | Wired: take from the world, take from a player | OI §9 | `[ ]` | Not called |
 | OI-ACC-08 | `ItemAccessServer` decides "owns it" by identity | F2 | `[ ]` | By number (`ItemAccessServer.cs:27-28`). With OI-LED-06. Item-review triage: decided, not built. |
-| OI-ACC-09 | The permissions system (friends, company members) replaces the policy, not the call sites | OI §Permissions | `[ ]` | Later |
+| OI-ACC-09 | The permissions system (friends, company members) replaces the policy, not the call sites | OI §Permissions | `paused: shops (the permissions system)` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Later |
 | OI-FIX-01 | A fixture can't go into an inventory, a belt or a container (`fixture-stays-in-its-place`) | OI §Fixtures; #296 | `[x]` | #296 · `ItemAccess.cs`, wired at `AuthoritativeItemRegistry.cs:279` and `NetworkedColdContainerManager.cs:158` · `fixture-no-stash` :29-30 (stash, p+d); Core `ItemAccessTests.AFixture_CantBeStashedOrDeposited_EvenByAnOwner`. No scenario deposits a fixture |
-| OI-FIX-02 | The fixture list holds the shop scanner, one per shop (by authored key or prefab) | OI §Fixtures; SH §Station fixtures, §2c | `[ ]` | `ItemAccessServer.Fixtures` is empty (`ItemAccessServer.cs:237`). Shops 2c, not started |
-| OI-FIX-03 | **A fixture carried out of its place** (30 m from its shop's register) is taken from the hand and put back on its spot | OI §Fixtures; SH §2c; F13; Not built | `needs decision` | Decided 2026-10-21, never built (shops 2c). Shops gap 19 (walking off with the scanner) is open. Confirm, then build. Item-review triage: decided, not built. |
-| OI-FIX-04 | **Leaving and saving put a fixture back:** its carrier leaving, and every save, return it to its spot; it's never saved as a possession, and an old save with one in an inventory puts it back at load | OI §Fixtures; SH §2c; F13 | `needs decision` | As OI-FIX-03. Item-review triage: decided, not built. |
-| OI-FIX-05 | A fixture is never owned and never reaches Lost and Found | OI §Fixtures | `[ ]` | Waits for OI-FIX-02. A deleted car destroys the scanner today (OI-LF-10) |
-| OI-FIX-06 | A player's own game refuses to put a fixture in the inventory, so the client never offers it | SH §2c | `[ ]` | Today the server's refusal drops it at the player's feet (#296) |
+| OI-FIX-02 | The fixture list holds the shop scanner, one per shop (by authored key or prefab) | OI §Fixtures; SH §Station fixtures, §2c | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. `ItemAccessServer.Fixtures` is empty (`ItemAccessServer.cs:237`). Shops 2c, not started |
+| OI-FIX-03 | **A fixture carried out of its place** (30 m from its shop's register) is taken from the hand and put back on its spot | OI §Fixtures; SH §2c; F13; Not built | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. Decided 2026-10-21, never built (shops 2c). Shops gap 19 (walking off with the scanner) is open. Confirm, then build. Item-review triage: decided, not built. |
+| OI-FIX-04 | **Leaving and saving put a fixture back:** its carrier leaving, and every save, return it to its spot; it's never saved as a possession, and an old save with one in an inventory puts it back at load | OI §Fixtures; SH §2c; F13 | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. As OI-FIX-03. Item-review triage: decided, not built. |
+| OI-FIX-05 | A fixture is never owned and never reaches Lost and Found | OI §Fixtures | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Waits for OI-FIX-02. A deleted car destroys the scanner today (OI-LF-10) |
+| OI-FIX-06 | A player's own game refuses to put a fixture in the inventory, so the client never offers it | SH §2c | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Today the server's refusal drops it at the player's feet (#296) |
 
 ## Containers
 
@@ -273,13 +284,13 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-CON-05 | Browse and deposit wait for the save's import, so a deposit made before it isn't wiped | F19; container-storage.md Not built | `[ ]` | `NetworkedColdContainerManager.cs:71-97`. Item-review triage: real bug (inventory loss; the window is about 1 s today). |
 | OI-CON-06 | A failed retirement is retried, and saved as a cleanup obligation (`ColdCommittedPendingRetirement`) | LC §Cold-container lifecycle, §Implementation status; F17 | `[ ]` | Export writes every item `Cold` (`ColdContainerGraph.cs:542-556`). Item-review triage: real bug (a duplicate: a half-retired deposit is saved both Cold and as a possession). |
 | OI-CON-07 | Retrying a committed withdrawal returns its result instead of throwing | F21 | `[ ]` | Latent: the client never reuses an operation id. Item-review triage: real bug (latent inventory loss if an operation id is reused). |
-| OI-CON-08 | The holder of an unowned shell can open it | F22 | `[ ]` | Browsing by shell needs the owner number (`NetworkedColdContainerManager.cs:558-562`). Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-CON-08 | The holder of an unowned shell can open it | F22 | `[ ]` | Browsing by shell needs the owner number (`NetworkedColdContainerManager.cs:558-562`). Item-review triage: doc-only. **Kept as the design said, user 2026-10-23** (a real gap). |
 | OI-CON-09 | A restored shell never mints a new container id between its record and its state (0.25 s later) | F23 | `[ ]` | Unverified (`WorldItemPersistenceRestore.cs:221-232`). Item-review triage: real bug (a whole box orphaned in a narrow window; needs a game check). |
-| OI-CON-10 | No fake item objects or fabricated `AItemContainer` for the UI | F20 | `[ ]` | The UI uses hidden proxies and `ColdProxyContainer`. Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-CON-10 | The container UI uses hidden proxy objects and `ColdProxyContainer`, which never become items the server keeps | F20 | `[ ]` | The UI uses hidden proxies and `ColdProxyContainer`. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 | OI-CON-11 | A container's records are removed when the container is destroyed | container-storage.md Not built | `[ ]` | |
 | OI-CON-12 | A deposit's Destroy and a withdrawal's Create respect interest | container-storage.md Known issues | `[ ]` | Sent to every player |
 | OI-CON-13 | Moving an item between a parent and a child container isn't refused as stale | container-storage.md Known issues | `[ ]` | Sends the open container's revision as the source's |
-| OI-CON-14 | Deltas and subscriptions, paging beyond 64, request rate limits and a cap on concurrent withdrawals | container-storage.md Not built | `[ ]` | |
+| OI-CON-14 | Deltas and subscriptions, paging beyond 64, request rate limits and a cap on concurrent withdrawals | container-storage.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ] |
 | OI-CON-15 | A deposit checks the destination's nesting depth, so no graph deeper than 8 is made (which the import then refuses, OI-CON-04) | Item-review's triage of F18 | `[ ]` | The deposit doesn't check it (`ColdContainerGraph.cs:641-702` against `ValidateDepthFrom` `:705-726`) |
 
 ## Persistence
@@ -295,7 +306,7 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-PER-07 | **Load: another player's item in a saved possession** goes to its owner's Lost and Found (`RecoverToLostAndFound`, `SaveRecovery`) | OI §Loading; F1; Not built | `[ ]` | Logged, not carried out. Item-review triage: decided, not built. |
 | OI-PER-08 | Load: an ended entry's item found in a store lives again (`Revive`); an owned item with no entry is registered, born `Migrated`; an entry found nowhere is `Missing` | OI §Loading | `[x]` | #282 · `OwnedItemReconciler.ApplyToLedger` · `ledger-save` :135 (Migrated, p+d); Core `OwnedItemReconcilerTests` (Revive, MarkMissing) |
 | OI-PER-09 | Lost and Found entries bind by the item's id at load, for every owner, online or not | OI §Loading; #282, #304 | `[x]` | #282, #304 · `NetworkedLostAndFoundManager` load · `absent-owner` :60-67, `item-id-roundtrip` :73-76, `lost-and-found-many-owners` :60-67 (p+d) |
-| OI-PER-10 | One store saves each item: vanilla's inventory isn't also written for the host's player | LC §Persistence ownership; F24 | `[ ]` | Still written (`NetworkedSaveGameManager.cs:106`). OI-MIG-04 reads it, so decide both together. Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-PER-10 | Every player's possessions, the host's included, are saved by identity in `WorldItemsV1`; the host's vanilla inventory is only a mirror, cleared at a multiplayer load | LC §Persistence ownership; F24 | `[ ]` | Still written (`NetworkedSaveGameManager.cs:106`). OI-MIG-04 reads it, so decide both together. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 | OI-PER-11 | An unowned item in flight at save time isn't saved (no extra copy of a thrown spray can or office prop) | LC §Persistence ownership; F25 | `[ ]` | A lease open at save time saves it (`WorldItemPersistenceSave.cs:40-43`). Item-review triage: real bug (a duplicate). |
 | OI-PER-12 | A train-interior item waits for its car at load, and goes to Lost and Found (`SaveRecovery`) if the car is gone | F27; item-world-sync.md Not built | `[ ]` | Restored at once at the saved pose. Item-review triage: decided, not built. |
 | OI-PER-13 | A dynamic owned `Attached` item (a bought EOT lantern) is saved with its owner | F26 | `[ ]` | Not in `WorldItemsV1`, not managed. Unverified. Item-review triage: real bug (the owner is lost at reload; unverified). |
@@ -311,21 +322,21 @@ On 2026-10-23, at beta 1a0b732f:
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
 | OI-SYNC-01 | No client-made items: adoption is gone, and an unbound client item is either an authored projection kept dormant or destroyed | OI §5; LC §Client projection invariant; #307 | `[x]` | #307 · client `NetworkedItem` binding · `rejoin` :56 (p+d), `starting-items` |
-| OI-SYNC-02 | The dead adoption paths go: `ClientAdoption` is no longer read, and `ReturnedToRejoiningOwner` (never produced) is retired | F31 | `[ ]` | Kept for wire numbering, and `ClientAdoption` is still read (`AuthoritativeItemRegistry.cs:259, 371`). Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
-| OI-SYNC-03 | The `Container` and `SnappedAttachment` placements are assigned, or dropped from the model | LC §Orthogonal state axes; F29 | `[ ]` | Nothing assigns either (`ItemAuthorityData.cs:5-18`). Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-SYNC-02 | `ClientAdoption` and `ReturnedToRejoiningOwner` stay only for wire numbering, and nothing produces them | F31 | `[ ]` | Kept for wire numbering, and `ClientAdoption` is still read (`AuthoritativeItemRegistry.cs:259, 371`). Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
+| OI-SYNC-03 | The `Container` and `SnappedAttachment` placements are unused: a stored item has no record, and a snapped item is a world item | LC §Orthogonal state axes; F29 | `[ ]` | Nothing assigns either (`ItemAuthorityData.cs:5-18`). Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 | OI-SYNC-04 | **A static-parent item (on a shelf) stays in players' interest** after a spatial sample or commit | F42; item-world-sync.md Known issues | `[ ]` | `IsNonSpatialRelevantTo` has no `StaticParent` case. Unverified in game. Item-review triage: real bug (the item is invisible to clients until a reload). |
-| OI-SYNC-05 | Interest membership changes only when an item crosses a cell, not on every change to a server copy | F43 | `[ ]` | Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
-| OI-SYNC-06 | Interest is entered at 3×3 cells and left outside 5×5 (the doc said exact 3×3) | F44 | `[ ]` | Code is 3×3/5×5. Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-SYNC-05 | Every change to one of the server's copies re-indexes the item for interest (a cost, not a correctness rule) | F43 | `[ ]` | Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
+| OI-SYNC-06 | Interest is entered at 3×3 cells and left outside 5×5 | F44 | `[ ]` | Code is 3×3/5×5. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 | OI-SYNC-07 | A projection is known only once acknowledged: a failed projection sends a negative acknowledgement so the Create is re-sent, and a late retirement acknowledgement doesn't hold a re-entry back | F45; item-world-sync.md Known issues | `[ ]` | Item-review triage: real bug (cosmetic: re-entry blocked for 5 s). |
 | OI-SYNC-08 | An authored key collision refuses only those entries, never every client's catalogue | F46 | `[ ]` | Item-review triage: decided, not built. |
-| OI-SYNC-09 | `WorldItemStaticParentRegistry` doesn't rescan the scene on every miss, and a moved parent still resolves | F47 | `[ ]` | Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. A performance note |
-| OI-SYNC-10 | Unknown player location fails safe for cleanup: a player still loading protects slots and forks near them | LC §Cleanup and recovery precedence; F30 | `[ ]` | Replenishment and fork cleanup count only `ReadyForItems` players. Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-SYNC-09 | `WorldItemStaticParentRegistry` doesn't rescan the scene on every miss, and a moved parent still resolves | F47 | `[ ]` | Item-review triage: doc-only. **Kept as the design said, user 2026-10-23** (a real gap). A performance note |
+| OI-SYNC-10 | Unknown player location fails safe for cleanup: a player still loading protects slots and forks near them | LC §Cleanup and recovery precedence; F30 | `[ ]` | Replenishment and fork cleanup count only `ReadyForItems` players. Item-review triage: doc-only. **Kept as the design said, user 2026-10-23** (a real gap). |
 | OI-SYNC-11 | A lower cleanup never erases a higher record: stock-fork cleanup never removes an owned, claimed, contained, Lost and Found or protected item | LC §Cleanup and recovery precedence, §Forbidden | `[~] built, unproved` | `AuthoredWorldItemReplenishmentManager.cs:127-133` rejects such records. No test or scenario |
-| OI-SYNC-12 | Office stock left in a parked cab isn't destroyed after 30 s | BR LF8 | `needs decision` | By design today (`AuthoredWorldItemReplenishmentManager.cs:26,127-133`). The bug review asks the user |
+| OI-SYNC-12 | Office stock left in a parked cab isn't destroyed after 30 s | BR LF8 | `paused: not about loss` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. By design today (`AuthoredWorldItemReplenishmentManager.cs:26,127-133`). The bug review asks the user |
 | OI-SYNC-13 | An office prop's reset checks interest where the prop is, not only at its baseline cell | item-world-sync.md Known issues | `[ ]` | |
-| OI-SYNC-14 | A sync-completion barrier at join, not a fixed 0.25 s wait | item-world-sync.md Not built | `[ ]` | |
-| OI-SYNC-15 | Relays respect interest | item-world-sync.md Not built | `[ ]` | |
-| OI-SYNC-16 | Compressed or chunked bulk updates | item-world-sync.md Not built | `[ ]` | |
+| OI-SYNC-14 | A sync-completion barrier at join, not a fixed 0.25 s wait | item-world-sync.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ] |
+| OI-SYNC-15 | Relays respect interest | item-world-sync.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ] |
+| OI-SYNC-16 | Compressed or chunked bulk updates | item-world-sync.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ] |
 | OI-SYNC-17 | Per-recipient projection state in the item debug snapshot | LC §Implementation status, §Required lifecycle observability | `[ ]` | |
 | OI-SYNC-18 | Every move and removal has a recorded cause, logged on the server and sent with the update to clients | LC §Why an item changed | `[~] built, unproved` | `ItemChangeLog`, `ClientItemChangeLog`; Core `ItemChangeReasonsTests` checks the wire values only. No scenario checks a recorded cause |
 
@@ -337,32 +348,32 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-PHY-02 | Pickup, containment, Lost and Found, installing and destroying end any older lease explicitly (not only by the revision advance) | LC §Placement and motion, §Implementation status; item-spatial-physics.md Not built | `[ ]` | See also OI-ESS-11 (recall) |
 | OI-PHY-03 | A lease whose placement changed without a transition (a Lost and Found collection mid-flight) ends, instead of failing every frame | F40 | `[ ]` | Item-review triage: real bug (a duplicate). |
 | OI-PHY-04 | A server-simulated lease whose settlement is refused ends | F39 | `[ ]` | Item-review triage: real bug (it feeds OI-PER-11 and OI-PHY-03). |
-| OI-PHY-05 | A parent change during a flight is committed as one | F33 | `[ ]` | Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
+| OI-PHY-05 | A parent change during a flight is committed as one | F33 | `[ ]` | Item-review triage: doc-only. **Kept as the design said, user 2026-10-23** (a real gap). |
 | OI-PHY-06 | **A settled train item stays kinematic** on a player who gets it later (a Create) or applies a convergence correction | F34; item-spatial-physics.md, train-item-wake.md Known issues | `[ ]` | `HandleDroppedOrThrownState` makes it dynamic. Unverified in game. Item-review triage: real bug (misplaced on the client; unverified). |
 | OI-PHY-07 | A dedicated host can take a transferred lease and simulate a train wake | F32 | `[ ]` | Candidates are players only. Item-review triage: real bug (cosmetic: on a dedicated host a thrown item freezes mid-air if its thrower leaves). |
 | OI-PHY-08 | A pickup range check on the server | F35; item-world-sync.md Not built | `[ ]` | Item-review triage: decided, not built. |
-| OI-PHY-09 | A throw sends its release pose and velocities | F36 | `[ ]` | Only `ThrowDirection`. Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
-| OI-PHY-10 | Observers buffer and interpolate at a delay | F37 | `[ ]` | They extrapolate up to 0.15 s and smooth. Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
-| OI-PHY-11 | Fall rescue commits the rescue (revision and spatial commit), and covers non-`World` items | F38 | `[ ]` | Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. Open: a train-interior item that falls under the map |
-| OI-PHY-12 | A wake's simulator is given interest in the items, so a late joiner can witness impacts; car motion is measured in the car's frame, so curves don't count | F41; train-item-wake.md Not built, Known issues | `[ ]` | Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. |
-| OI-PHY-13 | A scenario for train-item wakes (the Train Item Lab is gone) | train-item-wake.md Not built | `[ ]` | `train-items` checks only that an item stays in a moving cab |
-| OI-PHY-14 | Throwing onto a moving flatcar lands within tolerance on both games | #148; OI §Plan ("not the ledger's") | `[ ]` | `item-release-throw-flatcar` flakes on both host kinds |
-| OI-PHY-15 | Recovery for runaway or never-sleeping motion | item-spatial-physics.md Not built | `[ ]` | Needs research first |
+| OI-PHY-09 | A throw sends its direction only, and the server simulates the flight from its own copy | F36 | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Only `ThrowDirection`. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
+| OI-PHY-10 | Observers extrapolate one target for up to 0.15 s and smooth towards it at 10/s | F37 | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. They extrapolate up to 0.15 s and smooth. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
+| OI-PHY-11 | Fall rescue commits the rescue (revision and spatial commit), and covers non-`World` items | F38 | `[ ]` | Item-review triage: doc-only. **Kept as the design said, user 2026-10-23** (a real gap). Open: a train-interior item that falls under the map |
+| OI-PHY-12 | A wake's simulator is given interest in the items, so a late joiner can witness impacts; car motion is measured in the car's frame, so curves don't count | F41; train-item-wake.md Not built, Known issues | `[ ]` | Item-review triage: doc-only. **Kept as the design said, user 2026-10-23** (a real gap). |
+| OI-PHY-13 | A scenario for train-item wakes (the Train Item Lab is gone) | train-item-wake.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. `train-items` checks only that an item stays in a moving cab |
+| OI-PHY-14 | Throwing onto a moving flatcar lands within tolerance on both games | #148; OI §Plan ("not the ledger's") | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. `item-release-throw-flatcar` flakes on both host kinds |
+| OI-PHY-15 | Recovery for runaway or never-sleeping motion | item-spatial-physics.md Not built | `paused: physics and wake fidelity` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Needs research first |
 
 ## Shops seam
 
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
-| OI-SHOP-01 | Every purchase, the host's own player's included, is made by the server and owned by whoever scanned the line before anyone sees it | OI §What an owned item is, §5; SH §Owned items | `[x]` | Shops #284 · `ShopDelivery.Spawn` · `shop` :65 (p+d), `shop WHO=host` (p: the host's own player). The ledger's `Purchased` birth isn't checked (OI-LIN-07) |
-| OI-SHOP-02 | A purchase is born `Purchased` with the shop, the transaction id and the payer in its detail | SH §Owned items (seam 1); F48 | `[ ]` | Shops PR 3. No transaction id or payer today (`ShopDelivery.cs:20-51`). Item-review triage: decided, not built. |
-| OI-SHOP-03 | A purchase whose owner is over 200 m away or offline when it comes due is born in their Lost and Found (`PurchasedDeliveryFallback`) | OI §Lost and Found ("Reasons"); SH §Owned items (seam 2); F48 | `[ ]` | Shops PR 3. Always on the counter today. Item-review triage: decided, not built. |
-| OI-SHOP-04 | A line whose owner has left is delivered to their Lost and Found, not unowned | SH §Owned items; F48 | `[ ]` | Shops PR 3. Item-review triage: decided, not built. |
-| OI-SHOP-05 | `shopStocked` mirrors vanilla's `Restock`: set at birth, cleared where vanilla clears it (a used garage key), read at load and migration, never set on a replacement | OI §What other systems read; SH §Owned items (seam 3) | `[~] built, unproved` | Set at birth from the item's flag (`OwnedItemsServer.cs:340, 435-437`). No scenario. Clearing and loading are OI-SHOP-10 |
-| OI-SHOP-06 | Per-player stock is `CountLive(owner, prefab, shopStocked)`, and the ledger's change event sends that player's allowance | OI §What other systems read; SH §Per-player stock, §6 | `[ ]` | Core API built and tested (#278); nothing outside Core uses it. Shops PR 6 |
-| OI-SHOP-07 | Installed gadgets count against their owner's stock | SH §Gadgets; OI §What other systems read | `[ ]` | Shops PR 6 |
-| OI-SHOP-08 | Receipts are server-made, unowned world items | SH §Receipts, §Owned items (seam 5); OI §5 | `[ ]` | Shops PR 3. Client-local today |
-| OI-SHOP-09 | A wallet coin flick goes through the server; it can't credit money from nothing | Map COIN; OI §Found in testing; #307 | `[ ]` | Since #307 the flicked coin vanishes on the client. Not tried in game |
-| OI-SHOP-10 | `shopStocked` is cleared where vanilla clears `Restock` (a used garage key), and read from each store at load and migration, cold containers and Lost and Found included | OI §What other systems read; SH §Owned items (seam 3) | `[ ]` | Never cleared on the server (`SetShopStocked` has no callers outside Core). Cold-container and Lost and Found hits migrate as false |
+| OI-SHOP-01 | Every purchase, the host's own player's included, is made by the server and owned by whoever scanned the line before anyone sees it | OI §What an owned item is, §5; SH §Owned items | `[x]` | Shops #284 · `ShopDelivery.Spawn` · `shop` :65 (p+d), `shop WHO=host` (p: the host's own player). The ledger's `Purchased` birth isn't checked (OI-LIN-07). Its workstream is paused for the item refactor (D4); it stays done |
+| OI-SHOP-02 | A purchase is born `Purchased` with the shop, the transaction id and the payer in its detail | SH §Owned items (seam 1); F48 | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Shops PR 3. No transaction id or payer today (`ShopDelivery.cs:20-51`). Item-review triage: decided, not built. |
+| OI-SHOP-03 | A purchase whose owner is over 200 m away or offline when it comes due is born in their Lost and Found (`PurchasedDeliveryFallback`) | OI §Lost and Found ("Reasons"); SH §Owned items (seam 2); F48 | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Shops PR 3. Always on the counter today. Item-review triage: decided, not built. |
+| OI-SHOP-04 | A line whose owner has left is delivered to their Lost and Found, not unowned | SH §Owned items; F48 | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Shops PR 3. Item-review triage: decided, not built. |
+| OI-SHOP-05 | `shopStocked` mirrors vanilla's `Restock`: set at birth, cleared where vanilla clears it (a used garage key), read at load and migration, never set on a replacement | OI §What other systems read; SH §Owned items (seam 3) | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [~] built, unproved. Set at birth from the item's flag (`OwnedItemsServer.cs:340, 435-437`). No scenario. Clearing and loading are OI-SHOP-10 |
+| OI-SHOP-06 | Per-player stock is `CountLive(owner, prefab, shopStocked)`, and the ledger's change event sends that player's allowance | OI §What other systems read; SH §Per-player stock, §6 | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Core API built and tested (#278); nothing outside Core uses it. Shops PR 6 |
+| OI-SHOP-07 | Installed gadgets count against their owner's stock | SH §Gadgets; OI §What other systems read | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Shops PR 6 |
+| OI-SHOP-08 | Receipts are server-made, unowned world items | SH §Receipts, §Owned items (seam 5); OI §5 | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Shops PR 3. Client-local today |
+| OI-SHOP-09 | A wallet coin flick goes through the server; it can't credit money from nothing | Map COIN; OI §Found in testing; #307 | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Since #307 the flicked coin vanishes on the client. Not tried in game |
+| OI-SHOP-10 | `shopStocked` is cleared where vanilla clears `Restock` (a used garage key), and read from each store at load and migration, cold containers and Lost and Found included | OI §What other systems read; SH §Owned items (seam 3) | `paused: shops` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Never cleared on the server (`SetShopStocked` has no callers outside Core). Cold-container and Lost and Found hits migrate as false |
 
 ## Gadgets seam
 
@@ -370,22 +381,22 @@ On 2026-10-23, at beta 1a0b732f:
 | --- | --- | --- | --- | --- |
 | OI-GAD-01 | An installed gadget is an `Installed` item, and its owner is saved in its vanilla save data (`dvmpPersistentOwner`) | GD §The installed gadget and its item, §Persistence, §1 | `[x]` | Gadget #281 · `PersistentWorldItemIdentityPatch` (`dvmpPersistentOwner`) · `gadget-save` :47-83 (p+d) |
 | OI-GAD-02 | The ledger counts installed gadgets as a store, and migration reads `dvmpPersistentOwner` | OI §Plan (meeting points); OI §Migration | `[~] built, unproved` | The load check reads installed gadgets, and migration their saved owner. `ledger-save` has no gadget; `gadget-save` checks records, not the ledger |
-| OI-GAD-03 | An item's id and owner survive install, removal, knock-off and car deletion | GD §Owned items | `[~] #314` | Gadget 3a, draft |
+| OI-GAD-03 | An item's id and owner survive install, removal, knock-off and car deletion | GD §Owned items | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [~] #314. Gadget 3a, draft |
 | OI-GAD-04 | The `Installed` place records the gadget's UID | OI §The ledger (`where`); F10; Not built | `[ ]` | `WhereOf` writes 0 (`OwnedItemsServer.cs:318`). Item-review triage: decided, not built. |
-| OI-GAD-05 | A deleted car sends its owned gadgets to their owners' Lost and Found at once, online or not; unowned ones stay in the world | GD §The installed gadget and its item, §Forced removals | `[~] #314` | 3a collects them with `GadgetDestinationMissing` (`GadgetServer.cs:141`), not a car-deleted reason |
-| OI-GAD-06 | The item code never destroys an installed item, on any game, and logs a refused destroy | GD §The installed gadget and its item; F49 | `[ ]` | Item-review triage: doc-only (the code is fine as it is). The row stays until the coordinator decides whether it is rewritten to the code's rule. gadgets.md is being rewritten by #314-#320 |
-| OI-GAD-07 | The gadget server's install and removal checks call `ItemAccess` | OI §Permissions | `[ ]` | Not on #314's branch |
-| OI-GAD-08 | Old installed gadgets with no owner (saves from before gadget PR 1) | OI §Open decisions | `needs decision` | Recommended: unowned, anyone may remove them, rather than the career owner's |
-| OI-GAD-09 | Aiming at an installed gadget shows its owner's name, also while they're offline | GD §The installed gadget and its item | `[ ]` | |
+| OI-GAD-05 | A deleted car sends its owned gadgets to their owners' Lost and Found at once, online or not; unowned ones stay in the world | GD §The installed gadget and its item, §Forced removals | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [~] #314. 3a collects them with `GadgetDestinationMissing` (`GadgetServer.cs:141`), not a car-deleted reason |
+| OI-GAD-06 | The item code never destroys an installed item, on any game, and logs a refused destroy | GD §The installed gadget and its item; F49 | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Item-review triage: doc-only. **Kept as the design said, user 2026-10-23** (a real gap). gadgets.md is being rewritten by #314-#320 |
+| OI-GAD-07 | The gadget server's install and removal checks call `ItemAccess` | OI §Permissions | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Not on #314's branch |
+| OI-GAD-08 | Old installed gadgets with no owner (saves from before gadget PR 1) | OI §Open decisions | `paused: not about loss` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. Recommended: unowned, anyone may remove them, rather than the career owner's |
+| OI-GAD-09 | Aiming at an installed gadget shows its owner's name, also while they're offline | GD §The installed gadget and its item | `paused: gadgets` | Paused for the item refactor (D4, user 2026-10-23); was [ ] |
 
 ## Migration
 
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
-| OI-MIG-01 | A save without a ledger gets one built from the stores (`WorldItemsV1` with an owner identity, Lost and Found, cold containers, installed gadgets) | OI §Migration | `[~] built, unproved` | Proved for `WorldItemsV1` and Lost and Found (`ledger-save` :103-107, :135, p+d). Cold containers and installed gadgets aren't in the scenario; they also migrate with `shopStocked` false |
-| OI-MIG-02 | Migration is deterministic: running it twice gives the same ledger | OI §Migration | `[x]` | #278 · `OwnedItemReconciler.cs` · Core `OwnedItemReconcilerTests` |
-| OI-MIG-03 | A `WorldItemsV1` record with only an owner number (from before identities) is unowned, and counted in the log | OI §Migration | `[ ]` | Treated as unowned (`WorldItemPersistenceRecord.FromJson` reads no owner number), but not counted or logged |
-| OI-MIG-04 | Items lost to the cold-withdrawal bug are recovered from the host's vanilla inventory mirror (`SaveRecovery`), after checking the mirror really holds them | OI §Migration; F11; Not built | `[ ]` | No code. See OI-PER-10. Item-review triage: decided, not built. |
-| OI-MIG-05 | A `WorldItemsV1` record with an empty id takes the id from its state, or is re-minted | OI §Migration; F11; Not built | `[ ]` | No code. Item-review triage: decided, not built. Empty-id records are silently dropped (`WorldItemPersistenceRestore.cs:123-125`) |
-| OI-MIG-06 | Every identity with a `Players` entry is marked as having had its starter kit | OI §Migration; #306 | `[~] built, unproved` | `OwnedItemsServer.cs:196-200`. No test or scenario (`starting-items` forgets the marker; it doesn't migrate) |
-| OI-MIG-07 | Fixture tests of migration in `Multiplayer.Protocol.Tests`: every store's owned items come out once with the right owner and `where` | OI §1b | `[ ]` | None. Migration is tested as a plan in Core (`OwnedItemReconcilerTests`) |
+| OI-MIG-01 | A save without a ledger gets one built from the stores (`WorldItemsV1` with an owner identity, Lost and Found, cold containers, installed gadgets) | OI §Migration | `not needed: fresh items (user 2026-10-23)` | Old saves start every player's items fresh (refactor D1); was [~] built, unproved. Proved for `WorldItemsV1` and Lost and Found (`ledger-save` :103-107, :135, p+d). Cold containers and installed gadgets aren't in the scenario; they also migrate with `shopStocked` false |
+| OI-MIG-02 | Migration is deterministic: running it twice gives the same ledger | OI §Migration | `not needed: fresh items (user 2026-10-23)` | Old saves start every player's items fresh (refactor D1); was [x]. #278 · `OwnedItemReconciler.cs` · Core `OwnedItemReconcilerTests` |
+| OI-MIG-03 | A `WorldItemsV1` record with only an owner number (from before identities) is unowned, and counted in the log | OI §Migration | `not needed: fresh items (user 2026-10-23)` | Old saves start every player's items fresh (refactor D1); was [ ]. Treated as unowned (`WorldItemPersistenceRecord.FromJson` reads no owner number), but not counted or logged |
+| OI-MIG-04 | Items lost to the cold-withdrawal bug are recovered from the host's vanilla inventory mirror (`SaveRecovery`), after checking the mirror really holds them | OI §Migration; F11; Not built | `not needed: fresh items (user 2026-10-23)` | Old saves start every player's items fresh (refactor D1); was [ ]. No code. See OI-PER-10. Item-review triage: decided, not built. |
+| OI-MIG-05 | A `WorldItemsV1` record with an empty id takes the id from its state, or is re-minted | OI §Migration; F11; Not built | `not needed: fresh items (user 2026-10-23)` | Old saves start every player's items fresh (refactor D1); was [ ]. No code. Item-review triage: decided, not built. Empty-id records are silently dropped (`WorldItemPersistenceRestore.cs:123-125`) |
+| OI-MIG-06 | Every identity with a `Players` entry is marked as having had its starter kit | OI §Migration; #306 | `not needed: fresh items (user 2026-10-23)` | Old saves start every player's items fresh (refactor D1); was [~] built, unproved. `OwnedItemsServer.cs:196-200`. No test or scenario (`starting-items` forgets the marker; it doesn't migrate) |
+| OI-MIG-07 | Fixture tests of migration in `Multiplayer.Protocol.Tests`: every store's owned items come out once with the right owner and `where` | OI §1b | `not needed: fresh items (user 2026-10-23)` | Old saves start every player's items fresh (refactor D1); was [ ]. None. Migration is tested as a plan in Core (`OwnedItemReconcilerTests`) |
