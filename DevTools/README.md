@@ -105,8 +105,8 @@ dvmp down --session light
   it can join with its normal identity, to `127.0.0.1:<port>`, without colliding with the host.
 - **30 fps in the background** (`--bg-fps`, default 20 for pairs), so it stays above the mod's
   24 Hz network tick.
-- Pass `--save`: the launcher's default save is your selected career (a copy: see
-  [Session user data](#session-user-data)).
+- Without `--save` (or `--new`), a named session loads "DVMP Test Career 2" if your profile has
+  it, and otherwise the save the launcher shows (see [Session user data](#session-user-data)).
 - `dvmp perf` hooks the mod's per-packet debug calls with Harmony prefixes on its first run. They
   count every send and receive whether or not the debug system is on, and stay installed until the
   game quits. The forced GC behind `monoRetained` costs one frame hitch; skip it with
@@ -209,7 +209,9 @@ what each checks is in [`docs/testing.md`](../docs/testing.md#regression-gate); 
 runtime tests covered that still needs porting is in `Scenarios/PORTING.md`.
 
 Test saves are separate sessions ("DVMP Test Career", "DVMP Test Career 2"); create more with
-`dvmp up --new career --name "..."`.
+`dvmp up --new career --name "..."`. A named session's `up` (so the gate, and a scenario's restart)
+loads "DVMP Test Career 2" when it names no save. Without that, it loaded the save the launcher
+shows, which is whatever you last played, and the item scenarios found someone else's inventory.
 
 ## Writing probes
 
