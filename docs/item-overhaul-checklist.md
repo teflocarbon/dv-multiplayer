@@ -74,15 +74,14 @@ On 2026-10-23, at beta 1a0b732f:
 | Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
 | Gadgets seam | 1 | 1 | 0 | 3 | 0 | 6 | 0 |
 | Mod items | 0 | 0 | 0 | 3 | 0 | 2 | 0 |
-| Compatibility: Railway Brake Shoe | 0 | 0 | 0 | 0 | 0 | 6 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 259** | **55** | **30** | **2** | **111** | **0** | **51** | **10** |
+| **All 253** | **55** | **30** | **2** | **111** | **0** | **45** | **10** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
   never losing them.
   - **Paused:** rows outside it are `paused: shops`, `gadgets`, `companies`, `physics and wake
-    fidelity`, `list wording`, `not about loss` (the plan's D4) or `compatibility` (Railway Brake Shoe, D11). They stay rows, unticked, for
+    fidelity`, `list wording` or `not about loss` (the plan's D4). They stay rows, unticked, for
     that workstream. OI-PHY-05 and OI-PHY-12 are in the refactor.
   - **Not needed:** old saves start every player's items fresh (D1), so the migration rows aren't
     needed.
@@ -467,27 +466,11 @@ Proving these needs an item pack in the test install.
 
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
-| OI-MOD-01 | An item whose prefab comes from a mod (custom_item_mod's `custom_item_mod/<name>/prefab`, resolved by its `Resources.Load` patch) is spawned, saved and restored by the server and built on every client by the same prefab name, like a vanilla item; a name a game can't resolve is logged and kept `Unloadable` (D9), never dropped | Refactor D11 (user, 2026-10-23) | `[ ]` | R4. Untested with any mod item |
+| OI-MOD-01 | An item whose prefab comes from a mod (custom_item_mod's `custom_item_mod/<name>/prefab`, resolved by its `Resources.Load` patch) is spawned, saved and restored by the server and built on every client by the same prefab name, like a vanilla item; a name a game can't resolve is logged and kept `Unloadable` (D9), never dropped | Refactor D11 (user, 2026-10-23) | `[ ]` | R4. **Broken today:** both prefab lookups read only vanilla's `Globals.G.Items.items`, which custom_item_mod never adds to (it adds shop data and patches `Resources.Load`). So a client can't build a custom item another game has (`ClientItemManager.Compatibility.cs:33` → `NetworkedItemManager.TryGetItemPrefab`), and the server can't restore a saved one (`WorldItemPersistenceRestore.cs:127`), which then erases it at the next save (SL5). The lookup has to fall back to `Resources.Load(prefabName)`, as vanilla's own load does. Untested with any mod item |
 | OI-MOD-02 | **Each item's own saved state reaches clients:** its `ItemSaveData` JSON (where mods keep their state) goes with the item when a client first sees it and again when the server's copy changes, applied through `ItemSaveDataLoaded`; the server's copy is the truth, and a client's goes up with the request that changes the item | Refactor D11 (user, 2026-10-23) | `[ ]` | R2. Today item state is saved on the server only |
 | OI-MOD-03 | **The same item mods on join:** a client missing custom_item_mod or an item pack the server has is refused, with the mod named; custom_item_mod is registered `All` in `ModCompatibilityManager` | Refactor D11 (user, 2026-10-23) | `[ ]` | R2. `ModCompatibilityManager.ValidateClientMods` already compares undefined mods; no registration, no scenario |
 | OI-MOD-04 | custom_item_mod's shop items are bought through the server like vanilla stock | Refactor D11 | `paused: shops` | |
 | OI-MOD-05 | custom_item_mod's gadgets (its `GadgetBase` map) install, sync and save like vanilla gadgets, on a car or the world | Refactor D11; G5 | `paused: gadgets` | |
-
-## Compatibility: Railway Brake Shoe
-
-[Railway Brake Shoe](https://github.com/Vlados-Ddos/Railway-Brake-Shoe) (needs custom_item_mod) is a
-custom item placed on a rail by its own code, which brakes cars through its own physics. Its
-compatibility code goes in `Multiplayer/<Role>/Compatibility/`. A paused workstream after the item
-refactor (D11, user 2026-10-23); its tests need a compat test install with the mod.
-
-| ID | Requirement | Source | Status | Proof, or what's missing |
-| --- | --- | --- | --- | --- |
-| OI-RBS-01 | A shoe's rail anchor (track path, span, side, direction, jam) is the same on every game; placing, moving and picking up a shoe go through the server | D11 | `paused: compatibility` | Its placement patches `ItemPlacerNonVr` and its state lives in its `ItemSaveData` (needs OI-MOD-02) |
-| OI-RBS-02 | A shoe's braking (its `Bogie.UpdatePointSetTraveller` and `BrakeSystem.SimulateBrakingForce` patches) is applied once, where the train is simulated, and its sliding, sparks and sounds are seen on every game | D11 | `paused: compatibility` | |
-| OI-RBS-03 | Its patches on Lost and Found summoning, `MoveItemsFromWorldToLostAndFound`, `RespawnOnDrop` and shop stock agree with ours; a shoe is never lost or duplicated by them | D11 | `paused: compatibility` | |
-| OI-RBS-04 | Service shoes made at job generation are made by the server only, as server items | D11 | `paused: compatibility` | `StationShoePatches` hooks `StationProceduralJobGenerator.GenerateJobChain` |
-| OI-RBS-05 | A shoe counting as a handbrake for a job's completion is judged on the server | D11 | `paused: compatibility` | Its `TransportTask.UpdateTaskState` patches |
-| OI-RBS-06 | Railway Brake Shoe is registered in `ModCompatibilityManager` once it works | D11 | `paused: compatibility` | |
 
 ## Migration
 

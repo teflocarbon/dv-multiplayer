@@ -77,7 +77,7 @@ slot of its holder (as today), so a saved home is never `Hand`.
 | D8 | **An integration branch,** `items/refactor`, off `beta` | user, 2026-10-23 |
 | D9 | **An item whose saved state won't load** is made fresh from its prefab, with the same id, in its owner's Lost and Found (`SaveRecovery`), and an error is logged: its own state (a lighter's fuel) is lost, the item isn't. If the prefab itself is gone (an item mod removed), the entry stays `Unloadable`, its saved row kept verbatim and retried at each load, so putting the mod back brings it back. `Missing` goes | user, 2026-10-23 |
 | D10 | **Binning** destroys the item, as in vanilla, and ends its entry `Discarded`, by the player who binned it; an essential is issued again at its owner's next join; only your own or unowned items can be binned (someone else's is refused and drops by the bin) | user, 2026-10-23 |
-| D11 | **Items from other mods** (custom_item_mod and the item packs it loads) are built in the refactor like vanilla items: their prefabs spawn on every game, each item's own saved state reaches clients, and a client joins only with the same item mods. Railway Brake Shoe's own compatibility (its rail state, braking, overlapping patches, service shoes) is a paused compatibility workstream after the refactor | user, 2026-10-23 |
+| D11 | **Items from other mods** (custom_item_mod and the item packs it loads) are built in the refactor like vanilla items: their prefabs spawn on every game, each item's own saved state reaches clients, and a client joins only with the same item mods. Mod-specific compatibility (Railway Brake Shoe) isn't planned: the user is talking to that mod's developer | user, 2026-10-23 |
 | L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and each legacy doc moves to `docs/legacy/items/` in the PR that replaces it ([Docs](#docs)) | user, 2026-10-23 |
 | C1 | Cold containers start fresh (D1), and their new save must make the failures behind F18 (an empty graph written over a save the import refused), the depth check and quarantine impossible by design, not by a stopgap | user, 2026-10-23 |
 
@@ -416,7 +416,9 @@ the item layer, nothing mod-specific:
 
 - **Prefabs from mods** (OI-MOD-01, R4): the server spawns, saves and restores a mod item by its
   prefab name like a vanilla item, and every client builds it from the same name. A name a game
-  can't resolve is logged and kept `Unloadable` (D9), never dropped.
+  can't resolve is logged and kept `Unloadable` (D9), never dropped. Today both lookups read only
+  vanilla's item list, so a custom item can't be built on a client or restored at load (and is
+  then erased at the next save); the lookup falls back to `Resources.Load`, as vanilla's load does.
 - **Each item's own state** (OI-MOD-02, R2): an item's `ItemSaveData` JSON, where mods keep their
   state, goes with the item when a client first sees it and again when the server's copy changes,
   applied through vanilla's `ItemSaveDataLoaded`. The server's copy is the truth; a client's goes up
@@ -426,7 +428,8 @@ the item layer, nothing mod-specific:
   without an item pack is refused with its name.
 
 Shop stock from custom_item_mod (OI-MOD-04) waits for shops, its gadgets (OI-MOD-05) for gadgets.
-Railway Brake Shoe's own needs (OI-RBS-01 to -06) are a compatibility workstream after the refactor.
+Railway Brake Shoe, which builds on custom_item_mod, isn't planned here (the user is talking to its
+developer).
 Testing needs an item pack in the test install; test games otherwise load only Multiplayer and the
 dev tools.
 
@@ -824,7 +827,6 @@ Marked `paused: <workstream>` in the checklist (D4), kept and unticked, for when
 - **The list's wording:** OI-LIST-04, -05, -07. The list's data moves to the new ledger; its words
   don't change.
 - **Mod items:** OI-MOD-04 (shops), OI-MOD-05 (gadgets).
-- **Compatibility, Railway Brake Shoe:** OI-RBS-01 to -06, after the refactor (D11).
 - **Decisions not about loss:** OI-ID-16 (gifts), OI-ID-17 (made items), OI-SYNC-12 (office stock in
   a cab, unowned).
 
