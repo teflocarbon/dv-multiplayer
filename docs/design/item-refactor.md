@@ -4,8 +4,9 @@
 > `04bfe277`. Decisions are the user's, through the coordinator, dated in [Decisions](#decisions);
 > all are answered. Every requirement is a row in
 > [item-overhaul-checklist.md](../item-overhaul-checklist.md), and this plan names the rows each PR
-> closes. The as-built item docs ([item-lifecycle.md](item-lifecycle.md) and the docs it links)
-> describe today's code until the PRs below replace them.
+> closes. The current item docs ([item-lifecycle.md](item-lifecycle.md) and the docs it links) are
+> legacy (L1): evidence of today's behaviour, not design. The new docs are written from scratch
+> ([Docs](#docs)).
 
 The owned-items work (PRs 1a–7, #278–#312, and the fixes #324 and #326) added a ledger of owned
 items, but it was narrowed PR by PR. The ledger follows the server's item records instead of
@@ -75,6 +76,7 @@ slot of its holder (as today), so a saved home is never `Hand`.
 | D8 | **An integration branch,** `items/refactor`, off `beta` | user, 2026-10-23 |
 | D9 | **An item whose saved state won't load** is made fresh from its prefab, with the same id, in its owner's Lost and Found (`SaveRecovery`), and an error is logged: its own state (a lighter's fuel) is lost, the item isn't. If the prefab itself is gone (an item mod removed), the entry stays `Unloadable`, its saved row kept verbatim and retried at each load, so putting the mod back brings it back. `Missing` goes | user, 2026-10-23 |
 | D10 | **Binning** destroys the item, as in vanilla, and ends its entry `Discarded`, by the player who binned it; an essential is issued again at its owner's next join; only your own or unowned items can be binned (someone else's is refused and drops by the bin) | user, 2026-10-23 |
+| L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and each legacy doc moves to `docs/legacy/items/` in the PR that replaces it ([Docs](#docs)) | user, 2026-10-23 |
 | C1 | Cold containers start fresh (D1), and their new save must make the failures behind F18 (an empty graph written over a save the import refused), the depth check and quarantine impossible by design, not by a stopgap | user, 2026-10-23 |
 
 ## Three names
@@ -705,7 +707,7 @@ record (OI-CON-04, R4).
 
 | PR | What | Closes (checklist) | New and changed scenarios |
 | --- | --- | --- | --- |
-| **R0** Rename | The [rename map](#rename-map), DevTools and doc paths, in two commits: moves and namespace lines, then type renames. No behaviour change, no packet moved | none (OI-LAY-01, the layout, ticks when R8's docs match) | none. The regression set and the known bugs give the same results before and after, on both host kinds, and every probe and `dvmp_trace` runs |
+| **R0** Rename | The [rename map](#rename-map), DevTools and the paths in docs that stay, in two commits: moves and namespace lines, then type renames; then `docs/design/items/README.md` and `item-sync-review.md` to legacy. No behaviour change, no packet moved | none (OI-LAY-01, the layout, ticks when R8's docs match) | none. The regression set and the known bugs give the same results before and after, on both host kinds, and every probe and `dvmp_trace` runs |
 | **R1** Identity only | Owners, holders and claims by identity in Core, the server and the client; the state machine, `ItemAccess`, Lost and Found, containers, recall and the logout rules decide by identity. Unbind/rebind and the absent number go. On the wire an owner number is still sent, worked out at the edge, until R2 | OI-LED-06, -07, OI-ESS-05, OI-ACC-08, OI-LF-06, OI-JOIN-09, OI-ID-08, OI-CON-08; re-proves OI-JOIN-03 (rewritten: an offline owner is an identity with no session), OI-LF-05 | `absent-owner` and `owner-offline` check identities, not 255; a new `rekey` scenario (an install GUID re-keyed to a Steam id keeps its list, retrieval and essentials) |
 | **R2** The wire | [The wire](#the-wire): one update built per recipient with the relation and the owner-only claim, one request and one result with a remembered `RequestId`, one list, one handle space, one-step recall, the dead packets and fields gone; red for every item someone else owns (D3). The fingerprint moves | OI-ID-07, OI-ESS-12, OI-ESS-10, OI-CON-07, OI-SYNC-19, OI-SYNC-20, OI-LIST-17, OI-LIST-22 | a protocol test that no item packet carries a `Guid`; fixture tests for every new packet; `recall` (one step, both `TAKEN` modes); a `red` scenario (an absent owner's mug, the client's own mug, a found mug); `item-request-repeat` (a repeated withdrawal does nothing twice) |
 | **R3** The ledger decides | [The ledger](#the-ledger) and [live state](#live-state): every owned item's change is a ledger change first; exact homes, a slot for every inventory item, the slot move as a request; claims assigned by the ledger and the runtime repair gone; the invariant check in Core, at runtime and after every scenario; `ServerItemManager.PlayerItems` becomes `Inventory/PlayerItems` | OI-LED-04, -05, -08, -09, -10, -13, -15, OI-ID-05, -06, -18, OI-ESS-01, -02, -03, -04, -08, -09, OI-START-04, -06, -08, -09, OI-ACC-05, -07, OI-LF-08, -20, OI-GAD-04, OI-SLOT-01, -03, OI-LIST-12, -20, -21, OI-LIN-07, OI-ID-13; re-proves the `[x]` rows of identity, essentials, the list and retrieval, lineage and access | `Library/Invariant.cs` after every run; a new `inventory-slots` scenario (a client and the host's player put items in chosen slots, move two, rejoin: same slots); `item-bug-essential-slot-rejoin` becomes a required pass; Core `ItemLedgerTests` and `HomeInvariantTests` (each rule, a fuzz run) |
@@ -713,7 +715,7 @@ record (OI-CON-04, R4).
 | **R5** Containers on the ledger | A container's contents are items whose home is `Container(id, slot)`; the container's id is its shell's item id; depth checked at deposit; no request before the load; retirement and a failed withdrawal as ledger changes that roll back; the withdrawal takes the server's slot; records go with their container; deposit and withdrawal updates by interest | OI-CON-02, -03, -06, -09, -11, -12, -13, -15, OI-ACC-04, OI-LIST-18; re-proves OI-CON-01, OI-LIST-10, OI-LF-07, OI-ESS-07 | `containers` with a nested box across a restart; `container-depth` (a ninth level is refused at deposit); `container-early` (a deposit before the load is refused, not wiped); `withdraw-full` (a withdrawal into a full inventory lands in a slot or the owner's Lost and Found) |
 | **R6** Every vanilla path | [Every vanilla path](#every-vanilla-path) through the ledger: car deletion (both paths), a leaver's hand item, job papers, attached and snapped items, every route into a full inventory, vanilla's inventory hazards, consumables, money, the dev console | OI-LF-02, -04, -10, -11, -17, OI-ID-12, OI-JOIN-06, -10, -11, OI-START-07, -10, OI-ESS-13, OI-LIST-06, -14, OI-LIN-05, OI-VAN-01 to -06; re-proves OI-LF-01, -03, -09, -12, -13, -14, OI-JOIN-04 | `item-bug-car-delete-unowned` becomes a required pass; `leave-holding` (own, unowned and borrowed hand items at a quit and a crash); `attached-offline` (an absent owner's EOT lantern and hanger go to Lost and Found, detached); `booklet-not-owned`; `full-inventory-routes` (a Lost and Found retrieval, a withdrawal and a recall into a full inventory); `money-deposit`; `bin-owned`; `use-up` (a spray can and a garage key); `duplicate-essentials-load` (two players' radios in Lost and Found across a restart) |
 | **R7** Leases, physics and projection | Every change that ends a lease ends it explicitly; a refused settlement ends its lease; a lease's item isn't saved unless the rules say so; a settled train item stays kinematic on a late joiner; a dedicated host takes a lease; a shelf item stays in interest; a lost projection Create is retried; the 7 real-gap rows to the old rule (D6); the fall-rescue and world-integration partials become classes | OI-ESS-11, OI-PHY-01, -02, -03, -04, -05, -06, -07, -08, -11, -12, OI-PER-11, OI-SYNC-01, -04, -07, -08, -09, -10, -11, -13, -17, -18, OI-LIST-09, OI-GAD-06 | `item-bug-recall-lease` becomes a required pass; `shelf-item` (put on a shelf, seen by a late joiner, retrieved, survives a restart); `thrower-leaves` (dedicated: a thrown item settles after its thrower quits); `late-join-train-item`; `fall-rescue-interior`; `pickup-range` |
-| **R8** Docs | The item docs rewritten for the new names and layout ([Docs](#docs)); the 11 rows rewritten to the code's rule (D6) | OI-LED-14, OI-LF-18, -19, OI-CON-10, OI-SYNC-02, -03, -05, -06, OI-PHY-09, -10, OI-LAY-01 | the scenarios the rewritten rows need (named in each row) |
+| **R8** Docs | `items/behaviours.md`, a check of the whole new doc set against the code, this plan marked built ([Docs](#docs)); proof for the 11 rows rewritten to the code's rule (D6) | OI-LED-14, OI-LF-18, -19, OI-CON-10, OI-SYNC-02, -03, -05, -06, OI-PHY-09, -10, OI-LAY-01 | the scenarios the rewritten rows need (named in each row) |
 
 Then `items/refactor` merges into `beta`, after a full gate run on both host kinds and a playtest.
 
@@ -724,20 +726,59 @@ branches off `items/refactor`, since they touch other files; R8 is last.
 
 ## Docs
 
-The as-built item docs (#322) are rewritten in R8 for the new names and layout, each fact in one
-place, and every behaviour PR before it updates the sections it changes:
+**Every current item doc is legacy** (the user, 2026-10-23, L1): `owned-items.md`,
+`item-lifecycle.md`, `item-persistence.md`, `lost-and-found.md`, `container-storage.md`,
+`item-world-sync.md`, `item-spatial-physics.md`, `train-item-wake.md`, `item-change-causes.md`,
+`item-ownership-open-questions.md` and `item-sync-review.md`. They describe what exists today, and
+the refactor reads them only as evidence of current behaviour, never as a template or as settled
+design. Nothing is carried over from them by editing: the new docs are written from scratch for the
+new model.
 
-| Today | Becomes |
-| --- | --- |
-| `item-lifecycle.md` | `items.md`: the entry point, the guarantee, the three names, the homes, the subsystem table, and links |
-| `owned-items.md` | `item-ledger.md` (the ledger, homes, births and ends, the invariant), `item-essentials.md` (starting items, claims, recall), `owned-items-list.md` (the list, retrieval) |
-| `item-persistence.md` | `item-save-load.md` |
-| `lost-and-found.md`, `container-storage.md`, `item-world-sync.md`, `item-spatial-physics.md`, `train-item-wake.md`, `item-change-causes.md` | kept, rewritten to the new names |
-| `item-ownership-open-questions.md` | kept, with what this refactor decided taken out |
-| this plan | its status line becomes "built", and it points at the docs above |
+**Still valid, not legacy:** the vanilla research (`docs/research/DERAIL_VALLEY_ITEM_*` and the
+other `DERAIL_VALLEY_*` docs: they are about the game, not our code), the known-loss catalogue
+(`docs/research/item-bug-review.md`), the checklist, and this plan.
 
-`docs/README.md`, `architecture.md`, `testing.md` (every new scenario) and `observability.md` (the
-invariant event, the overlay) follow.
+**The new doc set** mirrors the code layout: `docs/design/items/`, one short overview and one doc
+per subsystem. Each is written by the PR that builds its subsystem, as that PR's as-built account,
+and says only what the code does then.
+
+| New doc | What it holds | Written in | Replaces (moved to legacy in the same PR) |
+| --- | --- | --- | --- |
+| `items/README.md` | The overview: the guarantee, the three names, the homes, the subsystem table with each doc and code folder, the rule for conflicts. Short | R0 (the layout and names; the model's parts say "planned, R*n*" until built) | — |
+| `items/wire.md` | Naming items and players on the wire, the update, the request and result, the list, the refusal codes | R2 | — |
+| `items/ledger.md` | The entry, homes, owners (`OwnerRef`), births and ends, ledger changes, the invariant check | R3 | `owned-items.md`, `item-ownership-open-questions.md` (the questions still open move to the ledger doc's "Open" section, re-asked, not copied) |
+| `items/live-state.md` | The live item, the state machine, revisions, what follows the ledger | R3 | `item-lifecycle.md` |
+| `items/inventory.md` | Slots for every item, the belt, slot moves, how a client shows claims and red | R3 | — |
+| `items/essentials.md` | Starting items, the issuer, claims, recall | R3 | — |
+| `items/owned-list.md` | The owned-items page and retrieval | R3 | — |
+| `items/access.md` | `ItemAccess` and fixtures (the fixture rules marked paused with shops) | R3 | — |
+| `items/change-causes.md` | Why an item moved or went away, on the server and clients | R3 | `item-change-causes.md` |
+| `items/save-load.md` | `Multiplayer.Items`, loading, old saves, the vanilla mirror, `Unloadable` | R4 | `item-persistence.md` |
+| `items/containers.md` | Containers as homes, deposit, withdrawal, depth, the UI | R5 | `container-storage.md` |
+| `items/lost-and-found.md` | Collection, entries, retrieval, every route into Lost and Found | R6 | `lost-and-found.md` |
+| `items/vanilla-storage.md` | Every vanilla path, blocked or routed, and the guards | R6 | — |
+| `items/projection.md` | Interest, what each client is shown, convergence | R7 | `item-world-sync.md` (its projection half) |
+| `items/world-items.md` | Scene-authored items, the catalogue, shelves, office stock | R7 | `item-world-sync.md` (with `projection.md`) |
+| `items/physics.md` | Leases, samples, settlement, throws, fall rescue, the terrain guard | R7 | `item-spatial-physics.md` |
+| `items/train-wake.md` | Items in moving trains | R7 | `train-item-wake.md` |
+| `items/behaviours.md` | Each item type's own sync | R8 | — |
+
+**Moving the legacy docs.** A legacy doc moves to `docs/legacy/items/` in the PR that adds its
+replacement, with a one-line banner at the top: "Legacy: describes the item system before the
+refactor (names as on `beta` 04bfe277). Replaced by [items/…](…)." `item-sync-review.md` (already
+historical, no replacement) moves in R0. The moving PR updates `docs/README.md` (a "Legacy" table,
+and the new docs under "How each system syncs") and every link to the moved doc: the checklist's
+row sources keep pointing at them, at the new path.
+
+**R0 doesn't edit the legacy docs:** they keep today's class and file names, which the
+[rename map](#rename-map) translates. R0 updates paths only in docs that stay (`architecture.md`,
+`testing.md`, `development.md`, `observability.md`, `DevTools/README.md`).
+
+**R8** writes `behaviours.md`, checks every new doc against the code (each fact in one place, no
+"planned" left), turns this plan's status line to "built" with links to the new docs, and ticks
+OI-LAY-01. `docs/README.md`, `architecture.md`, `testing.md` (every new scenario) and
+`observability.md` (the invariant event, the overlay) follow in the PR that changes what they
+describe.
 
 ## Rows outside this refactor
 

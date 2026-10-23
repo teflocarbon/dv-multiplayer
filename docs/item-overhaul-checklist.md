@@ -122,6 +122,11 @@ on both host kinds without unticking them.
 
 OI-SHOP-01 stays done; its workstream is paused.
 
+The item design docs the rows cite (`owned-items.md`, `item-lifecycle.md` and the rest) are legacy
+(the user, 2026-10-23): evidence of the code before the refactor, not design. Each moves to
+`docs/legacy/items/` in the PR that writes its replacement under `docs/design/items/`, and that PR
+updates the links here.
+
 ## Identity and what is owned
 
 | ID | Requirement | Source | Status | Proof, or what's missing |
