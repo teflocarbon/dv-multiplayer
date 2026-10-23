@@ -213,7 +213,7 @@ Using the wallet on the register, or pushing a banknote into it, as in vanilla.
    registers do) and that something is owed.
    - Wallet: it takes `min(owed, wallet)` from the wallet, as `Wallet.TrySpend` does.
    - Banknote: it spends the whole note, as `Money.TrySpend` does. This reuses the checks that
-     `ServerboundMoneyItemDepositPacket` makes today (the note is live, the payer holds it, it isn't in
+     the `DepositMoney` item request makes today (the note is live, the payer holds it, it isn't in
      Lost and Found), but credits the register instead of the wallet.
    - It adds the money to the register's deposit and broadcasts with the event `CashAdded`.
 3. **Refused** (nothing owed, empty wallet, a note someone else holds): the prediction is undone.

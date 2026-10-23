@@ -153,8 +153,8 @@ directly; those are the pattern for stage 2.
 | `Client/Trains/CommsRadioCarDeleterPatch.cs:36` | `ServerboundTrainDeleteRequestPacket` | Sent unless the host plays alone (`:21`) |
 | `Client/Trains/RerailControllerPatch.cs:50` | `ServerboundTrainRerailRequestPacket` | Sent unless the host plays alone (`:32`) |
 | `Client/Trains/CommsRadioCrewVehiclePatch.cs:47-91` | `ServerboundWorkTrainRequestPacket` with an RPC ticket | Sent unless the host plays alone (`:24`); the answer is a `ClientboundRpcResponsePacket` that `RpcManager.ResolveTicket` resolves (`NetworkClient.cs:836-840`) |
-| `Client/Career/CareerManagerExtensions.cs:217`, `:244` | Lost and Found list and retrieve | Sent; answers come back as events on the client (`LostItemRetrieveCompleted`, `:214`) |
-| `Client/Items/Containers/ContainerUi.cs:127`, `:136`, `:192`, `:231`, `:249`, `:297` | Container view and mutations | Sent; answers come back as `ContainerViewReceived` and `ContainerMutationCompleted` (`:268-269`) |
+| `Client/Career/CareerManagerExtensions.cs:217`, `:244` | Lost and Found list and retrieve | Sent; answers come back as events on the client (`ItemListReceived`, `ItemResultReceived`) |
+| `Client/Items/Containers/ContainerUi.cs:127`, `:136`, `:192`, `:231`, `:249`, `:297` | Container view and mutations | Sent; answers come back as `ItemListReceived` and `ItemResultReceived` |
 | `Client/Jobs/JobValidatorPatch.cs:75-84` | Booklet summon | **In-process already:** the host calls `JobBookletSummonCoordinator.TryStart` with its own `ServerPlayer` |
 | `JobValidatorPatch.cs:116-121`, `Client/Jobs/WarehouseMachineControllerPatch.cs:90`, `:101`, `CommsRadioCarSpawnerPatch.cs:30`, `CareerManagerFeesScreenPatch.cs:17`, `CareerManagerLicensePayingScreenPatch.cs:12`, `GlobalShopControllerPatch.cs:18`, `Client/Items/Behaviours/MoneyPatch.cs:48`, `CashRegisterBasePatch.cs:39`, `:56`, `CommsRadioCargoLoaderPatch.cs:25`, `CommsRadioDamagePatch.cs:20` | Validation, warehouse, car spawner, fees, licences, shop | The host runs vanilla (its game is the authority) |
 
@@ -273,8 +273,8 @@ To move a request in-process, in the area's `NetworkServer.<Area>.cs`:
    (`RegisterLocalTrains`, `Items`, `World`, `Stations`, `Jobs`, `Career`, `Session`), so areas
    never edit the same lines.
 3. That's all for the call sites: `NetworkClient.SendPacketToServer` now submits it. Requests
-   sent through `SendNetSerializablePacketToServer` (`CommonItemsBulkUpdatePacket`,
-   `CommonPitStopPlugInteractionPacket`, MPAPI's external packets) aren't hooked: submit those at
+   sent through `SendNetSerializablePacketToServer` (`CommonPitStopPlugInteractionPacket`, MPAPI's
+   external packets) aren't hooked: submit those at
    the call site, `NetworkLifecycle.Instance.LocalServer?.Submit(packet) == true`, or add a hook.
 4. Replies: the handler's replies to `player.Peer` still reach the host's own client. Keep the
    ones that are presentation, stop sending the ones `HostOwnClient` ignores.
@@ -303,8 +303,8 @@ To move a request in-process, in the area's `NetworkServer.<Area>.cs`:
 | Cash register (`AddCash` on a module register) | `NetworkServer.cs:3898` → `Server_ProcessCashRegisterAction` (`NetworkedCashRegisterWithModules.cs:143`) | No host branch; reach check (`:149`) on the host's position. Success goes to the station's active players (`:224`), so never to the host, whose coroutine waits out `RPC_Timeout` (`:401-417`). A failure goes back to the host (`:226-234`), where it emptied the register's modules before stage 1. | Direct call returning the result; the coroutine finishes on it. |
 | Car delete, rerail | `NetworkServer.cs:2770`, `:2818` | No host branch; the host's world is changed by the handler, broadcasts exclude `SelfPeer` (`:913`, `:1106`). | `HandleTrainDelete/Rerail(packet, LocalPlayer)`. |
 | Work train (RPC) | `NetworkServer.cs:2895` | No host branch; range check (`:2966-2971`). The answer is `SendRpcResponse(peer)` (`:813-825`) back over loopback. Unknown player, track or livery return with no answer (`:2901-2916`), so the ticket times out. | The handler returns the `SpawnResponse`; the radio patch resolves its ticket with it (`RpcManager.ResolveTicket`). Every path returns an answer. |
-| Lost and Found list and retrieve | `NetworkServer.cs:3744`, `:3751` | No host branch; answers to the sender (`:3748`, `:3768`, `:3779`). | Direct; the answer raises the same client events (`LostItemRetrieveCompleted`) on the local session. |
-| Container view and mutations | `NetworkServer.cs:3785`, `:3799` | No host branch; answers to the sender (`:3795`, `:3852`, `:3859`). | Direct; raises `ContainerViewReceived`/`ContainerMutationCompleted`. |
+| Lost and Found list and retrieve | `NetworkServer.cs:3744`, `:3751` | No host branch; answers to the sender (`:3748`, `:3768`, `:3779`). | Direct; the answer raises the same client events (`ItemListReceived`, `ItemResultReceived`) on the local session. |
+| Container view and mutations | `NetworkServer.cs:3785`, `:3799` | No host branch; answers to the sender (`:3795`, `:3852`, `:3859`). | Direct; raises `ItemListReceived`/`ItemResultReceived`. |
 | Items, booklet summon, wake witness, recall | (various) | Already in-process with the host's `ServerPlayer`: see Items above, `JobValidatorPatch.cs:77-79`, `NetworkedItemManager.ServerInterest.cs:241`. | Use `LocalPlayer` instead of looking up `SelfId`. |
 
 ### What the server still sends the host's client after stage 2

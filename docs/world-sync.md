@@ -146,7 +146,7 @@ spends or earns money has to reach the host:
 
 - Banknotes and coins: `Client/Items/Behaviours/MoneyPatch.cs` replicates a note's value as a
   host-authoritative tracked value, and `Money.TrySpend` on a client (picking it up, stashing it,
-  paying a register) first sends `ServerboundMoneyItemDepositPacket`. The host ignores items that
+  paying a register) first sends a `DepositMoney` item request. The host refuses items that
   aren't live money and rejects notes in Lost and Found, in a container, or in another player's
   hand or inventory; otherwise it spends the note, credits the wallet and destroys the item.
 - Shops and service-station registers: below.

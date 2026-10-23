@@ -239,14 +239,16 @@ The host's game is the only place shared state is decided. The rules:
 Concrete cases:
 
 - **Items.** `Server/Items/LiveState/LiveItems.cs` holds one host record per
-  item: placement, holder, persistent owner, inventory claim, revision. A client's
-  `CommonItemUpdatePacket` goes through `NetworkedItem.Server_ReceiveItemUpdate` and
-  `LiveItems.TryApplyTransition`, which runs `ItemStateMachine` from
-  `Multiplayer.Core`. An item update can't create an item: the server makes every item it
-  keeps, and client item adoption is gone (owned-items PR 5). A rejected change is answered with a
-  canonical correction. Physics of a thrown or dropped item may be leased to one client, which
+  item: placement, holder, persistent owner, inventory claim, revision. A player's change to an
+  item is a request (`ServerboundItemRequestPacket`: take, stash, drop, throw, recall, deposit, ...)
+  that goes through `LiveItems.TryApplyTransition`, which runs `ItemStateMachine` from
+  `Multiplayer.Core`; one result answers it, and a repeated request id gets the same answer and
+  does nothing twice. The server makes every item it keeps. What changed goes out as
+  `ClientboundItemUpdatesPacket`, built per recipient: each player is told its relation to the item
+  (mine, someone else's, nobody's), never its owner, and only the owner the claim. A refused change
+  is followed by the item's canonical state. Physics of a thrown or dropped item may be leased to one client, which
   sends samples and a settlement the host validates. See
-  [design/item-lifecycle.md](design/item-lifecycle.md) and
+  [design/items/wire.md](design/items/wire.md), [design/item-lifecycle.md](design/item-lifecycle.md) and
   [design/item-spatial-physics.md](design/item-spatial-physics.md).
 - **Train topology.** `ServerboundTrainTopologyCommandPacket` (couple, uncouple, hoses, cocks,
   MU) is checked for range (the player within 8 m of the primary car, measured to the line

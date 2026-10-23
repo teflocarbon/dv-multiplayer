@@ -1,6 +1,6 @@
 # Item refactor
 
-> Status: plan (2026-10-23), not started. Nothing here is built. Line numbers are from `beta` at
+> Status: plan (2026-10-23); R0 and R1 built on `items/refactor`, R2 ([wire.md](items/wire.md)) in #339, 2026-10-24. Line numbers are from `beta` at
 > `04bfe277`. Decisions are the user's, through the coordinator, dated in [Decisions](#decisions);
 > all are answered. Every requirement is a row in
 > [item-overhaul-checklist.md](../item-overhaul-checklist.md), and this plan names the rows each PR
