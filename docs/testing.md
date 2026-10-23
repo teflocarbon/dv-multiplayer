@@ -304,6 +304,7 @@ attribute and adds the scenario to the gate's list; from then on it must pass.
 | `item-bug-recall-lease` (C#) | SL4 | The client drops its radio in a moving loco's cab and recalls it: no physics lease may be left, and after a save and restart it must be in the inventory. Today the lease stays and the radio comes back in the cab. |
 | `item-bug-car-delete-unowned` (C#) | LF2 | An unowned mug in a loco's cab when the loco is deleted must stay in the world, as in vanilla. Today the server destroys it. |
 | `item-bug-essential-slot-rejoin` (C#) | E6 (holds) | The player moves an essential to another slot and an ordinary item into its old one, then rejoins (`RESTART=1`: the host saves and both restart; `WHO=host`: the host's own player, with `RESTART=1`). Every essential must come back in a slot of its own. Passes today; kept as a regression check. |
+| `item-bug-container-save-refused` (C#) | F18 (`[KnownBug]` until R4 of [the item refactor](design/item-refactor.md#order-of-work) replaces the container save with rows that stand alone) | The client stores a mug in its toolbox and the host saves; a host step makes the saved containers unimportable (one stored item's slot past its container's end, as a capacity change leaves it) and has the server import them again. Browsing a container is refused (`container-save-unreadable`), and the next save still holds every stored item. Cleanup puts the original back. |
 
 ### Unity adapter and in-game acceptance tests
 
