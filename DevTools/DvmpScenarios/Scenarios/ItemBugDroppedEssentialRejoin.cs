@@ -11,15 +11,20 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Known item bug (expected to fail on beta, docs/research/item-bug-review.md): the client drops
-    /// an essential (the comms radio) in the world, leaving its red silhouette in its slot, and
-    /// rejoins with ordinary items in its inventory. Those arrive in any order and take the lowest
-    /// free slots, the dropped essential's claim slot among them; the silhouette that arrives after
-    /// is refused (EnsureDroppedClaim never makes room), so the owner has nothing to recall it from.
-    /// The order varies, so the run rejoins up to REJOINS times and fails on the first refusal.
+    /// The client drops an essential (the comms radio) in the world, leaving its red silhouette in
+    /// its slot, stashes MUGS ordinary items and leaves. When it rejoins, the silhouette must be back
+    /// in the essential's claim slot (item-lifecycle.md, "Retrieval claim slots"), wherever the
+    /// essential is.
+    /// - Known item bug E10 (default, LOST=1; expected to fail on beta,
+    ///   docs/research/item-bug-review.md): with nobody near, the server collects the radio into the
+    ///   absent client's Lost and Found. At the rejoin the server never sends it to its owner, so
+    ///   the owner has no silhouette and no recall; only a shed's Lost and Found shows it.
+    /// - LOST=0 checks E1: the essential stays in the world, and ordinary items arriving first might
+    ///   take its slot, the silhouette then refused (EnsureDroppedClaim never makes room). It rejoins
+    ///   REJOINS times and fails on the first refusal. It held on a player host (6 rejoins).
     /// </summary>
-    [Scenario("item-bug-dropped-essential-rejoin", "Known bug: a dropped essential's silhouette must be back in its slot after a rejoin, with ordinary items in the inventory")]
-    [KnownBug("E1")]
+    [Scenario("item-bug-dropped-essential-rejoin", "Known bug E10: a dropped essential's silhouette must be back in its slot after a rejoin, from Lost and Found (default) or the world (LOST=0, E1)")]
+    [KnownBug("E10")]
     [Needs(Need.RestartsGames)]
     [Budget(900)]
     public sealed class ItemBugDroppedEssentialRejoin : Scenario<ItemBugDroppedEssentialRejoin.Options>
@@ -33,13 +38,14 @@ namespace Dvmp.Scenarios
             /// <summary>Personal mugs the client stashes first, so ordinary items are more likely to arrive before the silhouette.</summary>
             public int Mugs = 6;
             /// <summary>The essential is collected into the client's Lost and Found while it is away (the host's player walks off too), and the silhouette must come back from there.</summary>
-            public bool Lost;
+            public bool Lost = true;
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
             Recall.Dropped d = await pair.Client.Run<Recall.Dropped>(s => Recall.InGame.DropEssential(s, o.Slot));
             Report.Note($"the client dropped {d.Name} {d.Item} from slot {o.Slot}: {d.State}, silhouette {d.Reserved}");
+            if (!d.Reserved) throw new HarnessException($"{d.Name} in slot {o.Slot} left no silhouette: not an essential (a run before left the inventory rearranged; reseed the save)");
             Require.Equal("Dropped", d.State, "the essential's state after the drop");
             pair.Cleanup(() => pair.Client.Run(() => InGame.Fetch(d.Item, o.Slot), 90));
             if (o.Mugs > 0)
