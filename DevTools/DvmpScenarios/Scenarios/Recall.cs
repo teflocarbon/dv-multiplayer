@@ -1,9 +1,13 @@
 using System;
 using System.Collections;
+using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Client.Items;
 using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Session;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -29,6 +33,8 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             if (o.Taken && pair.Dedicated) throw new HarnessException("TAKEN=1 needs a player host: a dedicated host has no hands to take the item");
+            if (o.Slot < 0)
+                await EssentialToInventory(pair);
             Dropped d = await pair.Client.Run<Dropped>(s => InGame.DropEssential(s, o.Slot));
             Report.Note($"the client dropped {d.Name} {d.Item} from slot {d.Slot}: {d.State}, slot reserved {d.Reserved}");
             Require.Equal("Dropped", d.State, "the essential item's state after the drop");
@@ -45,6 +51,28 @@ namespace Dvmp.Scenarios
             Expect.That(h.Placement == "PlayerInventory" && h.PlacementPlayer == h.ClientId, "the host records it in the client's inventory", $"{h.Placement} of player {h.PlacementPlayer}, the client is {h.ClientId}");
             if (o.Taken)
                 Expect.That(await pair.Host.Run(() => Items.Held()) != d.Item, "the host no longer holds the recalled item");
+        }
+
+        // Earlier runs in the same save can leave the client's essentials dropped or in its Lost
+        // and Found (lost-and-found and starting-items do): bring one back first, as its player would.
+        private static async Task EssentialToInventory(Pair pair)
+        {
+            Essential e = await pair.Client.Run<Essential>(s => InGame.FindEssential(s));
+            if (e.Where == "inventory")
+                return;
+            Report.Note($"the client's {e.Name} {e.Item} is in {e.Where}: bringing it back to the inventory first");
+            if (e.Where == "Lost and Found")
+                await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, e.Item), 60);
+            else
+                Require.Equal(e.Slot, (await pair.Client.Run<Recalled>(s => InGame.Recall(s, e.Item, e.Slot))).Slot,
+                    "the slot the essential left in the world was recalled into");
+        }
+
+        public sealed class Essential
+        {
+            public ushort Item;
+            public int Slot;
+            public string Name, Where;
         }
 
         public sealed class Dropped
@@ -65,6 +93,39 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
+            /// <summary>Client: one of this player's essential items, wherever it is: in the
+            /// inventory, else in their Lost and Found list, else lying in the world with its slot
+            /// reserved.</summary>
+            [Step]
+            public static IEnumerator FindEssential(Step<Essential> step)
+            {
+                var inv = DV.InventorySystem.Inventory.Instance;
+                for (int i = 0; i < inv.Capacity; i++)
+                {
+                    GameObject go = inv.PeekItemAtSlot(i, false);
+                    if (go?.GetComponent<InventoryItemSpec>()?.IsEssential != true) continue;
+                    step.Result = new Essential { Item = go.GetComponent<NetworkedItem>().NetId, Slot = i, Name = go.name.Replace("(Clone)", ""), Where = "inventory" };
+                    yield break;
+                }
+
+                LocalSessionCalls.Call("RequestLostItems", 1u);
+                for (int i = 0; i < 60; i++) yield return null;
+                var essentials = DV.Globals.G.Items.items.Where(s => s != null && s.IsEssential).Select(s => s.ItemPrefabName).ToList();
+                LostItemData lost = LostAndFoundList.Items.FirstOrDefault(e => essentials.Contains(e.PrefabName));
+                if (lost != null)
+                {
+                    step.Result = new Essential { Item = lost.NetId, Slot = -1, Name = lost.PrefabName, Where = "Lost and Found" };
+                    yield break;
+                }
+
+                byte self = NetworkRole.LocalPlayerId;
+                NetworkedItem dropped = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 &&
+                    n.PersistentOwnerPlayerId == self && n.Item?.InventorySpecs?.IsEssential == true &&
+                    n.GetItemState() == ItemState.Dropped && n.InventoryClaimSlot >= 0);
+                if (dropped == null) throw new Exception("this player has no essential item in the inventory, Lost and Found or the world");
+                step.Result = new Essential { Item = dropped.NetId, Slot = dropped.InventoryClaimSlot, Name = dropped.name.Replace("(Clone)", ""), Where = "the world" };
+            }
+
             /// <summary>Client: drops the essential item in the slot into the world (as dropping it
             /// from the inventory does), leaving its reserved silhouette behind.</summary>
             [Step]

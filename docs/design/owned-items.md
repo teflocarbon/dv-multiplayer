@@ -1,7 +1,9 @@
 # Owned items
 
-> Status: designed 2026-10-21, not started. Nothing below is built. It replaces how player
-> inventories, rejoin, Lost and Found and item returns work today
+> Status: PRs 1a to 5 are merged into beta (2026-10-22). 6a to 8 (the list, retrieval, essentials kept
+> out of containers, lineage, retrieving installed gadgets) are a stack in review; see
+> [Implementation status](#implementation-status). It replaces how player
+> inventories, rejoin, Lost and Found and item returns worked before
 > ([`item-lifecycle.md`](item-lifecycle.md), [`item-ownership-open-questions.md`](item-ownership-open-questions.md)),
 > and it is what the gadget design's [Owned items](gadgets.md#owned-items) section points to.
 
@@ -65,6 +67,9 @@ on the server and in every client, are made to agree with it.
   `starting-items`.
 - **PR 5, no adoption: built, and tested in game with PR 4 on both host kinds (2026-10-22).** Client item adoption is deleted;
   nothing legitimate still used it (see [5](#5-no-adoption)).
+- **PR 6a, the owned-items list: built (2026-10-22), and tested in game with 6b, L7 and 7 on both host kinds (2026-10-23).** The packets, the
+  server's rows from the ledger, and an Owned Items page in the career manager (see
+  [6](#6-the-list-and-retrieval)). Scenario: `owned-list`.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -141,13 +146,15 @@ Found in game by the PR 1b scenarios (2026-10-21) and fixed there:
 The 2a and 3 batches (2026-10-21/22) turned these up. Each predates the ledger work; the new
 scenarios are what show them.
 
-- **LF-inert.** When an item is collected into Lost and Found, every client that knew it keeps an
-  inactive inert copy (`ApplyLostAndFoundProjection`), and `Collect` drops the item from every
-  player's known items. If the host later destroys it while it is in Lost and Found, no destroy
-  reaches the clients, and the copy stays for good. It shows as the leak check's "client: items the
-  run spawned that couldn't be destroyed" in `offline-lost-and-found` and `car-delete-owner`
-  (online, absent). Fixed by PR 6 (retrieval), or by sending the destroy to clients holding a
-  tombstone.
+- **LF-inert (fixed in 6a).** When an item is collected into Lost and Found, every client that knew
+  it keeps an inactive inert copy (`ApplyLostAndFoundProjection`), which only a Destroy ends. The
+  host's item kept its collection as its last transition, so its final Destroy, when the server
+  later destroyed it, said `LostAndFoundCollection` too, and each client took it for another
+  collection and kept its copy for good. (The Destroy did reach them: Lost and Found's interest pass
+  puts the item back in every player's known items.) Now the final Destroy never carries a
+  projection's reason, and a client forgets its tombstone for a destroyed item. It showed as the
+  leak check's "client: items the run spawned that couldn't be destroyed" in `owned-list`,
+  `owned-retrieve`, `offline-lost-and-found` and `car-delete-owner` (online, absent).
 - **CAB-POS.** On a dedicated host, a client standing in a loco's cab doesn't count as near an item
   20 m away. The nearby-player protection collected an absent owner's ground mug 4 s after the
   client boarded (`offline-lost-and-found` @dedicated). On a player host the host's own player
@@ -961,6 +968,28 @@ As built (2026-10-22):
   2. Player host only: the client gives the host's player its lantern, the host holds it in hand, and
      the client retrieves it. The host's hand is empty, its log names the client, and the lantern is
      in the client's Lost and Found.
+
+Split in two, as small PRs: **6a the list**, **6b retrieval**.
+
+6a as built (2026-10-22):
+
+- **Packets:** `ServerboundOwnedItemsRequestPacket` and `ClientboundOwnedItemsPacket`. The answer
+  holds parallel rows: handle, prefab, display name, where, retrievable. Retrievable is false until
+  6b.
+- **The server builds the rows** (`OwnedItemRows`, `Server/Items/OwnedItems/`) from the ledger's
+  live entries for the player.
+  - Ended entries aren't listed.
+  - An item keeps its handle for the session.
+  - Where it is is worded by `OwnedItemPlaceText` (Core, unit-tested): "in your inventory", "in
+    Bentgear29's hand", "on the ground", "in L-042", "on a shelf", "in Toolbox", "in Lost and
+    Found", "installed on L-042". The car's id and the container's name come from the server's
+    records.
+  - The host's own player is answered in-process.
+- **The client** keeps the last list (`OwnedItemsList`), and the career manager's Multiplayer hub
+  has an **Owned Items** page beside Lost Items. It's a list only until 6b.
+- **Scenario `owned-list`:** step 3 uses a destroyed mug, not a banknote; money is PR 7's.
+- **Strings:** the page's labels are English, like the Lost Items page's. Localising both pages is
+  left for later.
 
 ### 7. Lineage
 

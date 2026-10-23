@@ -405,6 +405,7 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundItemRecallPreparePacket>(OnClientboundItemRecallPreparePacket);
         Handle<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
         Handle<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
+        Handle<ClientboundOwnedItemsPacket>(OwnedItemsList.Apply);
         Handle<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
         Handle<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
         Handle<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);
