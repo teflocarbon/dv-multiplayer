@@ -1,23 +1,22 @@
 # Item Synchronisation: Current Design, Behaviour, and Gaps
 
-> Status: implementation in progress
+> Status: **historical.** A review of the item code as it was on 2026-07-14, kept for its findings'
+> context. Nothing below describes the code today: the current account starts at
+> [`item-lifecycle.md`](item-lifecycle.md). Sections 2–9 and the code map (13) describe July's code
+> (a 100 metre radius, permanent `KnownItems`, a test-data inventory, temporary client adoption,
+> files since renamed). The per-finding status lines are from 2026-10-14.
 >
-> Scope: the initial item-sync implementation currently present in the repository
+> Findings re-checked against the code on 2026-10-23 (`items/lineage`):
 >
-> Game: Derail Valley
->
-> Code reviewed: 2026-07-14
->
-> Findings re-checked: 2026-10-14. Fixed: A, F (only a first-join starter kit remains), H, I, J, K,
-> O, Q, R. Partly fixed: C, D (no pickup reach or value ranges), E (borrowed items are dropped on
-> disconnect, except when their owner is offline), L, M, N, P, S, U. Still open: B (relays ignore
-> interest), G (fixed 0.25 s item-sync wait at join), T (bulk compression). Each finding has a
-> status line.
->
-> Sections 2-9 describe the code as reviewed in July (100 metre radius, permanent `KnownItems`,
-> test-data inventory); they are kept for the findings' context. The current design is in
-> [`item-world-sync.md`](item-world-sync.md), [`item-spatial-physics.md`](item-spatial-physics.md)
-> and [`item-lifecycle.md`](item-lifecycle.md).
+> - **Fixed:** A, E (a departing borrower's item goes to its owner's Lost and Found, owner online or
+>   not), F (the server makes starting items; the save packet carries no items), H, I, J, K, O, Q, R.
+> - **Partly fixed:** C (the server refuses server-only tracked values from a client, but the relayed
+>   snapshot still carries them), D (validation is in `Server/Items/NetworkedItemServer.cs`; no pickup
+>   reach or value ranges), L (`GetItemState` still falls back to `Dropped`), M, N, P (keys checked,
+>   still string-keyed and unversioned), S, U.
+> - **Still open:** B (relays, and a cold deposit's Destroy and a withdrawal's Create, ignore interest),
+>   G (a fixed 0.25 s item-sync wait at join), T (bulk compression is commented out). They are listed
+>   under "Not built" in [`item-world-sync.md`](item-world-sync.md#not-built).
 
 ## 1. Purpose and scope
 

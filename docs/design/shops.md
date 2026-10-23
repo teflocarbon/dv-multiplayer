@@ -30,8 +30,8 @@ In progress (2026-10-21). See the [plan](#plan).
 - PR 2b, the cash rules (walk-away, leaving the shop, disconnect, saved money), money as a `double`,
   and licence limits on clients (#7): merged (#291). Passed `shop`, `shop-basket`, `shop-restock`,
   `shop-licence` and `shop-cash` on both host kinds, on fresh career saves.
-- PR 2c, station fixtures (the scanner stays in its shop): waits for owned-items PR 1c (`ItemAccess`,
-  with the fixture list it checks).
+- PR 2c, station fixtures (the scanner stays in its shop): not started. Owned-items PR 1c (#296)
+  built `ItemAccess` and its fixture list (empty), which refuses a stash or deposit of an item on it.
 - PR 5, the scanner (laser, screen and hover sound for other players): merged (#294). Passed `shop-scanner` and
   `shop` on both host kinds.
 - PR 4, prediction (a player's own scans, payments, Buy and Cancel show at once): open. Passed
@@ -469,6 +469,13 @@ Refusal reasons: `NotNear`, `NoScanner`, `NotSoldHere`, `NotAvailable`, `NeedsLi
 `BasketEmpty`, `BasketChanged`, `Busy`.
 
 ## Owned items
+
+As built (checked 2026-10-23): `ShopDelivery.Spawn` puts every purchase on the counter, sets the
+owner (number and identity) of whoever scanned the line, sets `BelongsToPlayer` and the `Restock`
+flag, and logs `Purchased` with the shop and "i of n"; the ledger takes its birth from that move
+([owned-items.md](owned-items.md#what-an-owned-item-is)). There is no transaction id or payer in the
+detail, no Lost and Found delivery, and a line whose owner has left is delivered unowned. The rest
+of this section is the agreed seam, for PRs 3 and 6.
 
 The seam with [`owned-items.md`](owned-items.md) (PR #275), agreed with that session on 2026-10-21
 and written into both docs:
