@@ -283,6 +283,25 @@ host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 Outside the gate: `station-load` (C#; frame times on both peers while players arrive at a far
 station; fails on a frame over `MAX_MS`, default 1000).
 
+### Known item bugs (expected to fail)
+
+Scenarios that prove a catalogued item bug ([research/item-bug-review.md](research/item-bug-review.md)).
+Each class carries `[KnownBug("<id>")]`: `dvmp scenario list` and the run's header say it is
+expected to fail, and the gate's default list leaves them out. Run one, or put it in `ONLY`/`RUNS`,
+and its result is never a regression: `dvmp scenario run` exits 4 and prints `KNOWN` when it fails as
+expected, and exits 5 and prints `FIXED?` when it passes. The gate shows those results per run and
+in its summary (`(1 KNOWN bug, failing as expected)`, and for `FIXED?` the scenarios whose
+`[KnownBug]` to remove), and neither makes the gate fail. The PR that fixes a bug deletes the
+attribute and adds the scenario to the gate's list; from then on it must pass.
+
+| Scenario | Bug | What it does |
+| --- | --- | --- |
+| `item-bug-full-inventory-essential` (C#) | E2a | The host destroys the client's compass and the client fills every inventory slot with mugs, then rejoins. The server issues a new compass, which must end up in a slot or in the client's Lost and Found. Today it is in no slot, at the world origin. |
+| `item-bug-dropped-essential-rejoin` (C#) | E10 | The client drops its comms radio and leaves; with nobody near, the server collects it into the client's Lost and Found. After the rejoin the radio's silhouette must be in its slot. Today the client is never sent the radio. `LOST=0` keeps the radio in the world and rejoins `REJOINS` times (E1, holds). |
+| `item-bug-recall-lease` (C#) | SL4 | The client drops its radio in a moving loco's cab and recalls it: no physics lease may be left, and after a save and restart it must be in the inventory. Today the lease stays and the radio comes back in the cab. |
+| `item-bug-car-delete-unowned` (C#) | LF2 | An unowned mug in a loco's cab when the loco is deleted must stay in the world, as in vanilla. Today the server destroys it. |
+| `item-bug-essential-slot-rejoin` (C#) | E6 (holds) | The player moves an essential to another slot and an ordinary item into its old one, then rejoins (`RESTART=1`: the host saves and both restart; `WHO=host`: the host's own player, with `RESTART=1`). Every essential must come back in a slot of its own. Passes today; kept as a regression check. |
+
 ### Unity adapter and in-game acceptance tests
 
 Unity-facing code remains responsible for projecting an accepted pure state into real objects:
