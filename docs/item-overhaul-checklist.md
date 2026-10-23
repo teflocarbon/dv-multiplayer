@@ -12,6 +12,8 @@ so nothing carried it forward. This list is where that goes now.
 - **Every item PR lists the IDs it closes** in its description, and ticks them here in the same PR.
 - **A box is ticked only with merged code plus a proving scenario on both host kinds** (a player
   host and a dedicated host), or a Core unit test for a rule that lives only in `Multiplayer.Core`.
+  During the refactor a player-host proof ticks a row, marked "(p; d: end pass)", and OI-REF-01
+  proves the dedicated host for all of them.
   A ticked row names the PR, the code and the scenario or test. A doc saying it's built isn't proof.
 - **Scope a PR cuts or defers becomes a new unticked row in that PR**, with the next free ID in its
   area. Never "left for later" only in prose.
@@ -55,6 +57,7 @@ On 2026-10-23, at beta 1a0b732f:
 
 | Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision | Paused | Not needed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| The refactor end pass | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
 | Identity and what is owned | 8 | 3 | 0 | 4 | 0 | 4 | 0 |
 | The ledger as the source of truth | 4 | 3 | 0 | 8 | 0 | 0 | 1 |
 | Joining, rejoining and leaving | 3 | 2 | 0 | 6 | 0 | 0 | 0 |
@@ -76,7 +79,7 @@ On 2026-10-23, at beta 1a0b732f:
 | Gadgets seam | 1 | 1 | 0 | 3 | 0 | 6 | 0 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 260** | **55** | **30** | **2** | **115** | **0** | **48** | **10** |
+| **All 261** | **55** | **30** | **2** | **116** | **0** | **48** | **10** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -109,7 +112,7 @@ On 2026-10-23, at beta 1a0b732f:
 The plan is [design/item-refactor.md](design/item-refactor.md) (2026-10-23). Its PRs land on
 `items/refactor` and each ticks the rows it closes here. Every row not paused or not needed is in
 exactly one PR below; "re-proves" lists done rows whose code a PR rewrites, which it proves again
-on both host kinds without unticking them.
+on a player host without unticking them (the dedicated host is OI-REF-01, the end pass).
 
 | PR | Closes | Re-proves |
 | --- | --- | --- |
@@ -122,6 +125,15 @@ on both host kinds without unticking them.
 | R6 Every vanilla path | OI-LF-02, OI-LF-04, OI-LF-10, OI-LF-11, OI-LF-17, OI-ID-12, OI-JOIN-06, OI-JOIN-10, OI-JOIN-11, OI-START-07, OI-START-10, OI-ESS-13, OI-LIST-06, OI-LIST-14, OI-LIN-05, OI-VAN-01, OI-VAN-02, OI-VAN-03, OI-VAN-04, OI-VAN-05, OI-VAN-06 | OI-LF-01, OI-LF-03, OI-LF-09, OI-LF-12, OI-LF-13, OI-LF-14, OI-JOIN-04 |
 | R7 Leases, physics and projection | OI-ESS-11, OI-PHY-01, OI-PHY-02, OI-PHY-03, OI-PHY-04, OI-PHY-05, OI-PHY-06, OI-PHY-07, OI-PHY-08, OI-PHY-11, OI-PHY-12, OI-PER-11, OI-SYNC-04, OI-SYNC-07, OI-SYNC-08, OI-SYNC-09, OI-SYNC-10, OI-SYNC-11, OI-SYNC-13, OI-SYNC-17, OI-SYNC-18, OI-LIST-09, OI-GAD-06 | OI-SYNC-01 |
 | R8 Docs | OI-LED-14, OI-LF-18, OI-LF-19, OI-CON-10, OI-SYNC-02, OI-SYNC-03, OI-SYNC-05, OI-SYNC-06, OI-PHY-09, OI-PHY-10, OI-LAY-01 | |
+
+**The end pass** (user, 2026-10-24). Each refactor PR runs the item regression set on a player
+host only, and ticks its rows with that proof, marked "(p; d: end pass)". The dedicated host runs
+once, over `items/refactor` before it merges into beta, and any difference it finds is fixed before
+that merge.
+
+| ID | Requirement | Source | Status | Evidence |
+| --- | --- | --- | --- | --- |
+| OI-REF-01 | The end pass: the item regression set and the known bugs on a dedicated host over `items/refactor`, before the beta merge. Every row ticked "(p; d: end pass)" is proved on the dedicated host there or unticked, and every difference from the player host is fixed or becomes a row | User 2026-10-24 | `[ ]` | Replaces each PR's dedicated run |
 
 OI-SHOP-01 stays done; its workstream is paused.
 

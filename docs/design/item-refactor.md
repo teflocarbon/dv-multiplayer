@@ -740,7 +740,7 @@ host. A row a PR can't close stays unticked, and anything a PR cuts becomes a ne
 The full mapping of every row, with the done rows each PR proves again, is in
 [the checklist](../item-overhaul-checklist.md#the-refactor).
 
-**The item regression set** that every PR runs, on a player host and a dedicated host (one pair at a time, unless the user asks for more):
+**The item regression set** that every PR runs on a player host (one pair at a time, unless the user asks for more; the dedicated host runs it once at the end, over `items/refactor` before the beta merge, user 2026-10-24, OI-REF-01):
 `rejoin`, `recall`, `containers`, `lost-and-found`, `item-id-roundtrip`, `ledger-save`,
 `fixture-no-stash`, `absent-owner`, `offline-lost-and-found`, `owner-offline`, `car-delete-owner`,
 `lost-and-found-many-owners`, `offline-sweep-mid-save`, `rejoin-mid-sweep`, `deposit-refused`,
