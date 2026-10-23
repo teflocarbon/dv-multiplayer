@@ -1,7 +1,9 @@
 # Owned items
 
-> Status: designed 2026-10-21, not started. Nothing below is built. It replaces how player
-> inventories, rejoin, Lost and Found and item returns work today
+> Status: PRs 1a to 5 are merged into beta (2026-10-22). 6a to 8 (the list, retrieval, essentials kept
+> out of containers, lineage, retrieving installed gadgets) are a stack in review; see
+> [Implementation status](#implementation-status). It replaces how player
+> inventories, rejoin, Lost and Found and item returns worked before
 > ([`item-lifecycle.md`](item-lifecycle.md), [`item-ownership-open-questions.md`](item-ownership-open-questions.md)),
 > and it is what the gadget design's [Owned items](gadgets.md#owned-items) section points to.
 
@@ -65,7 +67,7 @@ on the server and in every client, are made to agree with it.
   `starting-items`.
 - **PR 5, no adoption: built, and tested in game with PR 4 on both host kinds (2026-10-22).** Client item adoption is deleted;
   nothing legitimate still used it (see [5](#5-no-adoption)).
-- **PR 6a, the owned-items list: built (2026-10-22), not yet run in game.** The packets, the
+- **PR 6a, the owned-items list: built (2026-10-22), and tested in game with 6b, L7 and 7 on both host kinds (2026-10-23).** The packets, the
   server's rows from the ledger, and an Owned Items page in the career manager (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-list`.
 - **PR 6b, retrieval: built (2026-10-22), not yet run in game.** From the owned-items list into Lost
