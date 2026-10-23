@@ -78,6 +78,7 @@ public sealed class ItemRequestsTests
     [TestCase("unknown-lost-item", ItemRefusal.UnknownItem)]
     [TestCase("lost-item-revision-changed", ItemRefusal.StaleRevision)]
     [TestCase("not-your-item", ItemRefusal.NotYours)]
+    [TestCase("take-from-player", ItemRefusal.NotYours)]
     [TestCase("inventory-full", ItemRefusal.NoRoom)]
     [TestCase("item-not-projected", ItemRefusal.NotHere)]
     [TestCase("item-action-invalid", ItemRefusal.Invalid)]

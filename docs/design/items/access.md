@@ -48,7 +48,7 @@ recall, so `TakeFromPlayer` is always refused.
 On the wire a refusal is the detail plus a code ([wire.md](wire.md#refusals)). A deposit's refusal
 is the container's `Unauthorized`, sent as `NotYours`, whatever the reason. The others are classified
 from the detail (`ItemRefusals.Classify`): `requester-not-persistent-owner` is `NotYours`,
-`fixture-stays-in-its-place` `NotAllowed`, and `take-from-player` the plain `Refused`.
+`fixture-stays-in-its-place` `NotAllowed`, and `take-from-player` `NotYours`.
 
 ## The facts, on the server
 
@@ -88,11 +88,11 @@ of an essential is allowed as usual.
 | `LiveItems.TryApplyTransition` | `Stash` | after the state machine, when the item enters a player's inventory from anywhere else, whoever commits it: the actor, or with no actor the holder's session (a dedicated host's own copy of a client's item reports the client's stash with no actor) |
 | `ContainerServer.Deposit` (`Multiplayer/Server/Items/Containers/ContainerServer.cs`) | `Deposit` | once the depositor is known to have the item |
 | `LiveItems.TryRecall` | `Recall` | after the essential check (`item-not-recallable`), before the state machine |
-| `Retrieval.Retrieve` (`Multiplayer/Server/Items/OwnedList/Retrieval.cs`) | `Retrieve` | on the retrieval's subject, the item or its outermost container's shell, after `CanRetrieve` |
+| `LostAndFoundServer.TryRetrieve` (`Multiplayer/Server/Items/LostAndFound/LostAndFoundServer.cs`) | `Recall` | a collection or a recall from Lost and Found, after `LostItemRetrievalPlanner` (the entry's owner), before the move |
+| `Retrieval.Retrieve` (`Multiplayer/Server/Items/OwnedList/Retrieval.cs`) | `Retrieve` | on the retrieval's subject, the item or its outermost container's shell, after `CanRetrieve` (asking about the item itself is R5's, OI-LIST-23) |
 
 Not asked: a move inside the player's own inventory (`MoveSlot`, a swap: the item is already
-theirs to hold), a Lost and Found collection or a recall from Lost and Found (Lost and Found checks
-the owner itself, `LostItemRetrievalPlanner`), a withdrawal (OI-ACC-04, R5), a gadget's install or
+theirs to hold), a withdrawal (OI-ACC-04, R5), a gadget's install or
 removal (OI-ACC-06, paused), and the server's own moves that don't put an item with a player (a
 load, a collection into Lost and Found, a drop). A server move that does, with a player as its actor,
 is asked like a player's: a leaver's own hand item stashed into a free slot (`PlayerItems.Leave`)

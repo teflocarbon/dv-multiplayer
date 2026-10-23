@@ -165,8 +165,7 @@ is **live**: an object people can see and touch.
   request; the server commits it to the ledger and confirms. Only a refusal rolls the client back (a
   refused swap corrects both items).
 
-**Still open:** Lost and Found entries are still objects on the server; whether they become data is
-waiting on the user (OI-COLD-01). Containers are cold already and join the ledger in R5.
+**Still open:** Lost and Found entries stay objects on the server until R6 (OI-COLD-08, user 2026-10-24). Containers are cold already and join the ledger in R5.
 
 ## The re-key merge
 
@@ -200,12 +199,27 @@ and fails the run on any line). Each breach is logged once as an error,
 `item.invariant-broken (<when>): <violation>`, and published as the debug event `item.invariant-broken`
 (category `inventory`; [observability.md](../../observability.md)).
 
-A Debug build stops there, and the scenario fails. A Release build then repairs (`ServerLedger.Repair`, D7):
+A Debug build stops there, and the scenario fails. A Release build then repairs (`ServerLedger.Repair`
+in `ServerLedger.Repair.cs`, D7): the ledger wins on where.
 
-- `LiveAgrees`, a loose object: it goes to its owner's Lost and Found (`SaveRecovery`, `SendToLostAndFound`);
-- `LiveAgrees` anywhere else (with a player, installed, attached): the ledger follows the record, since
-  moving the item would take it from someone's hands;
+- `LiveAgrees`: `PutHome` puts the item in its ledger home. The ledger first follows the record, so
+  the move commits from where the item is; a data-only item is made again first (`WithObject`).
+
+  | Ledger home | The repair |
+  | --- | --- |
+  | a connected player's slot | into that slot: out of Lost and Found as a recall (`TryRetrieveForRecall`), out of another player's hands by way of the ground (`Retrieval.DropFromHolder`; a take from a player is refused), from anywhere else directly. Their claim or another free slot if that one is taken |
+  | a connected player's hand | into a free slot of theirs: the server doesn't put things in hands |
+  | an offline player's slot | a cold row there, its object gone (`PlayerItems.GoColdInto`); not from Lost and Found |
+  | `LostAndFound` | collected (`SendToLostAndFound`, `SaveRecovery`), dropped from a player's hands first |
+  | the ground, a train, a shelf (the ledger keeps no pose), a container's slot, an install | the owner's Lost and Found |
+
+  Where the move is refused, the item goes to its owner's Lost and Found; where that is refused too, or
+  the item has no owner, it stays and the ledger follows it. An item installed, attached or snapped
+  where it is stays, and the ledger follows: the server can't take it off yet (a retrieval can't
+  either, R8).
 - `NoStray` of a record whose store named an owner: registered, born `Migrated`;
+- a cold row that disagrees has no object to move: its holder's join makes it again, and the next check
+  puts it home;
 - the rest (lost, copied, two in a slot, vanilla's lists) stays logged for R4's load recovery.
 
 `ServerLedger.SendToLostAndFound(id, reason, detail, out refused)` is the one way into Lost and Found by
@@ -259,7 +273,8 @@ The ownership questions open before the refactor, asked again. None is answered 
 - `Multiplayer.Core.Tests/Items/Ledger/HomeInvariantTests.cs`: each rule, a cold row as the one copy,
   and a fuzz run of a ledger that only ever committed and a world that followed it.
 - Scenarios ([testing.md](../../testing.md)): `ledger-rows` (an inactive item, the dump, `Duplicate` and
-  `Granted` births, `SendToLostAndFound` refusing an item with a player), `inventory-slots`, `cold-homes`,
+  `Granted` births, `SendToLostAndFound` refusing an item with a player), `ledger-repair` (the
+  Release repair, called directly, for each kind of home), `inventory-slots`, `cold-homes`,
   `rekey` (`MERGE=true`), `item-bug-essential-slot-rejoin`, `ledger-save`, `item-id-roundtrip`,
   `item-lineage`, `starting-items`, `owned-list`, `owned-retrieve`, `recall`, `borrowed-disconnect`,
   `gadget-save`, `shop`. Every run ends with the one-home check.

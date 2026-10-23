@@ -37,7 +37,7 @@ every multiplayer game (`Shared/Career/StartingItemsControllerPatch.cs`). The se
 | When | once per player per career | at every join, for each prefab the player has no live item of |
 | Marker | `ItemLedger.HasStarterKit` / `MarkStarterKit`, saved with the ledger | none: "has" is counted each time |
 | Born | `StarterKit` | `Issued` |
-| Slot | the first free slot from slot 14 up, wrapping round | a claim slot, the lowest free one off the belt |
+| Slot | the first free slot from slot 14 up, then from slot 0, never the belt; none free: Lost and Found | a claim slot, the lowest free one off the belt |
 | Claim | none | yes, `Reserved` |
 
 Licence papers are never made in multiplayer (`PhysicalLicensePaperPatch` returns null from DV's
@@ -69,7 +69,7 @@ nothing. A pass:
    an unowned item fills (`SlotTakenOutside`), and one another essential's silhouette reserves. Each
    missing essential then takes `InventorySlots.ChooseClaim(-1, taken)`, the lowest free slot off the
    belt, the same function the ledger uses for a claim (OI-ESS-02). Kit items take `FreeSlot(taken,
-   14)`.
+   14)`: from slot 14 up to 32, then from 0, never onto the belt.
 4. **Makes each item** (`Make`), as a cold-container withdrawal does: instantiated at DV's safety
    position with `BelongsToPlayer` set, its state loaded a frame later, registered through
    `LiveItems.RegisterMaterializedColdItem` with the cause `Issued` or `StarterKit` (the birth
@@ -141,8 +141,7 @@ kept in the owner's game:
   no copy of the item for the Lost and Found tombstone to project.
   `ServerItemManager.TryCreateLostEssentialForOwner` sends that owner, and only them, the item's
   `Create` first; the tombstone after it makes it inert and leaves the silhouette. Lost and Found
-  entries are still objects on the server; whether they become data is waiting on the user
-  (OI-COLD-01).
+  entries stay objects on the server until R6 (OI-COLD-08, user 2026-10-24).
 - **Arriving after an ordinary item** (OI-ESS-09). The server never puts an ordinary item on a
   claimed slot (`slot-reserved`, above). On a client whose items arrive in any order,
   `InventoryIntegration.RestoreClaim` first moves a stale occupant without a claim on that slot to
@@ -164,8 +163,9 @@ From anywhere but Lost and Found, `LiveItems.TryRecall`:
    `requester-not-persistent-owner` (OI-ACC-05; [access.md](access.md));
 3. runs `ItemStateMachine.Recall`: the requester must be the owner, the item must have a claim slot
    with `Reserved` or `Locked`, must not be installed (`item-installed`), and the revision must match;
-4. puts it in the slot `ServerLedger.FreeSlot` gives: its claim if the ledger would take it there,
-   else the lowest free slot, the belt last; `inventory-full` if none;
+4. puts it in the slot `ServerLedger.FreeSlot` gives: the slot asked for (the silhouette clicked),
+   else its claim, if the ledger would take it there, else the lowest free slot, the belt last;
+   `inventory-full` if none;
 5. commits the move to the ledger (cause `Recalled`); if the ledger refuses, the record is restored
    and nothing is sent. The update, sent to everyone, empties the holder's hand on every game.
 

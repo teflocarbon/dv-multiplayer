@@ -154,11 +154,12 @@ public static class StartingItemsIssuer
         return slot;
     }
 
+    // From the kit's first slot up, then from slot 0, never onto the belt (the VR belt, 33-35).
     private static int FreeSlot(HashSet<int> taken, int from)
     {
-        for (int i = 0; i < Slots; i++)
+        for (int i = 0; i < InventorySlots.FirstBeltSlot; i++)
         {
-            int slot = (from + i) % Slots;
+            int slot = (from + i) % InventorySlots.FirstBeltSlot;
             if (taken.Add(slot))
                 return slot;
         }

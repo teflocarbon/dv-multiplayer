@@ -158,7 +158,24 @@ internal static partial class PlayerItems
             DataGoesCold(record, leaver);
             return true;
         }
-        if (record == null || record.Placement != ItemPlacementKind.PlayerInventory || record.Slot < 0 ||
+        if (record == null || record.Placement != ItemPlacementKind.PlayerInventory)
+            return false;
+        return Cold(record, record.Holder, record.Slot, leaver,
+            $"slot {record.Slot} of {ItemChangeLog.PlayerName(record.Holder)}, kept as data");
+    }
+
+    /// <summary>
+    /// The one-home repair (D7): an item whose ledger home is an offline holder's slot goes there as
+    /// a cold row, from wherever its object is. Not from Lost and Found, whose entry holds it.
+    /// </summary>
+    internal static bool GoColdInto(LiveItems.LiveItem record, Guid holder, int slot) =>
+        record != null && record.Placement != ItemPlacementKind.LostAndFound && !IsDataOnly(record) &&
+        PlayerNumbers.Session(holder) == null &&
+        Cold(record, holder, slot, null, $"put back in slot {slot} of {ItemChangeLog.PlayerName(holder)}, kept as data");
+
+    private static bool Cold(LiveItems.LiveItem record, Guid holder, int slot, ServerPlayer leaver, string detail)
+    {
+        if (holder == Guid.Empty || slot < 0 ||
             !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null || item.Item == null)
             return false;
         if (ItemSaveLoad.IsJobSystemDocument(record.PrefabName))
@@ -174,18 +191,16 @@ internal static partial class PlayerItems
 
         SavedItemRow row = ItemSaveLoad.RowOf(record, item);
         row.Placement = ItemPlacementKind.PlayerInventory;
-        row.PlacementPlayerIdentity = record.Holder;
+        row.PlacementPlayerIdentity = holder;
         row.OwnerIdentity = record.Owner;
-        row.Slot = record.Slot;
+        row.Slot = slot;
         if (!ColdInventories.Add(row))
         {
             Multiplayer.LogWarning($"Inventory: {record.PrefabName} ({record.PersistentItemId:D}) is already cold; its object stays");
             return false;
         }
 
-        ChangeCause<ItemRemovalReason> cold = ItemChangeLog.Removal(ItemRemovalReason.WentCold, leaver,
-            $"slot {record.Slot} of {ItemChangeLog.PlayerName(record.Holder)}, kept as data");
-        Retire(item, record, cold, leaver);
+        Retire(item, record, ItemChangeLog.Removal(ItemRemovalReason.WentCold, leaver, detail), leaver);
         return true;
     }
 

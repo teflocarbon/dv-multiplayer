@@ -111,7 +111,8 @@ goes on from there. If that shell is in the owner's own hand or inventory, there
 (`nothing-to-retrieve`). If the walk can't reach a live shell, `unknown-item`. Otherwise the shell is
 what goes, from wherever it is, by the rules above. The access check and Lost and Found are asked of
 the shell, not the item: a deposit needs only the item to be the depositor's, so an owner's mug in a
-toolbox nobody owns, or someone else's, is listed retrievable but refused at step 4 below.
+toolbox nobody owns, or someone else's, is listed retrievable but refused at step 4 below. Taking the
+item itself out of the box, asked about the item, is R5's (OI-LIST-23).
 
 ### From another player
 

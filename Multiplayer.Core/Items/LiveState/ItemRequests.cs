@@ -51,7 +51,8 @@ public static class ItemRefusals
         if (detail.Contains("revision") || detail.Contains("stale") || detail.Contains("registry-changed"))
             return ItemRefusal.StaleRevision;
         if (detail.Contains("owner") || detail.Contains("not-your") || detail.Contains("with-a-player") ||
-            detail.Contains("not-current-possessor") || detail.Contains("foreign"))
+            detail.Contains("not-current-possessor") || detail.Contains("foreign") ||
+            detail.Contains("from-player"))
             return ItemRefusal.NotYours;
         if (detail.Contains("full") || detail.Contains("no-free") || detail.Contains("capacity") ||
             detail.Contains("slot-occupied"))

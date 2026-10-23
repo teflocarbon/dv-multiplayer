@@ -88,26 +88,6 @@ public static partial class ServerLedger
     /// <summary>The check's lines, for <c>Library/Invariant.cs</c> and the debug console. Empty when it holds.</summary>
     public static List<string> CheckNow() => CheckInvariant("asked").Select(violation => violation.ToString()).ToList();
 
-    // Release: the ledger wins on where (D7). A loose object somewhere else goes to its owner's Lost
-    // and Found; one with a player is followed, since moving it would take it from their hands. What
-    // can't be repaired without an object (lost, copied) stays logged for the load's recovery (R4).
-    private static void Repair(InvariantViolation violation)
-    {
-        LiveItems.LiveItem record = violation.Id == Guid.Empty ? null : RecordOf(violation.Id);
-        switch (violation.Rule)
-        {
-            case InvariantRule.LiveAgrees when record != null:
-                if (HomeOf(record).IsLoose && record.Owner != Guid.Empty)
-                    SendToLostAndFound(violation.Id, LostItemReason.SaveRecovery, "invariant repair", out _);
-                else
-                    ledger.Repair(violation.Id, HomeOf(record));
-                break;
-            case InvariantRule.NoStray when record != null && record.StoredOwner != Guid.Empty:
-                Own(record, record.StoredOwner, BirthReason.Migrated, Guid.Empty, "invariant repair");
-                break;
-        }
-    }
-
     private static LiveItems.LiveItem RecordOf(Guid id) =>
         netIdByPersistentId.TryGetValue(id, out ushort netId) && LiveItems.TryGet(netId, out LiveItems.LiveItem record) &&
         record.PersistentItemId == id ? record : LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == id);

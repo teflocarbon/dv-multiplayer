@@ -2,10 +2,12 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.VanillaStorage;
+using Multiplayer.Server.Items.Access;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
@@ -207,6 +209,12 @@ public static class LostAndFoundServer
         {
             RemoveStaleEntry(itemNetId, "canonical-item-no-longer-in-lost-and-found");
             rejectionReason = "item-not-in-lost-and-found";
+            TraceRecallRejection(itemNetId, rejectionReason);
+            return false;
+        }
+        // Asked as a recall of a live item is (OI-ACC-05).
+        if (!ItemAccessServer.Allows(player, ItemAccessAction.Recall, item, authority, out rejectionReason))
+        {
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }

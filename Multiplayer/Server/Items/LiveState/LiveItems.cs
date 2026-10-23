@@ -568,7 +568,8 @@ public static class LiveItems
         // The holder becomes the requester's identity: left as the previous holder's, a recalled
         // item was handed back to that player when they rejoined, and the owner had a second one.
         ApplyCore(record, result.State);
-        record.Slot = ServerLedger.FreeSlot(record, requester.Guid, record.InventoryClaimSlot);
+        // The slot asked for (the silhouette clicked), else the claim, else a free one.
+        record.Slot = ServerLedger.FreeSlot(record, requester.Guid, requestedSlot, record.InventoryClaimSlot);
         record.LastReason = ItemTransitionReason.OwnerRecall;
         ChangeCause<ItemMoveReason> recalled = ItemChangeLog.Move(ItemMoveReason.Recalled, requester,
             ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
