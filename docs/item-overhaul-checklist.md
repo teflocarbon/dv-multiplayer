@@ -55,12 +55,13 @@ On 2026-10-23, at beta 1a0b732f:
 
 | Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision | Paused | Not needed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Identity and what is owned | 8 | 3 | 0 | 3 | 0 | 4 | 0 |
+| Identity and what is owned | 8 | 3 | 0 | 4 | 0 | 4 | 0 |
 | The ledger as the source of truth | 4 | 3 | 0 | 8 | 0 | 0 | 1 |
 | Joining, rejoining and leaving | 3 | 2 | 0 | 6 | 0 | 0 | 0 |
 | Starting items | 4 | 3 | 1 | 2 | 0 | 0 | 0 |
 | Essentials and claims | 4 | 0 | 1 | 10 | 0 | 0 | 1 |
 | Inventory slots | 0 | 0 | 0 | 3 | 0 | 0 | 0 |
+| Cold and live homes | 0 | 0 | 0 | 6 | 0 | 0 | 0 |
 | Lost and Found | 9 | 4 | 0 | 9 | 0 | 0 | 0 |
 | The list and retrieval | 7 | 7 | 0 | 2 | 0 | 6 | 0 |
 | Lineage | 2 | 2 | 0 | 0 | 0 | 3 | 0 |
@@ -75,7 +76,7 @@ On 2026-10-23, at beta 1a0b732f:
 | Gadgets seam | 1 | 1 | 0 | 3 | 0 | 6 | 0 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 253** | **55** | **30** | **2** | **108** | **0** | **48** | **10** |
+| **All 260** | **55** | **30** | **2** | **115** | **0** | **48** | **10** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -85,7 +86,8 @@ On 2026-10-23, at beta 1a0b732f:
     that workstream. OI-PHY-05 and OI-PHY-12 are in the refactor.
   - **Not needed:** old saves start every player's items fresh (D1), so the migration rows aren't
     needed.
-- **Nothing in the refactor waits for the user.** The last four (job papers, OI-ID-12 and OI-LF-17; a leaver's hand
+- **Nothing in the refactor waits for the user.** OI-COLD-06 was decided on 2026-10-24 (data only on
+  the server, D12). Before it, the last four (job papers, OI-ID-12 and OI-LF-17; a leaver's hand
   item, OI-JOIN-06; red, OI-ESS-12) were decided on 2026-10-23 (the plan's D3 and D5) and are in the
   refactor. So are the one-home check (OI-LED-15, D7) and recreating an unloadable item
   (OI-LED-16, D9). Paused rows that still need a decision when their workstream resumes: OI-ID-16,
@@ -114,8 +116,8 @@ on both host kinds without unticking them.
 | R0 Rename | none (OI-LAY-01 starts here, ticks in R8) | the item regression set and the known bugs, same results before and after |
 | R1 Identity only | OI-LED-06, OI-LED-07, OI-ESS-05, OI-ACC-08, OI-LF-06, OI-JOIN-09, OI-ID-08, OI-CON-08 | OI-JOIN-03, OI-LF-05 |
 | R2 The wire | OI-ID-07, OI-ESS-10, OI-ESS-12, OI-CON-07, OI-SYNC-19, OI-SYNC-20, OI-LIST-17, OI-LIST-22 | OI-ESS-06 |
-| R3 The ledger decides | OI-LED-04, OI-LED-05, OI-LED-08, OI-LED-09, OI-LED-10, OI-LED-13, OI-LED-15, OI-GAD-10, OI-ID-05, OI-ID-06, OI-ID-13, OI-ID-18, OI-ESS-01, OI-ESS-02, OI-ESS-03, OI-ESS-04, OI-ESS-08, OI-ESS-09, OI-START-04, OI-START-06, OI-START-08, OI-START-09, OI-SLOT-01, OI-SLOT-03, OI-ACC-05, OI-ACC-07, OI-LF-08, OI-LF-20, OI-GAD-04, OI-LIST-12, OI-LIST-20, OI-LIST-21, OI-LIN-07 | OI-ID-01, OI-ID-09, OI-ID-10, OI-ID-11, OI-LED-01, OI-LED-03, OI-LED-12, OI-ESS-14, OI-ESS-15, OI-START-02, OI-START-03, OI-START-05, OI-LIST-01, OI-LIST-02, OI-LIST-03, OI-LIST-08, OI-LIST-11, OI-LIST-19, OI-LIN-01, OI-LIN-06, OI-ACC-01, OI-ACC-02, OI-ACC-03, OI-FIX-01 |
-| R4 Saving and loading | OI-PER-01, OI-PER-03, OI-PER-04, OI-PER-06, OI-PER-07, OI-PER-09, OI-PER-10, OI-PER-12, OI-PER-13, OI-PER-14, OI-PER-15, OI-PER-16, OI-PER-17, OI-PER-18, OI-PER-19, OI-PER-20, OI-PER-21, OI-PER-22, OI-PER-23, OI-SLOT-02, OI-JOIN-01, OI-JOIN-02, OI-JOIN-05, OI-JOIN-07, OI-JOIN-08, OI-LED-16, OI-LF-16, OI-LF-21, OI-LF-22, OI-CON-04, OI-CON-05, OI-START-01, OI-GAD-01, OI-GAD-02, OI-ID-02, OI-ID-03, OI-ID-04 | OI-LF-15; OI-LED-02, OI-PER-05 and OI-PER-08 are rewritten to the new format (no stores to reconcile, no `Migrated`, no `Missing`) |
+| R3 The ledger decides | OI-LED-04, OI-COLD-01, OI-COLD-02, OI-COLD-04, OI-COLD-05, OI-COLD-06, OI-LED-05, OI-LED-08, OI-LED-09, OI-LED-10, OI-LED-13, OI-LED-15, OI-GAD-10, OI-ID-05, OI-ID-06, OI-ID-13, OI-ID-18, OI-ESS-01, OI-ESS-02, OI-ESS-03, OI-ESS-04, OI-ESS-08, OI-ESS-09, OI-START-04, OI-START-06, OI-START-08, OI-START-09, OI-SLOT-01, OI-SLOT-03, OI-ACC-05, OI-ACC-07, OI-LF-08, OI-LF-20, OI-GAD-04, OI-LIST-12, OI-LIST-20, OI-LIST-21, OI-LIN-07, OI-ID-19 | OI-ID-01, OI-ID-09, OI-ID-10, OI-ID-11, OI-LED-01, OI-LED-03, OI-LED-12, OI-ESS-14, OI-ESS-15, OI-START-02, OI-START-03, OI-START-05, OI-LIST-01, OI-LIST-02, OI-LIST-03, OI-LIST-08, OI-LIST-11, OI-LIST-19, OI-LIN-01, OI-LIN-06, OI-ACC-01, OI-ACC-02, OI-ACC-03, OI-FIX-01 |
+| R4 Saving and loading | OI-PER-01, OI-COLD-03, OI-PER-03, OI-PER-04, OI-PER-06, OI-PER-07, OI-PER-09, OI-PER-10, OI-PER-12, OI-PER-13, OI-PER-14, OI-PER-15, OI-PER-16, OI-PER-17, OI-PER-18, OI-PER-19, OI-PER-20, OI-PER-21, OI-PER-22, OI-PER-23, OI-SLOT-02, OI-JOIN-01, OI-JOIN-02, OI-JOIN-05, OI-JOIN-07, OI-JOIN-08, OI-LED-16, OI-LF-16, OI-LF-21, OI-LF-22, OI-CON-04, OI-CON-05, OI-START-01, OI-GAD-01, OI-GAD-02, OI-ID-02, OI-ID-03, OI-ID-04 | OI-LF-15; OI-LED-02, OI-PER-05 and OI-PER-08 are rewritten to the new format (no stores to reconcile, no `Migrated`, no `Missing`) |
 | R5 Containers on the ledger | OI-CON-02, OI-CON-03, OI-CON-06, OI-CON-09, OI-CON-11, OI-CON-12, OI-CON-13, OI-CON-15, OI-ACC-04, OI-LIST-18 | OI-CON-01, OI-LIST-10, OI-LF-07, OI-ESS-07 |
 | R6 Every vanilla path | OI-LF-02, OI-LF-04, OI-LF-10, OI-LF-11, OI-LF-17, OI-ID-12, OI-JOIN-06, OI-JOIN-10, OI-JOIN-11, OI-START-07, OI-START-10, OI-ESS-13, OI-LIST-06, OI-LIST-14, OI-LIN-05, OI-VAN-01, OI-VAN-02, OI-VAN-03, OI-VAN-04, OI-VAN-05, OI-VAN-06 | OI-LF-01, OI-LF-03, OI-LF-09, OI-LF-12, OI-LF-13, OI-LF-14, OI-JOIN-04 |
 | R7 Leases, physics and projection | OI-ESS-11, OI-PHY-01, OI-PHY-02, OI-PHY-03, OI-PHY-04, OI-PHY-05, OI-PHY-06, OI-PHY-07, OI-PHY-08, OI-PHY-11, OI-PHY-12, OI-PER-11, OI-SYNC-04, OI-SYNC-07, OI-SYNC-08, OI-SYNC-09, OI-SYNC-10, OI-SYNC-11, OI-SYNC-13, OI-SYNC-17, OI-SYNC-18, OI-LIST-09, OI-GAD-06 | OI-SYNC-01 |
@@ -150,6 +152,7 @@ updates the links here.
 | OI-ID-16 | Giving an item to another player (an explicit gift that changes the owner) | OI §Open decisions; OQ §When should ownership transfer | `paused: not about loss` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. Open since 2026-10-21. The ledger supports an owner change with a reason |
 | OI-ID-17 | Items made by machines or printers (outside gadgets): owned by whoever operated or paid, born `Made` | OI §Open decisions; OQ §Which creation paths | `paused: not about loss` | Paused for the item refactor (D4, user 2026-10-23); was needs decision. Recommended, not decided. Decide when one is synced |
 | OI-ID-18 | A re-minted copy's ledger entry is born `Duplicate`, with the original's id as `from` | OI §Duplicates, §Lineage | `[ ]` | `ClaimPersistentId` re-mints before the ledger sees the copy, so a live copy is born `Claimed` (or not at all, if unowned) with no `from`. Only an id the ledger already holds reaches `Duplicate` (`ItemLedger.cs:137-145`). Found by this checklist |
+| OI-ID-19 | A re-key onto a Steam id that already has data merges the install GUID's items into it (ledger entries, inventory slots, Lost and Found, containers, claims), never skipping it: an item whose slot is taken goes to that player's Lost and Found, so nothing is stranded under the old GUID | F3; #331 review | `[ ]` | `InstallGuidRekey.RekeyIfUnclaimed` (`:45`) returns without re-keying when the Steam id `Owns` anything, so a player who played under the install GUID and also under Steam keeps the install GUID's items under an identity no one logs in as. Predates R1; found reviewing #331, user 2026-10-24: fix in R3 |
 
 ## The ledger as the source of truth
 
@@ -231,6 +234,20 @@ updates the links here.
 | OI-SLOT-01 | The server records every inventory item's exact slot, owned or not (an owned item's ledger home is `Slot(holder, slot)`); moving an item between slots is a request the server commits | [item-refactor.md](design/item-refactor.md) §What's wrong today; the user, 2026-10-23 (goal b) | `[ ]` | The record keeps a slot only for an essential's claim (`LiveItems.cs:261`), and a slot move is never sent. R2 (the request), R3 |
 | OI-SLOT-02 | A save writes each inventory item's slot, and a reload or a rejoin puts it back in that slot, for a client and for the host's own player | [item-refactor.md](design/item-refactor.md); the user, 2026-10-23 (goal b) | `[ ]` | `WorldItemsV1` saves only `claimSlot`, and a restore fills from the front (`NetworkedItem.StateApplication.cs:677`). R4, scenario `inventory-slots RESTART=1` |
 | OI-SLOT-03 | Two items never share one holder's slot on the server; a request into an occupied slot is refused | [item-refactor.md](design/item-refactor.md) §The ledger | `[ ]` | R3 |
+
+## Cold and live homes
+
+An item in a home nobody is using is data only, and every inventory is server data
+([item-refactor.md](design/item-refactor.md) §The guarantee, D12; the user, 2026-10-24).
+
+| ID | Requirement | Source | Status | Proof, or what's missing |
+| --- | --- | --- | --- | --- |
+| OI-COLD-01 | An item whose home is cold (an offline player's inventory or claim slot, Lost and Found, a container) has no object on any game: only its saved state, and its ledger entry if owned | D12 | `[ ]` | R3. Today a leaver's inventory items stay live objects on the server (`ServerItemManager.PlayerItems`) and a reload makes them again |
+| OI-COLD-02 | When a holder leaves, each item in their inventory goes cold in one ledger change: the server takes its state through `ItemSaveData` and destroys the object on every game; a hand item goes to a free slot first (D5) | D12 | `[ ]` | R3. Replaces "keep the originals" and the rejoin's restore of originals |
+| OI-COLD-03 | When an owner joins, each cold item in their inventory is made from its state in its exact slot before their inventory is shown, for a client and for the host's own player | D12; OI-SLOT-02 | `[ ]` | R4 |
+| OI-COLD-04 | No vanilla path, sweep or respawn can move or destroy a cold item, and the invariant check finds no object for an item in a cold home | D12 | `[ ]` | R3 |
+| OI-COLD-05 | **Every inventory is server data, with optimistic clients:** a connected player's stash, slot move, hotbar switch, drop and pick-up show at once on their game (no wait) and go to the server as a request; the server commits each to the ledger and confirms, and only a refusal rolls the client back. The client never changes an inventory without telling the server | D12; OI-SLOT-01; R2 §The wire | `[ ]` | R3 (with R2's one request, one result) |
+| OI-COLD-06 | **No duplicate on the server:** an item in a connected remote player's inventory is data only on the server, like a cold item; that player's game holds the only object | D12 (user, 2026-10-24: "keep data only") | `[ ]` | R3. First move what reads those objects on the server to the data: the job booklet tracked per player (`TryGetIssuedJobBooklet`), recall, and vanilla's inventory checks |
 
 ## Lost and Found
 
