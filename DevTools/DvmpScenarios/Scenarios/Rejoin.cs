@@ -113,12 +113,12 @@ namespace Dvmp.Scenarios
                 {
                     var n = Dev.All<NetworkedItem>().FirstOrDefault(i => i != null && i.NetId == id);
                     if (n == null) failures.Add($"{id} destroyed");
-                    else if (!AuthoritativeItemRegistry.TryGet(id, out _)) failures.Add($"{id} missing from authority registry");
+                    else if (!LiveItems.TryGet(id, out _)) failures.Add($"{id} missing from authority registry");
                 }
                 var h = Dev.All<NetworkedItem>().FirstOrDefault(i => i != null && i.NetId == held);
                 if (h != null)
                 {
-                    AuthoritativeItemRegistry.TryGet(held, out var record);
+                    LiveItems.TryGet(held, out var record);
                     if (record == null || record.Placement != ItemPlacementKind.World) failures.Add($"held item record is {record?.Placement}, expected World");
                     if (h.GetItemState() != ItemState.Dropped) failures.Add($"held item state {h.GetItemState()}, expected Dropped");
                     if (h.GetComponentsInChildren<Collider>(true).Where(c => !c.isTrigger).All(c => !c.enabled)) failures.Add("held item has no enabled colliders");

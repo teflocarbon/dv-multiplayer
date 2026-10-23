@@ -12,7 +12,7 @@ namespace Multiplayer.Client.Items.LostAndFound;
 /// <summary>
 ///     The local player's Lost and Found as the server last sent it: what the career manager's
 ///     screen lists and the inventory's Get button retrieves. The server's own Lost and Found is
-///     <c>NetworkedLostAndFoundManager</c>, which (like the overlay) reads this list's rows through
+///     <c>LostAndFoundServer</c>, which (like the overlay) reads this list's rows through
 ///     <see cref="IItemClient.LostAndFoundDebugSnapshot"/>.
 /// </summary>
 public static class LostAndFoundList

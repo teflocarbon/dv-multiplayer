@@ -47,7 +47,7 @@ internal static class GadgetStateServer
             return;
         lastWatchTick = tick;
         HashSet<ushort> seen = new();
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll()
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll()
                      .Where(r => r.Placement == ItemPlacementKind.Installed).ToList())
         {
             GadgetBase gadget = LinkedGadget(record.NetId);
@@ -143,7 +143,7 @@ internal static class GadgetStateServer
     }
 
     internal static GadgetBase LinkedGadget(ushort itemNetId) =>
-        AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record) &&
+        LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record) &&
         record.Placement == ItemPlacementKind.Installed &&
         NetworkedItem.TryGet(itemNetId, out NetworkedItem item) && item != null &&
         item.GetComponent<GadgetItem>()?.Gadget is { IsLinked: true } gadget

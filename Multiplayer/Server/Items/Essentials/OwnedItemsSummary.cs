@@ -45,7 +45,7 @@ public static class OwnedItemsSummary
 
         // Live records: hands, inventory, the world, trains, containers' live items and Lost and Found,
         // including saved items still waiting for this owner to connect.
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
         {
             if (record.Placement == ItemPlacementKind.Destroyed || string.IsNullOrEmpty(record.PrefabName))
                 continue;
@@ -63,12 +63,12 @@ public static class OwnedItemsSummary
         }
 
         // Saved Lost and Found items not restored yet.
-        foreach (string prefab in NetworkedLostAndFoundManager.PendingPrefabsOwnedBy(guid))
+        foreach (string prefab in LostAndFoundServer.PendingPrefabsOwnedBy(guid))
             owned.Add(new OwnedItem(prefab, -1));
 
         // Items stored in cold containers.
         string identity = guid.ToString("D");
-        foreach (var item in NetworkedColdContainerManager.Graph.ExportSnapshot().Items)
+        foreach (var item in ContainerServer.Graph.ExportSnapshot().Items)
             if (string.Equals(item.PersistentOwnerIdentity, identity, StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrEmpty(item.PrefabName))
                 owned.Add(new OwnedItem(item.PrefabName, -1));

@@ -12,45 +12,45 @@ public sealed class ItemChangeReasonsTests
 {
     private const byte Host = 1, Bentgear = 3, Liam = 4;
 
-    private static ItemWhereabouts At(AuthorityPlacement placement, byte holder = 0, byte owner = 0) =>
+    private static ItemWhereabouts At(LivePlacement placement, byte holder = 0, byte owner = 0) =>
         new(placement, holder, owner);
 
-    [TestCase(AuthorityPlacement.World, AuthorityPlacement.PlayerHand, false, ItemMoveReason.PickedUp)]
-    [TestCase(AuthorityPlacement.TrainInterior, AuthorityPlacement.PlayerHand, false, ItemMoveReason.PickedUp)]
-    [TestCase(AuthorityPlacement.Attached, AuthorityPlacement.PlayerHand, false, ItemMoveReason.PickedUp)]
-    [TestCase(AuthorityPlacement.PlayerInventory, AuthorityPlacement.PlayerHand, false, ItemMoveReason.TakenFromInventory)]
-    [TestCase(AuthorityPlacement.PlayerHand, AuthorityPlacement.PlayerInventory, false, ItemMoveReason.StoredInInventory)]
-    [TestCase(AuthorityPlacement.World, AuthorityPlacement.PlayerInventory, false, ItemMoveReason.StoredInInventory)]
-    [TestCase(AuthorityPlacement.PlayerHand, AuthorityPlacement.World, false, ItemMoveReason.Dropped)]
-    [TestCase(AuthorityPlacement.PlayerHand, AuthorityPlacement.World, true, ItemMoveReason.Thrown)]
-    [TestCase(AuthorityPlacement.PlayerInventory, AuthorityPlacement.TrainInterior, false, ItemMoveReason.Dropped)]
-    [TestCase(AuthorityPlacement.PlayerHand, AuthorityPlacement.Attached, false, ItemMoveReason.Attached)]
-    [TestCase(AuthorityPlacement.Attached, AuthorityPlacement.World, false, ItemMoveReason.Detached)]
-    [TestCase(AuthorityPlacement.World, AuthorityPlacement.TrainInterior, false, ItemMoveReason.Moved)]
-    [TestCase(AuthorityPlacement.PlayerHand, AuthorityPlacement.Installed, false, ItemMoveReason.InstalledAsGadget)]
-    [TestCase(AuthorityPlacement.World, AuthorityPlacement.Installed, false, ItemMoveReason.InstalledAsGadget)]
-    [TestCase(AuthorityPlacement.Installed, AuthorityPlacement.World, false, ItemMoveReason.RemovedAsGadget)]
-    [TestCase(AuthorityPlacement.Installed, AuthorityPlacement.PlayerHand, false, ItemMoveReason.RemovedAsGadget)]
-    public void Classify_NamesTheMoveByWhereItWentFrom(AuthorityPlacement from, AuthorityPlacement to, bool thrown,
+    [TestCase(LivePlacement.World, LivePlacement.PlayerHand, false, ItemMoveReason.PickedUp)]
+    [TestCase(LivePlacement.TrainInterior, LivePlacement.PlayerHand, false, ItemMoveReason.PickedUp)]
+    [TestCase(LivePlacement.Attached, LivePlacement.PlayerHand, false, ItemMoveReason.PickedUp)]
+    [TestCase(LivePlacement.PlayerInventory, LivePlacement.PlayerHand, false, ItemMoveReason.TakenFromInventory)]
+    [TestCase(LivePlacement.PlayerHand, LivePlacement.PlayerInventory, false, ItemMoveReason.StoredInInventory)]
+    [TestCase(LivePlacement.World, LivePlacement.PlayerInventory, false, ItemMoveReason.StoredInInventory)]
+    [TestCase(LivePlacement.PlayerHand, LivePlacement.World, false, ItemMoveReason.Dropped)]
+    [TestCase(LivePlacement.PlayerHand, LivePlacement.World, true, ItemMoveReason.Thrown)]
+    [TestCase(LivePlacement.PlayerInventory, LivePlacement.TrainInterior, false, ItemMoveReason.Dropped)]
+    [TestCase(LivePlacement.PlayerHand, LivePlacement.Attached, false, ItemMoveReason.Attached)]
+    [TestCase(LivePlacement.Attached, LivePlacement.World, false, ItemMoveReason.Detached)]
+    [TestCase(LivePlacement.World, LivePlacement.TrainInterior, false, ItemMoveReason.Moved)]
+    [TestCase(LivePlacement.PlayerHand, LivePlacement.Installed, false, ItemMoveReason.InstalledAsGadget)]
+    [TestCase(LivePlacement.World, LivePlacement.Installed, false, ItemMoveReason.InstalledAsGadget)]
+    [TestCase(LivePlacement.Installed, LivePlacement.World, false, ItemMoveReason.RemovedAsGadget)]
+    [TestCase(LivePlacement.Installed, LivePlacement.PlayerHand, false, ItemMoveReason.RemovedAsGadget)]
+    public void Classify_NamesTheMoveByWhereItWentFrom(LivePlacement from, LivePlacement to, bool thrown,
         ItemMoveReason expected)
     {
         Assert.That(ItemMoveClassifier.Classify(At(from, Bentgear), At(to, Bentgear), thrown), Is.EqualTo(expected));
     }
 
-    [TestCase(AuthorityPlacement.PlayerHand)]
-    [TestCase(AuthorityPlacement.PlayerInventory)]
-    public void Classify_AnotherPlayersItem_IsTakenFromThem(AuthorityPlacement to)
+    [TestCase(LivePlacement.PlayerHand)]
+    [TestCase(LivePlacement.PlayerInventory)]
+    public void Classify_AnotherPlayersItem_IsTakenFromThem(LivePlacement to)
     {
         // The radio in Bentgear's inventory turning up in Liam's hand is a theft, not a pickup.
-        Assert.That(ItemMoveClassifier.Classify(At(AuthorityPlacement.PlayerInventory, Bentgear, Bentgear),
+        Assert.That(ItemMoveClassifier.Classify(At(LivePlacement.PlayerInventory, Bentgear, Bentgear),
             At(to, Liam, Bentgear), false), Is.EqualTo(ItemMoveReason.TakenFromPlayer));
     }
 
     [Test]
     public void Classify_NothingButAHandSwap_IsUnknownAndUnchanged()
     {
-        ItemWhereabouts before = At(AuthorityPlacement.PlayerHand, Bentgear, Bentgear);
-        ItemWhereabouts after = At(AuthorityPlacement.PlayerHand, Bentgear, Bentgear);
+        ItemWhereabouts before = At(LivePlacement.PlayerHand, Bentgear, Bentgear);
+        ItemWhereabouts after = At(LivePlacement.PlayerHand, Bentgear, Bentgear);
 
         Assert.That(ItemMoveClassifier.Changed(before, after), Is.False);
         Assert.That(ItemMoveClassifier.Classify(before, after, false), Is.EqualTo(ItemMoveReason.Unknown));
@@ -59,7 +59,7 @@ public sealed class ItemChangeReasonsTests
     [Test]
     public void Changed_CountsAnOwnerChangeAlone()
     {
-        Assert.That(ItemMoveClassifier.Changed(At(AuthorityPlacement.World), At(AuthorityPlacement.World, owner: Liam)),
+        Assert.That(ItemMoveClassifier.Changed(At(LivePlacement.World), At(LivePlacement.World, owner: Liam)),
             Is.True);
     }
 
@@ -67,8 +67,8 @@ public sealed class ItemChangeReasonsTests
     public void Whereabouts_IgnoreAHolderTheItemIsNoLongerWith()
     {
         // A dropped item's record can keep the old holder id; it isn't held by them.
-        Assert.That(At(AuthorityPlacement.World, Bentgear).HolderPlayerId, Is.EqualTo(0));
-        Assert.That(ItemMoveClassifier.Changed(At(AuthorityPlacement.World, Bentgear), At(AuthorityPlacement.World)),
+        Assert.That(At(LivePlacement.World, Bentgear).HolderPlayerId, Is.EqualTo(0));
+        Assert.That(ItemMoveClassifier.Changed(At(LivePlacement.World, Bentgear), At(LivePlacement.World)),
             Is.False);
     }
 
@@ -77,12 +77,12 @@ public sealed class ItemChangeReasonsTests
     {
         string Names(byte id) => id switch { Bentgear => "Bentgear29", Liam => "Liam", _ => null };
 
-        Assert.That(ItemMoveClassifier.Describe(At(AuthorityPlacement.World), At(AuthorityPlacement.PlayerHand, Liam, Liam), Names),
+        Assert.That(ItemMoveClassifier.Describe(At(LivePlacement.World), At(LivePlacement.PlayerHand, Liam, Liam), Names),
             Is.EqualTo("world -> Liam's hand, owner none -> Liam"));
-        Assert.That(ItemMoveClassifier.Describe(At(AuthorityPlacement.PlayerHand, Host, Bentgear),
-                At(AuthorityPlacement.TrainInterior, 0, Bentgear), Names),
+        Assert.That(ItemMoveClassifier.Describe(At(LivePlacement.PlayerHand, Host, Bentgear),
+                At(LivePlacement.TrainInterior, 0, Bentgear), Names),
             Is.EqualTo("P1's hand -> train car"));
-        Assert.That(ItemMoveClassifier.Describe(At(AuthorityPlacement.World, owner: Liam), At(AuthorityPlacement.World), Names),
+        Assert.That(ItemMoveClassifier.Describe(At(LivePlacement.World, owner: Liam), At(LivePlacement.World), Names),
             Is.EqualTo("owner Liam -> none"));
     }
 
@@ -148,5 +148,5 @@ public sealed class ItemChangeReasonsTests
     }
 
     private static ItemRemovalRecord Removal(ushort netId, string name, ItemRemovalReason reason) =>
-        new(netId, name, At(AuthorityPlacement.World), new ChangeCause<ItemRemovalReason>(reason), default);
+        new(netId, name, At(LivePlacement.World), new ChangeCause<ItemRemovalReason>(reason), default);
 }

@@ -12,11 +12,11 @@ namespace Multiplayer.Core.Tests.Items.LostAndFound;
 [TestFixture]
 public sealed class LostAndFoundAwayOwnerTests
 {
-    private static LostItemCandidate AwayOwners(AuthorityPlacement placement = AuthorityPlacement.World) => new()
+    private static LostItemCandidate AwayOwners(LivePlacement placement = LivePlacement.World) => new()
     {
         NetId = 42,
         Revision = 7,
-        PersistentOwnerPlayerId = ItemTransitionCommand.AbsentOwnerId,
+        PersistentOwnerPlayerId = ItemTransition.AbsentOwnerId,
         IsPersonalItem = true,
         Placement = placement,
         // An offline owner has no position.
@@ -37,16 +37,16 @@ public sealed class LostAndFoundAwayOwnerTests
         Assert.That(decision.Reason, Is.EqualTo("owner-away"));
     }
 
-    [TestCase(AuthorityPlacement.TrainInterior)]
-    [TestCase(AuthorityPlacement.StaticParent)]
-    public void AnAwayOwnersItemInATrainOrOnAShelf_IsCollectedToo(AuthorityPlacement placement)
+    [TestCase(LivePlacement.TrainInterior)]
+    [TestCase(LivePlacement.StaticParent)]
+    public void AnAwayOwnersItemInATrainOrOnAShelf_IsCollectedToo(LivePlacement placement)
     {
         Assert.That(Evaluate(AwayOwners(placement)).ShouldCollect, Is.True);
     }
 
-    [TestCase(AuthorityPlacement.TrainInterior)]
-    [TestCase(AuthorityPlacement.StaticParent)]
-    public void AnOnlineOwnersItemInATrainOrOnAShelf_StaysWhereItIs(AuthorityPlacement placement)
+    [TestCase(LivePlacement.TrainInterior)]
+    [TestCase(LivePlacement.StaticParent)]
+    public void AnOnlineOwnersItemInATrainOrOnAShelf_StaysWhereItIs(LivePlacement placement)
     {
         LostItemCandidate item = AwayOwners(placement);
         item.PersistentOwnerPlayerId = 1;
@@ -56,11 +56,11 @@ public sealed class LostAndFoundAwayOwnerTests
         Assert.That(Evaluate(item).Reason, Is.EqualTo("not-in-world"));
     }
 
-    [TestCase(AuthorityPlacement.PlayerHand)]
-    [TestCase(AuthorityPlacement.PlayerInventory)]
-    [TestCase(AuthorityPlacement.Container)]
-    [TestCase(AuthorityPlacement.Installed)]
-    public void WithAPlayer_InAContainer_OrInstalled_IsNeverCollected(AuthorityPlacement placement)
+    [TestCase(LivePlacement.PlayerHand)]
+    [TestCase(LivePlacement.PlayerInventory)]
+    [TestCase(LivePlacement.Container)]
+    [TestCase(LivePlacement.Installed)]
+    public void WithAPlayer_InAContainer_OrInstalled_IsNeverCollected(LivePlacement placement)
     {
         Assert.That(Evaluate(AwayOwners(placement)).Kind, Is.EqualTo(LostItemDecisionKind.Ineligible));
     }

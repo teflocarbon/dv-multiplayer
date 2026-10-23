@@ -132,7 +132,7 @@ namespace Dvmp.Scenarios
             }
 
             private static string Id(NetworkedItem item) =>
-                item.GetComponent<Multiplayer.Server.Items.SaveLoad.PersistentWorldItemIdentity>().Value.ToString("D");
+                item.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>().Value.ToString("D");
         }
     }
 }

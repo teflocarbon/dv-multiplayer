@@ -10,7 +10,7 @@ using Multiplayer.Server.Items.Containers;
 using Multiplayer.Shared.Items.LiveState;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using CUI = Multiplayer.Client.Items.Containers.ColdContainerUiIntegration;
+using CUI = Multiplayer.Client.Items.Containers.ContainerUi;
 
 namespace Dvmp.Scenarios
 {
@@ -84,7 +84,7 @@ namespace Dvmp.Scenarios
 
             static void Import()
             {
-                typeof(NetworkedColdContainerManager).GetMethod("TryImportSave", BindingFlags.NonPublic | BindingFlags.Static)
+                typeof(ContainerServer).GetMethod("TryImportSave", BindingFlags.NonPublic | BindingFlags.Static)
                     .Invoke(null, null);
             }
 
@@ -119,7 +119,7 @@ namespace Dvmp.Scenarios
             {
                 string encoded = (string)Root()?["ColdContainers"];
                 if (string.IsNullOrEmpty(encoded)) return new Blob { Encoded = encoded ?? "" };
-                if (!ColdContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded), out ColdContainerGraphSnapshot snapshot, out string reason))
+                if (!ContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded), out ContainerGraphSnapshot snapshot, out string reason))
                     throw new Exception("the saved blob doesn't decode: " + reason);
                 return new Blob { Items = snapshot.Items.Count, Containers = snapshot.Containers.Count, Encoded = encoded };
             }
@@ -131,14 +131,14 @@ namespace Dvmp.Scenarios
             public static string MakeUnimportable()
             {
                 string encoded = (string)Root()["ColdContainers"];
-                ColdContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded), out ColdContainerGraphSnapshot snapshot, out _);
-                ColdStoredItemRecord stored = snapshot.Items.First();
+                ContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded), out ContainerGraphSnapshot snapshot, out _);
+                StoredItemRecord stored = snapshot.Items.First();
                 int capacity = snapshot.Containers.First(c => c.PersistentContainerId == stored.ParentContainerId).Capacity;
                 stored.Slot = capacity + 5;
-                SetBlob(Convert.ToBase64String(ColdContainerSnapshotCodec.Encode(snapshot)));
-                NetworkedColdContainerManager.Clear();
+                SetBlob(Convert.ToBase64String(ContainerSnapshotCodec.Encode(snapshot)));
+                ContainerServer.Clear();
                 Import();
-                int left = NetworkedColdContainerManager.Graph.ExportSnapshot().Items.Count;
+                int left = ContainerServer.Graph.ExportSnapshot().Items.Count;
                 return (left == 0 ? "refused" : "accepted") + $": {left} item(s) in the graph after the import";
             }
 
@@ -149,7 +149,7 @@ namespace Dvmp.Scenarios
             {
                 var player = Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers
                     .First(p => p.Peer != Multiplayer.Server.Session.NetworkServer.Instance.SelfPeer);
-                ContainerOperationResult result = NetworkedColdContainerManager.Browse(player, box, 0, 8, out _);
+                ContainerOperationResult result = ContainerServer.Browse(player, box, 0, 8, out _);
                 return $"{result.Status} {result.Reason}";
             }
 
@@ -158,7 +158,7 @@ namespace Dvmp.Scenarios
             public static IEnumerator Restore(string encoded)
             {
                 SetBlob(encoded);
-                NetworkedColdContainerManager.Clear();
+                ContainerServer.Clear();
                 Import();
                 yield return Saves.Manual();
             }

@@ -111,13 +111,13 @@ public enum ItemMoveReason : byte
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>
 public readonly struct ItemWhereabouts : IEquatable<ItemWhereabouts>
 {
-    public readonly AuthorityPlacement Placement;
+    public readonly LivePlacement Placement;
     /// <summary>The player whose hand or inventory it's in, or 0.</summary>
     public readonly byte HolderPlayerId;
     /// <summary>The persistent owner's player id, or 0.</summary>
     public readonly byte OwnerPlayerId;
 
-    public ItemWhereabouts(AuthorityPlacement placement, byte holderPlayerId, byte ownerPlayerId)
+    public ItemWhereabouts(LivePlacement placement, byte holderPlayerId, byte ownerPlayerId)
     {
         Placement = placement;
         HolderPlayerId = ItemMoveClassifier.IsHeld(placement) ? holderPlayerId : (byte)0;
@@ -142,35 +142,35 @@ public static class ItemMoveClassifier
 
     public static ItemMoveReason Classify(ItemWhereabouts before, ItemWhereabouts after, bool thrown)
     {
-        if (after.Placement == AuthorityPlacement.Installed)
+        if (after.Placement == LivePlacement.Installed)
             return before.Placement == after.Placement ? ItemMoveReason.Unknown : ItemMoveReason.InstalledAsGadget;
-        if (before.Placement == AuthorityPlacement.Installed)
+        if (before.Placement == LivePlacement.Installed)
             return ItemMoveReason.RemovedAsGadget;
         bool fromOtherPlayer = IsHeld(before.Placement) && before.HolderPlayerId != 0 &&
             IsHeld(after.Placement) && after.HolderPlayerId != before.HolderPlayerId;
         switch (after.Placement)
         {
-            case AuthorityPlacement.PlayerHand:
+            case LivePlacement.PlayerHand:
                 if (fromOtherPlayer)
                     return ItemMoveReason.TakenFromPlayer;
-                return before.Placement == AuthorityPlacement.PlayerInventory
+                return before.Placement == LivePlacement.PlayerInventory
                     ? ItemMoveReason.TakenFromInventory
-                    : before.Placement == AuthorityPlacement.PlayerHand ? ItemMoveReason.Unknown : ItemMoveReason.PickedUp;
-            case AuthorityPlacement.PlayerInventory:
+                    : before.Placement == LivePlacement.PlayerHand ? ItemMoveReason.Unknown : ItemMoveReason.PickedUp;
+            case LivePlacement.PlayerInventory:
                 if (fromOtherPlayer)
                     return ItemMoveReason.TakenFromPlayer;
-                return before.Placement == AuthorityPlacement.PlayerInventory
+                return before.Placement == LivePlacement.PlayerInventory
                     ? ItemMoveReason.Unknown : ItemMoveReason.StoredInInventory;
-            case AuthorityPlacement.World:
-            case AuthorityPlacement.TrainInterior:
-            case AuthorityPlacement.StaticParent:
+            case LivePlacement.World:
+            case LivePlacement.TrainInterior:
+            case LivePlacement.StaticParent:
                 if (IsHeld(before.Placement))
                     return thrown ? ItemMoveReason.Thrown : ItemMoveReason.Dropped;
-                if (before.Placement is AuthorityPlacement.Attached or AuthorityPlacement.SnappedAttachment)
+                if (before.Placement is LivePlacement.Attached or LivePlacement.SnappedAttachment)
                     return ItemMoveReason.Detached;
                 return before.Placement == after.Placement ? ItemMoveReason.Unknown : ItemMoveReason.Moved;
-            case AuthorityPlacement.Attached:
-            case AuthorityPlacement.SnappedAttachment:
+            case LivePlacement.Attached:
+            case LivePlacement.SnappedAttachment:
                 return before.Placement == after.Placement ? ItemMoveReason.Unknown : ItemMoveReason.Attached;
             default:
                 return ItemMoveReason.Unknown;
@@ -189,22 +189,22 @@ public static class ItemMoveClassifier
         return string.Join(", ", parts);
     }
 
-    internal static bool IsHeld(AuthorityPlacement placement) =>
-        placement is AuthorityPlacement.PlayerHand or AuthorityPlacement.PlayerInventory;
+    internal static bool IsHeld(LivePlacement placement) =>
+        placement is LivePlacement.PlayerHand or LivePlacement.PlayerInventory;
 
     private static string Where(ItemWhereabouts at, Func<byte, string> name) => at.Placement switch
     {
-        AuthorityPlacement.World => "world",
-        AuthorityPlacement.PlayerHand => name(at.HolderPlayerId) + "'s hand",
-        AuthorityPlacement.PlayerInventory => name(at.HolderPlayerId) + "'s inventory",
-        AuthorityPlacement.Container => "container",
-        AuthorityPlacement.Attached => "car mount",
-        AuthorityPlacement.LostAndFound => "Lost and Found",
-        AuthorityPlacement.Installed => "installed",
-        AuthorityPlacement.Destroyed => "destroyed",
-        AuthorityPlacement.TrainInterior => "train car",
-        AuthorityPlacement.StaticParent => "static parent",
-        AuthorityPlacement.SnappedAttachment => "snapped",
+        LivePlacement.World => "world",
+        LivePlacement.PlayerHand => name(at.HolderPlayerId) + "'s hand",
+        LivePlacement.PlayerInventory => name(at.HolderPlayerId) + "'s inventory",
+        LivePlacement.Container => "container",
+        LivePlacement.Attached => "car mount",
+        LivePlacement.LostAndFound => "Lost and Found",
+        LivePlacement.Installed => "installed",
+        LivePlacement.Destroyed => "destroyed",
+        LivePlacement.TrainInterior => "train car",
+        LivePlacement.StaticParent => "static parent",
+        LivePlacement.SnappedAttachment => "snapped",
         _ => at.Placement.ToString()
     };
 }

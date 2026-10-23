@@ -6,7 +6,7 @@ namespace Multiplayer.Core.Tests.Items.LiveState;
 
 /// <summary>
 /// An item whose owner isn't connected is still owned (owned-items.md, PR 2a): it carries
-/// <see cref="ItemTransitionCommand.AbsentOwnerId"/>, not 0, and no player matches it.
+/// <see cref="ItemTransition.AbsentOwnerId"/>, not 0, and no player matches it.
 /// </summary>
 [TestFixture]
 public sealed class AbsentOwnerTests
@@ -18,17 +18,17 @@ public sealed class AbsentOwnerTests
     {
         // Before: an offline owner's number was 0, so the next player to take it became its owner
         // (item-ownership-open-questions.md, "Known gap").
-        ItemAuthorityResult taken = ItemAuthorityStateMachine.Apply(Lantern(ItemTransitionCommand.AbsentOwnerId), PickUp());
+        TransitionResult taken = ItemStateMachine.Apply(Lantern(ItemTransition.AbsentOwnerId), PickUp());
 
         Assert.That(taken.Accepted, Is.True, "anyone may still pick it up");
-        Assert.That(taken.State.PersistentOwnerPlayerId, Is.EqualTo(ItemTransitionCommand.AbsentOwnerId));
+        Assert.That(taken.State.PersistentOwnerPlayerId, Is.EqualTo(ItemTransition.AbsentOwnerId));
         Assert.That(taken.State.PlacementPlayerId, Is.EqualTo(Taker));
     }
 
     [Test]
     public void AnUnownedPersonalItem_StillBelongsToItsFirstTaker()
     {
-        ItemAuthorityResult taken = ItemAuthorityStateMachine.Apply(Lantern(0), PickUp());
+        TransitionResult taken = ItemStateMachine.Apply(Lantern(0), PickUp());
 
         Assert.That(taken.State.PersistentOwnerPlayerId, Is.EqualTo(Taker));
     }
@@ -36,11 +36,11 @@ public sealed class AbsentOwnerTests
     [Test]
     public void NobodyRecallsAnAbsentOwnersEssential()
     {
-        ItemAuthorityState radio = Lantern(ItemTransitionCommand.AbsentOwnerId);
+        LiveItemState radio = Lantern(ItemTransition.AbsentOwnerId);
         radio.InventoryClaimSlot = 2;
-        radio.InventoryClaimFlags = AuthorityClaimFlags.Reserved | AuthorityClaimFlags.Dropped;
+        radio.InventoryClaimFlags = ClaimFlags.Reserved | ClaimFlags.Dropped;
 
-        ItemAuthorityResult recalled = ItemAuthorityStateMachine.Recall(radio, new ItemRecallCommand
+        TransitionResult recalled = ItemStateMachine.Recall(radio, new RecallCommand
         {
             RequestingPlayerId = Taker,
             ExpectedRevision = radio.Revision,
@@ -66,25 +66,25 @@ public sealed class AbsentOwnerTests
 
         registry.UnbindOwner(1);
 
-        Assert.That(registry.GetForOwner(ItemTransitionCommand.AbsentOwnerId), Has.Count.EqualTo(1));
+        Assert.That(registry.GetForOwner(ItemTransition.AbsentOwnerId), Has.Count.EqualTo(1));
         Assert.That(registry.RebindOwner("owner-a", 5), Is.EqualTo(1));
         Assert.That(registry.GetForOwner(5), Has.Count.EqualTo(1));
     }
 
-    private static ItemAuthorityState Lantern(byte owner) => new()
+    private static LiveItemState Lantern(byte owner) => new()
     {
         NetId = 77,
         Revision = 4,
-        Placement = AuthorityPlacement.World,
+        Placement = LivePlacement.World,
         PersistentOwnerPlayerId = owner
     };
 
-    private static ItemTransitionCommand PickUp() => new()
+    private static ItemTransition PickUp() => new()
     {
         ActorPlayerId = Taker,
         ExpectedRevision = 4,
         AppliesPlacement = true,
-        RequestedPlacement = AuthorityPlacement.PlayerHand,
+        RequestedPlacement = LivePlacement.PlayerHand,
         MayEstablishPersistentOwner = true
     };
 }

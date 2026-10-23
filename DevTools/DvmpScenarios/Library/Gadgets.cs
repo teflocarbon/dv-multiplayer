@@ -65,9 +65,9 @@ namespace Dvmp.Scenarios
             GameObject go = UnityEngine.Object.Instantiate(spec.gameObject, at, Quaternion.identity, WorldMover.OriginShiftParent);
             go.GetComponent<InventoryItemSpec>().BelongsToPlayer = true;
             NetworkedItem item = go.GetComponent<NetworkedItem>();
-            AuthoritativeItemRegistry.Record record = null;
+            LiveItems.LiveItem record = null;
             yield return Wait.Until(() => item != null && item.NetId != 0 &&
-                (record = AuthoritativeItemRegistry.Ensure(item)) != null, 10f, $"the {spec.ItemPrefabName}'s record");
+                (record = LiveItems.Ensure(item)) != null, 10f, $"the {spec.ItemPrefabName}'s record");
             record.PersistentOwnerIdentity = owner.Guid;
             record.PersistentOwnerPlayerId = owner.PlayerId;
             owner.AddOwnedItem(item.NetId);
@@ -90,11 +90,11 @@ namespace Dvmp.Scenarios
         public static GadgetRecord Record(string persistentId)
         {
             Guid id = Guid.Parse(persistentId);
-            var records = AuthoritativeItemRegistry.GetAll().Where(r => r.PersistentItemId == id).ToList();
+            var records = LiveItems.GetAll().Where(r => r.PersistentItemId == id).ToList();
             var result = new GadgetRecord { Count = records.Count };
             if (records.Count == 0)
                 return result;
-            AuthoritativeItemRegistry.Record record = records[0];
+            LiveItems.LiveItem record = records[0];
             NetworkedItem.TryGet(record.NetId, out NetworkedItem item);
             GadgetBase gadget = item?.GetComponent<GadgetItem>()?.Gadget;
             result.NetId = record.NetId;
@@ -104,7 +104,7 @@ namespace Dvmp.Scenarios
             result.InstalledInVanilla = item != null && Multiplayer.Server.Gadgets.GadgetItemTransitions.IsInstalled(item);
             result.Anchor = gadget != null && gadget.Custom != null ? gadget.Custom.GetIdentificationKey() : "";
             result.Active = item != null && item.gameObject.activeInHierarchy;
-            result.InLostAndFound = NetworkedLostAndFoundManager.Contains(record.NetId);
+            result.InLostAndFound = LostAndFoundServer.Contains(record.NetId);
             return result;
         }
 
@@ -115,7 +115,7 @@ namespace Dvmp.Scenarios
             foreach (string persistentId in persistentIds)
             {
                 Guid id = Guid.Parse(persistentId);
-                foreach (var record in AuthoritativeItemRegistry.GetAll().Where(r => r.PersistentItemId == id).ToList())
+                foreach (var record in LiveItems.GetAll().Where(r => r.PersistentItemId == id).ToList())
                 {
                     if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
                         continue;

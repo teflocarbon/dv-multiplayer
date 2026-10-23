@@ -116,7 +116,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool hasLastSentState;
     private bool stateDirty;
     private bool wasThrown;
-    // The frame the local VR player let go of a belt-snappable item, or -1 (BeltItemPolicy).
+    // The frame the local VR player let go of a belt-snappable item, or -1 (BeltSlots).
     private int vrBeltReleaseFrame = -1;
     private ItemInteractionWindow localInteraction;
 
@@ -550,7 +550,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         }
         // A VR release the belt may still take at the end of this frame: send nothing until the
-        // next frame says where the item went (BeltItemPolicy.HoldVrRelease). Stays dirty.
+        // next frame says where the item went (BeltSlots.HoldVrRelease). Stays dirty.
         if (HoldingVrRelease())
             return;
         ItemState previousObservedState = lastState;

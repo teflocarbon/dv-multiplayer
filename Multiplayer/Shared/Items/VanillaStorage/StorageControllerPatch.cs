@@ -82,7 +82,7 @@ internal static class StorageControllerAddLostItemPatch
         // Vanilla calls this method from several local presentation/recovery paths, including
         // contact with the physical Lost and Found shed. None of those process-local calls are
         // allowed to become multiplayer authority. Explicit host recovery callers must invoke
-        // NetworkedLostAndFoundManager.Collect with a stable reason after validating policy.
+        // LostAndFoundServer.Collect with a stable reason after validating policy.
         global::Multiplayer.Multiplayer.LogDebug(() =>
             $"Suppressed vanilla Lost and Found insertion for managed item {networked.NetId} " +
             $"({item.name})");

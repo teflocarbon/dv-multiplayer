@@ -84,10 +84,10 @@ namespace Dvmp.Scenarios
                 NetworkedItem made = go.GetComponent<NetworkedItem>();
                 float t0 = Time.realtimeSinceStartup;
                 while ((made == null || made.NetId == 0) && Time.realtimeSinceStartup - t0 < 5f) yield return null;
-                bool recorded = OwnedItemsServer.RecordReplacement(used, made, Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason.DestroyedByGame, "item-lineage scenario");
+                bool recorded = ServerLedger.RecordReplacement(used, made, Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason.DestroyedByGame, "item-lineage scenario");
                 UnityEngine.Object.Destroy(used.gameObject);
                 for (int i = 0; i < 30; i++) yield return null;
-                AuthoritativeItemRegistry.TryGet(made.NetId, out var record);
+                LiveItems.TryGet(made.NetId, out var record);
                 step.Result = new Lineage { Recorded = recorded, ReplacementNetId = made.NetId, ReplacementId = record?.PersistentItemId.ToString("D") ?? "" };
             }
 
@@ -96,12 +96,12 @@ namespace Dvmp.Scenarios
             public static Lineage Read(string usedId, string replacementId)
             {
                 Lineage l = new();
-                if (OwnedItemsServer.Ledger.TryGet(Guid.Parse(usedId), out OwnedItemEntry used))
+                if (ServerLedger.Ledger.TryGet(Guid.Parse(usedId), out Multiplayer.Core.Items.Ledger.LedgerEntry used))
                 {
                     l.UsedLive = used.IsLive;
                     l.UsedReplacedBy = used.Ended != null && used.Ended.ReplacedBy != Guid.Empty ? used.Ended.ReplacedBy.ToString("D") : "";
                 }
-                if (Guid.TryParse(replacementId, out Guid r) && OwnedItemsServer.Ledger.TryGet(r, out OwnedItemEntry made))
+                if (Guid.TryParse(replacementId, out Guid r) && ServerLedger.Ledger.TryGet(r, out Multiplayer.Core.Items.Ledger.LedgerEntry made))
                 {
                     l.ReplacementLive = made.IsLive;
                     l.ReplacementOwner = made.Owner.ToString("D");

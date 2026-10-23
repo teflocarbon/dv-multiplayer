@@ -97,7 +97,7 @@ namespace Dvmp.Scenarios
                 for (int i = 0; i < 30; i++) yield return null;
                 yield return Hands.Drop();
                 for (int i = 0; i < 60; i++) yield return null;
-                AuthoritativeItemRegistry.TryGet(id, out var r);
+                LiveItems.TryGet(id, out var r);
                 step.Result = new Owned { Owner = r?.PersistentOwnerPlayerId ?? 0, Host = NetworkLifecycle.Instance.LocalSession.PlayerId };
             }
         }

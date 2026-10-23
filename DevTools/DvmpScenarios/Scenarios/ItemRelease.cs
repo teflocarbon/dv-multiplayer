@@ -205,7 +205,7 @@ namespace Dvmp.Scenarios
             {
                 NetworkedItem.TryGet(id, out NetworkedItem item);
                 var lantern = item?.GetComponent<Lantern>() ?? throw new Exception("item " + id + " is not a lantern");
-                bool Held() => AuthoritativeItemRegistry.TryGet(id, out var r) && r.Placement == Multiplayer.Shared.Protocol.Data.Items.ItemPlacementKind.PlayerHand;
+                bool Held() => LiveItems.TryGet(id, out var r) && r.Placement == Multiplayer.Shared.Protocol.Data.Items.ItemPlacementKind.PlayerHand;
                 float deadline = Time.realtimeSinceStartup + 60f;
                 while (Time.realtimeSinceStartup < deadline && !Held()) yield return null;   // picked up
                 while (Time.realtimeSinceStartup < deadline && Held()) yield return null;    // and let go

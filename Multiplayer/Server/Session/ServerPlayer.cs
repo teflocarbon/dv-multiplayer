@@ -29,7 +29,7 @@ public class ServerPlayer : IDisposable
     private static NetIdAllocator<byte> CreateIdAllocator()
     {
         NetIdAllocator<byte> allocator = new(value => unchecked((byte)(value + 1)));
-        allocator.TryReserve(ItemTransitionCommand.AbsentOwnerId);
+        allocator.TryReserve(ItemTransition.AbsentOwnerId);
         return allocator;
     }
 
@@ -38,8 +38,8 @@ public class ServerPlayer : IDisposable
         Multiplayer.LogDebug(() => $"Disposing ServerPlayer {Username} ({PlayerId})");
         if (PlayerId != 0)
         {
-            AuthoritativeItemRegistry.UnbindPersistentOwner(this);
-            NetworkedLostAndFoundManager.OnOwnerDisconnected(this);
+            LiveItems.UnbindPersistentOwner(this);
+            LostAndFoundServer.OnOwnerDisconnected(this);
             idAllocator.Release(PlayerId);
             PlayerId = 0;
         }

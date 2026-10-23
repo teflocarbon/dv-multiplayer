@@ -19,7 +19,7 @@ namespace Multiplayer.Shared.Items.Physics;
 
 /// <summary>
 /// Host-controlled transient Rigidbody simulation. Logical authority remains in
-/// AuthoritativeItemRegistry; this manager orders motion with a separate epoch/sequence stream and
+/// LiveItems; this manager orders motion with a separate epoch/sequence stream and
 /// commits only a reliable final pose to the durable authority revision. This is what every game
 /// has: the leases it knows of, simulating its own and following the others'. The host grants,
 /// transfers and commits leases in ServerItemSpatial; a remote client receives them, and sends

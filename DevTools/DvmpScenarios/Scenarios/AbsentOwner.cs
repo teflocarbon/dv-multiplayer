@@ -24,7 +24,7 @@ namespace Dvmp.Scenarios
     [Budget(900)]
     public sealed class AbsentOwner : Scenario<AbsentOwner.Options>
     {
-        /// <summary>An absent owner's number (ItemTransitionCommand.AbsentOwnerId, which Run can't read; checked at the start).</summary>
+        /// <summary>An absent owner's number (ItemTransition.AbsentOwnerId, which Run can't read; checked at the start).</summary>
         public const int AbsentNumber = 255;
 
         public sealed class Options
@@ -84,17 +84,17 @@ namespace Dvmp.Scenarios
             [Step]
             public static Absent GiveToAbsent(ushort netId)
             {
-                AuthoritativeItemRegistry.TryGet(netId, out var record);
+                LiveItems.TryGet(netId, out var record);
                 record.PersistentOwnerIdentity = System.Guid.NewGuid();
-                record.PersistentOwnerPlayerId = OwnedItemsServer.OwnerNumber(record.PersistentOwnerIdentity);
+                record.PersistentOwnerPlayerId = ServerLedger.OwnerNumber(record.PersistentOwnerIdentity);
                 // The ledger follows the records where they commit; this one is made by hand.
-                OwnedItemsServer.Ledger.Register(new OwnedItemBirthRequest
+                ServerLedger.Ledger.Register(new BirthRequest
                 {
                     Id = record.PersistentItemId,
                     Owner = record.PersistentOwnerIdentity,
                     Prefab = record.PrefabName,
-                    Where = OwnedItemsServer.WhereOf(record),
-                    Reason = OwnedItemBirth.Granted,
+                    Where = ServerLedger.WhereOf(record),
+                    Reason = BirthReason.Granted,
                     Detail = "absent-owner scenario"
                 });
                 return Read(netId);
@@ -102,14 +102,14 @@ namespace Dvmp.Scenarios
 
             /// <summary>The game's absent owner number.</summary>
             [Step]
-            public static int AbsentOwnerId() => ItemTransitionCommand.AbsentOwnerId;
+            public static int AbsentOwnerId() => ItemTransition.AbsentOwnerId;
 
             /// <summary>Host: the item's id, owner identity and number, and its Lost and Found entry's id.</summary>
             [Step]
             public static Absent Read(ushort netId)
             {
-                if (!AuthoritativeItemRegistry.TryGet(netId, out var record)) return new Absent();
-                System.Guid entry = NetworkedLostAndFoundManager.EntryId(netId);
+                if (!LiveItems.TryGet(netId, out var record)) return new Absent();
+                System.Guid entry = LostAndFoundServer.EntryId(netId);
                 return new Absent
                 {
                     Id = record.PersistentItemId.ToString("D"),
@@ -124,7 +124,7 @@ namespace Dvmp.Scenarios
             public static IEnumerator Collect(Step<bool> step, ushort netId)
             {
                 NetworkedItem.TryGet(netId, out NetworkedItem item);
-                step.Result = item != null && NetworkedLostAndFoundManager.Collect(item, LostItemReason.SaveRecovery, "absent-owner scenario");
+                step.Result = item != null && LostAndFoundServer.Collect(item, LostItemReason.SaveRecovery, "absent-owner scenario");
                 for (int i = 0; i < 30; i++) yield return null;
             }
         }

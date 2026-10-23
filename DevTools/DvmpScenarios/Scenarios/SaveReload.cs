@@ -69,7 +69,7 @@ namespace Dvmp.Scenarios
                 {
                     var go = inventory.PeekItemAtSlot(slot, false);
                     var n = go != null ? go.GetComponent<NetworkedItem>() : null;
-                    if (n != null && AuthoritativeItemRegistry.TryGet(n.NetId, out var r) && r.Placement != ItemPlacementKind.PlayerInventory)
+                    if (n != null && LiveItems.TryGet(n.NetId, out var r) && r.Placement != ItemPlacementKind.PlayerInventory)
                         misrecorded++;
                 }
                 step.Result = new Counts
@@ -77,7 +77,7 @@ namespace Dvmp.Scenarios
                     Items = all.Count,
                     JobOverviews = all.Count(i => i.name.StartsWith("JobOverview")),
                     ActiveInSky = all.Count(i => i.gameObject.activeInHierarchy && Dev.Abs(i.transform.position).y > 1500),
-                    LostAndFound = all.Count(i => NetworkedLostAndFoundManager.Contains(i.NetId)),
+                    LostAndFound = all.Count(i => LostAndFoundServer.Contains(i.NetId)),
                     HostInventoryMisrecorded = misrecorded
                 };
             }

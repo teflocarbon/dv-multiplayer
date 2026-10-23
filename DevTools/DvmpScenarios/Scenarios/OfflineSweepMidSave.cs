@@ -86,7 +86,7 @@ namespace Dvmp.Scenarios
                 string when = "before the sweep (it never started)";
                 while (Time.realtimeSinceStartup - t0 < seconds)
                 {
-                    int lost = ids.Count(NetworkedLostAndFoundManager.Contains);
+                    int lost = ids.Count(LostAndFoundServer.Contains);
                     SaveGameManager.Instance.Save(DV.Common.SaveType.Manual);
                     saves++;
                     if (lost == ids.Length) { when = "after the sweep (it took one step)"; break; }

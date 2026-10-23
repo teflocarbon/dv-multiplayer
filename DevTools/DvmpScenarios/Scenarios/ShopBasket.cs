@@ -199,7 +199,7 @@ namespace Dvmp.Scenarios
 
             [Step]
             public static int Owner(ushort netId) =>
-                AuthoritativeItemRegistry.TryGet(netId, out var record) ? record.PersistentOwnerPlayerId : -1;
+                LiveItems.TryGet(netId, out var record) ? record.PersistentOwnerPlayerId : -1;
         }
     }
 }

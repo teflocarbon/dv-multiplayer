@@ -162,7 +162,7 @@ namespace Dvmp.Scenarios
                 step.Result = new Built
                 {
                     Installed = items.Where(i => i.GetComponent<GadgetItem>().Gadget.IsLinked).Select(i => i.NetId).ToArray(),
-                    PersistentIds = items.Select(i => i.GetComponent<Multiplayer.Server.Items.SaveLoad.PersistentWorldItemIdentity>().Value.ToString("D")).ToArray(),
+                    PersistentIds = items.Select(i => i.GetComponent<Multiplayer.Server.Items.SaveLoad.ItemIdentity>().Value.ToString("D")).ToArray(),
                     Notes = notes.Prepend($"built on {carId}: {string.Join(", ", new[] { simple, sw, light, plate, mounted }.Where(g => g != null).Select(g => g.name))}; a removed plate left {car.Customization.Holes.Count()} holes").ToArray()
                 };
             }

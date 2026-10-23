@@ -32,20 +32,20 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     private readonly Dictionary<NetworkedItem, WorldItemCellCoord> HostCellByItem = new();
     private readonly HashSet<NetworkedItem> HostNonSpatialItems = new();
     private readonly Dictionary<byte, HashSet<WorldItemCellCoord>> HostPlayerCells = new();
-    private readonly AuthoredWorldItemReplenishmentManager Replenishment;
+    private readonly OfficeStockReplenishment Replenishment;
     private readonly NetworkedItemManager shell;
 
     internal ServerItemManager(NetworkedItemManager shell)
     {
         this.shell = shell;
         HostSpatial = new ServerItemSpatial(shell.Spatial, this);
-        TrainItemWake = new NetworkedTrainItemWakeManager(shell.Spatial, HostSpatial);
-        Replenishment = new AuthoredWorldItemReplenishmentManager(this);
+        TrainItemWake = new TrainItemWakeServer(shell.Spatial, HostSpatial);
+        Replenishment = new OfficeStockReplenishment(this);
     }
 
     /// <summary>The host's side of the Shared spatial manager's leases.</summary>
     internal ServerItemSpatial HostSpatial { get; }
-    internal NetworkedTrainItemWakeManager TrainItemWake { get; }
+    internal TrainItemWakeServer TrainItemWake { get; }
 
     /// <summary>The server's item manager, while there is one.</summary>
     internal static ServerItemManager Instance => NetworkedItemManager.Instance?.ServerPart as ServerItemManager;
@@ -62,10 +62,10 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
 
     public void Tick(uint tick)
     {
-        NetworkedLostAndFoundManager.HostTick(tick);
-        NetworkedColdContainerManager.HostTick(tick);
-        WorldItemPersistenceManager.HostTick();
-        OwnedItemsServer.HostTick();
+        LostAndFoundServer.HostTick(tick);
+        ContainerServer.HostTick(tick);
+        ItemSaveLoad.HostTick();
+        ServerLedger.HostTick();
         UpdatePlayerItemLists();
         ProcessChanged(tick);
         RunConvergence();
@@ -74,17 +74,17 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
 
     public void Clear()
     {
-        NetworkedLostAndFoundManager.Clear();
-        NetworkedColdContainerManager.Clear();
+        LostAndFoundServer.Clear();
+        ContainerServer.Clear();
         TrainItemWake.Clear();
         HostSpatial.Clear();
         Replenishment.Clear();
-        WorldItemPersistenceManager.Clear();
-        OwnedItemsServer.Clear();
-        AuthoritativeItemRegistry.Clear();
+        ItemSaveLoad.Clear();
+        ServerLedger.Clear();
+        LiveItems.Clear();
     }
 
-    public void ForgetRecord(ushort itemNetId) => AuthoritativeItemRegistry.Remove(itemNetId);
+    public void ForgetRecord(ushort itemNetId) => LiveItems.Remove(itemNetId);
 
     public void OnTrainItemRemoved(ushort itemNetId) => TrainItemWake.OnItemRemoved(itemNetId);
 

@@ -7,7 +7,7 @@ namespace Dvmp.Scenarios
     /// Known item bug LF2 (expected to fail on beta, docs/research/item-bug-review.md): an item nobody
     /// owns (a mug, a job booklet, the shop's scanner) lies in a loco's cab when the car is deleted.
     /// The deleted car's items go to their owners' Lost and Found, and the server destroys every
-    /// item Lost and Found refuses (NetworkedLostAndFoundManager.CollectFromDeletedCar). Vanilla
+    /// item Lost and Found refuses (LostAndFoundServer.CollectFromDeletedCar). Vanilla
     /// puts a deleted car's items back in the world (TrainCar.InteriorOnDestroy), and a scene item
     /// such as the scanner destroyed this way is tombstoned in the save, gone for good.
     /// </summary>

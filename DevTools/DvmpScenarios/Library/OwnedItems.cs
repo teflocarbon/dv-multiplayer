@@ -37,7 +37,7 @@ namespace Dvmp.Scenarios
         /// <summary>Host: the item's lifelong id, or "" when its record has none.</summary>
         [Step]
         public static string IdOf(ushort netId) =>
-            AuthoritativeItemRegistry.TryGet(netId, out var r) && r.PersistentItemId != Guid.Empty ? r.PersistentItemId.ToString("D") : "";
+            LiveItems.TryGet(netId, out var r) && r.PersistentItemId != Guid.Empty ? r.PersistentItemId.ToString("D") : "";
 
         /// <summary>Host: the net ID of the item with this id now, or 0. After a restart or a withdrawal
         /// the same item has a new net ID.</summary>
@@ -45,14 +45,14 @@ namespace Dvmp.Scenarios
         public static ushort NetIdOf(string id)
         {
             if (!Guid.TryParse(id, out Guid wanted)) return 0;
-            return AuthoritativeItemRegistry.GetAll().FirstOrDefault(r => r.PersistentItemId == wanted)?.NetId ?? 0;
+            return LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == wanted)?.NetId ?? 0;
         }
 
         /// <summary>Host: the ledger's entry for an id.</summary>
         [Step]
         public static LedgerEntry Entry(string id)
         {
-            if (!Guid.TryParse(id, out Guid wanted) || !OwnedItemsServer.Ledger.TryGet(wanted, out OwnedItemEntry e))
+            if (!Guid.TryParse(id, out Guid wanted) || !ServerLedger.Ledger.TryGet(wanted, out Multiplayer.Core.Items.Ledger.LedgerEntry e))
                 return new LedgerEntry { Id = id ?? "" };
             return new LedgerEntry
             {
@@ -62,7 +62,7 @@ namespace Dvmp.Scenarios
                 Owner = e.Owner.ToString("D"),
                 Prefab = e.Prefab,
                 Place = e.Where.Place.ToString(),
-                Hold = e.Where.Hold == OwnedItemHold.None ? "" : e.Where.Hold.ToString(),
+                Hold = e.Where.Hold == HoldKind.None ? "" : e.Where.Hold.ToString(),
                 Holder = e.Where.Holder == Guid.Empty ? "" : e.Where.Holder.ToString("D"),
                 Anchor = e.Where.Anchor,
                 Slot = e.Where.Slot,
@@ -78,7 +78,7 @@ namespace Dvmp.Scenarios
 
         /// <summary>Host: what disagrees between the ledger, the records and vanilla's storage; empty when all agree.</summary>
         [Step]
-        public static string[] Audit() => OwnedItemsServer.Audit().ToArray();
+        public static string[] Audit() => ServerLedger.Audit().ToArray();
 
         /// <summary>
         /// Host: what the audit says about these ids only. A test career collects debris from earlier
@@ -88,7 +88,7 @@ namespace Dvmp.Scenarios
         [Step]
         public static IEnumerator AuditFor(Step<string[]> step, string[] ids)
         {
-            string[] all = OwnedItemsServer.Audit().ToArray();
+            string[] all = ServerLedger.Audit().ToArray();
             string[] mine = all.Where(line => ids.Any(id => line.Contains(id))).ToArray();
             foreach (string other in all.Except(mine))
                 step.Note("audit, not this scenario's: " + other);
@@ -98,7 +98,7 @@ namespace Dvmp.Scenarios
 
         /// <summary>Host: whether the ledger has been loaded and checked against the stores since this game started.</summary>
         [Step]
-        public static bool Loaded() => OwnedItemsServer.Loaded;
+        public static bool Loaded() => ServerLedger.Loaded;
 
         /// <summary>Host: the client's identity (the first player that isn't the host's own).</summary>
         [Step]
@@ -118,13 +118,13 @@ namespace Dvmp.Scenarios
         [Step]
         public static string LostEntryId(ushort netId)
         {
-            Guid id = NetworkedLostAndFoundManager.EntryId(netId);
+            Guid id = LostAndFoundServer.EntryId(netId);
             return id == Guid.Empty ? "" : id.ToString("D");
         }
 
         /// <summary>Host: the next saves leave the ledger out, as a build without it would (until the game restarts).</summary>
         [Step]
-        public static void SaveWithoutLedger() => OwnedItemsServer.SaveWithoutLedger = true;
+        public static void SaveWithoutLedger() => ServerLedger.SaveWithoutLedger = true;
 
         /// <summary>
         /// Host: a copy of the item as a copied save or a dupe bug delivers one: a new item of the same
@@ -135,16 +135,16 @@ namespace Dvmp.Scenarios
         public static IEnumerator Clone(Step<ushort> step, ushort netId)
         {
             NetworkedItem.TryGet(netId, out NetworkedItem original);
-            if (original == null || !AuthoritativeItemRegistry.TryGet(netId, out var record)) throw new Exception("no item " + netId);
+            if (original == null || !LiveItems.TryGet(netId, out var record)) throw new Exception("no item " + netId);
             var spec = DV.Globals.G.Items.items.First(i => i.ItemPrefabName == record.PrefabName);
             GameObject copy = UnityEngine.Object.Instantiate(spec.gameObject, original.transform.position + Vector3.up * 0.5f,
                 Quaternion.identity, WorldMover.OriginShiftParent);
-            // PersistentWorldItemIdentity is the mod's internal component.
-            Type identityType = typeof(AuthoritativeItemRegistry).Assembly.GetType("Multiplayer.Server.Items.SaveLoad.PersistentWorldItemIdentity", true);
+            // ItemIdentity is the mod's internal component.
+            Type identityType = typeof(LiveItems).Assembly.GetType("Multiplayer.Server.Items.SaveLoad.ItemIdentity", true);
             Component identity = copy.GetComponent(identityType) ?? copy.AddComponent(identityType);
             identityType.GetProperty("Value").SetValue(identity, record.PersistentItemId);
             NetworkedItem item = copy.GetComponent<NetworkedItem>();
-            yield return Wait.Until(() => item != null && item.NetId != 0 && AuthoritativeItemRegistry.TryGet(item.NetId, out _),
+            yield return Wait.Until(() => item != null && item.NetId != 0 && LiveItems.TryGet(item.NetId, out _),
                 10f, "the copy's record");
             Items.Track(item.NetId);
             step.Result = item.NetId;

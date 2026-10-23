@@ -71,14 +71,14 @@ public static class StartingItemsIssuer
         {
             // The ledger decides what they have, so it waits for the stores' import and the check.
             float waited = 0f;
-            while (!OwnedItemsServer.Loaded && waited < LedgerWait && player.PlayerId != 0)
+            while (!ServerLedger.Loaded && waited < LedgerWait && player.PlayerId != 0)
             {
                 waited += Time.unscaledDeltaTime;
                 yield return null;
             }
             if (player.PlayerId == 0)
                 yield break;
-            if (!OwnedItemsServer.Loaded)
+            if (!ServerLedger.Loaded)
             {
                 // Better nothing than a second set: their next join tries again.
                 Multiplayer.LogWarning($"Starting items: the owned-items ledger didn't load in {LedgerWait:F0} s; nothing made for {player.Username}");
@@ -91,11 +91,11 @@ public static class StartingItemsIssuer
             {
                 bool has = Has(player, prefab);
                 Multiplayer.Log($"Starting items: {player.Username} {(has ? "has" : "lacks")} a {prefab} " +
-                                $"(ledger: {string.Join(", ", OwnedItemsServer.Ledger.LiveOwnedBy(owner).Where(e => e.Prefab == prefab).Select(e => e.Id.ToString("D") + " " + e.Where.Place))})");
+                                $"(ledger: {string.Join(", ", ServerLedger.Ledger.LiveOwnedBy(owner).Where(e => e.Prefab == prefab).Select(e => e.Id.ToString("D") + " " + e.Where.Place))})");
                 if (!has)
                     wanted.Add((prefab, null, true, ItemMoveReason.Issued, FreeSlot(taken, 0)));
             }
-            bool kit = !OwnedItemsServer.Ledger.HasStarterKit(owner);
+            bool kit = !ServerLedger.Ledger.HasStarterKit(owner);
             if (kit)
                 foreach ((string prefab, string state) in StarterKit)
                     wanted.Add((prefab, state, false, ItemMoveReason.StarterKit, FreeSlot(taken, FirstKitSlot)));
@@ -125,7 +125,7 @@ public static class StartingItemsIssuer
             }
             // Marked even if one of them failed: a kit is given once, as before.
             if (kit)
-                OwnedItemsServer.Ledger.MarkStarterKit(owner);
+                ServerLedger.Ledger.MarkStarterKit(owner);
             Multiplayer.Log($"Starting items: made {made} of {wanted.Count} for {player.Username}" +
                             (kit ? " (starter kit included)" : ""));
         }
@@ -138,7 +138,7 @@ public static class StartingItemsIssuer
     /// <summary>Whether the player owns a live item of this prefab anywhere: the ledger, or the stores themselves.</summary>
     private static bool Has(ServerPlayer player, string prefab)
     {
-        if (OwnedItemsServer.Ledger.CountLive(player.Guid, prefab) > 0)
+        if (ServerLedger.Ledger.CountLive(player.Guid, prefab) > 0)
             return true;
         if (!OwnedItemsSummary.For(player).Any(item => string.Equals(item.Prefab, prefab, StringComparison.Ordinal)))
             return false;
@@ -153,17 +153,17 @@ public static class StartingItemsIssuer
     private static string StoresHolding(ServerPlayer player, string prefab)
     {
         List<string> found = new();
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
             if (string.Equals(record.PrefabName, prefab, StringComparison.Ordinal) &&
                 (record.PersistentOwnerIdentity == player.Guid ||
                  record.PersistentOwnerIdentity == Guid.Empty && record.PersistentOwnerPlayerId == player.PlayerId))
                 found.Add($"record {record.NetId} {record.PersistentItemId:D} {record.Placement}, last {record.LastMove.Reason}");
-        int pending = NetworkedLostAndFoundManager.PendingPrefabsOwnedBy(player.Guid)
+        int pending = LostAndFoundServer.PendingPrefabsOwnedBy(player.Guid)
             .Count(p => string.Equals(p, prefab, StringComparison.Ordinal));
         if (pending > 0)
             found.Add($"{pending} saved Lost and Found entr{(pending == 1 ? "y" : "ies")} not restored");
         string identity = player.Guid.ToString("D");
-        int stored = NetworkedColdContainerManager.Graph.ExportSnapshot().Items.Count(item =>
+        int stored = ContainerServer.Graph.ExportSnapshot().Items.Count(item =>
             string.Equals(item.PersistentOwnerIdentity, identity, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(item.PrefabName, prefab, StringComparison.Ordinal));
         if (stored > 0)
@@ -176,7 +176,7 @@ public static class StartingItemsIssuer
     private static HashSet<int> TakenSlots(ServerPlayer player)
     {
         HashSet<int> taken = new();
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
         {
             if (record.InventoryClaimSlot < 0)
                 continue;
@@ -191,7 +191,7 @@ public static class StartingItemsIssuer
     }
 
     // How many items the player has in their inventory and hands.
-    private static int Carried(ServerPlayer player) => AuthoritativeItemRegistry.GetAll().Count(record =>
+    private static int Carried(ServerPlayer player) => LiveItems.GetAll().Count(record =>
         record.Placement is ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand &&
         (record.PlacementPlayerIdentity == player.Guid || record.PlacementPlayerId == player.PlayerId));
 
@@ -207,7 +207,7 @@ public static class StartingItemsIssuer
     }
 
     // As a cold-container withdrawal makes an item into a player's inventory
-    // (NetworkedColdContainerManager.Withdraw): made at DV's safety position, its state loaded a
+    // (ContainerServer.Withdraw): made at DV's safety position, its state loaded a
     // frame later, registered with its owner and slot, and sent to everyone. With overflow (their
     // inventory is full) it is made at their feet and goes straight to their Lost and Found, keeping
     // its claim: never into a full inventory, where it was in no slot at all (item-bug-review.md, E2a).
@@ -261,11 +261,11 @@ public static class StartingItemsIssuer
             snapshot.InventoryClaimSlot = slot;
             // An essential's slot is reserved for it (its silhouette, and recall).
             snapshot.InventoryClaimFlags = essential ? ItemInventoryClaimFlags.Reserved : ItemInventoryClaimFlags.None;
-            PersistentWorldItemIdentity identity = instance.GetComponent<PersistentWorldItemIdentity>() ??
-                                                   instance.AddComponent<PersistentWorldItemIdentity>();
+            ItemIdentity identity = instance.GetComponent<ItemIdentity>() ??
+                                                   instance.AddComponent<ItemIdentity>();
             ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(reason, player,
                 overflow ? "inventory full, slot " + slot + " kept" : "slot " + slot);
-            if (AuthoritativeItemRegistry.RegisterMaterializedColdItem(item, player, player.PlayerId, player.Guid,
+            if (LiveItems.RegisterMaterializedColdItem(item, player, player.PlayerId, player.Guid,
                     snapshot, identity.Ensure(), cause) == null)
                 throw new InvalidOperationException("registration failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
@@ -273,9 +273,9 @@ public static class StartingItemsIssuer
             if (!overflow && player.PlayerId == InventoryIntegration.LocalPlayerId && !InventoryIntegration.ContainsActive(instance))
                 throw new InvalidOperationException("not in the host's own inventory");
             item.CompleteColdMaterialization();
-            NetworkedColdContainerManager.PublishMaterializedItem(snapshot, item);
+            ContainerServer.PublishMaterializedItem(snapshot, item);
             // If Lost and Found refuses it, it stays at their feet: in sight either way.
-            if (overflow && !NetworkedLostAndFoundManager.Collect(item, LostItemReason.InventoryOverflow,
+            if (overflow && !LostAndFoundServer.Collect(item, LostItemReason.InventoryOverflow,
                     "made with the inventory full"))
                 Multiplayer.LogWarning($"Starting items: {player.Username}'s inventory is full and Lost and Found refused their {prefab}; it is at their feet");
             else if (overflow)

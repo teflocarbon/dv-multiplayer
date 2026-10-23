@@ -31,9 +31,9 @@ internal sealed partial class ServerItemManager
         if (hostPlayer == null)
             return false;
         byte localPlayerId = hostPlayer.PlayerId;
-        bool storedInLostAndFound = NetworkedLostAndFoundManager.Contains(item.NetId);
+        bool storedInLostAndFound = LostAndFoundServer.Contains(item.NetId);
         if (!storedInLostAndFound &&
-            !AuthoritativeItemRegistry.TryPrepareRecall(item, hostPlayer, requestedSlot,
+            !LiveItems.TryPrepareRecall(item, hostPlayer, requestedSlot,
                 item.AuthorityRevision, out _, out string prepareRejection))
         {
             PublishHostRecallRejected(item, localPlayerId, prepareRejection);
@@ -42,7 +42,7 @@ internal sealed partial class ServerItemManager
         if (!storedInLostAndFound &&
             !item.TryPrepareLocalRecall(0, requestedSlot, out string localFailure))
         {
-            if (AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
+            if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
                 item.ApplyServerCanonicalSnapshot(correction);
             item.CompleteLocalRecallPreparation(0, false);
             PublishHostRecallRejected(item, localPlayerId, localFailure);
@@ -50,16 +50,16 @@ internal sealed partial class ServerItemManager
         }
 
         bool accepted = storedInLostAndFound
-            ? NetworkedLostAndFoundManager.TryRetrieveForRecall(hostPlayer, item,
+            ? LostAndFoundServer.TryRetrieveForRecall(hostPlayer, item,
                 item.AuthorityRevision, requestedSlot, out ItemUpdateData snapshot,
                 out string rejectionReason)
-            : AuthoritativeItemRegistry.TryCommitPreparedRecall(item, hostPlayer, requestedSlot,
+            : LiveItems.TryCommitPreparedRecall(item, hostPlayer, requestedSlot,
                 item.AuthorityRevision, out snapshot, out rejectionReason);
         if (!accepted)
         {
             if (!storedInLostAndFound)
             {
-                if (AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
+                if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
                     item.ApplyServerCanonicalSnapshot(correction);
                 item.CompleteLocalRecallPreparation(0, false);
             }
@@ -99,7 +99,7 @@ internal sealed partial class ServerItemManager
         if (player == null || !NetworkLifecycle.Instance.IsHost())
             return;
 
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.Records.ToArray())
+        foreach (LiveItems.LiveItem record in LiveItems.Records.ToArray())
         {
             if (record.PlacementPlayerId != player.PlayerId)
                 continue;
@@ -119,7 +119,7 @@ internal sealed partial class ServerItemManager
             snapshot.ItemPosition = item.transform.position - WorldMover.currentMove;
             snapshot.ItemRotation = item.transform.rotation;
             snapshot.AuthorityRevision = record.Revision;
-            if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, player,
+            if (!LiveItems.TryApplyTransition(item, snapshot, player,
                     ItemTransitionReason.HostLocalState, true, out string rejection,
                     cause: ItemChangeLog.Move(ItemMoveReason.DroppedOnDisconnect, player,
                         inHand ? "was in their hand" : "borrowed, owner " +
@@ -134,11 +134,11 @@ internal sealed partial class ServerItemManager
             // Someone else's item goes straight to its owner's Lost and Found, online or not, rather
             // than lie where the borrower stood (owned-items.md, "Leaving").
             if (IsSomeoneElses(record, player))
-                NetworkedLostAndFoundManager.Collect(item, LostItemReason.BorrowerLeft, "left by " + player.Username);
+                LostAndFoundServer.Collect(item, LostItemReason.BorrowerLeft, "left by " + player.Username);
         }
     }
 
-    private static bool IsSomeoneElses(AuthoritativeItemRegistry.Record record, ServerPlayer player) =>
+    private static bool IsSomeoneElses(LiveItems.LiveItem record, ServerPlayer player) =>
         record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId != player.PlayerId &&
         record.PersistentOwnerIdentity != player.Guid;
 

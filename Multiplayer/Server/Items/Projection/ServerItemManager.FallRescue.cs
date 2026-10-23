@@ -37,11 +37,11 @@ internal sealed partial class ServerItemManager
 
         foreach (NetworkedItem item in NetworkedItem.GetAll())
         {
-            if (!IsWorldPhysicsItem(item, out AuthoritativeItemRegistry.Record record))
+            if (!IsWorldPhysicsItem(item, out LiveItems.LiveItem record))
             {
                 // Held items are above ground with their holder; remember that as a fallback.
                 if (item != null && item.NetId != 0 && item.gameObject.activeInHierarchy &&
-                    AuthoritativeItemRegistry.TryGet(item.NetId, out record) &&
+                    LiveItems.TryGet(item.NetId, out record) &&
                     record.Placement == ItemPlacementKind.PlayerHand &&
                     NetworkedItemManager.BelowTerrain(item.transform.position, out _) is float heldDepth && heldDepth < 0f)
                     lastSafeAbsolutePosition[item] = item.transform.position - WorldMover.currentMove;
@@ -69,7 +69,7 @@ internal sealed partial class ServerItemManager
     internal void HandleBelowMapReport(ServerPlayer reporter, ushort netId, float surfaceAbsoluteY)
     {
         if (!NetworkedItem.TryGet(netId, out NetworkedItem item) ||
-            !IsWorldPhysicsItem(item, out AuthoritativeItemRegistry.Record record))
+            !IsWorldPhysicsItem(item, out LiveItems.LiveItem record))
             return;
         // Only act if the authoritative copy is under that surface too; if just the client's copy
         // fell, convergence already puts it back to the host's pose.
@@ -82,18 +82,18 @@ internal sealed partial class ServerItemManager
         RescueFallenItem(item, record, surfaceAbsoluteY, "client-report:P" + reporter.PlayerId);
     }
 
-    private static bool IsWorldPhysicsItem(NetworkedItem item, out AuthoritativeItemRegistry.Record record)
+    private static bool IsWorldPhysicsItem(NetworkedItem item, out LiveItems.LiveItem record)
     {
         record = null;
         return item != null && item.NetId != 0 && item.gameObject.activeInHierarchy && item.Item != null &&
                !item.Item.IsGrabbed() &&
-               AuthoritativeItemRegistry.TryGet(item.NetId, out record) &&
+               LiveItems.TryGet(item.NetId, out record) &&
                record.Placement == ItemPlacementKind.World &&
-               !NetworkedLostAndFoundManager.Contains(item.NetId) &&
-               !WorldItemPersistenceManager.IsRestorePending(item);
+               !LostAndFoundServer.Contains(item.NetId) &&
+               !ItemSaveLoad.IsRestorePending(item);
     }
 
-    private void RescueFallenItem(NetworkedItem item, AuthoritativeItemRegistry.Record record,
+    private void RescueFallenItem(NetworkedItem item, LiveItems.LiveItem record,
         float surfaceAbsoluteY, string source)
     {
         // An item under the terrain is out of the map whether or not it is mid-flight: a physics

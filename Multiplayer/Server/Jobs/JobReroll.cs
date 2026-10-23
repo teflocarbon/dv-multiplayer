@@ -141,7 +141,7 @@ public static class JobReroll
         // refused and its correction put the paper back where the throw started, at rest.
         for (float t0 = Time.realtimeSinceStartup;
              item != null && Time.realtimeSinceStartup - t0 < ReleaseWait &&
-             AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record held) &&
+             LiveItems.TryGet(item.NetId, out LiveItems.LiveItem held) &&
              held.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;)
             yield return null;
         if (item == null || bin == null)
@@ -203,15 +203,15 @@ public static class JobReroll
         snapshot.InventoryClaimPlayerId = 0;
         snapshot.InventoryClaimSlot = -1;
         snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
-        if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, requester,
+        if (!LiveItems.TryApplyTransition(item, snapshot, requester,
                 ItemTransitionReason.JobRerollRefused, true, out string rejection,
                 cause: ItemChangeLog.Move(ItemMoveReason.ThrownOutOfBin, requester, refusal)) ||
-            !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
+            !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
         {
             Multiplayer.LogWarning($"Couldn't throw job overview {item.NetId} out of the bin: {rejection}");
             return false;
         }
-        AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, ItemTransitionReason.JobRerollRefused);
+        LiveItems.WriteToSnapshot(record, snapshot, ItemTransitionReason.JobRerollRefused);
         snapshot.ItemState = ItemState.Thrown;
         item.ApplyServerCanonicalSnapshot(snapshot);
         // Index it in its world cell now. A paper let go on a car was recorded in the car's

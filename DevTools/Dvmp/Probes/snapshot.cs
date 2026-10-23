@@ -87,7 +87,7 @@ public static class Probe
                 k = rb != null ? (bool?)rb.isKinematic : null,
                 // Host only: where the authority registry says the item is.
                 rp = NetworkLifecycle.Instance != null && NetworkLifecycle.Instance.IsServerRunning &&
-                     AuthoritativeItemRegistry.TryGet(item.NetId, out var record) ? record.Placement.ToString() : null,
+                     LiveItems.TryGet(item.NetId, out var record) ? record.Placement.ToString() : null,
                 sl = rb != null && rb.IsSleeping(),
                 v = rb != null && !rb.isKinematic ? (float)Math.Round(rb.velocity.magnitude, 2) : 0f
             });

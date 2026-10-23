@@ -82,7 +82,7 @@ public partial class NetworkedItemManager
 
     /// <summary>
     /// A scene-authored office prop whose slot the host refills once it's taken away
-    /// (AuthoredWorldItemReplenishmentManager); a client lets go of the slot when it takes one.
+    /// (OfficeStockReplenishment); a client lets go of the slot when it takes one.
     /// </summary>
     internal static bool IsEligibleAuthoredOfficeProp(NetworkedItem item)
     {

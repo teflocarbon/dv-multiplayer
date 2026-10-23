@@ -64,7 +64,7 @@ internal static class GadgetRunningServer
     /// data has only some of it).</summary>
     internal static void SendAll(ServerPlayer player, NetworkServer server)
     {
-        foreach (ushort itemNetId in AuthoritativeItemRegistry.GetAll()
+        foreach (ushort itemNetId in LiveItems.GetAll()
                      .Where(r => r.Placement == ItemPlacementKind.Installed)
                      .Select(r => r.NetId).ToList())
         {

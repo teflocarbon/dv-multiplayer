@@ -129,7 +129,7 @@ namespace Dvmp.Scenarios
             {
                 if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item?.Item == null) return false;
                 bool vanilla = StorageController.Instance?.StorageLostAndFound?.ContainsItem(item.Item) == true;
-                return vanilla && !NetworkedLostAndFoundManager.Contains(netId);
+                return vanilla && !LostAndFoundServer.Contains(netId);
             }
         }
     }

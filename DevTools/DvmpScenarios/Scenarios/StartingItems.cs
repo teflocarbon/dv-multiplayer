@@ -157,7 +157,7 @@ namespace Dvmp.Scenarios
             public static Have Owned(string owner, string[] prefabs)
             {
                 Guid who = Guid.Parse(owner);
-                var live = OwnedItemsServer.Ledger.LiveOwnedBy(who).Where(e => prefabs.Contains(e.Prefab)).OrderBy(e => e.Prefab).ToList();
+                var live = ServerLedger.Ledger.LiveOwnedBy(who).Where(e => prefabs.Contains(e.Prefab)).OrderBy(e => e.Prefab).ToList();
                 return new Have { Prefabs = live.Select(e => e.Prefab).ToArray(), ItemIds = live.Select(e => e.Id.ToString("D")).ToArray() };
             }
 
@@ -176,26 +176,26 @@ namespace Dvmp.Scenarios
             public static ushort[] InLostAndFound(string owner, string prefab)
             {
                 Guid who = Guid.Parse(owner);
-                var ids = OwnedItemsServer.Ledger.LiveOwnedBy(who)
-                    .Where(e => e.Prefab == prefab && e.Where.Place == Multiplayer.Core.Items.Ledger.OwnedItemPlace.LostAndFound)
+                var ids = ServerLedger.Ledger.LiveOwnedBy(who)
+                    .Where(e => e.Prefab == prefab && e.Where.Place == Multiplayer.Core.Items.Ledger.HomeKind.LostAndFound)
                     .Select(e => e.Id).ToList();
-                return AuthoritativeItemRegistry.GetAll().Where(r => ids.Contains(r.PersistentItemId)).Select(r => r.NetId).ToArray();
+                return LiveItems.GetAll().Where(r => ids.Contains(r.PersistentItemId)).Select(r => r.NetId).ToArray();
             }
 
             /// <summary>Host: forgets the owner's starter-kit marker, as for a first join. Result: whether they had it.</summary>
             [Step]
-            public static bool ForgetStarterKit(string owner) => OwnedItemsServer.Ledger.ForgetStarterKit(Guid.Parse(owner));
+            public static bool ForgetStarterKit(string owner) => ServerLedger.Ledger.ForgetStarterKit(Guid.Parse(owner));
 
             /// <summary>Host: the owner's live items born StarterKit, where they are, and whether their marker is set.</summary>
             [Step]
             public static Kit KitSince(string owner, string[] except)
             {
                 Guid who = Guid.Parse(owner);
-                var kit = OwnedItemsServer.Ledger.LiveOwnedBy(who).Where(e => e.Born.Reason == Multiplayer.Core.Items.Ledger.OwnedItemBirth.StarterKit && !except.Contains(e.Id.ToString("D"))).ToList();
+                var kit = ServerLedger.Ledger.LiveOwnedBy(who).Where(e => e.Born.Reason == Multiplayer.Core.Items.Ledger.BirthReason.StarterKit && !except.Contains(e.Id.ToString("D"))).ToList();
                 var nets = new List<ushort>();
                 foreach (var e in kit)
                 {
-                    var record = AuthoritativeItemRegistry.GetAll().FirstOrDefault(r => r.PersistentItemId == e.Id);
+                    var record = LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == e.Id);
                     if (record != null) nets.Add(record.NetId);
                 }
                 return new Kit
@@ -203,7 +203,7 @@ namespace Dvmp.Scenarios
                     Items = kit.Select(e => e.Prefab + " " + e.Where.Place + "/" + e.Where.Hold).ToArray(),
                     Ids = kit.Select(e => e.Id.ToString("D")).ToArray(),
                     NetIds = nets.ToArray(),
-                    Marked = OwnedItemsServer.Ledger.HasStarterKit(who)
+                    Marked = ServerLedger.Ledger.HasStarterKit(who)
                 };
             }
 

@@ -38,7 +38,7 @@ public static class ShopDelivery
                 trigger.OnPurchased(obj);
             NetworkedItem networked = obj.GetOrAddComponent<NetworkedItem>();
             if (buyer != null && buyer.Guid != Guid.Empty && networked != null && networked.NetId != 0 &&
-                AuthoritativeItemRegistry.Ensure(networked) is { PersistentOwnerPlayerId: 0 } record)
+                LiveItems.Ensure(networked) is { PersistentOwnerPlayerId: 0 } record)
             {
                 record.PersistentOwnerPlayerId = buyer.PlayerId;
                 record.PersistentOwnerIdentity = buyer.Guid;

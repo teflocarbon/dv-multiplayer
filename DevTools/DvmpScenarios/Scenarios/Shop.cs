@@ -248,7 +248,7 @@ namespace Dvmp.Scenarios
             public static HostView HostView(string prefab, ushort netId, int shop = -1)
             {
                 var d = GlobalShopController.Instance.GetShopItemData(prefab);
-                AuthoritativeItemRegistry.TryGet(netId, out var rec);
+                LiveItems.TryGet(netId, out var rec);
                 var basket = shop >= 0 ? NetworkServer.Instance.Shops.Basket(shop) : null;
                 return new HostView
                 {

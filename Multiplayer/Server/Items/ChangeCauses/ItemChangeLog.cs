@@ -15,7 +15,7 @@ namespace Multiplayer.Server.Items.ChangeCauses;
 /// Why items moved, changed hands or went away (<see cref="ItemMoveReason"/>,
 /// <see cref="ItemRemovalReason"/>), on the host: builds the causes with the players who made them,
 /// logs each change in one line, and keeps the recent removals, whose records are gone. A record
-/// keeps its last move (<see cref="AuthoritativeItemRegistry.Record.LastMove"/>). What every game
+/// keeps its last move (<see cref="LiveItems.LiveItem.LastMove"/>). What every game
 /// has, the details and a client's log line, is <see cref="ItemChangeCauses"/>.
 /// </summary>
 public static class ItemChangeLog
@@ -46,8 +46,8 @@ public static class ItemChangeLog
                 "callers " + ItemChangeCauses.Callers(patch, typeof(ItemChangeLog)))));
     }
 
-    public static ItemWhereabouts Whereabouts(AuthoritativeItemRegistry.Record record) =>
-        record == null ? default : new ItemWhereabouts((AuthorityPlacement)(byte)record.Placement,
+    public static ItemWhereabouts Whereabouts(LiveItems.LiveItem record) =>
+        record == null ? default : new ItemWhereabouts((LivePlacement)(byte)record.Placement,
             record.PlacementPlayerId, record.PersistentOwnerPlayerId);
 
     /// <summary>What changed between two whereabouts, with the host's player names.</summary>
@@ -55,14 +55,14 @@ public static class ItemChangeLog
         ItemMoveClassifier.Describe(before, after, PlayerName);
 
     /// <summary>Host: logs a move and keeps it as the record's last.</summary>
-    public static void RecordMove(NetworkedItem item, AuthoritativeItemRegistry.Record record,
+    public static void RecordMove(NetworkedItem item, LiveItems.LiveItem record,
         ChangeCause<ItemMoveReason> cause)
     {
         if (record == null)
             return;
         record.LastMove = cause;
         Multiplayer.Log(ItemChangeLogFormat.Moved(Name(item, record), record.NetId, cause));
-        OwnedItemsServer.OnMove(record, cause);
+        ServerLedger.OnMove(record, cause);
     }
 
     /// <summary>Host: logs a removal and keeps it among the recent ones.</summary>
@@ -70,11 +70,11 @@ public static class ItemChangeLog
     {
         if (item == null || item.NetId == 0)
             return;
-        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record);
+        LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record);
         RecentRemovals.Add(new ItemRemovalRecord(item.NetId, Name(item, record), Whereabouts(record),
             cause, record?.LastMove ?? default));
         Multiplayer.Log(ItemChangeLogFormat.Removed(Name(item, record), item.NetId, cause));
-        OwnedItemsServer.OnRemoved(item, cause);
+        ServerLedger.OnRemoved(item, cause);
     }
 
     public static string PlayerName(byte playerId) =>
@@ -82,6 +82,6 @@ public static class ItemChangeLog
         NetworkServer.Instance.TryGetServerPlayer(playerId, out ServerPlayer player)
             ? player.Username : null;
 
-    private static string Name(NetworkedItem item, AuthoritativeItemRegistry.Record record) =>
+    private static string Name(NetworkedItem item, LiveItems.LiveItem record) =>
         item != null ? item.name : record?.PrefabName;
 }

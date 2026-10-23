@@ -1,0 +1,27 @@
+using System;
+using UnityEngine;
+
+namespace Multiplayer.Server.Items.Containers;
+
+public sealed class ContainerIdentity : MonoBehaviour
+{
+    [SerializeField] private string persistentId = string.Empty;
+
+    public Guid PersistentId
+    {
+        get
+        {
+            if (!Guid.TryParse(persistentId, out Guid value) || value == Guid.Empty)
+            {
+                value = Guid.NewGuid();
+                persistentId = value.ToString("D");
+            }
+            return value;
+        }
+    }
+
+    public void Restore(Guid value)
+    {
+        if (value != Guid.Empty) persistentId = value.ToString("D");
+    }
+}

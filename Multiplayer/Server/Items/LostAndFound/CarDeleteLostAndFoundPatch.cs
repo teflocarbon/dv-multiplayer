@@ -5,7 +5,7 @@ namespace Multiplayer.Server.Items.LostAndFound;
 
 /// <summary>
 /// The items lying in a car about to be deleted go to Lost and Found
-/// (<see cref="NetworkedLostAndFoundManager.CollectFromDeletedCar"/>), after the players on it have
+/// (<see cref="LostAndFoundServer.CollectFromDeletedCar"/>), after the players on it have
 /// been stepped off (CarDeletePlayerSafetyPatch, at the default priority).
 /// </summary>
 [HarmonyPatch(typeof(CarSpawner))]
@@ -14,7 +14,7 @@ public static class CarDeleteLostAndFoundPatch
     [HarmonyPrefix]
     [HarmonyPriority(Priority.Low)]
     [HarmonyPatch(nameof(CarSpawner.DeleteCar))]
-    private static void DeleteCar(TrainCar trainCar) => NetworkedLostAndFoundManager.CollectFromDeletedCar(trainCar);
+    private static void DeleteCar(TrainCar trainCar) => LostAndFoundServer.CollectFromDeletedCar(trainCar);
 
     [HarmonyPrefix]
     [HarmonyPriority(Priority.Low)]
@@ -24,6 +24,6 @@ public static class CarDeleteLostAndFoundPatch
         if (trainCarsToDelete == null)
             return;
         foreach (TrainCar car in trainCarsToDelete)
-            NetworkedLostAndFoundManager.CollectFromDeletedCar(car);
+            LostAndFoundServer.CollectFromDeletedCar(car);
     }
 }

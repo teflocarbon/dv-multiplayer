@@ -42,7 +42,7 @@ public static class NetworkedItemServer
     public static void Server_ReceiveItemUpdate(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(snapshot, DebugRuntimeSide.Server, "Item", snapshot?.ItemNetId.ToString());
-        if (NetworkedLostAndFoundManager.Contains(item.NetId))
+        if (LostAndFoundServer.Contains(item.NetId))
         {
             DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
                 "item-in-lost-and-found", DebugRuntimeSide.Server);
@@ -80,8 +80,8 @@ public static class NetworkedItemServer
         // Working an item where it lies changes its state, not where it is: the record keeps its
         // pose (a physics lease or the last settlement set it), not the sender's copy's.
         if (!senderHeldIt && item.IsAcceptedWorldInteraction(snapshot, senderPlayer))
-            AuthoritativeItemRegistry.KeepRecordedPose(item, snapshot);
-        if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, senderPlayer,
+            LiveItems.KeepRecordedPose(item, snapshot);
+        if (!LiveItems.TryApplyTransition(item, snapshot, senderPlayer,
                 ItemTransitionReason.ClientState, false, out string authorityRejection))
         {
             DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, authorityRejection, DebugRuntimeSide.Server);
@@ -123,10 +123,10 @@ public static class NetworkedItemServer
     {
         if (senderPlayer == null || NetworkServer.Instance == null)
             return;
-        bool lostAndFoundProjection = NetworkedLostAndFoundManager.TryCreateCollectionProjection(
+        bool lostAndFoundProjection = LostAndFoundServer.TryCreateCollectionProjection(
             item, out ItemUpdateData correction);
         if (!lostAndFoundProjection &&
-            !AuthoritativeItemRegistry.TryCreateCorrectionSnapshot(item, out correction,
+            !LiveItems.TryCreateCorrectionSnapshot(item, out correction,
                 ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "your change was refused: " + rejectionReason)))
             return;
         Multiplayer.LogDebug(() => $"Item {item.name} (netId {item.NetId}): refused {senderPlayer.Username}'s change ({rejectionReason}), sent a correction");
@@ -175,7 +175,7 @@ public static class NetworkedItemServer
             return false;
         }
 
-        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record authority);
+        LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority);
         bool senderPossesses = item.SenderPossesses(senderPlayer);
         if (!senderPossesses && !senderPlayer.AcknowledgedWorldItems.Contains(item.NetId))
         {
@@ -263,7 +263,7 @@ public static class NetworkedItemServer
 
     private static bool SenderPossesses(this NetworkedItem item, ServerPlayer senderPlayer) =>
         senderPlayer != null &&
-        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record authority) &&
+        LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority) &&
         authority.PlacementPlayerId == senderPlayer.PlayerId &&
         authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
 
@@ -277,7 +277,7 @@ public static class NetworkedItemServer
             item.SenderPossesses(senderPlayer),
             // Anyone may turn the pages of a book lying in the world; not one in someone's hand.
             IsPageOnlyInteraction(snapshot) &&
-            !(AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record authority) &&
+            !(LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority) &&
               authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory) ||
             item.IsAcceptedWorldInteraction(snapshot, senderPlayer));
 
@@ -290,7 +290,7 @@ public static class NetworkedItemServer
     {
         if (snapshot == null || senderPlayer == null ||
             snapshot.UpdateType != ItemUpdateData.ItemUpdateType.ObjectState ||
-            !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record authority))
+            !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority))
             return false;
         bool itemInWorld = authority.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
             ItemPlacementKind.StaticParent or ItemPlacementKind.Attached;
@@ -382,7 +382,7 @@ public static class NetworkedItemServer
         if (!suppressNetworkDestroy && NetworkLifecycle.Instance.IsHost() &&
             !item.ColdStorageRetirement && !item.ColdMaterializationPending)
         {
-            WorldItemPersistenceManager.RecordDestroyed(item);
+            ItemSaveLoad.RecordDestroyed(item);
             var updateData = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
             if (updateData != null)
             {
@@ -397,7 +397,7 @@ public static class NetworkedItemServer
             }
         }
 
-        AuthoritativeItemRegistry.Remove(item.NetId);
+        LiveItems.Remove(item.NetId);
     }
 
     // Unity runs OnDestroy at the end of the frame, after whatever called Destroy has returned, so
@@ -406,7 +406,7 @@ public static class NetworkedItemServer
     {
         string parent = item.transform.parent != null ? item.transform.parent.name : "none";
         string callers = ItemChangeCauses.Callers(typeof(NetworkedItem), typeof(NetworkedItemServer), typeof(NetworkServer));
-        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record);
+        LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record);
         return ItemChangeLog.Removal(ItemRemovalReason.DestroyedByGame, detail: ItemChangeCauses.Detail(
             "no cause recorded",
             record != null ? "was " + record.Placement + (record.PlacementPlayerId != 0 ? " of P" + record.PlacementPlayerId : "") : null,

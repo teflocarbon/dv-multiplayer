@@ -95,7 +95,7 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
             SaveGameData saveGameData = new();
             playerData.Remove(INVENTORY_KEY);
             StorageSerializer.SaveStorage(player.Inventory, saveGameData);
-            WorldItemPersistenceManager.RemoveVanillaStorageDuplicates(saveGameData);
+            ItemSaveLoad.RemoveVanillaStorageDuplicates(saveGameData);
             playerData.Merge(saveGameData.GetJsonObject());
 
             players.SetJObject(player.Guid.ToString(), playerData);
@@ -104,11 +104,11 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
 
         Multiplayer.LogDebug(() => $"Updated save data: {players.ToString()}");
         root.SetJObject(PLAYERS_KEY, players);
-        NetworkedLostAndFoundManager.WriteSave(root);
-        NetworkedColdContainerManager.WriteSave(root);
-        WorldItemPersistenceManager.RemoveVanillaStorageDuplicates(data, keepInventory: true);
-        WorldItemPersistenceManager.WriteSave(root);
-        OwnedItemsServer.WriteSave(root);
+        LostAndFoundServer.WriteSave(root);
+        ContainerServer.WriteSave(root);
+        ItemSaveLoad.RemoveVanillaStorageDuplicates(data, keepInventory: true);
+        ItemSaveLoad.WriteSave(root);
+        ServerLedger.WriteSave(root);
         data.SetJObject(ROOT_KEY, root);
     }
 

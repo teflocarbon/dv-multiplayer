@@ -116,7 +116,7 @@ public static class JobBookletSummonCoordinator
         snapshot.InventoryClaimPlayerId = 0;
         snapshot.InventoryClaimSlot = -1;
         snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
-        if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, requester,
+        if (!LiveItems.TryApplyTransition(item, snapshot, requester,
                 ItemTransitionReason.JobBookletSummon, true, out string rejectionReason,
                 clearRetrievalClaim: true,
                 cause: ItemChangeLog.Move(global::Multiplayer.Core.Items.ChangeCauses.ItemMoveReason.JobBookletSummoned, requester,

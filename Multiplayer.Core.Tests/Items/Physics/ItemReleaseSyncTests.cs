@@ -51,16 +51,16 @@ public sealed class ItemReleaseSyncTests
     [Test]
     public void StateMachine_AcceptsPickupMadeBeforeTheServersObjectStateChange()
     {
-        ItemAuthorityState state = State(revision: 4, placement: AuthorityPlacement.PlayerHand, holder: 2);
-        state = Apply(state, actor: 2, expected: 4, AuthorityPlacement.World);          // drop -> 5
+        LiveItemState state = State(revision: 4, placement: LivePlacement.PlayerHand, holder: 2);
+        state = Apply(state, actor: 2, expected: 4, LivePlacement.World);          // drop -> 5
         state = Apply(state, actor: 1, expected: 0, null, force: true);                 // flame -> 6
 
-        ItemAuthorityResult regrab = ItemAuthorityStateMachine.Apply(state,
-            Command(actor: 2, expected: 5, AuthorityPlacement.PlayerHand));
+        TransitionResult regrab = ItemStateMachine.Apply(state,
+            Command(actor: 2, expected: 5, LivePlacement.PlayerHand));
 
         Assert.That(regrab.Accepted, Is.True, regrab.RejectionReason);
         Assert.That(regrab.State.Revision, Is.EqualTo(7));
-        Assert.That(regrab.State.Placement, Is.EqualTo(AuthorityPlacement.PlayerHand));
+        Assert.That(regrab.State.Placement, Is.EqualTo(LivePlacement.PlayerHand));
         Assert.That(regrab.State.PlacementPlayerId, Is.EqualTo(2));
     }
 
@@ -68,15 +68,15 @@ public sealed class ItemReleaseSyncTests
     public void StateMachine_AcceptsHoldersSwitchOffAfterTheServersBatteryTicks()
     {
         // Player 3 carries a flashlight; the server's copy's battery ticks twice (playtest 3).
-        ItemAuthorityState state = State(revision: 4, placement: AuthorityPlacement.World);
-        state = Apply(state, actor: 3, expected: 4, AuthorityPlacement.PlayerInventory); // -> 5
+        LiveItemState state = State(revision: 4, placement: LivePlacement.World);
+        state = Apply(state, actor: 3, expected: 4, LivePlacement.PlayerInventory); // -> 5
         state = Apply(state, actor: 1, expected: 0, null, force: true);                  // -> 6
         state = Apply(state, actor: 1, expected: 0, null, force: true);                  // -> 7
 
-        Assert.That(state.Placement, Is.EqualTo(AuthorityPlacement.PlayerInventory));
+        Assert.That(state.Placement, Is.EqualTo(LivePlacement.PlayerInventory));
         Assert.That(state.PlacementPlayerId, Is.EqualTo(3), "object state doesn't move it to the server");
 
-        ItemAuthorityResult switchOff = ItemAuthorityStateMachine.Apply(state,
+        TransitionResult switchOff = ItemStateMachine.Apply(state,
             Command(actor: 3, expected: 5, null));
 
         Assert.That(switchOff.Accepted, Is.True, switchOff.RejectionReason);
@@ -86,12 +86,12 @@ public sealed class ItemReleaseSyncTests
     [Test]
     public void StateMachine_StillRefusesATransitionMadeBeforeTheItemMoved()
     {
-        ItemAuthorityState state = State(revision: 4, placement: AuthorityPlacement.World);
-        state = Apply(state, actor: 3, expected: 4, AuthorityPlacement.PlayerHand);     // player 3 takes it -> 5
+        LiveItemState state = State(revision: 4, placement: LivePlacement.World);
+        state = Apply(state, actor: 3, expected: 4, LivePlacement.PlayerHand);     // player 3 takes it -> 5
         state = Apply(state, actor: 3, expected: 5, null);                              // and lights it -> 6
 
-        ItemAuthorityResult late = ItemAuthorityStateMachine.Apply(state,
-            Command(actor: 2, expected: 4, AuthorityPlacement.PlayerHand));
+        TransitionResult late = ItemStateMachine.Apply(state,
+            Command(actor: 2, expected: 4, LivePlacement.PlayerHand));
 
         Assert.That(late.Accepted, Is.False);
         Assert.That(late.RejectionReason, Is.EqualTo("stale-authority-revision"));
@@ -212,7 +212,7 @@ public sealed class ItemReleaseSyncTests
             WireItemState.Dropped, locallyPossessed: true), Is.False);
     }
 
-    private static ItemAuthorityState State(uint revision, AuthorityPlacement placement, byte holder = 0) => new()
+    private static LiveItemState State(uint revision, LivePlacement placement, byte holder = 0) => new()
     {
         NetId = 801,
         Revision = revision,
@@ -220,21 +220,21 @@ public sealed class ItemReleaseSyncTests
         PlacementPlayerId = holder
     };
 
-    private static ItemTransitionCommand Command(byte actor, uint expected, AuthorityPlacement? placement,
+    private static ItemTransition Command(byte actor, uint expected, LivePlacement? placement,
         bool force = false) => new()
     {
         ActorPlayerId = actor,
         ExpectedRevision = expected,
         Force = force,
         AppliesPlacement = placement.HasValue,
-        RequestedPlacement = placement ?? AuthorityPlacement.World,
+        RequestedPlacement = placement ?? LivePlacement.World,
         MayEstablishPersistentOwner = false
     };
 
-    private static ItemAuthorityState Apply(ItemAuthorityState state, byte actor, uint expected,
-        AuthorityPlacement? placement, bool force = false)
+    private static LiveItemState Apply(LiveItemState state, byte actor, uint expected,
+        LivePlacement? placement, bool force = false)
     {
-        ItemAuthorityResult result = ItemAuthorityStateMachine.Apply(state, Command(actor, expected, placement, force));
+        TransitionResult result = ItemStateMachine.Apply(state, Command(actor, expected, placement, force));
         Assert.That(result.Accepted, Is.True, result.RejectionReason);
         return result.State;
     }

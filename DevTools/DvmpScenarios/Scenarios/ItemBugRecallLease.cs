@@ -13,7 +13,7 @@ namespace Dvmp.Scenarios
     /// Known item bug SL4 (expected to fail on beta, docs/research/item-bug-review.md): the client
     /// drops its comms radio in a moving loco's cab, where the item has a physics lease, and recalls
     /// it into its slot. The recall commits the inventory placement without ending the lease
-    /// (AuthoritativeItemRegistry.TryCommitPreparedRecall skips the only revoke), so the lease lives
+    /// (LiveItems.TryCommitPreparedRecall skips the only revoke), so the lease lives
     /// on and the save writes the lease's placement: after a restart the radio is back in the cab,
     /// not in the inventory.
     /// </summary>

@@ -25,7 +25,7 @@ public sealed class OwnedItemRow
 /// <summary>
 /// A player's owned-items list (owned-items.md, "The owned-items list", PR 6a): a row per live
 /// ledger entry they own, ended ones left out, with where it is worded by the server
-/// (<see cref="OwnedItemPlaceText"/>). An item keeps its handle for the session, so a retrieval
+/// (<see cref="PlaceText"/>). An item keeps its handle for the session, so a retrieval
 /// (PR 6b) can name it while the list is open.
 /// </summary>
 public static class OwnedItemRows
@@ -37,28 +37,28 @@ public static class OwnedItemRows
     public static List<OwnedItemRow> For(ServerPlayer player)
     {
         List<OwnedItemRow> rows = new();
-        if (player == null || player.Guid == Guid.Empty || !OwnedItemsServer.Loaded)
+        if (player == null || player.Guid == Guid.Empty || !ServerLedger.Loaded)
             return rows;
 
-        Dictionary<Guid, AuthoritativeItemRegistry.Record> records = new();
-        foreach (AuthoritativeItemRegistry.Record record in AuthoritativeItemRegistry.GetAll())
+        Dictionary<Guid, LiveItems.LiveItem> records = new();
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
             if (record.PersistentItemId != Guid.Empty && !records.ContainsKey(record.PersistentItemId))
                 records.Add(record.PersistentItemId, record);
-        ColdContainerGraphSnapshot cold = NetworkedColdContainerManager.Graph.ExportSnapshot();
-        Dictionary<Guid, ColdStoredItemRecord> stored = cold.Items
+        ContainerGraphSnapshot cold = ContainerServer.Graph.ExportSnapshot();
+        Dictionary<Guid, StoredItemRecord> stored = cold.Items
             .GroupBy(item => item.PersistentItemId).ToDictionary(group => group.Key, group => group.First());
-        Dictionary<Guid, ColdContainerRecord> containers = cold.Containers
+        Dictionary<Guid, ContainerRecord> containers = cold.Containers
             .GroupBy(container => container.PersistentContainerId).ToDictionary(group => group.Key, group => group.First());
 
-        foreach (OwnedItemEntry entry in OwnedItemsServer.Ledger.LiveOwnedBy(player.Guid))
+        foreach (LedgerEntry entry in ServerLedger.Ledger.LiveOwnedBy(player.Guid))
         {
-            records.TryGetValue(entry.Id, out AuthoritativeItemRegistry.Record record);
-            stored.TryGetValue(entry.Id, out ColdStoredItemRecord inContainer);
+            records.TryGetValue(entry.Id, out LiveItems.LiveItem record);
+            stored.TryGetValue(entry.Id, out StoredItemRecord inContainer);
             string containerName = null;
-            if (entry.Where.Place == OwnedItemPlace.Container && Guid.TryParse(entry.Where.Anchor, out Guid containerId) &&
-                containers.TryGetValue(containerId, out ColdContainerRecord container))
+            if (entry.Where.Place == HomeKind.Container && Guid.TryParse(entry.Where.Anchor, out Guid containerId) &&
+                containers.TryGetValue(containerId, out ContainerRecord container))
                 containerName = NameOf(container.PrefabName);
-            OwnedItemPlaceFacts facts = new(player.Guid,
+            PlaceFacts facts = new(player.Guid,
                 holderName: NetworkServer.Instance?.ServerPlayers.FirstOrDefault(p => p.Guid == entry.Where.Holder)?.Username,
                 carId: CarOf(record),
                 containerName: containerName);
@@ -68,8 +68,8 @@ public static class OwnedItemRows
                 Id = entry.Id,
                 Prefab = entry.Prefab ?? string.Empty,
                 DisplayName = !string.IsNullOrEmpty(inContainer?.DisplayName) ? inContainer.DisplayName : NameOf(entry.Prefab),
-                Where = OwnedItemPlaceText.Describe(entry.Where, facts),
-                Retrievable = OwnedItemRetrieval.CanRetrieve(player, entry, out _)
+                Where = PlaceText.Describe(entry.Where, facts),
+                Retrievable = Retrieval.CanRetrieve(player, entry, out _)
             });
         }
         return rows;
@@ -89,7 +89,7 @@ public static class OwnedItemRows
     }
 
     // The car an item is in, on or attached to, by its id (L-042).
-    private static string CarOf(AuthoritativeItemRegistry.Record record)
+    private static string CarOf(LiveItems.LiveItem record)
     {
         if (record == null)
             return null;

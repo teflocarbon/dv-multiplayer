@@ -328,6 +328,6 @@ public sealed class ServerShops
     }
 
     private static bool HeldBy(NetworkedItem item, ServerPlayer player) =>
-        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
+        LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) &&
         record.Placement == ItemPlacementKind.PlayerHand && record.PlacementPlayerId == player.PlayerId;
 }

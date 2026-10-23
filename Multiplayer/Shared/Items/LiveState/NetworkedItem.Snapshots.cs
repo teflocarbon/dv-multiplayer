@@ -368,7 +368,7 @@ public partial class NetworkedItem
                     ToWireState(GetItemState()),
                     IsLocallyPossessed()) ||
                 (Item != null &&
-                    BeltItemPolicy.IsSupersededOwnHold(NetworkRole.IsServer,
+                    BeltSlots.IsSupersededOwnHold(NetworkRole.IsServer,
                         NetworkRole.LocalPlayerId, snapshot.OriginatingPlayerId,
                         ToWireState(snapshot.ItemState), Item.IsGrabbed(),
                         InventoryIntegration.ContainsActive(gameObject)))))
@@ -810,7 +810,7 @@ public partial class NetworkedItem
     }
 
     private bool HoldingVrRelease() =>
-        vrBeltReleaseFrame >= 0 && Item != null && BeltItemPolicy.HoldVrRelease(Item.IsBeltSnappable,
+        vrBeltReleaseFrame >= 0 && Item != null && BeltSlots.HoldVrRelease(Item.IsBeltSnappable,
             vrBeltReleaseFrame, Time.frameCount, Item.IsGrabbed(),
             InventoryIntegration.ContainsActive(gameObject));
 

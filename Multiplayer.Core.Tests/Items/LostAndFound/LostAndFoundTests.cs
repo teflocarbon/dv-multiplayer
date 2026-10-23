@@ -15,7 +15,7 @@ public sealed class LostAndFoundTests
         Revision = 7,
         PersistentOwnerPlayerId = 1,
         IsPersonalItem = true,
-        Placement = AuthorityPlacement.World,
+        Placement = LivePlacement.World,
         OwnerPositionKnown = true,
         OwnerDistanceSquared = 201 * 201,
         NearestPlayerPositionKnown = true,
@@ -29,13 +29,13 @@ public sealed class LostAndFoundTests
         Assert.That(LostItemCollectionPolicy.Evaluate(Eligible(), 200, 100, 10).ShouldCollect, Is.True);
     }
 
-    [TestCase(AuthorityPlacement.PlayerHand)]
-    [TestCase(AuthorityPlacement.PlayerInventory)]
-    [TestCase(AuthorityPlacement.Container)]
-    [TestCase(AuthorityPlacement.Attached)]
-    [TestCase(AuthorityPlacement.Installed)]
-    [TestCase(AuthorityPlacement.LostAndFound)]
-    public void NonWorldPlacement_IsNeverCollected(AuthorityPlacement placement)
+    [TestCase(LivePlacement.PlayerHand)]
+    [TestCase(LivePlacement.PlayerInventory)]
+    [TestCase(LivePlacement.Container)]
+    [TestCase(LivePlacement.Attached)]
+    [TestCase(LivePlacement.Installed)]
+    [TestCase(LivePlacement.LostAndFound)]
+    public void NonWorldPlacement_IsNeverCollected(LivePlacement placement)
     {
         LostItemCandidate item = Eligible();
         item.Placement = placement;
@@ -387,9 +387,9 @@ public sealed class LostAndFoundTests
     }
 
     [TestCase(null)]
-    [TestCase(AuthorityPlacement.LostAndFound)]
-    [TestCase(AuthorityPlacement.World)]
-    public void Reconcile_EntryWhoseItemIsGone_IsDestroyed(AuthorityPlacement? placement)
+    [TestCase(LivePlacement.LostAndFound)]
+    [TestCase(LivePlacement.World)]
+    public void Reconcile_EntryWhoseItemIsGone_IsDestroyed(LivePlacement? placement)
     {
         Assert.That(LostItemEntryReconciler.Classify(itemPresent: false, placement),
             Is.EqualTo(LostItemEntryStatus.ItemDestroyed));
@@ -398,7 +398,7 @@ public sealed class LostAndFoundTests
     [Test]
     public void Reconcile_StoredItemIsKept()
     {
-        Assert.That(LostItemEntryReconciler.Classify(true, AuthorityPlacement.LostAndFound),
+        Assert.That(LostItemEntryReconciler.Classify(true, LivePlacement.LostAndFound),
             Is.EqualTo(LostItemEntryStatus.Stored));
     }
 
@@ -409,11 +409,11 @@ public sealed class LostAndFoundTests
             Is.EqualTo(LostItemEntryStatus.AwaitingAuthority));
     }
 
-    [TestCase(AuthorityPlacement.World)]
-    [TestCase(AuthorityPlacement.PlayerInventory)]
-    [TestCase(AuthorityPlacement.PlayerHand)]
-    [TestCase(AuthorityPlacement.Destroyed)]
-    public void Reconcile_ItemMovedOutByAnotherSystem_PlacementChanged(AuthorityPlacement placement)
+    [TestCase(LivePlacement.World)]
+    [TestCase(LivePlacement.PlayerInventory)]
+    [TestCase(LivePlacement.PlayerHand)]
+    [TestCase(LivePlacement.Destroyed)]
+    public void Reconcile_ItemMovedOutByAnotherSystem_PlacementChanged(LivePlacement placement)
     {
         Assert.That(LostItemEntryReconciler.Classify(true, placement),
             Is.EqualTo(LostItemEntryStatus.PlacementChanged));
@@ -433,11 +433,11 @@ public sealed class LostAndFoundTests
         registry.Add(radio);
         registry.Add(booklet);
         registry.TryGet(739, out LostItemRecord storedBooklet);
-        Dictionary<ushort, AuthorityPlacement> live = new() { [42] = AuthorityPlacement.LostAndFound };
+        Dictionary<ushort, LivePlacement> live = new() { [42] = LivePlacement.LostAndFound };
 
         foreach (LostItemRecord entry in registry.GetAll())
         {
-            bool present = live.TryGetValue(entry.NetId, out AuthorityPlacement placement);
+            bool present = live.TryGetValue(entry.NetId, out LivePlacement placement);
             if (LostItemEntryReconciler.Classify(present, present ? placement : null) ==
                 LostItemEntryStatus.ItemDestroyed)
                 registry.RemoveStale(entry.NetId, out _);

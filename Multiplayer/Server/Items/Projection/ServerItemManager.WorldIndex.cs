@@ -59,14 +59,14 @@ internal sealed partial class ServerItemManager
         HostCellByItem.Remove(item);
         HostNonSpatialItems.Remove(item);
 
-        if (WorldItemPersistenceManager.IsRestorePending(item))
+        if (ItemSaveLoad.IsRestorePending(item))
             return;
 
-        if (NetworkedLostAndFoundManager.Contains(item.NetId))
+        if (LostAndFoundServer.Contains(item.NetId))
             return;
         // An installed gadget's inactive item isn't where its transform is (Server/Gadgets).
         // Committing it as installed indexes it again, as non-spatial.
-        bool recorded = AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record);
+        bool recorded = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record);
         if ((!recorded || record.Placement != ItemPlacementKind.Installed) &&
             GadgetItemTransitions.TryCommitIfInstalled(item))
             return;
@@ -149,7 +149,7 @@ internal sealed partial class ServerItemManager
     }
 
     internal void OnAuthoritativeItemTransition(NetworkedItem item, ItemUpdateData snapshot,
-        AuthoritativeItemRegistry.Record record, ServerPlayer actor, ItemPlacementKind previousPlacement,
+        LiveItems.LiveItem record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {
         // Every committed placement is indexed in the same operation, by the record's pose. One left
@@ -175,6 +175,6 @@ internal sealed partial class ServerItemManager
         ServerPlayer sender) => TrainItemWake.ReceiveImpactWitness(packet, sender);
 
     internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
-        AuthoritativeItemRegistry.Record record) =>
+        LiveItems.LiveItem record) =>
         HostSpatial.ResetAuthoredItemToBaseline(item, record);
 }

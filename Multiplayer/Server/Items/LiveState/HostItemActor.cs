@@ -9,7 +9,7 @@ namespace Multiplayer.Server.Items.LiveState;
 ///     (what its own hands did and what its game did around it, as always), or, on a host with no
 ///     player of its own (a dedicated host), the server itself (host-local-session stage 3): the
 ///     server commits its world's changes, simulates its own releases and witnesses its own impacts
-///     as <see cref="ItemTransitionCommand.ServerActorId"/>.
+///     as <see cref="ItemTransition.ServerActorId"/>.
 /// </summary>
 internal static class HostItemActor
 {
@@ -27,5 +27,5 @@ internal static class HostItemActor
     public static bool Present => Player != null || IsServer;
 
     /// <summary>The simulator id of the host's own simulation in item leases and samples.</summary>
-    public static byte SimulatorId => Player?.PlayerId ?? ItemTransitionCommand.ServerActorId;
+    public static byte SimulatorId => Player?.PlayerId ?? ItemTransition.ServerActorId;
 }

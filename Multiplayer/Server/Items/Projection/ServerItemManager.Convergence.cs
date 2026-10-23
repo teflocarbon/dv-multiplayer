@@ -64,18 +64,18 @@ internal sealed partial class ServerItemManager
     // have their own authority flows that a re-sent snapshot could race with.
     private bool IsConvergenceCandidate(NetworkedItem item) =>
         item != null && item.NetId != 0 &&
-        AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) &&
+        LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) &&
         record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent &&
         !shell.HasActiveSpatialState(item.NetId) &&
-        !NetworkedLostAndFoundManager.Contains(item.NetId) &&
-        !WorldItemPersistenceManager.IsRestorePending(item);
+        !LostAndFoundServer.Contains(item.NetId) &&
+        !ItemSaveLoad.IsRestorePending(item);
 
     // The host's live object is what clients should match (the record's pose can lag, e.g. for
     // items riding in cars); authority metadata comes from the record.
     private static bool TryCreateConvergenceSnapshot(NetworkedItem item, out ItemUpdateData snapshot)
     {
         snapshot = null;
-        if (!AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
+        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
             return false;
         snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.ItemPosition);
         if (snapshot == null)

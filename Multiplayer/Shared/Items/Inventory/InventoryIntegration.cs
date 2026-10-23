@@ -143,7 +143,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
     {
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         RuntimeInventoryView view = new(inventory, item, expectedSlot);
-        InventoryClaimPlan plan = InventoryClaimPlanner.EnsureDroppedClaim(view, expectedSlot);
+        InventoryClaimPlan plan = SlotClaimPlanner.EnsureDroppedClaim(view, expectedSlot);
         string failure = string.Empty;
         bool succeeded = !plan.Rejected;
         if (succeeded)
@@ -176,7 +176,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         MakeRoomForClaim(inventory, item, expectedSlot);
         RuntimeInventoryView view = new(inventory, item, expectedSlot);
-        InventoryClaimPlan plan = InventoryClaimPlanner.RestoreClaim(view, expectedSlot);
+        InventoryClaimPlan plan = SlotClaimPlanner.RestoreClaim(view, expectedSlot);
         bool succeeded = !plan.Rejected;
         string failure = plan.Rejected ? plan.Reason : string.Empty;
         if (succeeded && plan.Action is InventoryClaimAction.RestoreExistingItem or

@@ -41,8 +41,8 @@ internal sealed partial class ServerItemManager
     {
         uint tick = NetworkLifecycle.Instance.Tick;
         // Lost and Found items are few; find them once, not by scanning every item per player.
-        NetworkedItem[] lostItems = NetworkedLostAndFoundManager.Count == 0 ? Array.Empty<NetworkedItem>() :
-            NetworkedItem.GetAll().Where(item => item != null && NetworkedLostAndFoundManager.Contains(item.NetId))
+        NetworkedItem[] lostItems = LostAndFoundServer.Count == 0 ? Array.Empty<NetworkedItem>() :
+            NetworkedItem.GetAll().Where(item => item != null && LostAndFoundServer.Contains(item.NetId))
                 .Distinct().ToArray();
         foreach (var player in NetworkServer.Instance.ServerPlayers)
         {
@@ -67,7 +67,7 @@ internal sealed partial class ServerItemManager
                 player.NearbyItems.Remove(item);
                 if (player.Peer != NetworkServer.Instance.SelfPeer &&
                     !player.KnownItems.ContainsKey(item) &&
-                    NetworkedLostAndFoundManager.TryCreateCollectionProjection(item, out ItemUpdateData tombstone))
+                    LostAndFoundServer.TryCreateCollectionProjection(item, out ItemUpdateData tombstone))
                 {
                     // An essential in its owner's Lost and Found keeps the owner's red silhouette,
                     // their recall. A tombstone only projects a copy the game already has, and an
@@ -135,7 +135,7 @@ internal sealed partial class ServerItemManager
 
             foreach (NetworkedItem entering in desiredItems)
             {
-                if (!NetworkedLostAndFoundManager.Contains(entering.NetId))
+                if (!LostAndFoundServer.Contains(entering.NetId))
                     player.NearbyItems[entering] = Time.time;
             }
             HostPlayerCells[player.PlayerId] = desiredCells;
@@ -152,7 +152,7 @@ internal sealed partial class ServerItemManager
         HashSet<WorldItemCellCoord> recipientCells)
     {
         if (item == null || recipient == null ||
-            !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record))
+            !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
             return false;
         // An installed gadget rides its car, and every player has every car: its item is every
         // player's to know (gadgets.md, "The installed gadget and its item").
@@ -221,18 +221,18 @@ internal sealed partial class ServerItemManager
         out ItemUpdateData create)
     {
         create = null;
-        if (!AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) ||
+        if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
             record.PersistentOwnerPlayerId != player.PlayerId || !HasOwnerRecallClaim(record) ||
             item.Item?.InventorySpecs?.IsEssential != true)
             return false;
         create = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
         if (create == null)
             return false;
-        AuthoritativeItemRegistry.WriteToSnapshot(record, create, record.LastReason);
+        LiveItems.WriteToSnapshot(record, create, record.LastReason);
         return true;
     }
 
-    private static bool HasOwnerRecallClaim(AuthoritativeItemRegistry.Record record) =>
+    private static bool HasOwnerRecallClaim(LiveItems.LiveItem record) =>
         record != null && record.InventoryClaimPlayerId == record.PersistentOwnerPlayerId &&
         record.InventoryClaimSlot >= 0 &&
         (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved |
@@ -273,12 +273,12 @@ internal sealed partial class ServerItemManager
         {
             if (item == null)
                 continue;
-            if (NetworkedLostAndFoundManager.Contains(item.NetId))
+            if (LostAndFoundServer.Contains(item.NetId))
                 continue;
-            if (WorldItemPersistenceManager.IsRestorePending(item))
+            if (ItemSaveLoad.IsRestorePending(item))
                 continue;
             // An installed gadget's item changes only with its gadget (Server/Gadgets).
-            if (AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record existingRecord) &&
+            if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem existingRecord) &&
                 existingRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Installed)
                 continue;
             ItemUpdateData snapshot = item.GetSnapshot();
@@ -288,9 +288,9 @@ internal sealed partial class ServerItemManager
             {
                 string rejectionReason;
                 bool accepted = hostPlayer != null
-                    ? AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, hostPlayer,
+                    ? LiveItems.TryApplyTransition(item, snapshot, hostPlayer,
                         ItemTransitionReason.HostLocalState, true, out rejectionReason)
-                    : AuthoritativeItemRegistry.TryApplyServerTransition(item, snapshot,
+                    : LiveItems.TryApplyServerTransition(item, snapshot,
                         ItemTransitionReason.HostLocalState, true, out rejectionReason);
                 if (!accepted)
                 {
@@ -319,7 +319,7 @@ internal sealed partial class ServerItemManager
             // Process nearby items
             foreach (var nearbyItem in player.NearbyItems.Keys)
             {
-                if (NetworkedLostAndFoundManager.Contains(nearbyItem.NetId))
+                if (LostAndFoundServer.Contains(nearbyItem.NetId))
                     continue;
                 bool known = player.KnownItems.TryGetValue(nearbyItem, out uint knownTick);
                 var dirtyUpdate = dirtyItems.FirstOrDefault(di => di.ItemNetId == nearbyItem.NetId);
@@ -349,10 +349,10 @@ internal sealed partial class ServerItemManager
                     ItemUpdateData snapshot = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
                     if (snapshot != null && hostActs)
                     {
-                        AuthoritativeItemRegistry.Record record =
-                            AuthoritativeItemRegistry.Ensure(nearbyItem, hostPlayer, snapshot);
+                        LiveItems.LiveItem record =
+                            LiveItems.Ensure(nearbyItem, hostPlayer, snapshot);
                         if (record != null)
-                            AuthoritativeItemRegistry.WriteToSnapshot(record, snapshot, record.LastReason);
+                            LiveItems.WriteToSnapshot(record, snapshot, record.LastReason);
                         shell.Spatial?.ApplyLatestAcceptedToSnapshot(snapshot);
                     }
 

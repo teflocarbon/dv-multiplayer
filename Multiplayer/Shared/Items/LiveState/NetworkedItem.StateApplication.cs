@@ -107,7 +107,7 @@ public partial class NetworkedItem
 
     // An item on the local VR player's belt is in their inventory: the snap only shows the slot.
     private bool KeepsLocalBeltSnap(byte playerId, ItemState targetState) =>
-        BeltItemPolicy.KeepBeltSnap(ToWireState(targetState), playerId, InventoryIntegration.LocalPlayerId,
+        BeltSlots.KeepBeltSnap(ToWireState(targetState), playerId, InventoryIntegration.LocalPlayerId,
             Item.SnappableItem?.SnappedTo is DV.Items.Snapping.ItemSnapPointBelt,
             InventoryIntegration.ContainsActive(gameObject));
 

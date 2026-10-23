@@ -941,9 +941,9 @@ public partial class NetworkServer : NetworkManager
         if (isLocalPlayer)
             LocalPlayer = serverPlayer;
         global::Multiplayer.Server.Career.InstallGuidRekey.OnLogin(serverPlayer);
-        AuthoritativeItemRegistry.RebindPersistentOwner(serverPlayer);
-        NetworkedLostAndFoundManager.OnOwnerConnected(serverPlayer);
-        WorldItemPersistenceManager.OnOwnerConnected(serverPlayer);
+        LiveItems.RebindPersistentOwner(serverPlayer);
+        LostAndFoundServer.OnOwnerConnected(serverPlayer);
+        ItemSaveLoad.OnOwnerConnected(serverPlayer);
         DedicatedHost.OnPlayersChanged(someoneLeft: false);
         return serverPlayer;
     }
@@ -1201,7 +1201,7 @@ public partial class NetworkServer : NetworkManager
             case PlayerLoadingState.ReadyForItems:
                 // Before the player's items go out: a save may hold two of their essentials on one
                 // slot, which left one with no silhouette and no recall.
-                AuthoritativeItemRegistry.EnsureDistinctClaimSlots(player, "owner-loading");
+                LiveItems.EnsureDistinctClaimSlots(player, "owner-loading");
                 // World items will be spawned when the player is within the culling range
                 break;
 

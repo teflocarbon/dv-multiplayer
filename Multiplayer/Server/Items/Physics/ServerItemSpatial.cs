@@ -92,7 +92,7 @@ internal sealed class ServerItemSpatial
     }
 
     internal void OnAuthoritativeTransitionCommitted(NetworkedItem item, ItemUpdateData snapshot,
-        AuthoritativeItemRegistry.Record record, ServerPlayer actor, ItemPlacementKind previousPlacement,
+        LiveItems.LiveItem record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {
         if (!NetworkLifecycle.Instance.IsHost() || item == null || record == null || !appliesPlacement)
@@ -107,7 +107,7 @@ internal sealed class ServerItemSpatial
         if (entersWorld && releasedByPlayer && (actor != null || HostItemActor.IsServer))
         {
             pendingHostBegins[item.NetId] = (item, record.Revision,
-                actor?.PlayerId ?? ItemTransitionCommand.ServerActorId,
+                actor?.PlayerId ?? ItemTransition.ServerActorId,
                 snapshot.ItemState == ItemState.Thrown ? ItemSpatialPhase.InFlight : ItemSpatialPhase.Sliding);
             return;
         }
@@ -121,7 +121,7 @@ internal sealed class ServerItemSpatial
     }
 
     internal bool ResetAuthoredItemToBaseline(NetworkedItem item,
-        AuthoritativeItemRegistry.Record record)
+        LiveItems.LiveItem record)
     {
         if (!NetworkLifecycle.Instance.IsHost() || item == null || record == null ||
             item.NetId == 0 || record.NetId != item.NetId ||
@@ -149,8 +149,8 @@ internal sealed class ServerItemSpatial
             ParentLocalRotation = Quaternion.identity,
             Sleeping = true
         };
-        if (!AuthoritativeItemRegistry.TryCommitSpatialPose(item, record.Revision, state,
-                out AuthoritativeItemRegistry.Record committed, out string rejection))
+        if (!LiveItems.TryCommitSpatialPose(item, record.Revision, state,
+                out LiveItems.LiveItem committed, out string rejection))
         {
             Publish("item.authored-slot-reset-rejected", item.NetId, new()
             {
@@ -200,8 +200,8 @@ internal sealed class ServerItemSpatial
         {
             pendingHostBegins.Remove(pair.Key);
             var pending = pair.Value;
-            if (pending.Item == null || !AuthoritativeItemRegistry.TryGet(pair.Key, out var record) ||
-                !AuthoritativeItemRegistry.PlacementUnchangedSince(record, pending.Revision) ||
+            if (pending.Item == null || !LiveItems.TryGet(pair.Key, out var record) ||
+                !LiveItems.PlacementUnchangedSince(record, pending.Revision) ||
                 record.Placement is not (ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                     ItemPlacementKind.StaticParent))
                 continue;
@@ -209,12 +209,12 @@ internal sealed class ServerItemSpatial
         }
     }
 
-    private void BeginHostLease(NetworkedItem item, AuthoritativeItemRegistry.Record record,
+    private void BeginHostLease(NetworkedItem item, LiveItems.LiveItem record,
         byte simulatorPlayerId, ItemSpatialPhase phase)
     {
         // Simulator 0 is the server itself, only on a host with no player of its own.
         if (item == null || record == null ||
-            simulatorPlayerId == ItemTransitionCommand.ServerActorId && !HostItemActor.IsServer)
+            simulatorPlayerId == ItemTransition.ServerActorId && !HostItemActor.IsServer)
             return;
         // The new lease's presentation sets the body up (a proxy is stopped, a local simulator keeps
         // its motion), as a client's game and a lease transfer do. Stopping it here lost the force
@@ -325,7 +325,7 @@ internal sealed class ServerItemSpatial
             return false;
         }
         if (!NetworkedItem.TryGet(itemNetId, out NetworkedItem item) || item == null ||
-            !AuthoritativeItemRegistry.TryGet(itemNetId, out AuthoritativeItemRegistry.Record record))
+            !LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record))
         {
             rejection = "item-representation-unavailable";
             return false;
@@ -346,7 +346,7 @@ internal sealed class ServerItemSpatial
         ItemSpatialStateData baseline;
         if (!committedStates.TryGetValue(itemNetId, out ItemSpatialStateData committed) ||
             committed == null ||
-            !AuthoritativeItemRegistry.PlacementUnchangedSince(record, committed.AuthorityRevision) ||
+            !LiveItems.PlacementUnchangedSince(record, committed.AuthorityRevision) ||
             committed.WorldParentKind != ItemWorldParentKind.TrainInterior ||
             committed.WorldParentNetId != record.WorldParentNetId)
         {
@@ -412,7 +412,7 @@ internal sealed class ServerItemSpatial
     }
 
     private static bool TrySelectTrainWakeSimulator(NetworkedItem item,
-        AuthoritativeItemRegistry.Record record, byte preferredPlayerId, out ServerPlayer selected)
+        LiveItems.LiveItem record, byte preferredPlayerId, out ServerPlayer selected)
     {
         selected = null;
         if (NetworkServer.Instance == null || item == null || record == null)
@@ -494,8 +494,8 @@ internal sealed class ServerItemSpatial
     private bool TryTransferLease(NetworkedItem item, Lease previous, string reason)
     {
         if (item == null || previous?.LastAccepted == null ||
-            !AuthoritativeItemRegistry.TryGet(item.NetId, out AuthoritativeItemRegistry.Record record) ||
-            !AuthoritativeItemRegistry.PlacementUnchangedSince(record, previous.AuthorityRevision))
+            !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
+            !LiveItems.PlacementUnchangedSince(record, previous.AuthorityRevision))
             return false;
 
         ServerPlayer candidate = NetworkServer.Instance.ServerPlayers
@@ -576,15 +576,15 @@ internal sealed class ServerItemSpatial
         }
         // The lease stays good while only object state has changed since it was granted (the
         // server's copy of a thrown lantern flickering): placement is what it simulates.
-        bool registryCurrent = AuthoritativeItemRegistry.TryGet(state.ItemNetId,
-            out AuthoritativeItemRegistry.Record record) &&
-            AuthoritativeItemRegistry.PlacementUnchangedSince(record, lease.AuthorityRevision);
+        bool registryCurrent = LiveItems.TryGet(state.ItemNetId,
+            out LiveItems.LiveItem record) &&
+            LiveItems.PlacementUnchangedSince(record, lease.AuthorityRevision);
         bool simulatablePlacement = registryCurrent && record.Placement is ItemPlacementKind.World or
             ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent;
         rejection = ItemSpatialStreamValidator.Validate(
             new ItemSpatialLeaseToken(lease.SimulatorPlayerId, lease.AuthorityRevision, lease.Epoch,
                 lease.LastSequence, simulatablePlacement),
-            new ItemSpatialSampleToken(sender?.PlayerId ?? ItemTransitionCommand.ServerActorId,
+            new ItemSpatialSampleToken(sender?.PlayerId ?? ItemTransition.ServerActorId,
                 state.SimulatorPlayerId, state.AuthorityRevision,
                 state.SimulationEpoch, state.SampleSequence));
         if (!string.IsNullOrEmpty(rejection))
@@ -697,8 +697,8 @@ internal sealed class ServerItemSpatial
         if (item == null || state == null || !leases.TryGetValue(item.NetId, out Lease current) ||
             current.Epoch != lease.Epoch)
             return;
-        if (!AuthoritativeItemRegistry.TryCommitSpatialPose(item, lease.AuthorityRevision, state,
-                out AuthoritativeItemRegistry.Record record, out string rejection))
+        if (!LiveItems.TryCommitSpatialPose(item, lease.AuthorityRevision, state,
+                out LiveItems.LiveItem record, out string rejection))
         {
             Reject(state, null, rejection);
             return;
