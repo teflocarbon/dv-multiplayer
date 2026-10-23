@@ -27,6 +27,13 @@ host-authority model works end to end, then points at the rest.
 | [design/trains.md](design/trains.md) | Train sync: canonical topology (couplers, hoses, cocks, MU cables), control commits, motion and corrections |
 | [design/items/README.md](design/items/README.md) | **Start here for items.** The item system as the [refactor](design/item-refactor.md) builds it: the guarantee, the three names (ledger, live state, saving and loading), the homes, and one code folder and doc per subsystem. The old item docs are under [Legacy](#legacy) |
 | [design/items/wire.md](design/items/wire.md) | The item wire (R2): naming items (NetId, one handle space, never a GUID) and players (a holder by number; each player's relation to an item, never its owner; the claim only to its claimant), the per-recipient update, one request and one result with a remembered request id, one-step recall, one list, the refusal codes |
+| [design/items/ledger.md](design/items/ledger.md) | The ledger (R3): every owned item's owner and exact home, commits first, births and lineage, cold and live homes (D12), the one-home check, the re-key merge, and the ownership questions still open |
+| [design/items/live-state.md](design/items/live-state.md) | Live state (R3): the record of every item now, the state machine and the order of a transition, revisions, data-only records, and what live state owns beside the ledger |
+| [design/items/inventory.md](design/items/inventory.md) | Inventories (R3): an exact slot for every item, slot moves and swaps as requests, the optimistic client, a leaver's inventory going cold and back, data only on the server for a remote player's inventory |
+| [design/items/essentials.md](design/items/essentials.md) | Essentials and starting items (R3): the issuer, claim slots from the ledger, recall, the silhouette |
+| [design/items/owned-list.md](design/items/owned-list.md) | The owned-items list and retrieval (R3): rows from the ledger, the place text, what retrieval does from each home |
+| [design/items/access.md](design/items/access.md) | `ItemAccess` (R3): the one place that decides what a player may do with an item, each action's rule, and where the server asks |
+| [design/items/change-causes.md](design/items/change-causes.md) | Why an item moved or went away (R3): the causes, how the server names them, and what goes on the wire |
 | [design/shops.md](design/shops.md) | Shops as a server transaction: shared registers and shelves, the cash rules and the scanner are built; prediction, delivery to the owner, receipts, station fixtures and per-player stock are planned |
 
 ## Legacy
@@ -35,16 +42,16 @@ Docs that describe a system before it was rebuilt, kept as evidence of how it be
 
 | Doc | What it covers |
 |---|---|
-| [legacy/items/item-lifecycle.md](legacy/items/item-lifecycle.md) | Legacy, replaced in R3: An item's whole life in short, the record's facts and placements, the state machine, cleanup precedence and the shared rules, with a link to each item system's doc |
-| [legacy/items/owned-items.md](legacy/items/owned-items.md) | Legacy, replaced in R3: Ownership and the owned-items ledger: one id for life, starting items, joining and leaving, essentials' claim slots and recall, the owned-items list and retrieval, lineage, `ItemAccess` and fixtures, and the decisions with their dates |
+| [legacy/items/item-lifecycle.md](legacy/items/item-lifecycle.md) | Legacy, replaced in R3 by [live-state.md](design/items/live-state.md): An item's whole life in short, the record's facts and placements, the state machine, cleanup precedence and the shared rules, with a link to each item system's doc |
+| [legacy/items/owned-items.md](legacy/items/owned-items.md) | Legacy, replaced in R3 by [ledger.md](design/items/ledger.md), [inventory.md](design/items/inventory.md), [essentials.md](design/items/essentials.md), [owned-list.md](design/items/owned-list.md) and [access.md](design/items/access.md): Ownership and the owned-items ledger: one id for life, starting items, joining and leaving, essentials' claim slots and recall, the owned-items list and retrieval, lineage, `ItemAccess` and fixtures, and the decisions with their dates |
 | [legacy/items/lost-and-found.md](legacy/items/lost-and-found.md) | Legacy, replaced in R6: Lost and Found: what is collected and when, entries, retrieval, saving and loading |
 | [legacy/items/container-storage.md](legacy/items/container-storage.md) | Legacy, replaced in R5: Cold containers: contents as server records, browse, deposit, withdraw, saving |
 | [legacy/items/item-world-sync.md](legacy/items/item-world-sync.md) | Legacy, replaced in R7: Scene-authored items and the catalogue, cells and interest, projection to clients, convergence, anchored placements, the VR belt and office stock |
 | [legacy/items/item-spatial-physics.md](legacy/items/item-spatial-physics.md) | Legacy, replaced in R7: Thrown and dropped items: simulation leases, sampling, settlement, the terrain guard and fall rescue |
 | [legacy/items/train-item-wake.md](legacy/items/train-item-wake.md) | Legacy, replaced in R7: Items resting in moving trains, and the server waking them |
 | [legacy/items/item-persistence.md](legacy/items/item-persistence.md) | Legacy, replaced in R4: Which store saves each item, `WorldItemsV1`, and how a load rebuilds them |
-| [legacy/items/item-change-causes.md](legacy/items/item-change-causes.md) | Legacy, replaced in R3: Why an item moved or went away: the recorded causes, on the server and clients |
-| [legacy/items/item-ownership-open-questions.md](legacy/items/item-ownership-open-questions.md) | Legacy, replaced in R3: The item-ownership questions still open |
+| [legacy/items/item-change-causes.md](legacy/items/item-change-causes.md) | Legacy, replaced in R3 by [change-causes.md](design/items/change-causes.md): Why an item moved or went away: the recorded causes, on the server and clients |
+| [legacy/items/item-ownership-open-questions.md](legacy/items/item-ownership-open-questions.md) | Legacy, replaced in R3 by [ledger.md](design/items/ledger.md#open): The item-ownership questions still open |
 | [legacy/items/item-sync-review.md](legacy/items/item-sync-review.md) | Historical: the July 2026 review of item sync, with each finding's status then |
 
 ## Planned

@@ -17,11 +17,12 @@ namespace Dvmp.Scenarios
     /// vehicles only in multiplayer), and saves in the same frame. Then: the one on the loco is
     /// Installed on that car, owned by the client, and the client has no loose copy of it; after a
     /// restart on the save, it is still installed on the loco, once, owned by the client, not in Lost
-    /// and Found, and still not loose on the client; the one on the ground was taken off into the
-    /// world, owned by the client. Finally the loco is deleted: the gadget comes off as a world item
-    /// at its pose, still the client's.
+    /// and Found, and still not loose on the client; the one on the ground is still installed on the
+    /// world, its ledger home `Installed(:global:)`, owned by the client, not in Lost and Found, and
+    /// installed on the client too (OI-GAD-10). Finally the loco is deleted: the gadget comes off as a
+    /// world item at its pose, still the client's.
     /// </summary>
-    [Scenario("gadget-save", "Installed gadgets stay installed on their car across a save and restart, owned and never loose on a client; one on the ground is taken off at load; a deleted car's gadget comes off as its owner's")]
+    [Scenario("gadget-save", "Installed gadgets stay installed on their car or the world across a save and restart, owned and never loose on a client; a deleted car's gadget comes off as its owner's")]
     [Needs(Need.RestartsGames)]
     [Budget(1200)]
     public sealed class GadgetSave : Scenario<GadgetSave.Options>
@@ -70,9 +71,20 @@ namespace Dvmp.Scenarios
             GadgetRecord onGround = await pair.Host.Run<GadgetRecord>(() => Gadgets.Record(set.OnGround));
             Report.Note($"after the restart, the ground's gadget: {onGround.Placement}, anchor '{onGround.Anchor}', owner {onGround.OwnerGuid}");
             Expect.Equal(1, onGround.Count, "after the restart: items with the ground gadget's id");
-            Expect.That(!onGround.InstalledInVanilla, "after the restart: the ground gadget was taken off");
-            Expect.That(onGround.Active, "after the restart: the ground gadget is an active world item");
+            Expect.Equal("Installed", onGround.Placement, "after the restart: the ground gadget's placement");
+            Expect.That(onGround.InstalledInVanilla, "after the restart: vanilla holds the ground gadget as installed");
+            Expect.Equal(":global:", onGround.Anchor, "after the restart: the ground gadget is on the world");
             Expect.Equal(set.ClientGuid, onGround.OwnerGuid, "after the restart: the ground gadget's owner");
+            Expect.That(!onGround.InLostAndFound, "after the restart: the ground gadget is not in Lost and Found");
+            LedgerEntry groundEntry = await pair.Host.Run(() => Owned.Entry(set.OnGround));
+            Expect.Equal("Installed :global:", groundEntry.Where, "after the restart: the ground gadget's ledger home");
+            Expect.Equal(1, await pair.Client.Run<int>(() => Gadgets.CountInstalled(new[] { onGround.NetId })),
+                "after the restart: the client has the ground gadget installed");
+            // OI-LIST-21: the owner's list names both installs.
+            string carRow = await pair.Host.Run(() => LedgerRows.InGame.RowWhere(set.ClientGuid, set.OnCar));
+            Expect.That(carRow.StartsWith("installed on "), "the client's row for the loco's gadget", carRow);
+            Expect.Equal("installed in the world", await pair.Host.Run(() => LedgerRows.InGame.RowWhere(set.ClientGuid, set.OnGround)),
+                "the client's row for the ground gadget");
 
             string[] left = await pair.Host.Run<string[]>(s => Cars.Delete(s, loco.Cars));
             Expect.Zero(left.Length, "cars left after deleting the loco");

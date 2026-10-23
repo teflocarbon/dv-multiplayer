@@ -29,7 +29,7 @@ public class InstalledGadgetData
     };
 }
 
-/// <summary>The gadgets installed on one car.</summary>
+/// <summary>The gadgets installed on one car, or on the world (car 0).</summary>
 public class GadgetAnchorSnapshotData
 {
     public ushort CarNetId;

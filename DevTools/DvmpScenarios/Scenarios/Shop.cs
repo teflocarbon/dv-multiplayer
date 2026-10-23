@@ -63,6 +63,9 @@ namespace Dvmp.Scenarios
             Expect.Equal(b.Stock1, h.Stock, "the host's stock matches the buyer's");
             Expect.That(h.Seen, "the host has the bought item");
             Expect.Equal(b.PlayerId, h.Owner, "the bought item's owner is the buyer");
+            string boughtId = await pair.Host.Run(() => Owned.IdOf(id));
+            LedgerEntry bought = await pair.Host.Run(() => Owned.Entry(boughtId));
+            Expect.Equal("Purchased", bought.Born, "the bought item's birth (OI-LIN-07)");
             Expect.Zero(h.BasketUnits, "units left in the server's basket");
             Expect.Zero(b.Banknotes, "banknotes printed for a wallet payment");
             if (!pair.Dedicated)

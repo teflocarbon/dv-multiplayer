@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Multiplayer.Server.Chat;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.Projection;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
@@ -93,7 +94,8 @@ namespace Dvmp.Scenarios
             Have lost = await pair.Host.Run(() => InGame.Owned(client, essentials));
             ExpectOnceEach(lost, essentials, "after a rejoin with the radio in Lost and Found");
             Expect.Equal(newRadio, lost.Id(radio), $"the client's one {radio} (the one in Lost and Found)");
-            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, newNet), 60);
+            uint newHandle = await pair.Host.Run(() => InGame.HandleOf(newRadio));   // the list names rows by handle (R2)
+            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, newHandle), 60);
             Report.Note($"retrieved the {radio} into slot {slot}");
 
             // The starter kit, once per career.
@@ -107,18 +109,26 @@ namespace Dvmp.Scenarios
             Report.Note("starter kit: " + string.Join(", ", kit.Items));
             await pair.Host.Run(() => InGame.Track(kit.NetIds));
             Expect.Equal(7, kit.Items.Length, "the starter kit's items made at the rejoin");
-            Expect.That(kit.Items.All(i => i.EndsWith("With/Inventory", StringComparison.Ordinal)), "the starter kit is in the client's inventory", string.Join(", ", kit.Items));
+            // Each a ledger home "slot N of <client>", off the belt (OI-ESS-03).
+            Expect.That(kit.Items.All(i => InClientSlotOffBelt(i, client)), "the starter kit is in the client's inventory, off the belt", string.Join(", ", kit.Items));
             Expect.That(kit.Marked, "the client's starter-kit marker is set again");
             Have after = await pair.Host.Run(() => InGame.Owned(client, essentials));
             ExpectOnceEach(after, essentials, "after the starter kit");
         }
 
+        private static bool InClientSlotOffBelt(string item, string client)
+        {
+            string[] parts = item.Split(' ');   // "<prefab> slot <n> of <holder>"
+            return parts.Length == 5 && parts[1] == "slot" && parts[3] == "of" && parts[4] == client &&
+                   int.TryParse(parts[2], out int slot) && slot >= 0 && slot < 33;   // 33-35: the VR belt
+        }
+
         private static async Task BackInInventory(Pair pair, string client, string prefab)
         {
-            foreach (ushort net in await pair.Host.Run(() => InGame.InLostAndFound(client, prefab)))
+            foreach (uint handle in await pair.Host.Run(() => InGame.InLostAndFound(client, prefab)))
             {
-                int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, net), 60);
-                Report.Note($"took the client's {prefab} {net} out of its Lost and Found, into slot {slot}");
+                int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, handle), 60);
+                Report.Note($"took the client's {prefab} (row {handle}) out of its Lost and Found, into slot {slot}");
             }
         }
 
@@ -171,16 +181,19 @@ namespace Dvmp.Scenarios
                 step.Result = !NetworkedItem.TryGet(netId, out NetworkedItem left) || left == null;
             }
 
-            /// <summary>Host: the net IDs of the owner's items of this prefab in their Lost and Found.</summary>
+            /// <summary>Host: the list handles of the owner's items of this prefab in their Lost and Found.</summary>
             [Step]
-            public static ushort[] InLostAndFound(string owner, string prefab)
+            public static uint[] InLostAndFound(string owner, string prefab)
             {
                 Guid who = Guid.Parse(owner);
-                var ids = ServerLedger.Ledger.LiveOwnedBy(Multiplayer.Core.Items.Ledger.OwnerRef.Player(who))
+                return ServerLedger.Ledger.LiveOwnedBy(Multiplayer.Core.Items.Ledger.OwnerRef.Player(who))
                     .Where(e => e.Prefab == prefab && e.Home.Kind == Multiplayer.Core.Items.Ledger.HomeKind.LostAndFound)
-                    .Select(e => e.Id).ToList();
-                return LiveItems.GetAll().Where(r => ids.Contains(r.PersistentItemId)).Select(r => r.NetId).ToArray();
+                    .Select(e => ItemHandles.Of(e.Id)).ToArray();
             }
+
+            /// <summary>Host: the list handle of the item with this lifelong id.</summary>
+            [Step]
+            public static uint HandleOf(string id) => ItemHandles.Of(Guid.Parse(id));
 
             /// <summary>Host: forgets the owner's starter-kit marker, as for a first join. Result: whether they had it.</summary>
             [Step]

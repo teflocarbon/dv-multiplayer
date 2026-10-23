@@ -19,8 +19,8 @@ namespace Multiplayer.Server.Gadgets;
 
 /// <summary>
 /// What a player at <c>ReadyForCustomizers</c> gets (gadgets.md, "Late joiners"): a Create for every
-/// installed gadget's item (placement <c>Installed</c>, on its car) and then one snapshot of every car's
-/// gadgets: each item's UID and its vanilla save data. The player's game replays vanilla's load of
+/// installed gadget's item (placement <c>Installed</c>, on its car or the world) and then one snapshot of
+/// every anchor's gadgets: each item's UID and its vanilla save data. The world's anchor is car 0. The player's game replays vanilla's load of
 /// that data, so whatever vanilla saves (soldering, wires, mount points, settings, modded gadgets)
 /// arrives as the server has it. The items count as known to the player, so the interest that keeps
 /// installed items relevant to every player (they ride cars, which every player has) sends no
@@ -42,8 +42,13 @@ internal sealed class GadgetJoinSnapshot
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
                 continue;
             GadgetBase gadget = item.GetComponent<GadgetItem>()?.Gadget;
-            if (gadget?.Custom is not TrainCarCustomization { TrainCar: { } car } ||
-                !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId))
+            ushort carNetId = 0;
+            if (gadget?.Custom is TrainCarCustomization { TrainCar: { } car })
+            {
+                if (!NetworkedTrainCar.TryGetNetId(car, out carNetId))
+                    continue;
+            }
+            else if (gadget?.Custom is not WorldCustomization)
                 continue;
             JObject state = item.GetComponent<ItemSaveData>()?.SaveItemData();
             ItemUpdate create = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);

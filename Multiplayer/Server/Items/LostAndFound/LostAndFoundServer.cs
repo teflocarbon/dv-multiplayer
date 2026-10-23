@@ -2,10 +2,12 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using Multiplayer.Core.Diagnostics;
+using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.VanillaStorage;
+using Multiplayer.Server.Items.Access;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
@@ -210,6 +212,12 @@ public static class LostAndFoundServer
             TraceRecallRejection(itemNetId, rejectionReason);
             return false;
         }
+        // Asked as a recall of a live item is (OI-ACC-05).
+        if (!ItemAccessServer.Allows(player, ItemAccessAction.Recall, item, authority, out rejectionReason))
+        {
+            TraceRecallRejection(itemNetId, rejectionReason);
+            return false;
+        }
         if (!LiveItems.TryRetrieveFromLostAndFound(item, player,
                 expectedRevision, plan.TargetSlot, out snapshot, out rejectionReason))
         {
@@ -387,8 +395,12 @@ public static class LostAndFoundServer
             Reason = reason,
             LostUtcTicks = DateTime.UtcNow.Ticks
         };
-        if (registry.Add(record) != LostItemRegistryResult.Added)
+        LostItemRegistryResult added = registry.Add(record);
+        if (added != LostItemRegistryResult.Added)
         {
+            // A duplicate id here is one the ledger's check missed (OI-ID-06): logged like a refused restore.
+            Multiplayer.LogError($"Lost and Found: collecting {item.name} (netId {item.NetId}, " +
+                                 $"{authority.PersistentItemId:D}) was refused: {added}");
             LiveItems.RollbackLostAndFoundCollection(item, previousRevision,
                 previousPlacement, previousHolder, previousReason);
             return false;

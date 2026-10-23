@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
@@ -143,8 +144,21 @@ public static class Retrieval
     // out of the holder's hand or inventory, where they stand, then on to the owner's Lost and Found.
     private static bool TakeFromHolder(ServerPlayer owner, NetworkedItem item, LiveItems.LiveItem record, out string reason)
     {
-        reason = string.Empty;
         ServerPlayer holder = PlayerNumbers.Session(record.Holder);
+        string name = item.Item?.InventorySpecs?.LocalizedName ?? record.PrefabName;
+        if (!DropFromHolder(item, record, holder ?? owner, ItemChangeLog.Move(ItemMoveReason.TakenFromPlayer, owner,
+                $"{owner.Username} took back their {name}"), out reason))
+            return false;
+        if (holder != null && holder != owner)
+            NetworkServer.Instance.SendWhisper($"{owner.Username} took back their {name}", holder);
+        return true;
+    }
+
+    /// <summary>Out of its holder's hand or inventory, onto the ground where they stand, sent to everyone.</summary>
+    internal static bool DropFromHolder(NetworkedItem item, LiveItems.LiveItem record, ServerPlayer actor,
+        ChangeCause<ItemMoveReason> cause, out string reason)
+    {
+        reason = string.Empty;
         ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
         if (snapshot == null)
         {
@@ -157,17 +171,12 @@ public static class Retrieval
         snapshot.ItemPosition = item.transform.position - WorldMover.currentMove;
         snapshot.ItemRotation = item.transform.rotation;
         snapshot.AuthorityRevision = record.Revision;
-        string name = item.Item?.InventorySpecs?.LocalizedName ?? record.PrefabName;
-        if (!LiveItems.TryApplyTransition(item, snapshot, holder ?? owner,
-                ItemTransitionReason.HostLocalState, true, out reason,
-                cause: ItemChangeLog.Move(ItemMoveReason.TakenFromPlayer, owner,
-                    $"{owner.Username} took back their {name}")))
+        if (!LiveItems.TryApplyTransition(item, snapshot, actor,
+                ItemTransitionReason.HostLocalState, true, out reason, cause: cause))
             return false;
         item.ApplyServerCanonicalSnapshot(snapshot);
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
         NetworkServer.Instance.SendItemUpdate(snapshot);
-        if (holder != null && holder != owner)
-            NetworkServer.Instance.SendWhisper($"{owner.Username} took back their {name}", holder);
         return true;
     }
 
