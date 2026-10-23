@@ -67,7 +67,7 @@ on the server and in every client, are made to agree with it.
   `starting-items`.
 - **PR 5, no adoption: built, and tested in game with PR 4 on both host kinds (2026-10-22).** Client item adoption is deleted;
   nothing legitimate still used it (see [5](#5-no-adoption)).
-- **PR 6a, the owned-items list: built (2026-10-22), not yet run in game.** The packets, the
+- **PR 6a, the owned-items list: built (2026-10-22), and tested in game with 6b, L7 and 7 on both host kinds (2026-10-23).** The packets, the
   server's rows from the ledger, and an Owned Items page in the career manager (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-list`.
 - **Everything else: not started.** See the [plan](#plan).
