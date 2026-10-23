@@ -1,7 +1,7 @@
 namespace Multiplayer.Shared.Items.LiveState;
 
 /// <summary>
-///     The server's half of one <see cref="NetworkedItem"/> (<c>Server/Items/NetworkedItemServerPart</c>):
+///     The server's half of one <see cref="NetworkedItem"/> (<c>Server/Items/LiveState/NetworkedItemServerPart</c>):
 ///     what the item keeps for the server's own copy. It exists on the server only;
 ///     <see cref="NetworkedItem.ServerPart"/> is null on a client. Validating players' changes and
 ///     applying the server's canonical snapshots are <c>NetworkedItemServer</c>'s.

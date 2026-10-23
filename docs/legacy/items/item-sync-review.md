@@ -1,8 +1,10 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Historical, with no replacement; the item docs start at [items/README.md](../../design/items/README.md).
+
 # Item Synchronisation: Current Design, Behaviour, and Gaps
 
 > Status: **historical.** A review of the item code as it was on 2026-07-14, kept for its findings'
 > context. Nothing below describes the code today: the current account starts at
-> [`item-lifecycle.md`](item-lifecycle.md). Sections 2–9 and the code map (13) describe July's code
+> [`item-lifecycle.md`](../../design/item-lifecycle.md). Sections 2–9 and the code map (13) describe July's code
 > (a 100 metre radius, permanent `KnownItems`, a test-data inventory, temporary client adoption,
 > files since renamed). The per-finding status lines are from 2026-10-14.
 >
@@ -16,7 +18,7 @@
 >   still string-keyed and unversioned), S, U.
 > - **Still open:** B (relays, and a cold deposit's Destroy and a withdrawal's Create, ignore interest),
 >   G (a fixed 0.25 s item-sync wait at join), T (bulk compression is commented out). They are listed
->   under "Not built" in [`item-world-sync.md`](item-world-sync.md#not-built).
+>   under "Not built" in [`item-world-sync.md`](../../design/item-world-sync.md#not-built).
 
 ## 1. Purpose and scope
 
@@ -465,7 +467,7 @@ Players below `ReadyForItems` are skipped, after which `DestroyedItems` is clear
 
 #### K. There is no continuous transform or rigidbody synchronisation
 
-Status (2026-10-14): Fixed. The spatial lease and settlement layer ([`item-spatial-physics.md`](item-spatial-physics.md)) and host convergence (b601cc6).
+Status (2026-10-14): Fixed. The spatial lease and settlement layer ([`item-spatial-physics.md`](../../design/item-spatial-physics.md)) and host convergence (b601cc6).
 
 Only lifecycle events carry transforms. Thrown objects simulate independently on each peer after the common release pose and direction. Differences in physics timing, collisions, floating-origin timing, or frame rate can leave different resting positions.
 

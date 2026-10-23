@@ -2,8 +2,8 @@
 // Runs identically on host and client. Positions are absolute (origin shift removed) or
 // local to the car an item rides in, so they are comparable across peers.
 using DV.InventorySystem;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;

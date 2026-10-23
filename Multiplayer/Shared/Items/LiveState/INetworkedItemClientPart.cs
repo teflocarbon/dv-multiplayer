@@ -3,10 +3,10 @@ using Multiplayer.Shared.Protocol.Data.Items;
 namespace Multiplayer.Shared.Items.LiveState;
 
 /// <summary>
-///     The remote client's half of one <see cref="NetworkedItem"/> (<c>Client/Items/NetworkedItemClient</c>),
+///     The remote client's half of one <see cref="NetworkedItem"/> (<c>Client/Items/LiveState/NetworkedItemClient</c>),
 ///     as the item calls it at the points that code always ran. It exists on a remote client only;
 ///     <see cref="NetworkedItem.ClientPart"/> is null on the host, where the server's record is the
-///     item's truth (its server part is <c>Server/Items/NetworkedItemServer</c>).
+///     item's truth (its server part is <c>Server/Items/LiveState/NetworkedItemServer</c>).
 /// </summary>
 public interface INetworkedItemClientPart
 {

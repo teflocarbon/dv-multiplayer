@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 using HarmonyLib;
 using LiteNetLib.Utils;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;
 

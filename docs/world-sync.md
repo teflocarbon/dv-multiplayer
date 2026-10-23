@@ -144,7 +144,7 @@ unordered, and a client keeps the newest); clients `SetMoney` it. A client's own
 anything it adds or removes locally is overwritten by the host's next update, so every way a client
 spends or earns money has to reach the host:
 
-- Banknotes and coins: `Client/Items/MoneyPatch.cs` replicates a note's value as a
+- Banknotes and coins: `Client/Items/Behaviours/MoneyPatch.cs` replicates a note's value as a
   host-authoritative tracked value, and `Money.TrySpend` on a client (picking it up, stashing it,
   paying a register) first sends `ServerboundMoneyItemDepositPacket`. The host ignores items that
   aren't live money and rejects notes in Lost and Found, in a container, or in another player's

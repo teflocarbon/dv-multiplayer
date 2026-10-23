@@ -134,7 +134,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private INetworkedItemClientPart clientPart;
 
     /// <summary>
-    ///     The remote client's half of the item (Client/Items/NetworkedItemClient); null on the host.
+    ///     The remote client's half of the item (Client/Items/LiveState/NetworkedItemClient); null on the host.
     ///     Made the first time it's asked for; the host's <c>LocalPlayerSession</c> makes none.
     /// </summary>
     internal INetworkedItemClientPart ClientPart =>
@@ -145,7 +145,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private INetworkedItemServerPart serverPart;
 
     /// <summary>
-    ///     The server's half of the item (Server/Items/NetworkedItemServerPart); null on a client.
+    ///     The server's half of the item (Server/Items/LiveState/NetworkedItemServerPart); null on a client.
     ///     Made the first time it's asked for on the server.
     /// </summary>
     internal INetworkedItemServerPart ServerPart =>

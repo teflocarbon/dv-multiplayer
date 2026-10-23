@@ -27,7 +27,7 @@ object, on the server or a client, is a disposable presentation of that record.
 | [item-ownership-open-questions.md](item-ownership-open-questions.md) | The ownership questions still open |
 | [gadgets.md](gadgets.md), [shops.md](shops.md) | Installed gadgets and shop purchases, as their own systems; they use the item rules here |
 | [research/item-bug-review.md](../research/item-bug-review.md) | The catalogue of known ways a player loses an item, each with the `item-bug-*` scenario that proves it. The "Known issues" sections in the docs above are read from the code; this is where they are tracked. |
-| [item-sync-review.md](item-sync-review.md) | Historical: the July 2026 review and its findings |
+| [item-sync-review.md](../legacy/items/item-sync-review.md) | Historical: the July 2026 review and its findings |
 
 ## What describes an item
 

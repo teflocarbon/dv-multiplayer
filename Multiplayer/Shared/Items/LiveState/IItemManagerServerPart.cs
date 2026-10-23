@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Multiplayer.Shared.Items.LiveState;
 
 /// <summary>
-///     The server's part of <see cref="NetworkedItemManager"/> (<c>Server/Items/ServerItemManager</c>),
+///     The server's part of <see cref="NetworkedItemManager"/> (<c>Server/Items/Projection/ServerItemManager</c>),
 ///     as the Shared manager drives it and its Shared callers reach it. It exists on the server only;
 ///     <see cref="NetworkedItemManager.ServerPart"/> is null on a client.
 /// </summary>

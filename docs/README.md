@@ -25,7 +25,8 @@ host-authority model works end to end, then points at the rest.
 | [design/track-graph-check.md](design/track-graph-check.md) | The join check that host and client numbered their tracks, junctions and turntables the same way |
 | [jobs.md](jobs.md) | Job generation, taking jobs, booklets and reports, validation and hand-in, save and rejoin |
 | [design/trains.md](design/trains.md) | Train sync: canonical topology (couplers, hoses, cocks, MU cables), control commits, motion and corrections |
-| [design/item-lifecycle.md](design/item-lifecycle.md) | **Start here for items.** An item's whole life in short, the record's facts and placements, the state machine, cleanup precedence and the shared rules, with a link to each item system's doc |
+| [design/items/README.md](design/items/README.md) | **Start here for items.** The item system as the [refactor](design/item-refactor.md) builds it: the guarantee, the three names (ledger, live state, saving and loading), the homes, and one code folder and doc per subsystem. The docs below it are legacy until each is replaced |
+| [design/item-lifecycle.md](design/item-lifecycle.md) | Legacy until the refactor replaces it (R3): an item's whole life in short, the record's facts and placements, the state machine, cleanup precedence and the shared rules, with a link to each item system's doc |
 | [design/owned-items.md](design/owned-items.md) | Ownership and the owned-items ledger: one id for life, starting items, joining and leaving, essentials' claim slots and recall, the owned-items list and retrieval, lineage, `ItemAccess` and fixtures, and the decisions with their dates |
 | [design/lost-and-found.md](design/lost-and-found.md) | Lost and Found: what is collected and when, entries, retrieval, saving and loading |
 | [design/container-storage.md](design/container-storage.md) | Cold containers: contents as server records, browse, deposit, withdraw, saving |
@@ -35,8 +36,15 @@ host-authority model works end to end, then points at the rest.
 | [design/item-persistence.md](design/item-persistence.md) | Which store saves each item, `WorldItemsV1`, and how a load rebuilds them |
 | [design/item-change-causes.md](design/item-change-causes.md) | Why an item moved or went away: the recorded causes, on the server and clients |
 | [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | The item-ownership questions still open |
-| [design/item-sync-review.md](design/item-sync-review.md) | Historical: the July 2026 review of item sync, with each finding's current status |
 | [design/shops.md](design/shops.md) | Shops as a server transaction: shared registers and shelves, the cash rules and the scanner are built; prediction, delivery to the owner, receipts, station fixtures and per-player stock are planned |
+
+## Legacy
+
+Docs that describe a system before it was rebuilt, kept as evidence of how it behaved. Each moves here, with a banner, in the PR that writes its replacement.
+
+| Doc | What it covers |
+|---|---|
+| [legacy/items/item-sync-review.md](legacy/items/item-sync-review.md) | Historical: the July 2026 review of item sync, with each finding's status then |
 
 ## Planned
 

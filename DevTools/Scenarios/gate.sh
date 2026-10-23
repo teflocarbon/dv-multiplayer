@@ -168,7 +168,7 @@ teleport_home() { # puts both players back where every run starts (scenarios mov
   # boxes they spawn did the same (36 of 36 slots, 2026-10-21). Drop them on both games (a synced
   # drop) and destroy every one of them on the host.
   $DVMP eval -t all -m coroutine --timeout 60 'var inv = DV.InventorySystem.Inventory.Instance; foreach (var go in inv.GetItemsArray(false).Where(g => g != null && new[] { "Mug", "Flashlight", "Lantern", "ItemContainerToolbox", "ItemContainerBriefcase" }.Any(p => g.name.StartsWith(p))).ToList()) { inv.DropItemFromHandsOrInventory(go); yield return new WaitForSecondsRealtime(0.1f); } yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
-  $DVMP eval -t host -m coroutine --timeout 30 'foreach (var m in UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Items.NetworkedItem>().Where(i => i != null && new[] { "Mug", "Flashlight", "Lantern", "ItemContainerToolbox", "ItemContainerBriefcase" }.Any(p => i.name.StartsWith(p))).ToList()) UnityEngine.Object.Destroy(m.gameObject); yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
+  $DVMP eval -t host -m coroutine --timeout 30 'foreach (var m in UnityEngine.Object.FindObjectsOfType<Multiplayer.Shared.Items.LiveState.NetworkedItem>().Where(i => i != null && new[] { "Mug", "Flashlight", "Lantern", "ItemContainerToolbox", "ItemContainerBriefcase" }.Any(p => i.name.StartsWith(p))).ToList()) UnityEngine.Object.Destroy(m.gameObject); yield return new WaitForSecondsRealtime(1f);' >/dev/null 2>&1
   # Rerails, car deletes and fees spend the shared wallet, and the save-writing runs keep what's
   # left: one batch left $1000 and the next rerail failed "not enough money". Top it up on the host
   # (AddMoney syncs to clients) to $MONEY; MONEY=0 leaves it.

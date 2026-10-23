@@ -29,7 +29,7 @@ junction route leases.
 ## Cold containers (item storage)
 - [x] deposit/withdraw round trip, reopen, stateful items (keep their state), foreign browse
       rejected: `containers` scenario (`CONTAINER=` `PREFAB=`); graph rules (cycles, stale
-      revisions, foreign items, quotas) are covered by Multiplayer.Core.Tests ColdContainerGraphTests
+      revisions, foreign items, quotas) are covered by Multiplayer.Core.Tests ContainerGraphTests
 - [ ] move within a container; nested containers can't form a cycle
 - [ ] rejections: foreign player's private container, incompatible item, invalid slot,
       stale revision; private browse

@@ -4,7 +4,7 @@ using Multiplayer.Shared.Protocol.Data.Items;
 namespace Multiplayer.Shared.Items.LiveState;
 
 /// <summary>
-///     The remote client's part of <see cref="NetworkedItemManager"/> (<c>Client/Items/ClientItemManager</c>),
+///     The remote client's part of <see cref="NetworkedItemManager"/> (<c>Client/Items/Projection/ClientItemManager</c>),
 ///     as the Shared manager drives it and Shared item code reaches it. It exists on a remote client
 ///     only; <see cref="NetworkedItemManager.ClientPart"/> is null on the host, which keeps none of
 ///     this (the server's records are its items).

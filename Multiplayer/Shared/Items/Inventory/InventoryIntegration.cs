@@ -427,7 +427,7 @@ internal static class InventoryIntegration
             retrievalEligible, hasRetrievalClaim, isLostAndFound));
     }
 
-    // The local player's inventory UI (Client/Items/InventoryOwnershipUiPatch) asks with these.
+    // The local player's inventory UI (Client/Items/Inventory/InventoryOwnershipUiPatch) asks with these.
     internal static bool RuntimeActive => runtime.RuntimeActive;
 
     internal static bool TrySnapshotSlot(InventoryUIController controller, int relativeSlot,

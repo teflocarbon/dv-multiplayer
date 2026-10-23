@@ -13,7 +13,7 @@ The code is the source of truth. File paths below are relative to the repository
 | Project | Purpose |
 |---|---|
 | `Multiplayer/` | The Unity Mod Manager mod (net48). Harmony patches, networked components, managers, packets, transports, UI. Ships as `Multiplayer.dll`. |
-| `Multiplayer.Core/` | netstandard2.0 library with no Unity or game references. Decision logic that can be unit tested: `Items/ItemAuthorityStateMachine.cs`, `Items/LostAndFound.cs`, `Containers/ColdContainerGraph.cs`, `Trains/TrainTopologyModel.cs`, `Identity/NetIdAllocator.cs`, interest and replication helpers. |
+| `Multiplayer.Core/` | netstandard2.0 library with no Unity or game references. Decision logic that can be unit tested: `Items/LiveState/ItemStateMachine.cs`, `Items/LostAndFound/`, `Items/Containers/ContainerGraph.cs`, `Trains/TrainTopologyModel.cs`, `Identity/NetIdAllocator.cs`, interest and replication helpers. |
 | `Multiplayer.Core.Tests/` | NUnit tests for `Multiplayer.Core` (net8.0). `dotnet test Multiplayer.Core.Tests`. |
 | `Multiplayer.Protocol.Tests/` | Packet round-trip and fixture tests against the built `Multiplayer.dll` and the game's assemblies. `dotnet test Multiplayer.Protocol.Tests -c Release`. |
 | `Multiplayer.DebugProtocol/` | Debug event contracts, event store, capture manager and the loopback HTTP/SSE server with its embedded web UI. Used by `Multiplayer/Debugging`. See [observability.md](observability.md). |
@@ -238,10 +238,10 @@ The host's game is the only place shared state is decided. The rules:
 
 Concrete cases:
 
-- **Items.** `Server/Items/AuthoritativeItemRegistry.cs` holds one host record per
+- **Items.** `Server/Items/LiveState/LiveItems.cs` holds one host record per
   item: placement, holder, persistent owner, inventory claim, revision. A client's
   `CommonItemUpdatePacket` goes through `NetworkedItem.Server_ReceiveItemUpdate` and
-  `AuthoritativeItemRegistry.TryApplyTransition`, which runs `ItemAuthorityStateMachine` from
+  `LiveItems.TryApplyTransition`, which runs `ItemStateMachine` from
   `Multiplayer.Core`. An item update can't create an item: the server makes every item it
   keeps, and client item adoption is gone (owned-items PR 5). A rejected change is answered with a
   canonical correction. Physics of a thrown or dropped item may be leased to one client, which
@@ -289,7 +289,7 @@ A client connects with `ServerboundClientLoginPacket` as the connection payload.
 
 Failures reject the request with a `ClientboundLoginResponsePacket` carrying a locale key (and
 missing/extra mods). On accept the host creates the `ServerPlayer`, rebinds items the player
-persistently owns (`AuthoritativeItemRegistry.RebindPersistentOwner`, plus Lost and Found and
+persistently owns (`LiveItems.RebindPersistentOwner`, plus Lost and Found and
 saved world items waiting for this owner), and replies with the player id and its **protocol
 fingerprint**.
 
@@ -408,7 +408,7 @@ which writes a `Multiplayer` section into the host's save:
 - Lost and Found, cold container contents, and world item records (`WorldItemsV1`).
 
 On load, items saved in a player's hand or inventory wait until that player connects
-(`WorldItemPersistenceManager.OnOwnerConnected`).
+(`ItemSaveLoad.OnOwnerConnected`).
 
 When a player disconnects (`NetworkServer.OnPeerDisconnected`) the host, with each step guarded
 so one failure doesn't skip the rest: cancels their pending item recalls, releases item physics
@@ -433,7 +433,8 @@ The regression scenarios for this are `rejoin` (including `CRASH=1`), `save-relo
 | [jobs.md](jobs.md) | Job generation, booklets, validation and reports. |
 | [design/trains.md](design/trains.md) | Train authority layers, topology commands and snapshots, controls, brakes, motion, baseline. |
 | [design/train-item-wake.md](design/train-item-wake.md) | Loose items riding on trains: gluing, waking on impacts and acceleration, settlement. |
-| [design/item-lifecycle.md](design/item-lifecycle.md) | Start here for items: an item's life, its placements, the state machine and shared rules, and the doc for each item system. |
+| [design/items/README.md](design/items/README.md) | Start here for items: the item system as the refactor builds it, its names and one code folder and doc per subsystem. The item docs below are legacy until each is replaced. |
+| [design/item-lifecycle.md](design/item-lifecycle.md) | Legacy: an item's life, its placements, the state machine and shared rules, and the doc for each item system. |
 | [design/owned-items.md](design/owned-items.md) | Ownership and the owned-items ledger, starting items, joining and leaving, recall, the owned-items list and retrieval. |
 | [design/lost-and-found.md](design/lost-and-found.md) | Lost and Found: collection, entries, retrieval, saving. |
 | [design/item-world-sync.md](design/item-world-sync.md) | Item catalogue, interest streaming, projection to clients, placement anchors, office stock. |
@@ -441,7 +442,7 @@ The regression scenarios for this are `rejoin` (including `CRASH=1`), `save-relo
 | [design/container-storage.md](design/container-storage.md) | Cold containers: contents as server records, browse, deposit, withdraw. |
 | [design/item-persistence.md](design/item-persistence.md) | Where each item is saved, and loading. |
 | [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | The ownership questions still open. |
-| [design/item-sync-review.md](design/item-sync-review.md) | Historical: the July 2026 review of item sync. |
+| [legacy/items/item-sync-review.md](legacy/items/item-sync-review.md) | Historical: the July 2026 review of item sync. |
 | [testing.md](testing.md) | Unit, protocol and in-game (dvmp) test layers. |
 | [observability.md](observability.md) | Debug events, overlay, packet inspector, HTTP firehose, captures. |
 | [development.md](development.md) | Building, deploying and the development workflow. |

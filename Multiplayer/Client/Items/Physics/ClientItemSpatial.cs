@@ -16,7 +16,7 @@ namespace Multiplayer.Client.Items.Physics;
 /// The remote client's side of the spatial stream (<see cref="NetworkedItemSpatialManager"/>): the
 /// host's leases, samples and commits as they arrive, sending its own samples and settlement for the
 /// leases it simulates, and following the others'. It works on the Shared manager's lease table; the
-/// host's side is <c>Server/Items/ServerItemSpatial</c>.
+/// host's side is <c>Server/Items/Physics/ServerItemSpatial</c>.
 /// </summary>
 internal sealed class ClientItemSpatial
 {
