@@ -42,6 +42,7 @@ host-authority model works end to end, then points at the rest.
 
 | Doc | What it covers |
 |---|---|
+| [design/item-refactor.md](design/item-refactor.md) | The item refactor: every owned item in exactly one saved home, the ledger deciding owner and home, live state and saving and loading following it, identity instead of session numbers, the slot for every inventory item, one save key, the redesigned item packets, every vanilla path, every known way an item is lost, one folder per subsystem with the rename map, and the PR order with the checklist rows each closes |
 | [design/server-player-split.md](design/server-player-split.md) | The target model: one server that owns the world, and players who are all its clients, whether the server runs in a player's game or on a dedicated host. Per-player saves, the one-time conversion of old careers, and world coverage for every player |
 | [design/multi-anchor-streaming.md](design/multi-anchor-streaming.md) | Research: loading the world (scenery tiles, terrain, origin) around several far-apart players, what lives in which streamed scene, the exact patch points, costs and the measurements still needed |
 | [design/code-layout.md](design/code-layout.md) | Splitting `Multiplayer` into Shared, Server and Client (with `Multiplayer.Core` for the rules): the roles, where each folder goes, the boundary test, and the steps from namespaces to assemblies |
