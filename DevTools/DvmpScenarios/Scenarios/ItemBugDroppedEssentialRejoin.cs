@@ -19,6 +19,7 @@ namespace Dvmp.Scenarios
     /// The order varies, so the run rejoins up to REJOINS times and fails on the first refusal.
     /// </summary>
     [Scenario("item-bug-dropped-essential-rejoin", "Known bug: a dropped essential's silhouette must be back in its slot after a rejoin, with ordinary items in the inventory")]
+    [KnownBug("E1")]
     [Needs(Need.RestartsGames)]
     [Budget(900)]
     public sealed class ItemBugDroppedEssentialRejoin : Scenario<ItemBugDroppedEssentialRejoin.Options>

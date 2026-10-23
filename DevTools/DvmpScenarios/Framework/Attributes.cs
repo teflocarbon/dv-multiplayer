@@ -50,6 +50,17 @@ namespace Dvmp.Scenarios
         public int Seconds { get; } = seconds;
     }
 
+    /// <summary>
+    /// A known bug, proved by this scenario: it fails on beta until the fix lands. <c>Id</c> is its row
+    /// in docs/research/item-bug-review.md. The PR that fixes it deletes the attribute, and the
+    /// scenario is a required pass from then on. The gate and <c>scenario list</c> show it.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class)]
+    public sealed class KnownBugAttribute(string id) : Attribute
+    {
+        public string Id { get; } = id;
+    }
+
     /// <summary>A coroutine step's result and notes, filled in inside the game. A step takes it as
     /// its first parameter: <c>IEnumerator Watch(Step&lt;Watched&gt; step, ...)</c>, called as
     /// <c>pair.Host.Run&lt;Watched&gt;(s =&gt; Watch(s, ...))</c>.</summary>

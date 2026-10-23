@@ -72,6 +72,7 @@ namespace Dvmp.Scenarios
             {
                 object defaults = Activator.CreateInstance(((IScenario)Activator.CreateInstance(type)).OptionsType);
                 string needs = type.GetCustomAttribute<NeedsAttribute>() is { } n ? "  [needs " + string.Join(", ", n.Needs) + "]" : string.Empty;
+                if (type.GetCustomAttribute<KnownBugAttribute>() is { } bug) needs += "  [known bug " + bug.Id + ": expected to fail]";
                 Console.WriteLine($"{info.Name}{needs}\n    {info.Description}");
                 foreach (FieldInfo f in defaults.GetType().GetFields())
                     Console.WriteLine($"    {Options.EnvName(f.Name)}={Options.Show(f.GetValue(defaults))}");
@@ -118,6 +119,8 @@ namespace Dvmp.Scenarios
             ScenarioRun run = new(session, GameDir, dvmp);
             Pair pair = run.Pair;
             run.Out.Text($"== {name}  session {session}  {Options.Describe(options)}");
+            if (found.Type.GetCustomAttribute<KnownBugAttribute>() is { } knownBug)
+                run.Out.Text($"   known bug {knownBug.Id} (docs/research/item-bug-review.md): expected to FAIL until its fix lands");
             bool started = false;
             Dictionary<string, long> logStart = new();
             string error = null;
