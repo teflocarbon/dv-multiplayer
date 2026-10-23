@@ -18,7 +18,7 @@ internal sealed partial class ClientItemManager
         authoredCatalogueAccepted = accepted;
     }
 
-    public void DetachAuthoredProjectionForPossession(NetworkedItem item, ItemUpdateData snapshot)
+    public void DetachAuthoredProjectionForPossession(NetworkedItem item, ItemUpdate snapshot)
     {
         if (item == null || snapshot == null ||
             snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
@@ -32,7 +32,7 @@ internal sealed partial class ClientItemManager
         }
     }
 
-    private bool TryBindAuthoredClientProjection(ItemUpdateData snapshot, bool acknowledge = true)
+    private bool TryBindAuthoredClientProjection(ItemUpdate snapshot, bool acknowledge = true)
     {
         shell.EnsureAuthoredCatalogue();
         if (!authoredCatalogueAccepted)

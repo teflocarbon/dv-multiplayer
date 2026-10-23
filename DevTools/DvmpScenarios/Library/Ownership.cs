@@ -38,6 +38,19 @@ namespace Dvmp.Scenarios
             : $"{Id}: no item";
     }
 
+    /// <summary>
+    /// An owner as a number, for the scenarios' checks only: the owner's session number while
+    /// they're connected, <see cref="Offline"/> while they aren't, 0 for no owner. The wire never
+    /// names an owner since R2 (wire.md, "Naming a player"); this reads the host's record.
+    /// </summary>
+    public static class OwnerNumbers
+    {
+        public const byte Offline = 255;
+
+        public static byte Of(Guid owner) =>
+            owner == Guid.Empty ? (byte)0 : PlayerNumbers.Session(owner)?.PlayerId ?? Offline;
+    }
+
     public static class Ownership
     {
         /// <summary>
@@ -96,7 +109,7 @@ namespace Dvmp.Scenarios
             info.Id = record.PersistentItemId.ToString("D");
             info.Owner = record.Owner.ToString("D");
             info.OwnerConnected = PlayerNumbers.IsConnected(record.Owner);
-            info.Number = PlayerNumbers.OwnerOf(record.Owner);
+            info.Number = OwnerNumbers.Of(record.Owner);
             info.Placement = record.Placement.ToString();
             info.PlacementPlayer = PlayerNumbers.Of(record.Holder);
             info.Holder = record.Holder == Guid.Empty ? "" : record.Holder.ToString("D");

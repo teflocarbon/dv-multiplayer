@@ -28,13 +28,12 @@ namespace Multiplayer.Server.Items.OwnedList;
 /// - With another player, in their hand or inventory: taken from them, and they're told.
 /// - With them already, in Lost and Found, or missing: nothing to do.
 /// - Attached, snapped or installed: not yet (detaching first, and gadget removal, PR 8).
-/// - In the middle of a recall: busy.
+/// A recall is one step (docs/design/items/wire.md), so a retrieval never meets one half done.
 /// </summary>
 public static class Retrieval
 {
     public const string NothingToDo = "nothing-to-retrieve";
     public const string NotYet = "not-retrievable-yet";
-    public const string Busy = "busy-try-again";
     public const string Unknown = "unknown-item";
     public const string NotYours = "not-your-item";
 
@@ -75,11 +74,6 @@ public static class Retrieval
         if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
         {
             reason = reason.Length > 0 ? reason : Unknown;
-            return false;
-        }
-        if (NetworkServer.Instance.RecallPending(record.NetId))
-        {
-            reason = Busy;
             return false;
         }
         if (!ItemAccessServer.Allows(owner, ItemAccessAction.Retrieve, item, record, out reason))
@@ -146,7 +140,7 @@ public static class Retrieval
     {
         reason = string.Empty;
         ServerPlayer holder = PlayerNumbers.Session(record.Holder);
-        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
+        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
         if (snapshot == null)
         {
             reason = Unknown;
@@ -166,7 +160,7 @@ public static class Retrieval
             return false;
         item.ApplyServerCanonicalSnapshot(snapshot);
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
-        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdate(snapshot);
         if (holder != null && holder != owner)
             NetworkServer.Instance.SendWhisper($"{owner.Username} took back their {name}", holder);
         return true;

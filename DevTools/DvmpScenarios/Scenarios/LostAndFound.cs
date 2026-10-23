@@ -7,7 +7,8 @@ using Dvmp.Lib;
 using Multiplayer.Client.Items.LostAndFound;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Client.Items.Requests;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -51,9 +52,9 @@ namespace Dvmp.Scenarios
             r = await Until.Value(() => pair.Host.Run(() => Items.Record(item)), v => v.Lost, 30, "the host collects the item into Lost and Found");
             Report.Note($"collected: placement {r.Placement}");
 
-            int slot = await owner.Run<int>(s => InGame.Retrieve(s, item), 60);
+            int slot = await owner.Run<int>(s => InGame.Retrieve(s, r.Handle), 60);
             if (o.Who == "host")
-                Expect.Empty(await pair.Host.Run(() => ServerRequests.NotHandledLocally(new[] { "ServerboundLostItemsRequestPacket", "ServerboundLostItemRetrievePacket" })),
+                Expect.Empty(await pair.Host.Run(() => ServerRequests.NotHandledLocally(new[] { "ServerboundItemListRequestPacket", "ServerboundItemRequestPacket" })),
                     "the host's Lost and Found requests that go over loopback");
             await Task.Delay(2000);   // the retrieval's record settles on the host
             r = await pair.Host.Run(() => Items.Record(item));
@@ -98,33 +99,41 @@ namespace Dvmp.Scenarios
                 for (int i = 0; i < 120; i++) yield return null;
             }
 
-            /// <summary>Waits for the item in this player's Lost and Found list, retrieves it, and
-            /// checks it lands in the inventory. Result: its slot.</summary>
+            /// <summary>Waits for the row (its handle, from the host's record) in this player's Lost
+            /// and Found list, collects it, and checks the item lands in the inventory. Result: its slot.</summary>
             [Step]
-            public static IEnumerator Retrieve(Step<int> step, ushort id)
+            public static IEnumerator Retrieve(Step<int> step, uint handle)
             {
-                LostItemData entry = null;
+                ItemRow entry = null;
                 float t0 = Time.realtimeSinceStartup;
                 while (entry == null && Time.realtimeSinceStartup - t0 < 30f)
                 {
-                    LocalSessionCalls.Call("RequestLostItems", 1u);
+                    ItemClient.Current.RequestItemList(ItemListKind.LostAndFound);
                     for (int i = 0; i < 30; i++) yield return null;
-                    entry = LostAndFoundList.Items.FirstOrDefault(e => e.NetId == id);
+                    entry = LostAndFoundList.Items.FirstOrDefault(e => e.Handle == handle);
                 }
-                if (entry == null) throw new Exception("item " + id + " never appeared in this player's Lost and Found list");
-                ClientboundLostItemRetrieveResultPacket result = null;
-                using (LocalSessionCalls.On<ClientboundLostItemRetrieveResultPacket>("LostItemRetrieveCompleted", p => { if (p.LostHandle == entry.Handle) result = p; }))
+                if (entry == null) throw new Exception("row " + handle + " never appeared in this player's Lost and Found list");
+                ClientboundItemResultPacket result = null;
+                uint requestId = 0;
+                void Got(ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = p; }
+                ItemClient.Current.ItemResultReceived += Got;
+                try
                 {
-                    ItemClient.Current.RequestLostItemRetrieval(77, entry.Handle, entry.NetId, entry.Revision);
+                    requestId = ItemClient.Current.SendItemRequest(ItemExchange.CollectLost(entry));
                     t0 = Time.realtimeSinceStartup;
                     while (result == null && Time.realtimeSinceStartup - t0 < 15f) yield return null;
                 }
+                finally
+                {
+                    ItemClient.Current.ItemResultReceived -= Got;
+                }
                 if (result == null) throw new Exception("no retrieval result");
-                if (!result.Accepted) throw new Exception("retrieval rejected: " + result.RejectionReason);
+                if (!result.Accepted) throw new Exception($"retrieval refused: {result.Refusal} {result.Detail}");
                 var inventory = DV.InventorySystem.Inventory.Instance;
+                ushort id = result.ItemNetId;
                 NetworkedItem item = null;
                 yield return Wait.Until(() => NetworkedItem.TryGet(id, out item) && item != null && inventory.IndexOf(item.gameObject) >= 0, 15f, $"retrieved item {id} in the inventory");
-                step.Note($"listed {LostAndFoundList.Items.Count(e => e.NetId == id)} time(s) after retrieval");
+                step.Note($"listed {LostAndFoundList.Items.Count(e => e.Handle == handle)} time(s) after retrieval");
                 step.Result = inventory.IndexOf(item.gameObject);
             }
         }

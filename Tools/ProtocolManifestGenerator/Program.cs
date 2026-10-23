@@ -103,7 +103,10 @@ internal static class Program
         {
             Hash = GetHash(type).ToString("X16"),
             TypeName = type.FullName,
-            Direction = type.Namespace.Contains(".Serverbound") ? "Serverbound" : type.Namespace.Contains(".Clientbound") ? "Clientbound" : "Bidirectional",
+            // By namespace, or for an area's own folder (Packets.Items) by the packet's name.
+            Direction = type.Namespace.Contains(".Serverbound") || type.Name.StartsWith("Serverbound", StringComparison.Ordinal) ? "Serverbound"
+                : type.Namespace.Contains(".Clientbound") || type.Name.StartsWith("Clientbound", StringComparison.Ordinal) ? "Clientbound"
+                : "Bidirectional",
             Category = type.Namespace.Substring(type.Namespace.IndexOf("Packets.", StringComparison.Ordinal) + "Packets.".Length),
             SemanticDecoder = GetSemanticDecoderId(type.FullName),
             HighFrequency = highFrequency,
@@ -115,9 +118,10 @@ internal static class Program
     // with its optional debug decoder/formatter.
     private static string GetSemanticDecoderId(string typeName) => typeName switch
     {
-        "Multiplayer.Shared.Protocol.Packets.Common.CommonItemChangePacket" => "CommonItemChangeV1",
-        "Multiplayer.Shared.Protocol.Packets.Common.CommonItemUpdatePacket" => "CommonItemUpdateV1",
-        "Multiplayer.Shared.Protocol.Packets.Common.CommonItemsBulkUpdatePacket" => "CommonItemsBulkUpdateV1",
+        "Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemUpdatesPacket" => "ItemUpdatesV1",
+        "Multiplayer.Shared.Protocol.Packets.Items.ServerboundItemRequestPacket" => "ItemRequestV1",
+        "Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemResultPacket" => "ItemResultV1",
+        "Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemListPacket" => "ItemListV1",
         _ => null
     };
     private static Dictionary<string, long> CreateEnum(Type type) => Enum.GetValues(type).Cast<object>().ToDictionary(value => value.ToString(), value => Convert.ToInt64(value));

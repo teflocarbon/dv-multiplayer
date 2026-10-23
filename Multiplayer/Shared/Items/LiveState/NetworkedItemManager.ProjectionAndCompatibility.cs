@@ -1,6 +1,7 @@
 using DV;
 using UnityEngine;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;
 
@@ -46,14 +47,17 @@ public partial class NetworkedItemManager
                 ["requestingPlayerId"] = localPlayerId,
                 ["requestedSlot"] = requestedSlot,
                 ["expectedRevision"] = item.AuthorityRevision,
-                ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId
+                ["relation"] = item.Relation.ToString()
             });
 
-        // The host's player: the server recalls it now and says whether it could. A remote client asks.
-        if (ServerPart is { } server)
-            return server.RequestHostRecall(item, requestedSlot);
-
-        ItemClient.Current?.SendItemRecall(item.NetId, item.AuthorityRevision, requestedSlot);
-        return true;
+        // One step, the host's player's too (docs/design/items/wire.md, "Recall"): the server
+        // commits it and everyone gets the update.
+        return ItemClient.Current?.SendItemRequest(new ItemRequest
+        {
+            ItemNetId = item.NetId,
+            ExpectedRevision = item.AuthorityRevision,
+            Action = ItemAction.Recall,
+            Slot = requestedSlot
+        }) > 0;
     }
 }

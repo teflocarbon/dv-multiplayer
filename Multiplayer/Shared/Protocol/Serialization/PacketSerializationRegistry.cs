@@ -37,7 +37,9 @@ public static class PacketSerializationRegistry
         packetProcessor.RegisterNestedType(LocoResourceModuleData.Serialize, LocoResourceModuleData.Deserialize);
         packetProcessor.RegisterNestedType(PitStopPlugData.Serialize, PitStopPlugData.Deserialize);
         packetProcessor.RegisterNestedType(PlayerTrackingData.Serialize, PlayerTrackingData.Deserialize);
-        packetProcessor.RegisterNestedType(ItemUpdateData.Serialize, ItemUpdateData.Deserialize);
+        packetProcessor.RegisterNestedType(ItemUpdate.Serialize, ItemUpdate.Deserialize);
+        packetProcessor.RegisterNestedType(ItemRequest.Serialize, ItemRequest.Deserialize);
+        packetProcessor.RegisterNestedType(ItemRow.Serialize, ItemRow.Deserialize);
         packetProcessor.RegisterNestedType(ItemSpatialStateData.Serialize, ItemSpatialStateData.Deserialize);
         packetProcessor.RegisterNestedType(CustomizationHoleData.Serialize, CustomizationHoleData.Deserialize);
         packetProcessor.RegisterNestedType(GadgetAnchorSnapshotData.Serialize, GadgetAnchorSnapshotData.Deserialize);

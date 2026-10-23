@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using DV.ServicePenalty.UI;
 using Multiplayer.Client.Items.OwnedList;
 using Multiplayer.Shared.Items.LiveState;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using TMPro;
 using UnityEngine;
 
@@ -21,6 +22,7 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
     private bool loading;
     private bool pending;
     private string message = string.Empty;
+    // The retrieval this screen is waiting on: only its own result clears "RETRIEVING".
     private uint requestId;
 
     public override void Activate(IDisplayScreen previousScreen)
@@ -28,10 +30,10 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
         Previous = previousScreen;
         OwnedItemsList.Changed += OnListChanged;
         if (ItemClient.Current != null)
-            ItemClient.Current.OwnedItemRetrieveCompleted += OnRetrieveCompleted;
+            ItemClient.Current.ItemResultReceived += OnRetrieveCompleted;
         loading = true;
         message = string.Empty;
-        ItemClient.Current?.RequestOwnedItems(++requestId);
+        ItemClient.Current?.RequestItemList(ItemListKind.Owned);
         RefreshFromModel();
     }
 
@@ -39,7 +41,7 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
     {
         OwnedItemsList.Changed -= OnListChanged;
         if (ItemClient.Current != null)
-            ItemClient.Current.OwnedItemRetrieveCompleted -= OnRetrieveCompleted;
+            ItemClient.Current.ItemResultReceived -= OnRetrieveCompleted;
         Clear();
     }
 
@@ -55,9 +57,13 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
         else if (input == InputAction.Down) Selected = Wrapped(Selected + 1, items.Count);
         else if (input == InputAction.Confirm && items[Selected].Retrievable)
         {
-            pending = true;
-            message = "RETRIEVING...";
-            ItemClient.Current?.RequestOwnedItemRetrieval(++requestId, items[Selected].Handle);
+            requestId = ItemClient.Current?.SendItemRequest(new ItemRequest
+            {
+                Action = ItemAction.Retrieve,
+                ItemHandle = items[Selected].Handle
+            }) ?? 0;
+            pending = requestId != 0;
+            message = pending ? "RETRIEVING..." : "FAILED: NOT SENT";
         }
         if (input is InputAction.Up or InputAction.Down) message = string.Empty;
         EnsureVisible();
@@ -70,10 +76,11 @@ internal sealed class OwnedItemsCareerManagerScreen : MultiplayerCareerManagerSc
         RefreshFromModel();
     }
 
-    private void OnRetrieveCompleted(ClientboundOwnedItemRetrieveResultPacket result)
+    private void OnRetrieveCompleted(ClientboundItemResultPacket result)
     {
+        if (!pending || result.RequestId != requestId) return;
         pending = false;
-        message = result.Accepted ? "SENT TO LOST AND FOUND" : "FAILED: " + (result.RejectionReason ?? "UNKNOWN").ToUpperInvariant();
+        message = result.Accepted ? "SENT TO LOST AND FOUND" : "FAILED: " + (result.Detail ?? result.Refusal.ToString()).ToUpperInvariant();
         Render();
     }
 

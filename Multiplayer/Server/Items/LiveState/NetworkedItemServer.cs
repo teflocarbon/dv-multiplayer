@@ -39,7 +39,12 @@ namespace Multiplayer.Server.Items.LiveState;
 /// </summary>
 public static class NetworkedItemServer
 {
-    public static void Server_ReceiveItemUpdate(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer)
+    /// <summary>
+    /// A player's change to an item, from their request (<c>NetworkServer.Items</c>): committed and
+    /// sent to everyone, or refused with a correction to the sender. Returns the refusal's detail,
+    /// or null if it was committed.
+    /// </summary>
+    public static string Server_ReceiveItemUpdate(this NetworkedItem item, ItemUpdate snapshot, ServerPlayer senderPlayer)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(snapshot, DebugRuntimeSide.Server, "Item", snapshot?.ItemNetId.ToString());
         if (LostAndFoundServer.Contains(item.NetId))
@@ -54,7 +59,7 @@ public static class NetworkedItemServer
                     ["requestedRevision"] = snapshot?.AuthorityRevision ?? 0
                 });
             item.SendCanonicalRejectionCorrection(senderPlayer, "item-in-lost-and-found");
-            return;
+            return "item-in-lost-and-found";
         }
         if (item.IsIgnoredNonHolderObjectState(snapshot, senderPlayer))
         {
@@ -62,13 +67,13 @@ public static class NetworkedItemServer
             // item back where it was let go, and set off the sender's copy again (playtest 2).
             DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
                 "non-holder-object-state-ignored", DebugRuntimeSide.Server);
-            return;
+            return "non-holder-object-state-ignored";
         }
-        //TODO: rollback if validation fails
-        if (!item.ValidateUpdate(snapshot, senderPlayer))
+        string invalid = item.ValidateUpdate(snapshot, senderPlayer);
+        if (invalid != null)
         {
-            item.SendCanonicalRejectionCorrection(senderPlayer, "snapshot-validation-rejected");
-            return;
+            item.SendCanonicalRejectionCorrection(senderPlayer, invalid);
+            return invalid;
         }
 
         // The authenticated transport sender is authoritative for this envelope field. It lets
@@ -86,7 +91,7 @@ public static class NetworkedItemServer
         {
             DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, authorityRejection, DebugRuntimeSide.Server);
             item.SendCanonicalRejectionCorrection(senderPlayer, authorityRejection);
-            return;
+            return string.IsNullOrEmpty(authorityRejection) ? "authority-rejected" : authorityRejection;
         }
         // The player who let go of it has it in their world, whether or not they were ever sent
         // it there (a /give, a starting item): their next grab of it is a pickup like anyone's.
@@ -95,10 +100,10 @@ public static class NetworkedItemServer
         DebugTrace.Validation("item", "Item", item.NetId.ToString(), true, "accepted", DebugRuntimeSide.Server);
 
         Multiplayer.LogDebug(() => $"NetworkedItem.Server_ReceiveItemUpdate() NetId: {snapshot?.ItemNetId}, ItemState: {snapshot?.ItemState}, Player: {senderPlayer.DisplayName}");
-        // FullSync is a composite flag (ItemState | ItemPosition | ObjectState).
+        // FullSync is a composite flag (ItemState | ObjectState).
         // Including it in a HasAnyFlag mask also matches a plain ObjectState packet,
         // incorrectly turning tracked-value-only updates into hand/world transitions.
-        bool appliesItemState = ItemUpdateData.IncludesItemState(snapshot.UpdateType);
+        bool appliesItemState = ItemUpdate.IncludesItemState(snapshot.UpdateType);
         if (appliesItemState)
         {
             item.UpdateHostPossessor(snapshot.PlayerId);
@@ -116,7 +121,8 @@ public static class NetworkedItemServer
         //NetworkedItemManager.Instance.AddDirtyItemSnapshot(item, snapshot);
         // The sender also receives the canonical revision/owner projection. Applying an
         // acknowledgement is idempotent and prevents the next transition using a stale revision.
-        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdate(snapshot);
+        return null;
     }
 
     private static void SendCanonicalRejectionCorrection(this NetworkedItem item, ServerPlayer senderPlayer, string rejectionReason)
@@ -124,7 +130,7 @@ public static class NetworkedItemServer
         if (senderPlayer == null || NetworkServer.Instance == null)
             return;
         bool lostAndFoundProjection = LostAndFoundServer.TryCreateCollectionProjection(
-            item, out ItemUpdateData correction);
+            item, out ItemUpdate correction);
         if (!lostAndFoundProjection &&
             !LiveItems.TryCreateCorrectionSnapshot(item, out correction,
                 ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "your change was refused: " + rejectionReason)))
@@ -142,47 +148,32 @@ public static class NetworkedItemServer
                 ["lostAndFoundProjection"] = lostAndFoundProjection,
                 ["requestedCorrection"] = true
             });
-        NetworkServer.Instance.SendItemUpdatePacket(correction, senderPlayer);
+        NetworkServer.Instance.SendItemUpdate(correction, senderPlayer);
     }
 
-    private static bool ValidateUpdate(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer)
+    // Why a change can't be taken, or null if it can.
+    private static string ValidateUpdate(this NetworkedItem item, ItemUpdate snapshot, ServerPlayer senderPlayer)
     {
         if (snapshot == null || senderPlayer == null)
-            return false;
+            return "invalid-request";
         // Clients can not spawn or destroy items
-        if (snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.Create | ItemUpdateData.ItemUpdateType.Destroy))
-        {
-            DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, "client-create-or-destroy-not-allowed", DebugRuntimeSide.Server);
-            return false;
-        }
-        if ((ItemUpdateData.IncludesItemState(snapshot.UpdateType) ||
-             snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ItemPosition)) &&
+        if (snapshot.UpdateType.HasAnyFlag(ItemUpdate.ItemUpdateType.Create | ItemUpdate.ItemUpdateType.Destroy))
+            return Refused(item, "client-create-or-destroy-not-allowed");
+        if (ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             (!IsFinite(snapshot.ItemPosition) || !IsFinite(snapshot.ItemRotation) ||
              !IsFinite(snapshot.ThrowDirection) || !IsFinite(snapshot.ParentLocalPosition) ||
              !IsFinite(snapshot.ParentLocalRotation)))
-        {
-            DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                "invalid-item-transform", DebugRuntimeSide.Server);
-            return false;
-        }
+            return Refused(item, "invalid-item-transform");
 
         if (!PlayerHandRules.IsDefined(snapshot.PlayerHand) ||
-            ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+            ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             snapshot.ItemState != ItemState.InHand && snapshot.PlayerHand != PlayerHand.None)
-        {
-            DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                "invalid-player-hand", DebugRuntimeSide.Server);
-            return false;
-        }
+            return Refused(item, "invalid-player-hand");
 
         LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority);
         bool senderPossesses = item.SenderPossesses(senderPlayer);
         if (!senderPossesses && !senderPlayer.AcknowledgedWorldItems.Contains(item.NetId))
-        {
-            DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                "item-not-projected-to-sender", DebugRuntimeSide.Server);
-            return false;
-        }
+            return Refused(item, "item-not-projected-to-sender");
 
         // A projection acknowledgement permits the initial world -> hand interaction, a book's
         // pages, and a nearby player working the item where it lies (its game marks that). Any
@@ -192,73 +183,49 @@ public static class NetworkedItemServer
             authority.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory) ||
             item.IsAcceptedWorldInteraction(snapshot, senderPlayer);
         if (!senderPossesses && !allowedInteraction &&
-            !ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
-            snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ObjectState |
-                                            ItemUpdateData.ItemUpdateType.ItemPosition))
-        {
-            DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                "sender-not-current-possessor", DebugRuntimeSide.Server);
-            return false;
-        }
-        if (!senderPossesses && ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+            !ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
+            snapshot.UpdateType.HasAnyFlag(ItemUpdate.ItemUpdateType.ObjectState))
+            return Refused(item, "sender-not-current-possessor");
+        if (!senderPossesses && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory))
-        {
-            DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                "world-transition-requires-possession", DebugRuntimeSide.Server);
-            return false;
-        }
+            return Refused(item, "world-transition-requires-possession");
 
-        if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+        if (ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             snapshot.ItemState is ItemState.Dropped or ItemState.Thrown)
         {
             // This is a logical placement sanity bound, not the future network-physics policy.
             // A client may throw nearby, but cannot relocate a projected item across the map.
             if ((snapshot.ItemPosition - senderPlayer.AbsoluteWorldPosition).sqrMagnitude > 64f * 64f)
-            {
-                DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                    "world-placement-outside-sender-bound", DebugRuntimeSide.Server);
-                return false;
-            }
+                return Refused(item, "world-placement-outside-sender-bound");
             if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior &&
                 (!NetworkedTrainCar.TryGet(snapshot.WorldParentNetId, out TrainCar parentCar) ||
                  (parentCar.transform.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude > 192f * 192f))
-            {
-                DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                    "invalid-or-distant-train-parent", DebugRuntimeSide.Server);
-                return false;
-            }
+                return Refused(item, "invalid-or-distant-train-parent");
             if (snapshot.WorldParentKind == ItemWorldParentKind.StaticParent &&
                 (!WorldItemStaticParentRegistry.TryResolve(snapshot.WorldParentKey, out Transform staticParent) ||
                  (staticParent.position - WorldMover.currentMove - senderPlayer.AbsoluteWorldPosition).sqrMagnitude > 192f * 192f))
-            {
-                DebugTrace.Validation("item", "Item", item.NetId.ToString(), false,
-                    "invalid-or-distant-static-parent", DebugRuntimeSide.Server);
-                return false;
-            }
+                return Refused(item, "invalid-or-distant-static-parent");
         }
 
         if (snapshot.States != null && snapshot.States.TryGetValue(NetworkedPageBookState.TrackedValueKey, out object pageValue))
         {
             if (pageValue is not int requestedPage)
-            {
-                DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, "page-index-type-invalid", DebugRuntimeSide.Server);
-                return false;
-            }
+                return Refused(item, "page-index-type-invalid");
             PageBook pageBook = item.GetComponentInChildren<PageBook>(true);
             if (pageBook == null)
-            {
-                DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, "pagebook-not-present", DebugRuntimeSide.Server);
-                return false;
-            }
+                return Refused(item, "pagebook-not-present");
             PageBookApplyPlan pagePlan = PageBookSyncPlanner.Plan(requestedPage, pageBook.PagesGenerated, pageBook.PageNum);
             if (pagePlan.Status == PageBookApplyStatus.Reject)
-            {
-                DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, pagePlan.Reason, DebugRuntimeSide.Server);
-                return false;
-            }
+                return Refused(item, pagePlan.Reason);
         }
 
-        return true;
+        return null;
+    }
+
+    private static string Refused(NetworkedItem item, string reason)
+    {
+        DebugTrace.Validation("item", "Item", item.NetId.ToString(), false, reason, DebugRuntimeSide.Server);
+        return reason;
     }
 
     private static bool SenderPossesses(this NetworkedItem item, ServerPlayer senderPlayer) =>
@@ -267,13 +234,12 @@ public static class NetworkedItemServer
         authority.Holder == senderPlayer.Guid &&
         authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
 
-    private static bool IsIgnoredNonHolderObjectState(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer) =>
+    private static bool IsIgnoredNonHolderObjectState(this NetworkedItem item, ItemUpdate snapshot, ServerPlayer senderPlayer) =>
         snapshot != null && senderPlayer != null &&
         ItemObjectStateAuthority.HostIgnores(
-            ItemUpdateData.IncludesItemState(snapshot.UpdateType),
-            snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ItemPosition),
-            snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.ObjectState),
-            snapshot.UpdateType.HasAnyFlag(ItemUpdateData.ItemUpdateType.Create | ItemUpdateData.ItemUpdateType.Destroy),
+            ItemUpdate.IncludesItemState(snapshot.UpdateType),
+            snapshot.UpdateType.HasAnyFlag(ItemUpdate.ItemUpdateType.ObjectState),
+            snapshot.UpdateType.HasAnyFlag(ItemUpdate.ItemUpdateType.Create | ItemUpdate.ItemUpdateType.Destroy),
             item.SenderPossesses(senderPlayer),
             // Anyone may turn the pages of a book lying in the world; not one in someone's hand.
             IsPageOnlyInteraction(snapshot) &&
@@ -286,10 +252,10 @@ public static class NetworkedItemServer
     /// with their lighter): their game marks the change as an interaction, and it's taken as object
     /// state only. Unmarked changes from other games' drifting copies are still ignored.
     /// </summary>
-    private static bool IsAcceptedWorldInteraction(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer)
+    private static bool IsAcceptedWorldInteraction(this NetworkedItem item, ItemUpdate snapshot, ServerPlayer senderPlayer)
     {
         if (snapshot == null || senderPlayer == null ||
-            snapshot.UpdateType != ItemUpdateData.ItemUpdateType.ObjectState ||
+            snapshot.UpdateType != ItemUpdate.ItemUpdateType.ObjectState ||
             !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority))
             return false;
         bool itemInWorld = authority.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
@@ -301,9 +267,9 @@ public static class NetworkedItemServer
             senderPlayer.AcknowledgedWorldItems.Contains(item.NetId), itemInWorld, distance);
     }
 
-    private static bool IsPageOnlyInteraction(ItemUpdateData snapshot) =>
+    private static bool IsPageOnlyInteraction(ItemUpdate snapshot) =>
         snapshot != null &&
-        snapshot.UpdateType == ItemUpdateData.ItemUpdateType.ObjectState &&
+        snapshot.UpdateType == ItemUpdate.ItemUpdateType.ObjectState &&
         snapshot.States is { Count: 1 } &&
         snapshot.States.ContainsKey(NetworkedPageBookState.TrackedValueKey);
 
@@ -319,7 +285,7 @@ public static class NetworkedItemServer
         !float.IsNaN(value.w) && !float.IsInfinity(value.w);
 
     // actor null: the server itself (HostItemActor.IsServer).
-    internal static void ApplyHostLocalCanonicalTransition(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor)
+    internal static void ApplyHostLocalCanonicalTransition(this NetworkedItem item, ItemUpdate snapshot, ServerPlayer actor)
     {
         if (snapshot == null)
             return;
@@ -352,7 +318,7 @@ public static class NetworkedItemServer
         item.SetHostPossessor(playerId != 0 && NetworkServer.Instance != null &&
             NetworkServer.Instance.TryGetServerPlayer(playerId, out _) ? playerId : (byte)0);
 
-    internal static void ApplyServerCanonicalSnapshot(this NetworkedItem item, ItemUpdateData snapshot)
+    internal static void ApplyServerCanonicalSnapshot(this NetworkedItem item, ItemUpdate snapshot)
     {
         if (snapshot == null)
             return;
@@ -383,7 +349,7 @@ public static class NetworkedItemServer
             !item.ColdStorageRetirement && !item.ColdMaterializationPending)
         {
             ItemSaveLoad.RecordDestroyed(item);
-            var updateData = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
+            var updateData = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
             if (updateData != null)
             {
                 // The snapshot carries the item's last transition. A Lost and Found collection's

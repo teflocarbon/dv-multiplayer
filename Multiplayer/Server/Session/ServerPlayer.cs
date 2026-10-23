@@ -7,6 +7,8 @@ using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Core.Identity;
+using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Core.Shops;
 using Multiplayer.Core.World;
 using Newtonsoft.Json.Linq;
@@ -21,15 +23,7 @@ public class ServerPlayer : IDisposable
 {
     public const byte MAX_CREW_NAME_LENGTH = 6;
     #region ID Management
-    private static readonly NetIdAllocator<byte> idAllocator = CreateIdAllocator();
-
-    // The number the wire sends for an owner who isn't connected is never a player's.
-    private static NetIdAllocator<byte> CreateIdAllocator()
-    {
-        NetIdAllocator<byte> allocator = new(value => unchecked((byte)(value + 1)));
-        allocator.TryReserve(ItemUpdateData.OfflineOwnerNumber);
-        return allocator;
-    }
+    private static readonly NetIdAllocator<byte> idAllocator = new(value => unchecked((byte)(value + 1)));
 
     public void Dispose()
     {
@@ -138,6 +132,8 @@ public class ServerPlayer : IDisposable
     public Dictionary<NetworkedItem, uint> KnownItems { get; private set; } = new Dictionary<NetworkedItem, uint>(); //NetworkedItem, last updated tick
     public Dictionary<NetworkedItem, float> NearbyItems { get; private set; } = new Dictionary<NetworkedItem, float>(); //NetworkedItem, time since near the item
     public HashSet<ushort> AcknowledgedWorldItems { get; } = new HashSet<ushort>();
+    /// <summary>This player's recent item requests and their answers, so a repeat does nothing twice (NetworkServer.Items).</summary>
+    public ItemRequestMemory<ClientboundItemResultPacket> ItemRequests { get; } = new();
     // Items this player failed to project: when the host may send their Create again.
     internal Dictionary<ushort, float> ProjectionRetryAt { get; } = new Dictionary<ushort, float>();
     // Reliable rolling-stock broadcasts held while this player's train baseline is in flight

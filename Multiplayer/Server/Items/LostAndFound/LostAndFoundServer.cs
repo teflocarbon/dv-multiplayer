@@ -61,7 +61,7 @@ public static class LostAndFoundServer
     public static int Count => registry.Count;
 
     public static bool TryCreateCollectionProjection(NetworkedItem item,
-        out ItemUpdateData snapshot)
+        out ItemUpdate snapshot)
     {
         snapshot = null;
         if (item == null || !registry.TryGet(item.NetId, out LostItemRecord lost) ||
@@ -70,7 +70,7 @@ public static class LostAndFoundServer
             authority.Placement != ItemPlacementKind.LostAndFound)
             return false;
 
-        snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
+        snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
         if (snapshot == null)
             return false;
         LiveItems.WriteToSnapshot(authority, snapshot,
@@ -123,17 +123,45 @@ public static class LostAndFoundServer
             lastEvaluations.Remove(id);
     }
 
-    public static LostItemData[] SnapshotFor(ServerPlayer player)
+    /// <summary>
+    /// A player's Lost and Found as list rows (docs/design/items/wire.md, "One list"), oldest
+    /// first: each named by its item's handle, with the reason it's there and its claim slot.
+    /// </summary>
+    public static ItemRow[] RowsFor(ServerPlayer player)
     {
         TryBindPendingSaveEntries();
         ReconcileCanonicalPlacements();
-        return player == null ? Array.Empty<LostItemData>() :
-            registry.GetForOwner(player.Guid.ToString("D")).Select(ToData).ToArray();
+        return player == null ? Array.Empty<ItemRow>() :
+            registry.GetForOwner(player.Guid.ToString("D")).OrderBy(record => record.LostUtcTicks)
+                .Select(ToRow).ToArray();
     }
 
-    public static bool TryRetrieve(ServerPlayer player, uint lostHandle, uint expectedRevision,
+    /// <summary>
+    /// Collects a Lost and Found row into <paramref name="player"/>'s inventory: the entry of the
+    /// item <paramref name="itemId"/>, at the revision its row showed. If its claim slot shows taken
+    /// in the player's inventory, that's the item's own silhouette, and it goes back there.
+    /// </summary>
+    public static bool TryCollect(ServerPlayer player, Guid itemId, uint expectedRevision,
+        int requestedSlot, int inventoryCapacity, int[] occupiedSlots, out ItemUpdate snapshot,
+        out string rejectionReason)
+    {
+        snapshot = null;
+        if (!registry.TryGetByPersistentId(itemId, out LostItemRecord lost))
+        {
+            rejectionReason = "unknown-lost-item";
+            TraceRecallRejection(0, rejectionReason);
+            return false;
+        }
+        int existingSlot = lost.InventoryClaimSlot >= 0 && occupiedSlots != null &&
+            Array.IndexOf(occupiedSlots, lost.InventoryClaimSlot) >= 0 ? lost.InventoryClaimSlot : -1;
+        return TryRetrieve(player, lost.Handle, expectedRevision,
+            requestedSlot >= 0 ? requestedSlot : lost.InventoryClaimSlot, existingSlot,
+            inventoryCapacity, occupiedSlots, out snapshot, out rejectionReason);
+    }
+
+    private static bool TryRetrieve(ServerPlayer player, uint lostHandle, uint expectedRevision,
         int requestedSlot, int existingItemSlot, int inventoryCapacity, int[] occupiedSlots,
-        out ItemUpdateData snapshot, out string rejectionReason)
+        out ItemUpdate snapshot, out string rejectionReason)
     {
         snapshot = null;
         rejectionReason = string.Empty;
@@ -229,7 +257,7 @@ public static class LostAndFoundServer
         generation++;
         if (NetworkServer.Instance.TryGetServerPlayer(player.PlayerId,
                 out ServerPlayer owner))
-            NetworkServer.Instance.SendLostItemsSnapshot(owner);
+            NetworkServer.Instance.SendLostAndFoundList(owner);
         Publish("item.lost-and-found-retrieved", item, new()
         {
             ["ownerPlayerId"] = player.PlayerId,
@@ -247,7 +275,7 @@ public static class LostAndFoundServer
     /// the virtual Lost and Found. The supplied slot is the existing immutable silhouette slot.
     /// </summary>
     public static bool TryRetrieveForRecall(ServerPlayer player, NetworkedItem item,
-        uint expectedRevision, int existingItemSlot, out ItemUpdateData snapshot,
+        uint expectedRevision, int existingItemSlot, out ItemUpdate snapshot,
         out string rejectionReason)
     {
         if (existingItemSlot < 0)
@@ -367,7 +395,7 @@ public static class LostAndFoundServer
         }
         ChangeCause<ItemRemovalReason> cause = CollectionCause(reason, authority.Owner,
             ItemChangeCauses.Detail("was " + previousPlacement, detail));
-        ItemUpdateData destroy = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
+        ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
         if (destroy != null)
         {
             LiveItems.WriteToSnapshot(authority, destroy,
@@ -399,13 +427,13 @@ public static class LostAndFoundServer
             player.AcknowledgedWorldItems.Remove(item.NetId);
         }
         if (destroy != null)
-            NetworkServer.Instance.SendItemUpdatePacket(destroy);
+            NetworkServer.Instance.SendItemUpdate(destroy);
         if (PlayerNumbers.TryGetSession(authority.Owner,
                 out ServerPlayer owner))
-            NetworkServer.Instance.SendLostItemsSnapshot(owner);
+            NetworkServer.Instance.SendLostAndFoundList(owner);
         Publish("item.lost-and-found-collected", item, new()
         {
-            ["ownerPlayerId"] = PlayerNumbers.OwnerOf(authority.Owner),
+            ["ownerPlayerId"] = PlayerNumbers.Of(authority.Owner),
             ["reason"] = reason.ToString(),
             ["generation"] = generation
         });
@@ -851,10 +879,10 @@ public static class LostAndFoundServer
             $"prefab={removed.PrefabName}, owner={removed.OwnerIdentity}: {reason}");
         if (PlayerNumbers.TryGetSession(OwnerOf(removed),
                 out ServerPlayer owner))
-            NetworkServer.Instance.SendLostItemsSnapshot(owner);
+            NetworkServer.Instance.SendLostAndFoundList(owner);
         Publish("item.lost-and-found-entry-invalidated", itemNetId, new()
         {
-            ["ownerPlayerId"] = PlayerNumbers.OwnerOf(OwnerOf(removed)),
+            ["ownerPlayerId"] = PlayerNumbers.Of(OwnerOf(removed)),
             ["prefabName"] = removed.PrefabName,
             ["reason"] = reason,
             ["generation"] = generation
@@ -894,15 +922,14 @@ public static class LostAndFoundServer
     private static Guid OwnerOf(LostItemRecord record) =>
         Guid.TryParse(record.OwnerIdentity, out Guid owner) ? owner : Guid.Empty;
 
-    private static LostItemData ToData(LostItemRecord record) => new()
+    private static ItemRow ToRow(LostItemRecord record) => new()
     {
-        Handle = record.Handle,
-        NetId = record.NetId,
-        Revision = record.Revision,
-        PrefabName = record.PrefabName,
-        DisplayName = record.DisplayName,
-        Reason = (byte)record.Reason,
-        LostUtcTicks = record.LostUtcTicks
+        Handle = ItemHandles.Of(record.PersistentItemId),
+        PrefabName = record.PrefabName ?? string.Empty,
+        DisplayName = record.DisplayName ?? string.Empty,
+        Where = record.Reason.ToString(),
+        Slot = record.InventoryClaimSlot,
+        Revision = record.Revision
     };
 
     private static Dictionary<string, object> DebugRegistryEntry(LostItemRecord record)
@@ -918,7 +945,7 @@ public static class LostAndFoundServer
         entry["lostHandle"] = record.Handle;
         entry["netId"] = record.NetId;
         entry["revision"] = record.Revision;
-        entry["ownerPlayerId"] = PlayerNumbers.OwnerOf(OwnerOf(record));
+        entry["ownerPlayerId"] = PlayerNumbers.Of(OwnerOf(record));
         entry["ownerIdentity"] = record.OwnerIdentity;
         entry["prefabName"] = record.PrefabName;
         entry["displayName"] = record.DisplayName;
@@ -948,7 +975,7 @@ public static class LostAndFoundServer
             ["displayName"] = item.Item?.name ?? authority.PrefabName,
             ["prefabName"] = authority.PrefabName,
             ["revision"] = authority.Revision,
-            ["ownerPlayerId"] = PlayerNumbers.OwnerOf(authority.Owner),
+            ["ownerPlayerId"] = PlayerNumbers.Of(authority.Owner),
             ["authorityPlacement"] = authority.Placement.ToString(),
             ["policyDecision"] = decision.Kind.ToString(),
             ["policyReason"] = decision.Reason,
@@ -1004,7 +1031,7 @@ public static class LostAndFoundServer
         {
             ["decision"] = decision.Kind.ToString(),
             ["reason"] = decision.Reason,
-            ["ownerPlayerId"] = PlayerNumbers.OwnerOf(authority.Owner),
+            ["ownerPlayerId"] = PlayerNumbers.Of(authority.Owner),
             ["ownerDistance"] = Mathf.Sqrt(candidate.OwnerDistanceSquared),
             ["nearestPlayerDistance"] = Mathf.Sqrt(candidate.NearestPlayerDistanceSquared),
             ["eligibleSeconds"] = candidate.EligibleDurationSeconds

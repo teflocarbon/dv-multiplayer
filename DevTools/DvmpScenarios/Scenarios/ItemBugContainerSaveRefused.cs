@@ -108,7 +108,7 @@ namespace Dvmp.Scenarios
                 uint seq = CUI.MutationSequence;
                 if (c.AddItem(item.gameObject, -1)) throw new Exception("the deposit was not intercepted");
                 yield return Wait.Until(() => CUI.MutationSequence != seq && CUI.LastMutation != null, 10f, "the deposit's result");
-                if (!CUI.LastMutation.Accepted) throw new Exception("deposit rejected: " + CUI.LastMutation.RejectionReason);
+                if (!CUI.LastMutation.Accepted) throw new Exception("deposit rejected: " + CUI.LastMutation.Detail);
                 c.ToggleContainerAccess();
                 for (int i = 0; i < 30; i++) yield return null;
             }

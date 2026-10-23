@@ -91,7 +91,7 @@ internal sealed class ServerItemSpatial
             Reject(state, actor, rejection ?? "host-sample-rejected");
     }
 
-    internal void OnAuthoritativeTransitionCommitted(NetworkedItem item, ItemUpdateData snapshot,
+    internal void OnAuthoritativeTransitionCommitted(NetworkedItem item, ItemUpdate snapshot,
         LiveItems.LiveItem record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {
@@ -439,12 +439,12 @@ internal sealed class ServerItemSpatial
         return selected != null;
     }
 
-    internal void SendActiveLeasesTo(ServerPlayer player, IEnumerable<ItemUpdateData> snapshots)
+    internal void SendActiveLeasesTo(ServerPlayer player, IEnumerable<ItemUpdate> snapshots)
     {
         if (player?.Peer == null || snapshots == null)
             return;
         foreach (ushort itemNetId in snapshots.Where(snapshot => snapshot != null &&
-                     snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create))
+                     snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
                  .Select(snapshot => snapshot.ItemNetId).Distinct())
         {
             if (!leases.TryGetValue(itemNetId, out Lease lease) || lease.LastAccepted == null ||

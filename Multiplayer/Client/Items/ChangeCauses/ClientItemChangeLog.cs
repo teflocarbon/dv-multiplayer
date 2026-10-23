@@ -1,5 +1,6 @@
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 
@@ -16,16 +17,16 @@ internal static class ClientItemChangeLog
     /// Logs the cause a host update carries and keeps it on the item. Changes to the local
     /// player's items go to the log; everyone else's to the debug log, or a busy yard floods it.
     /// </summary>
-    internal static void OnSnapshot(NetworkedItem item, ItemUpdateData snapshot, byte localPlayerId)
+    internal static void OnSnapshot(NetworkedItem item, ItemUpdate snapshot, byte localPlayerId)
     {
         if (snapshot == null)
             return;
         byte self = localPlayerId;
-        bool mine = self != 0 && (snapshot.PersistentOwnerPlayerId == self || item != null &&
-            (item.PersistentOwnerPlayerId == self || item.playerBelongsToId == self));
+        bool mine = self != 0 && (snapshot.Relation == ItemRelation.Mine || item != null &&
+            (item.Relation == ItemRelation.Mine || item.playerBelongsToId == self));
         string name = item != null ? item.name : snapshot.PrefabName;
         string line;
-        if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy)
+        if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy)
         {
             ChangeCause<ItemRemovalReason> cause = snapshot.RemovalCause ??
                 (snapshot.TransitionReason == ItemTransitionReason.InterestRetirement

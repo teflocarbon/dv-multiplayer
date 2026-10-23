@@ -406,10 +406,8 @@ public static class ServerLedger
         ItemMoveReason.Granted => BirthReason.Granted,
         ItemMoveReason.Issued => BirthReason.Issued,
         ItemMoveReason.StarterKit => BirthReason.StarterKit,
-        // Nothing is adopted any more (owned-items.md, PR 5); the value stays in old logs.
-        ItemMoveReason.Adopted => BirthReason.Issued,
         // Owned before the ledger saw it: restored, withdrawn, retrieved.
-        ItemMoveReason.RestoredFromSave or ItemMoveReason.ReturnedToRejoiningOwner or
+        ItemMoveReason.RestoredFromSave or
             ItemMoveReason.WithdrawnFromContainer or ItemMoveReason.RetrievedFromLostAndFound => BirthReason.Migrated,
         _ => BirthReason.Claimed
     };

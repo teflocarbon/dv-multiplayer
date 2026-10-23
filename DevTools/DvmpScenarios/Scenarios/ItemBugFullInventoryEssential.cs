@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -84,7 +85,7 @@ namespace Dvmp.Scenarios
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
                 byte me = NetworkLifecycle.Instance.LocalSession.PlayerId;
-                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.PersistentOwnerPlayerId == me && n.name.Replace("(Clone)", "") == prefab);
+                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.Replace("(Clone)", "") == prefab);
                 int slot = item != null ? inv.IndexOf(item.gameObject) : -1;
                 return new Inventory
                 {
@@ -139,7 +140,7 @@ namespace Dvmp.Scenarios
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
                 byte me = NetworkLifecycle.Instance.LocalSession.PlayerId;
-                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.PersistentOwnerPlayerId == me && n.name.Replace("(Clone)", "") == prefab);
+                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.Replace("(Clone)", "") == prefab);
                 if (item == null || inv.IndexOf(item.gameObject) >= 0 || !item.gameObject.activeInHierarchy) yield break;
                 if (Hands.Held != null) yield return Hands.Drop();
                 yield return LocalPlayer.GoTo(item);

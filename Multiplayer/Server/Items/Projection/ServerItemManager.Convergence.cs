@@ -37,8 +37,8 @@ internal sealed partial class ServerItemManager
             if (player.Peer == server.SelfPeer || player.LoadingState < PlayerLoadingState.Complete)
                 continue;
             NetworkedItem item = NextConvergenceCandidate(player);
-            if (item != null && TryCreateConvergenceSnapshot(item, out ItemUpdateData snapshot))
-                server.SendItemUpdatePacket(snapshot, sendToPlayer: player);
+            if (item != null && TryCreateConvergenceSnapshot(item, out ItemUpdate snapshot))
+                server.SendItemUpdate(snapshot, sendToPlayer: player);
         }
     }
 
@@ -72,17 +72,17 @@ internal sealed partial class ServerItemManager
 
     // The host's live object is what clients should match (the record's pose can lag, e.g. for
     // items riding in cars); authority metadata comes from the record.
-    private static bool TryCreateConvergenceSnapshot(NetworkedItem item, out ItemUpdateData snapshot)
+    private static bool TryCreateConvergenceSnapshot(NetworkedItem item, out ItemUpdate snapshot)
     {
         snapshot = null;
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
             return false;
-        snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState | ItemUpdateData.ItemUpdateType.ItemPosition);
+        snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return false;
         snapshot.ItemState = ItemState.Dropped;
         snapshot.AuthorityRevision = record.Revision;
-        snapshot.PersistentOwnerPlayerId = PlayerNumbers.OwnerOf(record.Owner);
+        snapshot.Relation = PlayerNumbers.LocalRelation(record.Owner);
         snapshot.PlayerId = 0;
         snapshot.PlayerHand = PlayerHand.None;
         snapshot.OriginatingPlayerId = 0;

@@ -99,42 +99,6 @@ public sealed class ItemStateMachineTests
     }
 
     [Test]
-    public void ClientAdoption_EstablishesOwnerWithoutRetrievalClaim()
-    {
-        LiveItemState original = State(revision: 0);
-        ItemTransition command = Transition(actor: 2, revision: 0,
-            placement: LivePlacement.PlayerInventory);
-        command.EstablishPersistentOwner = true;
-        command.MayEstablishPersistentOwner = false;
-
-        TransitionResult result = ItemStateMachine.Apply(original, command);
-
-        Assert.That(result.Accepted, Is.True);
-        Assert.That(result.State.Owner, Is.EqualTo(P(2)));
-        Assert.That(result.State.Holder, Is.EqualTo(P(2)));
-        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1),
-            "ordinary ownership must not manufacture an essential-item recall claim");
-        Assert.That(result.State.InventoryClaimSlot, Is.EqualTo(-1));
-        Assert.That(result.State.InventoryClaimFlags, Is.EqualTo(ClaimFlags.None));
-    }
-
-    [Test]
-    public void LaterPickup_CannotReplaceOwnerEstablishedByClientAdoption()
-    {
-        LiveItemState original = State(revision: 1, placement: LivePlacement.World);
-        original.Owner = P(2);
-        ItemTransition command = Transition(actor: 3, revision: 1,
-            placement: LivePlacement.PlayerHand);
-        command.EstablishPersistentOwner = true;
-
-        TransitionResult result = ItemStateMachine.Apply(original, command);
-
-        Assert.That(result.Accepted, Is.True);
-        Assert.That(result.State.Owner, Is.EqualTo(P(2)));
-        Assert.That(result.State.Holder, Is.EqualTo(P(3)));
-    }
-
-    [Test]
     public void Recall_ReturnsSameCanonicalIdentityAndDoesNotCreateAnotherItem()
     {
         LiveItemStore store = new();
@@ -523,14 +487,9 @@ public sealed class ItemStateMachineTests
     public void ServerActor_NeverBecomesAnOwner()
     {
         LiveItemState original = State(revision: 4);
-        ItemTransition adoption = Transition(Server, 4,
+        ItemTransition move = Transition(Server, 4,
             LivePlacement.World, retrievalClaim: true);
-        adoption.EstablishPersistentOwner = true;
-
-        Assert.That(ItemStateMachine.Apply(original, adoption).Accepted, Is.False);
-
-        adoption.EstablishPersistentOwner = false;
-        TransitionResult moved = ItemStateMachine.Apply(original, adoption);
+        TransitionResult moved = ItemStateMachine.Apply(original, move);
 
         Assert.That(moved.Accepted, Is.True);
         Assert.That(moved.State.Owner, Is.EqualTo(Guid.Empty));

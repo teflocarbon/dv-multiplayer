@@ -22,10 +22,10 @@ public static class DebugDesyncDetector
     private static readonly List<ushort> sampleOrder = new();
     private static int sampleCursor;
 
-    public static void Remember(ItemUpdateData snapshot)
+    public static void Remember(ItemUpdate snapshot)
     {
         if (!DebugRuntime.Enabled || snapshot == null ||
-            !ItemUpdateData.IncludesItemState(snapshot.UpdateType)) return;
+            !ItemUpdate.IncludesItemState(snapshot.UpdateType)) return;
         if (!expectedItems.ContainsKey(snapshot.ItemNetId)) sampleOrder.Add(snapshot.ItemNetId);
         expectedItems[snapshot.ItemNetId] = new ExpectedItem
         {

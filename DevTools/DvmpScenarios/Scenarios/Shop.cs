@@ -254,7 +254,7 @@ namespace Dvmp.Scenarios
                 {
                     Money = Inventory.Instance.PlayerMoney, Stock = d.ItemsInStock,
                     Seen = netId != 0 && UnityEngine.Object.FindObjectsOfType<NetworkedItem>().Any(n => n.NetId == netId),
-                    Owner = PlayerNumbers.OwnerOf(rec?.Owner ?? System.Guid.Empty),
+                    Owner = OwnerNumbers.Of(rec?.Owner ?? System.Guid.Empty),
                     BasketUnits = basket?.Lines.Sum(l => l.Units) ?? 0, Deposited = basket?.Deposited ?? 0
                 };
             }

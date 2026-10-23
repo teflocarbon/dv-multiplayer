@@ -75,11 +75,11 @@ public static class ItemObjectStateAuthority
     /// <summary>
     /// Whether the host drops an update without answering. A non-holder's object state isn't a
     /// dispute about where the item is, so a correction (which carries the position) only moved
-    /// the sender's copy. Placement and position still get one.
+    /// the sender's copy. Placement still gets one.
     /// </summary>
-    public static bool HostIgnores(bool carriesItemState, bool carriesPosition, bool carriesObjectState,
+    public static bool HostIgnores(bool carriesItemState, bool carriesObjectState,
         bool carriesLifecycle, bool senderPossesses, bool allowedInteraction) =>
-        carriesObjectState && !carriesItemState && !carriesPosition && !carriesLifecycle &&
+        carriesObjectState && !carriesItemState && !carriesLifecycle &&
         !senderPossesses && !allowedInteraction;
 }
 

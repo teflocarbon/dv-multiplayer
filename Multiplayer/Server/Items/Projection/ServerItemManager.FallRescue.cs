@@ -130,10 +130,10 @@ internal sealed partial class ServerItemManager
         {
             if (player.Peer == NetworkServer.Instance.SelfPeer || !player.KnownItems.ContainsKey(item))
                 continue;
-            if (TryCreateConvergenceSnapshot(item, out ItemUpdateData snapshot))
+            if (TryCreateConvergenceSnapshot(item, out ItemUpdate snapshot))
             {
                 snapshot.MoveCause = rescued;
-                NetworkServer.Instance.SendItemUpdatePacket(snapshot, sendToPlayer: player);
+                NetworkServer.Instance.SendItemUpdate(snapshot, sendToPlayer: player);
             }
         }
     }}

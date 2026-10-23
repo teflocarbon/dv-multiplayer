@@ -127,7 +127,7 @@ internal sealed class NetworkedItemSpatialManager
         return true;
     }
 
-    internal void ApplyLatestAcceptedToSnapshot(ItemUpdateData snapshot)
+    internal void ApplyLatestAcceptedToSnapshot(ItemUpdate snapshot)
     {
         if (snapshot == null || !TryGetLatestAccepted(snapshot.ItemNetId, out ItemSpatialStateData state))
             return;
@@ -466,12 +466,11 @@ internal sealed class NetworkedItemSpatialManager
 
     internal static void ApplyCommitMetadata(NetworkedItem item, ItemSpatialStateData state)
     {
-        item.ApplyAuthorityMetadata(new ItemUpdateData
+        item.ApplyAuthorityMetadata(new ItemUpdate
         {
             ItemNetId = item.NetId,
             AuthorityRevision = state.AuthorityRevision,
-            PersistentOwnerPlayerId = item.PersistentOwnerPlayerId,
-            InventoryClaimPlayerId = item.InventoryClaimPlayerId,
+            Relation = item.Relation,
             InventoryClaimSlot = item.InventoryClaimSlot,
             InventoryClaimFlags = item.InventoryClaimFlags,
             TransitionReason = ItemTransitionReason.SpatialSettlement

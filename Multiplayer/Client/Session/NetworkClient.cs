@@ -21,7 +21,7 @@ using MPAPI.Interfaces.Packets;
 using MPAPI.Types;
 using Multiplayer.Client.Api;
 using Multiplayer.Client.Career;
-using Multiplayer.Client.Items.OwnedList;
+
 using Multiplayer.Client.Items.Projection;
 using Multiplayer.Client.Shops;
 using Multiplayer.Client.Players;
@@ -47,6 +47,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Common.Train;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Train;
@@ -82,9 +83,8 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
     /// </summary>
     public static NetworkClient Instance { get; internal set; }
 
-    public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
-    public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
-    public event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
+    public event Action<ClientboundItemResultPacket> ItemResultReceived;
+    public event Action<ClientboundItemListPacket> ItemListReceived;
     protected override string LogPrefix => "[Client]";
     protected override DebugRuntimeSide DebugSide => DebugRuntimeSide.Client;
 
@@ -127,20 +127,13 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         typeof(ServerboundWarehouseMachineControllerRequestPacket),
         typeof(CommonPitStopInteractionPacket),
         typeof(CommonPitStopPlugInteractionPacket),
-        typeof(CommonItemUpdatePacket),
-        typeof(ServerboundItemRecallPacket),
-        typeof(ServerboundItemRecallPreparedPacket),
-        typeof(ServerboundMoneyItemDepositPacket),
+        typeof(ServerboundItemRequestPacket),
         typeof(ServerboundShopScanPacket),
         typeof(ServerboundShopDepositPacket),
         typeof(ServerboundHazmatIgnitePacket),
         typeof(ServerboundShopBuyPacket),
         typeof(ServerboundShopCancelPacket),
         typeof(ServerboundShopScannerAimPacket),
-        typeof(ServerboundItemBelowMapPacket),
-        typeof(ServerboundContainerMutationPacket),
-        typeof(ServerboundLostItemRetrievePacket),
-        typeof(ServerboundOwnedItemRetrievePacket),
         typeof(ServerboundItemSpatialSamplePacket),
         typeof(ServerboundItemSpatialSettlementPacket),
         typeof(ServerboundItemTrainWakeWitnessPacket),
@@ -402,16 +395,9 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         Handle<ClientboundTaskUpdatePacket>(OnClientboundTaskUpdatePacket);
 
         // World Sync
-        Handle<CommonItemsBulkUpdatePacket>(OnCommonItemsBulkUpdatePacket);
-        Handle<CommonItemUpdatePacket>(OnCommonItemUpdatePacket);
-        Handle<ClientboundItemRecallPreparePacket>(OnClientboundItemRecallPreparePacket);
-        Handle<ClientboundItemRecallResultPacket>(OnClientboundItemRecallResultPacket);
-        Handle<ClientboundLostItemsSnapshotPacket>(OnClientboundLostItemsSnapshotPacket);
-        Handle<ClientboundOwnedItemsPacket>(OwnedItemsList.Apply);
-        Handle<ClientboundOwnedItemRetrieveResultPacket>(packet => OwnedItemRetrieveCompleted?.Invoke(packet));
-        Handle<ClientboundLostItemRetrieveResultPacket>(OnClientboundLostItemRetrieveResultPacket);
-        Handle<ClientboundContainerViewPacket>(OnClientboundContainerViewPacket);
-        Handle<ClientboundContainerMutationResultPacket>(OnClientboundContainerMutationResultPacket);
+        Handle<ClientboundItemUpdatesPacket>(OnClientboundItemUpdatesPacket);
+        Handle<ClientboundItemResultPacket>(OnClientboundItemResultPacket);
+        Handle<ClientboundItemListPacket>(OnClientboundItemListPacket);
         Handle<ClientboundWorldItemCataloguePacket>(OnClientboundWorldItemCataloguePacket);
         Handle<ClientboundItemSpatialLeasePacket>(OnClientboundItemSpatialLeasePacket);
         Handle<ClientboundItemSpatialSamplePacket>(OnClientboundItemSpatialSamplePacket);

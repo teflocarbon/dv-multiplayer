@@ -136,7 +136,7 @@ internal static class AdminItemGrants
     {
         if (record == null)
             return false;
-        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
+        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
         if (snapshot == null)
             return false;
         snapshot.ItemState = ItemState.InInventory;
@@ -153,7 +153,7 @@ internal static class AdminItemGrants
         LiveItems.WriteToSnapshot(record, snapshot, ItemTransitionReason.HostLocalState);
         item.ApplyServerCanonicalSnapshot(snapshot);
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
-        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdate(snapshot);
         return true;
     }
 }

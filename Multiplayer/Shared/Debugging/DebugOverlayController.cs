@@ -744,7 +744,7 @@ public sealed class DebugOverlayController : MonoBehaviour
                 if (StateBool(state, "claimStolen")) flags += " · STOLEN";
                 if (StateBool(state, "foreignOwned")) flags += " · FOREIGN";
                 row.Text.text = $"<color=#78858C>SLOT {StateValue(state, "inventorySlot", -1),2}</color>  <color=#26B861>{entity.EntityId}</color>  {entity.DisplayName}\n" +
-                    $"<size=12><color=#78858C>{flags} · owner P{StateValue(state, "persistentOwnerPlayerId", 0)} · claim {StateValue(state, "inventoryClaimSlot", -1)}</color></size>";
+                    $"<size=12><color=#78858C>{flags} · {StateValue(state, "relation", "Nobodys")} · claim {StateValue(state, "inventoryClaimSlot", -1)}</color></size>";
                 row.Layout.preferredHeight = 50;
             }
             else if (filter == "LostFound")

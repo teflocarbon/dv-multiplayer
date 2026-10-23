@@ -1,13 +1,14 @@
 using System;
 using System.Linq;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Protocol.Data.Items;
 
 namespace Multiplayer.Server.Items.LiveState;
 
 /// <summary>
-/// Where an item's owner and holder, which the server keeps as identities, become session player
-/// numbers: only at the wire and the session edge (docs/design/item-refactor.md, "Identity only").
+/// Where an item's holder, which the server keeps as an identity, becomes a session player number,
+/// and its owner a relation: only at the wire and the session edge (docs/design/items/wire.md).
 /// An offline player is an identity with no session, so nothing is bound or re-bound when a
 /// player comes or goes.
 /// </summary>
@@ -34,11 +35,12 @@ public static class PlayerNumbers
     public static byte Of(Guid identity) => Session(identity)?.PlayerId ?? 0;
 
     /// <summary>
-    /// The owner number to send: the owner's session number while they're connected,
-    /// <see cref="ItemUpdateData.OfflineOwnerNumber"/> while they aren't, 0 for no owner.
+    /// The host's own player's relation to an item <paramref name="owner"/> owns, which the server's
+    /// own copy of the item carries; a dedicated host has no player, so every owned item is someone
+    /// else's there. The wire sends each recipient its own (<c>NetworkServer.SendItemUpdates</c>).
     /// </summary>
-    public static byte OwnerOf(Guid owner) =>
-        owner == Guid.Empty ? (byte)0 : Session(owner)?.PlayerId ?? ItemUpdateData.OfflineOwnerNumber;
+    public static ItemRelation LocalRelation(Guid owner) =>
+        ItemRelations.Of(owner, NetworkServer.Instance?.LocalPlayer?.Guid ?? Guid.Empty);
 
     /// <summary>The identity of a connected session number, or empty.</summary>
     public static Guid Identity(byte playerId) =>

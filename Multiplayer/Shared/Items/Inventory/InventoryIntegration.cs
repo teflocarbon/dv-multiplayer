@@ -1,6 +1,7 @@
 using DV.InventorySystem;
 using DV.UI.Inventory;
 using Multiplayer.Core.Items.Inventory;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -297,7 +298,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                 if (networkedItem == null ||
                     !InventoryPresentationPlanner.ShouldPurgeForeignDroppedClaim(
                         new InventoryPresentationInput(networkedItem.NetId,
-                            networkedItem.PersistentOwnerPlayerId, localPlayerId,
+                            networkedItem.Relation, localPlayerId != 0,
                             networkedItem.Item?.InventorySpecs?.IsEssential == true,
                             retrievalClaim, ItemServer.Current?.IsInLostAndFound(networkedItem.NetId) == true),
                         localSlotDropped: true, localSlotReservedOrLocked: true,
@@ -312,7 +313,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                     {
                         ["reason"] = reason ?? string.Empty,
                         ["localPlayerId"] = localPlayerId,
-                        ["persistentOwnerPlayerId"] = networkedItem.PersistentOwnerPlayerId,
+                        ["relation"] = networkedItem.Relation.ToString(),
                         ["slotBefore"] = slot,
                         ["slotAfter"] = removal.SlotAfter,
                         ["containedAfter"] = removal.ContainedAfter
@@ -423,7 +424,7 @@ internal static class InventoryIntegration
             (item.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved |
                 ItemInventoryClaimFlags.Locked)) != 0;
         return InventoryPresentationPlanner.Plan(new InventoryPresentationInput(
-            item?.NetId ?? 0, item?.PersistentOwnerPlayerId ?? 0, runtime.LocalPlayerId,
+            item?.NetId ?? 0, item?.Relation ?? ItemRelation.Nobodys, runtime.LocalPlayerId != 0,
             retrievalEligible, hasRetrievalClaim, isLostAndFound));
     }
 

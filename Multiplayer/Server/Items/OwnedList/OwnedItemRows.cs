@@ -8,6 +8,7 @@ using Multiplayer.Core.Items.OwnedList;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Trains;
 
@@ -25,15 +26,11 @@ public sealed class OwnedItemRow
 /// <summary>
 /// A player's owned-items list (owned-items.md, "The owned-items list", PR 6a): a row per live
 /// ledger entry they own, ended ones left out, with where it is worded by the server
-/// (<see cref="PlaceText"/>). An item keeps its handle for the session, so a retrieval
-/// (PR 6b) can name it while the list is open.
+/// (<see cref="PlaceText"/>). A row is named by the item's handle (<see cref="ItemHandles"/>),
+/// so a retrieval (PR 6b) can name it while the list is open.
 /// </summary>
 public static class OwnedItemRows
 {
-    private static readonly Dictionary<Guid, uint> handles = new();
-    private static readonly Dictionary<uint, Guid> byHandle = new();
-    private static uint lastHandle;
-
     public static List<OwnedItemRow> For(ServerPlayer player)
     {
         List<OwnedItemRow> rows = new();
@@ -64,7 +61,7 @@ public static class OwnedItemRows
                 containerName: containerName);
             rows.Add(new OwnedItemRow
             {
-                Handle = HandleOf(entry.Id),
+                Handle = ItemHandles.Of(entry.Id),
                 Id = entry.Id,
                 Prefab = entry.Prefab ?? string.Empty,
                 DisplayName = !string.IsNullOrEmpty(inContainer?.DisplayName) ? inContainer.DisplayName : NameOf(entry.Prefab),
@@ -73,19 +70,6 @@ public static class OwnedItemRows
             });
         }
         return rows;
-    }
-
-    /// <summary>The item a handle from this session's lists names.</summary>
-    public static bool TryResolve(uint handle, out Guid id) => byHandle.TryGetValue(handle, out id);
-
-    private static uint HandleOf(Guid id)
-    {
-        if (!handles.TryGetValue(id, out uint handle))
-        {
-            handles[id] = handle = ++lastHandle;
-            byHandle[handle] = id;
-        }
-        return handle;
     }
 
     // The car an item is in, on or attached to, by its id (L-042).

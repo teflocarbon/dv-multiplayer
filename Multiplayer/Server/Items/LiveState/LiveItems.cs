@@ -106,7 +106,7 @@ public static class LiveItems
         return persistentId;
     }
 
-    public static LiveItem Ensure(NetworkedItem item, ServerPlayer actor = null, ItemUpdateData seed = null)
+    public static LiveItem Ensure(NetworkedItem item, ServerPlayer actor = null, ItemUpdate seed = null)
     {
         if (item == null || item.NetId == 0)
             return null;
@@ -117,15 +117,13 @@ public static class LiveItems
         bool hasRetrievalClaim = item.Item?.InventorySpecs?.IsEssential == true &&
             (seed?.InventoryClaimSlot ?? -1) >= 0 &&
             HasRetrievalFlag(claimFlags);
-        // The seed is a client's update, so its players are session numbers.
-        byte claimedOwner = seed?.PersistentOwnerPlayerId ?? 0;
-        // An unclaimed personal item belongs to the actor only if they hold it. Registration often
-        // happens when the host first replicates an item, which made the host the owner of every
-        // item bought at a shop (purchases run on the host), whoever bought it.
+        // A personal item belongs to the actor only if they hold it (a request names no owner).
+        // Registration often happens when the host first replicates an item, which made the host
+        // the owner of every item bought at a shop (purchases run on the host), whoever bought it.
         bool actorHoldsSeed = seed != null && actor != null && seed.PlayerId == actor.PlayerId &&
             seed.ItemState is ItemState.InHand or ItemState.InInventory;
         bool actorOwnsPlayerItem = item.Item?.InventorySpecs?.BelongsToPlayer == true && actor != null &&
-            (claimedOwner == actor.PlayerId || claimedOwner == 0 && actorHoldsSeed);
+            actorHoldsSeed;
         Guid persistentOwner = actorOwnsPlayerItem ? actor.Guid : Guid.Empty;
 
         ItemIdentity persistentIdentity = item.GetComponent<ItemIdentity>();
@@ -174,7 +172,7 @@ public static class LiveItems
     /// Why, when the caller knows (a disconnect, a restore). Without it a change of placement,
     /// holder or owner is named from what changed (<see cref="ItemMoveClassifier"/>).
     /// </param>
-    public static bool TryApplyTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
+    public static bool TryApplyTransition(NetworkedItem item, ItemUpdate snapshot, ServerPlayer actor,
         ItemTransitionReason reason, bool force, out string rejectionReason,
         bool clearRetrievalClaim = false, ChangeCause<ItemMoveReason>? cause = null)
     {
@@ -192,7 +190,7 @@ public static class LiveItems
     /// its own (<see cref="HostItemActor.IsServer"/>). It can move the item about the world but
     /// not into anyone's hands.
     /// </summary>
-    public static bool TryApplyServerTransition(NetworkedItem item, ItemUpdateData snapshot,
+    public static bool TryApplyServerTransition(NetworkedItem item, ItemUpdate snapshot,
         ItemTransitionReason reason, bool force, out string rejectionReason,
         ChangeCause<ItemMoveReason>? cause = null) =>
         ApplyTransition(item, snapshot, null, reason, force, out rejectionReason, false, cause);
@@ -201,12 +199,12 @@ public static class LiveItems
     /// What vanilla did to an installed gadget's item, committed by the server's gadget code: the
     /// only transition into or out of <see cref="ItemPlacementKind.Installed"/> (Server/Gadgets).
     /// </summary>
-    public static bool TryApplyGadgetTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
+    public static bool TryApplyGadgetTransition(NetworkedItem item, ItemUpdate snapshot, ServerPlayer actor,
         ItemTransitionReason reason, out string rejectionReason, ChangeCause<ItemMoveReason>? cause = null) =>
         ApplyTransition(item, snapshot, actor, reason, true, out rejectionReason, false, cause, gadgetTransition: true);
 
     // actor null: the server itself.
-    private static bool ApplyTransition(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer actor,
+    private static bool ApplyTransition(NetworkedItem item, ItemUpdate snapshot, ServerPlayer actor,
         ItemTransitionReason reason, bool force, out string rejectionReason,
         bool clearRetrievalClaim, ChangeCause<ItemMoveReason>? cause, bool gadgetTransition = false)
     {
@@ -245,7 +243,7 @@ public static class LiveItems
             ["reason"] = reason.ToString()
         });
 
-        bool appliesPlacement = ItemUpdateData.ChangesPlacement(snapshot.UpdateType);
+        bool appliesPlacement = ItemUpdate.ChangesPlacement(snapshot.UpdateType);
         ItemPlacementKind requestedPlacement = appliesPlacement ? PlacementFrom(snapshot.ItemState) : record.Placement;
         if (appliesPlacement && snapshot.ItemState is ItemState.Dropped or ItemState.Thrown)
             requestedPlacement = snapshot.WorldParentKind switch
@@ -264,7 +262,6 @@ public static class LiveItems
             RequestedPlacement = (LivePlacement)(byte)requestedPlacement,
             ClearRetrievalClaim = clearRetrievalClaim,
             GadgetTransition = gadgetTransition,
-            EstablishPersistentOwner = reason == ItemTransitionReason.ClientAdoption,
             MayEstablishPersistentOwner = item.Item?.InventorySpecs?.BelongsToPlayer == true,
             InventoryClaimSlot = retrievalEligible ? snapshot.InventoryClaimSlot : -1,
             InventoryClaimFlags = retrievalEligible
@@ -326,7 +323,7 @@ public static class LiveItems
         if ((record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.Installed) &&
             NetworkedTrainCar.TryGet(record.AttachedCarNetId, out TrainCar attachedCar))
             record.AttachedCarPersistentId = attachedCar.CarGUID ?? string.Empty;
-        if (item.IsSceneAuthored && snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState) &&
+        if (item.IsSceneAuthored && snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.ObjectState) &&
             snapshot.States is { Count: > 0 })
             record.HasPersistentOverride = true;
         record.LastReason = reason;
@@ -365,7 +362,6 @@ public static class LiveItems
             return known.WithDetail(ItemChangeCauses.Detail(change, known.Detail));
         ItemMoveReason classified = reason switch
         {
-            ItemTransitionReason.ClientAdoption => ItemMoveReason.Adopted,
             ItemTransitionReason.PersistenceRestore => ItemMoveReason.RestoredFromSave,
             ItemTransitionReason.JobBookletSummon => ItemMoveReason.JobBookletSummoned,
             _ => ItemMoveClassifier.Classify(before, after, thrown)
@@ -386,7 +382,7 @@ public static class LiveItems
     /// Puts the record's pose into an object-state update before it's applied, so a transition
     /// that doesn't move the item doesn't take the sender's copy's position as the item's.
     /// </summary>
-    public static void KeepRecordedPose(NetworkedItem item, ItemUpdateData snapshot)
+    public static void KeepRecordedPose(NetworkedItem item, ItemUpdate snapshot)
     {
         if (item == null || snapshot == null || !records.TryGetValue(item.NetId, out LiveItem record))
             return;
@@ -478,8 +474,13 @@ public static class LiveItems
         return true;
     }
 
-    public static bool TryPrepareRecall(NetworkedItem item, ServerPlayer requester, int requestedSlot,
-        uint expectedRevision, out ItemUpdateData snapshot, out string rejectionReason)
+    /// <summary>
+    /// An owner's recall, in one step (docs/design/items/wire.md, "Recall"): the server commits it,
+    /// and the update it returns, sent to everyone, empties the holder's hand and puts the item in
+    /// the owner's claimed slot. Nothing is asked of the owner's game first.
+    /// </summary>
+    public static bool TryRecall(NetworkedItem item, ServerPlayer requester, int requestedSlot,
+        uint expectedRevision, out ItemUpdate snapshot, out string rejectionReason)
     {
         snapshot = null;
         rejectionReason = string.Empty;
@@ -505,54 +506,14 @@ public static class LiveItems
             return false;
         }
 
-        ItemUpdateData recallSnapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
-        if (recallSnapshot == null)
+        snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
+        if (snapshot == null)
         {
             rejectionReason = "snapshot-creation-failed";
             return false;
         }
-
-        snapshot = recallSnapshot;
         snapshot.ItemState = ItemState.InInventory;
         snapshot.PlayerId = requester.PlayerId;
-        WriteStateToSnapshot(result.State, snapshot, ItemTransitionReason.OwnerRecall);
-        Publish("item.recall-prepared", item, record, new()
-        {
-            ["requestingPlayerId"] = requester.PlayerId,
-            ["requestedSlot"] = requestedSlot,
-            ["baseRevision"] = record.Revision,
-            ["preparedRevision"] = result.State.Revision
-        });
-        return true;
-    }
-
-    public static bool TryCommitPreparedRecall(NetworkedItem item, ServerPlayer requester,
-        int requestedSlot, uint expectedRevision, out ItemUpdateData snapshot,
-        out string rejectionReason)
-    {
-        snapshot = null;
-        rejectionReason = string.Empty;
-        if (!TryPrepareRecall(item, requester, requestedSlot, expectedRevision,
-                out ItemUpdateData prepared, out rejectionReason))
-            return false;
-        if (!records.TryGetValue(item.NetId, out LiveItem record))
-        {
-            rejectionReason = "unknown-network-entity";
-            return false;
-        }
-
-        TransitionResult result = ItemStateMachine.Recall(ToCore(record),
-            new RecallCommand
-            {
-                Requester = requester.Guid,
-                ExpectedRevision = expectedRevision,
-                RequestedSlot = requestedSlot
-            });
-        if (!result.Accepted)
-        {
-            rejectionReason = result.RejectionReason;
-            return false;
-        }
 
         Guid previousHolder = record.Holder;
         ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
@@ -560,7 +521,6 @@ public static class LiveItems
         // item was handed back to that player when they rejoined, and the owner had a second one.
         ApplyCore(record, result.State);
         record.LastReason = ItemTransitionReason.OwnerRecall;
-        snapshot = prepared;
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         ChangeCause<ItemMoveReason> recalled = ItemChangeLog.Move(ItemMoveReason.Recalled, requester,
             ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
@@ -578,11 +538,6 @@ public static class LiveItems
         EnsureDistinctClaimSlots(record, record.NetId, nameof(ItemTransitionReason.OwnerRecall));
         return true;
     }
-
-    public static bool TryRecall(NetworkedItem item, ServerPlayer requester, int requestedSlot,
-        uint expectedRevision, out ItemUpdateData snapshot, out string rejectionReason) =>
-        TryCommitPreparedRecall(item, requester, requestedSlot, expectedRevision,
-            out snapshot, out rejectionReason);
 
     public static bool TryMoveToLostAndFound(NetworkedItem item, out LiveItem record,
         out string rejectionReason, bool allowRecoveryPlacement = false)
@@ -621,7 +576,7 @@ public static class LiveItems
     }
 
     public static bool TryRetrieveFromLostAndFound(NetworkedItem item, ServerPlayer requester,
-        uint expectedRevision, int targetSlot, out ItemUpdateData snapshot, out string rejectionReason)
+        uint expectedRevision, int targetSlot, out ItemUpdate snapshot, out string rejectionReason)
     {
         snapshot = null;
         rejectionReason = string.Empty;
@@ -652,7 +607,7 @@ public static class LiveItems
             return false;
         }
 
-        ItemUpdateData created = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+        ItemUpdate created = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
         if (created == null)
         {
             rejectionReason = "snapshot-creation-failed";
@@ -717,7 +672,7 @@ public static class LiveItems
     /// how it came: a withdrawal when null, or the server making it (a player's starting items).
     /// </summary>
     public static LiveItem RegisterMaterializedColdItem(NetworkedItem item, ServerPlayer holder,
-        Guid owner, ItemUpdateData snapshot, Guid persistentItemId,
+        Guid owner, ItemUpdate snapshot, Guid persistentItemId,
         ChangeCause<ItemMoveReason>? cause = null)
     {
         if (item == null || holder == null || snapshot == null || item.NetId == 0)
@@ -761,7 +716,7 @@ public static class LiveItems
         Publish("item.cold-materialization-registered", item, record, new()
         {
             ["holderPlayerId"] = holder.PlayerId,
-            ["persistentOwnerPlayerId"] = PlayerNumbers.OwnerOf(owner)
+            ["persistentOwnerPlayerId"] = PlayerNumbers.Of(owner)
         });
         return record;
     }
@@ -782,7 +737,7 @@ public static class LiveItems
             detail: "Lost and Found collection rolled back to " + previousPlacement));
     }
 
-    public static void ApplyReplicaMetadata(NetworkedItem item, ItemUpdateData snapshot)
+    public static void ApplyReplicaMetadata(NetworkedItem item, ItemUpdate snapshot)
     {
         if (item == null || snapshot == null || item.NetId == 0)
             return;
@@ -790,29 +745,30 @@ public static class LiveItems
     }
 
     /// <summary>
-    /// A record's authority fields as the wire carries them, owner, holder and claim as session
-    /// numbers (<see cref="PlayerNumbers"/>), for <see cref="NetworkedItem.ApplyAuthorityMetadata"/>.
+    /// A record's authority fields for <see cref="NetworkedItem.ApplyAuthorityMetadata"/> on the
+    /// server's own copy: the host's player's relation to it (<see cref="PlayerNumbers.LocalRelation"/>).
     /// </summary>
-    public static ItemUpdateData AuthorityMetadata(LiveItem record, uint revision, ItemTransitionReason reason) => new()
+    public static ItemUpdate AuthorityMetadata(LiveItem record, uint revision, ItemTransitionReason reason) => new()
     {
         ItemNetId = record.NetId,
         AuthorityRevision = revision,
-        PersistentOwnerPlayerId = PlayerNumbers.OwnerOf(record.Owner),
-        InventoryClaimPlayerId = ClaimNumber(record.Owner, record.Holder, record.InventoryClaimSlot),
+        Relation = PlayerNumbers.LocalRelation(record.Owner),
         InventoryClaimSlot = record.InventoryClaimSlot,
         InventoryClaimFlags = record.InventoryClaimFlags,
         TransitionReason = reason
     };
 
-    // A claim is its owner's; an unowned materialized item's slot is its holder's.
-    private static byte ClaimNumber(Guid owner, Guid holder, int claimSlot) =>
-        claimSlot < 0 ? (byte)0 : PlayerNumbers.Of(owner != Guid.Empty ? owner : holder);
+    /// <summary>
+    /// Who is told an item's claim: its owner; for an unowned item (a withdrawn one), its holder,
+    /// whose inventory slot it is. Everyone else gets none (<see cref="ItemUpdate.For"/>).
+    /// </summary>
+    public static Guid Claimant(LiveItem record) =>
+        record == null ? Guid.Empty : record.Owner != Guid.Empty ? record.Owner : record.Holder;
 
-    public static void WriteToSnapshot(LiveItem record, ItemUpdateData snapshot, ItemTransitionReason reason)
+    public static void WriteToSnapshot(LiveItem record, ItemUpdate snapshot, ItemTransitionReason reason)
     {
         snapshot.AuthorityRevision = record.Revision;
-        snapshot.PersistentOwnerPlayerId = PlayerNumbers.OwnerOf(record.Owner);
-        snapshot.InventoryClaimPlayerId = ClaimNumber(record.Owner, record.Holder, record.InventoryClaimSlot);
+        snapshot.Relation = PlayerNumbers.LocalRelation(record.Owner);
         snapshot.InventoryClaimSlot = record.InventoryClaimSlot;
         snapshot.InventoryClaimFlags = record.InventoryClaimFlags;
         snapshot.TransitionReason = reason;
@@ -830,12 +786,11 @@ public static class LiveItems
         snapshot.ItemRotation = record.Rotation;
     }
 
-    private static void WriteStateToSnapshot(LiveItemState state, ItemUpdateData snapshot,
+    private static void WriteStateToSnapshot(LiveItemState state, ItemUpdate snapshot,
         ItemTransitionReason reason)
     {
         snapshot.AuthorityRevision = state.Revision;
-        snapshot.PersistentOwnerPlayerId = PlayerNumbers.OwnerOf(state.Owner);
-        snapshot.InventoryClaimPlayerId = ClaimNumber(state.Owner, state.Holder, state.InventoryClaimSlot);
+        snapshot.Relation = PlayerNumbers.LocalRelation(state.Owner);
         snapshot.InventoryClaimSlot = state.InventoryClaimSlot;
         snapshot.InventoryClaimFlags = (ItemInventoryClaimFlags)(byte)state.InventoryClaimFlags;
         snapshot.TransitionReason = reason;
@@ -849,14 +804,14 @@ public static class LiveItems
     /// attachment/transform fields needed by the normal snapshot application path.
     /// </summary>
     /// <param name="cause">Why the recipient is being corrected, logged on their side (a refusal's reason).</param>
-    public static bool TryCreateCorrectionSnapshot(NetworkedItem item, out ItemUpdateData snapshot,
+    public static bool TryCreateCorrectionSnapshot(NetworkedItem item, out ItemUpdate snapshot,
         ChangeCause<ItemMoveReason>? cause = null)
     {
         snapshot = null;
         if (item == null || item.NetId == 0 || !records.TryGetValue(item.NetId, out LiveItem record))
             return false;
 
-        snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
+        snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return false;
 
@@ -889,9 +844,9 @@ public static class LiveItems
             ["placementPlayerId"] = PlayerNumbers.Of(record.Holder),
             ["placementHand"] = record.PlacementHand.ToString(),
             ["placementPlayerIdentity"] = record.Holder == Guid.Empty ? string.Empty : record.Holder.ToString("D"),
-            ["persistentOwnerPlayerId"] = PlayerNumbers.OwnerOf(record.Owner),
+            ["persistentOwnerPlayerId"] = PlayerNumbers.Of(record.Owner),
             ["persistentOwnerIdentity"] = record.Owner == Guid.Empty ? string.Empty : record.Owner.ToString("D"),
-            ["inventoryClaimPlayerId"] = ClaimNumber(record.Owner, record.Holder, record.InventoryClaimSlot),
+            ["inventoryClaimPlayerId"] = record.InventoryClaimSlot < 0 ? (byte)0 : PlayerNumbers.Of(Claimant(record)),
             ["inventoryClaimSlot"] = record.InventoryClaimSlot,
             ["inventoryClaimFlags"] = record.InventoryClaimFlags.ToString(),
             ["prefabName"] = record.PrefabName,
@@ -1003,7 +958,7 @@ public static class LiveItems
             LostAndFoundServer.SetInventoryClaimSlot(record.NetId, record.InventoryClaimSlot);
         if (item == null)
             return;
-        ItemUpdateData correction = null;
+        ItemUpdate correction = null;
         bool corrected = lost
             ? LostAndFoundServer.TryCreateCollectionProjection(item, out correction)
             : TryCreateCorrectionSnapshot(item, out correction, record.LastMove);
@@ -1018,7 +973,7 @@ public static class LiveItems
         if (corrected && server != null && !hostOwns &&
             PlayerNumbers.TryGetSession(record.Owner, out ServerPlayer owner) &&
             owner.LoadingState >= PlayerLoadingState.ReadyForItems)
-            server.SendItemUpdatePacket(correction, owner);
+            server.SendItemUpdate(correction, owner);
     }
 
     private static bool InOwnerInventory(LiveItem record) =>
@@ -1044,7 +999,7 @@ public static class LiveItems
     /// player's hand. Not every path that did it was found, so whatever the transition, a record
     /// that lands on the server's player while its item is another present player's goes back.
     /// </summary>
-    private static void KeepRemotePossession(NetworkedItem item, LiveItem record, ItemUpdateData snapshot)
+    private static void KeepRemotePossession(NetworkedItem item, LiveItem record, ItemUpdate snapshot)
     {
         if (record.Placement is not (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory))
             return;
@@ -1104,7 +1059,7 @@ public static class LiveItems
         (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
 
     private static void PublishRejected(NetworkedItem item, LiveItem record, ServerPlayer actor,
-        ItemUpdateData snapshot, string reason)
+        ItemUpdate snapshot, string reason)
     {
         Publish("item.transition-rejected", item, record, new()
         {

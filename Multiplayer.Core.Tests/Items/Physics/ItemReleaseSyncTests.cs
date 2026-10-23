@@ -126,15 +126,14 @@ public sealed class ItemReleaseSyncTests
     }
 
     [Test]
-    public void ObjectState_HostIgnoresANonHoldersObjectStateButAnswersPlacementAndPosition()
+    public void ObjectState_HostIgnoresANonHoldersObjectStateButAnswersPlacement()
     {
-        Assert.That(ItemObjectStateAuthority.HostIgnores(carriesItemState: false, carriesPosition: false,
+        Assert.That(ItemObjectStateAuthority.HostIgnores(carriesItemState: false,
             carriesObjectState: true, carriesLifecycle: false, senderPossesses: false, allowedInteraction: false), Is.True);
-        Assert.That(ItemObjectStateAuthority.HostIgnores(false, false, true, false, senderPossesses: true, false), Is.False);
-        Assert.That(ItemObjectStateAuthority.HostIgnores(false, false, true, false, false, allowedInteraction: true), Is.False);
-        Assert.That(ItemObjectStateAuthority.HostIgnores(carriesItemState: true, false, true, false, false, false), Is.False);
-        Assert.That(ItemObjectStateAuthority.HostIgnores(false, carriesPosition: true, true, false, false, false), Is.False);
-        Assert.That(ItemObjectStateAuthority.HostIgnores(false, false, true, carriesLifecycle: true, false, false), Is.False);
+        Assert.That(ItemObjectStateAuthority.HostIgnores(false, true, false, senderPossesses: true, false), Is.False);
+        Assert.That(ItemObjectStateAuthority.HostIgnores(false, true, false, false, allowedInteraction: true), Is.False);
+        Assert.That(ItemObjectStateAuthority.HostIgnores(carriesItemState: true, true, false, false, false), Is.False);
+        Assert.That(ItemObjectStateAuthority.HostIgnores(false, true, carriesLifecycle: true, false, false), Is.False);
     }
 
     [Test]

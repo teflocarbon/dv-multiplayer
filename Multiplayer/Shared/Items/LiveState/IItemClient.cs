@@ -1,40 +1,34 @@
 using System;
 using System.Collections.Generic;
 using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Shared.Items.LiveState;
 
 /// <summary>
-///     What item code sends to the server as the local player, and the answers to its Lost and
-///     Found and container screens (contracts.md, "Area interfaces"). A remote client's
-///     <c>NetworkClient</c> implements it (<c>Client/Session/NetworkClient.Items.cs</c>), and so does
-///     the host's <c>LocalPlayerSession</c> (<c>LocalPlayerSession.Items.cs</c>), whose own items go
-///     to the server directly: on the host only the screens' requests and answers are used.
-///     The local player's id and the other players' avatars are on <see cref="ILocalPlayerSession"/>.
+///     What item code sends to the server as the local player, and the server's answers
+///     (contracts.md, "Area interfaces"; the protocol is docs/design/items/wire.md). A remote
+///     client's <c>NetworkClient</c> implements it (<c>Client/Session/NetworkClient.Items.cs</c>), and
+///     so does the host's <c>LocalPlayerSession</c> (<c>LocalPlayerSession.Items.cs</c>), which submits
+///     its requests to the server in-process. The host's player's own grabs and drops are the
+///     server's world already and never become requests. The local player's id and the other
+///     players' avatars are on <see cref="ILocalPlayerSession"/>.
 /// </summary>
 public interface IItemClient
 {
-    // The Lost and Found screen and the container UI: the requests, and the server's answers.
-    event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
-    event Action<ClientboundContainerViewPacket> ContainerViewReceived;
-    event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
-    void RequestLostItems(uint requestId);
-    /// <summary>Asks for the local player's owned-items list (owned-items.md, PR 6a): OwnedItemsList gets it.</summary>
-    void RequestOwnedItems(uint requestId);
-    /// <summary>Retrieves an owned item into Lost and Found by its row's handle (owned-items.md, PR 6b).</summary>
-    void RequestOwnedItemRetrieval(uint requestId, uint handle);
-    event Action<ClientboundOwnedItemRetrieveResultPacket> OwnedItemRetrieveCompleted;
-    void RequestContainerView(uint requestId, ushort shellNetId, uint containerHandle = 0, int offset = 0,
-        byte count = 64);
-    void RequestContainerMutation(ServerboundContainerMutationPacket packet);
+    /// <summary>The answer to one of this game's requests (its <c>RequestId</c>).</summary>
+    event Action<ClientboundItemResultPacket> ItemResultReceived;
+    /// <summary>A list this game asked for, or one the server sent unasked (request 0).</summary>
+    event Action<ClientboundItemListPacket> ItemListReceived;
 
-    void SendItemUpdatePacket(ItemUpdateData updateData);
+    /// <summary>Sends one request, numbered with the next request id if it has none; returns its id (0 if not sent).</summary>
+    uint SendItemRequest(ItemRequest request);
+    /// <summary>Asks for one list: Lost and Found, owned items, or a container by its shell or handle. Returns the request id.</summary>
+    uint RequestItemList(ItemListKind kind, ushort shellNetId = 0, uint container = 0);
+
     void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected);
-    void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot);
-    void SendItemBelowMapReport(ushort itemNetId, float surfaceHeight);
     void SendItemSpatialSample(ItemSpatialStateData state);
     void SendItemSpatialSettlement(ItemSpatialStateData state);
     void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet);
@@ -44,9 +38,6 @@ public interface IItemClient
 
     /// <summary>The remote client's half of a new item (never asked for on the host).</summary>
     INetworkedItemClientPart CreateItemPart(NetworkedItem item);
-
-    void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
-        uint expectedRevision, int requestedSlot = -1);
 
     /// <summary>The local player's Lost and Found list as the server last sent it, for the in-game overlay.</summary>
     IEnumerable<Dictionary<string, object>> LostAndFoundDebugSnapshot();

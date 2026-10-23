@@ -48,6 +48,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Common;
 using Multiplayer.Shared.Protocol.Packets.Common.Train;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs;
@@ -132,12 +133,7 @@ public partial class NetworkServer : NetworkManager
     private uint lastBroadcastTrainTopologyRevision;
     private bool trainTopologyCommitPending;
     private readonly HashSet<ushort> pendingTrainTopologyControlCars = new();
-    private uint nextItemRecallOperationId;
-    private readonly Dictionary<uint, PendingItemRecall> pendingItemRecalls = new();
-    private readonly Dictionary<ushort, uint> pendingItemRecallByItem = new();
-    /// <summary>Whether the item is in the middle of an essential recall (owned-items.md, "Retrieval": busy).</summary>
-    internal bool RecallPending(ushort itemNetId) => pendingItemRecallByItem.ContainsKey(itemNetId);
-    private const uint ItemRecallTimeoutTicks = NetworkLifecycle.TICK_RATE * 5;
+
 
     public NetworkServer(IDifficulty difficulty, Settings settings, bool singlePlayer, LobbyServerData serverData) : base(settings)
     {
@@ -293,23 +289,13 @@ public partial class NetworkServer : NetworkManager
         netPacketProcessor.SubscribeReusable<ServerboundWarehouseMachineControllerRequestPacket, ITransportPeer>(OnServerboundWarehouseMachineControllerRequestPacket);
 
         // Items
-        //netPacketProcessor.SubscribeNetSerializable<CommonItemsBulkUpdatePacket, ITransportPeer>(OnCommonItemChangePacket);
-        netPacketProcessor.SubscribeReusable<CommonItemUpdatePacket, ITransportPeer>(OnCommonItemUpdatePacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemRequestPacket, ITransportPeer>(OnServerboundItemRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundItemListRequestPacket, ITransportPeer>(OnServerboundItemListRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetSettingPacket, ITransportPeer>(OnServerboundGadgetSettingPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetCommandPacket, ITransportPeer>(OnServerboundGadgetCommandPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetPanelPacket, ITransportPeer>(OnServerboundGadgetPanelPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundItemRecallPacket, ITransportPeer>(OnServerboundItemRecallPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundItemRecallPreparedPacket, ITransportPeer>(OnServerboundItemRecallPreparedPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundMoneyItemDepositPacket, ITransportPeer>(OnServerboundMoneyItemDepositPacket);
         netPacketProcessor.SubscribeReusable<ServerboundHazmatIgnitePacket, ITransportPeer>(OnServerboundHazmatIgnitePacket);
         SubscribeShops();
-        netPacketProcessor.SubscribeReusable<ServerboundItemBelowMapPacket, ITransportPeer>(OnServerboundItemBelowMapPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundLostItemsRequestPacket, ITransportPeer>(OnServerboundLostItemsRequestPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundOwnedItemsRequestPacket, ITransportPeer>(OnServerboundOwnedItemsRequestPacket);
-        netPacketProcessor.SubscribeReusable<ServerboundOwnedItemRetrievePacket, ITransportPeer>(OnServerboundOwnedItemRetrievePacket);
-        netPacketProcessor.SubscribeReusable<ServerboundLostItemRetrievePacket, ITransportPeer>(OnServerboundLostItemRetrievePacket);
-        netPacketProcessor.SubscribeReusable<ServerboundContainerBrowsePacket, ITransportPeer>(OnServerboundContainerBrowsePacket);
-        netPacketProcessor.SubscribeReusable<ServerboundContainerMutationPacket, ITransportPeer>(OnServerboundContainerMutationPacket);
         netPacketProcessor.SubscribeReusable<ServerboundWorldItemCataloguePacket, ITransportPeer>(OnServerboundWorldItemCataloguePacket);
         netPacketProcessor.SubscribeReusable<ServerboundWorldItemProjectionAckPacket, ITransportPeer>(OnServerboundWorldItemProjectionAckPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemSpatialSamplePacket, ITransportPeer>(OnServerboundItemSpatialSamplePacket);
@@ -419,9 +405,6 @@ public partial class NetworkServer : NetworkManager
             lastTick = NetworkLifecycle.Instance.Tick;
         }
 
-        foreach (PendingItemRecall pending in pendingItemRecalls.Values.ToArray())
-            if (unchecked((int)(tick - pending.DeadlineTick)) >= 0)
-                CancelPendingItemRecall(pending, "recall-prepare-timeout", true);
 
         if (trainTopologyCommitPending)
         {
@@ -489,12 +472,7 @@ public partial class NetworkServer : NetworkManager
         }
         Log($"Player {player.Username} disconnected: {disconnectReason}");
 
-        RunDisconnectStep("item recalls", () =>
-        {
-            foreach (PendingItemRecall pending in pendingItemRecalls.Values
-                         .Where(value => value.Player == player).ToArray())
-                CancelPendingItemRecall(pending, "requesting-player-disconnected", false);
-        });
+
         RunDisconnectStep("spatial items", () => ServerItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId));
         RunDisconnectStep("held items", () => ServerItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player));
         RunDisconnectStep("train controls", () =>
@@ -1431,29 +1409,6 @@ public partial class NetworkServer : NetworkManager
     {
         //Log($"OnUnconnectedPingPacket({endPoint.Address})");
         //SendUnconnectedPacket(packet, endPoint.Address.ToString(), endPoint.Port);
-    }
-
-    private sealed class PendingItemRecall
-    {
-        public PendingItemRecall(uint operationId, ushort itemNetId, uint baseRevision,
-            int requestedSlot, uint deadlineTick, ServerPlayer player, ITransportPeer peer)
-        {
-            OperationId = operationId;
-            ItemNetId = itemNetId;
-            BaseRevision = baseRevision;
-            RequestedSlot = requestedSlot;
-            DeadlineTick = deadlineTick;
-            Player = player;
-            Peer = peer;
-        }
-
-        public uint OperationId { get; }
-        public ushort ItemNetId { get; }
-        public uint BaseRevision { get; }
-        public int RequestedSlot { get; }
-        public uint DeadlineTick { get; }
-        public ServerPlayer Player { get; }
-        public ITransportPeer Peer { get; }
     }
 
     }

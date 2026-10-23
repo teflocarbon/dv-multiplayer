@@ -133,8 +133,8 @@ public static class ContainerServer
         if (!possessed && actor.PlayerId == InventoryIntegration.LocalPlayerId &&
             InventoryIntegration.ContainsActive(item.gameObject))
         {
-            ItemUpdateData reconciliation = item.CreateUpdateData(
-                ItemUpdateData.ItemUpdateType.ItemState);
+            ItemUpdate reconciliation = item.CreateUpdateData(
+                ItemUpdate.ItemUpdateType.ItemState);
             if (reconciliation != null)
             {
                 reconciliation.ItemState = ItemState.InInventory;
@@ -218,7 +218,7 @@ public static class ContainerServer
 
         try
         {
-            ItemUpdateData destroy = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
+            ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
             if (destroy == null)
                 throw new InvalidOperationException("deposit-destroy-projection-failed");
             LiveItems.WriteToSnapshot(authority, destroy,
@@ -239,7 +239,7 @@ public static class ContainerServer
                 player.KnownItems.Remove(item);
                 player.AcknowledgedWorldItems.Remove(item.NetId);
             }
-            NetworkServer.Instance.SendItemUpdatePacket(destroy);
+            NetworkServer.Instance.SendItemUpdate(destroy);
             item.Item.ForceEndInteraction();
             InventoryIntegration.RevokeMembership(item.gameObject, item.NetId);
             InventoryIntegration.PurgeContainerMembership(item.gameObject);
@@ -378,10 +378,9 @@ public static class ContainerServer
                 throw new InvalidOperationException("withdraw-materialization-phase-rejected:" +
                     materialized.Reason);
 
-            ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+            ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
             snapshot.ItemState = ItemState.InInventory;
             snapshot.PlayerId = actor.PlayerId;
-            snapshot.InventoryClaimPlayerId = actor.PlayerId;
             snapshot.InventoryClaimSlot = destinationInventorySlot;
             snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
             // Its stored state brought its id back (ItemIdentityPatch.Load); a record
@@ -426,19 +425,19 @@ public static class ContainerServer
         }
     }
 
-    internal static void PublishMaterializedItem(ItemUpdateData snapshot, NetworkedItem item)
+    internal static void PublishMaterializedItem(ItemUpdate snapshot, NetworkedItem item)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;
         if (NetworkServer.Instance == null || snapshot == null || item == null)
             return;
-        snapshot.UpdateType = ItemUpdateData.ItemUpdateType.Create;
+        snapshot.UpdateType = ItemUpdate.ItemUpdateType.Create;
         snapshot.PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name;
         foreach (ServerPlayer recipient in NetworkServer.Instance.ServerPlayers)
         {
             if (recipient.Peer == NetworkServer.Instance.SelfPeer ||
                 recipient.LoadingState < PlayerLoadingState.ReadyForItems)
                 continue;
-            NetworkServer.Instance.SendItemsBulkUpdatePacket(new List<ItemUpdateData> { snapshot },
+            NetworkServer.Instance.SendItemUpdates(new List<ItemUpdate> { snapshot },
                 recipient);
             recipient.KnownItems[item] = lifecycle.Tick;
         }

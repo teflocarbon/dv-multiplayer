@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Multiplayer.Shared.Items.LiveState;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Items;
 
 namespace Multiplayer.Client.Items.OwnedList;
 
@@ -29,20 +30,20 @@ public static class OwnedItemsList
     /// <summary>The request the last list answered.</summary>
     public static uint RequestId { get; private set; }
 
-    public static void Apply(ClientboundOwnedItemsPacket packet)
+    public static void Apply(ClientboundItemListPacket packet)
     {
         rows.Clear();
         RequestId = packet?.RequestId ?? 0;
-        int count = packet?.Handles?.Length ?? 0;
-        for (int i = 0; i < count; i++)
-            rows.Add(new OwnedItemListRow
-            {
-                Handle = packet.Handles[i],
-                PrefabName = At(packet.PrefabNames, i),
-                DisplayName = At(packet.DisplayNames, i),
-                Where = At(packet.Wheres, i),
-                Retrievable = packet.Retrievable != null && i < packet.Retrievable.Length && packet.Retrievable[i]
-            });
+        foreach (ItemRow row in packet?.Rows ?? Array.Empty<ItemRow>())
+            if (row != null)
+                rows.Add(new OwnedItemListRow
+                {
+                    Handle = row.Handle,
+                    PrefabName = row.PrefabName ?? string.Empty,
+                    DisplayName = row.DisplayName ?? string.Empty,
+                    Where = row.Where ?? string.Empty,
+                    Retrievable = (row.Flags & ItemRowFlags.Retrievable) != 0
+                });
         Changed?.Invoke();
     }
 
@@ -51,6 +52,4 @@ public static class OwnedItemsList
         rows.Clear();
         Changed?.Invoke();
     }
-
-    private static string At(string[] values, int i) => values != null && i < values.Length ? values[i] ?? string.Empty : string.Empty;
 }

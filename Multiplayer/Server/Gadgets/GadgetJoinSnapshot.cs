@@ -28,7 +28,7 @@ namespace Multiplayer.Server.Gadgets;
 /// </summary>
 internal sealed class GadgetJoinSnapshot
 {
-    public readonly List<ItemUpdateData> ItemCreates = new();
+    public readonly List<ItemUpdate> ItemCreates = new();
     public ClientboundGadgetJoinSnapshotPacket Packet { get; private set; }
 
     public static GadgetJoinSnapshot Build(ServerPlayer player)
@@ -46,7 +46,7 @@ internal sealed class GadgetJoinSnapshot
                 !NetworkedTrainCar.TryGetNetId(car, out ushort carNetId))
                 continue;
             JObject state = item.GetComponent<ItemSaveData>()?.SaveItemData();
-            ItemUpdateData create = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+            ItemUpdate create = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
             if (state == null || create == null)
                 continue;
 

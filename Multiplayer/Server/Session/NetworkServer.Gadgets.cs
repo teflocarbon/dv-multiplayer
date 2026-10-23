@@ -18,7 +18,7 @@ public partial class NetworkServer
     {
         GadgetJoinSnapshot snapshot = GadgetJoinSnapshot.Build(player);
         if (snapshot.ItemCreates.Count > 0)
-            SendItemsBulkUpdatePacket(snapshot.ItemCreates, player);
+            SendItemUpdates(snapshot.ItemCreates, player);
         SendPacket(player.Peer, snapshot.Packet, DeliveryMethod.ReliableOrdered);
         GadgetRunningServer.SendAll(player, this);
         Log($"Sent {player.Username} {snapshot.ItemCreates.Count} installed gadgets on " +

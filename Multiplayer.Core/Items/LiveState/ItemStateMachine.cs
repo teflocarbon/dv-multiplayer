@@ -79,13 +79,6 @@ public sealed class ItemTransition
     public bool AppliesPlacement { get; set; }
     public LivePlacement RequestedPlacement { get; set; }
     public bool ClearRetrievalClaim { get; set; }
-    /// <summary>
-    /// TEMPORARY COMPATIBILITY ONLY: the host has authenticated an unconverted DV producer's
-    /// player-marked item. Unlike a retrieval claim, this establishes identity even for an
-    /// ordinary non-reserved item. Remove this transition after all producers use explicit
-    /// host-authoritative creation operations.
-    /// </summary>
-    public bool EstablishPersistentOwner { get; set; }
     public bool MayEstablishPersistentOwner { get; set; } = true;
     /// <summary>
     /// The server's gadget code committing what vanilla did to an installed gadget's item: the
@@ -133,8 +126,7 @@ public static class ItemStateMachine
         if (current == null || command == null || current.NetId == 0)
             return TransitionResult.Reject(current, "invalid-transition-input");
         bool serverActor = command.Actor == Guid.Empty;
-        if (serverActor && (command.EstablishPersistentOwner ||
-                            command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement)))
+        if (serverActor && command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement))
             return TransitionResult.Reject(current, "server-cannot-possess");
         if (!command.Force && current.Placement == LivePlacement.LostAndFound)
             return TransitionResult.Reject(current, "item-in-lost-and-found");
@@ -163,9 +155,8 @@ public static class ItemStateMachine
         bool requestedRetrievalClaim = command.InventoryClaimSlot >= 0 &&
             HasRetrievalFlag(command.InventoryClaimFlags);
         // An unowned personal item (a purchase, for one) belongs to whoever first takes it.
-        bool establishesOwner = !serverActor && (command.EstablishPersistentOwner ||
-            command.MayEstablishPersistentOwner &&
-            (requestedRetrievalClaim || command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement)));
+        bool establishesOwner = !serverActor && command.MayEstablishPersistentOwner &&
+            (requestedRetrievalClaim || command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement));
         if (command.AppliesPlacement && next.Owner == Guid.Empty && establishesOwner)
         {
             next.Owner = command.Actor;

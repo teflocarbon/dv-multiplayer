@@ -1,69 +1,57 @@
 using System;
 using System.Collections.Generic;
 using Multiplayer.Client.Items.LostAndFound;
-using Multiplayer.Client.Items.OwnedList;
+using Multiplayer.Client.Items.Requests;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
-using Multiplayer.Shared.Protocol.Packets.Common;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 
 namespace Multiplayer.Client.Session;
 
-// The host's player's items. Its own grabs, drops, throws, recalls and leases are the server's
-// world already and go to the server part directly (NetworkedItemManager.ServerPart), so all this
-// carries is the Lost and Found screen and the container UI: requests handled in-process
-// (NetworkServer.RegisterLocalItems) and the answers the server sends the host's player.
+// The host's player's items. Its own grabs, drops, throws and leases are the server's world
+// already and go to the server part directly (NetworkedItemManager.ServerPart), so all this
+// carries is its requests (a recall, a Lost and Found collection, a container's) and lists:
+// handled in-process (NetworkServer.RegisterLocalItems), answered to the host's player's peer.
 public partial class LocalPlayerSession : IItemClient
 {
-    public event Action<ClientboundLostItemRetrieveResultPacket> LostItemRetrieveCompleted;
-    public event Action<ClientboundContainerViewPacket> ContainerViewReceived;
-    public event Action<ClientboundContainerMutationResultPacket> ContainerMutationCompleted;
+    public event Action<ClientboundItemResultPacket> ItemResultReceived;
+    public event Action<ClientboundItemListPacket> ItemListReceived;
 
     partial void RegisterItems()
     {
-        Handle<ClientboundLostItemsSnapshotPacket>(LostAndFoundExchange.ApplySnapshot);
-        Handle<ClientboundOwnedItemsPacket>(OwnedItemsList.Apply);
-        Handle<ClientboundOwnedItemRetrieveResultPacket>(packet => OwnedItemRetrieveCompleted?.Invoke(packet));
-        Handle<ClientboundLostItemRetrieveResultPacket>(packet =>
+        Handle<ClientboundItemResultPacket>(packet =>
         {
-            LostAndFoundExchange.ReportRetrieveResult(packet);
-            LostItemRetrieveCompleted?.Invoke(packet);
+            ItemExchange.Receive(packet);
+            ItemResultReceived?.Invoke(packet);
         });
-        Handle<ClientboundContainerViewPacket>(packet => ContainerViewReceived?.Invoke(packet));
-        Handle<ClientboundContainerMutationResultPacket>(packet => ContainerMutationCompleted?.Invoke(packet));
+        Handle<ClientboundItemListPacket>(packet =>
+        {
+            ItemExchange.Receive(packet);
+            ItemListReceived?.Invoke(packet);
+        });
     }
 
-    public void RequestLostItems(uint requestId) =>
-        Submit(new ServerboundLostItemsRequestPacket { RequestId = requestId });
+    public uint SendItemRequest(ItemRequest request)
+    {
+        if (request == null || request.ItemNetId == 0 && request.ItemHandle == 0)
+            return 0;
+        ItemExchange.Number(request);
+        Submit(new ServerboundItemRequestPacket { Request = request });
+        return request.RequestId;
+    }
 
-    public void RequestOwnedItems(uint requestId) =>
-        Submit(new ServerboundOwnedItemsRequestPacket { RequestId = requestId });
-
-    public void RequestOwnedItemRetrieval(uint requestId, uint handle) =>
-        Submit(new ServerboundOwnedItemRetrievePacket { RequestId = requestId, Handle = handle });
-
-    public event Action<ClientboundOwnedItemRetrieveResultPacket> OwnedItemRetrieveCompleted;
-
-    public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
-        uint expectedRevision, int requestedSlot = -1) =>
-        Submit(LostAndFoundExchange.Retrieval(requestId, lostHandle, currentNetId, expectedRevision, requestedSlot));
-
-    public void RequestContainerView(uint requestId, ushort shellNetId, uint containerHandle = 0, int offset = 0,
-        byte count = 64) =>
-        Submit(new ServerboundContainerBrowsePacket
+    public uint RequestItemList(ItemListKind kind, ushort shellNetId = 0, uint container = 0)
+    {
+        uint requestId = ItemExchange.NextRequestId();
+        Submit(new ServerboundItemListRequestPacket
         {
             RequestId = requestId,
+            Kind = kind,
             ShellNetId = shellNetId,
-            ContainerHandle = containerHandle,
-            Offset = offset,
-            Count = count
+            Container = container
         });
-
-    public void RequestContainerMutation(ServerboundContainerMutationPacket packet)
-    {
-        if (packet != null)
-            Submit(packet);
+        return requestId;
     }
 
     IEnumerable<Dictionary<string, object>> IItemClient.LostAndFoundDebugSnapshot() => LostAndFoundList.DebugSnapshot();
@@ -72,14 +60,8 @@ public partial class LocalPlayerSession : IItemClient
     // remote client's); if one did, Submit names the request the server doesn't take in-process.
     IItemManagerClientPart IItemClient.CreateItemManagerPart(NetworkedItemManager manager) => null;
     INetworkedItemClientPart IItemClient.CreateItemPart(NetworkedItem item) => null;
-    void IItemClient.SendItemUpdatePacket(ItemUpdateData updateData) =>
-        Submit(new CommonItemUpdatePacket { ItemData = updateData });
     void IItemClient.SendWorldItemProjectionAck(ushort netId, uint revision, bool projected) =>
         Submit(new ServerboundWorldItemProjectionAckPacket { ItemNetId = netId, AuthorityRevision = revision, Projected = projected });
-    void IItemClient.SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot) =>
-        Submit(new ServerboundItemRecallPacket { ItemNetId = itemNetId, ExpectedRevision = expectedRevision, RequestedSlot = requestedSlot });
-    void IItemClient.SendItemBelowMapReport(ushort itemNetId, float surfaceHeight) =>
-        Submit(new ServerboundItemBelowMapPacket { ItemNetId = itemNetId, SurfaceHeight = surfaceHeight });
     void IItemClient.SendItemSpatialSample(ItemSpatialStateData state) =>
         Submit(new ServerboundItemSpatialSamplePacket { State = state });
     void IItemClient.SendItemSpatialSettlement(ItemSpatialStateData state) =>

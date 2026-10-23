@@ -185,7 +185,7 @@ public partial class NetworkedItemManager
         return Spatial?.TryGetCommitted(itemNetId, out state) == true;
     }
 
-    internal static void TraceSnapshot(string eventName, ItemUpdateData snapshot)
+    internal static void TraceSnapshot(string eventName, ItemUpdate snapshot)
     {
         if (!DebugRuntime.EnabledFor("item") || snapshot == null) return;
         DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide,

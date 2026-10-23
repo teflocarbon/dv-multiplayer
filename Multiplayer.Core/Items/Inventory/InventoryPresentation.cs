@@ -1,3 +1,5 @@
+using Multiplayer.Core.Items.Ledger;
+
 namespace Multiplayer.Core.Items.Inventory;
 
 public enum InventoryRecallRoute : byte
@@ -11,20 +13,21 @@ public enum InventoryRecallRoute : byte
 
 public readonly struct InventoryPresentationInput
 {
-    public InventoryPresentationInput(ushort netId, byte persistentOwnerPlayerId,
-        byte localPlayerId, bool retrievalEligible, bool hasRetrievalClaim, bool isLostAndFound)
+    public InventoryPresentationInput(ushort netId, ItemRelation relation,
+        bool hasLocalPlayer, bool retrievalEligible, bool hasRetrievalClaim, bool isLostAndFound)
     {
         NetId = netId;
-        PersistentOwnerPlayerId = persistentOwnerPlayerId;
-        LocalPlayerId = localPlayerId;
+        Relation = relation;
+        HasLocalPlayer = hasLocalPlayer;
         RetrievalEligible = retrievalEligible;
         HasRetrievalClaim = hasRetrievalClaim;
         IsLostAndFound = isLostAndFound;
     }
 
     public ushort NetId { get; }
-    public byte PersistentOwnerPlayerId { get; }
-    public byte LocalPlayerId { get; }
+    /// <summary>The local player's relation to the item, as the server told it.</summary>
+    public ItemRelation Relation { get; }
+    public bool HasLocalPlayer { get; }
     public bool RetrievalEligible { get; }
     public bool HasRetrievalClaim { get; }
     public bool IsLostAndFound { get; }
@@ -56,24 +59,26 @@ public static class InventoryPresentationPlanner
         localSlotDropped && localSlotReservedOrLocked && !localPossessionActive &&
         Plan(input).ForeignOwned;
 
+    /// <summary>
+    /// How an item shows in the local player's inventory. Red for every item someone else owns,
+    /// online or not, whatever it is (D3); only the owner's own essentials with a claim recall.
+    /// </summary>
     public static InventoryItemPresentation Plan(InventoryPresentationInput input)
     {
-        bool managed = input.NetId != 0 && input.PersistentOwnerPlayerId != 0;
-        if (!managed || input.LocalPlayerId == 0)
+        bool managed = input.NetId != 0 && input.Relation.IsOwned();
+        if (!managed || !input.HasLocalPlayer)
         {
             return new InventoryItemPresentation(managed, false, false, true,
                 InventoryRecallRoute.Vanilla);
         }
 
-        bool ownerMismatch = input.PersistentOwnerPlayerId != input.LocalPlayerId;
-        bool recallable = input.RetrievalEligible && input.HasRetrievalClaim;
-        bool foreign = recallable && ownerMismatch;
-        if (ownerMismatch)
+        if (input.Relation == ItemRelation.SomeoneElses)
         {
-            return new InventoryItemPresentation(true, foreign, foreign, false,
+            return new InventoryItemPresentation(true, true, true, false,
                 InventoryRecallRoute.BlockForeignOwner);
         }
 
+        bool recallable = input.RetrievalEligible && input.HasRetrievalClaim;
         if (!recallable)
             return new InventoryItemPresentation(true, false, false, false,
                 InventoryRecallRoute.BlockNotRecallable);

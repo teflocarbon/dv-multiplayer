@@ -70,16 +70,16 @@ public partial class NetworkedItem
         playerHand = PlayerHand.None;
     }
 
-    private void ApplyPlayerHandMetadata(ItemUpdateData snapshot)
+    private void ApplyPlayerHandMetadata(ItemUpdate snapshot)
     {
-        if (!ItemUpdateData.IncludesItemState(snapshot.UpdateType))
+        if (!ItemUpdate.IncludesItemState(snapshot.UpdateType))
             return;
         playerHand = snapshot.ItemState == ItemState.InHand
             ? PlayerHandRules.Normalize(snapshot.PlayerHand)
             : PlayerHand.None;
     }
 
-    private bool IsLocalVrReleaseAcknowledgement(ItemUpdateData snapshot)
+    private bool IsLocalVrReleaseAcknowledgement(ItemUpdate snapshot)
     {
         byte localPlayerId = NetworkRole.LocalPlayerId;
         return ItemSnapshotApplicationPolicy.IsLocalVrReleaseAcknowledgement(
@@ -94,7 +94,7 @@ public partial class NetworkedItem
         playerHand = PlayerHand.None;
     }
 
-    private void ApplyLocalVrReleaseAcknowledgement(ItemUpdateData snapshot)
+    private void ApplyLocalVrReleaseAcknowledgement(ItemUpdate snapshot)
     {
         // VRTK has already called its grab-attach mechanic and assigned the controller's
         // native linear/angular velocity. Treat the host echo as an acknowledgement instead

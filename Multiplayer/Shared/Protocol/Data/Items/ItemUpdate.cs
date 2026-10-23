@@ -1,5 +1,6 @@
 using LiteNetLib.Utils;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Serialization;
 using Multiplayer.Core.Diagnostics;
@@ -9,7 +10,13 @@ using UnityEngine;
 
 namespace Multiplayer.Shared.Protocol.Data.Items;
 
-public class ItemUpdateData
+/// <summary>
+/// One item's change as the server sends it, built for each recipient
+/// (docs/design/items/wire.md, "The update"): the recipient's relation to the item, never an owner,
+/// and the claim only to its owner. A player's own move goes the other way as a request
+/// (<c>ServerboundItemRequestPacket</c>), never as an update.
+/// </summary>
+public class ItemUpdate
 {
     [Flags]
     public enum ItemUpdateType : byte
@@ -18,9 +25,8 @@ public class ItemUpdateData
         Create = 1,
         Destroy = 2,
         ItemState = 4,
-        ItemPosition = 8,
-        ObjectState = 16,
-        FullSync = ItemState | ItemPosition | ObjectState,
+        ObjectState = 8,
+        FullSync = ItemState | ObjectState,
     }
 
     /// <summary>
@@ -36,8 +42,7 @@ public class ItemUpdateData
     /// every flicker of the server's copy of a flashlight and every tick of its battery moved
     /// the item, so its holder's own changes then arrived on a stale revision and were refused.
     /// </summary>
-    public static bool ChangesPlacement(ItemUpdateType updateType) =>
-        IncludesItemState(updateType) || updateType.HasFlag(ItemUpdateType.ItemPosition);
+    public static bool ChangesPlacement(ItemUpdateType updateType) => IncludesItemState(updateType);
 
     public ItemUpdateType UpdateType { get; set; }
     public ushort ItemNetId { get; set; }
@@ -46,6 +51,7 @@ public class ItemUpdateData
     public Vector3 ItemPosition { get; set; }
     public Quaternion ItemRotation { get; set; }
     public Vector3 ThrowDirection { get; set; }
+    /// <summary>The holder's session number (in a hand or an inventory), the one player number an update keeps.</summary>
     public byte PlayerId { get; set; }
     public ushort CarNetId { get; set; }
     public bool AttachedFront  { get; set; }
@@ -54,19 +60,23 @@ public class ItemUpdateData
     public uint AuthorityRevision { get; set; }
 
     /// <summary>
-    /// The owner number sent for an owner with no session. The server decides by identity and has
-    /// no number for an offline owner; the wire still names owners by number (until each player
-    /// is told its relation to the item instead), so this one, never given to a player, tells a
-    /// client the item is owned, and not by anyone it knows.
+    /// The recipient's relation to the item (docs/design/items/wire.md, "Naming a player"): the wire
+    /// never names an owner. The server builds one update per recipient
+    /// (<c>NetworkServer.SendItemUpdates</c>); on the server's own copy it's the host's player's.
     /// </summary>
-    public const byte OfflineOwnerNumber = 255;
-
-    /// <summary>The owner's session number, <see cref="OfflineOwnerNumber"/> for an offline owner, 0 for none.</summary>
-    public byte PersistentOwnerPlayerId { get; set; }
-    public byte InventoryClaimPlayerId { get; set; }
+    public ItemRelation Relation { get; set; }
+    /// <summary>
+    /// The claim on an inventory slot: sent only to its claimant, the owner (or, for an unowned item,
+    /// its holder: where a withdrawal puts it), -1 and none for everyone else.
+    /// </summary>
     public int InventoryClaimSlot { get; set; } = -1;
     public ItemInventoryClaimFlags InventoryClaimFlags { get; set; }
     public ItemTransitionReason TransitionReason { get; set; }
+    /// <summary>
+    /// The session number of the player whose request made this change, 0 for the server: the
+    /// cause's actor, carried on every update (a cause isn't), so a player's game knows its own
+    /// change coming back.
+    /// </summary>
     public byte OriginatingPlayerId { get; set; }
     /// <summary>
     /// Why the item went away. On a Destroy only, and only when the host knows why: not for a
@@ -94,15 +104,19 @@ public class ItemUpdateData
     // Detached local observability correlation. This is deliberately not serialized.
     internal string DebugCorrelationFingerprint { get; set; }
 
-    public static void Serialize(NetDataWriter writer, ItemUpdateData data)
+    public static void Serialize(NetDataWriter writer, ItemUpdate data)
     {
         writer.Put((byte)data.UpdateType);
         writer.Put(data.ItemNetId);
         writer.Put(data.AuthorityRevision);
-        writer.Put(data.PersistentOwnerPlayerId);
-        writer.Put(data.InventoryClaimPlayerId);
-        writer.Put(data.InventoryClaimSlot);
-        writer.Put((byte)data.InventoryClaimFlags);
+        writer.Put((byte)data.Relation);
+        bool claim = data.HasClaim;
+        writer.Put(claim);
+        if (claim)
+        {
+            writer.Put(data.InventoryClaimSlot);
+            writer.Put((byte)data.InventoryClaimFlags);
+        }
         writer.Put((byte)data.TransitionReason);
         writer.Put(data.OriginatingPlayerId);
 
@@ -123,9 +137,9 @@ public class ItemUpdateData
             writer.Put(data.BelongsToPlayer);
         }
 
-        if (data.UpdateType.HasFlag(ItemUpdateType.Create) || data.UpdateType.HasFlag(ItemUpdateType.ItemState))
+        if (IncludesItemState(data.UpdateType))
         {
-            if (data.ItemState == ItemState.Dropped || data.ItemState == ItemState.Thrown) // || data.UpdateType.HasFlag(ItemUpdateType.ItemPosition)
+            if (data.ItemState == ItemState.Dropped || data.ItemState == ItemState.Thrown)
             {
                 Vector3Serializer.Serialize(writer, data.ItemPosition);
                 QuaternionSerializer.Serialize(writer, data.ItemRotation);
@@ -157,32 +171,22 @@ public class ItemUpdateData
         }
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create) || data.UpdateType.HasFlag(ItemUpdateType.ObjectState))
-        {
-            if (data.States == null)
-                writer.Put(0);
-            else
-            {
-                writer.Put(data.States.Count);
-                foreach (var state in data.States)
-                {
-                    writer.Put(state.Key);
-                    data.SerializeTrackedValue(writer, state.Value);
-                }
-            }
-        }
+            SerializeStates(writer, data.States);
     }
 
-    public static ItemUpdateData Deserialize(NetDataReader reader)
+    public static ItemUpdate Deserialize(NetDataReader reader)
     {
-        ItemUpdateData data = new();
+        ItemUpdate data = new();
 
         data.UpdateType = (ItemUpdateType)reader.GetByte();
         data.ItemNetId = reader.GetUShort();
         data.AuthorityRevision = reader.GetUInt();
-        data.PersistentOwnerPlayerId = reader.GetByte();
-        data.InventoryClaimPlayerId = reader.GetByte();
-        data.InventoryClaimSlot = reader.GetInt();
-        data.InventoryClaimFlags = (ItemInventoryClaimFlags)reader.GetByte();
+        data.Relation = (ItemRelation)reader.GetByte();
+        if (reader.GetBool())
+        {
+            data.InventoryClaimSlot = reader.GetInt();
+            data.InventoryClaimFlags = (ItemInventoryClaimFlags)reader.GetByte();
+        }
         data.TransitionReason = (ItemTransitionReason)reader.GetByte();
         data.OriginatingPlayerId = reader.GetByte();
 
@@ -201,9 +205,9 @@ public class ItemUpdateData
             data.AuthoredItemKey = reader.GetString();
             data.BelongsToPlayer = reader.GetBool();
         }
-        if (data.UpdateType.HasFlag(ItemUpdateType.Create) || data.UpdateType.HasFlag(ItemUpdateType.ItemState))
+        if (IncludesItemState(data.UpdateType))
         {
-            if (data.ItemState == ItemState.Dropped || data.ItemState == ItemState.Thrown) // || data.UpdateType.HasFlag(ItemUpdateType.ItemPosition)
+            if (data.ItemState == ItemState.Dropped || data.ItemState == ItemState.Thrown)
             {
                 data.ItemPosition = Vector3Serializer.Deserialize(reader);
                 data.ItemRotation = QuaternionSerializer.Deserialize(reader);
@@ -219,9 +223,7 @@ public class ItemUpdateData
                 }
 
                 if (data.ItemState == ItemState.Thrown)
-                {
                     data.ThrowDirection = Vector3Serializer.Deserialize(reader);
-                }
             }
             else if (data.ItemState == ItemState.InInventory || data.ItemState == ItemState.InHand)
             {
@@ -237,21 +239,27 @@ public class ItemUpdateData
         }
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create) || data.UpdateType.HasFlag(ItemUpdateType.ObjectState))
-        {
-            int stateCount = reader.GetInt();
-            if (stateCount > 0)
-            {
-                data.States = new Dictionary<string, object>();
-                for (int i = 0; i < stateCount; i++)
-                {
-                    string key = reader.GetString();
-                    object value = data.DeserializeTrackedValue(reader);
-                    data.States[key] = value;
-                }
-            }
-        }
+            data.States = DeserializeStates(reader);
 
         return data;
+    }
+
+    public bool HasClaim => InventoryClaimSlot >= 0 || InventoryClaimFlags != ItemInventoryClaimFlags.None;
+
+    /// <summary>
+    /// A copy for one recipient: its relation, and the claim only if it's the claimant
+    /// (<c>NetworkServer.SendItemUpdates</c>). The object state is shared, not copied.
+    /// </summary>
+    public ItemUpdate For(ItemRelation relation, bool claimant)
+    {
+        ItemUpdate copy = (ItemUpdate)MemberwiseClone();
+        copy.Relation = relation;
+        if (!claimant)
+        {
+            copy.InventoryClaimSlot = -1;
+            copy.InventoryClaimFlags = ItemInventoryClaimFlags.None;
+        }
+        return copy;
     }
 
     private static void SerializeCause<TReason>(NetDataWriter writer, ChangeCause<TReason>? cause)
@@ -266,7 +274,37 @@ public class ItemUpdateData
         where TReason : struct, Enum =>
         reader.GetBool() ? ChangeCauseData.Deserialize<TReason>(reader) : null;
 
-    private void SerializeTrackedValue(NetDataWriter writer, object value)
+    /// <summary>An item's object state (its tracked values) on the wire: an update's, or a request's.</summary>
+    public static void SerializeStates(NetDataWriter writer, Dictionary<string, object> states)
+    {
+        if (states == null)
+        {
+            writer.Put(0);
+            return;
+        }
+        writer.Put(states.Count);
+        foreach (var state in states)
+        {
+            writer.Put(state.Key);
+            SerializeTrackedValue(writer, state.Key, state.Value);
+        }
+    }
+
+    public static Dictionary<string, object> DeserializeStates(NetDataReader reader)
+    {
+        int stateCount = reader.GetInt();
+        if (stateCount <= 0)
+            return null;
+        Dictionary<string, object> states = new();
+        for (int i = 0; i < stateCount; i++)
+        {
+            string key = reader.GetString();
+            states[key] = DeserializeTrackedValue(reader, key);
+        }
+        return states;
+    }
+
+    private static void SerializeTrackedValue(NetDataWriter writer, string key, object value)
     {
         if (value is bool boolValue)
         {
@@ -295,11 +333,11 @@ public class ItemUpdateData
         }
         else
         {
-            throw new NotSupportedException($"ItemUpdateData.SerializeTrackedValue({ItemNetId}, {PrefabName??""}) Unsupported type for serialization: {value.GetType()}");
+            throw new NotSupportedException($"ItemUpdate.SerializeTrackedValue({key}) Unsupported type for serialization: {value?.GetType()}");
         }
     }
 
-    private object DeserializeTrackedValue(NetDataReader reader)
+    private static object DeserializeTrackedValue(NetDataReader reader, string key)
     {
         byte typeCode = reader.GetByte();
         switch (typeCode)
@@ -311,7 +349,7 @@ public class ItemUpdateData
             case 4: return reader.GetString();
 
             default:
-                throw new NotSupportedException($"ItemUpdateData.DeserializeTrackedValue({ItemNetId}, {PrefabName ?? ""}) Unsupported type code for deserialization: {typeCode}");
+                throw new NotSupportedException($"ItemUpdate.DeserializeTrackedValue({key}) Unsupported type code for deserialization: {typeCode}");
         }
     }
 }

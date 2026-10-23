@@ -27,7 +27,6 @@ internal static class InventoryOwnershipUiPatch
         InventorySectionController controller) =>
         HandleGetClicked(__instance, slotIndex, controller);
 
-    private static uint lostItemRequestId;
 
     /// <returns>True when the original Derail Valley Get handler should execute.</returns>
     private static bool HandleGetClicked(InventoryUIController controller, int relativeSlot,
@@ -41,14 +40,13 @@ internal static class InventoryOwnershipUiPatch
             return true;
 
         NetworkedItem item = slot.NetworkedItem;
-        LostItemData lost = item == null ? null : LostAndFoundList.Items
-            .FirstOrDefault(entry => entry?.NetId == item.NetId);
-        InventoryItemPresentation presentation = InventoryIntegration.Project(item, lost != null);
+        InventoryItemPresentation presentation = InventoryIntegration.Project(item,
+            item != null && ItemServer.Current?.IsInLostAndFound(item.NetId) == true);
 
         global::Multiplayer.Multiplayer.Log($"[Inventory Integration] Slot snapshot: " +
             $"absoluteSlot={slot.AbsoluteSlot}, dropped={slot.Dropped}, reserved={slot.Reserved}, " +
             $"item={slot.ItemObject?.name ?? "null"}, netId={item?.NetId ?? 0}, " +
-            $"owner=P{item?.PersistentOwnerPlayerId ?? 0}, local=P{InventoryIntegration.LocalPlayerId}, " +
+            $"relation={item?.Relation.ToString() ?? "none"}, local=P{InventoryIntegration.LocalPlayerId}, " +
             $"route={presentation.RecallRoute}");
 
         if (presentation.RecallRoute == InventoryRecallRoute.Vanilla)
@@ -59,7 +57,7 @@ internal static class InventoryOwnershipUiPatch
                 DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
                 {
                     ["localPlayerId"] = InventoryIntegration.LocalPlayerId,
-                    ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+                    ["relation"] = item.Relation.ToString(),
                     ["slot"] = slot.AbsoluteSlot
                 });
             return false;
@@ -70,22 +68,14 @@ internal static class InventoryOwnershipUiPatch
                 DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
                 {
                     ["localPlayerId"] = InventoryIntegration.LocalPlayerId,
-                    ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+                    ["relation"] = item.Relation.ToString(),
                     ["isEssential"] = item.Item?.InventorySpecs?.IsEssential == true,
                     ["slot"] = slot.AbsoluteSlot
                 });
             return false;
         }
 
-        if (presentation.RecallRoute == InventoryRecallRoute.LostAndFoundRetrieval &&
-            !NetworkLifecycle.Instance.IsHost())
-        {
-            uint requestId = unchecked(++lostItemRequestId);
-            ItemClient.Current?.RequestLostItemRetrieval(requestId, lost.Handle,
-                item.NetId, lost.Revision, slot.AbsoluteSlot);
-            return false;
-        }
-
+        // A recall, from wherever it is: the server collects it from Lost and Found if it's there.
         NetworkedItemManager.Instance?.RequestItemRecall(item, slot.AbsoluteSlot);
         return false;
     }
@@ -115,14 +105,14 @@ internal static class InventoryOwnershipUiPatch
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         string key = coldProxy != null
             ? $"cold:{coldProxy.ContainerHandle}:{coldProxy.ItemHandle}:{localPlayerId}"
-            : $"{item.NetId}:{item.PersistentOwnerPlayerId}:{localPlayerId}";
+            : $"{item.NetId}:{item.Relation}:{localPlayerId}";
         if (markedEvents.Add(key))
             DebugRuntime.Publish("item", "item.foreign-item-ui-marked", DebugRuntimeSide.Client,
                 entityType: coldProxy != null ? "Container" : "Item",
                 entityId: coldProxy != null ? coldProxy.ContainerHandle.ToString() : item.NetId.ToString(), data: new()
                 {
                     ["localPlayerId"] = localPlayerId,
-                    ["persistentOwnerPlayerId"] = item?.PersistentOwnerPlayerId ?? 0,
+                    ["relation"] = item?.Relation.ToString() ?? string.Empty,
                     ["coldItemHandle"] = coldProxy?.ItemHandle ?? 0,
                     ["color"] = "red"
                 });

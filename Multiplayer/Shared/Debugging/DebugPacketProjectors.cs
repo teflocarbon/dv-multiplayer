@@ -2,7 +2,7 @@ using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs;
-using Multiplayer.Shared.Protocol.Packets.Common;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Debugging.Protocol;
 using System;
 using System.Collections.Generic;
@@ -30,26 +30,75 @@ public static class DebugPacketProjectorRegistry
 
     static DebugPacketProjectorRegistry()
     {
-        Register<CommonItemUpdatePacket>((packet, localPlayerId) =>
+        Register<ClientboundItemUpdatesPacket>((packet, localPlayerId) =>
         {
-            Dictionary<string, object> item = ProjectItemUpdate(packet?.ItemData);
+            List<Dictionary<string, object>> items = packet?.Updates?.Select(ProjectItemUpdate).ToList() ?? new();
             return new DebugPacketProjection
             {
-                Wire = new Dictionary<string, object> { ["packetType"] = nameof(CommonItemUpdatePacket), ["itemData"] = item },
-                Context = ItemContext(packet?.ItemData, localPlayerId), Summary = SummarizeItem(packet?.ItemData)
+                Wire = new Dictionary<string, object> { ["packetType"] = nameof(ClientboundItemUpdatesPacket), ["count"] = items.Count, ["items"] = items },
+                Context = items.Count == 1 ? ItemContext(packet.Updates[0], localPlayerId) : PlayerContext(localPlayerId),
+                Summary = items.Count == 1 ? SummarizeItem(packet.Updates[0]) : $"{items.Count} item updates"
             };
         });
-        Register<CommonItemsBulkUpdatePacket>((packet, localPlayerId) =>
+        Register<ServerboundItemRequestPacket>((packet, localPlayerId) => new DebugPacketProjection
         {
-            List<Dictionary<string, object>> items = packet?.Items?.Select(ProjectItemUpdate).ToList() ?? new();
+            Wire = new Dictionary<string, object> { ["packetType"] = nameof(ServerboundItemRequestPacket), ["request"] = ProjectItemRequest(packet?.Request) },
+            Context = PlayerContext(localPlayerId), Summary = SummarizeRequest(packet?.Request)
+        });
+        Register<ClientboundItemResultPacket>((packet, localPlayerId) => new DebugPacketProjection
+        {
+            Wire = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["packetType"] = nameof(ClientboundItemResultPacket),
+                ["requestId"] = packet.RequestId,
+                ["refusal"] = packet.Refusal.ToString(),
+                ["detail"] = packet.Detail ?? string.Empty,
+                ["revision"] = packet.Revision,
+                ["itemNetId"] = packet.ItemNetId
+            },
+            Context = PlayerContext(localPlayerId),
+            Summary = $"Request {packet.RequestId} " + (packet.Accepted
+                ? $"accepted r{packet.Revision}" + (packet.ItemNetId == 0 ? string.Empty : $" item {packet.ItemNetId}")
+                : $"refused {packet.Refusal} {packet.Detail}")
+        });
+        Register<ServerboundItemListRequestPacket>((packet, localPlayerId) => new DebugPacketProjection
+        {
+            Wire = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["packetType"] = nameof(ServerboundItemListRequestPacket),
+                ["requestId"] = packet.RequestId,
+                ["kind"] = packet.Kind.ToString(),
+                ["shellNetId"] = packet.ShellNetId,
+                ["container"] = packet.Container
+            },
+            Context = PlayerContext(localPlayerId),
+            Summary = $"List {packet.RequestId} {packet.Kind}" +
+                (packet.Kind == ItemListKind.Container ? $" shell={packet.ShellNetId} handle={packet.Container}" : string.Empty)
+        });
+        Register<ClientboundItemListPacket>((packet, localPlayerId) =>
+        {
+            List<Dictionary<string, object>> rows = packet.Rows?.Select(ProjectItemRow).ToList() ?? new();
             return new DebugPacketProjection
             {
-                Wire = new Dictionary<string, object> { ["packetType"] = nameof(CommonItemsBulkUpdatePacket), ["count"] = items.Count, ["items"] = items },
-                Context = localPlayerId.HasValue ? new Dictionary<string, object> { ["localPlayerId"] = localPlayerId.Value } : new(),
-                Summary = $"{items.Count} item update{(items.Count == 1 ? string.Empty : "s")}"
+                Wire = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["packetType"] = nameof(ClientboundItemListPacket),
+                    ["requestId"] = packet.RequestId,
+                    ["kind"] = packet.Kind.ToString(),
+                    ["refusal"] = packet.Refusal.ToString(),
+                    ["detail"] = packet.Detail ?? string.Empty,
+                    ["container"] = packet.Container,
+                    ["revision"] = packet.Revision,
+                    ["capacity"] = packet.Capacity,
+                    ["rows"] = rows
+                },
+                Context = PlayerContext(localPlayerId),
+                Summary = $"List {packet.RequestId} {packet.Kind} " + (packet.Accepted
+                    ? $"{rows.Count} row{(rows.Count == 1 ? string.Empty : "s")}"
+                    : $"refused {packet.Refusal} {packet.Detail}")
             };
         });
-        Register<ItemUpdateData>((item, localPlayerId) => new DebugPacketProjection
+        Register<ItemUpdate>((item, localPlayerId) => new DebugPacketProjection
         {
             Wire = ProjectItemUpdate(item), Context = ItemContext(item, localPlayerId), Summary = SummarizeItem(item)
         });
@@ -111,7 +160,7 @@ public static class DebugPacketProjectorRegistry
         };
     }
 
-    public static Dictionary<string, object> ProjectItemUpdate(ItemUpdateData item)
+    public static Dictionary<string, object> ProjectItemUpdate(ItemUpdate item)
     {
         if (item == null) return new Dictionary<string, object>(StringComparer.Ordinal) { ["value"] = null };
         Dictionary<string, object> result = new(StringComparer.Ordinal)
@@ -119,22 +168,22 @@ public static class DebugPacketProjectorRegistry
             ["updateType"] = item.UpdateType.ToString(),
             ["itemNetId"] = item.ItemNetId,
             ["authorityRevision"] = item.AuthorityRevision,
-            ["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId,
+            ["relation"] = item.Relation.ToString(),
             ["transitionReason"] = item.TransitionReason.ToString(),
-            ["originatingPlayerId"] = item.OriginatingPlayerId,
-            ["inventoryClaim"] = new Dictionary<string, object>(StringComparer.Ordinal)
+            ["originatingPlayerId"] = item.OriginatingPlayerId
+        };
+        if (item.HasClaim)
+            result["inventoryClaim"] = new Dictionary<string, object>(StringComparer.Ordinal)
             {
-                ["playerId"] = item.InventoryClaimPlayerId,
                 ["slot"] = item.InventoryClaimSlot,
                 ["flags"] = item.InventoryClaimFlags.ToString()
-            }
-        };
+            };
         if (item.RemovalCause.HasValue) result["removalCause"] = item.RemovalCause.Value.ToString();
         if (item.MoveCause.HasValue) result["moveCause"] = item.MoveCause.Value.ToString();
-        if (item.UpdateType == ItemUpdateData.ItemUpdateType.Destroy) return result;
+        if (item.UpdateType == ItemUpdate.ItemUpdateType.Destroy) return result;
         result["itemState"] = item.ItemState.ToString();
-        if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create)) result["prefabName"] = item.PrefabName;
-        if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ItemState))
+        if (item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create)) result["prefabName"] = item.PrefabName;
+        if (item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.ItemState))
         {
             switch (item.ItemState)
             {
@@ -151,10 +200,77 @@ public static class DebugPacketProjectorRegistry
                     result["carNetId"] = item.CarNetId; break;
             }
         }
-        if (item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState))
+        if (item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.ObjectState))
             result["states"] = ProjectStates(item.States);
         return result;
     }
+
+    public static Dictionary<string, object> ProjectItemRequest(ItemRequest request)
+    {
+        if (request == null) return new Dictionary<string, object>(StringComparer.Ordinal) { ["value"] = null };
+        Dictionary<string, object> result = new(StringComparer.Ordinal)
+        {
+            ["requestId"] = request.RequestId,
+            ["action"] = request.Action.ToString(),
+            ["itemNetId"] = request.ItemNetId,
+            ["itemHandle"] = request.ItemHandle,
+            ["expectedRevision"] = request.ExpectedRevision,
+            ["slot"] = request.Slot
+        };
+        switch (request.Action)
+        {
+            case ItemAction.Take:
+                result["hand"] = request.Hand.ToString(); break;
+            case ItemAction.Stash:
+                result["claimFlags"] = request.ClaimFlags.ToString(); break;
+            case ItemAction.Drop:
+                result["position"] = Vec3(request.Position); result["rotation"] = Quat(request.Rotation); break;
+            case ItemAction.Throw:
+                result["position"] = Vec3(request.Position); result["rotation"] = Quat(request.Rotation); result["throwDirection"] = Vec3(request.ThrowDirection); break;
+            case ItemAction.Attach:
+                result["carNetId"] = request.CarNetId; result["front"] = request.Front; break;
+            case ItemAction.Deposit:
+            case ItemAction.Withdraw:
+            case ItemAction.MoveInContainer:
+                result["container"] = request.Container; result["shellNetId"] = request.ShellNetId; result["containerRevision"] = request.ContainerRevision; break;
+            case ItemAction.CollectLost:
+                result["inventoryCapacity"] = request.InventoryCapacity; result["occupiedSlots"] = request.OccupiedSlots ?? Array.Empty<int>(); break;
+            case ItemAction.ReportBelowMap:
+                result["surfaceHeight"] = request.SurfaceHeight; break;
+        }
+        if (request.WorldParentKind != ItemWorldParentKind.World)
+        {
+            result["worldParentKind"] = request.WorldParentKind.ToString();
+            result["worldParentNetId"] = request.WorldParentNetId;
+            result["worldParentKey"] = request.WorldParentKey ?? string.Empty;
+        }
+        if (request.States != null) result["states"] = ProjectStates(request.States);
+        if (request.WorldInteraction) result["worldInteraction"] = true;
+        return result;
+    }
+
+    private static Dictionary<string, object> ProjectItemRow(ItemRow row) => row == null
+        ? new Dictionary<string, object>(StringComparer.Ordinal) { ["value"] = null }
+        : new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["handle"] = row.Handle,
+            ["prefabName"] = row.PrefabName ?? string.Empty,
+            ["displayName"] = row.DisplayName ?? string.Empty,
+            ["where"] = row.Where ?? string.Empty,
+            ["flags"] = row.Flags.ToString(),
+            ["slot"] = row.Slot,
+            ["revision"] = row.Revision
+        };
+
+    private static string SummarizeRequest(ItemRequest request) => request == null
+        ? "null item request"
+        : $"Request {request.RequestId} {request.Action} " +
+          (request.ItemNetId != 0 ? $"item {request.ItemNetId}" : $"handle {request.ItemHandle}") +
+          $" r{request.ExpectedRevision}" + (request.Slot >= 0 ? $" slot {request.Slot}" : string.Empty);
+
+    private static Dictionary<string, object> PlayerContext(byte? localPlayerId) => localPlayerId.HasValue
+        ? new Dictionary<string, object>(StringComparer.Ordinal) { ["localPlayerId"] = localPlayerId.Value }
+        : new Dictionary<string, object>(StringComparer.Ordinal);
 
     private static Dictionary<string, object> ProjectStates(Dictionary<string, object> states)
     {
@@ -165,19 +281,19 @@ public static class DebugPacketProjectorRegistry
         return result;
     }
 
-    private static Dictionary<string, object> ItemContext(ItemUpdateData item, byte? localPlayerId)
+    private static Dictionary<string, object> ItemContext(ItemUpdate item, byte? localPlayerId)
     {
         Dictionary<string, object> context = new(StringComparer.Ordinal);
-        if (item != null && !item.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) && !string.IsNullOrEmpty(item.PrefabName)) context["prefabName"] = item.PrefabName;
+        if (item != null && !item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) && !string.IsNullOrEmpty(item.PrefabName)) context["prefabName"] = item.PrefabName;
         if (localPlayerId.HasValue) context["localPlayerId"] = localPlayerId.Value;
         return context;
     }
 
-    private static string SummarizeItem(ItemUpdateData item)
+    private static string SummarizeItem(ItemUpdate item)
     {
         if (item == null) return "null item update";
-        string prefix = $"Item {item.ItemNetId} r{item.AuthorityRevision} owner=P{item.PersistentOwnerPlayerId} {item.UpdateType}";
-        if (item.UpdateType == ItemUpdateData.ItemUpdateType.Destroy) return prefix;
+        string prefix = $"Item {item.ItemNetId} r{item.AuthorityRevision} {item.Relation} {item.UpdateType}";
+        if (item.UpdateType == ItemUpdate.ItemUpdateType.Destroy) return prefix;
         return item.ItemState switch
         {
             ItemState.Dropped => $"{prefix} Dropped pos={VectorText(item.ItemPosition)}",

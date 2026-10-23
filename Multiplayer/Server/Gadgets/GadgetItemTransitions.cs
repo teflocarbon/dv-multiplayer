@@ -90,7 +90,7 @@ internal static class GadgetItemTransitions
             existing.Placement == ItemPlacementKind.Installed)
             return;
 
-        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
+        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return;
         NetworkedTrainCar.TryGetNetId(car, out ushort carNetId);
@@ -122,7 +122,7 @@ internal static class GadgetItemTransitions
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
             record.Placement != ItemPlacementKind.Installed)
             return;
-        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
+        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return;
         // At the gadget's pose, where vanilla has just put the item. Where it goes next (the car's
@@ -160,13 +160,13 @@ internal static class GadgetItemTransitions
         record.Owner = saved;
     }
 
-    private static void SendToPlayersWhoKnow(NetworkedItem item, ItemUpdateData snapshot)
+    private static void SendToPlayersWhoKnow(NetworkedItem item, ItemUpdate snapshot)
     {
         if (NetworkServer.Instance == null)
             return;
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
             if (player.Peer != NetworkServer.Instance.SelfPeer && player.KnownItems.ContainsKey(item))
-                NetworkServer.Instance.SendItemUpdatePacket(snapshot, player);
+                NetworkServer.Instance.SendItemUpdate(snapshot, player);
     }
 
     /// <summary>

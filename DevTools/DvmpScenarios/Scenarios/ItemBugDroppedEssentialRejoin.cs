@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
@@ -130,7 +131,7 @@ namespace Dvmp.Scenarios
             public static IEnumerator FetchByName(string name, int slot)
             {
                 byte me = Multiplayer.Shared.Session.NetworkLifecycle.Instance.LocalSession.PlayerId;
-                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.PersistentOwnerPlayerId == me && n.name.Replace("(Clone)", "") == name);
+                var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.Replace("(Clone)", "") == name);
                 if (item != null) yield return Fetch(item.NetId, slot);
             }
 

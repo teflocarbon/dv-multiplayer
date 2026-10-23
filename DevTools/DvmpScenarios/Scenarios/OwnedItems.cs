@@ -97,7 +97,7 @@ namespace Dvmp.Scenarios
                 Items.Track(item.NetId);
                 record.Owner = Guid.NewGuid();   // records keep no owner number since R1: only an identity
                 yield return null;
-                step.Result = new Stale { Prefab = spec.ItemPrefabName, Item = item.NetId, Number = PlayerNumbers.OwnerOf(record.Owner), Before = before, After = Owned(spec.ItemPrefabName) };
+                step.Result = new Stale { Prefab = spec.ItemPrefabName, Item = item.NetId, Number = OwnerNumbers.Of(record.Owner), Before = before, After = Owned(spec.ItemPrefabName) };
             }
 
             /// <summary>Host: makes the client an admin, in memory only. Result: its name, and the

@@ -99,7 +99,7 @@ internal static partial class ItemSaveLoad
             ItemChangeLog.Move(ItemMoveReason.RestoredFromSave, player,
                 "kept for them since the save, now in their " + record.Placement);
         ItemChangeLog.RecordMove(item, record, restored);
-        if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdateData snapshot, restored))
+        if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdate snapshot, restored))
         {
             item.gameObject.SetActive(true);
             item.ApplyServerCanonicalSnapshot(snapshot);

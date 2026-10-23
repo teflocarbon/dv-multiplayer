@@ -22,70 +22,9 @@ namespace Multiplayer.Server.Items.Projection;
 
 internal sealed partial class ServerItemManager
 {
-    // What players bring, take back and leave with: the host's own recall, adopting items only a
-    // client's game knew, a returning player's originals, and a departing player's held items.
-
-    public bool RequestHostRecall(NetworkedItem item, int requestedSlot)
-    {
-        ServerPlayer hostPlayer = NetworkServer.Instance.LocalPlayer;
-        if (hostPlayer == null)
-            return false;
-        byte localPlayerId = hostPlayer.PlayerId;
-        bool storedInLostAndFound = LostAndFoundServer.Contains(item.NetId);
-        if (!storedInLostAndFound &&
-            !LiveItems.TryPrepareRecall(item, hostPlayer, requestedSlot,
-                item.AuthorityRevision, out _, out string prepareRejection))
-        {
-            PublishHostRecallRejected(item, localPlayerId, prepareRejection);
-            return false;
-        }
-        if (!storedInLostAndFound &&
-            !item.TryPrepareLocalRecall(0, requestedSlot, out string localFailure))
-        {
-            if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
-                item.ApplyServerCanonicalSnapshot(correction);
-            item.CompleteLocalRecallPreparation(0, false);
-            PublishHostRecallRejected(item, localPlayerId, localFailure);
-            return false;
-        }
-
-        bool accepted = storedInLostAndFound
-            ? LostAndFoundServer.TryRetrieveForRecall(hostPlayer, item,
-                item.AuthorityRevision, requestedSlot, out ItemUpdateData snapshot,
-                out string rejectionReason)
-            : LiveItems.TryCommitPreparedRecall(item, hostPlayer, requestedSlot,
-                item.AuthorityRevision, out snapshot, out rejectionReason);
-        if (!accepted)
-        {
-            if (!storedInLostAndFound)
-            {
-                if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction))
-                    item.ApplyServerCanonicalSnapshot(correction);
-                item.CompleteLocalRecallPreparation(0, false);
-            }
-            PublishHostRecallRejected(item, localPlayerId, rejectionReason);
-            return false;
-        }
-
-        if (!storedInLostAndFound)
-        {
-            item.ApplyServerCanonicalSnapshot(snapshot);
-            item.CompleteLocalRecallPreparation(0, true);
-        }
-        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
-        return true;
-    }
-
-    private static void PublishHostRecallRejected(NetworkedItem item, byte localPlayerId,
-        string rejectionReason)
-    {
-        DebugRuntime.Publish("item", "item.recall-rejected", DebugRuntimeSide.Server,
-            DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
-            {
-                ["requestingPlayerId"] = localPlayerId,
-                ["rejectionReason"] = rejectionReason ?? string.Empty
-            });
-    }
+    // What players bring, take back and leave with: a returning player's originals, and a
+    // departing player's held items. A recall, the host's player's too, is a request
+    // (NetworkServer.Items, "Recall").
 
     /// <summary>
     /// Host: a disconnecting player can't keep holding anything. Commit each item in their hand
@@ -110,7 +49,7 @@ internal sealed partial class ServerItemManager
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
                 continue;
 
-            ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
+            ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
             if (snapshot == null)
                 continue;
             snapshot.ItemState = ItemState.Dropped;
@@ -130,7 +69,7 @@ internal sealed partial class ServerItemManager
             }
             item.ApplyServerCanonicalSnapshot(snapshot);
             RegisterHostWorldItem(item);
-            NetworkServer.Instance.SendItemUpdatePacket(snapshot, excludePlayer: player);
+            NetworkServer.Instance.SendItemUpdate(snapshot, excludePlayer: player);
             // Someone else's item goes straight to its owner's Lost and Found, online or not, rather
             // than lie where the borrower stood (owned-items.md, "Leaving").
             if (IsSomeoneElses(record, player))

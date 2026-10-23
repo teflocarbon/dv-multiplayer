@@ -148,7 +148,7 @@ internal sealed partial class ServerItemManager
             });
     }
 
-    internal void OnAuthoritativeItemTransition(NetworkedItem item, ItemUpdateData snapshot,
+    internal void OnAuthoritativeItemTransition(NetworkedItem item, ItemUpdate snapshot,
         LiveItems.LiveItem record, ServerPlayer actor, ItemPlacementKind previousPlacement,
         bool appliesPlacement)
     {

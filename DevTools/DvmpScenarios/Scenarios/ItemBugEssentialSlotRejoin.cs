@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
@@ -148,7 +149,7 @@ namespace Dvmp.Scenarios
                     bySlot[s] = go;
                     layout.Add($"{s}:{Name(go)}{(inv.GetSlotDroppedState(s) ? "(silhouette)" : "")}");
                 }
-                var mine = Dev.All<NetworkedItem>().Where(n => n != null && n.NetId != 0 && n.PersistentOwnerPlayerId == me).ToList();
+                var mine = Dev.All<NetworkedItem>().Where(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine).ToList();
                 foreach (var n in mine)
                 {
                     bool essential = n.GetComponent<InventoryItemSpec>()?.IsEssential == true;

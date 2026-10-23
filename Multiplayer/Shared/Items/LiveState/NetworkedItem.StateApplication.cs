@@ -6,6 +6,7 @@ using DV.InventorySystem;
 using DV.Items;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Inventory;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.Projection;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Shared.Debugging;
@@ -58,8 +59,7 @@ public partial class NetworkedItem
         {
             try
             {
-                bool preserveOwnerClaim = PersistentOwnerPlayerId != 0 &&
-                    PersistentOwnerPlayerId == localPlayerId && InventoryClaimSlot >= 0 &&
+                bool preserveOwnerClaim = Relation == ItemRelation.Mine && InventoryClaimSlot >= 0 &&
                     HasRetrievalFlag(InventoryClaimFlags) &&
                     Item?.InventorySpecs?.IsEssential == true;
                 // Contains(includeDropped: true) also includes the persistent owner's
@@ -86,7 +86,7 @@ public partial class NetworkedItem
                         {
                             ["localPlayerId"] = localPlayerId,
                             ["newPlacementPlayerId"] = playerId,
-                            ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
+                            ["relation"] = Relation.ToString(),
                             ["authorityRevision"] = AuthorityRevision
                         });
                 }
@@ -111,7 +111,7 @@ public partial class NetworkedItem
             Item.SnappableItem?.SnappedTo is DV.Items.Snapping.ItemSnapPointBelt,
             InventoryIntegration.ContainsActive(gameObject));
 
-    private void HandleDroppedOrThrownState(ItemUpdateData snapshot)
+    private void HandleDroppedOrThrownState(ItemUpdate snapshot)
     {
         Multiplayer.LogDebug(() => $"NetworkedItem.HandleDroppedOrThrownState([netId: {snapshot?.ItemNetId}, ItemUpdateType: {snapshot?.UpdateType}, ItemState: {snapshot?.ItemState}, PlayerId: {snapshot?.PlayerId}, Active state: {gameObject.activeInHierarchy}])");
 
@@ -122,9 +122,9 @@ public partial class NetworkedItem
         // the authoritative world transform; do not route through the host player's drop position.
         if (Item?.InventorySpecs != null)
         {
-            if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create))
+            if (snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
                 Item.InventorySpecs.BelongsToPlayer = snapshot.BelongsToPlayer;
-            else if (PersistentOwnerPlayerId != 0)
+            else if (Relation.IsOwned())
                 Item.InventorySpecs.BelongsToPlayer = true;
         }
         gameObject.SetActive(true);
@@ -168,7 +168,7 @@ public partial class NetworkedItem
         }
     }
 
-    private void ApplyWorldParent(ItemUpdateData snapshot)
+    private void ApplyWorldParent(ItemUpdate snapshot)
     {
         Transform parent = null;
         if (snapshot.WorldParentKind == ItemWorldParentKind.TrainInterior &&
@@ -198,7 +198,7 @@ public partial class NetworkedItem
         return state == ItemState.Thrown ? ItemState.Dropped : state;
     }
 
-    private Dictionary<string, object> DebugApplyState(ItemUpdateData snapshot)
+    private Dictionary<string, object> DebugApplyState(ItemUpdate snapshot)
     {
         Dictionary<string, object> state = DebugUnityState();
         state["updateType"] = snapshot?.UpdateType.ToString() ?? string.Empty;
@@ -226,7 +226,7 @@ public partial class NetworkedItem
             carNetId, attachedFront, (byte)HandForState(state));
     }
 
-    private static ItemWireStateProjection ProjectionFromSnapshot(ItemUpdateData snapshot) =>
+    private static ItemWireStateProjection ProjectionFromSnapshot(ItemUpdate snapshot) =>
         new(ToWireState(snapshot.ItemState), snapshot.PlayerId, snapshot.CarNetId,
             snapshot.AttachedFront, (byte)snapshot.PlayerHand);
 
@@ -307,7 +307,7 @@ public partial class NetworkedItem
     private bool ShouldPreserveLocalOwnerClaim()
     {
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
-        return localPlayerId != 0 && PersistentOwnerPlayerId == localPlayerId &&
+        return localPlayerId != 0 && Relation == ItemRelation.Mine &&
             InventoryClaimSlot >= 0 && HasRetrievalFlag(InventoryClaimFlags) &&
             Item?.InventorySpecs?.IsEssential == true;
     }
@@ -331,7 +331,7 @@ public partial class NetworkedItem
             {
                 ["slot"] = InventoryClaimSlot,
                 ["targetState"] = targetState.ToString(),
-                ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId
+                ["relation"] = Relation.ToString()
             });
     }
 
@@ -511,8 +511,7 @@ public partial class NetworkedItem
             ["placementPlayerId"] = playerBelongsToId,
             ["hostPossessorPlayerId"] = HostPossessorPlayerId,
             ["authorityRevision"] = AuthorityRevision,
-            ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
-            ["inventoryClaimPlayerId"] = InventoryClaimPlayerId,
+            ["relation"] = Relation.ToString(),
             ["inventoryClaimSlot"] = InventoryClaimSlot,
             ["inventoryClaimFlags"] = InventoryClaimFlags.ToString(),
             ["transitionReason"] = LastTransitionReason.ToString(),
@@ -613,7 +612,7 @@ public partial class NetworkedItem
         gameObject.SetActive(false);
     }
 
-    private void HandleAttachedState(ItemUpdateData snapshot)
+    private void HandleAttachedState(ItemUpdate snapshot)
     {
         //handle attaching the item
         gameObject.SetActive(true);
@@ -649,7 +648,7 @@ public partial class NetworkedItem
         else DebugDiagnostics.ResolveDependency("Item", NetId.ToString(), "attachment-failed");
     }
 
-    private void HandleInventoryOrHandState(ItemUpdateData snapshot)
+    private void HandleInventoryOrHandState(ItemUpdate snapshot)
     {
         NetworkedItemManager.Instance?.ClientPart?.DetachAuthoredProjectionForPossession(this, snapshot);
         Multiplayer.LogDebug(() => $"NetworkedItem.HandleInventoryOrHandState() ItemNetId: {snapshot?.ItemNetId} State: {snapshot?.ItemState}. Player: {snapshot?.PlayerId}, Position: {snapshot?.ItemPosition}");
@@ -741,86 +740,7 @@ public partial class NetworkedItem
         }
     }
 
-    internal bool TryPrepareLocalRecall(uint operationId, int requestedSlot, out string failureReason)
-    {
-        failureReason = string.Empty;
-        if (recallPreparationPending)
-        {
-            failureReason = "recall-prepare-already-pending";
-            return false;
-        }
-
-        recallPreparationPending = true;
-        recallPreparationOperationId = operationId;
-        InventoryClaimExecution execution;
-        applyingRemoteSnapshot = true;
-        try
-        {
-            byte localPlayerId = InventoryIntegration.LocalPlayerId;
-            PrepareForStateChange(localPlayerId, ItemState.InInventory);
-            playerBelongsTo = null;
-            playerBelongsToId = localPlayerId;
-            execution = InventoryIntegration.RestoreClaim(gameObject, requestedSlot);
-        }
-        catch (Exception exception)
-        {
-            failureReason = $"recall-prepare-exception:{exception.GetType().Name}";
-            PublishRecallPreparation(false, operationId, requestedSlot, failureReason);
-            return false;
-        }
-        finally
-        {
-            applyingRemoteSnapshot = false;
-        }
-
-        if (!execution.Succeeded)
-        {
-            failureReason = execution.FailureReason;
-            PublishClaimInvariant(failureReason, execution.Plan.TargetSlot, ItemState.InInventory);
-            PublishRecallPreparation(false, operationId, requestedSlot, failureReason);
-            return false;
-        }
-
-        stateDirty = false;
-        serverPart?.ClearObservation();
-        PublishRecallPreparation(true, operationId, requestedSlot, string.Empty);
-        return true;
-    }
-
-    internal void CompleteLocalRecallPreparation(uint operationId, bool accepted)
-    {
-        if (!recallPreparationPending || recallPreparationOperationId != operationId)
-            return;
-        recallPreparationPending = false;
-        recallPreparationOperationId = 0;
-        stateDirty = false;
-        serverPart?.ClearObservation();
-        DebugRuntime.Publish("item", accepted ? "item.recall-transaction-committed" :
-                "item.recall-transaction-cancelled",
-            NetworkRole.DebugSide,
-            accepted ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
-            {
-                ["operationId"] = operationId,
-                ["authorityRevision"] = AuthorityRevision
-            });
-    }
-
-    private void PublishRecallPreparation(bool succeeded, uint operationId, int requestedSlot,
-        string failureReason)
-    {
-        DebugRuntime.Publish("item", succeeded ? "item.recall-prepare-succeeded" :
-                "item.recall-prepare-failed",
-            NetworkRole.DebugSide,
-            succeeded ? DebugSeverity.Info : DebugSeverity.Warning, "Item", NetId.ToString(), new()
-            {
-                ["operationId"] = operationId,
-                ["requestedSlot"] = requestedSlot,
-                ["authorityRevision"] = AuthorityRevision,
-                ["failureReason"] = failureReason ?? string.Empty
-            });
-    }
-
-    private bool RestoreLocalInventoryClaim(ItemUpdateData snapshot)
+    private bool RestoreLocalInventoryClaim(ItemUpdate snapshot)
     {
         int requestedSlot = snapshot.InventoryClaimSlot;
         InventoryClaimExecution execution = InventoryIntegration.RestoreClaim(gameObject, requestedSlot);
@@ -840,32 +760,31 @@ public partial class NetworkedItem
                 ["plan"] = plan.Action.ToString(),
                 ["reserved"] = execution.Reserved,
                 ["dropped"] = execution.Dropped,
-                ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
+                ["relation"] = Relation.ToString(),
                 ["authorityRevision"] = AuthorityRevision
             });
         return true;
     }
 
-    internal void ApplyAuthorityMetadata(ItemUpdateData snapshot)
+    internal void ApplyAuthorityMetadata(ItemUpdate snapshot)
     {
         if (snapshot == null)
             return;
         AuthorityRevision = snapshot.AuthorityRevision;
         ClientPart?.ObserveCanonicalRevision(snapshot);
-        PersistentOwnerPlayerId = snapshot.PersistentOwnerPlayerId;
-        InventoryClaimPlayerId = snapshot.InventoryClaimPlayerId;
+        Relation = snapshot.Relation;
         InventoryClaimSlot = snapshot.InventoryClaimSlot;
         InventoryClaimFlags = snapshot.InventoryClaimFlags;
         LastTransitionReason = snapshot.TransitionReason;
         ApplyPlayerHandMetadata(snapshot);
-        // Persistent ownership is the authoritative multiplayer classification for a personal
-        // item. A retrieval claim is a separate capability: ordinary adopted inventory items
-        // still belong to their player and must remain eligible for Lost and Found.
-        if (PersistentOwnerPlayerId != 0 && Item?.InventorySpecs != null)
+        // Ownership is the authoritative multiplayer classification for a personal item. A
+        // retrieval claim is a separate capability: an ordinary owned item still belongs to its
+        // player and must remain eligible for Lost and Found.
+        if (Relation.IsOwned() && Item?.InventorySpecs != null)
             Item.InventorySpecs.BelongsToPlayer = true;
     }
 
-    private void PublishHolderInvariant(ItemUpdateData snapshot)
+    private void PublishHolderInvariant(ItemUpdate snapshot)
     {
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         NetworkedPlayer actualRemoteHolder = null;
@@ -895,12 +814,12 @@ public partial class NetworkedItem
             });
     }
 
-    private void CaptureLocalInventoryClaim(ItemUpdateData snapshot)
+    private void CaptureLocalInventoryClaim(ItemUpdate snapshot)
     {
         if (snapshot == null)
             return;
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
-        if (localPlayerId == 0 || PersistentOwnerPlayerId != 0 && PersistentOwnerPlayerId != localPlayerId)
+        if (localPlayerId == 0 || Relation == ItemRelation.SomeoneElses)
             return;
         try
         {
@@ -912,7 +831,6 @@ public partial class NetworkedItem
             // grant those items recall silhouettes or foreign-item styling.
             if (slot < 0 || Item?.InventorySpecs?.IsEssential != true)
                 return;
-            snapshot.InventoryClaimPlayerId = localPlayerId;
             snapshot.InventoryClaimSlot = slot;
             ItemInventoryClaimFlags flags = ItemInventoryClaimFlags.None;
             if (inventory.GetSlotReservedState(slot)) flags |= ItemInventoryClaimFlags.Reserved;
