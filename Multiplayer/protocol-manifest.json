@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.24-dev.0522+cf48769f6f054365083a26f6c7f0e966cd8ec0e2",
-  "Fingerprint": "e6adb1dc4fbc6f24c1b95ac9094e09bfbb16ddaf31372da811954998b3672910",
+  "BuildVersion": "2026.10.24-dev.0631+4c5c3d008cee71deef5e55e0a481d00a6dd12588",
+  "Fingerprint": "0b02842ab1584ae258f75b2cb9949b9485c3dac479ef68fdb07567f9f57f65d5",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1287,7 +1287,10 @@
       "InstalledAsGadget": 23,
       "RemovedAsGadget": 24,
       "Issued": 25,
-      "StarterKit": 26
+      "StarterKit": 26,
+      "CollectedToLostAndFound": 27,
+      "DepositedInContainer": 28,
+      "SlotMoved": 29
     },
     "Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason": {
       "Unknown": 0,
@@ -1300,7 +1303,8 @@
       "AbandonedStockForkCleared": 7,
       "AuthoredSlotReplaced": 8,
       "DestroyedFromInventory": 9,
-      "LeftInterest": 10
+      "LeftInterest": 10,
+      "WentCold": 11
     },
     "Multiplayer.Core.Items.Ledger.ItemRelation": {
       "Nobodys": 0,

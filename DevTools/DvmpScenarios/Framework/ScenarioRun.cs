@@ -143,11 +143,14 @@ namespace Dvmp.Scenarios
 
         /// <summary>
         /// After a run's cleanups: what its spawn steps made is removed, and must then be gone from
-        /// both games; no cab control lease is still held. Each is a failure: a car that can't be
-        /// deleted, or a lease never given back, is a bug the next run would trip over.
+        /// both games; no cab control lease is still held; every item has one home (the ledger's
+        /// invariant check, docs/design/items/ledger.md). Each is a failure: a car that can't be
+        /// deleted, a lease never given back or an item in two places is a bug the next run would
+        /// trip over.
         /// </summary>
         public async Task LeakCheckAsync()
         {
+            Expect.Empty(await Pair.Host.Quiet(() => Invariant.Check()), "host: what breaks the one-home check (item.invariant-broken)");
             string[] cars = await Pair.Host.Quiet(() => Cars.TakeSpawned());
             ushort[] items = await Pair.Host.Quiet(() => Items.TakeSpawned());
             if (cars.Length > 0) await Pair.Host.Quiet<string[]>(s => Cars.Delete(s, cars));

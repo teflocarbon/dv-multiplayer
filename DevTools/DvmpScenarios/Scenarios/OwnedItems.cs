@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Items.Essentials;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
@@ -74,7 +76,7 @@ namespace Dvmp.Scenarios
             /// Host: an essential item at the host's feet owned by a player who isn't here (a new
             /// identity), with the client's player number as its owner number: a restored record
             /// whose owner hasn't joined, after the numbers moved on. Reports how many of that prefab
-            /// the client owns (OwnedItemsSummary, what its join and /give use) before and after.
+            /// the client owns (the ledger, what its join and /give use) before and after.
             /// </summary>
             [Step]
             public static IEnumerator SpawnStale(Step<Stale> step, string wanted)
@@ -82,7 +84,7 @@ namespace Dvmp.Scenarios
                 var server = Multiplayer.Server.Session.NetworkServer.Instance;
                 var client = server.ServerPlayers.First(p => p.PlayerId != server.SelfId);
                 var essentials = DV.Globals.G.Items.items.Where(i => i != null && i.IsEssential && !string.IsNullOrEmpty(i.ItemPrefabName)).ToList();
-                int Owned(string prefab) => OwnedItemsSummary.For(client).Count(x => string.Equals(x.Prefab, prefab, StringComparison.OrdinalIgnoreCase));
+                int Owned(string prefab) => ServerLedger.Ledger.LiveOwnedBy(OwnerRef.Player(client.Guid)).Count(x => string.Equals(x.Prefab, prefab, StringComparison.OrdinalIgnoreCase));
                 var spec = !string.IsNullOrEmpty(wanted)
                     ? essentials.FirstOrDefault(i => string.Equals(i.ItemPrefabName, wanted, StringComparison.OrdinalIgnoreCase)) ?? throw new Exception(wanted + " isn't an essential item")
                     : essentials.FirstOrDefault(i => Owned(i.ItemPrefabName) == 0) ?? essentials.First(i => i.ItemPrefabName == "CommsRadio");
@@ -95,7 +97,7 @@ namespace Dvmp.Scenarios
                 yield return Wait.Until(() => (item = go.GetComponent<NetworkedItem>()) != null && item.NetId != 0 && LiveItems.TryGet(item.NetId, out record),
                     10f, $"the spawned {spec.ItemPrefabName}'s server record");
                 Items.Track(item.NetId);
-                record.Owner = Guid.NewGuid();   // records keep no owner number since R1: only an identity
+                ServerLedger.Own(record, Guid.NewGuid(), BirthReason.Granted, Guid.Empty, "owned-items scenario");   // an owner who is no one here
                 yield return null;
                 step.Result = new Stale { Prefab = spec.ItemPrefabName, Item = item.NetId, Number = OwnerNumbers.Of(record.Owner), Before = before, After = Owned(spec.ItemPrefabName) };
             }

@@ -672,16 +672,16 @@ public partial class NetworkedItem
                 // a correction, not the echo of that release.
                 CompleteLocalVrReleaseAcknowledgement();
 
-                // Retrieval claims reserve an exact silhouette slot. Ordinary inventory
-                // possession uses DV's normal free-slot insertion. A slot without a retrieval
-                // reservation only records where the item was put (a Lost and Found retrieval,
-                // for one) and something else may fill it: then any free slot will do. Left in
-                // the world, the item was reported dropped, the host sent it back to the
-                // inventory, and so on every update.
+                // Every inventory item is in the slot the server has it in (OI-SLOT-01). An
+                // essential in its claim slot goes through the claim, which keeps its silhouette;
+                // anything else goes to its slot exactly. Left in the world, the item was reported
+                // dropped, the host sent it back to the inventory, and so on every update.
                 bool reserved = (snapshot.InventoryClaimFlags &
                     (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
-                bool placed = snapshot.InventoryClaimSlot >= 0 &&
-                    (RestoreLocalInventoryClaim(snapshot) || reserved);
+                bool inClaim = snapshot.InventoryClaimSlot >= 0 &&
+                    (snapshot.InventorySlot < 0 || snapshot.InventorySlot == snapshot.InventoryClaimSlot);
+                bool placed = inClaim ? RestoreLocalInventoryClaim(snapshot) || reserved
+                    : snapshot.InventorySlot >= 0 && InventoryIntegration.PlaceAt(gameObject, snapshot.InventorySlot) >= 0;
                 if (!placed && InventoryIntegration.AddActive(gameObject) < 0)
                     PublishClaimInvariant("local-inventory-placement-failed", -1,
                         ItemState.InInventory);
@@ -825,6 +825,8 @@ public partial class NetworkedItem
         {
             DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
             int slot = inventory?.IndexOf(gameObject) ?? -1;
+            // The slot it's in, for every item: the server keeps it (OI-SLOT-01).
+            snapshot.InventorySlot = slot;
             // Derail Valley's item-getter button is specifically gated by
             // InventorySlotDisplayData.IsItemGetter, which is copied from IsEssential.
             // Reservation is also used for ordinary inventory bookkeeping and must not

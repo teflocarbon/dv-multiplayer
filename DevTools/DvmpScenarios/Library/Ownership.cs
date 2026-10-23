@@ -77,17 +77,10 @@ namespace Dvmp.Scenarios
             }
             if (NetworkedItem.TryGet(netId, out NetworkedItem item) && item.Item?.InventorySpecs != null)
                 item.Item.InventorySpecs.BelongsToPlayer = true;
-            record.Owner = owner;
-            if (!ServerLedger.Ledger.IsLive(record.PersistentItemId))
-                ServerLedger.Ledger.Register(new BirthRequest
-                {
-                    Id = record.PersistentItemId,
-                    Owner = owner,
-                    Prefab = record.PrefabName,
-                    Where = ServerLedger.WhereOf(record),
-                    Reason = BirthReason.Granted,
-                    Detail = "ownership scenario"
-                });
+            // The ledger owns it; an item already someone's keeps its owner.
+            string refused = ServerLedger.Own(record, owner, BirthReason.Granted, Guid.Empty, "ownership scenario");
+            if (refused.Length > 0)
+                throw new Exception($"the ledger refused {netId}: {refused}");
             return Read(netId);
         }
 
@@ -116,8 +109,8 @@ namespace Dvmp.Scenarios
             info.LostEntry = entry == Guid.Empty ? "" : entry.ToString("D");
             if (ServerLedger.Ledger.TryGet(record.PersistentItemId, out Multiplayer.Core.Items.Ledger.LedgerEntry ledger))
             {
-                info.LedgerOwner = ledger.Owner.ToString("D");
-                info.LedgerWhere = ledger.IsLive ? ledger.Where.ToString() : "ended " + ledger.Ended.Reason;
+                info.LedgerOwner = ledger.Owner.Id.ToString("D");
+                info.LedgerWhere = ledger.IsLive ? ledger.Home.ToString() : "ended " + ledger.Ended.Reason;
             }
             return info;
         }
@@ -160,6 +153,6 @@ namespace Dvmp.Scenarios
         /// <summary>Host: the ledger's live entries for an owner.</summary>
         [Step]
         public static int LedgerCount(string owner) =>
-            Guid.TryParse(owner, out Guid who) ? ServerLedger.Ledger.LiveOwnedBy(who).Count : -1;
+            Guid.TryParse(owner, out Guid who) ? ServerLedger.Ledger.LiveOwnedBy(OwnerRef.Player(who)).Count : -1;
     }
 }

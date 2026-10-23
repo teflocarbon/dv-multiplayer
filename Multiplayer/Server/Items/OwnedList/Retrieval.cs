@@ -42,8 +42,8 @@ public static class Retrieval
     {
         reason = string.Empty;
         if (owner == null || entry == null || !entry.IsLive) { reason = Unknown; return false; }
-        if (entry.Owner != owner.Guid) { reason = NotYours; return false; }
-        switch (RetrievalRule.For(entry.Where, owner.Guid))
+        if (!entry.Owner.IsPlayer(owner.Guid)) { reason = NotYours; return false; }
+        switch (RetrievalRule.For(entry.Home, owner.Guid))
         {
             case RetrievalKind.NothingToDo:
                 reason = NothingToDo;
@@ -68,7 +68,7 @@ public static class Retrieval
         }
         if (!CanRetrieve(owner, entry, out reason))
             return false;
-        LiveItems.LiveItem record = entry.Where.Place == HomeKind.Container
+        LiveItems.LiveItem record = entry.Home.Kind == HomeKind.Container
             ? Target(owner, itemId, out _, out reason)
             : Find(itemId);
         if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)

@@ -104,7 +104,7 @@ namespace Dvmp.Scenarios
                 if (Guid.TryParse(replacementId, out Guid r) && ServerLedger.Ledger.TryGet(r, out Multiplayer.Core.Items.Ledger.LedgerEntry made))
                 {
                     l.ReplacementLive = made.IsLive;
-                    l.ReplacementOwner = made.Owner.ToString("D");
+                    l.ReplacementOwner = made.Owner.Id.ToString("D");
                     l.ReplacementBorn = made.Born.Reason.ToString();
                     l.ReplacementFrom = made.Born.From.ToString("D");
                 }

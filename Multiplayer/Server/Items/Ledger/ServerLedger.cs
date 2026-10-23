@@ -1,11 +1,9 @@
-using DV.CabControls;
-using DV.InventorySystem;
 using DV.Shops;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
+using Multiplayer.Core.Items.Inventory;
 using Multiplayer.Core.Items.Ledger;
-using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.SaveLoad;
 using Multiplayer.Server.Items.Containers;
@@ -25,44 +23,71 @@ using System.Text;
 namespace Multiplayer.Server.Items.Ledger;
 
 /// <summary>
-/// The server's ledger of owned items (docs/legacy/items/owned-items.md), in shadow (owned-items PR 1b):
-/// it follows the item records where they commit (<see cref="ItemChangeLog"/>), is checked against
-/// the stores once they have loaded, and is saved, but nothing reads it yet. What it disagrees with
-/// is logged rather than acted on, so the logs show where it would change things.
+/// The server's ledger of owned items (docs/design/items/ledger.md): who owns each one and its one
+/// exact home. It decides: an owned item's change is a ledger commit first, and live state applies
+/// only what the ledger committed (<see cref="CommitTransition"/>). Owners and claim slots are read
+/// from it, never stored beside it. Its saved entries are restored before the stores import their
+/// items, and checked against them once they have (<see cref="Loaded"/>).
 /// </summary>
-public static class ServerLedger
+public static partial class ServerLedger
 {
     internal const string SaveKey = "OwnedItemsV1";
 
-    private static ItemLedger ledger = new();
+    private static ItemLedger ledger = NewLedger();
     private static readonly Dictionary<Guid, ushort> netIdByPersistentId = new();
+    private static bool restored;
     private static bool loaded;
 
     public static ItemLedger Ledger => ledger;
 
-    /// <summary>The saved ledger has been read and checked against the stores.</summary>
+    /// <summary>The saved entries are in: owners and claims come from the ledger.</summary>
+    public static bool Restored => restored;
+
+    /// <summary>The saved ledger has been checked against the stores.</summary>
     public static bool Loaded => loaded;
 
     public static void Clear()
     {
-        ledger = new ItemLedger();
+        ledger = NewLedger();
         netIdByPersistentId.Clear();
+        restored = false;
         loaded = false;
+        ClearInvariant();
+    }
+
+    private static ItemLedger NewLedger()
+    {
+        ItemLedger made = new() { SlotTakenOutside = UnownedInSlot };
+        made.Changed += OnLedgerChanged;
+        return made;
     }
 
     public static void HostTick()
     {
-        if (loaded || NetworkLifecycle.Instance?.IsHost() != true || SaveGameManager.Instance?.data == null ||
-            !ItemSaveLoad.ImportAttempted || !LostAndFoundServer.ImportAttempted ||
-            !ContainerServer.ImportAttempted)
+        if (NetworkLifecycle.Instance?.IsHost() != true || SaveGameManager.Instance?.data == null)
             return;
-        Load(SaveGameManager.Instance.data.GetJObject("Multiplayer"));
+        JObject root = SaveGameManager.Instance.data.GetJObject("Multiplayer");
+        if (!restored)
+            Restore(root);
+        if (!loaded && ItemSaveLoad.ImportAttempted && LostAndFoundServer.ImportAttempted &&
+            ContainerServer.ImportAttempted)
+            Reconcile(root);
+        InvariantTick();
     }
+
+    /// <summary>The owner of the item with this id: the ledger's; before its saved entries are in, the owner the item's store named.</summary>
+    public static Guid OwnerOf(Guid id, Guid storedOwner = default) =>
+        id == Guid.Empty ? Guid.Empty : restored ? ledger.OwnerOf(id).PlayerId : storedOwner;
+
+    /// <summary>An essential's claim slot from the ledger, or -1; before its saved entries are in, the slot the store named.</summary>
+    public static int ClaimOf(Guid id, int storedClaim = -1) =>
+        id == Guid.Empty ? -1 : restored ? ledger.ClaimOf(id) : storedClaim;
 
     /// <summary>
     /// An id is for life and names one item. An item registering with an id another live item has
     /// (a copied save, a dupe, an object cloned with its identity) keeps the first where it is and
-    /// gets a new id. Returns the id the item is to have.
+    /// gets a new id; its entry, once it has an owner, is born <see cref="BirthReason.Duplicate"/>
+    /// from the first (OI-ID-05, -18). Returns the id the item is to have.
     /// </summary>
     internal static Guid ClaimPersistentId(NetworkedItem item, Guid id)
     {
@@ -80,31 +105,200 @@ public static class ServerLedger
             ItemIdentity identity = item.GetComponent<ItemIdentity>() ??
                                                    item.gameObject.AddComponent<ItemIdentity>();
             identity.Value = copy;
+            identity.CopiedFrom = id;
             id = copy;
         }
         netIdByPersistentId[id] = item.NetId;
         return id;
     }
 
-    /// <summary>Host: an accepted move of an item (<see cref="ItemChangeLog.RecordMove"/>).</summary>
+    /// <summary>
+    /// Commits an accepted transition's change of home before live state applies it (OI-LED-04):
+    /// an owned item moves in the ledger, from where the record had it; an item a player takes
+    /// first becomes theirs (<paramref name="newOwner"/>, born <see cref="BirthReason.Claimed"/>);
+    /// an unowned item is held to the slot rules only. Returns why it's refused, or empty, and
+    /// changes nothing when it refuses.
+    /// </summary>
+    internal static string CommitTransition(LiveItems.LiveItem record, Home from, Home to, Guid newOwner,
+        ChangeCause<ItemMoveReason> cause)
+    {
+        if (!restored || record == null)
+            return string.Empty;
+        Guid id = record.PersistentItemId;
+        if (id != Guid.Empty && ledger.IsLive(id))
+            return Commit(record, from, to, cause);
+        if (newOwner != Guid.Empty && id != Guid.Empty)
+            return Own(record, newOwner, BirthFrom(cause.Reason), PlayerNumbers.Identity(cause.PlayerId),
+                cause.Detail, to);
+        return ledger.CanTake(to, id);
+    }
+
+    /// <summary>
+    /// Moves an owned item in the ledger: the one way its home changes. Empty when it moved or
+    /// isn't owned; else why not. A record that disagreed with the ledger is logged and the ledger
+    /// moved anyway, so a drift found here never wedges the item.
+    /// </summary>
+    internal static string Commit(LiveItems.LiveItem record, Home from, Home to, ChangeCause<ItemMoveReason> cause)
+    {
+        Guid id = record?.PersistentItemId ?? Guid.Empty;
+        if (!restored || id == Guid.Empty || !ledger.IsLive(id) || to.Kind == HomeKind.Missing)
+            return string.Empty;
+        LedgerCause because = new(cause.Reason, PlayerNumbers.Identity(cause.PlayerId), cause.Detail);
+        LedgerCommit commit = ledger.Commit(id, from, to, because);
+        if (commit.Refusal == "stale-home")
+        {
+            ledger.TryGetHome(id, out Home had);
+            Multiplayer.LogError($"item.ledger-stale-home: {record.PrefabName} (netId {record.NetId}, {id:D}) " +
+                                 $"was {from} by its record but {had} by the ledger; moved to {to} ({cause})");
+            commit = ledger.Repair(id, to, because);
+        }
+        return commit.Committed ? string.Empty : commit.Refusal;
+    }
+
+    /// <summary>
+    /// Two items in one inventory changed slots (vanilla's swap); their records already have the
+    /// new slots. The owned ones move in the ledger: both in one commit, or the one alone, since
+    /// the ledger reads an unowned item's slot from its record. Empty when it's done; else why not.
+    /// </summary>
+    internal static string Swap(LiveItems.LiveItem record, Home from, LiveItems.LiveItem other, Home otherFrom,
+        ChangeCause<ItemMoveReason> cause)
+    {
+        if (!restored)
+            return string.Empty;
+        bool owned = ledger.IsLive(record.PersistentItemId), otherOwned = ledger.IsLive(other.PersistentItemId);
+        if (!owned || !otherOwned)
+            return owned ? Commit(record, from, HomeOf(record), cause)
+                : otherOwned ? Commit(other, otherFrom, HomeOf(other), cause)
+                : ledger.CanTake(HomeOf(record), record.PersistentItemId);
+        LedgerCommit commit = ledger.Swap(record.PersistentItemId, from, other.PersistentItemId, otherFrom,
+            new LedgerCause(cause.Reason, PlayerNumbers.Identity(cause.PlayerId), cause.Detail));
+        return commit.Committed ? string.Empty : commit.Refusal;
+    }
+
+    /// <summary>
+    /// Makes an item owned (a purchase, an issue, an admin's give, a first take, a gadget's saved
+    /// owner): its entry is born here, in <paramref name="home"/> or where its record has it. Empty
+    /// when it's owned, by this owner or already by someone; else why not.
+    /// </summary>
+    internal static string Own(LiveItems.LiveItem record, Guid owner, BirthReason reason, Guid by, string detail,
+        Home? home = null, int preferredClaim = -1)
+    {
+        if (record == null || owner == Guid.Empty || record.PersistentItemId == Guid.Empty)
+            return "item-has-no-id";
+        if (ledger.IsLive(record.PersistentItemId))
+            return string.Empty;
+        if (!restored)
+        {
+            record.StoredOwner = owner;
+            return string.Empty;
+        }
+        NetworkedItem.TryGet(record.NetId, out NetworkedItem item);
+        Guid copiedFrom = item != null ? item.GetComponent<ItemIdentity>()?.CopiedFrom ?? Guid.Empty : Guid.Empty;
+        Registration registered = ledger.Register(new BirthRequest
+        {
+            Id = record.PersistentItemId,
+            Owner = OwnerRef.Player(owner),
+            Prefab = record.PrefabName,
+            Home = home ?? HomeOf(record),
+            Reason = copiedFrom != Guid.Empty ? BirthReason.Duplicate : reason,
+            By = by,
+            From = copiedFrom,
+            Detail = copiedFrom != Guid.Empty ? $"a copy of {copiedFrom:D}, {reason}" : detail,
+            Essential = item != null && item.Item?.InventorySpecs?.IsEssential == true,
+            PreferredClaimSlot = preferredClaim,
+            ShopStocked = IsShopStocked(record.NetId)
+        });
+        if (!registered.Accepted)
+            return registered.Refusal ?? "invalid";
+        record.StoredOwner = Guid.Empty;
+        if (registered.Status == RegistrationStatus.Reminted)
+            TakeNewId(record, registered);
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// The server's own placing of an item it restores or makes (Lost and Found, a withdrawal, a
+    /// load): an owned item's entry goes to where the record now has it, whatever its home was; an
+    /// item not yet in the ledger is born there, <paramref name="owner"/>'s. Logged when refused.
+    /// </summary>
+    internal static void Settle(LiveItems.LiveItem record, Guid owner, int preferredClaim, ChangeCause<ItemMoveReason> cause)
+    {
+        if (record == null || record.PersistentItemId == Guid.Empty)
+            return;
+        string refusal;
+        if (restored && ledger.IsLive(record.PersistentItemId))
+        {
+            LedgerCommit commit = ledger.Repair(record.PersistentItemId, HomeOf(record),
+                new LedgerCause(cause.Reason, PlayerNumbers.Identity(cause.PlayerId), cause.Detail));
+            refusal = commit.Refusal;
+        }
+        else
+            refusal = owner == Guid.Empty ? string.Empty
+                : Own(record, owner, BirthFrom(cause.Reason), PlayerNumbers.Identity(cause.PlayerId), cause.Detail,
+                    preferredClaim: preferredClaim);
+        if (refusal.Length > 0)
+            Multiplayer.LogError($"item.ledger-refused: {record.PrefabName} (netId {record.NetId}) to {HomeOf(record)}: {refusal} ({cause})");
+    }
+
+    /// <summary>
+    /// The slot an item goes into in <paramref name="holder"/>'s inventory: the first of the slots
+    /// named that the ledger would take, then its claim (when the holder owns it), then the lowest
+    /// free one, the belt last. -1 when the inventory is full.
+    /// </summary>
+    internal static int FreeSlot(LiveItems.LiveItem record, Guid holder, params int[] preferred)
+    {
+        if (record == null || holder == Guid.Empty)
+            return -1;
+        OwnerRef owner = record.Owner == Guid.Empty ? OwnerRef.None : OwnerRef.Player(record.Owner);
+        bool Free(int slot) => InventorySlots.IsValid(slot) &&
+            ledger.CanTake(Home.InSlot(holder, slot), record.PersistentItemId, owner).Length == 0;
+        foreach (int slot in preferred)
+            if (slot >= 0 && Free(slot))
+                return slot;
+        int claim = record.Owner == holder ? record.InventoryClaimSlot : -1;
+        if (claim >= 0 && Free(claim))
+            return claim;
+        return InventorySlots.FirstFree(slot => !Free(slot));
+    }
+
+    // A save from before every inventory item kept its slot has inventory items without one: each
+    // takes its saved claim, else the lowest free slot, essentials first, so the ledger can register
+    // it where it is.
+    private static void GiveSlots()
+    {
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll()
+                     .Where(r => r.Placement == ItemPlacementKind.PlayerInventory && r.Slot < 0 && r.Holder != Guid.Empty)
+                     .OrderByDescending(r => r.StoredClaimSlot >= 0).ThenBy(r => r.NetId).ToArray())
+            record.Slot = FreeSlot(record, record.Holder, record.StoredClaimSlot);
+    }
+
+    // A claim the ledger moved as another essential took its slot: the owner's game is told.
+    private static void OnLedgerChanged(LedgerChange change)
+    {
+        if (change.Kind != LedgerChangeKind.ClaimSlot || !netIdByPersistentId.TryGetValue(change.Entry.Id, out ushort netId))
+            return;
+        LiveItems.SendClaim(netId, -1);
+    }
+
+    /// <summary>Host: an accepted move of an item (<see cref="ItemChangeLog.RecordMove"/>): only a check that the ledger was told first.</summary>
     internal static void OnMove(LiveItems.LiveItem record, ChangeCause<ItemMoveReason> cause)
     {
-        if (!loaded || record == null || record.PersistentItemId == Guid.Empty ||
-            record.Owner == Guid.Empty)
+        if (!loaded || record == null || record.PersistentItemId == Guid.Empty)
             return;
         Guid id = record.PersistentItemId;
-        Home where = WhereOf(record);
-        if (!ledger.TryGet(id, out LedgerEntry entry) || !entry.IsLive)
+        if (!ledger.TryGetHome(id, out Home home))
         {
-            Register(record, BirthFrom(cause.Reason), PlayerNumbers.Identity(cause.PlayerId), cause.Detail);
+            if (record.StoredOwner != Guid.Empty)
+                Own(record, record.StoredOwner, BirthFrom(cause.Reason), PlayerNumbers.Identity(cause.PlayerId), cause.Detail);
             return;
         }
-        if (entry.Owner != record.Owner)
-            Multiplayer.LogWarning($"Owned items: {entry} changed owner to {record.Owner:D} " +
-                                   $"outside the ledger ({cause})");
-        ledger.Move(id, where);
-        if (HasRetrievalClaim(record) && entry.ClaimSlot >= 0 && entry.ClaimSlot != record.InventoryClaimSlot)
-            ledger.SetClaimSlot(id, record.InventoryClaimSlot);
+        Home now = HomeOf(record);
+        if (now.Kind == HomeKind.Missing || HomeInvariant.Agrees(home, now))
+            return;
+        // A path that moved an owned item without committing it first: follow, and say so loudly.
+        Multiplayer.LogError($"item.ledger-not-first: {record.PrefabName} (netId {record.NetId}, {id:D}) moved " +
+                             $"{home} -> {now} without a ledger commit ({cause}, callers {ItemChangeCausesCallers()})");
+        ledger.Repair(id, now, new LedgerCause(cause.Reason, PlayerNumbers.Identity(cause.PlayerId), cause.Detail));
     }
 
     /// <summary>Host: an item is going away (<see cref="ItemChangeLog.RecordRemoval"/>).</summary>
@@ -116,11 +310,14 @@ public static class ServerLedger
         switch (cause.Reason)
         {
             case ItemRemovalReason.CollectedToLostAndFound:
-                ledger.Move(record.PersistentItemId, Home.LostAndFound);
+                ledger.Repair(record.PersistentItemId, Home.LostAndFound,
+                    new LedgerCause(ItemMoveReason.CollectedToLostAndFound, detail: cause.Detail));
                 return;
-            // OnDeposited moves it; leaving a player's interest is a client's view.
+            // OnDeposited moves it; leaving a player's interest is a client's view; a leaver's
+            // inventory going cold keeps its home.
             case ItemRemovalReason.DepositedInContainer:
             case ItemRemovalReason.LeftInterest:
+            case ItemRemovalReason.WentCold:
                 return;
         }
         // Unloading the world or quitting destroys every item without ending any of them.
@@ -131,10 +328,10 @@ public static class ServerLedger
 
     /// <summary>
     /// Host: the server made <paramref name="replacement"/> as vanilla used <paramref name="used"/> up
-    /// (owned-items.md, "Lineage", PR 7): spent duct tape and its empty roll, an empty spool, a
-    /// broken label. The replacement is the used item's owner's, born Replaced, and the used item's
-    /// entry ends with replacedBy. Call it before the used item is destroyed. False when the used item
-    /// isn't owned.
+    /// (docs/design/items/ledger.md, "Births and ends"): spent duct tape and its empty roll, an empty
+    /// spool, a broken label. The replacement is the used item's owner's, born Replaced, and the used
+    /// item's entry ends with replacedBy. Call it before the used item is destroyed. False when the
+    /// used item isn't owned.
     /// </summary>
     public static bool RecordReplacement(NetworkedItem used, NetworkedItem replacement, ItemRemovalReason endReason, string detail = null)
     {
@@ -145,24 +342,24 @@ public static class ServerLedger
         LiveItems.LiveItem made = LiveItems.Ensure(replacement);
         if (made == null || made.PersistentItemId == Guid.Empty)
             return false;
-        made.Owner = usedEntry.Owner;
         if (replacement.Item?.InventorySpecs != null)
             replacement.Item.InventorySpecs.BelongsToPlayer = true;
         Registration registration = ledger.Replace(usedRecord.PersistentItemId, endReason, new BirthRequest
         {
             Id = made.PersistentItemId,
             Prefab = made.PrefabName,
-            Where = WhereOf(made),
+            Home = HomeOf(made),
             Detail = detail ?? "replaced " + usedEntry.Prefab
         });
         return registration.Accepted;
     }
 
-    /// <summary>Host: a deposit committed the item to a cold container under its own id.</summary>
-    internal static void OnDeposited(Guid itemId, Guid containerId)
+    /// <summary>Host: a deposit committed the item to a cold container's slot under its own id.</summary>
+    internal static void OnDeposited(Guid itemId, Guid containerId, int slot = -1)
     {
-        if (loaded)
-            ledger.Move(itemId, Home.Container(containerId));
+        if (loaded && ledger.IsLive(itemId))
+            ledger.Repair(itemId, Home.Container(containerId, slot),
+                new LedgerCause(ItemMoveReason.DepositedInContainer));
     }
 
     /// <summary>
@@ -181,30 +378,40 @@ public static class ServerLedger
         // Before the check against the stores, the saved ledger stays as it was loaded.
         if (multiplayerRoot == null || !loaded)
             return;
+        CheckInvariant("before-save");
         multiplayerRoot[SaveKey] = LedgerSaveCodec.Write(ledger);
     }
 
+    // The saved entries, before any store imports an item, so owners and claims are the ledger's.
+    private static void Restore(JObject multiplayerRoot)
+    {
+        restored = true;
+        List<LedgerEntry> entries = LedgerSaveCodec.Read(multiplayerRoot?[SaveKey], out List<Guid> starterKits, out int unreadable);
+        List<Guid> displaced = new();
+        IReadOnlyList<LedgerEntry> refused = ledger.Restore(entries, starterKits, displaced);
+        if (unreadable > 0 || refused.Count > 0 || displaced.Count > 0)
+            Multiplayer.LogWarning($"Owned items: skipped {unreadable} unreadable and {refused.Count} duplicate saved " +
+                                   $"entries; {displaced.Count} saved in a taken slot went to Lost and Found");
+    }
+
     /// <summary>
-    /// Reads the saved ledger and checks it against what the stores hold. A save without one is
-    /// migrated: every owned item the stores hold is registered. In shadow the steps that would move
-    /// items (dropping a copy, recovering another player's item) are logged, not carried out.
+    /// Checks the restored ledger against what the stores hold. A save without one is migrated:
+    /// every owned item the stores hold is registered.
     /// </summary>
-    internal static void Load(JObject multiplayerRoot)
+    private static void Reconcile(JObject multiplayerRoot)
     {
         loaded = true;
-        JToken saved = multiplayerRoot?[SaveKey];
-        List<LedgerEntry> entries = LedgerSaveCodec.Read(saved, out List<Guid> starterKits, out int unreadable);
-        IReadOnlyList<LedgerEntry> refused = ledger.Restore(entries, starterKits);
-        if (unreadable > 0 || refused.Count > 0)
-            Multiplayer.LogWarning($"Owned items: skipped {unreadable} unreadable and {refused.Count} duplicate saved entries");
-
+        bool migrating = multiplayerRoot?[SaveKey] == null;
+        GiveSlots();
         IReadOnlyList<OwnedItemLoadStep> steps = LoadReconciler.Plan(ledger.All(), StoreHits());
         LoadReconciler.ApplyToLedger(ledger, steps);
-        bool migrating = saved == null;
         if (migrating && multiplayerRoot?["Players"] is JObject players)
             foreach (KeyValuePair<string, JToken> player in players)
                 if (Guid.TryParse(player.Key, out Guid id))
                     ledger.MarkStarterKit(id);
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
+            if (ledger.IsLive(record.PersistentItemId))
+                record.StoredOwner = Guid.Empty;
 
         Dictionary<OwnedItemLoadAction, int> counts = steps.GroupBy(step => step.Action)
             .ToDictionary(group => group.Key, group => group.Count());
@@ -222,71 +429,34 @@ public static class ServerLedger
                     break;
                 case OwnedItemLoadAction.DropCopy:
                 case OwnedItemLoadAction.RecoverToLostAndFound:
-                    Multiplayer.LogWarning("Owned items (shadow, not carried out): " + step);
+                    Multiplayer.LogWarning("Owned items (R4 carries these out): " + step);
                     break;
                 default:
                     Multiplayer.LogWarning("Owned items: " + step);
                     break;
             }
         }
+        CheckInvariant("load");
     }
 
-    /// <summary>
-    /// What disagrees between the ledger and the items: a live owned item the ledger doesn't have
-    /// or has somewhere else, and vanilla storage holding an item where it shouldn't. Empty when
-    /// all agree. For scenarios and the debug console.
-    /// </summary>
-    public static List<string> Audit()
-    {
-        List<string> problems = new();
-        HashSet<Guid> pendingLost = PendingLostAndFound();
-        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
-        {
-            if (record.PersistentItemId == Guid.Empty || record.Owner == Guid.Empty ||
-                pendingLost.Contains(record.PersistentItemId) ||
-                record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container)
-                continue;
-            if (!ledger.TryGet(record.PersistentItemId, out LedgerEntry entry) || !entry.IsLive)
-                problems.Add($"{record.PrefabName} (netId {record.NetId}, {record.PersistentItemId:D}) is owned but not in the ledger");
-            // The slot is left out: moving an item between inventory slots isn't a logged move.
-            else if (!SamePlace(entry.Where, WhereOf(record)))
-                problems.Add($"{entry}: the record says {WhereOf(record)}");
-            else if (entry.Owner != record.Owner)
-                problems.Add($"{entry}: the record's owner is {record.Owner:D}");
-        }
-
-        StorageController storage = StorageController.Instance;
-        if (storage == null)
-            return problems;
-        foreach (ItemBase item in storage.StorageLostAndFound?.GetStorageItemList() ?? new List<ItemBase>())
-            if (item != null && NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem networked) &&
-                LiveItems.TryGet(networked.NetId, out LiveItems.LiveItem record) &&
-                record.Owner != Guid.Empty && record.Placement != ItemPlacementKind.LostAndFound &&
-                !pendingLost.Contains(record.PersistentItemId))
-                problems.Add($"{item.name} (netId {networked.NetId}, {record.PersistentItemId:D}) is in vanilla's Lost and Found, but its record says {record.Placement}");
-        // A dedicated host's own inventory belongs to its parked body and stays empty (#261).
-        if (NetworkLifecycle.Instance?.IsDedicatedHost == true)
-            foreach (ItemBase item in storage.StorageInventory?.GetStorageItemList() ?? new List<ItemBase>())
-                if (item != null)
-                    problems.Add($"{item.name} is in the dedicated host's own inventory");
-        return problems;
-    }
-
-    /// <summary>The ledger, one line per entry, for the debug console and scenarios.</summary>
-    public static string Describe(Guid owner = default) => string.Join("\n",
-        (owner == Guid.Empty ? ledger.All() : ledger.LiveOwnedBy(owner)).Select(entry => entry.ToString()));
+    /// <summary>The ledger, one line per entry (live first), for the debug console and <c>Ledger.Dump()</c> (OI-LED-13).</summary>
+    public static string Dump(Guid owner = default) =>
+        ledger.Dump(owner == Guid.Empty ? default : OwnerRef.Player(owner));
 
     /// <summary>
-    /// The one way into an owner's Lost and Found for an owned item by its id (owned-items.md, "What
-    /// other systems read"): a purchase delivered far away, a deleted car's gadgets, and later
-    /// retrieval. The item must be lying somewhere, not with a player. False, with a reason, when it
-    /// can't go.
+    /// The one way into an owner's Lost and Found for an owned item by its id (OI-LF-08): a purchase
+    /// delivered far away, a deleted car's gadgets, retrieval. The item must be lying somewhere, not
+    /// with a player. False, with a reason, when it can't go.
     /// </summary>
     public static bool SendToLostAndFound(Guid itemId, LostItemReason reason, string detail, out string refused)
     {
         refused = string.Empty;
-        LiveItems.LiveItem record = LiveItems.GetAll()
-            .FirstOrDefault(r => r.PersistentItemId == itemId && itemId != Guid.Empty);
+        LiveItems.LiveItem record = itemId == Guid.Empty ? null
+            : netIdByPersistentId.TryGetValue(itemId, out ushort netId) && LiveItems.TryGet(netId, out LiveItems.LiveItem known) &&
+              known.PersistentItemId == itemId ? known
+            : LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == itemId);
+        if (ledger.TryGetHome(itemId, out Home home) && home.Kind == HomeKind.LostAndFound)
+            return true;
         if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
             refused = "unknown-item";
         else if (record.Owner == Guid.Empty)
@@ -300,43 +470,30 @@ public static class ServerLedger
         return refused.Length == 0;
     }
 
-    /// <summary>Where a record says its item is, as the ledger puts it.</summary>
-    public static Home WhereOf(LiveItems.LiveItem record) => record.Placement switch
+    /// <summary>Where a record has its item, as an exact home.</summary>
+    public static Home HomeOf(LiveItems.LiveItem record) => record.Placement switch
     {
-        ItemPlacementKind.PlayerHand => Home.With(record.Holder, HoldKind.Hand),
-        ItemPlacementKind.PlayerInventory => Home.With(record.Holder, HoldKind.Inventory,
-            record.InventoryClaimSlot),
-        ItemPlacementKind.TrainInterior => Home.World("car:" + record.WorldParentPersistentId),
-        ItemPlacementKind.StaticParent => Home.World("static:" + record.WorldParentKey),
-        ItemPlacementKind.Attached => Home.Attached("car:" + record.AttachedCarPersistentId),
+        ItemPlacementKind.PlayerHand => Home.InHand(record.Holder, (byte)record.PlacementHand),
+        ItemPlacementKind.PlayerInventory => Home.InSlot(record.Holder, record.Slot),
+        ItemPlacementKind.TrainInterior => Home.TrainInterior(record.WorldParentPersistentId),
+        ItemPlacementKind.StaticParent => Home.Shelf(record.WorldParentKey),
+        ItemPlacementKind.Attached => Home.Attached(record.AttachedCarPersistentId, record.AttachedFront),
         ItemPlacementKind.SnappedAttachment => Home.Snapped(record.WorldParentKey),
-        ItemPlacementKind.Installed => Home.Installed("car:" + record.AttachedCarPersistentId, 0),
+        // A gadget on no car is installed on the world (vanilla's WorldCustomization, OI-GAD-10).
+        ItemPlacementKind.Installed => Home.Installed(record.AttachedCarNetId == 0 ? Home.WorldAnchor : record.AttachedCarPersistentId),
         ItemPlacementKind.LostAndFound => Home.LostAndFound,
-        ItemPlacementKind.World => Home.World(),
+        ItemPlacementKind.World => Home.World,
         _ => Home.Missing
     };
 
-    private static bool SamePlace(Home a, Home b) =>
-        a.Place == b.Place && a.Holder == b.Holder && a.Hold == b.Hold && a.Anchor == b.Anchor && a.GadgetUid == b.GadgetUid;
+    // An unowned item in a holder's slot: the ledger's slot rules cover items it doesn't hold.
+    private static bool UnownedInSlot(Guid holder, int slot, Guid except) => LiveItems.GetAll().Any(record =>
+        record.Placement == ItemPlacementKind.PlayerInventory && record.Holder == holder && record.Slot == slot &&
+        record.PersistentItemId != except && (record.PersistentItemId == Guid.Empty || !ledger.IsLive(record.PersistentItemId)));
 
-    private static void Register(LiveItems.LiveItem record, BirthReason reason, Guid by, string detail)
+    private static void TakeNewId(LiveItems.LiveItem record, Registration registered)
     {
-        Registration registered = ledger.Register(new BirthRequest
-        {
-            Id = record.PersistentItemId,
-            Owner = record.Owner,
-            Prefab = record.PrefabName,
-            Where = WhereOf(record),
-            Reason = reason,
-            By = by,
-            Detail = detail,
-            Essential = HasRetrievalClaim(record),
-            PreferredClaimSlot = record.InventoryClaimSlot,
-            ShopStocked = IsShopStocked(record.NetId)
-        });
-        if (registered.Status != RegistrationStatus.Reminted)
-            return;
-        // An ended id came back: give the item the new one, as a duplicate gets.
+        // An ended id came back: the item takes the new one, as a copy does.
         Multiplayer.LogError($"item.duplicate-persistent-id: {record.PrefabName} (netId {record.NetId}) arrived with " +
                              $"{registered.CopiedId:D}, which the ledger has already seen; it is now {registered.Entry.Id:D}");
         record.PersistentItemId = registered.Entry.Id;
@@ -346,9 +503,8 @@ public static class ServerLedger
         netIdByPersistentId[registered.Entry.Id] = record.NetId;
     }
 
-    // A Lost and Found entry whose owner hasn't joined is bound only when they do (until owned-items
-    // PR 2a); until then its inert item has a record of its own that says World. The entry is the
-    // item's place.
+    // A Lost and Found entry whose owner hasn't joined is bound only when they do; until then its
+    // inert item has a record of its own that says World. The entry is the item's home.
     private static HashSet<Guid> PendingLostAndFound() =>
         new(LostAndFoundServer.PendingEntries().Select(pending => pending.ItemId));
 
@@ -360,12 +516,12 @@ public static class ServerLedger
             if (record.PersistentItemId == Guid.Empty || pendingLost.Contains(record.PersistentItemId) ||
                 record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container)
                 continue;
-            Home where = WhereOf(record);
+            Home where = HomeOf(record);
             OwnedItemStore? store = LoadReconciler.StoreFor(where);
             if (store.HasValue)
                 yield return new OwnedItemStoreHit(record.PersistentItemId, store.Value, where,
-                    record.Owner, record.PrefabName, IsShopStocked(record.NetId),
-                    HasRetrievalClaim(record) ? record.InventoryClaimSlot : -1);
+                    record.Owner != Guid.Empty ? record.Owner : record.StoredOwner, record.PrefabName,
+                    IsShopStocked(record.NetId), record.StoredClaimSlot);
         }
         foreach (LostAndFoundServer.PendingEntry pending in LostAndFoundServer.PendingEntries())
             yield return new OwnedItemStoreHit(pending.ItemId, OwnedItemStore.LostAndFound, Home.LostAndFound,
@@ -374,7 +530,7 @@ public static class ServerLedger
         {
             Guid.TryParse(cold.PersistentOwnerIdentity, out Guid owner);
             yield return new OwnedItemStoreHit(ItemIdOf(cold), OwnedItemStore.Container,
-                Home.Container(cold.ParentContainerId), owner, cold.PrefabName);
+                Home.Container(cold.ParentContainerId, cold.Slot), owner, cold.PrefabName);
         }
     }
 
@@ -412,9 +568,8 @@ public static class ServerLedger
         _ => BirthReason.Claimed
     };
 
-    private static bool HasRetrievalClaim(LiveItems.LiveItem record) =>
-        record.InventoryClaimSlot >= 0 &&
-        (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
+    private static string ItemChangeCausesCallers() =>
+        global::Multiplayer.Shared.Items.ChangeCauses.ItemChangeCauses.Callers(typeof(ServerLedger));
 
     // Vanilla's ShopRestocker restocks the shop when a bought item with this flag goes.
     private static bool IsShopStocked(ushort netId) =>

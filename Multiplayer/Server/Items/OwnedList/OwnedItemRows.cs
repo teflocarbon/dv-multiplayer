@@ -47,16 +47,16 @@ public static class OwnedItemRows
         Dictionary<Guid, ContainerRecord> containers = cold.Containers
             .GroupBy(container => container.PersistentContainerId).ToDictionary(group => group.Key, group => group.First());
 
-        foreach (LedgerEntry entry in ServerLedger.Ledger.LiveOwnedBy(player.Guid))
+        foreach (LedgerEntry entry in ServerLedger.Ledger.LiveOwnedBy(OwnerRef.Player(player.Guid)))
         {
             records.TryGetValue(entry.Id, out LiveItems.LiveItem record);
             stored.TryGetValue(entry.Id, out StoredItemRecord inContainer);
             string containerName = null;
-            if (entry.Where.Place == HomeKind.Container && Guid.TryParse(entry.Where.Anchor, out Guid containerId) &&
+            if (entry.Home.Kind == HomeKind.Container && Guid.TryParse(entry.Home.Anchor, out Guid containerId) &&
                 containers.TryGetValue(containerId, out ContainerRecord container))
                 containerName = NameOf(container.PrefabName);
             PlaceFacts facts = new(player.Guid,
-                holderName: NetworkServer.Instance?.ServerPlayers.FirstOrDefault(p => p.Guid == entry.Where.Holder)?.Username,
+                holderName: NetworkServer.Instance?.ServerPlayers.FirstOrDefault(p => p.Guid == entry.Home.Holder)?.Username,
                 carId: CarOf(record),
                 containerName: containerName);
             rows.Add(new OwnedItemRow
@@ -65,7 +65,7 @@ public static class OwnedItemRows
                 Id = entry.Id,
                 Prefab = entry.Prefab ?? string.Empty,
                 DisplayName = !string.IsNullOrEmpty(inContainer?.DisplayName) ? inContainer.DisplayName : NameOf(entry.Prefab),
-                Where = PlaceText.Describe(entry.Where, facts),
+                Where = PlaceText.Describe(entry.Home, facts),
                 Retrievable = Retrieval.CanRetrieve(player, entry, out _)
             });
         }

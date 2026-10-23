@@ -20,11 +20,12 @@ namespace Dvmp.Scenarios
     public sealed class LedgerEntry
     {
         public bool Known, Live;
-        public string Id = "", Owner = "", Prefab = "", Place = "", Hold = "", Holder = "", Anchor = "", Born = "", Ended = "";
+        public string Id = "", Owner = "", Prefab = "", Place = "", Holder = "", Anchor = "", Born = "", Ended = "";
         public int Slot = -1, ClaimSlot = -1;
+        public bool Essential;
 
-        /// <summary>Where it is, comparable between two reads: the kind of place, how it is held and on what.</summary>
-        public string Where => Place + (Hold.Length > 0 ? "/" + Hold : "") + (Holder.Length > 0 ? " " + Holder : "") +
+        /// <summary>Where it is, comparable between two reads: its home's kind, whose and which slot, and on what.</summary>
+        public string Where => Place + (Holder.Length > 0 ? " " + Holder : "") + (Slot >= 0 ? " slot " + Slot : "") +
                                (Anchor.Length > 0 ? " " + Anchor : "");
 
         public override string ToString() => Known
@@ -59,14 +60,14 @@ namespace Dvmp.Scenarios
                 Known = true,
                 Live = e.IsLive,
                 Id = e.Id.ToString("D"),
-                Owner = e.Owner.ToString("D"),
+                Owner = e.Owner.Id.ToString("D"),
                 Prefab = e.Prefab,
-                Place = e.Where.Place.ToString(),
-                Hold = e.Where.Hold == HoldKind.None ? "" : e.Where.Hold.ToString(),
-                Holder = e.Where.Holder == Guid.Empty ? "" : e.Where.Holder.ToString("D"),
-                Anchor = e.Where.Anchor,
-                Slot = e.Where.Slot,
+                Place = e.Home.Kind.ToString(),
+                Holder = e.Home.Holder == Guid.Empty ? "" : e.Home.Holder.ToString("D"),
+                Anchor = e.Home.Anchor,
+                Slot = e.Home.Slot,
                 ClaimSlot = e.ClaimSlot,
+                Essential = e.Essential,
                 Born = e.Born.Reason.ToString(),
                 Ended = e.Ended?.Reason.ToString() ?? ""
             };
@@ -76,9 +77,9 @@ namespace Dvmp.Scenarios
         [Step]
         public static LedgerEntry[] Entries(string[] ids) => ids.Select(Entry).ToArray();
 
-        /// <summary>Host: what disagrees between the ledger, the records and vanilla's storage; empty when all agree.</summary>
+        /// <summary>Host: what breaks the one-home check (HomeInvariant) now; empty when it holds.</summary>
         [Step]
-        public static string[] Audit() => ServerLedger.Audit().ToArray();
+        public static string[] Audit() => ServerLedger.CheckNow().ToArray();
 
         /// <summary>
         /// Host: what the audit says about these ids only. A test career collects debris from earlier
@@ -88,7 +89,7 @@ namespace Dvmp.Scenarios
         [Step]
         public static IEnumerator AuditFor(Step<string[]> step, string[] ids)
         {
-            string[] all = ServerLedger.Audit().ToArray();
+            string[] all = ServerLedger.CheckNow().ToArray();
             string[] mine = all.Where(line => ids.Any(id => line.Contains(id))).ToArray();
             foreach (string other in all.Except(mine))
                 step.Note("audit, not this scenario's: " + other);

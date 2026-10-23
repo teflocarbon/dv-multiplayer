@@ -1,3 +1,5 @@
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Core.Items.Ledger;
 using System;
 using System.Collections;
 using DV.CabControls;
@@ -40,9 +42,11 @@ public static class ShopDelivery
             if (buyer != null && buyer.Guid != Guid.Empty && networked != null && networked.NetId != 0 &&
                 LiveItems.Ensure(networked) is { } record && record.Owner == Guid.Empty)
             {
-                record.Owner = buyer.Guid;
-                ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Purchased, buyer,
-                    $"at {shop.name}, {i + 1} of {amount}, owner {buyer.Username}, lying in the world"));
+                string detail = $"at {shop.name}, {i + 1} of {amount}, owner {buyer.Username}, lying in the world";
+                string refused = ServerLedger.Own(record, buyer.Guid, BirthReason.Purchased, buyer.Guid, detail);
+                if (refused.Length > 0)
+                    Multiplayer.LogWarning($"Item {networked.name} (netId {networked.NetId}) bought by {buyer.Username}: the ledger refused it ({refused})");
+                ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Purchased, buyer, detail));
             }
             else if (networked != null && networked.NetId != 0)
                 Multiplayer.LogWarning($"Item {networked.name} (netId {networked.NetId}) bought by " +

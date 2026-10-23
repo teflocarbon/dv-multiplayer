@@ -82,6 +82,7 @@ internal interface IInventoryRuntimeAdapter
         InventorySectionController section, out InventorySlotRuntimeSnapshot snapshot);
     bool ContainsActive(GameObject item);
     int AddActive(GameObject item, int preferredSlot = -1);
+    int PlaceAt(GameObject item, int slot);
     InventoryClaimExecution EnsureDroppedClaim(GameObject item, int expectedSlot);
     InventoryClaimExecution RestoreClaim(GameObject item, int expectedSlot);
     InventoryRemovalSnapshot RevokeMembership(GameObject item, ushort itemNetId = 0);
@@ -138,6 +139,41 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                 return added;
         }
         return inventory.AddItemToInventory(item, false);
+    }
+
+    // The slot the server put it in (OI-SLOT-01): another item still there here is stale, and its
+    // own update is on the way, so it moves aside to a free slot off the belt.
+    public int PlaceAt(GameObject item, int slot)
+    {
+        DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
+        if (inventory == null || item == null || !InventorySlots.IsValid(slot, inventory.Capacity))
+            return AddActive(item);
+        int current = inventory.IndexOf(item);
+        if (current == slot && inventory.Contains(item, false))
+            return slot;
+        using IDisposable placement = InventoryIntegration.BeginAuthoritativePlacement();
+        GameObject occupant = inventory.PeekItemAtSlot(slot, true);
+        if (occupant != null && occupant != item && !inventory.GetSlotDroppedState(slot))
+        {
+            int aside = LastFreeOffBelt(inventory, slot);
+            if (aside < 0 || !inventory.MoveItemFromTo(slot, aside, false))
+                return AddActive(item, slot);
+            Multiplayer.Log($"Inventory: moved {occupant.name} from slot {slot} to {aside} for {item.name}, which the server put there");
+        }
+        if (current >= 0 && current != slot && inventory.Contains(item, false) && inventory.MoveItemFromTo(current, slot, false))
+            return slot;
+        return AddActive(item, slot);
+    }
+
+    // From the end of the backpack: DV marks a reservation only on the item holding it, so an
+    // empty slot another essential still has to claim looks free, and those are the low ones. Never
+    // the belt, which is the player's (OI-ESS-03).
+    private static int LastFreeOffBelt(DV.InventorySystem.Inventory inventory, int except)
+    {
+        for (int slot = Math.Min(inventory.Capacity, InventorySlots.FirstBeltSlot) - 1; slot >= 0; slot--)
+            if (slot != except && inventory.PeekItemAtSlot(slot, true) == null && !inventory.GetSlotReservedState(slot))
+                return slot;
+        return -1;
     }
 
     public InventoryClaimExecution EnsureDroppedClaim(GameObject item, int expectedSlot)
@@ -206,11 +242,10 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         if (other != null && other.InventoryClaimSlot == expectedSlot &&
             (other.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0)
             return;
-        // From the end of the backpack: DV marks a reservation only on the item holding it, so an
-        // empty slot another essential still has to claim looks free, and those are the low ones.
-        int free = inventory.GetLastFreeSlot();
-        if (free < 0 || free == expectedSlot)
+        int free = LastFreeOffBelt(inventory, expectedSlot);
+        if (free < 0)
             return;
+        using IDisposable placement = InventoryIntegration.BeginAuthoritativePlacement();
         if (inventory.MoveItemFromTo(expectedSlot, free, false))
             Multiplayer.Log($"Inventory: moved {occupant.name} from slot {expectedSlot} to {free} for {item.name}, which reserves it");
     }
@@ -381,24 +416,35 @@ internal static class InventoryIntegration
     private static readonly IInventoryRuntimeAdapter runtime =
         new DerailValleyInventoryRuntimeAdapter();
     private static int authoritativeRemovalDepth;
+    private static int authoritativePlacementDepth;
 
     internal static bool AuthoritativeRemovalActive => authoritativeRemovalDepth > 0;
+
+    /// <summary>The mod is moving an item between slots for the server: not a move to ask the server for.</summary>
+    internal static bool AuthoritativePlacementActive => authoritativePlacementDepth > 0;
 
     internal static IDisposable BeginAuthoritativeRemoval()
     {
         authoritativeRemovalDepth++;
-        return new AuthoritativeRemovalScope();
+        return new DepthScope(() => authoritativeRemovalDepth = Math.Max(0, authoritativeRemovalDepth - 1));
     }
 
-    private sealed class AuthoritativeRemovalScope : IDisposable
+    internal static IDisposable BeginAuthoritativePlacement()
     {
-        private bool disposed;
+        authoritativePlacementDepth++;
+        return new DepthScope(() => authoritativePlacementDepth = Math.Max(0, authoritativePlacementDepth - 1));
+    }
+
+    private sealed class DepthScope : IDisposable
+    {
+        private Action leave;
+
+        public DepthScope(Action leave) => this.leave = leave;
 
         public void Dispose()
         {
-            if (disposed) return;
-            disposed = true;
-            authoritativeRemovalDepth = Math.Max(0, authoritativeRemovalDepth - 1);
+            leave?.Invoke();
+            leave = null;
         }
     }
     public static byte LocalPlayerId => runtime.LocalPlayerId;
@@ -406,6 +452,8 @@ internal static class InventoryIntegration
     public static bool ContainsActive(GameObject item) => runtime.ContainsActive(item);
     public static int AddActive(GameObject item, int preferredSlot = -1) =>
         runtime.AddActive(item, preferredSlot);
+    /// <summary>Into exactly this slot of the local inventory, as the server has it; the slot it ended in.</summary>
+    public static int PlaceAt(GameObject item, int slot) => runtime.PlaceAt(item, slot);
     public static InventoryClaimExecution EnsureDroppedClaim(GameObject item, int expectedSlot) =>
         runtime.EnsureDroppedClaim(item, expectedSlot);
     public static InventoryClaimExecution RestoreClaim(GameObject item, int expectedSlot) =>

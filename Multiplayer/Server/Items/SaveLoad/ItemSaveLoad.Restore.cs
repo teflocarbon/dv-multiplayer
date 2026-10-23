@@ -169,9 +169,12 @@ internal static partial class ItemSaveLoad
         // By identity, here or not: an offline holder gets it back when they join (MustWaitForHolder).
         record.Holder = saved.PlacementPlayerIdentity;
         record.PlacementHand = PlayerHand.None;
-        record.Owner = saved.OwnerIdentity;
-        record.InventoryClaimSlot = saved.ClaimSlot;
+        // The owner and claim are the ledger's; the row's are what the load's check registers from
+        // when the ledger doesn't have the item.
+        record.StoredOwner = saved.OwnerIdentity;
+        record.StoredClaimSlot = saved.ClaimSlot;
         record.InventoryClaimFlags = saved.ClaimFlags;
+        record.Slot = saved.Placement == ItemPlacementKind.PlayerInventory ? saved.Slot : -1;
         record.Position = saved.Position;
         record.Rotation = saved.Rotation;
         record.LastReason = ItemTransitionReason.PersistenceRestore;

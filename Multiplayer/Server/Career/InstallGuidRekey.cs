@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Ledger;
 using System;
 using System.Linq;
 using DV.JObjectExtstensions;
@@ -69,7 +70,10 @@ public static class InstallGuidRekey
         changed += LostAndFoundServer.RekeyOwner(from, to);
         changed += ContainerServer.Graph.RekeyOwner(from.ToString("D"), to.ToString("D"));
         bool kit = ServerLedger.Ledger.HasStarterKit(from);
-        changed += ServerLedger.Ledger.Rekey(from, to) + (kit ? 1 : 0);
+        RekeyResult merged = ServerLedger.Ledger.Rekey(from, to);
+        changed += merged.Changed + (kit ? 1 : 0);
+        foreach (Guid id in merged.ToLostAndFound)
+            Multiplayer.LogWarning($"Re-key {from:D} -> {to:D}: item {id:D}'s slot was taken, so the ledger moved it to Lost and Found");
         return changed;
     }
 

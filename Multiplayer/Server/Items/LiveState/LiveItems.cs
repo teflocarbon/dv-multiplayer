@@ -1,7 +1,7 @@
 using DV.InventorySystem;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
-using Multiplayer.Core.Items.Essentials;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.Physics;
 using Multiplayer.Server.Items.Access;
@@ -43,11 +43,26 @@ public static class LiveItems
         /// <summary>The identity of the player whose hand or inventory it's in, or empty. They may be offline.</summary>
         public Guid Holder;
         public PlayerHand PlacementHand;
-        /// <summary>The owner's identity, or empty for an unowned item. An offline owner is an identity with no session.</summary>
-        public Guid Owner;
-        /// <summary>An essential's claim slot, always its owner's; or the slot a materialized item was put in.</summary>
-        public int InventoryClaimSlot = -1;
-        public ItemInventoryClaimFlags InventoryClaimFlags;
+        /// <summary>Its slot of the holder's inventory, for every inventory item, owned or not (OI-SLOT-01); else -1.</summary>
+        public int Slot = -1;
+        /// <summary>
+        /// The owner's identity, read from the ledger (OI-LED-05), or empty for an unowned item. An
+        /// offline owner is an identity with no session.
+        /// </summary>
+        public Guid Owner => ServerLedger.OwnerOf(PersistentItemId, StoredOwner);
+        /// <summary>The owner the item's own store named, kept only until the ledger has it: the load's check reads it.</summary>
+        public Guid StoredOwner;
+        /// <summary>An essential's claim slot, read from the ledger: the slot of its owner's inventory it comes back to, or -1.</summary>
+        public int InventoryClaimSlot => ServerLedger.ClaimOf(PersistentItemId, StoredClaimSlot);
+        /// <summary>The claim the item's own store named, kept only until the ledger has it.</summary>
+        public int StoredClaimSlot = -1;
+        /// <summary>How its claim shows (dropped, stolen, its slot locked); none without a claim.</summary>
+        public ItemInventoryClaimFlags InventoryClaimFlags
+        {
+            get => InventoryClaimSlot < 0 ? ItemInventoryClaimFlags.None : claimFlags | ItemInventoryClaimFlags.Reserved;
+            set => claimFlags = value;
+        }
+        private ItemInventoryClaimFlags claimFlags;
         public string PrefabName = string.Empty;
         public Vector3 Position;
         public Quaternion Rotation;
@@ -73,6 +88,18 @@ public static class LiveItems
         // The revisions that changed only object state; see ItemPlacementRevision.
         public uint ObjectStateRunBase;
         public uint ObjectStateRunTop;
+
+        private static readonly System.Reflection.FieldInfo[] Fields = typeof(LiveItem).GetFields(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+
+        internal LiveItem Copy() => (LiveItem)MemberwiseClone();
+
+        // Puts back what a refused commit changed.
+        internal void RestoreFrom(LiveItem copy)
+        {
+            foreach (System.Reflection.FieldInfo field in Fields)
+                field.SetValue(this, field.GetValue(copy));
+        }
     }
 
     private static readonly Dictionary<ushort, LiveItem> records = new();
@@ -113,19 +140,8 @@ public static class LiveItems
         if (records.TryGetValue(item.NetId, out LiveItem existing))
             return existing;
 
-        ItemInventoryClaimFlags claimFlags = seed?.InventoryClaimFlags ?? ItemInventoryClaimFlags.None;
-        bool hasRetrievalClaim = item.Item?.InventorySpecs?.IsEssential == true &&
-            (seed?.InventoryClaimSlot ?? -1) >= 0 &&
-            HasRetrievalFlag(claimFlags);
-        // A personal item belongs to the actor only if they hold it (a request names no owner).
-        // Registration often happens when the host first replicates an item, which made the host
-        // the owner of every item bought at a shop (purchases run on the host), whoever bought it.
-        bool actorHoldsSeed = seed != null && actor != null && seed.PlayerId == actor.PlayerId &&
-            seed.ItemState is ItemState.InHand or ItemState.InInventory;
-        bool actorOwnsPlayerItem = item.Item?.InventorySpecs?.BelongsToPlayer == true && actor != null &&
-            actorHoldsSeed;
-        Guid persistentOwner = actorOwnsPlayerItem ? actor.Guid : Guid.Empty;
-
+        // No owner here: an item becomes owned only by a ledger commit (a first take, a purchase, a
+        // grant), never because a record was made while someone held it.
         ItemIdentity persistentIdentity = item.GetComponent<ItemIdentity>();
         Guid persistentItemId = item.IsSceneAuthored ? Guid.Empty : ServerLedger.ClaimPersistentId(item,
             (persistentIdentity ?? item.gameObject.AddComponent<ItemIdentity>()).Ensure());
@@ -143,9 +159,7 @@ public static class LiveItems
             PlacementHand = initialPlacement == ItemPlacementKind.PlayerHand
                 ? PlayerHandRules.Normalize(seed?.PlayerHand ?? PlayerHand.None)
                 : PlayerHand.None,
-            Owner = persistentOwner,
-            InventoryClaimSlot = persistentOwner == Guid.Empty || !hasRetrievalClaim ? -1 : seed?.InventoryClaimSlot ?? -1,
-            InventoryClaimFlags = persistentOwner == Guid.Empty || !hasRetrievalClaim ? ItemInventoryClaimFlags.None : claimFlags,
+            Slot = initialPlacement == ItemPlacementKind.PlayerInventory ? seed?.InventorySlot ?? -1 : -1,
             PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
             Position = initialPosition,
             Rotation = initialRotation,
@@ -252,7 +266,6 @@ public static class LiveItems
                 ItemWorldParentKind.StaticParent => ItemPlacementKind.StaticParent,
                 _ => requestedPlacement
             };
-        int previousClaimSlot = record.InventoryClaimSlot;
         TransitionResult result = ItemStateMachine.Apply(currentState, new ItemTransition
         {
             Actor = actorIdentity,
@@ -284,20 +297,17 @@ public static class LiveItems
             PublishRejected(item, record, actor, snapshot, rejectionReason);
             return false;
         }
-
-        if (appliesPlacement && HasRetrievalFlag((ItemInventoryClaimFlags)(byte)result.State.InventoryClaimFlags) &&
-            snapshot.InventoryClaimSlot >= 0 &&
-            result.State.InventoryClaimSlot >= 0 &&
-            result.State.InventoryClaimSlot != snapshot.InventoryClaimSlot &&
-            actor != null && record.Owner == actorIdentity)
+        // Into a player's hands from the world, or from another player (OI-ACC-07).
+        if (actor != null && result.State.Holder == actor.Guid &&
+            result.State.Placement is LivePlacement.PlayerHand or LivePlacement.PlayerInventory &&
+            TakeAction(record, actor.Guid) is { } take &&
+            !ItemAccessServer.Allows(actor, take, item, record, out rejectionReason))
         {
-            Publish("item.essential-claim-slot-move-rejected", item, record, new()
-            {
-                ["requestedSlot"] = snapshot.InventoryClaimSlot,
-                ["retainedSlot"] = result.State.InventoryClaimSlot
-            }, DebugSeverity.Warning);
+            PublishRejected(item, record, actor, snapshot, rejectionReason);
+            return false;
         }
 
+        LiveItem previous = record.Copy();
         ApplyCore(record, result.State);
         record.PlacementHand = appliesPlacement
             ? record.Placement == ItemPlacementKind.PlayerHand
@@ -305,6 +315,14 @@ public static class LiveItems
                 : PlayerHand.None
             : previousPlacementHand;
         KeepRemotePossession(item, record, snapshot);
+        // Every inventory item has its slot. A player's request names it, and gets that one or a
+        // refusal (OI-SLOT-03); a server-made move keeps the one it had, else its claim or the
+        // lowest free one.
+        record.Slot = record.Placement != ItemPlacementKind.PlayerInventory ? -1
+            : !appliesPlacement ? previous.Slot
+            : actor != null && snapshot.InventorySlot >= 0 ? snapshot.InventorySlot
+            : ServerLedger.FreeSlot(record, record.Holder, snapshot.InventorySlot,
+                previous.Placement == ItemPlacementKind.PlayerInventory && previous.Holder == record.Holder ? previous.Slot : -1);
         record.Position = snapshot.ItemPosition;
         record.Rotation = snapshot.ItemRotation;
         record.WorldParentKind = snapshot.WorldParentKind;
@@ -327,13 +345,31 @@ public static class LiveItems
             snapshot.States is { Count: > 0 })
             record.HasPersistentOverride = true;
         record.LastReason = reason;
-        WriteToSnapshot(record, snapshot, reason);
         ItemWhereabouts after = ItemChangeLog.Whereabouts(record);
+        if (cause == null && !ItemMoveClassifier.Changed(before, after) && record.Slot != previous.Slot &&
+            previous.Placement == ItemPlacementKind.PlayerInventory)
+            cause = ItemChangeLog.Move(ItemMoveReason.SlotMoved, actor, $"slot {previous.Slot} -> {record.Slot}");
         // A caller that names a cause moved it on purpose, if only to another spot in the world.
-        if (cause.HasValue || ItemMoveClassifier.Changed(before, after))
+        bool moved = cause.HasValue || ItemMoveClassifier.Changed(before, after);
+        ChangeCause<ItemMoveReason> move = moved
+            ? TransitionCause(item, reason, actor, before, after, snapshot.ItemState == ItemState.Thrown, cause)
+            : default;
+        // The ledger first (OI-LED-04): a commit it refuses leaves the record, the ledger and every
+        // game as they were, and the sender is corrected.
+        string refusal = record.Slot < 0 && record.Placement == ItemPlacementKind.PlayerInventory
+            ? "inventory-full"
+            : ServerLedger.CommitTransition(record, ServerLedger.HomeOf(previous), ServerLedger.HomeOf(record),
+                previous.Owner == Guid.Empty ? result.State.Owner : Guid.Empty, move);
+        if (refusal.Length > 0)
         {
-            ChangeCause<ItemMoveReason> move = TransitionCause(item, reason, actor, before, after,
-                snapshot.ItemState == ItemState.Thrown, cause);
+            record.RestoreFrom(previous);
+            rejectionReason = refusal;
+            PublishRejected(item, record, actor, snapshot, rejectionReason);
+            return false;
+        }
+        WriteToSnapshot(record, snapshot, reason);
+        if (moved)
+        {
             snapshot.MoveCause = move;
             ItemChangeLog.RecordMove(item, record, move);
         }
@@ -344,14 +380,18 @@ public static class LiveItems
         });
         ServerItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
-        // The owner's client put the item in this slot, so it keeps the slot if another of their
-        // essentials claims it too (one dropped or stolen leaves its slot looking empty in DV).
-        bool ownerPlacedClaim = appliesPlacement && actor != null && record.Owner == actorIdentity &&
-            (record.InventoryClaimSlot != previousClaimSlot || record.Placement == ItemPlacementKind.PlayerInventory);
-        if (HasRetrievalClaim(record))
-            EnsureDistinctClaimSlots(record, ownerPlacedClaim ? record.NetId : (ushort)0, reason.ToString());
         return true;
     }
+
+    // What taking it into this player's hands is: from the world, from another player, or neither.
+    private static ItemAccessAction? TakeAction(LiveItem record, Guid taker) => record.Placement switch
+    {
+        ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory =>
+            record.Holder != Guid.Empty && record.Holder != taker ? ItemAccessAction.TakeFromPlayer : null,
+        ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent or
+            ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment => ItemAccessAction.TakeFromWorld,
+        _ => null
+    };
 
     private static ChangeCause<ItemMoveReason> TransitionCause(NetworkedItem item, ItemTransitionReason reason,
         ServerPlayer actor, ItemWhereabouts before, ItemWhereabouts after, bool thrown,
@@ -494,6 +534,8 @@ public static class LiveItems
             rejectionReason = "item-not-recallable";
             return false;
         }
+        if (!ItemAccessServer.Allows(requester, ItemAccessAction.Recall, item, record, out rejectionReason))
+            return false;
         TransitionResult result = ItemStateMachine.Recall(ToCore(record), new RecallCommand
         {
             Requester = requester.Guid,
@@ -517,14 +559,24 @@ public static class LiveItems
 
         Guid previousHolder = record.Holder;
         ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
+        LiveItem previous = record.Copy();
         // The holder becomes the requester's identity: left as the previous holder's, a recalled
         // item was handed back to that player when they rejoined, and the owner had a second one.
         ApplyCore(record, result.State);
+        record.Slot = ServerLedger.FreeSlot(record, requester.Guid, record.InventoryClaimSlot);
         record.LastReason = ItemTransitionReason.OwnerRecall;
-        WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         ChangeCause<ItemMoveReason> recalled = ItemChangeLog.Move(ItemMoveReason.Recalled, requester,
             ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
-                "slot " + record.InventoryClaimSlot));
+                "slot " + record.Slot));
+        rejectionReason = record.Slot < 0 ? "inventory-full"
+            : ServerLedger.Commit(record, ServerLedger.HomeOf(previous), ServerLedger.HomeOf(record), recalled);
+        if (rejectionReason.Length > 0)
+        {
+            record.RestoreFrom(previous);
+            snapshot = null;
+            return false;
+        }
+        WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         snapshot.MoveCause = recalled;
         ItemChangeLog.RecordMove(item, record, recalled);
         Publish("item.recall-accepted", item, record, new()
@@ -535,8 +587,86 @@ public static class LiveItems
             ["requestedSlot"] = requestedSlot,
             ["baseRevision"] = expectedRevision
         });
-        EnsureDistinctClaimSlots(record, record.NetId, nameof(ItemTransitionReason.OwnerRecall));
         return true;
+    }
+
+    /// <summary>
+    /// Two items in the requester's inventory change slots (vanilla's swap, <c>Inventory.SwapItems</c>):
+    /// the ledger commits both at once, since each slot holds one item. The moved item is checked
+    /// against the revision the requester saw; the other moves with it.
+    /// </summary>
+    public static bool TrySwapSlots(NetworkedItem item, NetworkedItem other, ServerPlayer requester,
+        uint expectedRevision, out ItemUpdate first, out ItemUpdate second, out string rejectionReason)
+    {
+        first = second = null;
+        if (item == null || other == null || requester == null || !records.TryGetValue(item.NetId, out LiveItem record) ||
+            !records.TryGetValue(other.NetId, out LiveItem otherRecord) || record == otherRecord)
+        {
+            rejectionReason = "unknown-network-entity";
+            return false;
+        }
+        if (record.Placement != ItemPlacementKind.PlayerInventory || otherRecord.Placement != ItemPlacementKind.PlayerInventory ||
+            record.Holder != requester.Guid || otherRecord.Holder != requester.Guid)
+        {
+            rejectionReason = "item-not-in-your-inventory";
+            return false;
+        }
+        TransitionResult moved = Stay(record, expectedRevision), swapped = Stay(otherRecord, otherRecord.Revision);
+        if (!moved.Accepted || !swapped.Accepted)
+        {
+            rejectionReason = (moved.Accepted ? swapped : moved).RejectionReason;
+            return false;
+        }
+        first = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
+        second = other.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
+        if (first == null || second == null)
+        {
+            first = second = null;
+            rejectionReason = "snapshot-creation-failed";
+            return false;
+        }
+        LiveItem previous = record.Copy(), otherPrevious = otherRecord.Copy();
+        ApplyCore(record, moved.State);
+        ApplyCore(otherRecord, swapped.State);
+        (record.Slot, otherRecord.Slot) = (otherPrevious.Slot, previous.Slot);
+        ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(ItemMoveReason.SlotMoved, requester,
+            $"slot {previous.Slot} <-> {otherPrevious.Slot}");
+        rejectionReason = ServerLedger.Swap(record, ServerLedger.HomeOf(previous), otherRecord,
+            ServerLedger.HomeOf(otherPrevious), cause);
+        if (rejectionReason.Length > 0)
+        {
+            record.RestoreFrom(previous);
+            otherRecord.RestoreFrom(otherPrevious);
+            first = second = null;
+            return false;
+        }
+        foreach ((NetworkedItem networked, LiveItem changed, ItemUpdate snapshot) in
+                 new[] { (item, record, first), (other, otherRecord, second) })
+        {
+            snapshot.ItemState = ItemState.InInventory;
+            snapshot.PlayerId = requester.PlayerId;
+            changed.LastReason = ItemTransitionReason.ClientInteraction;
+            WriteToSnapshot(changed, snapshot, ItemTransitionReason.ClientInteraction);
+            snapshot.MoveCause = cause;
+            ItemChangeLog.RecordMove(networked, changed, cause);
+        }
+        Publish("item.slots-swapped", item, record, new()
+        {
+            ["requestingPlayerId"] = requester.PlayerId,
+            ["otherNetId"] = other.NetId,
+            ["fromSlot"] = previous.Slot,
+            ["toSlot"] = otherPrevious.Slot
+        });
+        return true;
+
+        // The same inventory, at the next revision: the state machine checks the revision and the possessor.
+        TransitionResult Stay(LiveItem changed, uint expected) => ItemStateMachine.Apply(ToCore(changed), new ItemTransition
+        {
+            Actor = requester.Guid,
+            ExpectedRevision = expected,
+            AppliesPlacement = true,
+            RequestedPlacement = LivePlacement.PlayerInventory
+        });
     }
 
     public static bool TryMoveToLostAndFound(NetworkedItem item, out LiveItem record,
@@ -565,9 +695,14 @@ public static class LiveItems
             rejectionReason = "authority-revision-exhausted";
             return false;
         }
+        rejectionReason = ServerLedger.Commit(record, ServerLedger.HomeOf(record), Home.LostAndFound,
+            ItemChangeLog.Move(ItemMoveReason.CollectedToLostAndFound, detail: "from " + record.Placement));
+        if (rejectionReason.Length > 0)
+            return false;
 
         record.Revision++;
         record.Placement = ItemPlacementKind.LostAndFound;
+        record.Slot = -1;
         record.Holder = Guid.Empty;
         record.PlacementHand = PlayerHand.None;
         record.LastReason = ItemTransitionReason.LostAndFoundCollection;
@@ -614,29 +749,36 @@ public static class LiveItems
             return false;
         }
         ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
+        LiveItem previous = record.Copy();
         record.Revision++;
         record.Placement = ItemPlacementKind.PlayerInventory;
         record.Holder = requester.Guid;
         record.PlacementHand = PlayerHand.None;
-        record.InventoryClaimSlot = targetSlot;
+        record.Slot = ServerLedger.FreeSlot(record, requester.Guid, targetSlot);
         record.InventoryClaimFlags &= ~(ItemInventoryClaimFlags.Dropped | ItemInventoryClaimFlags.Stolen);
         record.LastReason = ItemTransitionReason.LostAndFoundRetrieval;
+        ChangeCause<ItemMoveReason> retrieved = ItemChangeLog.Move(ItemMoveReason.RetrievedFromLostAndFound,
+            requester, ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
+                "slot " + record.Slot));
+        rejectionReason = record.Slot < 0 ? "inventory-full"
+            : ServerLedger.Commit(record, ServerLedger.HomeOf(previous), ServerLedger.HomeOf(record), retrieved);
+        if (rejectionReason.Length > 0)
+        {
+            record.RestoreFrom(previous);
+            return false;
+        }
 
         created.ItemState = ItemState.InInventory;
         created.PlayerId = requester.PlayerId;
         WriteToSnapshot(record, created, ItemTransitionReason.LostAndFoundRetrieval);
-        ChangeCause<ItemMoveReason> retrieved = ItemChangeLog.Move(ItemMoveReason.RetrievedFromLostAndFound,
-            requester, ItemChangeCauses.Detail(ItemChangeLog.Describe(before, ItemChangeLog.Whereabouts(record)),
-                "slot " + targetSlot));
         created.MoveCause = retrieved;
         ItemChangeLog.RecordMove(item, record, retrieved);
         snapshot = created;
         Publish("item.lost-and-found-retrieval-authority-applied", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,
-            ["targetSlot"] = targetSlot
+            ["targetSlot"] = record.Slot
         });
-        EnsureDistinctClaimSlots(record, record.NetId, nameof(ItemTransitionReason.LostAndFoundRetrieval));
         return true;
     }
 
@@ -652,16 +794,18 @@ public static class LiveItems
         record.Revision = revision;
         record.ObjectStateRunBase = record.ObjectStateRunTop = 0;
         record.Placement = ItemPlacementKind.LostAndFound;
+        record.Slot = -1;
         record.Holder = Guid.Empty;
         record.PlacementHand = PlayerHand.None;
-        record.Owner = owner;
-        record.InventoryClaimSlot = inventoryClaimSlot;
+        record.StoredClaimSlot = inventoryClaimSlot;
         record.InventoryClaimFlags = inventoryClaimFlags;
         record.PrefabName = string.IsNullOrWhiteSpace(prefabName) ? record.PrefabName : prefabName;
         record.LastReason = ItemTransitionReason.LostAndFoundCollection;
-        ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(reason,
+        ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(reason,
             detail: "in Lost and Found, owner " + ItemChangeLog.PlayerName(owner) +
-                    (reason == ItemMoveReason.HostCorrection ? ", retrieval rolled back" : null)));
+                    (reason == ItemMoveReason.HostCorrection ? ", retrieval rolled back" : null));
+        ServerLedger.Settle(record, owner, inventoryClaimSlot, cause);
+        ItemChangeLog.RecordMove(item, record, cause);
         item.ApplyAuthorityMetadata(AuthorityMetadata(record, record.Revision, record.LastReason));
         return record;
     }
@@ -690,11 +834,7 @@ public static class LiveItems
             Revision = 1,
             Placement = dropped ? ItemPlacementKind.World : ItemPlacementKind.PlayerInventory,
             Holder = dropped ? Guid.Empty : holder.Guid,
-            Owner = owner,
-            // A materialized item needs a concrete projection slot even when it does not
-            // carry a persistent recall claim. Flags distinguish an ordinary placement
-            // slot from a reserved/locked retrieval claim.
-            InventoryClaimSlot = snapshot.InventoryClaimSlot,
+            StoredOwner = owner,
             InventoryClaimFlags = snapshot.InventoryClaimFlags,
             PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? item.name,
             Position = snapshot.ItemPosition,
@@ -704,12 +844,16 @@ public static class LiveItems
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty
         };
         records[item.NetId] = record;
-        WriteToSnapshot(record, snapshot, record.LastReason);
+        // Its own slot: the one the snapshot names, else its claim, else the lowest free one.
+        if (!dropped)
+            record.Slot = ServerLedger.FreeSlot(record, holder.Guid, snapshot.InventorySlot, snapshot.InventoryClaimSlot);
         ChangeCause<ItemMoveReason> withdrawn = cause ?? ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, holder,
             ItemChangeCauses.Detail(ItemChangeLog.Describe(
                     new ItemWhereabouts(LivePlacement.Container, Guid.Empty, owner),
                     ItemChangeLog.Whereabouts(record)),
-                "slot " + record.InventoryClaimSlot));
+                "slot " + record.Slot));
+        ServerLedger.Settle(record, owner, snapshot.InventoryClaimSlot, withdrawn);
+        WriteToSnapshot(record, snapshot, record.LastReason);
         snapshot.MoveCause = withdrawn;
         ItemChangeLog.RecordMove(item, record, withdrawn);
         item.ApplyAuthorityMetadata(snapshot);
@@ -733,8 +877,10 @@ public static class LiveItems
         record.Holder = previousHolder;
         record.PlacementHand = PlayerHand.None;
         record.LastReason = previousReason;
-        ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(ItemMoveReason.HostCorrection,
-            detail: "Lost and Found collection rolled back to " + previousPlacement));
+        ChangeCause<ItemMoveReason> rolledBack = ItemChangeLog.Move(ItemMoveReason.HostCorrection,
+            detail: "Lost and Found collection rolled back to " + previousPlacement);
+        ServerLedger.Commit(record, Home.LostAndFound, ServerLedger.HomeOf(record), rolledBack);
+        ItemChangeLog.RecordMove(item, record, rolledBack);
     }
 
     public static void ApplyReplicaMetadata(NetworkedItem item, ItemUpdate snapshot)
@@ -775,6 +921,7 @@ public static class LiveItems
         snapshot.PlayerId = PlayerNumbers.Of(record.Holder);
         snapshot.PlayerHand = record.Placement == ItemPlacementKind.PlayerHand
             ? record.PlacementHand : PlayerHand.None;
+        snapshot.InventorySlot = record.Placement == ItemPlacementKind.PlayerInventory ? record.Slot : -1;
         snapshot.WorldParentKind = record.WorldParentKind;
         snapshot.WorldParentNetId = record.WorldParentNetId;
         snapshot.WorldParentKey = record.WorldParentKey ?? string.Empty;
@@ -843,6 +990,7 @@ public static class LiveItems
             // The numbers are what the wire says now; the identities are the record.
             ["placementPlayerId"] = PlayerNumbers.Of(record.Holder),
             ["placementHand"] = record.PlacementHand.ToString(),
+            ["slot"] = record.Slot,
             ["placementPlayerIdentity"] = record.Holder == Guid.Empty ? string.Empty : record.Holder.ToString("D"),
             ["persistentOwnerPlayerId"] = PlayerNumbers.Of(record.Owner),
             ["persistentOwnerIdentity"] = record.Owner == Guid.Empty ? string.Empty : record.Owner.ToString("D"),
@@ -880,9 +1028,9 @@ public static class LiveItems
         foreach (LiveItem record in records.Values)
         {
             bool touched = false;
-            if (record.Owner == from)
+            if (record.StoredOwner == from)
             {
-                record.Owner = to;
+                record.StoredOwner = to;
                 touched = true;
             }
             if (record.Holder == from)
@@ -897,60 +1045,25 @@ public static class LiveItems
     }
 
     /// <summary>
-    /// Moves the player's essentials apart if any two claim the same slot, as a save or an earlier
-    /// session may have left them (ClaimSlotPolicy). Returns how many claims moved.
+    /// A claim the ledger moved (one essential took another's slot, OI-ESS-01): the owner's game is
+    /// told, and puts the silhouette in the new slot. The revision stays: only the owner's metadata
+    /// changes, and a holder's next transition must not be refused as stale for it.
     /// </summary>
-    public static int EnsureDistinctClaimSlots(ServerPlayer owner, string reason)
+    internal static void SendClaim(ushort netId, int fromSlot)
     {
-        if (owner == null || owner.Guid == Guid.Empty)
-            return 0;
-        return EnsureDistinctClaimSlots(records.Values.Where(record => HasRetrievalClaim(record) &&
-            record.Owner == owner.Guid).ToArray(), 0, reason);
-    }
-
-    // Checks the claims of this record's owner. preferredNetId keeps its slot; 0 lets the policy rank them.
-    private static int EnsureDistinctClaimSlots(LiveItem claimed, ushort preferredNetId, string reason)
-    {
-        if (claimed == null || claimed.Owner == Guid.Empty)
-            return 0;
-        return EnsureDistinctClaimSlots(records.Values.Where(record => HasRetrievalClaim(record) &&
-            record.Owner == claimed.Owner).ToArray(), preferredNetId, reason);
-    }
-
-    private static int EnsureDistinctClaimSlots(LiveItem[] ownerClaims, ushort preferredNetId, string reason)
-    {
-        if (ownerClaims.Length < 2)
-            return 0;
-        IReadOnlyList<ClaimSlotMove> moves = ClaimSlotPolicy.Resolve(ownerClaims.Select(record =>
-            new EssentialClaim(record.NetId, record.InventoryClaimSlot, InOwnerInventory(record),
-                (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Dropped | ItemInventoryClaimFlags.Stolen)) != 0)),
-            preferredNetId);
-        foreach (ClaimSlotMove move in moves)
+        if (!records.TryGetValue(netId, out LiveItem record))
+            return;
+        NetworkedItem.TryGet(netId, out NetworkedItem item);
+        Publish("item.essential-claim-slot-moved", item, record, new()
         {
-            if (!records.TryGetValue(move.NetId, out LiveItem record))
-                continue;
-            // The revision stays: only the owner's metadata changes, and a holder's next transition
-            // must not be refused as stale for it.
-            record.InventoryClaimSlot = move.ToSlot;
-            NetworkedItem.TryGet(move.NetId, out NetworkedItem item);
-            Publish("item.essential-claim-slot-collision-repaired", item, record, new()
-            {
-                ["fromSlot"] = move.FromSlot,
-                ["toSlot"] = move.ToSlot,
-                ["keptBy"] = ownerClaims.FirstOrDefault(other => other.NetId != move.NetId &&
-                    other.InventoryClaimSlot == move.FromSlot)?.NetId ?? 0,
-                ["reason"] = reason ?? string.Empty
-            }, DebugSeverity.Warning);
-            ushort keptBy = ownerClaims.FirstOrDefault(other => other.NetId != move.NetId &&
-                other.InventoryClaimSlot == move.FromSlot)?.NetId ?? 0;
-            ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(ItemMoveReason.ClaimSlotMoved,
-                detail: $"claim slot {move.FromSlot} -> {move.ToSlot}, slot {move.FromSlot} kept by netId {keptBy}, after {reason}"));
-            PushClaimSlotCorrection(item, record);
-        }
-        return moves.Count;
+            ["fromSlot"] = fromSlot,
+            ["toSlot"] = record.InventoryClaimSlot
+        });
+        record.LastMove = ItemChangeLog.Move(ItemMoveReason.ClaimSlotMoved,
+            detail: $"claim slot {fromSlot} -> {record.InventoryClaimSlot}");
+        PushClaimSlotCorrection(item, record);
     }
 
-    // Sends the moved claim to its owner, whose client then puts the silhouette in the new slot.
     private static void PushClaimSlotCorrection(NetworkedItem item, LiveItem record)
     {
         bool lost = record.Placement == ItemPlacementKind.LostAndFound;
@@ -976,12 +1089,6 @@ public static class LiveItems
             server.SendItemUpdate(correction, owner);
     }
 
-    private static bool InOwnerInventory(LiveItem record) =>
-        record.Placement == ItemPlacementKind.PlayerInventory &&
-        record.Holder != Guid.Empty && record.Holder == record.Owner;
-
-    private static bool HasRetrievalClaim(LiveItem record) =>
-        record.InventoryClaimSlot >= 0 && HasRetrievalFlag(record.InventoryClaimFlags);
 
     public static void Remove(ushort netId) => records.Remove(netId);
     public static void Clear()
@@ -1039,8 +1146,7 @@ public static class LiveItems
         record.Placement = (ItemPlacementKind)(byte)state.Placement;
         record.Holder = state.Holder;
         record.PlacementHand = PlayerHand.None;
-        record.Owner = state.Owner;
-        record.InventoryClaimSlot = state.InventoryClaimSlot;
+        // The owner and the claim slot are the ledger's: a commit changes them, not this.
         record.InventoryClaimFlags = (ItemInventoryClaimFlags)(byte)state.InventoryClaimFlags;
         record.ObjectStateRunBase = state.ObjectStateRunBase;
         record.ObjectStateRunTop = state.ObjectStateRunTop;

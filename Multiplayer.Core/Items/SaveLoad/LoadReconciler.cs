@@ -132,26 +132,26 @@ public static class LoadReconciler
             if (hits == null || hits.Count == 0)
             {
                 if (entry.IsLive)
-                    steps.Add(new OwnedItemLoadStep(entry.Where.Place == HomeKind.Missing
+                    steps.Add(new OwnedItemLoadStep(entry.Home.Kind == HomeKind.Missing
                             ? OwnedItemLoadAction.Keep
                             : OwnedItemLoadAction.MarkMissing, entry.Id, null, Home.Missing,
-                        entry.Owner, entry.Prefab, entry.Where.Place == HomeKind.Missing
+                        entry.Owner.PlayerId, entry.Prefab, entry.Home.Kind == HomeKind.Missing
                             ? "still in no store"
-                            : $"not in any store (the ledger had it {entry.Where})"));
+                            : $"not in any store (the ledger had it {entry.Home})"));
                 continue;
             }
 
-            OwnedItemStoreHit kept = Choose(hits, entry.IsLive ? StoreFor(entry.Where) : null);
+            OwnedItemStoreHit kept = Choose(hits, entry.IsLive ? StoreFor(entry.Home) : null);
             if (!entry.IsLive)
-                steps.Add(Step(OwnedItemLoadAction.Revive, kept, entry.Owner, entry.Prefab,
+                steps.Add(Step(OwnedItemLoadAction.Revive, kept, entry.Owner.PlayerId, entry.Prefab,
                     $"ended {entry.Ended.Reason}, but the {kept.Store} store has it"));
-            else if (kept.Where == entry.Where)
-                steps.Add(Step(OwnedItemLoadAction.Keep, kept, entry.Owner, entry.Prefab, null));
+            else if (kept.Where == entry.Home)
+                steps.Add(Step(OwnedItemLoadAction.Keep, kept, entry.Owner.PlayerId, entry.Prefab, null));
             else
-                steps.Add(Step(OwnedItemLoadAction.Correct, kept, entry.Owner, entry.Prefab,
-                    $"the ledger had it {entry.Where}"));
-            AddCopies(steps, hits, kept, entry.Owner, entry.Prefab);
-            AddRecovery(steps, kept, entry.Owner, entry.Prefab);
+                steps.Add(Step(OwnedItemLoadAction.Correct, kept, entry.Owner.PlayerId, entry.Prefab,
+                    $"the ledger had it {entry.Home}"));
+            AddCopies(steps, hits, kept, entry.Owner.PlayerId, entry.Prefab);
+            AddRecovery(steps, kept, entry.Owner.PlayerId, entry.Prefab);
         }
 
         foreach (KeyValuePair<Guid, List<OwnedItemStoreHit>> pair in hitsById)
@@ -182,7 +182,7 @@ public static class LoadReconciler
             {
                 case OwnedItemLoadAction.Correct:
                 case OwnedItemLoadAction.MarkMissing:
-                    ledger.Move(step.Id, step.Where);
+                    ledger.Repair(step.Id, step.Where);
                     break;
                 case OwnedItemLoadAction.Revive:
                     ledger.Revive(step.Id, step.Where);
@@ -191,9 +191,9 @@ public static class LoadReconciler
                     ledger.Register(new BirthRequest
                     {
                         Id = step.Id,
-                        Owner = step.Owner,
+                        Owner = OwnerRef.Player(step.Owner),
                         Prefab = step.Prefab,
-                        Where = step.Where,
+                        Home = step.Where,
                         Reason = BirthReason.Migrated,
                         Detail = step.Reason,
                         ShopStocked = step.ShopStocked,
@@ -206,10 +206,10 @@ public static class LoadReconciler
     }
 
     /// <summary>The store that holds an item in this place, or null for <see cref="HomeKind.Missing"/>.</summary>
-    public static OwnedItemStore? StoreFor(Home where) => where.Place switch
+    public static OwnedItemStore? StoreFor(Home where) => where.Kind switch
     {
-        HomeKind.With => OwnedItemStore.Possession,
-        HomeKind.World or HomeKind.Attached or HomeKind.Snapped => OwnedItemStore.World,
+        HomeKind.Slot or HomeKind.Hand => OwnedItemStore.Possession,
+        HomeKind.World or HomeKind.TrainInterior or HomeKind.Shelf or HomeKind.Attached or HomeKind.Snapped => OwnedItemStore.World,
         HomeKind.Container => OwnedItemStore.Container,
         HomeKind.LostAndFound => OwnedItemStore.LostAndFound,
         HomeKind.Installed => OwnedItemStore.Installed,

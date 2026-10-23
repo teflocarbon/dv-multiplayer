@@ -8,6 +8,8 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.Utils;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Essentials;
 using Multiplayer.Server.Items.LiveState;
@@ -60,7 +62,8 @@ internal static class AdminItemGrants
 
     /// <summary>The prefab names of everything the player owns, wherever it is.</summary>
     public static HashSet<string> OwnedPrefabs(ServerPlayer player) =>
-        new(OwnedItemsSummary.For(player).Select(item => item.Prefab), StringComparer.OrdinalIgnoreCase);
+        new(ServerLedger.Ledger.LiveOwnedBy(OwnerRef.Player(player?.Guid ?? Guid.Empty)).Select(entry => entry.Prefab),
+            StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// DV's starting items for this career (its difficulty decides them), by prefab name: what
@@ -118,8 +121,10 @@ internal static class AdminItemGrants
                 continue;
             }
             LiveItems.LiveItem record = LiveItems.Ensure(networked);
-            if (record != null && record.Owner == Guid.Empty)
-                record.Owner = player.Guid;
+            // Owned by its target, born Granted (OI-ID-13), before it moves.
+            string refused = ServerLedger.Own(record, player.Guid, BirthReason.Granted, Guid.Empty, "by an admin command");
+            if (refused.Length > 0)
+                Multiplayer.LogWarning($"Couldn't make {player.Username} the owner of {spec.ItemPrefabName}: {refused}");
             bool inInventory = PutInInventory(player, networked, record);
             if (!inInventory && record != null)
                 ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Granted, player,

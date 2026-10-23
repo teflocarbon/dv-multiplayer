@@ -26,6 +26,9 @@ internal sealed class ItemIdentity : MonoBehaviour
         set => owner = value == Guid.Empty ? string.Empty : value.ToString("D");
     }
 
+    /// <summary>The id this item's identity was copied from, when the server gave it a new one (OI-ID-18). Not saved.</summary>
+    [NonSerialized] public Guid CopiedFrom;
+
     public Guid Ensure()
     {
         Guid id = Value;

@@ -1,4 +1,5 @@
 using System;
+using Multiplayer.Core.Items.Inventory;
 using Multiplayer.Core.Items.Ledger;
 
 namespace Multiplayer.Core.Items.OwnedList;
@@ -35,21 +36,20 @@ public static class PlaceText
     public static string Describe(Home where, PlaceFacts facts)
     {
         string car = string.IsNullOrEmpty(facts.CarId) ? "a car" : facts.CarId;
-        switch (where.Place)
+        bool yours = where.Holder == facts.Viewer && facts.Viewer != Guid.Empty;
+        string who = yours ? "your" : (string.IsNullOrEmpty(facts.HolderName) ? "another player" : facts.HolderName) + "'s";
+        switch (where.Kind)
         {
-            case HomeKind.With:
-                bool yours = where.Holder == facts.Viewer && facts.Viewer != Guid.Empty;
-                string who = yours ? "your" : (string.IsNullOrEmpty(facts.HolderName) ? "another player" : facts.HolderName) + "'s";
-                return where.Hold switch
-                {
-                    HoldKind.Hand => (yours ? "in your hand" : $"in {who} hand"),
-                    HoldKind.Belt => (yours ? "on your belt" : $"on {who} belt"),
-                    _ => (yours ? "in your inventory" : $"in {who} inventory")
-                };
+            case HomeKind.Hand:
+                return $"in {who} hand";
+            case HomeKind.Slot:
+                return InventorySlots.IsBelt(where.Slot) ? $"on {who} belt" : $"in {who} inventory";
             case HomeKind.World:
-                if (Anchored(where, "car:")) return "in " + car;
-                if (Anchored(where, "static:")) return "on a shelf";
                 return "on the ground";
+            case HomeKind.TrainInterior:
+                return "in " + car;
+            case HomeKind.Shelf:
+                return "on a shelf";
             case HomeKind.Attached:
                 return "attached to " + car;
             case HomeKind.Snapped:
@@ -59,14 +59,11 @@ public static class PlaceText
             case HomeKind.LostAndFound:
                 return "in Lost and Found";
             case HomeKind.Installed:
-                return "installed on " + car;
+                return where.Anchor == Home.WorldAnchor ? "installed in the world" : "installed on " + car;
             default:
                 return "missing";
         }
     }
-
-    private static bool Anchored(Home where, string prefix) =>
-        where.Anchor != null && where.Anchor.StartsWith(prefix, StringComparison.Ordinal);
 }
 
 /// <summary>What retrieving an owned item from its place means (owned-items.md, "Retrieval").</summary>
@@ -86,9 +83,9 @@ public enum RetrievalKind : byte
 
 public static class RetrievalRule
 {
-    public static RetrievalKind For(Home where, Guid owner) => where.Place switch
+    public static RetrievalKind For(Home where, Guid owner) => where.Kind switch
     {
-        HomeKind.With => where.Holder == owner ? RetrievalKind.NothingToDo : RetrievalKind.TakeFromHolder,
+        HomeKind.Slot or HomeKind.Hand => where.Holder == owner ? RetrievalKind.NothingToDo : RetrievalKind.TakeFromHolder,
         HomeKind.LostAndFound or HomeKind.Missing => RetrievalKind.NothingToDo,
         HomeKind.Container => RetrievalKind.OutermostContainer,
         HomeKind.Attached or HomeKind.Snapped or HomeKind.Installed => RetrievalKind.NotYet,

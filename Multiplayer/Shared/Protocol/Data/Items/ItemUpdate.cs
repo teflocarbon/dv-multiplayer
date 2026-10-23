@@ -57,6 +57,8 @@ public class ItemUpdate
     public bool AttachedFront  { get; set; }
     public Dictionary<string, object> States { get; set; }
     public PlayerHand PlayerHand { get; set; }
+    /// <summary>The holder's inventory slot it's in (<see cref="ItemState.InInventory"/>), for every inventory item; else -1.</summary>
+    public int InventorySlot { get; set; } = -1;
     public uint AuthorityRevision { get; set; }
 
     /// <summary>
@@ -128,7 +130,8 @@ public class ItemUpdate
         if (IncludesItemState(data.UpdateType))
             SerializeCause(writer, data.MoveCause);
 
-        writer.Put((byte)data.ItemState);
+        WireHome home = HomeOf(data);
+        writer.Put((byte)home);
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create))
         {
@@ -137,36 +140,47 @@ public class ItemUpdate
             writer.Put(data.BelongsToPlayer);
         }
 
+        // The home, as a union: each kind carries only its own fields (OI-SYNC-21).
         if (IncludesItemState(data.UpdateType))
         {
-            if (data.ItemState == ItemState.Dropped || data.ItemState == ItemState.Thrown)
+            switch (home)
             {
-                Vector3Serializer.Serialize(writer, data.ItemPosition);
-                QuaternionSerializer.Serialize(writer, data.ItemRotation);
-                writer.Put((byte)data.WorldParentKind);
-                if (data.WorldParentKind == ItemWorldParentKind.TrainInterior)
-                    writer.Put(data.WorldParentNetId);
-                else if (data.WorldParentKind == ItemWorldParentKind.StaticParent)
-                    writer.Put(data.WorldParentKey ?? string.Empty);
-                if (data.WorldParentKind != ItemWorldParentKind.World)
-                {
-                    Vector3Serializer.Serialize(writer, data.ParentLocalPosition);
-                    QuaternionSerializer.Serialize(writer, data.ParentLocalRotation);
-                }
-
-                if (data.ItemState == ItemState.Thrown)
-                    Vector3Serializer.Serialize(writer, data.ThrowDirection);
-            }
-            else if (data.ItemState == ItemState.InInventory || data.ItemState == ItemState.InHand)
-            {
-                writer.Put(data.PlayerId);
-                if (data.ItemState == ItemState.InHand)
+                case WireHome.World:
+                case WireHome.TrainInterior:
+                case WireHome.Shelf:
+                    Vector3Serializer.Serialize(writer, data.ItemPosition);
+                    QuaternionSerializer.Serialize(writer, data.ItemRotation);
+                    if (home == WireHome.TrainInterior)
+                        writer.Put(data.WorldParentNetId);
+                    else if (home == WireHome.Shelf)
+                        writer.Put(data.WorldParentKey ?? string.Empty);
+                    if (home != WireHome.World)
+                    {
+                        Vector3Serializer.Serialize(writer, data.ParentLocalPosition);
+                        QuaternionSerializer.Serialize(writer, data.ParentLocalRotation);
+                    }
+                    writer.Put(data.ItemState == ItemState.Thrown);
+                    if (data.ItemState == ItemState.Thrown)
+                        Vector3Serializer.Serialize(writer, data.ThrowDirection);
+                    break;
+                case WireHome.Hand:
+                    writer.Put(data.PlayerId);
                     writer.Put((byte)data.PlayerHand);
-            }
-            else if (data.ItemState is ItemState.Attached or ItemState.Installed)
-            {
-                writer.Put(data.CarNetId);
-                writer.Put(data.AttachedFront);
+                    break;
+                case WireHome.Slot:
+                    writer.Put(data.PlayerId);
+                    writer.Put((sbyte)Math.Max(-1, Math.Min(sbyte.MaxValue, data.InventorySlot)));
+                    break;
+                case WireHome.Attached:
+                    writer.Put(data.CarNetId);
+                    writer.Put(data.AttachedFront);
+                    break;
+                case WireHome.Snapped:
+                    writer.Put(data.WorldParentKey ?? string.Empty);
+                    break;
+                case WireHome.Installed:
+                    writer.Put(data.CarNetId);
+                    break;
             }
         }
 
@@ -197,7 +211,14 @@ public class ItemUpdate
         }
         if (IncludesItemState(data.UpdateType))
             data.MoveCause = DeserializeCause<ItemMoveReason>(reader);
-        data.ItemState = (ItemState)reader.GetByte();
+        WireHome home = (WireHome)reader.GetByte();
+        data.ItemState = StateOf(home);
+        data.WorldParentKind = home switch
+        {
+            WireHome.TrainInterior => ItemWorldParentKind.TrainInterior,
+            WireHome.Shelf => ItemWorldParentKind.StaticParent,
+            _ => ItemWorldParentKind.World
+        };
 
         if (data.UpdateType.HasFlag(ItemUpdateType.Create))
         {
@@ -207,34 +228,46 @@ public class ItemUpdate
         }
         if (IncludesItemState(data.UpdateType))
         {
-            if (data.ItemState == ItemState.Dropped || data.ItemState == ItemState.Thrown)
+            switch (home)
             {
-                data.ItemPosition = Vector3Serializer.Deserialize(reader);
-                data.ItemRotation = QuaternionSerializer.Deserialize(reader);
-                data.WorldParentKind = (ItemWorldParentKind)reader.GetByte();
-                if (data.WorldParentKind == ItemWorldParentKind.TrainInterior)
-                    data.WorldParentNetId = reader.GetUShort();
-                else if (data.WorldParentKind == ItemWorldParentKind.StaticParent)
-                    data.WorldParentKey = reader.GetString();
-                if (data.WorldParentKind != ItemWorldParentKind.World)
-                {
-                    data.ParentLocalPosition = Vector3Serializer.Deserialize(reader);
-                    data.ParentLocalRotation = QuaternionSerializer.Deserialize(reader);
-                }
-
-                if (data.ItemState == ItemState.Thrown)
-                    data.ThrowDirection = Vector3Serializer.Deserialize(reader);
-            }
-            else if (data.ItemState == ItemState.InInventory || data.ItemState == ItemState.InHand)
-            {
-                data.PlayerId = reader.GetByte();
-                if (data.ItemState == ItemState.InHand)
+                case WireHome.World:
+                case WireHome.TrainInterior:
+                case WireHome.Shelf:
+                    data.ItemPosition = Vector3Serializer.Deserialize(reader);
+                    data.ItemRotation = QuaternionSerializer.Deserialize(reader);
+                    if (home == WireHome.TrainInterior)
+                        data.WorldParentNetId = reader.GetUShort();
+                    else if (home == WireHome.Shelf)
+                        data.WorldParentKey = reader.GetString();
+                    if (home != WireHome.World)
+                    {
+                        data.ParentLocalPosition = Vector3Serializer.Deserialize(reader);
+                        data.ParentLocalRotation = QuaternionSerializer.Deserialize(reader);
+                    }
+                    if (reader.GetBool())
+                    {
+                        data.ItemState = ItemState.Thrown;
+                        data.ThrowDirection = Vector3Serializer.Deserialize(reader);
+                    }
+                    break;
+                case WireHome.Hand:
+                    data.PlayerId = reader.GetByte();
                     data.PlayerHand = (PlayerHand)reader.GetByte();
-            }
-            else if (data.ItemState is ItemState.Attached or ItemState.Installed)
-            {
-                data.CarNetId = reader.GetUShort();
-                data.AttachedFront = reader.GetBool();
+                    break;
+                case WireHome.Slot:
+                    data.PlayerId = reader.GetByte();
+                    data.InventorySlot = reader.GetSByte();
+                    break;
+                case WireHome.Attached:
+                    data.CarNetId = reader.GetUShort();
+                    data.AttachedFront = reader.GetBool();
+                    break;
+                case WireHome.Snapped:
+                    data.WorldParentKey = reader.GetString();
+                    break;
+                case WireHome.Installed:
+                    data.CarNetId = reader.GetUShort();
+                    break;
             }
         }
 
@@ -245,6 +278,47 @@ public class ItemUpdate
     }
 
     public bool HasClaim => InventoryClaimSlot >= 0 || InventoryClaimFlags != ItemInventoryClaimFlags.None;
+
+    /// <summary>
+    /// The home an update carries, as the wire writes it (docs/design/items/wire.md, "The update"):
+    /// the ledger's home kinds that a live item can have. Values are on the wire: append only.
+    /// </summary>
+    public enum WireHome : byte
+    {
+        World,
+        TrainInterior,
+        Shelf,
+        Hand,
+        Slot,
+        Attached,
+        /// <summary>Snapped to a parent (a hanger, a mount) by its key: an attached item on no car.</summary>
+        Snapped,
+        /// <summary>A gadget on a car, or on the world (car 0).</summary>
+        Installed
+    }
+
+    public static WireHome HomeOf(ItemUpdate data) => data.ItemState switch
+    {
+        ItemState.InHand => WireHome.Hand,
+        ItemState.InInventory => WireHome.Slot,
+        ItemState.Attached => data.CarNetId == 0 && !string.IsNullOrEmpty(data.WorldParentKey) ? WireHome.Snapped : WireHome.Attached,
+        ItemState.Installed => WireHome.Installed,
+        _ => data.WorldParentKind switch
+        {
+            ItemWorldParentKind.TrainInterior => WireHome.TrainInterior,
+            ItemWorldParentKind.StaticParent => WireHome.Shelf,
+            _ => WireHome.World
+        }
+    };
+
+    private static ItemState StateOf(WireHome home) => home switch
+    {
+        WireHome.Hand => ItemState.InHand,
+        WireHome.Slot => ItemState.InInventory,
+        WireHome.Attached or WireHome.Snapped => ItemState.Attached,
+        WireHome.Installed => ItemState.Installed,
+        _ => ItemState.Dropped
+    };
 
     /// <summary>
     /// A copy for one recipient: its relation, and the claim only if it's the claimant

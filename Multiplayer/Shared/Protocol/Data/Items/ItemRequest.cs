@@ -14,7 +14,7 @@ public enum ItemAction : byte
     Take,
     /// <summary>Into the requester's inventory at <see cref="ItemRequest.Slot"/>.</summary>
     Stash,
-    /// <summary>To another slot of the requester's inventory. Refused until slots are the ledger's (R3).</summary>
+    /// <summary>To another slot (<see cref="ItemRequest.Slot"/>) of the requester's inventory; onto another of their items, the two swap.</summary>
     MoveSlot,
     /// <summary>Let go at a pose.</summary>
     Drop,

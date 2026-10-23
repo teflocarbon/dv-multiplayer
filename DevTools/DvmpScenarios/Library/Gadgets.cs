@@ -7,6 +7,8 @@ using System.Linq;
 using DV.Customization;
 using DV.Customization.Gadgets;
 using DV.Customization.Gadgets.Implementations;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Session;
@@ -68,7 +70,7 @@ namespace Dvmp.Scenarios
             LiveItems.LiveItem record = null;
             yield return Wait.Until(() => item != null && item.NetId != 0 &&
                 (record = LiveItems.Ensure(item)) != null, 10f, $"the {spec.ItemPrefabName}'s record");
-            record.Owner = owner.Guid;
+            ServerLedger.Own(record, owner.Guid, BirthReason.Granted, Guid.Empty, "gadget scenario");
             // GadgetItem.Item is set in Start.
             for (int i = 0; i < 10; i++) yield return null;
             got(item);
