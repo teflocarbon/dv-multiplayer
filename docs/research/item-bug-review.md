@@ -57,7 +57,7 @@ not in `gate.sh`'s default list.
 Also open from the ledger's batches, listed in `items-ledger-bug-map.md` (notes) and not repeated
 here: LF-inert, CAB-POS, SR-+1 and COIN.
 
-## Fixed by the owned-items PRs
+## Fixed
 
 | Id | Bug | Fixed by |
 | --- | --- | --- |
@@ -68,6 +68,29 @@ here: LF-inert, CAB-POS, SR-+1 and COIN.
 | LF1 | A car delete destroyed an offline owner's items | #304 (+#305); scenario `car-delete-owner` |
 | LF4 | An offline owner's world item went to vanilla's Lost and Found behind the server's back | #304 |
 | LF6 | A withdrawal spanning the owner's disconnect left the item with nobody | #304 |
+| F18 | A cold-container save the server couldn't import (a slot past a container's end after a capacity change, an older codec, a corrupt blob, nesting deeper than 8) was overwritten with an empty graph at the next save: every player's stored items lost | branch items/container-save-refused (not merged; item work paused for the refactor): the save's text is kept and written back as it was, and every container operation is refused that session (`NetworkedColdContainerManager`); scenario `item-bug-container-save-refused`, passing p+d with the fix. Not done: a deposit depth check (`ColdContainerGraph.ValidateDestination`, the natural trigger) and quarantining bad records |
+
+## From the as-built findings
+
+The docs session's code-vs-doc pass (49 findings, beta e3f25e66) found these real bugs besides the
+ones above, by reading the code. F-numbers are the findings' numbers; each has a row in
+[item-overhaul-checklist.md](../item-overhaul-checklist.md) once that lands. Container data loss
+(F18, F19, F23) is fixed first, a PR each, each proved by a scenario.
+
+| Id | Bug | Severity | Host kinds | Cause |
+| --- | --- | --- | --- | --- |
+| F23 | A restored container shell mints a new container id in the 0.25 s before its saved state loads; a save or a cold scan in that window orphans the whole box or leaves an orphan record | inventory loss (narrow window) | player host likely | `ColdContainerIdentity.cs:11-22`; `WorldItemPersistenceRestore.cs:221-232`; `WorldItemPersistenceSave.cs:77` |
+| F19 | A deposit made before the save's containers are imported is wiped by the import (window about 1 s after loading today) | inventory loss | both | `NetworkedColdContainerManager.cs` (no gate on the import); `ColdContainerGraph.cs:600-603` |
+| F25, F39, F40 | An item with an open physics lease is saved regardless of `ShouldPersist`; a refused host settlement and a Lost and Found collection don't end the lease, so the item is saved twice | duplicate | both | `WorldItemPersistenceSave.cs:40-43,184-201`; `ServerItemSpatial.cs:62-72`; `AuthoritativeItemRegistry.cs:602-636` |
+| F17 | A deposit whose retirement fails is saved in the container and as a possession | duplicate | both | `NetworkedColdContainerManager.cs:247-257`; `WorldItemPersistenceSave.cs:146-147` |
+| F26 | An attached owned item (an EOT lantern) isn't saved as owned; its owner is lost at reload (unverified) | owner lost | both | `WorldItemPersistenceSave.cs:155-159` |
+| F42 | An item settled on a static parent (a shelf) leaves every client's interest until a reload | misplace | both | `ServerItemManager.WorldIndex.cs:120-131`; `ServerItemManager.Interest.cs:143-208` |
+| F3 | An install-GUID re-key skips the ledger and `OwnedItemsV1`: the owned-items list is empty, retrieval refused | functional | both | `Server/Career/InstallGuidRekey.cs:61-73,94-137` |
+| F34 | A glued train item arrives as a live body on a late joiner (unverified) | misplace on the client | both | `NetworkedItem.StateApplication.cs:128-133`; `ClientItemSpatial.cs:153-155` |
+| F12 | A failed withdrawal leaves the ledger saying "with the player" until the next load | cosmetic | both | `AuthoritativeItemRegistry.cs:800`; `NetworkedColdContainerManager.cs:402,416-424` |
+| F32 | On a dedicated host a thrown item freezes mid-air if its thrower leaves mid-flight | cosmetic | dedicated | `ServerItemSpatial.cs:186-188,496-506` |
+| F45 | A lost projection Create keeps the item off a client until it leaves and re-enters interest | cosmetic | both | `ClientItemManager.Projection.cs:70-73,123` |
+| F21 | A reused operation id makes a deposit destroy the item without storing it (latent: the client always makes a fresh id) | inventory loss (latent) | both | `NetworkedColdContainerManager.cs:197-239,286-299` |
 
 ## Vanilla facts the bugs rest on
 

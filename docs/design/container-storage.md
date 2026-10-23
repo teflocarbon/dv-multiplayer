@@ -120,6 +120,11 @@ encoded, 512 KiB state, 4096-byte strings, 65535 entries. Import runs once vanil
 loaded, and `ImportSnapshot` checks the whole graph, all or nothing. `InstallGuidRekey` re-keys
 owners in the graph and in a saved blob.
 
+A save the server can't import (it doesn't decode, or `ImportSnapshot` refuses it) is kept: its text is
+written back as it was at every save, every container operation is refused with
+`container-save-unreadable`, and an error is logged. A build that can read it gets everything back
+(item-bug-review.md, F18; scenario `item-bug-container-save-refused`).
+
 ## Not built
 
 - Deltas and subscriptions (clients re-browse), paging (the client always asks for the first 64).
@@ -133,8 +138,6 @@ owners in the graph and in a saved blob.
 
 From the code, not run in game (2026-10-23). The bug review tracks them.
 
-- **A rejected save is lost.** If the codec or `ImportSnapshot` refuses the saved graph, the import
-  still counts as done, and the next save writes the empty graph over it: every stored item is gone.
 - A deposit made before the import is wiped when the import replaces the graph.
 - Moving an item between a parent and a child container from the UI sends the open container's
   revision as the source's, so it is likely refused as stale.

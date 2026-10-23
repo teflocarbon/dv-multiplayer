@@ -34,9 +34,16 @@ public static class NetworkedColdContainerManager
     private static ColdContainerGraph graph = new(compatibility: compatibility);
     private static readonly Dictionary<ushort, Guid> shellByNetId = new();
     private static bool saveImportAttempted;
+    // The save's text when the server couldn't import it: kept and written back as it was, and no
+    // container can be used, until a build that can read it loads the save (item-bug-review.md,
+    // F18: the empty graph used to be written over it at the next save, every stored item lost).
+    private static string refusedSave;
 
     /// <summary>The save's records have been read (the owned-items ledger is checked against them after).</summary>
     internal static bool ImportAttempted => saveImportAttempted;
+
+    /// <summary>The save's containers couldn't be read, so none can be used this session.</summary>
+    internal static bool SaveRefused => refusedSave != null;
 
     public static ColdContainerGraph Graph => graph;
 
@@ -54,6 +61,7 @@ public static class NetworkedColdContainerManager
         graph = new ColdContainerGraph(compatibility: compatibility);
         shellByNetId.Clear();
         saveImportAttempted = false;
+        refusedSave = null;
     }
 
     public static void WriteSave(JObject multiplayerRoot)
@@ -61,8 +69,19 @@ public static class NetworkedColdContainerManager
         if (multiplayerRoot == null) return;
         TryImportSave();
         if (!saveImportAttempted) return;
-        multiplayerRoot[SaveKey] = Convert.ToBase64String(
+        multiplayerRoot[SaveKey] = refusedSave ?? Convert.ToBase64String(
             ColdContainerSnapshotCodec.Encode(graph.ExportSnapshot()));
+    }
+
+    // Every container operation is refused while the save's containers couldn't be read: a deposit
+    // would destroy the item into a graph that is never saved.
+    private static bool RefusedBySave(ContainerOperationKind kind, Guid operationId,
+        out ContainerOperationResult refused)
+    {
+        refused = refusedSave != null
+            ? Failure(kind, ContainerOperationStatus.InvalidState, "container-save-unreadable", operationId)
+            : null;
+        return refused != null;
     }
 
     public static bool TryResolveShell(ushort shellNetId, out Guid containerId) =>
@@ -72,6 +91,8 @@ public static class NetworkedColdContainerManager
         int offset, int count, out ColdContainerView view)
     {
         view = null;
+        if (RefusedBySave(ContainerOperationKind.Browse, Guid.Empty, out ContainerOperationResult refused))
+            return refused;
         if (actor == null || !TryGetOrBindShell(shellNetId, out Guid id))
             return Failure(ContainerOperationKind.Browse, ContainerOperationStatus.NotFound,
                 "container-shell-not-bound");
@@ -89,6 +110,8 @@ public static class NetworkedColdContainerManager
         int offset, int count, out ColdContainerView view)
     {
         view = null;
+        if (RefusedBySave(ContainerOperationKind.Browse, Guid.Empty, out ContainerOperationResult refused))
+            return refused;
         if (actor == null || !graph.TryGetContainer(containerHandle, out ColdContainerRecord container))
             return Failure(ContainerOperationKind.Browse, ContainerOperationStatus.NotFound,
                 "container-handle-not-found");
@@ -100,6 +123,8 @@ public static class NetworkedColdContainerManager
         ushort shellNetId, uint destinationHandle, uint expectedRevision, int slot,
         ushort itemNetId)
     {
+        if (RefusedBySave(ContainerOperationKind.Deposit, operationId, out ContainerOperationResult saveRefusal))
+            return saveRefusal;
         Guid destinationId = Guid.Empty;
         ColdContainerRecord destination = null;
         bool destinationResolved = destinationHandle != 0
@@ -262,6 +287,11 @@ public static class NetworkedColdContainerManager
         uint containerHandle, uint expectedRevision, int sourceSlot, int destinationInventorySlot,
         Action<ContainerOperationResult, ushort> completed)
     {
+        if (RefusedBySave(ContainerOperationKind.Withdraw, operationId, out ContainerOperationResult refused))
+        {
+            completed?.Invoke(refused, 0);
+            yield break;
+        }
         if (destinationInventorySlot < 0)
         {
             completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
@@ -446,6 +476,8 @@ public static class NetworkedColdContainerManager
         uint sourceHandle, uint expectedSourceRevision, int sourceSlot,
         uint destinationHandle, uint expectedDestinationRevision, int destinationSlot)
     {
+        if (RefusedBySave(ContainerOperationKind.Move, operationId, out ContainerOperationResult refused))
+            return refused;
         if (actor == null || !graph.TryGetContainer(sourceHandle, out ColdContainerRecord source) ||
             !graph.TryGetContainer(destinationHandle, out ColdContainerRecord destination))
             return Failure(ContainerOperationKind.Move, ContainerOperationStatus.NotFound,
@@ -584,24 +616,31 @@ public static class NetworkedColdContainerManager
             !StartingItemsController.Instance.itemsLoaded || SaveGameManager.Instance?.data == null)
             return;
         saveImportAttempted = true;
-        string encoded = (string)SaveGameManager.Instance.data.GetJObject("Multiplayer")?[SaveKey];
+        JToken saved = SaveGameManager.Instance.data.GetJObject("Multiplayer")?[SaveKey];
+        string encoded = saved?.Type == JTokenType.String ? (string)saved : saved?.ToString();
         if (string.IsNullOrWhiteSpace(encoded)) return;
+        string refusal;
         try
         {
             if (!ColdContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded),
                     out ColdContainerGraphSnapshot snapshot, out string reason))
+                refusal = "it doesn't decode: " + reason;
+            else
             {
-                Multiplayer.LogWarning($"Cold-container save rejected: {reason}");
-                return;
+                ContainerOperationResult imported = graph.ImportSnapshot(snapshot);
+                if (imported.Accepted)
+                    return;
+                refusal = "its graph is invalid: " + imported.Reason;
             }
-            ContainerOperationResult imported = graph.ImportSnapshot(snapshot);
-            if (!imported.Accepted)
-                Multiplayer.LogWarning($"Cold-container graph rejected: {imported.Reason}");
         }
-        catch (FormatException exception)
+        catch (Exception exception)
         {
-            Multiplayer.LogException("Cold-container save encoding is invalid", exception);
+            refusal = "it can't be read: " + exception.Message;
         }
+        // ImportSnapshot refuses all or nothing: none of it is in the graph. Keep the save's text.
+        refusedSave = encoded;
+        Multiplayer.LogError($"The save's item containers couldn't be read ({refusal}). Every container stays " +
+                             "unusable this session and the save keeps them as they were, so nothing stored is lost.");
     }
 
     private static ContainerOperationResult Failure(ContainerOperationKind kind,
