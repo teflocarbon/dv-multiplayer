@@ -70,9 +70,12 @@ can see and touch.
   its exact slot before their inventory is shown; a retrieval or a withdrawal makes the item in
   the slot or hand the server chose.
 - **Every inventory is server data,** online or not. A connected player's inventory objects are
-  a view of the server's: every stash, slot move, drop and pick-up is a request (R2's one request,
-  one result) that the server commits to the ledger first; the client's view follows, or rolls
-  back when it's refused. The server never learns about an inventory change after the fact.
+  a view of the server's. The client is optimistic, as game servers usually are: a stash, a slot
+  move, a hotbar switch (slot to hand), a drop or a pick-up shows at once, with no wait, and goes
+  to the server as a request (R2's one request, one result). The server commits it to the ledger
+  in its own order and confirms; only a refusal rolls the client back to the server's view. The
+  client never changes an inventory without telling the server, so the server never learns of one
+  after the fact.
 
 ## Decisions
 
@@ -96,7 +99,7 @@ can see and touch.
 | D9 | **An item whose saved state won't load** is made fresh from its prefab, with the same id, in its owner's Lost and Found (`SaveRecovery`), and an error is logged: its own state (a lighter's fuel) is lost, the item isn't. If the prefab itself is gone (an item mod removed), the entry stays `Unloadable`, its saved row kept verbatim and retried at each load, so putting the mod back brings it back. `Missing` goes | user, 2026-10-23 |
 | D10 | **Binning** destroys the item, as in vanilla, and ends its entry `Discarded`, by the player who binned it; an essential is issued again at its owner's next join; only your own or unowned items can be binned (someone else's is refused and drops by the bin) | user, 2026-10-23 |
 | D11 | **Items from other mods** (custom_item_mod and the item packs it loads) will be built like vanilla items (their prefabs spawn on every game, each item's own saved state reaches clients, a client joins only with the same item mods), **paused for after the refactor** (the user, later the same day). Mod-specific compatibility (Railway Brake Shoe) isn't planned: the user is talking to that mod's developer | user, 2026-10-23 |
-| D12 | **Cold and live homes.** An item whose home nobody is using is cold: data only (its state, and its ledger entry if owned), with no object on any game. Cold homes: an offline player's inventory and claim slots, Lost and Found, a container. A leaving holder's inventory goes cold, and a joining owner's is made from its state in its exact slots. **Every inventory is server data:** a connected player's inventory objects are a view; every stash, slot move, drop and pick-up is a request the server commits to the ledger first, and the client follows or rolls back. Whether the server also keeps an object for an item in a connected remote player's inventory is OI-COLD-06 (needs a decision) | user, 2026-10-24 |
+| D12 | **Cold and live homes.** An item whose home nobody is using is cold: data only (its state, and its ledger entry if owned), with no object on any game. Cold homes: an offline player's inventory and claim slots, Lost and Found, a container. A leaving holder's inventory goes cold, and a joining owner's is made from its state in its exact slots. **Every inventory is server data:** a connected player's inventory objects are a view. The client is optimistic: it shows a stash, slot move, hotbar switch, drop or pick-up at once and sends it as a request; the server commits it to the ledger in its own order and confirms, and only a refusal rolls the client back Whether the server also keeps an object for an item in a connected remote player's inventory is OI-COLD-06 (needs a decision) | user, 2026-10-24 |
 | L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and each legacy doc moves to `docs/legacy/items/` in the PR that replaces it ([Docs](#docs)) | user, 2026-10-23 |
 | C1 | Cold containers start fresh (D1), and their new save must make the failures behind F18 (an empty graph written over a save the import refused), the depth check and quarantine impossible by design, not by a stopgap | user, 2026-10-23 |
 
