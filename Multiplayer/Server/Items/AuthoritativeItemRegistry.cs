@@ -765,13 +765,16 @@ public static class AuthoritativeItemRegistry
         // record wasn't saved.
         persistentItemId = OwnedItemsServer.ClaimPersistentId(item, persistentItemId);
 
+        // Into the holder's inventory, or, dropped, into the world at the snapshot's position (an
+        // issued essential that found the inventory full, on its way to Lost and Found).
+        bool dropped = snapshot.ItemState == ItemState.Dropped;
         Record record = new()
         {
             NetId = item.NetId,
             Revision = 1,
-            Placement = ItemPlacementKind.PlayerInventory,
-            PlacementPlayerId = holder.PlayerId,
-            PlacementPlayerIdentity = holder.Guid,
+            Placement = dropped ? ItemPlacementKind.World : ItemPlacementKind.PlayerInventory,
+            PlacementPlayerId = dropped ? (byte)0 : holder.PlayerId,
+            PlacementPlayerIdentity = dropped ? Guid.Empty : holder.Guid,
             PersistentOwnerPlayerId = persistentOwnerPlayerId,
             // A materialized item needs a concrete projection slot even when it does not
             // carry a persistent recall claim. Flags distinguish an ordinary placement
