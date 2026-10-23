@@ -65,7 +65,8 @@ namespace Dvmp.Scenarios
             Expect.Empty(await pair.Host.Run<string[]>(s => Owned.AuditFor(s, ids)), "ledger audit problems for the mugs");
             if (collected != 0)
             {
-                int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, collected), 60);
+                uint collectedHandle = await pair.Host.Run(() => Owned.HandleOf(collected));   // the list names rows by handle (R2)
+                int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, collectedHandle), 60);
                 Report.Note($"the client retrieved {collected} into slot {slot}");
             }
         }

@@ -14,6 +14,7 @@ using Multiplayer.Core.Items.Containers;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.Access;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
@@ -240,13 +241,18 @@ public static class ContainerServer
                 player.AcknowledgedWorldItems.Remove(item.NetId);
             }
             NetworkServer.Instance.SendItemUpdate(destroy);
+            // Out of interest now, not when Unity destroys it at the end of the frame: a scan
+            // before then would find a player who no longer knows it and send it again.
+            ServerItemManager.Instance?.UnregisterHostWorldItem(item);
             item.Item.ForceEndInteraction();
             InventoryIntegration.RevokeMembership(item.gameObject, item.NetId);
             InventoryIntegration.PurgeContainerMembership(item.gameObject);
             StorageIntegration.MoveTo(item.Item, StorageMembership.None);
             UnityEngine.Object.Destroy(item.gameObject);
             graph.FinalizeDepositRetirement(operationId, record.PersistentItemId);
-            ServerLedger.OnDeposited(record.PersistentItemId, destinationId);
+            // The ledger's home is the exact slot the graph put it in (R3's one-home check).
+            ServerLedger.OnDeposited(record.PersistentItemId, destinationId,
+                graph.TryGetItem(record.PersistentItemId, out StoredItemRecord stored) ? stored.Slot : slot);
             Publish("container.deposit-committed", shellNetId, result, new()
             {
                 ["itemNetId"] = itemNetId,
@@ -518,7 +524,7 @@ public static class ContainerServer
         if (shellNetId != 0) return true;
         NetworkedItem shell = NetworkedItem.GetAll().FirstOrDefault(item => item != null &&
             item.GetComponent<ContainerIdentity>() is ContainerIdentity identity && identity.PersistentId == containerId);
-        shellNetId = shell?.NetId ?? 0;
+        shellNetId = shell?.NetId ?? PlayerItems.DataOnlyShell(containerId);
         return shellNetId != 0;
     }
 

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
@@ -83,6 +84,15 @@ namespace Dvmp.Scenarios
         [Step]
         public static IEnumerator Destroy(Step<ushort[]> step, ushort[] ids)
         {
+            // One the server keeps as data (in a client's inventory) is made again first, so its
+            // destroy reaches the client.
+            int making = 0;
+            foreach (ushort id in ids.Where(PlayerItems.IsDataOnly))
+            {
+                making++;
+                PlayerItems.WithObject(id, _ => making--);
+            }
+            for (int i = 0; i < 300 && making > 0; i++) yield return null;
             foreach (NetworkedItem item in Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId)).ToList())
                 UnityEngine.Object.Destroy(item.gameObject);
             for (int i = 0; i < 30; i++) yield return null;

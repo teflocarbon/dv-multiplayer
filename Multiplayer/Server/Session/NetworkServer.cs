@@ -24,6 +24,7 @@ using Multiplayer.Server.Chat;
 using Multiplayer.Server.Coverage;
 using Multiplayer.Server.Dedicated;
 using Multiplayer.Server.Items.Essentials;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.Projection;
@@ -474,7 +475,7 @@ public partial class NetworkServer : NetworkManager
 
 
         RunDisconnectStep("spatial items", () => ServerItemManager.Instance?.OnSpatialPlayerDisconnected(player.PlayerId));
-        RunDisconnectStep("held items", () => ServerItemManager.Instance?.DropHeldItemsOfDepartingPlayer(player));
+        RunDisconnectStep("held items", () => PlayerItems.Leave(player));
         RunDisconnectStep("train controls", () =>
         {
             trainControlEnvelope.Forget(player.PlayerId);
@@ -921,6 +922,7 @@ public partial class NetworkServer : NetworkManager
             LocalPlayer = serverPlayer;
         global::Multiplayer.Server.Career.InstallGuidRekey.OnLogin(serverPlayer);
         ItemSaveLoad.OnOwnerConnected(serverPlayer);
+        PlayerItems.Join(serverPlayer);
         DedicatedHost.OnPlayersChanged(someoneLeft: false);
         return serverPlayer;
     }

@@ -81,13 +81,17 @@ namespace Dvmp.Scenarios
             OwnerInfo k = await pair.Host.Run(() => Ownership.ById(keptId));
             Expect.Equal(steam, k.Owner, "the stashed mug's owner");
             Expect.Equal(steam, k.Holder, "the stashed mug's holder");
-            Expect.That(await Until.Value(() => pair.Client.Run(() => Owned.InInventory(kept)), v => v, 20, "the stashed mug in the client's inventory"),
+            // It went cold when the client left and was made again at the rejoin, under a new net ID (D12).
+            ushort keptNow = await pair.Host.Run(() => Owned.NetIdOf(keptId));
+            await pair.Host.Run(() => Ledger.Track(keptNow));
+            Expect.That(await Until.Value(() => pair.Client.Run(() => Owned.InInventory(keptNow)), v => v, 20, "the stashed mug in the client's inventory"),
                 "the stashed mug is in the client's inventory after the rejoin");
 
             OwnerInfo l = await pair.Host.Run(() => Ownership.ById(lostId));
             Expect.Equal(steam, l.Owner, "the lost mug's owner");
             Expect.That(l.Lost, "the lost mug is still in Lost and Found", l.ToString());
-            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, lost), 60);
+            uint lostHandle = await pair.Host.Run(() => Owned.HandleOf(lost));   // the list names rows by handle (R2)
+            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, lostHandle), 60);
             await Task.Delay(2000);
             OwnerInfo got = await pair.Host.Run(() => Ownership.ById(lostId));
             Report.Note($"retrieved into slot {slot}: {got}");
@@ -166,7 +170,7 @@ namespace Dvmp.Scenarios
             /// <summary>Host: moves an identity's data back to another (the run's cleanup), as a re-key does.</summary>
             [Step]
             public static bool MoveBack(string steam, string install) =>
-                InstallGuidRekey.RekeyIfUnclaimed(Guid.Parse(steam), Guid.Parse(install), "rekey scenario cleanup");
+                InstallGuidRekey.MoveInto(Guid.Parse(steam), Guid.Parse(install), "rekey scenario cleanup");
         }
     }
 }

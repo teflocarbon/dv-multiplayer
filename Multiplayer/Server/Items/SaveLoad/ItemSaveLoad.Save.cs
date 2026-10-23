@@ -1,5 +1,6 @@
 using DV.CabControls;
 using DV.InventorySystem;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
@@ -30,8 +31,11 @@ internal static partial class ItemSaveLoad
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item?.Item == null)
                 continue;
 
-            records.Add(CreateSaveRecord(record, item).ToJson());
+            records.Add(RowOf(record, item).ToJson());
         }
+        // Offline players' inventories, kept as data (D12): saved as they were when they went cold.
+        foreach (SavedItemRow row in ColdInventories.All())
+            records.Add(row.ToJson());
 
         foreach (JObject tombstone in destroyedAuthoredRecords)
             records.Add(tombstone.DeepClone());
@@ -44,8 +48,8 @@ internal static partial class ItemSaveLoad
         LiveItems.GetAll().Where(record =>
             ShouldPersist(record) || NetworkedItemManager.Instance?.HasActiveSpatialState(record.NetId) == true);
 
-    private static SavedItemRow CreateSaveRecord(LiveItems.LiveItem record,
-        NetworkedItem item)
+    /// <summary>The item's saved row: its record, and its state from the object.</summary>
+    internal static SavedItemRow RowOf(LiveItems.LiveItem record, NetworkedItem item)
     {
         ItemSpatialStateData checkpoint = null;
         NetworkedItemManager.Instance?.TryGetLatestSpatialState(record.NetId, out checkpoint);

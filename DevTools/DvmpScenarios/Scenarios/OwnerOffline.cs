@@ -100,7 +100,8 @@ namespace Dvmp.Scenarios
             if (!pair.Dedicated)
             {
                 Expect.That(await pair.Host.Run(() => Ownership.LostCount(client)) >= 1, "the client's Lost and Found lists the mug after the rejoin");
-                int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, left), 60);
+                uint leftHandle = await pair.Host.Run(() => Owned.HandleOf(left));   // the list names rows by handle (R2)
+                int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, leftHandle), 60);
                 await Task.Delay(2000);
                 ItemRecord got = await pair.Host.Run(() => Items.Record(left));
                 Report.Note($"retrieved into slot {slot}; host {got.Placement} for P{got.PlacementPlayer}");

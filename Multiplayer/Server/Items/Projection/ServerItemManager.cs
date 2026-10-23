@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
@@ -58,6 +59,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         TrainItemWake.Update();
         HostSpatial.Update();
         Replenishment.Update();
+        PlayerItems.Update();
     }
 
     public void Tick(uint tick)
@@ -81,6 +83,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         Replenishment.Clear();
         ItemSaveLoad.Clear();
         ServerLedger.Clear();
+        PlayerItems.Clear();
         LiveItems.Clear();
     }
 

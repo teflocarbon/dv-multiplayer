@@ -74,7 +74,8 @@ namespace Dvmp.Scenarios
                 return;
             Items.Track(now);
             Expect.Equal(id, await pair.Host.Run(() => Owned.LostEntryId(now)), "the Lost and Found entry's id after the restart");
-            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, now), 60);
+            uint nowHandle = await pair.Host.Run(() => Owned.HandleOf(now));   // the list names rows by handle (R2)
+            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, nowHandle), 60);
             Report.Note($"retrieved into slot {slot}");
             Expect.Equal(now, await pair.Host.Run(() => Owned.NetIdOf(id)), "the retrieved item's id");
             await Task.Delay(2000);   // the retrieval reaches the ledger

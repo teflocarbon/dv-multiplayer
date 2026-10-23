@@ -49,7 +49,10 @@ public enum ItemTransitionReason : byte
     JobRerollRefused,
     // The server's gadget code committing an install or a removal vanilla made (Server/Gadgets).
     GadgetInstalled,
-    GadgetRemoved
+    GadgetRemoved,
+    // A leaving player's inventory item kept as data (Server/Items/Inventory/PlayerItems; D12): its
+    // object goes from every game, its home stays.
+    WentCold
 }
 
 [Flags]

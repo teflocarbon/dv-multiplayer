@@ -59,6 +59,30 @@ public abstract class IdMonoBehaviour<T, I> : MonoBehaviour where T : struct whe
         }
     }
 
+    /// <summary>
+    /// Lets go of this object's network ID without freeing it: the ID still names the thing this
+    /// object stood for, kept as data meanwhile, and the next object for it takes the ID up again
+    /// (<see cref="TakeUpNetId"/>). Until then nothing else is given it.
+    /// </summary>
+    protected void HandOverNetId()
+    {
+        if (indexToObject.TryGetValue(NetId, out IdMonoBehaviour<T, I> registered) && ReferenceEquals(registered, this))
+            indexToObject.Remove(NetId);
+        _netId = default;
+    }
+
+    /// <summary>Takes up an ID handed over (<see cref="HandOverNetId"/>). False if another object has it.</summary>
+    protected bool TakeUpNetId(T id) =>
+        !indexToObject.TryGetValue(id, out IdMonoBehaviour<T, I> holder) || ReferenceEquals(holder, this)
+            ? TryRegister(id, alreadyReserved: true) : false;
+
+    /// <summary>Frees an ID handed over that nothing will take up (the thing it named is gone).</summary>
+    protected static void FreeHandedOverNetId(T id)
+    {
+        if (!indexToObject.ContainsKey(id))
+            idAllocator.Release(id);
+    }
+
     protected virtual void OnDestroy()
     {
         ReleaseNetId();

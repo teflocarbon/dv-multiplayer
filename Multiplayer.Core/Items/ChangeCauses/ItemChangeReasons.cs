@@ -106,7 +106,9 @@ public enum ItemMoveReason : byte
     /// <summary>Put in a container's slot.</summary>
     DepositedInContainer,
     /// <summary>Moved from one of its holder's inventory slots to another (OI-SLOT-01).</summary>
-    SlotMoved
+    SlotMoved,
+    /// <summary>A cold inventory item made again in its slot as its holder joined (D12).</summary>
+    WentLive
 }
 
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>

@@ -4,6 +4,7 @@ using System.Linq;
 using DV.JObjectExtstensions;
 using Multiplayer.Core.Items.Containers;
 using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
@@ -17,11 +18,13 @@ namespace Multiplayer.Server.Career;
 /// <summary>
 /// Moves a player's state from the install GUID they used to be known by to their Steam-derived
 /// player ID, once (docs/design/server-player-split.md, "Identity"). It happens the first time
-/// they log in verified to a career that has data for their old GUID and none for their Steam ID.
+/// they log in verified to a career that has data for their old GUID. If their Steam ID has data
+/// too, the two are merged, never skipped (OI-ID-19): an item whose slot the Steam ID already uses
+/// goes to their Lost and Found, so nothing is left under an identity no one logs in as.
 ///
 /// It covers the save as loaded (Players, item records, the ledger, Lost and Found, cold containers), so a
 /// system that imports later finds the new ID, and the state already imported (the item registry, the
-/// ledger's owners, holders and starter kits, Lost and Found, the cold-container graph).
+/// ledger's owners, holders and starter kits, Lost and Found, the cold-container graph, cold inventories).
 /// </summary>
 public static class InstallGuidRekey
 {
@@ -35,21 +38,23 @@ public static class InstallGuidRekey
         if (player == null || player.LegacyGuid == Guid.Empty || player.LegacyGuid == player.Guid ||
             !PlayerIdentity.TryGetSteamId(player.Guid, out _))
             return;
-        RekeyIfUnclaimed(player.LegacyGuid, player.Guid, player.Username);
+        MoveInto(player.LegacyGuid, player.Guid, player.Username);
     }
 
-    /// <summary>Re-keys from one ID to another if the save has data for the first and none for the second.</summary>
-    public static bool RekeyIfUnclaimed(Guid from, Guid to, string who)
+    /// <summary>Re-keys from one ID to another, merging into what the second has, if the first has any data.</summary>
+    public static bool MoveInto(Guid from, Guid to, string who)
     {
         SaveGameData data = SaveGameManager.Instance?.data;
         JObject root = data?.GetJObject(RootKey);
-        if (!Owns(root, from) || Owns(root, to))
+        if (from == to || !Owns(root, from))
             return false;
 
+        bool merging = Owns(root, to);
         int changed = Rekey(root, from, to);
         if (root != null)
             data.SetJObject(RootKey, root);
-        Multiplayer.Log($"{who}: moved {changed} record(s) saved under install GUID {from} to {PlayerIdentity.Describe(to)}");
+        Multiplayer.Log($"{who}: moved {changed} record(s) saved under install GUID {from} to {PlayerIdentity.Describe(to)}" +
+                        (merging ? ", merged with what it had" : string.Empty));
         return true;
     }
 
@@ -58,6 +63,7 @@ public static class InstallGuidRekey
         id != Guid.Empty &&
         (SaveOwns(root, id) ||
          LiveItems.HasIdentity(id) ||
+         ColdInventories.HasIdentity(id) ||
          LostAndFoundServer.HasOwner(id) ||
          ContainerServer.Graph.HasOwner(id.ToString("D")) ||
          ServerLedger.Ledger.HasIdentity(id));
@@ -74,6 +80,9 @@ public static class InstallGuidRekey
         changed += merged.Changed + (kit ? 1 : 0);
         foreach (Guid id in merged.ToLostAndFound)
             Multiplayer.LogWarning($"Re-key {from:D} -> {to:D}: item {id:D}'s slot was taken, so the ledger moved it to Lost and Found");
+        // The cold inventory's rows, after the ledger so its slot check sees the new identity's rows
+        // where they are; one the ledger sent to Lost and Found goes there when the player joins.
+        changed += ColdInventories.Rekey(from, to, merged.ToLostAndFound);
         return changed;
     }
 

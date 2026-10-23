@@ -58,6 +58,11 @@ public static class Retrieval
         }
     }
 
+    /// <summary>What a retrieval of the item would take: the item, or the outermost container that holds it. Null if none.</summary>
+    public static LiveItems.LiveItem Subject(ServerPlayer owner, Guid itemId) =>
+        !ServerLedger.Ledger.TryGetHome(itemId, out Home home) ? null
+        : home.Kind == HomeKind.Container ? Target(owner, itemId, out _, out _) : Find(itemId);
+
     /// <summary>The owner retrieves the item. False, with the reason, when it doesn't go.</summary>
     public static bool Retrieve(ServerPlayer owner, Guid itemId, out string reason)
     {
@@ -134,7 +139,7 @@ public static class Retrieval
         return null;
     }
 
-    // As a departing borrower's items are dropped (ServerItemManager.DropHeldItemsOfDepartingPlayer):
+    // As a departing borrower's items are dropped (PlayerItems.Leave):
     // out of the holder's hand or inventory, where they stand, then on to the owner's Lost and Found.
     private static bool TakeFromHolder(ServerPlayer owner, NetworkedItem item, LiveItems.LiveItem record, out string reason)
     {

@@ -4,6 +4,7 @@ using System.Linq;
 using DV.Shops;
 using LiteNetLib;
 using Multiplayer.Core.Shops;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Shops;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
@@ -132,8 +133,13 @@ public partial class NetworkServer
     private void HandleShopScan(ServerboundShopScanPacket packet, ServerPlayer player) =>
         Answer(player, packet.ShopIndex, ShopRequestKind.Scan, Shops.Scan(player, packet.ShopIndex, packet.ModuleIndex, packet.RequestId), packet.RequestId);
 
+    // A banknote kept as data on the server (OI-COLD-06) is made again before it's paid in.
     private void HandleShopDeposit(ServerboundShopDepositPacket packet, ServerPlayer player) =>
-        Answer(player, packet.ShopIndex, ShopRequestKind.Deposit, Shops.Deposit(player, packet.ShopIndex, packet.MoneyNetId, packet.RequestId), packet.RequestId);
+        PlayerItems.WithObject(packet.MoneyNetId, _ =>
+        {
+            if (player.Peer != null)
+                Answer(player, packet.ShopIndex, ShopRequestKind.Deposit, Shops.Deposit(player, packet.ShopIndex, packet.MoneyNetId, packet.RequestId), packet.RequestId);
+        });
 
     private void HandleShopBuy(ServerboundShopBuyPacket packet, ServerPlayer player) =>
         Answer(player, packet.ShopIndex, ShopRequestKind.Buy, Shops.Buy(player, packet.ShopIndex, packet.Revision, packet.RequestId), packet.RequestId);

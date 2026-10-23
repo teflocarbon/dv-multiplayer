@@ -7,6 +7,7 @@ using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.SaveLoad;
 using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.SaveLoad;
@@ -245,17 +246,21 @@ public static partial class ServerLedger
     /// named that the ledger would take, then its claim (when the holder owns it), then the lowest
     /// free one, the belt last. -1 when the inventory is full.
     /// </summary>
-    internal static int FreeSlot(LiveItems.LiveItem record, Guid holder, params int[] preferred)
+    internal static int FreeSlot(LiveItems.LiveItem record, Guid holder, params int[] preferred) =>
+        record == null ? -1 : FreeSlot(record.PersistentItemId, record.Owner, record.InventoryClaimSlot, holder, preferred);
+
+    /// <summary>The same for an item by its id, owner and claim: a cold row's.</summary>
+    internal static int FreeSlot(Guid id, Guid ownerId, int claimSlot, Guid holder, params int[] preferred)
     {
-        if (record == null || holder == Guid.Empty)
+        if (holder == Guid.Empty)
             return -1;
-        OwnerRef owner = record.Owner == Guid.Empty ? OwnerRef.None : OwnerRef.Player(record.Owner);
+        OwnerRef owner = ownerId == Guid.Empty ? OwnerRef.None : OwnerRef.Player(ownerId);
         bool Free(int slot) => InventorySlots.IsValid(slot) &&
-            ledger.CanTake(Home.InSlot(holder, slot), record.PersistentItemId, owner).Length == 0;
+            ledger.CanTake(Home.InSlot(holder, slot), id, owner).Length == 0;
         foreach (int slot in preferred)
             if (slot >= 0 && Free(slot))
                 return slot;
-        int claim = record.Owner == holder ? record.InventoryClaimSlot : -1;
+        int claim = ownerId == holder ? claimSlot : -1;
         if (claim >= 0 && Free(claim))
             return claim;
         return InventorySlots.FirstFree(slot => !Free(slot));
@@ -263,13 +268,17 @@ public static partial class ServerLedger
 
     // A save from before every inventory item kept its slot has inventory items without one: each
     // takes its saved claim, else the lowest free slot, essentials first, so the ledger can register
-    // it where it is.
+    // it where it is. A cold inventory's rows the same (an item saved in a hand has no slot either).
     private static void GiveSlots()
     {
         foreach (LiveItems.LiveItem record in LiveItems.GetAll()
                      .Where(r => r.Placement == ItemPlacementKind.PlayerInventory && r.Slot < 0 && r.Holder != Guid.Empty)
                      .OrderByDescending(r => r.StoredClaimSlot >= 0).ThenBy(r => r.NetId).ToArray())
             record.Slot = FreeSlot(record, record.Holder, record.StoredClaimSlot);
+        foreach (SavedItemRow row in ColdInventories.All().Where(row => row.Slot < 0)
+                     .OrderByDescending(row => row.ClaimSlot >= 0).ToArray())
+            row.Slot = FreeSlot(row.PersistentItemId, row.OwnerIdentity, row.ClaimSlot, row.PlacementPlayerIdentity,
+                row.ClaimSlot);
     }
 
     // A claim the ledger moved as another essential took its slot: the owner's game is told.
@@ -489,7 +498,8 @@ public static partial class ServerLedger
     // An unowned item in a holder's slot: the ledger's slot rules cover items it doesn't hold.
     private static bool UnownedInSlot(Guid holder, int slot, Guid except) => LiveItems.GetAll().Any(record =>
         record.Placement == ItemPlacementKind.PlayerInventory && record.Holder == holder && record.Slot == slot &&
-        record.PersistentItemId != except && (record.PersistentItemId == Guid.Empty || !ledger.IsLive(record.PersistentItemId)));
+        record.PersistentItemId != except && (record.PersistentItemId == Guid.Empty || !ledger.IsLive(record.PersistentItemId))) ||
+        ColdInventories.At(holder, slot) is SavedItemRow row && row.PersistentItemId != except && !ledger.IsLive(row.PersistentItemId);
 
     private static void TakeNewId(LiveItems.LiveItem record, Registration registered)
     {
@@ -514,7 +524,8 @@ public static partial class ServerLedger
         foreach (LiveItems.LiveItem record in LiveItems.GetAll())
         {
             if (record.PersistentItemId == Guid.Empty || pendingLost.Contains(record.PersistentItemId) ||
-                record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container)
+                record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container ||
+                PlayerItems.IsDataOnly(record))
                 continue;
             Home where = HomeOf(record);
             OwnedItemStore? store = LoadReconciler.StoreFor(where);
@@ -532,6 +543,11 @@ public static partial class ServerLedger
             yield return new OwnedItemStoreHit(ItemIdOf(cold), OwnedItemStore.Container,
                 Home.Container(cold.ParentContainerId, cold.Slot), owner, cold.PrefabName);
         }
+        // An offline player's inventory, kept as data (D12).
+        foreach (SavedItemRow row in ColdInventories.All())
+            yield return new OwnedItemStoreHit(row.PersistentItemId, OwnedItemStore.Possession,
+                Home.InSlot(row.PlacementPlayerIdentity, row.Slot), row.OwnerIdentity, row.PrefabName,
+                claimSlot: row.ClaimSlot);
     }
 
     /// <summary>
