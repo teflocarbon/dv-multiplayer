@@ -16,6 +16,11 @@ soldering into a vehicle's electrics, which only vehicles have, and those anchor
 (no saved holes except the world's, and the shed's anchor jumps between sheds). In multiplayer a
 gadget installs on a car or not at all (decided 2026-10-21); see [Off-train installs](#off-train-installs).
 
+> **Corrected 2026-10-23 (user):** gadgets install on cars **and on the world**, since some mods need
+> world installs (custom_item_mod builds its gadgets with no car requirement). The house, the shed
+> and the paint station stay refused. This doc is legacy; the new rule is G5 in
+> [`item-refactor.md`](item-refactor.md) and rows OI-GAD-10 and OI-GAD-11 in the checklist.
+
 ## Today
 
 Nothing about installed gadgets syncs. Each action changes only the game it happens in.
