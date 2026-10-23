@@ -49,6 +49,25 @@ internal static class UserData
                 Directory.Delete(dir, recursive: true);
     }
 
+    /// <summary>The career a named session's games load when `up` names no save.</summary>
+    public const string TestCareer = "DVMP Test Career 2";
+
+    /// <summary>Whether the current session's folder for a game of this role holds a career or
+    /// sandbox with this name; false for the default session.</summary>
+    public static bool HasSession(string role, string name)
+    {
+        if (Dir(role) is not { } dir || !Directory.Exists(Path.Combine(dir, "Users"))) return false;
+        foreach (string data in Directory.GetFiles(Path.Combine(dir, "Users"), "sessionData.json", SearchOption.AllDirectories))
+        {
+            try
+            {
+                if (JsonNode.Parse(File.ReadAllText(data))?["Name"]?.GetValue<string>() == name) return true;
+            }
+            catch (Exception e) when (e is IOException or JsonException or InvalidOperationException) { }
+        }
+        return false;
+    }
+
     /// <summary>Whether two folder paths name the same folder.</summary>
     public static bool Same(string a, string b) =>
         string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'), Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);

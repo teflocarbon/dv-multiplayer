@@ -325,6 +325,10 @@ internal static class Session
         Mark("host: loading save");
         Dictionary<string, string> hostArgs = new();
         if (!string.IsNullOrWhiteSpace(o.Save)) hostArgs["save"] = o.Save!;
+        // A named session without --save or --new loads the test career, not the save the launcher
+        // shows: that's whatever the user last played, whose inventories the scenarios don't expect.
+        else if (string.IsNullOrWhiteSpace(o.NewSession) && UserData.HasSession("host", UserData.TestCareer))
+            hostArgs["save"] = UserData.TestCareer;
         if (!string.IsNullOrWhiteSpace(o.NewSession)) hostArgs["new"] = o.NewSession!;
         if (!string.IsNullOrWhiteSpace(o.NewSessionName)) hostArgs["name"] = o.NewSessionName!;
         if (Sessions.Port() is int sessionPort) hostArgs["port"] = sessionPort.ToString();
