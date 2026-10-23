@@ -4,8 +4,8 @@
 > says what the code does. Five packets carry every item change, request and list, all in
 > `Multiplayer/Shared/Protocol/Packets/Items/`, with their data in `Shared/Protocol/Data/Items/`.
 > The spatial packets (lease, sample, settlement, commit), the wake witness, the projection
-> acknowledgement and the authored catalogue are unchanged and are the [physics](../../item-spatial-physics.md)
-> and [projection](../../item-world-sync.md) docs' to describe.
+> acknowledgement and the authored catalogue are unchanged and are the [physics](../../legacy/items/item-spatial-physics.md)
+> and [projection](../../legacy/items/item-world-sync.md) docs' to describe.
 
 | Packet | Way | What |
 | --- | --- | --- |

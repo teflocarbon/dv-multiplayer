@@ -4,7 +4,7 @@
 > `04bfe277`. Decisions are the user's, through the coordinator, dated in [Decisions](#decisions);
 > all are answered. Every requirement is a row in
 > [item-overhaul-checklist.md](../item-overhaul-checklist.md), and this plan names the rows each PR
-> closes. The current item docs ([item-lifecycle.md](item-lifecycle.md) and the docs it links) are
+> closes. The current item docs ([item-lifecycle.md](../legacy/items/item-lifecycle.md) and the docs it links) are
 > legacy (L1): evidence of today's behaviour, not design. The new docs are written from scratch
 > ([Docs](#docs)).
 
@@ -103,7 +103,7 @@ can see and touch.
 | D10 | **Binning** destroys the item, as in vanilla, and ends its entry `Discarded`, by the player who binned it; an essential is issued again at its owner's next join; only your own or unowned items can be binned (someone else's is refused and drops by the bin) | user, 2026-10-23 |
 | D11 | **Items from other mods** (custom_item_mod and the item packs it loads) will be built like vanilla items (their prefabs spawn on every game, each item's own saved state reaches clients, a client joins only with the same item mods), **paused for after the refactor** (the user, later the same day). Mod-specific compatibility (Railway Brake Shoe) isn't planned: the user is talking to that mod's developer | user, 2026-10-23 |
 | D12 | **Cold and live homes.** An item whose home nobody is using is cold: data only (its state, and its ledger entry if owned), with no object on any game. Cold homes: an offline player's inventory and claim slots, Lost and Found, a container. A leaving holder's inventory goes cold, and a joining owner's is made from its state in its exact slots. **Every inventory is server data:** a connected player's inventory objects are a view. The client is optimistic: it shows a stash, slot move, hotbar switch, drop or pick-up at once and sends it as a request; the server commits it to the ledger in its own order and confirms, and only a refusal rolls the client back. On the server, an item in a connected remote player's inventory is data only too (no duplicate object); that player's game holds the only object (OI-COLD-06) | user, 2026-10-24 |
-| L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and each legacy doc moves to `docs/legacy/items/` in the PR that replaces it ([Docs](#docs)) | user, 2026-10-23 |
+| L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and the legacy docs are in `docs/legacy/items/` (moved 2026-10-24, [Docs](#docs)) | user, 2026-10-23 |
 | C1 | Cold containers start fresh (D1), and their new save must make the failures behind F18 (an empty graph written over a save the import refused), the depth check and quarantine impossible by design, not by a stopgap | user, 2026-10-23 |
 
 ## Three names
@@ -740,7 +740,7 @@ host. A row a PR can't close stays unticked, and anything a PR cuts becomes a ne
 The full mapping of every row, with the done rows each PR proves again, is in
 [the checklist](../item-overhaul-checklist.md#the-refactor).
 
-**The item regression set** that every PR runs on a player host (one pair at a time, unless the user asks for more; the dedicated host runs it once at the end, over `items/refactor` before the beta merge, user 2026-10-24, OI-REF-01):
+**The item regression set**, run in full after R4 on a player host (OI-REF-02) and at the end on both host kinds, before the beta merge (OI-REF-01). Each PR runs only its own new or changed scenarios, once, on a player host (user, 2026-10-24):
 `rejoin`, `recall`, `containers`, `lost-and-found`, `item-id-roundtrip`, `ledger-save`,
 `fixture-no-stash`, `absent-owner`, `offline-lost-and-found`, `owner-offline`, `car-delete-owner`,
 `lost-and-found-many-owners`, `offline-sweep-mid-save`, `rejoin-mid-sweep`, `deposit-refused`,
@@ -800,18 +800,18 @@ other `DERAIL_VALLEY_*` docs: they are about the game, not our code), the known-
 per subsystem. Each is written by the PR that builds its subsystem, as that PR's as-built account,
 and says only what the code does then.
 
-| New doc | What it holds | Written in | Replaces (moved to legacy in the same PR) |
+| New doc | What it holds | Written in | Replaces (in `docs/legacy/items/`) |
 | --- | --- | --- | --- |
 | `items/README.md` | The overview: the guarantee, the three names, the homes, the subsystem table with each doc and code folder, the rule for conflicts. Short | R0 (the layout and names; the model's parts say "planned, R*n*" until built) | — |
 | `items/wire.md` | Naming items and players on the wire, the update, the request and result, the list, the refusal codes | R2 | — |
-| `items/ledger.md` | The entry, homes, owners (`OwnerRef`), births and ends, ledger changes, the invariant check | R3 | `owned-items.md`, `item-ownership-open-questions.md` (the questions still open move to the ledger doc's "Open" section, re-asked, not copied) |
+| `items/ledger.md` | The entry, homes, cold and live homes (D12: what is cold, going cold, going live, no duplicate on the server), owners (`OwnerRef`), births and ends, ledger changes, the invariant check | R3 | `owned-items.md`, `item-ownership-open-questions.md` (the questions still open move to the ledger doc's "Open" section, re-asked, not copied) |
 | `items/live-state.md` | The live item, the state machine, revisions, what follows the ledger | R3 | `item-lifecycle.md` |
-| `items/inventory.md` | Slots for every item, the belt, slot moves, how a client shows claims and red | R3 | — |
+| `items/inventory.md` | Slots for every item, the belt, slot moves, every inventory as server data with an optimistic client (the move shown at once, sent as a request, committed or rolled back), a leaver's inventory going cold and made in its exact slots at join, how a client shows claims and red | R3 | — |
 | `items/essentials.md` | Starting items, the issuer, claims, recall | R3 | — |
 | `items/owned-list.md` | The owned-items page and retrieval | R3 | — |
 | `items/access.md` | `ItemAccess` and fixtures (the fixture rules marked paused with shops) | R3 | — |
 | `items/change-causes.md` | Why an item moved or went away, on the server and clients | R3 | `item-change-causes.md` |
-| `items/save-load.md` | `Multiplayer.Items`, loading, old saves, the vanilla mirror, `Unloadable` | R4 | `item-persistence.md` |
+| `items/save-load.md` | `Multiplayer.Items`, loading, cold items left as data at load (OI-COLD-03), old saves, the vanilla mirror, `Unloadable` | R4 | `item-persistence.md` |
 | `items/containers.md` | Containers as homes, deposit, withdrawal, depth, the UI | R5 | `container-storage.md` |
 | `items/lost-and-found.md` | Collection, entries, retrieval, every route into Lost and Found | R6 | `lost-and-found.md` |
 | `items/vanilla-storage.md` | Every vanilla path, blocked or routed, and the guards | R6 | — |
@@ -821,12 +821,12 @@ and says only what the code does then.
 | `items/train-wake.md` | Items in moving trains | R7 | `train-item-wake.md` |
 | `items/behaviours.md` | Each item type's own sync | R8 | — |
 
-**Moving the legacy docs.** A legacy doc moves to `docs/legacy/items/` in the PR that adds its
-replacement, with a one-line banner at the top: "Legacy: describes the item system before the
-refactor (names as on `beta` 04bfe277). Replaced by [items/…](…)." `item-sync-review.md` (already
-historical, no replacement) moves in R0. The moving PR updates `docs/README.md` (a "Legacy" table,
-and the new docs under "How each system syncs") and every link to the moved doc: the checklist's
-row sources keep pointing at them, at the new path.
+**The legacy docs are in `docs/legacy/items/`** (the user, 2026-10-24: moved before their
+replacements, so nobody takes them for the current design). Each has a banner at the top: "Legacy:
+describes the item system before the refactor (names as on `beta` 04bfe277) ... Replaced by
+`items/…` (R*n*)." `item-sync-review.md` (historical, no replacement) moved in R0. The PR that writes
+a replacement turns its banner's name into a link to it and lists the new doc in `docs/README.md`
+under "How each system syncs". The checklist's row sources point at the legacy paths.
 
 **R0 doesn't edit the legacy docs:** they keep today's class and file names, which the
 [rename map](#rename-map) translates. R0 updates paths only in docs that stay (`architecture.md`,

@@ -1,9 +1,11 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/ledger.md`, `inventory.md`, `essentials.md` and `owned-list.md` (R3). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Owned items
 
 > Status: as built, checked against the code on 2026-10-23 (`beta`, with #308–#312 merged). PRs 1a
 > to 7 are merged and tested in game on a player host and a dedicated host; see
 > [Built in](#built-in). What isn't built is listed under [Not built yet](#not-built-yet). Known
-> ways items are lost are catalogued in [item-bug-review.md](../research/item-bug-review.md). The
+> ways items are lost are catalogued in [item-bug-review.md](../../research/item-bug-review.md). The
 > rest of an item's life (placement, projection, motion, persistence) is in
 > [`item-lifecycle.md`](item-lifecycle.md).
 
@@ -56,7 +58,7 @@ Decided with the user on 2026-10-21 unless dated otherwise. Each says whether it
 - **Essentials stay out of containers** (2026-10-22, item-review L7). Depositing an essential is
   refused (`essential-not-in-containers`), so its claim slot and recall always work. Built.
 - **Keep the vanilla save as the server's store** (2026-10-19,
-  [server-player-split.md](server-player-split.md#save-format)). The ledger is one more key in the
+  [server-player-split.md](../../design/server-player-split.md#save-format)). The ledger is one more key in the
   mod's `Multiplayer` section, and the stores keep their formats. Built.
 - **Companies** (2026-10-20; the company career's design is still to be written): everyday items stay
   player-owned; gadgets, garage keys, loco paint, the wireless MU controller and the loco remote are
@@ -65,7 +67,7 @@ Decided with the user on 2026-10-21 unless dated otherwise. Each says whether it
 ## What an owned item is
 
 An item with a persistent owner: a player's identity (the Steam-derived player ID, or the install
-GUID without Steam; [server-player-split.md](server-player-split.md#identity)). The ledger records how
+GUID without Steam; [server-player-split.md](../../design/server-player-split.md#identity)). The ledger records how
 each came to be owned (`OwnedItemBirth`, saved by name):
 
 | Birth | How | Where it happens |
@@ -118,7 +120,7 @@ a cold record's key is the item's id.
 | World, train interior, static parent, attached, snapped | the server's record; at save, `WorldItemsV1` |
 | Cold container | the cold record, keyed by the item's id; the item's save data inside it |
 | Lost and Found | the Lost and Found entry, keyed by the item's id; vanilla's Lost and Found storage holds the inert item with its save data |
-| Installed gadget | the server's record (`Installed` on its car, [gadgets.md](gadgets.md#the-installed-gadget-and-its-item)); vanilla's `Storage_InstalledGadgets` holds its save data and `dvmpPersistentOwner` |
+| Installed gadget | the server's record (`Installed` on its car, [gadgets.md](../../design/gadgets.md#the-installed-gadget-and-its-item)); vanilla's `Storage_InstalledGadgets` holds its save data and `dvmpPersistentOwner` |
 | Client projections | nothing: clients know NetIds only |
 
 **Duplicates.** Random GUIDs don't collide in practice. The risk is one id being copied: a copied
@@ -170,7 +172,7 @@ the newest 100 per owner (`EndedKeptPerOwner`), and older ones are pruned.
 
 **Queries.** `LiveOwnedBy(owner)`, `LiveWith(holder)`, `OwnerOf(id)`, and
 `CountLive(owner, prefab, shopStocked)` for issuing essentials and, later, per-player shop stock
-([shops.md](shops.md#owned-items)).
+([shops.md](../../design/shops.md#owned-items)).
 
 ### The ledger and the records
 
@@ -406,7 +408,7 @@ A server-side swap that uses an item up calls `OwnedItemsServer.RecordReplacemen
 reason)` before it destroys the used item: the replacement becomes the used item's owner's, born
 `Replaced` from it, and the used item's entry ends with `replacedBy`. Nothing calls it yet outside
 the `item-lineage` scenario: duct tape, spools and labels are wired by gadget PRs 4, 5 and 9
-([gadgets.md](gadgets.md#items-that-gadgets-create-and-destroy)).
+([gadgets.md](../../design/gadgets.md#items-that-gadgets-create-and-destroy)).
 
 ## Fixtures
 
@@ -420,7 +422,7 @@ equipment like it. It is never owned and never leaves its place (decided 2026-10
   (mugs, office bins), which a player may keep while carrying it.
 
 Built: the list (`ItemAccessServer.Fixtures`, empty until shops PR 2c fills it,
-[shops.md](shops.md)) and the refusal of a stash or a deposit for an item on it. Not built: the
+[shops.md](../../design/shops.md)) and the refusal of a stash or a deposit for an item on it. Not built: the
 return to its spot.
 
 ## Permissions
@@ -499,4 +501,4 @@ scenarios (1a and 1c to 5 on 2026-10-21/22; 6a, 6b, L7 and 7 together on 2026-10
 | `Multiplayer/Server/Items/OwnedItems/` | `StartingItemsIssuer`, `OwnedItemRows`, `OwnedItemRetrieval` |
 | `Multiplayer/Server/Items/ItemAccessServer.cs` | The facts for `ItemAccess` |
 | `Multiplayer/Client/Items/OwnedItemsList.cs`, `Client/Career/OwnedItemsCareerManagerScreen.cs` | The client's list and page |
-| Tests | `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`, `AbsentOwnerTests`, `LostAndFoundAwayOwnerTests`; `Multiplayer.Protocol.Tests/OwnedItemsSaveCodecTests.cs`; scenarios `ledger-save`, `item-id-roundtrip`, `fixture-no-stash`, `absent-owner`, `offline-lost-and-found`, `borrowed-disconnect`, `starting-items`, `owned-list`, `owned-retrieve`, `deposit-refused`, `item-lineage` ([testing.md](../testing.md)) |
+| Tests | `Multiplayer.Core.Tests/Items/OwnedItem*Tests.cs`, `AbsentOwnerTests`, `LostAndFoundAwayOwnerTests`; `Multiplayer.Protocol.Tests/OwnedItemsSaveCodecTests.cs`; scenarios `ledger-save`, `item-id-roundtrip`, `fixture-no-stash`, `absent-owner`, `offline-lost-and-found`, `borrowed-disconnect`, `starting-items`, `owned-list`, `owned-retrieve`, `deposit-refused`, `item-lineage` ([testing.md](../../testing.md)) |

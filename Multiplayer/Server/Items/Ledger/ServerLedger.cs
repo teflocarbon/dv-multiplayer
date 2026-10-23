@@ -25,7 +25,7 @@ using System.Text;
 namespace Multiplayer.Server.Items.Ledger;
 
 /// <summary>
-/// The server's ledger of owned items (docs/design/owned-items.md), in shadow (owned-items PR 1b):
+/// The server's ledger of owned items (docs/legacy/items/owned-items.md), in shadow (owned-items PR 1b):
 /// it follows the item records where they commit (<see cref="ItemChangeLog"/>), is checked against
 /// the stores once they have loaded, and is saved, but nothing reads it yet. What it disagrees with
 /// is logged rather than acted on, so the logs show where it would change things.

@@ -1,3 +1,5 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/projection.md` and `items/world-items.md` (R7). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Item world sync
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Built 2026-07 to
@@ -182,7 +184,7 @@ save stay the mod's. Parenting never changes who saves the item.
   ordinary item with its NetId, reparented through `ItemReparentingBase`. A snapped train item keeps
   `SnappedAttachment`, not `TrainInterior`. Anchors are a car's GUID and end for a coupler, or a gadget
   key and UID, never a transform's instance id.
-- **Installed.** A gadget on a car ([gadgets.md](gadgets.md#the-installed-gadget-and-its-item)): only a
+- **Installed.** A gadget on a car ([gadgets.md](../../design/gadgets.md#the-installed-gadget-and-its-item)): only a
   gadget transition may enter or leave it.
 - **Vanilla's `StorageWorld`** isn't a catalogue of world objects: it rejects non-player items, and
   authored furniture is never in it. Placement comes from the registry, never from
@@ -237,7 +239,7 @@ membership, an owner or a claim makes a fork ineligible for cleanup
 
 Overviews, booklets and reports go through the same interest and acknowledgement, but bind to the job
 system's objects (a report's render recipe goes before its Create), and are never saved as items: the
-job system saves the job and recreates them ([jobs.md](../jobs.md)).
+job system saves the job and recreates them ([jobs.md](../../jobs.md)).
 
 ## Not built
 
@@ -270,5 +272,5 @@ From the code, not run in game (2026-10-23). The bug review tracks them.
 
 `RemoteItemProjectionPlannerTests`, `ItemSnapshotApplicationPolicyTests`, `ItemWireStateProjectionTests`,
 `ItemOutboundRevisionPipelineTests`, `TrackedStateComposerTests`, `ItemPossessionInterestPolicyTests`,
-`BeltItemPolicyTests`, `AuthoredHierarchyPolicyTests`; scenarios in [testing.md](../testing.md). Not
+`BeltItemPolicyTests`, `AuthoredHierarchyPolicyTests`; scenarios in [testing.md](../../testing.md). Not
 covered in game: a catalogue mismatch, cell enter/leave/re-enter, two clients, office replenishment.
