@@ -20,7 +20,8 @@ namespace Dvmp.Scenarios
     /// the item again; a stateful item (a battery) comes back with its state. The host must not be
     /// able to browse the client's container. WHO=host: the host's own player does the round trip
     /// instead, through its own container requests, which the server handles in-process (checked);
-    /// needs a player host.
+    /// needs a player host. UNOWNED=1: the container is nobody's (spawned loose), and the player
+    /// holding it opens it (OI-CON-08).
     /// </summary>
     [Scenario("containers", "Deposit, reopen and withdraw through a container the player holds, a stateful item keeping its state; the host can't browse the client's container (WHO=host: the host's own, handled in-process)")]
     public sealed class Containers : Scenario<Containers.Options>
@@ -33,12 +34,16 @@ namespace Dvmp.Scenarios
             public string Prefab = "Mug";
             /// <summary>Who does the round trip: client or host.</summary>
             public string Who = "client";
+            /// <summary>The container is nobody's: the player who holds it opens it.</summary>
+            public bool Unowned;
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
             if (o.Who == "host" && pair.Dedicated) throw new HarnessException("WHO=host needs a player host: a dedicated host has no player to open the container");
-            ushort box = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Container, o.Who));
+            ushort box = o.Unowned
+                ? await pair.Host.Run<ushort>(s => Items.Spawn(s, o.Container, o.Who))
+                : await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Container, o.Who));
             ushort item = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, o.Who));
             Report.Note($"container {box}, item {item}");
             // Batteries are host-authoritative: drain the host's copy to a distinctive level and let it sync.
@@ -47,6 +52,14 @@ namespace Dvmp.Scenarios
             Peer who = o.Who == "host" ? pair.Host : pair.Client;
             string[] log = await who.Run<string[]>(s => InGame.RoundTrip(s, box, item), 120);
             foreach (string line in log) Report.Note(line);
+            if (o.Unowned)
+            {
+                OwnerInfo shell = await pair.Host.Run(() => Ownership.Read(box));
+                Report.Note($"the shell after the round trip: {shell}");
+                Expect.Equal(Guid.Empty.ToString("D"), shell.Owner, "the shell's owner (nobody: an unowned shell its holder opened)");
+                string holder = o.Who == "host" ? await pair.Host.Run(() => Owned.HostIdentity()) : await pair.Host.Run(() => Owned.ClientIdentity());
+                Expect.Equal(holder, shell.Holder, "who holds the shell (the player who opened it)");
+            }
             if (o.Who == "host")
             {
                 Expect.Empty(await pair.Host.Run(() => ServerRequests.NotHandledLocally(new[] { "ServerboundContainerBrowsePacket", "ServerboundContainerMutationPacket" })),
@@ -169,7 +182,7 @@ namespace Dvmp.Scenarios
                 var result = ContainerServer.Browse(host, box, 0, 64, out var view);
                 return new Browse
                 {
-                    Owner = r?.PersistentOwnerPlayerId ?? 0, HostId = host.PlayerId, Status = result.Status.ToString(),
+                    Owner = PlayerNumbers.OwnerOf(r?.Owner ?? System.Guid.Empty), HostId = host.PlayerId, Status = result.Status.ToString(),
                     Reason = result.Reason ?? "", Rows = view?.Slots?.Count ?? -1
                 };
             }

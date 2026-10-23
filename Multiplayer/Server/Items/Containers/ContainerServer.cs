@@ -128,7 +128,7 @@ public static class ContainerServer
                 "container-private", operationId);
         bool possessed = LiveItems.TryGet(itemNetId,
                 out LiveItems.LiveItem authority) &&
-            authority.PlacementPlayerId == actor.PlayerId && authority.Placement is
+            authority.Holder == actor.Guid && authority.Placement is
                 (ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory);
         if (!possessed && actor.PlayerId == InventoryIntegration.LocalPlayerId &&
             InventoryIntegration.ContainsActive(item.gameObject))
@@ -192,8 +192,7 @@ public static class ContainerServer
             PersistentItemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid(),
             PrefabName = item.Item.InventorySpecs?.ItemPrefabName ?? item.name,
             DisplayName = item.Item.InventorySpecs?.LocalizedName ?? item.name,
-            PersistentOwnerIdentity = ResolveOwnerIdentity(authority.PersistentOwnerPlayerId) ??
-                actor.Guid.ToString("D"),
+            PersistentOwnerIdentity = (authority.Owner != Guid.Empty ? authority.Owner : actor.Guid).ToString("D"),
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
             ChildContainerId = childId,
             StateVersion = 1,
@@ -301,16 +300,11 @@ public static class ContainerServer
             completed?.Invoke(prepared, 0);
             yield break;
         }
-        // Two local debug instances intentionally share the same saved DV identity. The
-        // authenticated actor is the unambiguous owner when its identity matches the cold
-        // record; only use the server-wide GUID lookup for somebody else's record.
-        byte persistentOwnerPlayerId = string.Equals(record.PersistentOwnerIdentity,
-                actor.Guid.ToString("D"), StringComparison.Ordinal)
-            ? actor.PlayerId
-            : ResolvePlayerId(record.PersistentOwnerIdentity);
-        if (persistentOwnerPlayerId == 0 &&
-            !string.Equals(record.PersistentOwnerIdentity, actor.Guid.ToString("D"),
-                StringComparison.Ordinal))
+        // Somebody else's item comes out only while they're connected; one with no owner
+        // recorded is the withdrawer's.
+        if (!Guid.TryParse(record.PersistentOwnerIdentity, out Guid owner) || owner == Guid.Empty)
+            owner = actor.Guid;
+        if (owner != actor.Guid && !PlayerNumbers.IsConnected(owner))
         {
             graph.AbortWithdrawal(operationId, "withdraw-persistent-owner-offline");
             completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
@@ -318,8 +312,6 @@ public static class ContainerServer
                 operationId), 0);
             yield break;
         }
-        if (persistentOwnerPlayerId == 0)
-            persistentOwnerPlayerId = actor.PlayerId;
 
         GameObject instance = null;
         NetworkedItem item = null;
@@ -398,9 +390,8 @@ public static class ContainerServer
                                                    instance.AddComponent<ItemIdentity>();
             if (identity.Value == Guid.Empty)
                 identity.Value = ServerLedger.ItemIdOf(record);
-            Guid.TryParse(record.PersistentOwnerIdentity, out Guid ownerIdentity);
             if (LiveItems.RegisterMaterializedColdItem(item, actor,
-                    persistentOwnerPlayerId, ownerIdentity, snapshot, identity.Value) == null)
+                    owner, snapshot, identity.Value) == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
             // The item was indexed by its spawn position when it woke, before it had a record;
@@ -561,29 +552,17 @@ public static class ContainerServer
     {
         if (!LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem authority))
             return null;
-        byte owner = authority.PersistentOwnerPlayerId != 0
-            ? authority.PersistentOwnerPlayerId : authority.PlacementPlayerId;
-        return ResolveOwnerIdentity(owner);
+        Guid owner = authority.Owner != Guid.Empty ? authority.Owner : authority.Holder;
+        return owner != Guid.Empty ? owner.ToString("D") : null;
     }
 
+    // Its owner opens a shell; so does whoever holds one nobody owns (OI-CON-08).
     private static bool ActorOwnsPhysicalShell(ServerPlayer actor, ushort shellNetId) =>
         actor != null && shellNetId != 0 &&
         LiveItems.TryGet(shellNetId,
             out LiveItems.LiveItem authority) &&
-        authority.PersistentOwnerPlayerId == actor.PlayerId;
-
-    private static string ResolveOwnerIdentity(byte playerId) =>
-        playerId != 0 && NetworkServer.Instance.TryGetServerPlayer(playerId,
-            out ServerPlayer player) ? player.Guid.ToString("D") : null;
-
-    private static byte ResolvePlayerId(string identity)
-    {
-        if (!Guid.TryParse(identity, out Guid guid) || NetworkServer.Instance == null)
-            return 0;
-        ServerPlayer player = NetworkServer.Instance.ServerPlayers
-            .FirstOrDefault(candidate => candidate != null && candidate.Guid == guid);
-        return player?.PlayerId ?? 0;
-    }
+        (authority.Owner == actor.Guid ||
+         authority.Owner == Guid.Empty && authority.Holder == actor.Guid);
 
     private static InventoryItemSpec FindItemSpec(string prefabName) =>
         Globals.G?.Items?.items?.FirstOrDefault(spec => spec != null &&

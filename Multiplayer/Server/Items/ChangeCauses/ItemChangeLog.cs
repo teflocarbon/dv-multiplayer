@@ -48,11 +48,11 @@ public static class ItemChangeLog
 
     public static ItemWhereabouts Whereabouts(LiveItems.LiveItem record) =>
         record == null ? default : new ItemWhereabouts((LivePlacement)(byte)record.Placement,
-            record.PlacementPlayerId, record.PersistentOwnerPlayerId);
+            record.Holder, record.Owner);
 
     /// <summary>What changed between two whereabouts, with the host's player names.</summary>
     public static string Describe(ItemWhereabouts before, ItemWhereabouts after) =>
-        ItemMoveClassifier.Describe(before, after, PlayerName);
+        ItemMoveClassifier.Describe(before, after, identity => PlayerNumbers.Session(identity)?.Username);
 
     /// <summary>Host: logs a move and keeps it as the record's last.</summary>
     public static void RecordMove(NetworkedItem item, LiveItems.LiveItem record,
@@ -81,6 +81,10 @@ public static class ItemChangeLog
         playerId != 0 && NetworkServer.Instance != null &&
         NetworkServer.Instance.TryGetServerPlayer(playerId, out ServerPlayer player)
             ? player.Username : null;
+
+    /// <summary>A player's name while they're connected, else their identity as the logs show it.</summary>
+    public static string PlayerName(Guid identity) =>
+        identity == Guid.Empty ? "none" : PlayerNumbers.Session(identity)?.Username ?? PlayerIdentity.Describe(identity);
 
     private static string Name(NetworkedItem item, LiveItems.LiveItem record) =>
         item != null ? item.name : record?.PrefabName;

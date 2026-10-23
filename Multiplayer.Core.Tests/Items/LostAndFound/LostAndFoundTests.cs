@@ -13,7 +13,8 @@ public sealed class LostAndFoundTests
     {
         NetId = 42,
         Revision = 7,
-        PersistentOwnerPlayerId = 1,
+        Owner = new Guid(1, 0, 0, new byte[8]),
+        OwnerConnected = true,
         IsPersonalItem = true,
         Placement = LivePlacement.World,
         OwnerPositionKnown = true,
@@ -136,9 +137,9 @@ public sealed class LostAndFoundTests
         LostItemRecord input = Record();
         Assert.That(registry.Add(input), Is.EqualTo(LostItemRegistryResult.Added));
         Assert.That(registry.Add(input), Is.EqualTo(LostItemRegistryResult.DuplicateNetId));
-        Assert.That(registry.RemoveForRetrieval(42, 2, 7, out _), Is.EqualTo(LostItemRegistryResult.WrongOwner));
-        Assert.That(registry.RemoveForRetrieval(42, 1, 6, out _), Is.EqualTo(LostItemRegistryResult.StaleRevision));
-        Assert.That(registry.RemoveForRetrieval(42, 1, 7, out LostItemRecord removed), Is.EqualTo(LostItemRegistryResult.Removed));
+        Assert.That(registry.RemoveForRetrieval(42, O(2), 7, out _), Is.EqualTo(LostItemRegistryResult.WrongOwner));
+        Assert.That(registry.RemoveForRetrieval(42, O(1), 6, out _), Is.EqualTo(LostItemRegistryResult.StaleRevision));
+        Assert.That(registry.RemoveForRetrieval(42, O(1), 7, out LostItemRecord removed), Is.EqualTo(LostItemRegistryResult.Removed));
         Assert.That(removed.NetId, Is.EqualTo(42));
         Assert.That(registry.Count, Is.Zero);
     }
@@ -147,7 +148,6 @@ public sealed class LostAndFoundTests
     public void Registry_DetachesAndPreservesInventoryClaimMetadata()
     {
         LostItemRecord input = Record();
-        input.InventoryClaimPlayerId = 1;
         input.InventoryClaimSlot = 3;
         input.InventoryClaimFlags = 5;
         LostItemRegistry registry = new();
@@ -156,7 +156,6 @@ public sealed class LostAndFoundTests
         input.InventoryClaimSlot = 9;
         registry.TryGet(42, out LostItemRecord stored);
 
-        Assert.That(stored.InventoryClaimPlayerId, Is.EqualTo(1));
         Assert.That(stored.InventoryClaimSlot, Is.EqualTo(3));
         Assert.That(stored.InventoryClaimFlags, Is.EqualTo(5));
     }
@@ -202,7 +201,7 @@ public sealed class LostAndFoundTests
     {
         LostItemRecord record = Record();
         record.NetId = (ushort)netId;
-        record.OwnerPlayerId = (byte)owner;
+        record.OwnerIdentity = owner == 0 ? string.Empty : O(owner);
         Assert.That(new LostItemRegistry().Add(record),
             Is.EqualTo(LostItemRegistryResult.Invalid));
     }
@@ -215,10 +214,10 @@ public sealed class LostAndFoundTests
         LostItemRecord other = Record();
         other.NetId = 43;
         other.PersistentItemId = Guid.NewGuid();
-        other.OwnerPlayerId = 2;
+        other.OwnerIdentity = O(2);
         registry.Add(other);
 
-        IReadOnlyList<LostItemRecord> ownerOne = registry.GetForOwner(1);
+        IReadOnlyList<LostItemRecord> ownerOne = registry.GetForOwner(O(1));
         Assert.That(ownerOne, Has.Count.EqualTo(1));
         Assert.That(ownerOne[0].NetId, Is.EqualTo(42));
         ownerOne[0].DisplayName = "tampered";
@@ -274,7 +273,7 @@ public sealed class LostAndFoundTests
         LostItemRegistry registry = new();
         registry.Add(Record());
         registry.TryGet(42, out LostItemRecord stored);
-        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(stored, 1, stored.Revision,
+        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(stored, O(1), stored.Revision,
             -1, -1, 2, new[] { 0, 1 });
         Assert.That(plan.Accepted, Is.False);
         Assert.That(plan.Reason, Is.EqualTo("inventory-full"));
@@ -286,9 +285,9 @@ public sealed class LostAndFoundTests
     {
         LostItemRecord record = Record();
         record.Revision = 8;
-        Assert.That(LostItemRetrievalPlanner.Plan(record, 1, 8, 3, -1, 5, new[] { 0, 1 }).TargetSlot,
+        Assert.That(LostItemRetrievalPlanner.Plan(record, O(1), 8, 3, -1, 5, new[] { 0, 1 }).TargetSlot,
             Is.EqualTo(3));
-        Assert.That(LostItemRetrievalPlanner.Plan(record, 1, 8, 1, -1, 5, new[] { 0, 1 }).TargetSlot,
+        Assert.That(LostItemRetrievalPlanner.Plan(record, O(1), 8, 1, -1, 5, new[] { 0, 1 }).TargetSlot,
             Is.EqualTo(2));
     }
 
@@ -297,7 +296,7 @@ public sealed class LostAndFoundTests
     {
         LostItemRecord record = Record();
         record.InventoryClaimSlot = 5;
-        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(record, 1, 7,
+        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(record, O(1), 7,
             -1, 3, 10, new[] { 0, 1, 3 });
         Assert.That(plan.Accepted, Is.True);
         Assert.That(plan.TargetSlot, Is.EqualTo(3));
@@ -306,7 +305,7 @@ public sealed class LostAndFoundTests
     [Test]
     public void Retrieval_ExistingSilhouetteWinsEvenWhenRequestedSlotIsFree()
     {
-        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(Record(), 1, 7,
+        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(Record(), O(1), 7,
             8, 3, 10, new[] { 0, 1, 3 });
         Assert.That(plan.Accepted, Is.True);
         Assert.That(plan.TargetSlot, Is.EqualTo(3));
@@ -315,55 +314,44 @@ public sealed class LostAndFoundTests
     [TestCase(2, 7, 2, "requester-not-persistent-owner")]
     [TestCase(1, 6, 2, "stale-lost-item-revision")]
     [TestCase(1, 7, 0, "inventory-unavailable")]
-    public void Retrieval_RejectsInvalidAuthorityOrInventory(byte player, int revision,
+    public void Retrieval_RejectsInvalidAuthorityOrInventory(int player, int revision,
         int capacity, string expectedReason)
     {
-        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(Record(), player, (uint)revision,
+        LostItemRetrievalPlan plan = LostItemRetrievalPlanner.Plan(Record(), O(player), (uint)revision,
             -1, -1, capacity, new int[0]);
         Assert.That(plan.Accepted, Is.False);
         Assert.That(plan.Reason, Is.EqualTo(expectedReason));
     }
 
     [Test]
-    public void RejoiningOwner_GetsTheirItemsUnderTheirNewId()
+    public void AnOwnersEntries_AreTheirsWhetherOrNotTheyAreConnected()
     {
+        // An offline owner is an identity with no session: nothing unbinds when they leave or
+        // rebinds when they come back (item-refactor.md, "Identity only").
         LostItemRegistry registry = new();
-        LostItemRecord record = Record();
-        record.OwnerIdentity = "owner-a";
-        registry.Add(record);
+        registry.Add(Record());
 
-        Assert.That(registry.UnbindOwner(1), Is.EqualTo(1));
-        Assert.That(registry.GetForOwner(1), Is.Empty, "the next player given id 1 must not see them");
-        Assert.That(registry.RemoveForRetrieval(42, 1, 7, out _), Is.EqualTo(LostItemRegistryResult.WrongOwner));
-
-        Assert.That(registry.RebindOwner("owner-a", 3), Is.EqualTo(1));
-        Assert.That(registry.GetForOwner(3), Has.Count.EqualTo(1));
-        Assert.That(registry.RemoveForRetrieval(42, 3, 7, out _), Is.EqualTo(LostItemRegistryResult.Removed));
+        Assert.That(registry.GetForOwner(O(1)), Has.Count.EqualTo(1));
+        Assert.That(registry.GetForOwner(O(1).ToUpperInvariant()), Has.Count.EqualTo(1), "identities compare without case");
+        Assert.That(registry.RemoveForRetrieval(42, O(3), 7, out _), Is.EqualTo(LostItemRegistryResult.WrongOwner));
+        Assert.That(registry.RemoveForRetrieval(42, O(1), 7, out _), Is.EqualTo(LostItemRegistryResult.Removed));
     }
 
     [Test]
-    public void RebindOwner_LeavesOtherOwnersAndAnonymousRecordsAlone()
+    public void GetForOwner_ListsOnlyThatIdentitysEntries()
     {
         LostItemRegistry registry = new();
-        LostItemRecord mine = Record();
-        mine.OwnerIdentity = "owner-a";
         LostItemRecord theirs = Record();
         theirs.NetId = 43;
         theirs.PersistentItemId = Guid.NewGuid();
-        theirs.OwnerIdentity = "owner-b";
-        theirs.OwnerPlayerId = 2;
-        LostItemRecord anonymous = Record();
-        anonymous.NetId = 44;
-        anonymous.PersistentItemId = Guid.NewGuid();
-        registry.Add(mine);
+        theirs.OwnerIdentity = O(2);
+        registry.Add(Record());
         registry.Add(theirs);
-        registry.Add(anonymous);
 
-        Assert.That(registry.UnbindOwner(1), Is.EqualTo(1), "a record without an identity could never be rebound");
-        Assert.That(registry.RebindOwner("owner-a", 5), Is.EqualTo(1));
-        Assert.That(registry.GetForOwner(2), Has.Count.EqualTo(1));
-        Assert.That(registry.GetForOwner(1), Has.Count.EqualTo(1));
-        Assert.That(registry.RebindOwner(string.Empty, 6), Is.Zero);
+        Assert.That(registry.GetForOwner(O(1)), Has.Count.EqualTo(1));
+        Assert.That(registry.GetForOwner(O(2))[0].NetId, Is.EqualTo(43));
+        Assert.That(registry.GetForOwner(string.Empty), Is.Empty);
+        Assert.That(registry.GetForOwner(O(5)), Is.Empty);
     }
 
     [Test]
@@ -443,8 +431,8 @@ public sealed class LostAndFoundTests
                 registry.RemoveStale(entry.NetId, out _);
         }
 
-        Assert.That(registry.GetForOwner(1), Has.Count.EqualTo(1));
-        Assert.That(registry.GetForOwner(1)[0].NetId, Is.EqualTo(42));
+        Assert.That(registry.GetForOwner(O(1)), Has.Count.EqualTo(1));
+        Assert.That(registry.GetForOwner(O(1))[0].NetId, Is.EqualTo(42));
         Assert.That(registry.TryGetByHandle(storedBooklet.Handle, out _), Is.False);
     }
 
@@ -453,8 +441,11 @@ public sealed class LostAndFoundTests
         PersistentItemId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
         NetId = 42,
         Revision = 7,
-        OwnerPlayerId = 1,
+        OwnerIdentity = O(1),
         PrefabName = "CommsRadio",
         DisplayName = "Radio"
     };
+
+    // Owners are identities, numbered here for short.
+    private static string O(int number) => new Guid(number, 0, 0, new byte[8]).ToString("D");
 }

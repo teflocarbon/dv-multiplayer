@@ -11,6 +11,8 @@ namespace Multiplayer.Core.Tests.Items.Essentials;
 [TestFixture]
 public sealed class ClaimSlotPolicyTests
 {
+    private static readonly Guid Owner = new(1, 0, 0, new byte[8]);
+
     [Test]
     public void StolenRadioSharingTheMapsSlot_MovesToAFreeSlotAndTheMapKeepsItsOwn()
     {
@@ -36,13 +38,13 @@ public sealed class ClaimSlotPolicyTests
             ClaimFlags.Reserved | ClaimFlags.Dropped);
         LiveItemState map = Essential(765, slot: 7, ClaimFlags.Reserved);
         map.Placement = LivePlacement.PlayerHand;
-        map.PlacementPlayerId = 1;
+        map.Holder = Owner;
 
         // The owner moves the map from their hand into slot 3. The state machine sees one item and
         // follows the owner's client, so the map now claims the radio's slot.
         TransitionResult placed = ItemStateMachine.Apply(map, new ItemTransition
         {
-            ActorPlayerId = 1,
+            Actor = Owner,
             ExpectedRevision = map.Revision,
             AppliesPlacement = true,
             RequestedPlacement = LivePlacement.PlayerInventory,
@@ -134,7 +136,7 @@ public sealed class ClaimSlotPolicyTests
             PersistentItemId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
             NetId = 763,
             Revision = 7,
-            OwnerPlayerId = 1,
+            OwnerIdentity = Owner.ToString("D"),
             PrefabName = "CommsRadio",
             InventoryClaimSlot = 3
         });
@@ -156,8 +158,7 @@ public sealed class ClaimSlotPolicyTests
         NetId = netId,
         Revision = 4,
         Placement = LivePlacement.World,
-        PersistentOwnerPlayerId = 1,
-        InventoryClaimPlayerId = 1,
+        Owner = Owner,
         InventoryClaimSlot = slot,
         InventoryClaimFlags = flags
     };
@@ -165,6 +166,6 @@ public sealed class ClaimSlotPolicyTests
     private static EssentialClaim Claim(LiveItemState state) => new(state.NetId,
         state.InventoryClaimSlot,
         state.Placement == LivePlacement.PlayerInventory &&
-            state.PlacementPlayerId == state.PersistentOwnerPlayerId,
+            state.Holder == state.Owner,
         (state.InventoryClaimFlags & (ClaimFlags.Dropped | ClaimFlags.Stolen)) != 0);
 }

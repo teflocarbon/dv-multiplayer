@@ -10,9 +10,10 @@ namespace Multiplayer.Core.Tests.Items.ChangeCauses;
 [TestFixture]
 public sealed class ItemChangeReasonsTests
 {
-    private const byte Host = 1, Bentgear = 3, Liam = 4;
+    private static readonly Guid Host = new(1, 0, 0, new byte[8]), Bentgear = new(3, 0, 0, new byte[8]),
+        Liam = new(4, 0, 0, new byte[8]);
 
-    private static ItemWhereabouts At(LivePlacement placement, byte holder = 0, byte owner = 0) =>
+    private static ItemWhereabouts At(LivePlacement placement, Guid holder = default, Guid owner = default) =>
         new(placement, holder, owner);
 
     [TestCase(LivePlacement.World, LivePlacement.PlayerHand, false, ItemMoveReason.PickedUp)]
@@ -67,7 +68,7 @@ public sealed class ItemChangeReasonsTests
     public void Whereabouts_IgnoreAHolderTheItemIsNoLongerWith()
     {
         // A dropped item's record can keep the old holder id; it isn't held by them.
-        Assert.That(At(LivePlacement.World, Bentgear).HolderPlayerId, Is.EqualTo(0));
+        Assert.That(At(LivePlacement.World, Bentgear).Holder, Is.EqualTo(Guid.Empty));
         Assert.That(ItemMoveClassifier.Changed(At(LivePlacement.World, Bentgear), At(LivePlacement.World)),
             Is.False);
     }
@@ -75,13 +76,13 @@ public sealed class ItemChangeReasonsTests
     [Test]
     public void Describe_SaysWhereFromAndToAndTheNewOwner()
     {
-        string Names(byte id) => id switch { Bentgear => "Bentgear29", Liam => "Liam", _ => null };
+        string Names(Guid id) => id == Bentgear ? "Bentgear29" : id == Liam ? "Liam" : null;
 
         Assert.That(ItemMoveClassifier.Describe(At(LivePlacement.World), At(LivePlacement.PlayerHand, Liam, Liam), Names),
             Is.EqualTo("world -> Liam's hand, owner none -> Liam"));
         Assert.That(ItemMoveClassifier.Describe(At(LivePlacement.PlayerHand, Host, Bentgear),
-                At(LivePlacement.TrainInterior, 0, Bentgear), Names),
-            Is.EqualTo("P1's hand -> train car"));
+                At(LivePlacement.TrainInterior, Guid.Empty, Bentgear), Names),
+            Is.EqualTo("00000001's hand -> train car"));
         Assert.That(ItemMoveClassifier.Describe(At(LivePlacement.World, owner: Liam), At(LivePlacement.World), Names),
             Is.EqualTo("owner Liam -> none"));
     }
@@ -91,7 +92,7 @@ public sealed class ItemChangeReasonsTests
     {
         var removed = new ChangeCause<ItemRemovalReason>(ItemRemovalReason.JobDocumentDestroyed,
             detail: "job CME-SU-12 Completed");
-        var moved = new ChangeCause<ItemMoveReason>(ItemMoveReason.PickedUp, Bentgear, "Bentgear29",
+        var moved = new ChangeCause<ItemMoveReason>(ItemMoveReason.PickedUp, 3, "Bentgear29",
             detail: "world -> Bentgear29's hand");
 
         Assert.That(ItemChangeLogFormat.Removed("JobOverview(Clone)", 801, removed),

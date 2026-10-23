@@ -16,7 +16,9 @@ public sealed class LostAndFoundAwayOwnerTests
     {
         NetId = 42,
         Revision = 7,
-        PersistentOwnerPlayerId = ItemTransition.AbsentOwnerId,
+        // An offline owner is an identity with no session.
+        Owner = new System.Guid(9, 0, 0, new byte[8]),
+        OwnerConnected = false,
         IsPersonalItem = true,
         Placement = placement,
         // An offline owner has no position.
@@ -49,7 +51,7 @@ public sealed class LostAndFoundAwayOwnerTests
     public void AnOnlineOwnersItemInATrainOrOnAShelf_StaysWhereItIs(LivePlacement placement)
     {
         LostItemCandidate item = AwayOwners(placement);
-        item.PersistentOwnerPlayerId = 1;
+        item.OwnerConnected = true;
         item.OwnerPositionKnown = true;
         item.OwnerDistanceSquared = 5000 * 5000;
 
@@ -96,7 +98,7 @@ public sealed class LostAndFoundAwayOwnerTests
     public void AnUnownedItem_IsNeverCollected()
     {
         LostItemCandidate item = AwayOwners();
-        item.PersistentOwnerPlayerId = 0;
+        item.Owner = System.Guid.Empty;
 
         Assert.That(Evaluate(item).Reason, Is.EqualTo("unowned"));
     }

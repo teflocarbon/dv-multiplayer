@@ -166,7 +166,7 @@ internal sealed class TrainItemWakeServer
             settledByItem.TryGetValue(item.NetId, out SettledRecord previous))
         {
             RemoveSettled(item.NetId);
-            WakeSupportedItems(previous, preferredSimulatorPlayerId: record?.PlacementPlayerId ?? 0);
+            WakeSupportedItems(previous, preferredSimulatorPlayerId: PlayerNumbers.Of(record?.Holder ?? Guid.Empty));
         }
     }
 
@@ -186,7 +186,7 @@ internal sealed class TrainItemWakeServer
     internal void ReceiveImpactWitness(ServerboundItemTrainWakeWitnessPacket packet,
         ServerPlayer sender, bool serverWitness = false)
     {
-        byte senderId = sender?.PlayerId ?? ItemTransition.ServerActorId;
+        byte senderId = sender?.PlayerId ?? HostItemActor.ServerSimulatorId;
         string rejection = ValidateWitness(packet, sender, senderId, serverWitness, out SettledRecord target,
             out ItemSpatialStateData sourceState);
         if (!string.IsNullOrEmpty(rejection))

@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Core.Items.LiveState;
 
 namespace Multiplayer.Core.Items.LostAndFound;
@@ -14,7 +15,10 @@ public sealed class LostItemCandidate
 {
     public ushort NetId { get; set; }
     public uint Revision { get; set; }
-    public byte PersistentOwnerPlayerId { get; set; }
+    /// <summary>The owner's identity, or empty for an unowned item.</summary>
+    public Guid Owner { get; set; }
+    /// <summary>The owner has a session: an offline owner is an identity with none.</summary>
+    public bool OwnerConnected { get; set; }
     public LivePlacement Placement { get; set; }
     public bool IsGrabbed { get; set; }
     public bool IsSnapped { get; set; }
@@ -47,7 +51,7 @@ public static class LostItemCollectionPolicy
     public static LostItemDecision Evaluate(LostItemCandidate item, float ownerDistance,
         float nearbyPlayerProtectionDistance, float graceSeconds)
     {
-        if (item == null || item.NetId == 0 || item.PersistentOwnerPlayerId == 0)
+        if (item == null || item.NetId == 0 || item.Owner == Guid.Empty)
             return Ineligible("unowned");
         if (!item.IsPersonalItem)
             return Ineligible("not-a-personal-item");
@@ -55,7 +59,7 @@ public static class LostItemCollectionPolicy
             return Ineligible("license-paper-excluded");
         // An offline owner counts as far away (decided by the user 2026-10-21), and their items are
         // collected from train interiors and shelves too; an online owner's from the world only.
-        bool ownerAway = item.PersistentOwnerPlayerId == ItemTransition.AbsentOwnerId;
+        bool ownerAway = !item.OwnerConnected;
         if (item.Placement != LivePlacement.World &&
             !(ownerAway && item.Placement is LivePlacement.TrainInterior or LivePlacement.StaticParent))
             return Ineligible("not-in-world");

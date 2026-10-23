@@ -329,5 +329,5 @@ public sealed class ServerShops
 
     private static bool HeldBy(NetworkedItem item, ServerPlayer player) =>
         LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) &&
-        record.Placement == ItemPlacementKind.PlayerHand && record.PlacementPlayerId == player.PlayerId;
+        record.Placement == ItemPlacementKind.PlayerHand && record.Holder == player.Guid;
 }

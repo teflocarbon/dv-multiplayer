@@ -106,7 +106,7 @@ internal static partial class ItemSaveLoad
         ServerPlayer holder = ResolveConnectedPlayer(saved.PlacementPlayerIdentity);
         ItemUpdateData seed = CreateRestoreSeed(item, saved, holder);
         LiveItems.LiveItem record = LiveItems.Ensure(item, owner, seed);
-        ApplySavedRecord(record, saved, owner, holder);
+        ApplySavedRecord(record, saved);
         LiveItems.WriteToSnapshot(record, seed, ItemTransitionReason.PersistenceRestore);
 
         bool waitingForOwner = MustWaitForHolder(saved, holder);
@@ -162,24 +162,21 @@ internal static partial class ItemSaveLoad
         _ => ItemState.Dropped
     };
 
-    private static void ApplySavedRecord(LiveItems.LiveItem record,
-        SavedItemRow saved, ServerPlayer owner, ServerPlayer holder)
+    private static void ApplySavedRecord(LiveItems.LiveItem record, SavedItemRow saved)
     {
         record.Revision = saved.Revision;
         record.Placement = saved.Placement;
-        record.PlacementPlayerId = holder?.PlayerId ?? 0;
+        // By identity, here or not: an offline holder gets it back when they join (MustWaitForHolder).
+        record.Holder = saved.PlacementPlayerIdentity;
         record.PlacementHand = PlayerHand.None;
-        record.PlacementPlayerIdentity = saved.PlacementPlayerIdentity;
-        record.PersistentOwnerPlayerId = owner?.PlayerId ?? ServerLedger.OwnerNumber(saved.OwnerIdentity);
-        record.PersistentOwnerIdentity = saved.OwnerIdentity;
-        record.InventoryClaimPlayerId = owner?.PlayerId ?? 0;
+        record.Owner = saved.OwnerIdentity;
         record.InventoryClaimSlot = saved.ClaimSlot;
         record.InventoryClaimFlags = saved.ClaimFlags;
         record.Position = saved.Position;
         record.Rotation = saved.Rotation;
         record.LastReason = ItemTransitionReason.PersistenceRestore;
         // Kept, not logged: a load restores every saved item at once. A held item is logged as it
-        // reaches its holder (ItemSaveLoad.BindConnectedOwner).
+        // reaches its holder (ItemSaveLoad.ReturnHeldItem).
         record.LastMove = ItemChangeLog.Move(global::Multiplayer.Core.Items.ChangeCauses.ItemMoveReason.RestoredFromSave,
             detail: "saved as " + saved.Placement);
         record.PersistentItemId = saved.PersistentItemId;

@@ -46,16 +46,19 @@
   `Players`) moved to its Steam ID, none were left under `...c11e`, and all 15 items were in the
   registry under the new ID. Four of them came back on the client wrongly, from a dedicated-host
   bug that happened without any re-key too, since fixed (dedicated-host.md, Implementation status).
-  `InstallGuidRekey` runs at login, before the player's records are bound:
+  `InstallGuidRekey` runs at login, before the player's saved items are given back:
   - It runs when the player's ID is a Steam one, the install GUID they sent differs, and the
     career has data for that GUID and none for the Steam ID.
   - It rewrites the save as loaded: the `Players` key, item records' owner and placement
-    identities, Lost and Found owners, and the cold-container snapshot (decoded, re-keyed and
-    encoded again). A system that imports later then finds the new ID.
+    identities, Lost and Found owners, the saved ledger (`OwnedItemsV1`: owners, holders, who caused
+    each entry, starter kits; R1) and the cold-container snapshot (decoded, re-keyed and encoded
+    again). A system that imports later then finds the new ID.
   - It also re-keys what's already imported: the item registry, Lost and Found (restored and
-    pending entries), the cold-container graph and the ledger's starter-kit marker.
-  - The gate can't reach it, since `-mp-allow-unverified` keeps GUIDs. A verified dvmp pair
-    (above) does.
+    pending entries), the cold-container graph and the ledger's owners, holders and starter-kit
+    marker (R1).
+  - The gate reaches it through the `rekey` scenario, which makes the host resolve the client's
+    next login to a Steam-form ID, since `-mp-allow-unverified` keeps GUIDs. A verified dvmp
+    pair (above) does it for real.
 - **Step 1, starting items: built and tested.**
   - The host sends what a joining player already owns: prefab and inventory slot, from live
     records, unrestored Lost and Found entries and cold containers (`OwnedItemsSummary`, two new

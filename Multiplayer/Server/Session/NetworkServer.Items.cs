@@ -34,10 +34,10 @@ public partial class NetworkServer : IItemServer
 {
     bool IItemServer.IsInLostAndFound(ushort itemNetId) => LostAndFoundServer.Contains(itemNetId);
 
-    bool IItemServer.TryGetPersistentOwner(ushort itemNetId, out byte ownerPlayerId)
+    bool IItemServer.TryGetPersistentOwner(ushort itemNetId, out Guid owner)
     {
         bool known = LiveItems.TryGet(itemNetId, out LiveItems.LiveItem record);
-        ownerPlayerId = known ? record.PersistentOwnerPlayerId : (byte)0;
+        owner = known ? record.Owner : Guid.Empty;
         return known;
     }
 
@@ -426,10 +426,10 @@ public partial class NetworkServer : IItemServer
         if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) &&
             (record.Placement is ItemPlacementKind.LostAndFound or ItemPlacementKind.Container ||
              record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
-             record.PlacementPlayerId != player.PlayerId))
+             record.Holder != player.Guid))
         {
             LogWarning($"Money from P{player.PlayerId} rejected: netId {item.NetId} is {record.Placement} " +
-                $"(player {record.PlacementPlayerId})");
+                $"(player {ItemChangeLog.PlayerName(record.Holder)})");
             return false;
         }
 

@@ -57,7 +57,7 @@ namespace Dvmp.Scenarios
                 if (!Expect.That(now.Exists, "the mug is there after the rejoin", ids[i])) continue;
                 if (now.Lost) { lost++; collected = now.NetId; }
                 Expect.Equal(client, now.Owner, $"mug {now.NetId}'s owner after the rejoin (the client)");
-                Expect.Equal(now.ClientNumber, now.Number, $"mug {now.NetId}'s owner number after the rejoin (the client's new number)");
+                Expect.That(now.OwnerConnected, $"mug {now.NetId}'s owner (the client) has a session after the rejoin", now.Owner);
                 Expect.Equal(client, now.LedgerOwner, $"the ledger's owner of mug {now.NetId}");
                 Expect.That(now.Lost ? now.LostEntry == ids[i] : now.Placement == "World", "the mug is in the world or in Lost and Found under its own id", now.ToString());
             }

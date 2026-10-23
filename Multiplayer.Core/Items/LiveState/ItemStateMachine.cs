@@ -35,9 +35,11 @@ public sealed class LiveItemState
     public ushort NetId { get; set; }
     public uint Revision { get; set; }
     public LivePlacement Placement { get; set; }
-    public byte PlacementPlayerId { get; set; }
-    public byte PersistentOwnerPlayerId { get; set; }
-    public byte InventoryClaimPlayerId { get; set; }
+    /// <summary>The identity of the player whose hand or inventory it's in, or empty.</summary>
+    public Guid Holder { get; set; }
+    /// <summary>The owner's identity, or empty for an unowned item. An offline owner is still its owner.</summary>
+    public Guid Owner { get; set; }
+    /// <summary>An essential's claim slot in its owner's inventory, or -1. A claim is always its owner's.</summary>
     public int InventoryClaimSlot { get; set; } = -1;
     public ClaimFlags InventoryClaimFlags { get; set; }
     /// <summary>
@@ -54,9 +56,8 @@ public sealed class LiveItemState
         NetId = NetId,
         Revision = Revision,
         Placement = Placement,
-        PlacementPlayerId = PlacementPlayerId,
-        PersistentOwnerPlayerId = PersistentOwnerPlayerId,
-        InventoryClaimPlayerId = InventoryClaimPlayerId,
+        Holder = Holder,
+        Owner = Owner,
         InventoryClaimSlot = InventoryClaimSlot,
         InventoryClaimFlags = InventoryClaimFlags,
         ObjectStateRunBase = ObjectStateRunBase,
@@ -67,23 +68,12 @@ public sealed class LiveItemState
 public sealed class ItemTransition
 {
     /// <summary>
-    /// The actor id of the server itself: a host with no player of its own (a dedicated host with
-    /// no local player session) committing what its own world did to an item, such as physics
-    /// settling it, its own throws and the items it makes. It moves items about the world, but
-    /// never holds one and never becomes an owner.
+    /// The identity of the player making the change, or empty for the server itself: a host with
+    /// no player of its own (a dedicated host with no local player session) committing what its own
+    /// world did to an item, such as physics settling it, its own throws and the items it makes.
+    /// The server moves items about the world, but never holds one and never becomes an owner.
     /// </summary>
-    public const byte ServerActorId = 0;
-
-    /// <summary>
-    /// The owner number of an item whose owner isn't connected (owned-items.md, PR 2a). Player
-    /// numbers are per session, so an offline owner has none; this one is reserved and never given to
-    /// a player. Every check that reads 0 as "unowned" then sees the item as owned, and no player
-    /// matches it, so nobody else becomes its owner or recalls it, and it is someone else's to a
-    /// borrower.
-    /// </summary>
-    public const byte AbsentOwnerId = 255;
-
-    public byte ActorPlayerId { get; set; }
+    public Guid Actor { get; set; }
     public uint ExpectedRevision { get; set; }
     public bool Force { get; set; }
     public bool AppliesPlacement { get; set; }
@@ -108,7 +98,8 @@ public sealed class ItemTransition
 
 public sealed class RecallCommand
 {
-    public byte RequestingPlayerId { get; set; }
+    /// <summary>The identity of the player asking for it back.</summary>
+    public Guid Requester { get; set; }
     public uint ExpectedRevision { get; set; }
     public int RequestedSlot { get; set; } = -1;
 }
@@ -141,7 +132,7 @@ public static class ItemStateMachine
     {
         if (current == null || command == null || current.NetId == 0)
             return TransitionResult.Reject(current, "invalid-transition-input");
-        bool serverActor = command.ActorPlayerId == ItemTransition.ServerActorId;
+        bool serverActor = command.Actor == Guid.Empty;
         if (serverActor && (command.EstablishPersistentOwner ||
                             command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement)))
             return TransitionResult.Reject(current, "server-cannot-possess");
@@ -164,8 +155,8 @@ public static class ItemStateMachine
             return TransitionResult.Reject(current, "authority-revision-exhausted");
 
         if (command.AppliesPlacement && !command.Force &&
-            IsPlayerPlacement(current.Placement) && current.PlacementPlayerId != 0 &&
-            current.PlacementPlayerId != command.ActorPlayerId)
+            IsPlayerPlacement(current.Placement) && current.Holder != Guid.Empty &&
+            current.Holder != command.Actor)
             return TransitionResult.Reject(current, "sender-not-current-possessor");
 
         LiveItemState next = current.Clone();
@@ -175,12 +166,11 @@ public static class ItemStateMachine
         bool establishesOwner = !serverActor && (command.EstablishPersistentOwner ||
             command.MayEstablishPersistentOwner &&
             (requestedRetrievalClaim || command.AppliesPlacement && IsPlayerPlacement(command.RequestedPlacement)));
-        if (command.AppliesPlacement && next.PersistentOwnerPlayerId == 0 && establishesOwner)
+        if (command.AppliesPlacement && next.Owner == Guid.Empty && establishesOwner)
         {
-            next.PersistentOwnerPlayerId = command.ActorPlayerId;
+            next.Owner = command.Actor;
             if (requestedRetrievalClaim)
             {
-                next.InventoryClaimPlayerId = command.ActorPlayerId;
                 next.InventoryClaimSlot = command.InventoryClaimSlot;
                 next.InventoryClaimFlags = command.InventoryClaimFlags;
             }
@@ -189,20 +179,18 @@ public static class ItemStateMachine
         if (command.AppliesPlacement)
         {
             next.Placement = command.RequestedPlacement;
-            next.PlacementPlayerId = IsPlayerPlacement(command.RequestedPlacement)
-                ? command.ActorPlayerId
-                : (byte)0;
+            next.Holder = IsPlayerPlacement(command.RequestedPlacement)
+                ? command.Actor
+                : Guid.Empty;
         }
 
-        if (command.AppliesPlacement && next.PersistentOwnerPlayerId != 0 &&
-            command.ActorPlayerId == next.PersistentOwnerPlayerId)
+        if (command.AppliesPlacement && next.Owner != Guid.Empty && command.Actor == next.Owner)
         {
             if (requestedRetrievalClaim)
             {
-                next.InventoryClaimPlayerId = command.ActorPlayerId;
                 bool ownerControlsCurrentPlacement = command.AppliesPlacement &&
                     IsPlayerPlacement(current.Placement) &&
-                    current.PlacementPlayerId == command.ActorPlayerId;
+                    current.Holder == command.Actor;
                 if (next.InventoryClaimSlot < 0 || ownerControlsCurrentPlacement)
                     next.InventoryClaimSlot = command.InventoryClaimSlot;
                 next.InventoryClaimFlags = command.InventoryClaimFlags;
@@ -216,8 +204,8 @@ public static class ItemStateMachine
                 next.InventoryClaimFlags &= ~ClaimFlags.Stolen;
             }
         }
-        else if (command.AppliesPlacement && next.PersistentOwnerPlayerId != 0 &&
-                 command.ActorPlayerId != next.PersistentOwnerPlayerId && next.InventoryClaimSlot >= 0)
+        else if (command.AppliesPlacement && next.Owner != Guid.Empty &&
+                 command.Actor != next.Owner && next.InventoryClaimSlot >= 0)
         {
             next.InventoryClaimFlags |= ClaimFlags.Dropped |
                 ClaimFlags.Reserved | ClaimFlags.Stolen;
@@ -225,8 +213,7 @@ public static class ItemStateMachine
 
         if (command.Force && command.ClearRetrievalClaim)
         {
-            next.PersistentOwnerPlayerId = 0;
-            next.InventoryClaimPlayerId = 0;
+            next.Owner = Guid.Empty;
             next.InventoryClaimSlot = -1;
             next.InventoryClaimFlags = ClaimFlags.None;
         }
@@ -240,10 +227,9 @@ public static class ItemStateMachine
 
     public static TransitionResult Recall(LiveItemState current, RecallCommand command)
     {
-        if (current == null || command == null || current.NetId == 0 || command.RequestingPlayerId == 0)
+        if (current == null || command == null || current.NetId == 0 || command.Requester == Guid.Empty)
             return TransitionResult.Reject(current, "unknown-network-entity");
-        if (current.PersistentOwnerPlayerId == 0 ||
-            current.PersistentOwnerPlayerId != command.RequestingPlayerId)
+        if (current.Owner == Guid.Empty || current.Owner != command.Requester)
             return TransitionResult.Reject(current, "requester-not-persistent-owner");
         if (current.InventoryClaimSlot < 0 || !HasRetrievalFlag(current.InventoryClaimFlags))
             return TransitionResult.Reject(current, "item-not-recallable");
@@ -256,8 +242,7 @@ public static class ItemStateMachine
 
         LiveItemState next = current.Clone();
         next.Placement = LivePlacement.PlayerInventory;
-        next.PlacementPlayerId = command.RequestingPlayerId;
-        next.InventoryClaimPlayerId = command.RequestingPlayerId;
+        next.Holder = command.Requester;
         // The authenticated owner invoked recall from a concrete local ghost slot. That
         // slot is fresher evidence than a potentially stale canonical claim captured before
         // Derail Valley rebuilt or moved its inventory layout.

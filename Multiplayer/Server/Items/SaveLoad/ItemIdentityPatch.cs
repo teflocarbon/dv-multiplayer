@@ -37,8 +37,8 @@ internal static class ItemIdentityPatch
         // too (gadgets.md, "Persistence").
         if (networked != null && LiveItems.TryGet(networked.NetId,
                 out LiveItems.LiveItem record) &&
-            record.Placement == ItemPlacementKind.Installed && record.PersistentOwnerIdentity != Guid.Empty)
-            __result[OwnerKey] = record.PersistentOwnerIdentity.ToString("D");
+            record.Placement == ItemPlacementKind.Installed && record.Owner != Guid.Empty)
+            __result[OwnerKey] = record.Owner.ToString("D");
     }
 
     [HarmonyPrefix]

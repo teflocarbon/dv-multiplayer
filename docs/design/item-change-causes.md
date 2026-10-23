@@ -83,6 +83,6 @@ that only left the player's interest (`LeftInterest`), go to the debug log.
 - Destroys by Derail Valley code other than the patched job and inventory methods: `DestroyedByGame`
   with the context above but no caller.
 - Settlement poses travel in the spatial commit packet, which carries no cause.
-- Owner numbers unbound on disconnect and rebound on login (`UnbindPersistentOwner`,
-  `RebindPersistentOwner`) are the same owner under a new number and aren't logged.
+- A re-key of an install GUID to a Steam ID (`InstallGuidRekey`) changes owners and holders
+  without moving anything, and isn't logged per item.
 - Cold-container moves between containers have no NetId; they are logged as `Cold item moved: ...`.

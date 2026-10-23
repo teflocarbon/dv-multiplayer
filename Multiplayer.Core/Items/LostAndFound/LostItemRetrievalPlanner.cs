@@ -17,13 +17,13 @@ public readonly struct LostItemRetrievalPlan
 
 public static class LostItemRetrievalPlanner
 {
-    public static LostItemRetrievalPlan Plan(LostItemRecord record, byte requesterPlayerId,
+    public static LostItemRetrievalPlan Plan(LostItemRecord record, string requesterIdentity,
         uint expectedRevision, int requestedSlot, int existingItemSlot, int inventoryCapacity,
         IReadOnlyCollection<int> occupiedSlots)
     {
-        if (record == null || requesterPlayerId == 0)
+        if (record == null || string.IsNullOrEmpty(requesterIdentity))
             return Reject("unknown-lost-item");
-        if (record.OwnerPlayerId != requesterPlayerId)
+        if (!LostItemRegistry.SameIdentity(record.OwnerIdentity, requesterIdentity))
             return Reject("requester-not-persistent-owner");
         if (record.Revision != expectedRevision)
             return Reject("stale-lost-item-revision");

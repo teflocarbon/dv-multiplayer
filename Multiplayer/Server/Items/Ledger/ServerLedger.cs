@@ -90,17 +90,17 @@ public static class ServerLedger
     internal static void OnMove(LiveItems.LiveItem record, ChangeCause<ItemMoveReason> cause)
     {
         if (!loaded || record == null || record.PersistentItemId == Guid.Empty ||
-            record.PersistentOwnerIdentity == Guid.Empty)
+            record.Owner == Guid.Empty)
             return;
         Guid id = record.PersistentItemId;
         Home where = WhereOf(record);
         if (!ledger.TryGet(id, out LedgerEntry entry) || !entry.IsLive)
         {
-            Register(record, BirthFrom(cause.Reason), Identity(cause.PlayerId), cause.Detail);
+            Register(record, BirthFrom(cause.Reason), PlayerNumbers.Identity(cause.PlayerId), cause.Detail);
             return;
         }
-        if (entry.Owner != record.PersistentOwnerIdentity)
-            Multiplayer.LogWarning($"Owned items: {entry} changed owner to {record.PersistentOwnerIdentity:D} " +
+        if (entry.Owner != record.Owner)
+            Multiplayer.LogWarning($"Owned items: {entry} changed owner to {record.Owner:D} " +
                                    $"outside the ledger ({cause})");
         ledger.Move(id, where);
         if (HasRetrievalClaim(record) && entry.ClaimSlot >= 0 && entry.ClaimSlot != record.InventoryClaimSlot)
@@ -145,8 +145,7 @@ public static class ServerLedger
         LiveItems.LiveItem made = LiveItems.Ensure(replacement);
         if (made == null || made.PersistentItemId == Guid.Empty)
             return false;
-        made.PersistentOwnerIdentity = usedEntry.Owner;
-        made.PersistentOwnerPlayerId = OwnerNumber(usedEntry.Owner);
+        made.Owner = usedEntry.Owner;
         if (replacement.Item?.InventorySpecs != null)
             replacement.Item.InventorySpecs.BelongsToPlayer = true;
         Registration registration = ledger.Replace(usedRecord.PersistentItemId, endReason, new BirthRequest
@@ -243,7 +242,7 @@ public static class ServerLedger
         HashSet<Guid> pendingLost = PendingLostAndFound();
         foreach (LiveItems.LiveItem record in LiveItems.GetAll())
         {
-            if (record.PersistentItemId == Guid.Empty || record.PersistentOwnerIdentity == Guid.Empty ||
+            if (record.PersistentItemId == Guid.Empty || record.Owner == Guid.Empty ||
                 pendingLost.Contains(record.PersistentItemId) ||
                 record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container)
                 continue;
@@ -252,8 +251,8 @@ public static class ServerLedger
             // The slot is left out: moving an item between inventory slots isn't a logged move.
             else if (!SamePlace(entry.Where, WhereOf(record)))
                 problems.Add($"{entry}: the record says {WhereOf(record)}");
-            else if (entry.Owner != record.PersistentOwnerIdentity)
-                problems.Add($"{entry}: the record's owner is {record.PersistentOwnerIdentity:D}");
+            else if (entry.Owner != record.Owner)
+                problems.Add($"{entry}: the record's owner is {record.Owner:D}");
         }
 
         StorageController storage = StorageController.Instance;
@@ -262,7 +261,7 @@ public static class ServerLedger
         foreach (ItemBase item in storage.StorageLostAndFound?.GetStorageItemList() ?? new List<ItemBase>())
             if (item != null && NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem networked) &&
                 LiveItems.TryGet(networked.NetId, out LiveItems.LiveItem record) &&
-                record.PersistentOwnerIdentity != Guid.Empty && record.Placement != ItemPlacementKind.LostAndFound &&
+                record.Owner != Guid.Empty && record.Placement != ItemPlacementKind.LostAndFound &&
                 !pendingLost.Contains(record.PersistentItemId))
                 problems.Add($"{item.name} (netId {networked.NetId}, {record.PersistentItemId:D}) is in vanilla's Lost and Found, but its record says {record.Placement}");
         // A dedicated host's own inventory belongs to its parked body and stays empty (#261).
@@ -290,7 +289,7 @@ public static class ServerLedger
             .FirstOrDefault(r => r.PersistentItemId == itemId && itemId != Guid.Empty);
         if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
             refused = "unknown-item";
-        else if (record.PersistentOwnerPlayerId == 0)
+        else if (record.Owner == Guid.Empty)
             refused = "item-has-no-owner";
         else if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
             refused = "item-is-with-a-player";
@@ -301,23 +300,11 @@ public static class ServerLedger
         return refused.Length == 0;
     }
 
-    /// <summary>
-    /// The owner number for an owner's identity: their session's player number while they are
-    /// connected, <see cref="ItemTransition.AbsentOwnerId"/> while they aren't, 0 for no owner.
-    /// </summary>
-    public static byte OwnerNumber(Guid owner)
-    {
-        if (owner == Guid.Empty)
-            return 0;
-        ServerPlayer player = NetworkServer.Instance?.ServerPlayers.FirstOrDefault(p => p.Guid == owner);
-        return player != null ? player.PlayerId : ItemTransition.AbsentOwnerId;
-    }
-
     /// <summary>Where a record says its item is, as the ledger puts it.</summary>
     public static Home WhereOf(LiveItems.LiveItem record) => record.Placement switch
     {
-        ItemPlacementKind.PlayerHand => Home.With(Holder(record), HoldKind.Hand),
-        ItemPlacementKind.PlayerInventory => Home.With(Holder(record), HoldKind.Inventory,
+        ItemPlacementKind.PlayerHand => Home.With(record.Holder, HoldKind.Hand),
+        ItemPlacementKind.PlayerInventory => Home.With(record.Holder, HoldKind.Inventory,
             record.InventoryClaimSlot),
         ItemPlacementKind.TrainInterior => Home.World("car:" + record.WorldParentPersistentId),
         ItemPlacementKind.StaticParent => Home.World("static:" + record.WorldParentKey),
@@ -337,7 +324,7 @@ public static class ServerLedger
         Registration registered = ledger.Register(new BirthRequest
         {
             Id = record.PersistentItemId,
-            Owner = record.PersistentOwnerIdentity,
+            Owner = record.Owner,
             Prefab = record.PrefabName,
             Where = WhereOf(record),
             Reason = reason,
@@ -377,7 +364,7 @@ public static class ServerLedger
             OwnedItemStore? store = LoadReconciler.StoreFor(where);
             if (store.HasValue)
                 yield return new OwnedItemStoreHit(record.PersistentItemId, store.Value, where,
-                    record.PersistentOwnerIdentity, record.PrefabName, IsShopStocked(record.NetId),
+                    record.Owner, record.PrefabName, IsShopStocked(record.NetId),
                     HasRetrievalClaim(record) ? record.InventoryClaimSlot : -1);
         }
         foreach (LostAndFoundServer.PendingEntry pending in LostAndFoundServer.PendingEntries())
@@ -426,14 +413,6 @@ public static class ServerLedger
             ItemMoveReason.WithdrawnFromContainer or ItemMoveReason.RetrievedFromLostAndFound => BirthReason.Migrated,
         _ => BirthReason.Claimed
     };
-
-    private static Guid Holder(LiveItems.LiveItem record) =>
-        record.PlacementPlayerIdentity != Guid.Empty ? record.PlacementPlayerIdentity : Identity(record.PlacementPlayerId);
-
-    private static Guid Identity(byte playerId) =>
-        playerId != 0 && NetworkServer.Instance != null && NetworkServer.Instance.TryGetServerPlayer(playerId, out ServerPlayer player)
-            ? player.Guid
-            : Guid.Empty;
 
     private static bool HasRetrievalClaim(LiveItems.LiveItem record) =>
         record.InventoryClaimSlot >= 0 &&

@@ -201,7 +201,7 @@ namespace Dvmp.Scenarios
             public static Recorded Recorded(ushort id)
             {
                 LiveItems.TryGet(id, out var r);
-                return new Recorded { Placement = r?.Placement.ToString(), Mine = r != null && r.PlacementPlayerId == Client().PlayerId };
+                return new Recorded { Placement = r?.Placement.ToString(), Mine = r != null && r.Holder == Client().Guid };
             }
 
             [Step]

@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Threading.Tasks;
 using Multiplayer.Core.Items.Ledger;
-using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
@@ -11,11 +10,11 @@ using Multiplayer.Shared.Items.LiveState;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// An offline owner's item stays theirs (owned-items.md, PR 2a). The host gives a personal mug to
-    /// a player who isn't here (a made-up identity, as owned-items does). The client (or the host's
-    /// own player, WHO=host) picks it up and drops it: the owner must still be the absent player,
-    /// not the taker (before, an offline
-    /// owner's number was 0 and the first taker became the owner). Then the host puts the mug in the
+    /// An offline owner's item stays theirs (owned-items.md, PR 2a; item-refactor.md, "Identity only"):
+    /// an offline owner is an identity with no session. The host gives a personal mug to a player who
+    /// isn't here (a made-up identity, as owned-items does). The client (or the host's own player,
+    /// WHO=host) picks it up and drops it: the owner must still be the absent player's identity, not
+    /// the taker (before #304, an offline owner was nobody and the first taker became the owner). Then the host puts the mug in the
     /// absent player's Lost and Found, the games save and restart, and the entry must be bound to the
     /// mug at load although its owner never joins (before, it waited for them).
     /// </summary>
@@ -24,9 +23,6 @@ namespace Dvmp.Scenarios
     [Budget(900)]
     public sealed class AbsentOwner : Scenario<AbsentOwner.Options>
     {
-        /// <summary>An absent owner's number (ItemTransition.AbsentOwnerId, which Run can't read; checked at the start).</summary>
-        public const int AbsentNumber = 255;
-
         public sealed class Options
         {
             /// <summary>The save to reload.</summary>
@@ -41,18 +37,17 @@ namespace Dvmp.Scenarios
         {
             if (o.Who == "host" && pair.Dedicated) throw new HarnessException("WHO=host needs a player host: a dedicated host has no player to pick the item up");
             Peer taker = o.Who == "host" ? pair.Host : pair.Client;
-            Require.Equal(AbsentNumber, await pair.Host.Run(() => InGame.AbsentOwnerId()), "the game's absent owner number");
             await Task.Delay(10000);   // a just-joined client is still receiving its restored items
             ushort mug = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, o.Who));
             Absent absent = await pair.Host.Run(() => InGame.GiveToAbsent(mug));
-            Report.Note($"mug {mug} ({absent.Id}) belongs to {absent.Owner}, who isn't here: owner number {absent.Number}");
-            Require.Equal(AbsentNumber, absent.Number, "the absent owner's number");
+            Report.Note($"mug {mug} ({absent.Id}) belongs to {absent.Owner}, who isn't here (connected: {absent.OwnerConnected}, wire number {absent.Number})");
+            Require.That(absent.Owner.Length > 0 && !absent.OwnerConnected, "the mug's owner is an identity with no session", absent.Owner);
 
             await taker.Run(() => LostAndFound.InGame.Claim(mug), 60);
             Absent after = await pair.Host.Run(() => InGame.Read(mug));
-            Report.Note($"after the {o.Who} picked it up and dropped it: owner {after.Owner}, number {after.Number}");
+            Report.Note($"after the {o.Who} picked it up and dropped it: owner {after.Owner}, connected {after.OwnerConnected}");
             Expect.Equal(absent.Owner, after.Owner, $"the owner after the {o.Who} took it (the absent player)");
-            Expect.Equal(AbsentNumber, after.Number, $"the owner number after the {o.Who} took it");
+            Expect.That(!after.OwnerConnected, $"the owner after the {o.Who} took it has no session");
             LedgerEntry entry = await pair.Host.Run(() => Owned.Entry(absent.Id));
             Expect.Equal(absent.Owner, entry.Owner, "the ledger's owner (the absent player)");
 
@@ -65,33 +60,35 @@ namespace Dvmp.Scenarios
                 return;
             Items.Track(now);
             Absent bound = await pair.Host.Run(() => InGame.Read(now));
-            Report.Note($"after the restart: owner {bound.Owner}, number {bound.Number}, Lost and Found entry {bound.LostEntry}");
+            Report.Note($"after the restart: owner {bound.Owner}, connected {bound.OwnerConnected}, Lost and Found entry {bound.LostEntry}");
             Expect.Equal(absent.Id, bound.LostEntry, "the mug's Lost and Found entry, bound at load without its owner");
             Expect.Equal(absent.Owner, bound.Owner, "the owner after the restart");
-            Expect.Equal(AbsentNumber, bound.Number, "the owner number after the restart");
+            Expect.That(!bound.OwnerConnected, "the owner after the restart has no session");
         }
 
         public sealed class Absent
         {
             public string Id = "", Owner = "", LostEntry = "";
+            /// <summary>Whether the owner's identity has a session now.</summary>
+            public bool OwnerConnected;
+            /// <summary>The owner number sent on the wire (until R2), for the report.</summary>
             public int Number;
         }
 
         // ---- runs inside the games
         public static class InGame
         {
-            /// <summary>Host: makes the item a player's who isn't here (a new identity). Result: its id, owner and number.</summary>
+            /// <summary>Host: makes the item a player's who isn't here (a new identity). Result: its id and owner.</summary>
             [Step]
             public static Absent GiveToAbsent(ushort netId)
             {
                 LiveItems.TryGet(netId, out var record);
-                record.PersistentOwnerIdentity = System.Guid.NewGuid();
-                record.PersistentOwnerPlayerId = ServerLedger.OwnerNumber(record.PersistentOwnerIdentity);
+                record.Owner = System.Guid.NewGuid();
                 // The ledger follows the records where they commit; this one is made by hand.
                 ServerLedger.Ledger.Register(new BirthRequest
                 {
                     Id = record.PersistentItemId,
-                    Owner = record.PersistentOwnerIdentity,
+                    Owner = record.Owner,
                     Prefab = record.PrefabName,
                     Where = ServerLedger.WhereOf(record),
                     Reason = BirthReason.Granted,
@@ -100,11 +97,7 @@ namespace Dvmp.Scenarios
                 return Read(netId);
             }
 
-            /// <summary>The game's absent owner number.</summary>
-            [Step]
-            public static int AbsentOwnerId() => ItemTransition.AbsentOwnerId;
-
-            /// <summary>Host: the item's id, owner identity and number, and its Lost and Found entry's id.</summary>
+            /// <summary>Host: the item's id, owner identity and whether it has a session, and its Lost and Found entry's id.</summary>
             [Step]
             public static Absent Read(ushort netId)
             {
@@ -113,8 +106,9 @@ namespace Dvmp.Scenarios
                 return new Absent
                 {
                     Id = record.PersistentItemId.ToString("D"),
-                    Owner = record.PersistentOwnerIdentity.ToString("D"),
-                    Number = record.PersistentOwnerPlayerId,
+                    Owner = record.Owner.ToString("D"),
+                    OwnerConnected = PlayerNumbers.IsConnected(record.Owner),
+                    Number = PlayerNumbers.OwnerOf(record.Owner),
                     LostEntry = entry == System.Guid.Empty ? "" : entry.ToString("D")
                 };
             }

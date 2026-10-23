@@ -62,8 +62,7 @@ namespace Dvmp.Scenarios
                 Expect.Equal(m.Owner, now.Owner, $"the {m.Name}'s mug's owner after the restart");
                 Expect.Equal(m.Owner, now.LedgerOwner, $"the ledger's owner of the {m.Name}'s mug");
                 Expect.Equal("LostAndFound", now.LedgerWhere, $"where the ledger has the {m.Name}'s mug");
-                int number = m.Name == "client" ? now.ClientNumber : m.Name == "host" ? now.HostNumber : AbsentOwner.AbsentNumber;
-                Expect.Equal(number, now.Number, $"the {m.Name}'s mug's owner number after the restart");
+                Expect.Equal(!m.Name.StartsWith("absent"), now.OwnerConnected, $"whether the {m.Name}'s mug's owner has a session after the restart");
             }
             foreach (var w in owners)
                 Expect.Equal(baseline[w.Owner] + w.Count, await pair.Host.Run(() => Ownership.LostCount(w.Owner)), $"the {w.Name}'s Lost and Found count after the restart");

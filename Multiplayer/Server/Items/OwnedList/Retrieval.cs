@@ -125,7 +125,7 @@ public static class Retrieval
             if (shell != null)
             {
                 bool withOwner = shell.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
-                                 (shell.PlacementPlayerIdentity == owner.Guid || shell.PlacementPlayerId == owner.PlayerId);
+                                 shell.Holder == owner.Guid;
                 if (withOwner)
                 {
                     reason = NothingToDo;
@@ -145,8 +145,7 @@ public static class Retrieval
     private static bool TakeFromHolder(ServerPlayer owner, NetworkedItem item, LiveItems.LiveItem record, out string reason)
     {
         reason = string.Empty;
-        ServerPlayer holder = NetworkServer.Instance.ServerPlayers.FirstOrDefault(p =>
-            p.PlayerId != 0 && (p.Guid == record.PlacementPlayerIdentity || p.PlayerId == record.PlacementPlayerId));
+        ServerPlayer holder = PlayerNumbers.Session(record.Holder);
         ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
         if (snapshot == null)
         {

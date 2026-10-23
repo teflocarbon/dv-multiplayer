@@ -8,14 +8,14 @@ namespace Dvmp.Scenarios
     /// <summary>
     /// A real owner goes offline (owned-items.md, PRs 2a and 3). The client claims a mug and leaves
     /// it on the ground (or in a loco's cab, WHERE=cab), and stashes a second one. Then it quits (or
-    /// its game is killed, LEAVE=crash). Its left mug must keep its owner identity and get the absent
-    /// number, not 0. On a player host, once nobody is near, it goes to the client's Lost and Found under
+    /// its game is killed, LEAVE=crash). Its left mug must keep its owner identity, now one with no
+    /// session (item-refactor.md, "Identity only"), not become nobody's. On a player host, once nobody is near, it goes to the client's Lost and Found under
     /// its own id, and not to vanilla's list behind the server's back (item-review L4); after the
-    /// rejoin the entry has the client's new number and the client retrieves it. On a dedicated host
+    /// rejoin the client retrieves it. On a dedicated host
     /// nobody is connected then, so nothing is collected: it waits where it is, theirs. The stashed mug is back in the
     /// client's inventory, still theirs.
     /// </summary>
-    [Scenario("owner-offline", "A client that quits or crashes keeps its left mug (absent number, its identity) and gets it in Lost and Found; after the rejoin it retrieves it, and its stashed mug is back")]
+    [Scenario("owner-offline", "A client that quits or crashes keeps its left mug (its identity, offline) and gets it in Lost and Found; after the rejoin it retrieves it, and its stashed mug is back")]
     [Needs(Need.RestartsGames)]
     [Budget(600)]
     public sealed class OwnerOffline : Scenario<OwnerOffline.Options>
@@ -53,7 +53,7 @@ namespace Dvmp.Scenarios
             string keptId = await pair.Host.Run(() => Owned.IdOf(kept));
             Report.Note($"left mug {before}; stashed mug {kept} ({keptId})");
             Require.Equal(client, before.Owner, "the left mug's owner (the client)");
-            Require.Equal(before.ClientNumber, before.Number, "the left mug's owner number (the client's)");
+            Require.That(before.OwnerConnected, "the left mug's owner (the client) has a session");
             if (o.Where == "cab") Require.Equal("TrainInterior", before.Placement, "the left mug's placement");
 
             if (o.Leave == "crash") await pair.Client.Kill();
@@ -66,7 +66,7 @@ namespace Dvmp.Scenarios
                 OwnerInfo away = await pair.Host.Run(() => Ownership.Read(left));
                 Report.Note($"after the client left: {away}");
                 Expect.Equal(client, away.Owner, "the left mug's owner once the client left (still the client)");
-                Expect.Equal(AbsentOwner.AbsentNumber, away.Number, "the left mug's owner number once the client left (absent, not 0)");
+                Expect.That(away.Absent, "the left mug's owner once the client left is an identity with no session (offline, not nobody)");
 
                 if (pair.Dedicated)
                 {
@@ -95,7 +95,8 @@ namespace Dvmp.Scenarios
             await Task.Delay(10000);   // the rejoined client receives its items and its Lost and Found binds
             OwnerInfo back = await pair.Host.Run(() => Ownership.Read(left));
             Report.Note($"after the rejoin: {back}");
-            Expect.Equal(back.ClientNumber, back.Number, "the left mug's owner number after the rejoin (the client's new number)");
+            Expect.Equal(client, back.Owner, "the left mug's owner after the rejoin (the client)");
+            Expect.That(back.OwnerConnected, "the left mug's owner has a session again after the rejoin");
             if (!pair.Dedicated)
             {
                 Expect.That(await pair.Host.Run(() => Ownership.LostCount(client)) >= 1, "the client's Lost and Found lists the mug after the rejoin");
@@ -113,7 +114,7 @@ namespace Dvmp.Scenarios
             {
                 OwnerInfo k = await pair.Host.Run(() => Ownership.Read(keptNow));
                 Expect.Equal(client, k.Owner, "the stashed mug's owner after the rejoin");
-                Expect.Equal(k.ClientNumber, k.Number, "the stashed mug's owner number after the rejoin");
+                Expect.That(k.OwnerConnected, "the stashed mug's owner has a session after the rejoin");
                 Expect.That(await Until.Value(() => pair.Client.Run(() => Owned.InInventory(keptNow)), v => v, 20, "the stashed mug back in the client's inventory"),
                     "the stashed mug is in the client's inventory after the rejoin");
             }

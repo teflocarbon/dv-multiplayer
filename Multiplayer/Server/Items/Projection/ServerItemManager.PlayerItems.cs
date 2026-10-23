@@ -101,7 +101,7 @@ internal sealed partial class ServerItemManager
 
         foreach (LiveItems.LiveItem record in LiveItems.Records.ToArray())
         {
-            if (record.PlacementPlayerId != player.PlayerId)
+            if (record.Holder != player.Guid)
                 continue;
             bool inHand = record.Placement == ItemPlacementKind.PlayerHand;
             bool borrowed = record.Placement == ItemPlacementKind.PlayerInventory && IsSomeoneElses(record, player);
@@ -123,7 +123,7 @@ internal sealed partial class ServerItemManager
                     ItemTransitionReason.HostLocalState, true, out string rejection,
                     cause: ItemChangeLog.Move(ItemMoveReason.DroppedOnDisconnect, player,
                         inHand ? "was in their hand" : "borrowed, owner " +
-                            (ItemChangeLog.PlayerName(record.PersistentOwnerPlayerId) ?? "P" + record.PersistentOwnerPlayerId))))
+                            ItemChangeLog.PlayerName(record.Owner))))
             {
                 Multiplayer.LogWarning($"Could not drop item {record.NetId} held by departing player {player.Username}: {rejection}");
                 continue;
@@ -139,8 +139,7 @@ internal sealed partial class ServerItemManager
     }
 
     private static bool IsSomeoneElses(LiveItems.LiveItem record, ServerPlayer player) =>
-        record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId != player.PlayerId &&
-        record.PersistentOwnerIdentity != player.Guid;
+        record.Owner != Guid.Empty && record.Owner != player.Guid;
 
     private static bool IsFinite(Vector3 value) =>
         !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&

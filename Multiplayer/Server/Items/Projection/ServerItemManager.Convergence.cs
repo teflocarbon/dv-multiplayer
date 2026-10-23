@@ -82,7 +82,7 @@ internal sealed partial class ServerItemManager
             return false;
         snapshot.ItemState = ItemState.Dropped;
         snapshot.AuthorityRevision = record.Revision;
-        snapshot.PersistentOwnerPlayerId = record.PersistentOwnerPlayerId;
+        snapshot.PersistentOwnerPlayerId = PlayerNumbers.OwnerOf(record.Owner);
         snapshot.PlayerId = 0;
         snapshot.PlayerHand = PlayerHand.None;
         snapshot.OriginatingPlayerId = 0;

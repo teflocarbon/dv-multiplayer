@@ -17,9 +17,9 @@ vanilla's collection.
 `LostItemCollectionPolicy.Evaluate` (`Multiplayer.Core/Items/LostAndFound.cs`, unit-tested) decides for
 each item, every 24 ticks (`HostTick`). Unknown state always protects the item.
 
-1. **Ineligible:** unowned (owner number 0); not a personal item (`BelongsToPlayer`); a licence
+1. **Ineligible:** unowned (no owner identity); not a personal item (`BelongsToPlayer`); a licence
    paper; not in a place it can be collected from; grabbed, snapped or in a machine.
-2. **Places:** an online owner's items only from `World`. An offline owner's (the absent owner number,
+2. **Places:** an online owner's items only from `World`. An offline owner's (an identity with no session,
    [owned-items.md](owned-items.md#the-ledger-and-the-records)) from `World`, `TrainInterior` and
    `StaticParent` too: offline counts as far away (decided 2026-10-21). Attached and snapped items
    aren't collected.
@@ -116,11 +116,12 @@ any other personal item, and a retrieved booklet can still be handed in. The job
 every booklet copy when its job ends, one in Lost and Found too, and the reconcile then drops its
 entry.
 
-## Owner numbers
+## Owners
 
-An entry keeps its owner's identity and their number. At disconnect `UnbindOwner` sets the number to
-the absent owner number; at login `RebindOwner` sets it back from the identity. The list, retrieval
-and recall compare numbers.
+An entry keeps its owner's identity and nothing else of theirs: no session number, so nothing is
+unbound at disconnect or rebound at login (R1). The list, retrieval and recall compare identities
+(`LostItemRegistry.SameIdentity`, without case). A re-keyed player's entries move with them
+(`InstallGuidRekey`, `RekeyOwner`).
 
 ## Saving and loading
 

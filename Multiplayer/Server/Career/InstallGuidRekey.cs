@@ -18,9 +18,9 @@ namespace Multiplayer.Server.Career;
 /// player ID, once (docs/design/server-player-split.md, "Identity"). It happens the first time
 /// they log in verified to a career that has data for their old GUID and none for their Steam ID.
 ///
-/// It covers the save as loaded (Players, item records, Lost and Found, cold containers), so a
-/// system that imports later finds the new ID, and the state already imported (the item registry,
-/// Lost and Found, the cold-container graph, starter kits given).
+/// It covers the save as loaded (Players, item records, the ledger, Lost and Found, cold containers), so a
+/// system that imports later finds the new ID, and the state already imported (the item registry, the
+/// ledger's owners, holders and starter kits, Lost and Found, the cold-container graph).
 /// </summary>
 public static class InstallGuidRekey
 {
@@ -59,7 +59,7 @@ public static class InstallGuidRekey
          LiveItems.HasIdentity(id) ||
          LostAndFoundServer.HasOwner(id) ||
          ContainerServer.Graph.HasOwner(id.ToString("D")) ||
-         ServerLedger.Ledger.HasStarterKit(id));
+         ServerLedger.Ledger.HasIdentity(id));
 
     /// <summary>Re-keys the save root and the imported state. Returns how many records changed.</summary>
     public static int Rekey(JObject root, Guid from, Guid to)
@@ -68,11 +68,8 @@ public static class InstallGuidRekey
         changed += LiveItems.RekeyIdentity(from, to);
         changed += LostAndFoundServer.RekeyOwner(from, to);
         changed += ContainerServer.Graph.RekeyOwner(from.ToString("D"), to.ToString("D"));
-        if (ServerLedger.Ledger.ForgetStarterKit(from))
-        {
-            ServerLedger.Ledger.MarkStarterKit(to);
-            changed++;
-        }
+        bool kit = ServerLedger.Ledger.HasStarterKit(from);
+        changed += ServerLedger.Ledger.Rekey(from, to) + (kit ? 1 : 0);
         return changed;
     }
 
@@ -87,6 +84,9 @@ public static class InstallGuidRekey
             .Any(value => SameId(value["ownerIdentity"], id) || SameId(value["placementPlayerIdentity"], id)))
             return true;
         if (Records(root, LostAndFoundKey).Any(value => SameId(value["ownerIdentity"], id)))
+            return true;
+        if (LedgerItems(root).Any(value => LedgerFields(value).Any(field => SameId(field.Value, id))) ||
+            LedgerPlayers(root)?.Properties().Any(p => SameId(p.Name, id)) == true)
             return true;
         ContainerGraphSnapshot snapshot = ColdContainers(root);
         return snapshot != null &&
@@ -131,6 +131,30 @@ public static class InstallGuidRekey
             changed++;
         }
 
+        // The ledger as saved, for a login before it has loaded: owners, holders, who caused each
+        // entry, and the starter kit. Rows are edited in place, so one the ledger can't read stays.
+        foreach (JObject value in LedgerItems(root))
+        {
+            bool touched = false;
+            foreach (JProperty field in LedgerFields(value).Where(field => SameId(field.Value, from)).ToArray())
+            {
+                field.Value = target;
+                touched = true;
+            }
+            if (touched)
+                changed++;
+        }
+        if (LedgerPlayers(root) is JObject kits)
+        {
+            JProperty old = kits.Properties().FirstOrDefault(p => SameId(p.Name, from));
+            if (old != null && !kits.Properties().Any(p => SameId(p.Name, to)))
+            {
+                old.Remove();
+                kits[target] = old.Value;
+                changed++;
+            }
+        }
+
         ContainerGraphSnapshot snapshot = ColdContainers(root);
         int cold = snapshot?.RekeyOwner(from.ToString("D"), target) ?? 0;
         if (cold > 0)
@@ -150,6 +174,16 @@ public static class InstallGuidRekey
 
     private static System.Collections.Generic.IEnumerable<JObject> Records(JObject root, string key) =>
         (root[key] as JArray ?? new JArray()).OfType<JObject>();
+
+    private static System.Collections.Generic.IEnumerable<JObject> LedgerItems(JObject root) =>
+        (root[ServerLedger.SaveKey]?["items"] as JArray ?? new JArray()).OfType<JObject>();
+
+    private static JObject LedgerPlayers(JObject root) => root[ServerLedger.SaveKey]?["players"] as JObject;
+
+    // The identities a saved ledger entry names (LedgerSaveCodec): its owner, its holder, who caused it.
+    private static System.Collections.Generic.IEnumerable<JProperty> LedgerFields(JObject item) =>
+        new[] { item.Property("owner"), (item["where"] as JObject)?.Property("holder"), (item["born"] as JObject)?.Property("by") }
+            .Where(field => field != null);
 
     private static ContainerGraphSnapshot ColdContainers(JObject root)
     {

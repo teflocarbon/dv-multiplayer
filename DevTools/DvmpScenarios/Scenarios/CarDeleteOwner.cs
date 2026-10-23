@@ -39,8 +39,8 @@ namespace Dvmp.Scenarios
             OwnerInfo before = await pair.Host.Run(() => Ownership.Read(mug));
             Report.Note($"mug in the cab: {before}");
             Require.Equal("TrainInterior", before.Placement, "the mug's placement before the delete");
-            if (o.Owner == "absent") Require.Equal(AbsentOwner.AbsentNumber, before.Number, "the absent owner's number");
-            else Require.Equal(before.ClientNumber, before.Number, "the mug's owner number (the client's)");
+            if (o.Owner == "absent") Require.That(before.Absent, "the mug's owner is an identity with no session", before.Owner);
+            else Require.That(before.OwnerConnected, "the mug's owner (the client) has a session", before.Owner);
 
             bool left = o.Owner == "offline";
             if (left)
@@ -72,7 +72,7 @@ namespace Dvmp.Scenarios
             await Task.Delay(10000);   // the rejoined client's Lost and Found binds
             OwnerInfo back = await pair.Host.Run(() => Ownership.Read(mug));
             Report.Note($"after the rejoin: {back}");
-            Expect.Equal(back.ClientNumber, back.Number, "the mug's owner number after the rejoin (the client's new number)");
+            Expect.That(back.OwnerConnected, "the mug's owner (the client) has a session again after the rejoin", back.Owner);
             int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, mug), 60);
             Report.Note($"the client retrieved it into slot {slot}");
         }

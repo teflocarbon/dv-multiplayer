@@ -158,16 +158,15 @@ internal sealed partial class ServerItemManager
         // player's to know (gadgets.md, "The installed gadget and its item").
         if (record.Placement == ItemPlacementKind.Installed)
             return true;
-        bool ownerHasRecallClaim = record.PersistentOwnerPlayerId == recipient.PlayerId &&
+        bool ownerHasRecallClaim = record.Owner == recipient.Guid &&
                                    HasOwnerRecallClaim(record);
         if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory)
         {
-            ServerPlayer holder = NetworkServer.Instance.ServerPlayers.FirstOrDefault(player =>
-                player.PlayerId == record.PlacementPlayerId);
+            ServerPlayer holder = PlayerNumbers.Session(record.Holder);
             bool holderNearby = holder != null && recipientCells.Contains(
                 WorldItemCellCoord.FromAbsolute(holder.AbsoluteWorldPosition));
             return ItemPossessionInterestPolicy.IsRelevant(ownerHasRecallClaim,
-                record.PlacementPlayerId, recipient.PlayerId, holderNearby);
+                record.Holder, recipient.Guid, holderNearby);
         }
         // A reserved essential-item silhouette is a non-spatial owner capability even while the
         // physical item is lying in a distant world cell. Retiring it from owner interest removes
@@ -222,7 +221,7 @@ internal sealed partial class ServerItemManager
     {
         create = null;
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
-            record.PersistentOwnerPlayerId != player.PlayerId || !HasOwnerRecallClaim(record) ||
+            record.Owner != player.Guid || !HasOwnerRecallClaim(record) ||
             item.Item?.InventorySpecs?.IsEssential != true)
             return false;
         create = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
@@ -233,8 +232,7 @@ internal sealed partial class ServerItemManager
     }
 
     private static bool HasOwnerRecallClaim(LiveItems.LiveItem record) =>
-        record != null && record.InventoryClaimPlayerId == record.PersistentOwnerPlayerId &&
-        record.InventoryClaimSlot >= 0 &&
+        record != null && record.Owner != Guid.Empty && record.InventoryClaimSlot >= 0 &&
         (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved |
             ItemInventoryClaimFlags.Locked)) != 0;
 

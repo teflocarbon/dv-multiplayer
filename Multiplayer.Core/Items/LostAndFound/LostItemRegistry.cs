@@ -35,7 +35,7 @@ public sealed class LostItemRegistry
     public LostItemRegistryResult Add(LostItemRecord record)
     {
         if (record == null || record.PersistentItemId == Guid.Empty || record.NetId == 0 ||
-            record.OwnerPlayerId == 0)
+            string.IsNullOrEmpty(record.OwnerIdentity))
             return LostItemRegistryResult.Invalid;
         if (records.ContainsKey(record.NetId))
             return LostItemRegistryResult.DuplicateNetId;
@@ -80,8 +80,9 @@ public sealed class LostItemRegistry
         return false;
     }
 
-    public IReadOnlyList<LostItemRecord> GetForOwner(byte ownerPlayerId) => records.Values
-        .Where(record => record.OwnerPlayerId == ownerPlayerId)
+    /// <summary>An owner's entries, by their identity, whether or not they're connected.</summary>
+    public IReadOnlyList<LostItemRecord> GetForOwner(string ownerIdentity) => records.Values
+        .Where(record => SameIdentity(record.OwnerIdentity, ownerIdentity))
         .OrderBy(record => record.LostUtcTicks)
         .ThenBy(record => record.NetId)
         .Select(record => record.Clone())
@@ -94,13 +95,13 @@ public sealed class LostItemRegistry
         .Select(record => record.Clone())
         .ToArray();
 
-    public LostItemRegistryResult RemoveForRetrieval(ushort netId, byte ownerPlayerId,
+    public LostItemRegistryResult RemoveForRetrieval(ushort netId, string ownerIdentity,
         uint expectedRevision, out LostItemRecord removed)
     {
         removed = null;
         if (!records.TryGetValue(netId, out LostItemRecord record))
             return LostItemRegistryResult.NotFound;
-        if (record.OwnerPlayerId != ownerPlayerId)
+        if (!SameIdentity(record.OwnerIdentity, ownerIdentity))
             return LostItemRegistryResult.WrongOwner;
         if (record.Revision != expectedRevision)
             return LostItemRegistryResult.StaleRevision;
@@ -130,30 +131,13 @@ public sealed class LostItemRegistry
         return LostItemRegistryResult.Removed;
     }
 
-    /// <summary>
-    /// Owners are matched by session player id, which a rejoining player may not get back: point
-    /// the owner's records at their new id. Returns how many changed.
-    /// </summary>
-    public int RebindOwner(string ownerIdentity, byte ownerPlayerId)
-    {
-        if (string.IsNullOrEmpty(ownerIdentity) || ownerPlayerId == 0)
-            return 0;
-        int changed = 0;
-        foreach (LostItemRecord record in records.Values)
-        {
-            if (!string.Equals(record.OwnerIdentity, ownerIdentity, StringComparison.OrdinalIgnoreCase) ||
-                record.OwnerPlayerId == ownerPlayerId)
-                continue;
-            record.OwnerPlayerId = ownerPlayerId;
-            changed++;
-        }
-        return changed;
-    }
+    /// <summary>Whether two owner identities name the same player (saved ones may differ in case).</summary>
+    public static bool SameIdentity(string a, string b) =>
+        !string.IsNullOrEmpty(a) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether any record belongs to this owner identity.</summary>
     public bool HasOwner(string ownerIdentity) =>
-        !string.IsNullOrEmpty(ownerIdentity) && records.Values.Any(record =>
-            string.Equals(record.OwnerIdentity, ownerIdentity, StringComparison.OrdinalIgnoreCase));
+        records.Values.Any(record => SameIdentity(record.OwnerIdentity, ownerIdentity));
 
     /// <summary>
     /// The owner's identity changed (an install GUID re-keyed to a Steam account): their records
@@ -174,25 +158,6 @@ public sealed class LostItemRegistry
         return changed;
     }
 
-    /// <summary>
-    /// The owner left: release their session id so a player who is given it next does not see or
-    /// retrieve these items. Records with an identity wait for <see cref="RebindOwner"/>.
-    /// </summary>
-    public int UnbindOwner(byte ownerPlayerId)
-    {
-        if (ownerPlayerId == 0)
-            return 0;
-        int changed = 0;
-        foreach (LostItemRecord record in records.Values)
-        {
-            if (record.OwnerPlayerId != ownerPlayerId || string.IsNullOrEmpty(record.OwnerIdentity))
-                continue;
-            record.OwnerPlayerId = ItemTransition.AbsentOwnerId;
-            changed++;
-        }
-        return changed;
-    }
-
     /// <summary>The host moved the item's retrieval claim (ClaimSlotPolicy): keep the saved copy in step.</summary>
     public bool SetInventoryClaimSlot(ushort netId, int slot)
     {
@@ -205,7 +170,7 @@ public sealed class LostItemRegistry
     public LostItemRegistryResult Restore(LostItemRecord record)
     {
         if (record == null || record.PersistentItemId == Guid.Empty || record.NetId == 0 ||
-            record.OwnerPlayerId == 0)
+            string.IsNullOrEmpty(record.OwnerIdentity))
             return LostItemRegistryResult.Invalid;
         if (persistentIdToNetId.TryGetValue(record.PersistentItemId, out ushort persistentMapped) &&
             persistentMapped != record.NetId)

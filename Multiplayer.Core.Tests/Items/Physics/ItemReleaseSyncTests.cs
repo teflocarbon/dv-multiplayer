@@ -61,7 +61,7 @@ public sealed class ItemReleaseSyncTests
         Assert.That(regrab.Accepted, Is.True, regrab.RejectionReason);
         Assert.That(regrab.State.Revision, Is.EqualTo(7));
         Assert.That(regrab.State.Placement, Is.EqualTo(LivePlacement.PlayerHand));
-        Assert.That(regrab.State.PlacementPlayerId, Is.EqualTo(2));
+        Assert.That(regrab.State.Holder, Is.EqualTo(P(2)));
     }
 
     [Test]
@@ -74,13 +74,13 @@ public sealed class ItemReleaseSyncTests
         state = Apply(state, actor: 1, expected: 0, null, force: true);                  // -> 7
 
         Assert.That(state.Placement, Is.EqualTo(LivePlacement.PlayerInventory));
-        Assert.That(state.PlacementPlayerId, Is.EqualTo(3), "object state doesn't move it to the server");
+        Assert.That(state.Holder, Is.EqualTo(P(3)), "object state doesn't move it to the server");
 
         TransitionResult switchOff = ItemStateMachine.Apply(state,
             Command(actor: 3, expected: 5, null));
 
         Assert.That(switchOff.Accepted, Is.True, switchOff.RejectionReason);
-        Assert.That(switchOff.State.PlacementPlayerId, Is.EqualTo(3));
+        Assert.That(switchOff.State.Holder, Is.EqualTo(P(3)));
     }
 
     [Test]
@@ -212,18 +212,21 @@ public sealed class ItemReleaseSyncTests
             WireItemState.Dropped, locallyPossessed: true), Is.False);
     }
 
-    private static LiveItemState State(uint revision, LivePlacement placement, byte holder = 0) => new()
+    // Players are identities, numbered here for short; 0 is nobody.
+    private static System.Guid P(int number) => number == 0 ? System.Guid.Empty : new System.Guid(number, 0, 0, new byte[8]);
+
+    private static LiveItemState State(uint revision, LivePlacement placement, int holder = 0) => new()
     {
         NetId = 801,
         Revision = revision,
         Placement = placement,
-        PlacementPlayerId = holder
+        Holder = P(holder)
     };
 
-    private static ItemTransition Command(byte actor, uint expected, LivePlacement? placement,
+    private static ItemTransition Command(int actor, uint expected, LivePlacement? placement,
         bool force = false) => new()
     {
-        ActorPlayerId = actor,
+        Actor = P(actor),
         ExpectedRevision = expected,
         Force = force,
         AppliesPlacement = placement.HasValue,
@@ -231,7 +234,7 @@ public sealed class ItemReleaseSyncTests
         MayEstablishPersistentOwner = false
     };
 
-    private static LiveItemState Apply(LiveItemState state, byte actor, uint expected,
+    private static LiveItemState Apply(LiveItemState state, int actor, uint expected,
         LivePlacement? placement, bool force = false)
     {
         TransitionResult result = ItemStateMachine.Apply(state, Command(actor, expected, placement, force));

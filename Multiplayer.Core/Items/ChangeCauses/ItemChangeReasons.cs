@@ -112,23 +112,23 @@ public enum ItemMoveReason : byte
 public readonly struct ItemWhereabouts : IEquatable<ItemWhereabouts>
 {
     public readonly LivePlacement Placement;
-    /// <summary>The player whose hand or inventory it's in, or 0.</summary>
-    public readonly byte HolderPlayerId;
-    /// <summary>The persistent owner's player id, or 0.</summary>
-    public readonly byte OwnerPlayerId;
+    /// <summary>The identity of the player whose hand or inventory it's in, or empty.</summary>
+    public readonly Guid Holder;
+    /// <summary>The owner's identity, or empty.</summary>
+    public readonly Guid Owner;
 
-    public ItemWhereabouts(LivePlacement placement, byte holderPlayerId, byte ownerPlayerId)
+    public ItemWhereabouts(LivePlacement placement, Guid holder, Guid owner)
     {
         Placement = placement;
-        HolderPlayerId = ItemMoveClassifier.IsHeld(placement) ? holderPlayerId : (byte)0;
-        OwnerPlayerId = ownerPlayerId;
+        Holder = ItemMoveClassifier.IsHeld(placement) ? holder : Guid.Empty;
+        Owner = owner;
     }
 
     public bool Equals(ItemWhereabouts other) => Placement == other.Placement &&
-        HolderPlayerId == other.HolderPlayerId && OwnerPlayerId == other.OwnerPlayerId;
+        Holder == other.Holder && Owner == other.Owner;
 
     public override bool Equals(object obj) => obj is ItemWhereabouts other && Equals(other);
-    public override int GetHashCode() => ((int)Placement << 16) | (HolderPlayerId << 8) | OwnerPlayerId;
+    public override int GetHashCode() => ((int)Placement * 397) ^ Holder.GetHashCode() ^ (Owner.GetHashCode() * 7);
 }
 
 /// <summary>
@@ -146,8 +146,8 @@ public static class ItemMoveClassifier
             return before.Placement == after.Placement ? ItemMoveReason.Unknown : ItemMoveReason.InstalledAsGadget;
         if (before.Placement == LivePlacement.Installed)
             return ItemMoveReason.RemovedAsGadget;
-        bool fromOtherPlayer = IsHeld(before.Placement) && before.HolderPlayerId != 0 &&
-            IsHeld(after.Placement) && after.HolderPlayerId != before.HolderPlayerId;
+        bool fromOtherPlayer = IsHeld(before.Placement) && before.Holder != Guid.Empty &&
+            IsHeld(after.Placement) && after.Holder != before.Holder;
         switch (after.Placement)
         {
             case LivePlacement.PlayerHand:
@@ -178,25 +178,27 @@ public static class ItemMoveClassifier
     }
 
     /// <summary>"world -> Bentgear29's hand, owner none -> Bentgear29": what changed, for a cause's detail.</summary>
-    public static string Describe(ItemWhereabouts before, ItemWhereabouts after, Func<byte, string> playerName = null)
+    /// <param name="playerName">A player's name from their identity, if known; else the identity's first 8 digits.</param>
+    public static string Describe(ItemWhereabouts before, ItemWhereabouts after, Func<Guid, string> playerName = null)
     {
-        string Name(byte id) => id == 0 ? "none" : playerName?.Invoke(id) is { Length: > 0 } name ? name : "P" + id;
+        string Name(Guid id) => id == Guid.Empty ? "none"
+            : playerName?.Invoke(id) is { Length: > 0 } name ? name : id.ToString("N").Substring(0, 8);
         List<string> parts = new();
-        if (before.Placement != after.Placement || before.HolderPlayerId != after.HolderPlayerId)
+        if (before.Placement != after.Placement || before.Holder != after.Holder)
             parts.Add(Where(before, Name) + " -> " + Where(after, Name));
-        if (before.OwnerPlayerId != after.OwnerPlayerId)
-            parts.Add("owner " + Name(before.OwnerPlayerId) + " -> " + Name(after.OwnerPlayerId));
+        if (before.Owner != after.Owner)
+            parts.Add("owner " + Name(before.Owner) + " -> " + Name(after.Owner));
         return string.Join(", ", parts);
     }
 
     internal static bool IsHeld(LivePlacement placement) =>
         placement is LivePlacement.PlayerHand or LivePlacement.PlayerInventory;
 
-    private static string Where(ItemWhereabouts at, Func<byte, string> name) => at.Placement switch
+    private static string Where(ItemWhereabouts at, Func<Guid, string> name) => at.Placement switch
     {
         LivePlacement.World => "world",
-        LivePlacement.PlayerHand => name(at.HolderPlayerId) + "'s hand",
-        LivePlacement.PlayerInventory => name(at.HolderPlayerId) + "'s inventory",
+        LivePlacement.PlayerHand => name(at.Holder) + "'s hand",
+        LivePlacement.PlayerInventory => name(at.Holder) + "'s inventory",
         LivePlacement.Container => "container",
         LivePlacement.Attached => "car mount",
         LivePlacement.LostAndFound => "Lost and Found",
@@ -235,7 +237,8 @@ public readonly struct ItemRemovalRecord
 {
     public readonly ushort NetId;
     public readonly string ItemName;
-    public readonly byte OwnerPlayerId;
+    /// <summary>The owner's identity, or empty.</summary>
+    public readonly Guid Owner;
     public readonly ItemWhereabouts LastWhereabouts;
     public readonly ChangeCause<ItemRemovalReason> Cause;
     public readonly ChangeCause<ItemMoveReason> LastMove;
@@ -245,7 +248,7 @@ public readonly struct ItemRemovalRecord
     {
         NetId = netId;
         ItemName = itemName ?? string.Empty;
-        OwnerPlayerId = lastWhereabouts.OwnerPlayerId;
+        Owner = lastWhereabouts.Owner;
         LastWhereabouts = lastWhereabouts;
         Cause = cause;
         LastMove = lastMove;

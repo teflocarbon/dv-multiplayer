@@ -107,7 +107,7 @@ internal sealed class ServerItemSpatial
         if (entersWorld && releasedByPlayer && (actor != null || HostItemActor.IsServer))
         {
             pendingHostBegins[item.NetId] = (item, record.Revision,
-                actor?.PlayerId ?? ItemTransition.ServerActorId,
+                actor?.PlayerId ?? HostItemActor.ServerSimulatorId,
                 snapshot.ItemState == ItemState.Thrown ? ItemSpatialPhase.InFlight : ItemSpatialPhase.Sliding);
             return;
         }
@@ -214,7 +214,7 @@ internal sealed class ServerItemSpatial
     {
         // Simulator 0 is the server itself, only on a host with no player of its own.
         if (item == null || record == null ||
-            simulatorPlayerId == ItemTransition.ServerActorId && !HostItemActor.IsServer)
+            simulatorPlayerId == HostItemActor.ServerSimulatorId && !HostItemActor.IsServer)
             return;
         // The new lease's presentation sets the body up (a proxy is stopped, a local simulator keeps
         // its motion), as a client's game and a lease transfer do. Stopping it here lost the force
@@ -584,7 +584,7 @@ internal sealed class ServerItemSpatial
         rejection = ItemSpatialStreamValidator.Validate(
             new ItemSpatialLeaseToken(lease.SimulatorPlayerId, lease.AuthorityRevision, lease.Epoch,
                 lease.LastSequence, simulatablePlacement),
-            new ItemSpatialSampleToken(sender?.PlayerId ?? ItemTransition.ServerActorId,
+            new ItemSpatialSampleToken(sender?.PlayerId ?? HostItemActor.ServerSimulatorId,
                 state.SimulatorPlayerId, state.AuthorityRevision,
                 state.SimulationEpoch, state.SampleSequence));
         if (!string.IsNullOrEmpty(rejection))
