@@ -65,9 +65,8 @@ and `ClientItemManager` in `Projection`. The parts that belong elsewhere become 
 in the PR that changes them: `ServerItemManager.PlayerItems` goes to `Inventory` in R3, the
 fall-rescue, terrain-guard and world-integration parts to `Physics` and `WorldItems` in R7.
 
-The item packets and their data stay in `Multiplayer/Shared/Protocol` (`Packets/`, `Data/Items/`):
-a packet's wire id hashes its full name, so they move to `Packets/Items/` in R2, when they are
-replaced (`wire.md`, R2).
+The item packets and their data are in `Multiplayer/Shared/Protocol` (`Packets/Items/`,
+`Data/Items/`): five packets since R2, described in [wire.md](wire.md).
 
 ## Legacy docs
 

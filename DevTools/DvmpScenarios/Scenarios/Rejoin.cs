@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -91,7 +92,7 @@ namespace Dvmp.Scenarios
                 yield return Hands.Pickup(item.NetId);
                 yield return new WaitForSeconds(2);
                 Hands.ReleaseControl();
-                var owned = Dev.All<NetworkedItem>().Where(n => n.NetId != 0 && n.GetItemState() == ItemState.InInventory && n.PersistentOwnerPlayerId == me).ToList();
+                var owned = Dev.All<NetworkedItem>().Where(n => n.NetId != 0 && n.GetItemState() == ItemState.InInventory && n.Relation == ItemRelation.Mine).ToList();
                 step.Result = new Holding
                 {
                     Item = Hands.Held.NetId,
@@ -144,7 +145,7 @@ namespace Dvmp.Scenarios
             public static Returned AfterRejoin(string[] names, string[] slots)
             {
                 byte me = NetworkLifecycle.Instance.LocalSession.PlayerId;
-                var mine = Dev.All<NetworkedItem>().Where(n => n.NetId != 0 && n.PersistentOwnerPlayerId == me).ToList();
+                var mine = Dev.All<NetworkedItem>().Where(n => n.NetId != 0 && n.Relation == ItemRelation.Mine).ToList();
                 string Name(NetworkedItem n) => n.name.Replace("(Clone)", "");
                 var failures = new List<string>();
                 // Items that were in the inventory before leaving (an owned item left lying in the world stays there).
@@ -157,7 +158,7 @@ namespace Dvmp.Scenarios
                 {
                     int have = actual.TryGetValue(kv.Key, out var items) ? items.Count : 0;
                     if (have < kv.Value)
-                        failures.Add($"{kv.Key}: {have} of {kv.Value} returned (missing: {string.Join(", ", wasInInventory.Where(id => !mine.Any(n => n.NetId == id && Name(n) == kv.Key) && !actual.Values.SelectMany(v => v).Any(n => n.NetId == id)).Select(id => id + (NetworkedItem.TryGet(id, out NetworkedItem m) && m != null ? "=" + m.GetItemState() + "/o" + m.PersistentOwnerPlayerId : "=gone")))})");
+                        failures.Add($"{kv.Key}: {have} of {kv.Value} returned (missing: {string.Join(", ", wasInInventory.Where(id => !mine.Any(n => n.NetId == id && Name(n) == kv.Key) && !actual.Values.SelectMany(v => v).Any(n => n.NetId == id)).Select(id => id + (NetworkedItem.TryGet(id, out NetworkedItem m) && m != null ? "=" + m.GetItemState() + "/" + m.Relation : "=gone")))})");
                 }
                 foreach (var kv in actual)
                 {

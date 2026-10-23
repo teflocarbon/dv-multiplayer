@@ -67,14 +67,14 @@ internal sealed partial class ServerItemManager
                 player.NearbyItems.Remove(item);
                 if (player.Peer != NetworkServer.Instance.SelfPeer &&
                     !player.KnownItems.ContainsKey(item) &&
-                    LostAndFoundServer.TryCreateCollectionProjection(item, out ItemUpdateData tombstone))
+                    LostAndFoundServer.TryCreateCollectionProjection(item, out ItemUpdate tombstone))
                 {
                     // An essential in its owner's Lost and Found keeps the owner's red silhouette,
                     // their recall. A tombstone only projects a copy the game already has, and an
                     // owner who joined after the collection has none: send them the item first.
-                    if (TryCreateLostEssentialForOwner(item, player, out ItemUpdateData create))
-                        NetworkServer.Instance.SendItemUpdatePacket(create, player);
-                    NetworkServer.Instance.SendItemUpdatePacket(tombstone, player);
+                    if (TryCreateLostEssentialForOwner(item, player, out ItemUpdate create))
+                        NetworkServer.Instance.SendItemUpdate(create, player);
+                    NetworkServer.Instance.SendItemUpdate(tombstone, player);
                     player.KnownItems[item] = NetworkLifecycle.Instance.Tick;
                 }
             }
@@ -121,11 +121,11 @@ internal sealed partial class ServerItemManager
                     // Authority ends when host interest ends. The later client acknowledgement
                     // is observability, not a lease that can extend mutation permission.
                     player.AcknowledgedWorldItems.Remove(leaving.NetId);
-                    ItemUpdateData retirement = leaving.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
+                    ItemUpdate retirement = leaving.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
                     if (retirement != null)
                     {
                         retirement.TransitionReason = ItemTransitionReason.InterestRetirement;
-                        NetworkServer.Instance.SendItemUpdatePacket(retirement, player);
+                        NetworkServer.Instance.SendItemUpdate(retirement, player);
                     }
                 }
                 if (leaving != null)
@@ -217,14 +217,14 @@ internal sealed partial class ServerItemManager
     // The Create for an essential in Lost and Found, for its owner only (item-lifecycle.md,
     // "Retrieval claim slots"): the tombstone sent after it makes it inert and leaves its silhouette.
     private static bool TryCreateLostEssentialForOwner(NetworkedItem item, ServerPlayer player,
-        out ItemUpdateData create)
+        out ItemUpdate create)
     {
         create = null;
         if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
             record.Owner != player.Guid || !HasOwnerRecallClaim(record) ||
             item.Item?.InventorySpecs?.IsEssential != true)
             return false;
-        create = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+        create = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
         if (create == null)
             return false;
         LiveItems.WriteToSnapshot(record, create, record.LastReason);
@@ -245,14 +245,14 @@ internal sealed partial class ServerItemManager
     /// none): the rest is the holder's, and the server's copy drifting (a flashlight draining in
     /// their hand with no sun on its panel) overwrote what their game had.
     /// </summary>
-    private static bool TryKeepRemotePossession(NetworkedItem item, ItemUpdateData snapshot, ServerPlayer hostPlayer)
+    private static bool TryKeepRemotePossession(NetworkedItem item, ItemUpdate snapshot, ServerPlayer hostPlayer)
     {
-        if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) ||
+        if (snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) ||
             snapshot.ItemState is not (ItemState.InHand or ItemState.InInventory) ||
             snapshot.PlayerId == 0 || snapshot.PlayerId == hostPlayer?.PlayerId)
             return true;
-        snapshot.UpdateType &= ItemUpdateData.ItemUpdateType.ObjectState;
-        if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
+        snapshot.UpdateType &= ItemUpdate.ItemUpdateType.ObjectState;
+        if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.None)
             return false;
         item.KeepHostReportsForRemoteHolder(snapshot);
         return snapshot.States is { Count: > 0 };
@@ -260,7 +260,7 @@ internal sealed partial class ServerItemManager
 
     private void ProcessChanged(uint tick)
     {
-        List<ItemUpdateData> dirtyItems = [];
+        List<ItemUpdate> dirtyItems = [];
         float timeStamp = Time.time;
         // Null with nobody to commit the host's changes yet, or on a host with no player of its own,
         // where the server commits them itself (HostItemActor).
@@ -279,7 +279,7 @@ internal sealed partial class ServerItemManager
             if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem existingRecord) &&
                 existingRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Installed)
                 continue;
-            ItemUpdateData snapshot = item.GetSnapshot();
+            ItemUpdate snapshot = item.GetSnapshot();
             if (snapshot != null && hostActs && !TryKeepRemotePossession(item, snapshot, hostPlayer))
                 continue;
             if (snapshot != null && hostActs)
@@ -312,7 +312,7 @@ internal sealed partial class ServerItemManager
             if (player.Peer == NetworkServer.Instance.SelfPeer)
                 continue;
 
-            List<ItemUpdateData> playerUpdates = [];
+            List<ItemUpdate> playerUpdates = [];
 
             // Process nearby items
             foreach (var nearbyItem in player.NearbyItems.Keys)
@@ -344,7 +344,7 @@ internal sealed partial class ServerItemManager
                     // This is a new item for the player
                     //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) New item for: {player.Username}, itemNetID{nearbyItem.NetId}");
 
-                    ItemUpdateData snapshot = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+                    ItemUpdate snapshot = nearbyItem.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
                     if (snapshot != null && hostActs)
                     {
                         LiveItems.LiveItem record =
@@ -381,7 +381,7 @@ internal sealed partial class ServerItemManager
                 {
                     //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) Item exists for: {player.Username}, {dirtyUpdate != null}");
                     if (delivery.Kind == ItemDeliveryKind.FullSync)
-                        dirtyUpdate = nearbyItem.CreateUpdateData(ItemUpdateData.ItemUpdateType.FullSync);
+                        dirtyUpdate = nearbyItem.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
 
                     if (delivery.Kind is ItemDeliveryKind.Dirty or ItemDeliveryKind.FullSync && dirtyUpdate != null)
                     {
@@ -401,7 +401,7 @@ internal sealed partial class ServerItemManager
             if (playerUpdates.Count > 0)
             {
                 //NetworkServer.Instance.LogDebug(() => $"ProcessChanged({tick}) Sending {playerUpdates.Count()} to player: {player.Username}");
-                NetworkServer.Instance.SendItemsBulkUpdatePacket(playerUpdates, player);
+                NetworkServer.Instance.SendItemUpdates(playerUpdates, player);
                 HostSpatial.SendActiveLeasesTo(player, playerUpdates);
             }
         }

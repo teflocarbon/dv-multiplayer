@@ -26,6 +26,7 @@ host-authority model works end to end, then points at the rest.
 | [jobs.md](jobs.md) | Job generation, taking jobs, booklets and reports, validation and hand-in, save and rejoin |
 | [design/trains.md](design/trains.md) | Train sync: canonical topology (couplers, hoses, cocks, MU cables), control commits, motion and corrections |
 | [design/items/README.md](design/items/README.md) | **Start here for items.** The item system as the [refactor](design/item-refactor.md) builds it: the guarantee, the three names (ledger, live state, saving and loading), the homes, and one code folder and doc per subsystem. The old item docs are under [Legacy](#legacy) |
+| [design/items/wire.md](design/items/wire.md) | The item wire (R2): naming items (NetId, one handle space, never a GUID) and players (a holder by number; each player's relation to an item, never its owner; the claim only to its claimant), the per-recipient update, one request and one result with a remembered request id, one-step recall, one list, the refusal codes |
 | [design/shops.md](design/shops.md) | Shops as a server transaction: shared registers and shelves, the cash rules and the scanner are built; prediction, delivery to the owner, receipts, station fixtures and per-player stock are planned |
 
 ## Legacy

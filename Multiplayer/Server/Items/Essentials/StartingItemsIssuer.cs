@@ -251,12 +251,11 @@ public static class StartingItemsIssuer
 
             if (overflow)
                 instance.transform.position = player.AbsoluteWorldPosition + WorldMover.currentMove + Vector3.up * 0.3f;
-            ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Create);
+            ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
             snapshot.ItemState = overflow ? ItemState.Dropped : ItemState.InInventory;
             snapshot.PlayerId = overflow ? (byte)0 : player.PlayerId;
             if (overflow)
                 snapshot.ItemPosition = player.AbsoluteWorldPosition + Vector3.up * 0.3f;
-            snapshot.InventoryClaimPlayerId = player.PlayerId;
             snapshot.InventoryClaimSlot = slot;
             // An essential's slot is reserved for it (its silhouette, and recall).
             snapshot.InventoryClaimFlags = essential ? ItemInventoryClaimFlags.Reserved : ItemInventoryClaimFlags.None;

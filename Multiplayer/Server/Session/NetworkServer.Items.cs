@@ -2,6 +2,8 @@
 using LiteNetLib;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
+using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.LiveState;
@@ -15,12 +17,11 @@ using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
-using Multiplayer.Shared.Protocol.Packets.Common;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Debugging.Protocol;
-using ItemMoveReason = Multiplayer.Core.Items.ChangeCauses.ItemMoveReason;
 using ItemRemovalReason = Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason;
 using System;
 using System.Collections.Generic;
@@ -167,40 +168,70 @@ public partial class NetworkServer : IItemServer
             });
     }
 
-    public void SendItemsBulkUpdatePacket(List<ItemUpdateData> items, ServerPlayer player)
+    // ---- Updates (docs/design/items/wire.md, "One update") ----
+
+    /// <summary>Item changes for one player (a join, its interest moving), built for it.</summary>
+    public void SendItemUpdates(List<ItemUpdate> updates, ServerPlayer player)
     {
         // Item packets go out many times a second: they're traced (the debug system), not logged.
         DebugRuntime.Publish("item", "item.bulk-send-requested", DebugRuntimeSide.Server, data: new()
         {
-            ["count"] = items?.Count ?? 0,
+            ["count"] = updates?.Count ?? 0,
             ["playerId"] = player?.PlayerId ?? 0,
-            ["itemNetIds"] = string.Join(",", items?.Select(item => item?.ItemNetId ?? 0) ?? Enumerable.Empty<ushort>())
+            ["itemNetIds"] = string.Join(",", updates?.Select(item => item?.ItemNetId ?? 0) ?? Enumerable.Empty<ushort>())
         });
-
-        var packet = new CommonItemsBulkUpdatePacket { Items = items };
-
-        if (player == null)
-            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludeSelf: true);
+        if (player != null)
+            SendItemUpdatesTo(player, updates);
         else
-        {
-            TraceItemDeliveryExpected(packet, player.Peer, DeliveryMethod.ReliableOrdered);
-            SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
-        }
+            foreach (ServerPlayer recipient in ServerPlayers.ToArray())
+                if (recipient.LoadingState >= PlayerLoadingState.ReadyForItems)
+                    SendItemUpdatesTo(recipient, updates);
     }
 
-    public void SendItemUpdatePacket(ItemUpdateData item, ServerPlayer sendToPlayer = null, ServerPlayer excludePlayer = null)
+    /// <summary>
+    /// One item change, for <paramref name="sendToPlayer"/> only or for everyone but
+    /// <paramref name="excludePlayer"/>, each copy built for its recipient.
+    /// </summary>
+    public void SendItemUpdate(ItemUpdate item, ServerPlayer sendToPlayer = null, ServerPlayer excludePlayer = null)
     {
         DebugRuntime.Publish("item", "item.relay-requested", DebugRuntimeSide.Server, entityType: "Item", entityId: item?.ItemNetId.ToString(),
             data: Merge(DebugTrace.ItemSnapshotData(item), new() { ["sendToPlayer"] = sendToPlayer?.PlayerId ?? 0, ["excludePlayer"] = excludePlayer?.PlayerId ?? 0 }));
-
-        var packet = new CommonItemUpdatePacket { ItemData = item };
-        if (sendToPlayer == null)
-            SendPacketToAll(packet, DeliveryMethod.ReliableOrdered, PlayerLoadingState.ReadyForItems, excludePlayer?.Peer, excludeSelf: true);
+        if (item == null)
+            return;
+        List<ItemUpdate> one = new() { item };
+        if (sendToPlayer != null)
+            SendItemUpdatesTo(sendToPlayer, one);
         else
-        {
-            TraceItemDeliveryExpected(packet, sendToPlayer.Peer, DeliveryMethod.ReliableOrdered);
-            SendPacket(sendToPlayer.Peer, packet, DeliveryMethod.ReliableOrdered);
-        }
+            foreach (ServerPlayer recipient in ServerPlayers.ToArray())
+                if (recipient != excludePlayer && recipient.LoadingState >= PlayerLoadingState.ReadyForItems)
+                    SendItemUpdatesTo(recipient, one);
+    }
+
+    // The host's own player is the server's own world: it's never sent its items' changes.
+    private void SendItemUpdatesTo(ServerPlayer recipient, List<ItemUpdate> updates)
+    {
+        if (recipient?.Peer == null || recipient == LocalPlayer || updates == null)
+            return;
+        List<ItemUpdate> built = new(updates.Count);
+        foreach (ItemUpdate update in updates)
+            if (update != null)
+                built.Add(BuildFor(update, recipient));
+        if (built.Count == 0)
+            return;
+        ClientboundItemUpdatesPacket packet = new() { Updates = built };
+        TraceItemDeliveryExpected(packet, recipient.Peer, DeliveryMethod.ReliableOrdered);
+        SendPacket(recipient.Peer, packet, DeliveryMethod.ReliableOrdered);
+    }
+
+    // What one player is told of an item: its relation to it, never the owner (D3), and the claim
+    // only if it's the claimant. A Destroy, or an item with no record, is nobody's.
+    private static ItemUpdate BuildFor(ItemUpdate update, ServerPlayer recipient)
+    {
+        if (update.UpdateType == ItemUpdate.ItemUpdateType.Destroy ||
+            !LiveItems.TryGet(update.ItemNetId, out LiveItems.LiveItem record))
+            return update.For(ItemRelation.Nobodys, false);
+        return update.For(ItemRelations.Of(record.Owner, recipient.Guid),
+            recipient.Guid != Guid.Empty && LiveItems.Claimant(record) == recipient.Guid);
     }
 
     // The spatial stream is for the players following an item. The host's own player is the
@@ -262,37 +293,15 @@ public partial class NetworkServer : IItemServer
         }
     }
 
-    public void SendLostItemsSnapshot(ServerPlayer player, uint requestId = 0)
-    {
-        if (player?.Peer == null) return;
-        LostItemData[] items = LostAndFoundServer.SnapshotFor(player);
-        SendPacket(player.Peer, new ClientboundLostItemsSnapshotPacket
-        {
-            RequestId = requestId,
-            Generation = LostAndFoundServer.Generation,
-            Handles = items.Select(item => item.Handle).ToArray(),
-            NetIds = items.Select(item => item.NetId).ToArray(),
-            Revisions = items.Select(item => item.Revision).ToArray(),
-            PrefabNames = items.Select(item => item.PrefabName ?? string.Empty).ToArray(),
-            DisplayNames = items.Select(item => item.DisplayName ?? string.Empty).ToArray(),
-            Reasons = items.Select(item => item.Reason).ToArray(),
-            LostUtcTicks = items.Select(item => item.LostUtcTicks).ToArray()
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
     private void TraceItemDeliveryExpected<T>(T packet, ITransportPeer peer, DeliveryMethod deliveryMethod)
     {
-        if (!DebugRuntime.EnabledFor("item") || peer == null || !TryGetServerPlayer(peer, out ServerPlayer recipient)) return;
-        IEnumerable<ItemUpdateData> snapshots = packet switch
-        {
-            CommonItemUpdatePacket single when single.ItemData != null => new[] { single.ItemData },
-            CommonItemsBulkUpdatePacket bulk when bulk.Items != null => bulk.Items.Where(item => item != null),
-            _ => Array.Empty<ItemUpdateData>()
-        };
-        foreach (ItemUpdateData snapshot in snapshots)
+        if (packet is not ClientboundItemUpdatesPacket { Updates: not null } updates ||
+            !DebugRuntime.EnabledFor("item") || peer == null ||
+            !TryGetServerPlayer(peer, out ServerPlayer recipient)) return;
+        foreach (ItemUpdate snapshot in updates.Updates.Where(item => item != null))
         {
             Dictionary<string, object> data = DebugTrace.ItemSnapshotData(snapshot);
-            data["packetType"] = packet.GetType().Name;
+            data["packetType"] = nameof(ClientboundItemUpdatesPacket);
             data["recipientPlayerId"] = recipient.PlayerId;
             data["recipientPlayerName"] = recipient.Username ?? string.Empty;
             data["recipientPeerId"] = peer.Id;
@@ -310,102 +319,216 @@ public partial class NetworkServer : IItemServer
         }
     }
 
-    //private void OnCommonItemChangePacket(CommonItemsBulkUpdatePacket packet, ITransportPeer peer)
-    //{
-    //    if (!TryGetServerPlayer(peer, out var player))
-    //        return;
+    // ---- Requests (docs/design/items/wire.md, "One request, one result") ----
 
-    //    LogDebug(() => $"OnCommonItemChangePacket({packet?.Items?.Count}, {peer.Id} (\"{player.Username}\"))");
-
-    //    LogDebug(() =>
-    //    {
-    //        string debug = "";
-
-    //        foreach (var item in packet?.Items)
-    //        {
-    //            debug += "UpdateType: " + item?.UpdateType + "\r\n";
-    //            debug += "itemNetId: " + item?.ItemNetId + "\r\n";
-    //            debug += "PrefabName: " + item?.PrefabName + "\r\n";
-    //            debug += "Equipped: " + item?.ItemState + "\r\n";
-    //            debug += "Position: " + item?.ItemPosition + "\r\n";
-    //            debug += "Rotation: " + item?.ItemRotation + "\r\n";
-    //            debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
-    //            debug += "Player: " + player.PlayerId + "\r\n";
-    //            debug += "CarNetId: " + item?.CarNetId + "\r\n";
-    //            debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
-
-    //            debug += "States:";
-
-    //            if (item.States != null)
-    //                foreach (var state in item?.States)
-    //                    debug += "\r\n\t" + state.Key + ": " + state.Value;
-    //        }
-
-    //        return debug;
-    //    }
-
-    //    );
-
-    //    // Set player id for all items, do not trust the client to send the correct player id
-    //    foreach (var item in packet.Items)
-    //        item.Player = player.PlayerId;
-
-    //    NetworkedItemManager.Instance.ReceiveSnapshots(packet.Items);
-    //}
-
-    private void OnCommonItemUpdatePacket(CommonItemUpdatePacket packet, ITransportPeer peer)
+    // The host's own player's requests are handled in-process; the answers go to its peer like
+    // anyone's, and its session shows them (LocalPlayerSession.Items).
+    partial void RegisterLocalItems()
     {
-        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Item", packet?.ItemData?.ItemNetId.ToString());
-        if (!TryGetServerPlayer(peer, out var player))
-        {
-            DebugTrace.Validation("item", "Item", packet?.ItemData?.ItemNetId.ToString(), false, "unknown-sender", DebugRuntimeSide.Server);
-            return;
-        }
+        HandleLocal<ServerboundItemRequestPacket>(HandleItemRequest);
+        HandleLocal<ServerboundItemListRequestPacket>(HandleItemListRequest);
+    }
 
-        LogDebug(() => $"OnCommonItemUpdatePacket({packet?.ItemData.ItemNetId}, [{peer.Id}, {player.Username}])");
-        if (packet?.ItemData == null)
-        {
-            DebugTrace.Validation("item", "Item", string.Empty, false, "missing-item-data", DebugRuntimeSide.Server);
-            return;
-        }
-        // Runtime creation is an explicit host spawn operation or the narrowly fenced TEMPORARY
-        // compatibility-adoption bridge. A normal state packet may never cause a client-authored
-        // logical entity to appear on the host.
-        if (packet.ItemData.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create))
-        {
-            DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false,
-                "client-create-not-permitted", DebugRuntimeSide.Server);
-            return;
-        }
-        // Set player id for all items, do not trust the client to send the correct player id
-
-        packet.ItemData.PlayerId = player.PlayerId;
-        if (NetworkedItem.TryGet(packet.ItemData.ItemNetId, out var networkedItem))
-        {
-            networkedItem.Server_ReceiveItemUpdate(packet.ItemData, player);
-        }
+    private void OnServerboundItemRequestPacket(ServerboundItemRequestPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleItemRequest(packet, player);
         else
+            DebugTrace.Validation("item", "Item", packet?.Request?.ItemNetId.ToString(), false, "unknown-sender", DebugRuntimeSide.Server);
+    }
+
+    /// <summary>
+    /// One request: carried out once, answered once. A repeat of its id gets the remembered
+    /// answer and does nothing else; a repeat while it's still being carried out (a withdrawal
+    /// materializing) gets nothing, as its answer is on its way.
+    /// </summary>
+    private void HandleItemRequest(ServerboundItemRequestPacket packet, ServerPlayer player)
+    {
+        ItemRequest request = packet?.Request;
+        if (request == null || player == null)
+            return;
+        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Server, "Item",
+            request.ItemNetId != 0 ? request.ItemNetId.ToString() : "h" + request.ItemHandle);
+        ItemRequestStart start = player.ItemRequests.Begin(request.RequestId, out ClientboundItemResultPacket remembered);
+        if (start != ItemRequestStart.New)
         {
-            DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Server);
+            DebugRuntime.Publish("item", "item.request-repeated", DebugRuntimeSide.Server,
+                DebugSeverity.Warning, "Item", request.ItemNetId.ToString(), new()
+                {
+                    ["playerId"] = player.PlayerId,
+                    ["requestId"] = request.RequestId,
+                    ["action"] = request.Action.ToString(),
+                    ["start"] = start.ToString()
+                });
+            if (start == ItemRequestStart.Repeat)
+                SendItemResult(player, remembered);
+            else if (start == ItemRequestStart.Expired)
+                SendItemResult(player, Refuse(request, "request-expired", ItemRefusal.Expired));
+            return;
+        }
+        ClientboundItemResultPacket result = Carry(request, player);
+        if (result != null)
+            CompleteItemRequest(player, result);
+    }
+
+    private ClientboundItemResultPacket Carry(ItemRequest request, ServerPlayer player)
+    {
+        switch (request.Action)
+        {
+            case ItemAction.Take:
+            case ItemAction.Stash:
+            case ItemAction.Drop:
+            case ItemAction.Throw:
+            case ItemAction.Attach:
+            case ItemAction.SetState:
+                return CarryChange(request, player);
+            case ItemAction.Recall:
+                return CarryRecall(request, player);
+            case ItemAction.Retrieve:
+                return CarryRetrieve(request, player);
+            case ItemAction.CollectLost:
+                return CarryCollectLost(request, player);
+            case ItemAction.Deposit:
+                return CarryDeposit(request, player);
+            case ItemAction.Withdraw:
+                return CarryWithdraw(request, player);
+            case ItemAction.MoveInContainer:
+                return CarryMoveInContainer(request, player);
+            case ItemAction.DepositMoney:
+                return CarryDepositMoney(request, player);
+            case ItemAction.ReportBelowMap:
+                return CarryBelowMapReport(request, player);
+            case ItemAction.MoveSlot:
+                // An inventory's slots are its game's until the server keeps them (R3).
+                return Refuse(request, "move-slot-not-kept-by-server", ItemRefusal.NotAllowed);
+            default:
+                return Refuse(request, "item-action-invalid", ItemRefusal.Invalid);
         }
     }
 
-    private void OnServerboundItemBelowMapPacket(ServerboundItemBelowMapPacket packet, ITransportPeer peer)
+    private void CompleteItemRequest(ServerPlayer player, ClientboundItemResultPacket result)
     {
-        if (TryGetServerPlayer(peer, out ServerPlayer player) &&
-            !float.IsNaN(packet.SurfaceHeight) && !float.IsInfinity(packet.SurfaceHeight))
-            ServerItemManager.Instance?.HandleBelowMapReport(player, packet.ItemNetId, packet.SurfaceHeight);
+        player.ItemRequests.Complete(result.RequestId, result);
+        if (!result.Accepted)
+            DebugRuntime.Publish("item", "item.request-refused", DebugRuntimeSide.Server,
+                DebugSeverity.Warning, "Item", result.ItemNetId.ToString(), new()
+                {
+                    ["playerId"] = player.PlayerId,
+                    ["requestId"] = result.RequestId,
+                    ["refusal"] = result.Refusal.ToString(),
+                    ["detail"] = result.Detail ?? string.Empty
+                });
+        SendItemResult(player, result);
     }
 
-    private void OnServerboundMoneyItemDepositPacket(ServerboundMoneyItemDepositPacket packet, ITransportPeer peer)
+    private void SendItemResult(ServerPlayer player, ClientboundItemResultPacket result)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-            return;
+        if (player?.Peer != null && result != null)
+            SendPacket(player.Peer, result, DeliveryMethod.ReliableOrdered);
+    }
 
-        if (!TrySpendMoneyItem(player, packet.ItemNetId, "into the wallet", out double amount))
-            return;
+    private static ClientboundItemResultPacket Accept(ItemRequest request, uint revision, ushort netId) => new()
+    {
+        RequestId = request.RequestId,
+        Revision = revision,
+        ItemNetId = netId
+    };
+
+    private static ClientboundItemResultPacket Refuse(ItemRequest request, string detail,
+        ItemRefusal refusal = ItemRefusal.Refused) => new()
+    {
+        RequestId = request.RequestId,
+        Refusal = refusal == ItemRefusal.Refused ? ItemRefusals.Classify(detail) : refusal,
+        Detail = detail ?? string.Empty,
+        ItemNetId = request.ItemNetId
+    };
+
+    private static uint RevisionOf(ushort netId) =>
+        LiveItems.TryGet(netId, out LiveItems.LiveItem record) ? record.Revision : 0;
+
+    // A move or a state change: the change the request asks for, validated and committed as a
+    // player's change always was (NetworkedItemServer.Server_ReceiveItemUpdate), which sends it to
+    // everyone, or a correction to the requester.
+    private static ClientboundItemResultPacket CarryChange(ItemRequest request, ServerPlayer player)
+    {
+        if (!NetworkedItem.TryGet(request.ItemNetId, out NetworkedItem item) || item == null)
+            return Refuse(request, "unknown-network-entity");
+        ItemUpdate change = ItemRequestTranslation.ToChange(request, player.PlayerId);
+        change.PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? string.Empty;
+        string refusal = item.Server_ReceiveItemUpdate(change, player);
+        return refusal == null ? Accept(request, RevisionOf(item.NetId), item.NetId) : Refuse(request, refusal);
+    }
+
+    // An owner's recall, in one step (wire.md, "Recall"): the server commits it, and the update it
+    // sends everyone empties the holder's hand and puts the item in the owner's claimed slot. From
+    // Lost and Found it's a collection into that slot.
+    private ClientboundItemResultPacket CarryRecall(ItemRequest request, ServerPlayer player)
+    {
+        if (!NetworkedItem.TryGet(request.ItemNetId, out NetworkedItem item) || item == null)
+            return Refuse(request, "unknown-network-entity");
+        bool lost = LostAndFoundServer.Contains(item.NetId);
+        bool accepted = lost
+            ? LostAndFoundServer.TryRetrieveForRecall(player, item, request.ExpectedRevision, request.Slot,
+                out ItemUpdate snapshot, out string reason)
+            : LiveItems.TryRecall(item, player, request.Slot, request.ExpectedRevision, out snapshot, out reason);
+        Log($"[Recall] P{player.PlayerId} recalled item {item.NetId} to slot {request.Slot}" +
+            (lost ? " from Lost and Found" : string.Empty) + $": {(accepted ? "done" : "refused, " + reason)}");
+        if (!accepted)
+            return Refuse(request, reason);
+        if (!lost)
+            item.ApplyServerCanonicalSnapshot(snapshot);
+        // No game did this move: the requester's applies it like everyone's.
+        snapshot.OriginatingPlayerId = 0;
+        SendItemUpdate(snapshot);
+        return Accept(request, snapshot.AuthorityRevision, item.NetId);
+    }
+
+    // An owner takes an item back into their Lost and Found (owned-items.md, PR 6b), then gets a fresh list.
+    private ClientboundItemResultPacket CarryRetrieve(ItemRequest request, ServerPlayer player)
+    {
+        string reason = Retrieval.Unknown;
+        bool accepted = ItemHandles.TryResolve(request.ItemHandle, out Guid itemId) &&
+                        Retrieval.Retrieve(player, itemId, out reason);
+        Log($"{player.Username} retrieved owned item {request.ItemHandle}: {(accepted ? "to Lost and Found" : "refused, " + reason)}");
+        SendOwnedList(player);
+        return accepted ? Accept(request, 0, 0) : Refuse(request, reason);
+    }
+
+    // A Lost and Found row into the requester's inventory. A refusal can mean the list was stale,
+    // so it's sent again; an accepted one sends it from the collection itself.
+    private ClientboundItemResultPacket CarryCollectLost(ItemRequest request, ServerPlayer player)
+    {
+        ItemUpdate snapshot = null;
+        string reason = "unknown-lost-item";
+        bool accepted = ItemHandles.TryResolve(request.ItemHandle, out Guid itemId) &&
+            LostAndFoundServer.TryCollect(player, itemId, request.ExpectedRevision, request.Slot,
+                request.InventoryCapacity, request.OccupiedSlots, out snapshot, out reason);
+        Log($"[LostAndFound] P{player.PlayerId} collected row {request.ItemHandle} (revision " +
+            $"{request.ExpectedRevision}, slot {request.Slot}): {(accepted ? "done" : "refused, " + reason)}");
+        if (!accepted)
+        {
+            SendLostAndFoundList(player);
+            return Refuse(request, reason);
+        }
+        SendItemUpdate(snapshot);
+        return Accept(request, snapshot.AuthorityRevision, snapshot.ItemNetId);
+    }
+
+    private static ClientboundItemResultPacket CarryDepositMoney(ItemRequest request, ServerPlayer player)
+    {
+        if (!NetworkServer.Instance.TrySpendMoneyItem(player, request.ItemNetId, "into the wallet", out double amount))
+            return Refuse(request, "money-not-spendable", ItemRefusal.NotAllowed);
         if (amount > double.Epsilon)
             Inventory.Instance.AddMoney(amount); // MoneyChanged broadcasts the new balance
+        return Accept(request, 0, request.ItemNetId);
+    }
+
+    private static ClientboundItemResultPacket CarryBelowMapReport(ItemRequest request, ServerPlayer player)
+    {
+        if (float.IsNaN(request.SurfaceHeight) || float.IsInfinity(request.SurfaceHeight))
+            return Refuse(request, "surface-height-invalid", ItemRefusal.Invalid);
+        ServerItemManager.Instance?.HandleBelowMapReport(player, request.ItemNetId, request.SurfaceHeight);
+        return Accept(request, RevisionOf(request.ItemNetId), request.ItemNetId);
     }
 
     /// <summary>
@@ -440,397 +563,200 @@ public partial class NetworkServer : IItemServer
         return true;
     }
 
-    private void OnServerboundItemRecallPacket(ServerboundItemRecallPacket packet, ITransportPeer peer)
+    // ---- Containers: a request names a container or a stored item by its handle, and the
+    // container graph by its own session handle; the translation is here, on the server only. ----
+
+    // The graph's handle for the container a wire handle names: the container's own, or a stored
+    // container item's (a toolbox in a crate), which opens its contents. 0 if neither.
+    private static uint ContainerGraphHandle(uint handle)
     {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-        {
-            LogWarning($"[LostAndFound Recall] Recall packet has no authenticated player: " +
-                $"peer={peer?.Id}, netId={packet.ItemNetId}");
+        if (!ItemHandles.TryResolve(handle, out Guid id))
+            return 0;
+        if (ContainerServer.Graph.TryGetContainer(id, out ContainerRecord container))
+            return container.SessionHandle;
+        return ContainerServer.Graph.TryGetItem(id, out StoredItemRecord stored) && stored.ChildContainerId is Guid child &&
+               ContainerServer.Graph.TryGetContainer(child, out ContainerRecord inner) ? inner.SessionHandle : 0;
+    }
+
+    // A stored item a wire handle names, and the graph's handle for the container it's in.
+    private static bool TryGetStoredItem(uint handle, out StoredItemRecord stored, out uint containerGraphHandle)
+    {
+        containerGraphHandle = 0;
+        stored = null;
+        if (!ItemHandles.TryResolve(handle, out Guid id) || !ContainerServer.Graph.TryGetItem(id, out stored) ||
+            !ContainerServer.Graph.TryGetContainer(stored.ParentContainerId, out ContainerRecord container))
+            return false;
+        containerGraphHandle = container.SessionHandle;
+        return true;
+    }
+
+    private static ClientboundItemResultPacket ContainerResult(ItemRequest request, ContainerOperationResult result,
+        uint revision, ushort netId) =>
+        result.Accepted ? Accept(request, revision, netId) : Refuse(request, result.Reason, RefusalOf(result));
+
+    private static ItemRefusal RefusalOf(ContainerOperationResult result) => result.Status switch
+    {
+        ContainerOperationStatus.Accepted => ItemRefusal.None,
+        ContainerOperationStatus.Unauthorized => ItemRefusal.NotYours,
+        ContainerOperationStatus.NotFound => ItemRefusal.UnknownItem,
+        ContainerOperationStatus.StaleRevision => ItemRefusal.StaleRevision,
+        ContainerOperationStatus.SlotOccupied or ContainerOperationStatus.OwnerQuotaExceeded or
+            ContainerOperationStatus.DepthExceeded or ContainerOperationStatus.NodeBudgetExceeded => ItemRefusal.NoRoom,
+        ContainerOperationStatus.Incompatible or ContainerOperationStatus.CycleDetected => ItemRefusal.NotAllowed,
+        ContainerOperationStatus.OperationConflict => ItemRefusal.Busy,
+        ContainerOperationStatus.SlotOutOfRange or ContainerOperationStatus.InvalidRecord => ItemRefusal.Invalid,
+        _ => ItemRefusal.Refused
+    };
+
+    // A live item into a container: the open one's shell, or a container row. Its expected
+    // revision is the container's, as its list showed it.
+    private static ClientboundItemResultPacket CarryDeposit(ItemRequest request, ServerPlayer player)
+    {
+        uint container = request.Container != 0 ? ContainerGraphHandle(request.Container) : 0;
+        if (request.Container != 0 && container == 0)
+            return Refuse(request, "container-handle-not-found", ItemRefusal.UnknownItem);
+        ContainerOperationResult result = ContainerServer.Deposit(player, Guid.NewGuid(), request.ShellNetId,
+            container, request.ExpectedRevision, request.Slot, request.ItemNetId);
+        return ContainerResult(request, result, result.DestinationRevision, request.ItemNetId);
+    }
+
+    // A container row into the requester's inventory slot. It materializes over a few frames, so
+    // its answer is sent when it's done; until then a repeat of the request gets nothing.
+    private ClientboundItemResultPacket CarryWithdraw(ItemRequest request, ServerPlayer player)
+    {
+        if (!TryGetStoredItem(request.ItemHandle, out StoredItemRecord stored, out uint container))
+            return Refuse(request, "container-item-not-found", ItemRefusal.UnknownItem);
+        CoroutineManager.Instance.StartCoroutine(ContainerServer.Withdraw(player, Guid.NewGuid(), container,
+            request.ExpectedRevision, stored.Slot, request.Slot,
+            (result, withdrawnNetId) => CompleteItemRequest(player,
+                ContainerResult(request, result, result.SourceRevision, withdrawnNetId))));
+        return null;
+    }
+
+    // A container row to another slot, of its own container or another one.
+    private static ClientboundItemResultPacket CarryMoveInContainer(ItemRequest request, ServerPlayer player)
+    {
+        if (!TryGetStoredItem(request.ItemHandle, out StoredItemRecord stored, out uint source))
+            return Refuse(request, "container-item-not-found", ItemRefusal.UnknownItem);
+        uint destination = ContainerGraphHandle(request.Container);
+        if (destination == 0)
+            return Refuse(request, "container-handle-not-found", ItemRefusal.UnknownItem);
+        ContainerOperationResult result = ContainerServer.Move(player, Guid.NewGuid(), source, request.ExpectedRevision,
+            stored.Slot, destination, request.ContainerRevision, request.Slot);
+        return ContainerResult(request, result, result.DestinationRevision, 0);
+    }
+
+    // ---- Lists (docs/design/items/wire.md, "One list") ----
+
+    private void OnServerboundItemListRequestPacket(ServerboundItemListRequestPacket packet, ITransportPeer peer)
+    {
+        if (TryGetServerPlayer(peer, out ServerPlayer player))
+            HandleItemListRequest(packet, player);
+    }
+
+    private void HandleItemListRequest(ServerboundItemListRequestPacket packet, ServerPlayer player)
+    {
+        if (packet == null || player?.Peer == null)
             return;
-        }
-
-        Log($"[LostAndFound Recall] Recall packet received: player=P{player.PlayerId}, " +
-            $"netId={packet.ItemNetId}, revision={packet.ExpectedRevision}, slot={packet.RequestedSlot}");
-
-        bool accepted = false;
-        bool storedInLostAndFound = false;
-        string rejectionReason = string.Empty;
-        ItemUpdateData snapshot = null;
-        if (!NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) || item == null)
-            rejectionReason = "unknown-network-entity";
-        else if (storedInLostAndFound = LostAndFoundServer.Contains(item.NetId))
-            accepted = LostAndFoundServer.TryRetrieveForRecall(player, item,
-                packet.ExpectedRevision, packet.RequestedSlot, out snapshot, out rejectionReason);
-        else if (pendingItemRecallByItem.ContainsKey(item.NetId))
-            rejectionReason = "recall-already-pending";
-        else if (LiveItems.TryPrepareRecall(item, player, packet.RequestedSlot,
-                     packet.ExpectedRevision, out snapshot, out rejectionReason))
+        switch (packet.Kind)
         {
-            uint operationId = NextItemRecallOperationId();
-            PendingItemRecall pending = new(operationId, item.NetId, packet.ExpectedRevision,
-                packet.RequestedSlot, unchecked(NetworkLifecycle.Instance.Tick + ItemRecallTimeoutTicks),
-                player, peer);
-            pendingItemRecalls.Add(operationId, pending);
-            pendingItemRecallByItem.Add(item.NetId, operationId);
-            SendPacket(peer, new ClientboundItemRecallPreparePacket
-            {
-                OperationId = operationId,
-                ItemNetId = item.NetId,
-                BaseRevision = packet.ExpectedRevision,
-                PreparedRevision = snapshot.AuthorityRevision,
-                RequestedSlot = packet.RequestedSlot
-            }, DeliveryMethod.ReliableOrdered);
-            DebugRuntime.Publish("item", "item.recall-prepare-requested", DebugRuntimeSide.Server,
-                entityType: "Item", entityId: item.NetId.ToString(), data: new()
+            case ItemListKind.LostAndFound:
+                SendLostAndFoundList(player, packet.RequestId);
+                break;
+            case ItemListKind.Owned:
+                SendOwnedList(player, packet.RequestId);
+                break;
+            case ItemListKind.Container:
+                SendPacket(player.Peer, ContainerList(packet, player), DeliveryMethod.ReliableOrdered);
+                break;
+            default:
+                SendPacket(player.Peer, new ClientboundItemListPacket
                 {
-                    ["operationId"] = operationId,
-                    ["requestingPlayerId"] = player.PlayerId,
-                    ["baseRevision"] = packet.ExpectedRevision,
-                    ["preparedRevision"] = snapshot.AuthorityRevision,
-                    ["requestedSlot"] = packet.RequestedSlot
-                });
-            return;
+                    RequestId = packet.RequestId,
+                    Kind = packet.Kind,
+                    Refusal = ItemRefusal.Invalid,
+                    Detail = "item-list-kind-invalid"
+                }, DeliveryMethod.ReliableOrdered);
+                break;
         }
-
-        if (accepted)
-        {
-            if (!storedInLostAndFound)
-                item.ApplyServerCanonicalSnapshot(snapshot);
-            SendItemUpdatePacket(snapshot);
-        }
-        else
-        {
-            DebugRuntime.Publish("item", "item.recall-rejected", DebugRuntimeSide.Server,
-                DebugSeverity.Warning, "Item", packet.ItemNetId.ToString(), new()
-                {
-                    ["requestingPlayerId"] = player.PlayerId,
-                    ["expectedRevision"] = packet.ExpectedRevision,
-                    ["requestedSlot"] = packet.RequestedSlot,
-                    ["rejectionReason"] = rejectionReason ?? string.Empty
-                });
-        }
-
-        SendPacket(peer, new ClientboundItemRecallResultPacket
-        {
-            OperationId = 0,
-            ItemNetId = packet.ItemNetId,
-            Accepted = accepted,
-            AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
-            RejectionReason = rejectionReason ?? string.Empty
-        }, DeliveryMethod.ReliableOrdered);
-        Log($"[LostAndFound Recall] Recall result sent: player=P{player.PlayerId}, " +
-            $"netId={packet.ItemNetId}, stored={storedInLostAndFound}, accepted={accepted}, " +
-            $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
     }
 
-    private void OnServerboundItemRecallPreparedPacket(ServerboundItemRecallPreparedPacket packet,
-        ITransportPeer peer)
-    {
-        if (!pendingItemRecalls.TryGetValue(packet.OperationId, out PendingItemRecall pending) ||
-            pending.Peer != peer || pending.ItemNetId != packet.ItemNetId)
-            return;
-        if (!packet.Succeeded)
-        {
-            CancelPendingItemRecall(pending, string.IsNullOrWhiteSpace(packet.FailureReason)
-                ? "client-recall-prepare-failed" : packet.FailureReason, true);
-            return;
-        }
-        string rejectionReason = string.Empty;
-        if (!NetworkedItem.TryGet(pending.ItemNetId, out NetworkedItem item) || item == null ||
-            !LiveItems.TryCommitPreparedRecall(item, pending.Player,
-                pending.RequestedSlot, pending.BaseRevision, out ItemUpdateData snapshot,
-                out rejectionReason))
-        {
-            CancelPendingItemRecall(pending, rejectionReason ?? "recall-commit-failed", true);
-            return;
-        }
-
-        RemovePendingItemRecall(pending);
-        item.ApplyServerCanonicalSnapshot(snapshot);
-        SendItemUpdatePacket(snapshot);
-        SendPacket(peer, new ClientboundItemRecallResultPacket
-        {
-            OperationId = pending.OperationId,
-            ItemNetId = item.NetId,
-            Accepted = true,
-            AuthorityRevision = snapshot.AuthorityRevision,
-            RejectionReason = string.Empty
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    private void CancelPendingItemRecall(PendingItemRecall pending, string reason, bool notifyClient)
-    {
-        RemovePendingItemRecall(pending);
-        uint revision = 0;
-        if (NetworkedItem.TryGet(pending.ItemNetId, out NetworkedItem item) && item != null &&
-            LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdateData correction,
-                ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "recall cancelled: " + reason)))
-        {
-            revision = correction.AuthorityRevision;
-            if (notifyClient)
-                SendItemUpdatePacket(correction, pending.Player);
-        }
-        DebugRuntime.Publish("item", reason == "recall-prepare-timeout"
-                ? "item.recall-transaction-timeout" : "item.recall-transaction-cancelled",
-            DebugRuntimeSide.Server, DebugSeverity.Warning, "Item", pending.ItemNetId.ToString(), new()
-            {
-                ["operationId"] = pending.OperationId,
-                ["requestingPlayerId"] = pending.Player?.PlayerId ?? 0,
-                ["baseRevision"] = pending.BaseRevision,
-                ["rejectionReason"] = reason ?? string.Empty
-            });
-        if (notifyClient && pending.Peer != null)
-            SendPacket(pending.Peer, new ClientboundItemRecallResultPacket
-            {
-                OperationId = pending.OperationId,
-                ItemNetId = pending.ItemNetId,
-                Accepted = false,
-                AuthorityRevision = revision,
-                RejectionReason = reason ?? string.Empty
-            }, DeliveryMethod.ReliableOrdered);
-    }
-
-    private void RemovePendingItemRecall(PendingItemRecall pending)
-    {
-        pendingItemRecalls.Remove(pending.OperationId);
-        pendingItemRecallByItem.Remove(pending.ItemNetId);
-    }
-
-    private uint NextItemRecallOperationId()
-    {
-        do nextItemRecallOperationId++;
-        while (nextItemRecallOperationId == 0 || pendingItemRecalls.ContainsKey(nextItemRecallOperationId));
-        return nextItemRecallOperationId;
-    }
-
-    // The Lost and Found screen's and the container UI's requests. The host's own player's are
-    // handled in-process (RegisterLocalItems); the answers go to its peer like anyone's, and its
-    // session shows them (LocalPlayerSession.Items).
-    partial void RegisterLocalItems()
-    {
-        HandleLocal<ServerboundLostItemsRequestPacket>(HandleLostItemsRequest);
-        HandleLocal<ServerboundOwnedItemsRequestPacket>(HandleOwnedItemsRequest);
-        HandleLocal<ServerboundOwnedItemRetrievePacket>(HandleOwnedItemRetrieve);
-        HandleLocal<ServerboundLostItemRetrievePacket>(HandleLostItemRetrieve);
-        HandleLocal<ServerboundContainerBrowsePacket>(HandleContainerBrowse);
-        HandleLocal<ServerboundContainerMutationPacket>(HandleContainerMutation);
-    }
-
-    private void OnServerboundLostItemsRequestPacket(ServerboundLostItemsRequestPacket packet, ITransportPeer peer)
-    {
-        if (TryGetServerPlayer(peer, out ServerPlayer player))
-            HandleLostItemsRequest(packet, player);
-    }
-
-    private void HandleLostItemsRequest(ServerboundLostItemsRequestPacket packet, ServerPlayer player) =>
-        SendLostItemsSnapshot(player, packet.RequestId);
-
-    private void OnServerboundOwnedItemsRequestPacket(ServerboundOwnedItemsRequestPacket packet, ITransportPeer peer)
-    {
-        if (TryGetServerPlayer(peer, out ServerPlayer player))
-            HandleOwnedItemsRequest(packet, player);
-    }
-
-    private void OnServerboundOwnedItemRetrievePacket(ServerboundOwnedItemRetrievePacket packet, ITransportPeer peer)
-    {
-        if (TryGetServerPlayer(peer, out ServerPlayer player))
-            HandleOwnedItemRetrieve(packet, player);
-    }
-
-    // An owner takes an item back into their Lost and Found (owned-items.md, PR 6b), then gets a fresh list.
-    private void HandleOwnedItemRetrieve(ServerboundOwnedItemRetrievePacket packet, ServerPlayer player)
+    /// <summary>
+    /// A player's Lost and Found, oldest first: for their request, and unasked (request 0)
+    /// whenever it changes.
+    /// </summary>
+    public void SendLostAndFoundList(ServerPlayer player, uint requestId = 0)
     {
         if (player?.Peer == null) return;
-        string reason = Retrieval.Unknown;
-        bool accepted = OwnedItemRows.TryResolve(packet.Handle, out Guid itemId) &&
-                        Retrieval.Retrieve(player, itemId, out reason);
-        Log($"{player.Username} retrieved owned item {packet.Handle}: {(accepted ? "to Lost and Found" : "refused, " + reason)}");
-        SendPacket(player.Peer, new ClientboundOwnedItemRetrieveResultPacket
+        SendPacket(player.Peer, new ClientboundItemListPacket
         {
-            RequestId = packet.RequestId,
-            Handle = packet.Handle,
-            Accepted = accepted,
-            RejectionReason = accepted ? string.Empty : reason ?? string.Empty
+            RequestId = requestId,
+            Kind = ItemListKind.LostAndFound,
+            Rows = LostAndFoundServer.RowsFor(player)
         }, DeliveryMethod.ReliableOrdered);
-        HandleOwnedItemsRequest(new ServerboundOwnedItemsRequestPacket { RequestId = packet.RequestId }, player);
     }
 
     // The player's owned-items list (owned-items.md, PR 6a), worded here for every game alike.
-    private void HandleOwnedItemsRequest(ServerboundOwnedItemsRequestPacket packet, ServerPlayer player)
+    private void SendOwnedList(ServerPlayer player, uint requestId = 0)
     {
         if (player?.Peer == null) return;
-        List<OwnedItemRow> rows = OwnedItemRows.For(player);
-        SendPacket(player.Peer, new ClientboundOwnedItemsPacket
-        {
-            RequestId = packet.RequestId,
-            Handles = rows.Select(row => row.Handle).ToArray(),
-            PrefabNames = rows.Select(row => row.Prefab).ToArray(),
-            DisplayNames = rows.Select(row => row.DisplayName).ToArray(),
-            Wheres = rows.Select(row => row.Where).ToArray(),
-            Retrievable = rows.Select(row => row.Retrievable).ToArray()
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    private void OnServerboundLostItemRetrievePacket(ServerboundLostItemRetrievePacket packet, ITransportPeer peer)
-    {
-        if (!TryGetServerPlayer(peer, out ServerPlayer player))
-        {
-            LogWarning($"[LostAndFound Recall] Retrieval packet has no authenticated player: " +
-                $"peer={peer?.Id}, request={packet.RequestId}, handle={packet.LostHandle}");
-            return;
-        }
-        HandleLostItemRetrieve(packet, player);
-    }
-
-    private void HandleLostItemRetrieve(ServerboundLostItemRetrievePacket packet, ServerPlayer player)
-    {
-        Log($"[LostAndFound Recall] Retrieval packet received: player=P{player.PlayerId}, " +
-            $"request={packet.RequestId}, handle={packet.LostHandle}, revision={packet.ExpectedRevision}, " +
-            $"requestedSlot={packet.RequestedSlot}, existingSlot={packet.ExistingItemSlot}, " +
-            $"capacity={packet.InventoryCapacity}, occupied=[{string.Join(",", packet.OccupiedSlots ?? System.Array.Empty<int>())}]");
-        bool accepted = LostAndFoundServer.TryRetrieve(player, packet.LostHandle,
-            packet.ExpectedRevision, packet.RequestedSlot, packet.ExistingItemSlot, packet.InventoryCapacity,
-            packet.OccupiedSlots, out ItemUpdateData snapshot, out string rejectionReason);
-        if (accepted)
-            SendItemUpdatePacket(snapshot);
-        SendPacket(player.Peer, new ClientboundLostItemRetrieveResultPacket
-        {
-            RequestId = packet.RequestId,
-            LostHandle = packet.LostHandle,
-            Accepted = accepted,
-            AuthorityRevision = snapshot?.AuthorityRevision ?? 0,
-            RejectionReason = rejectionReason ?? string.Empty
-        }, DeliveryMethod.ReliableOrdered);
-        // Successful retrievals publish the changed owner snapshot at the shared commit point.
-        // Rejections can still invalidate a stale registry entry, so retain the explicit refresh.
-        if (!accepted)
-            SendLostItemsSnapshot(player, packet.RequestId);
-        Log($"[LostAndFound Recall] Retrieval result sent: player=P{player.PlayerId}, " +
-            $"request={packet.RequestId}, handle={packet.LostHandle}, accepted={accepted}, " +
-            $"revision={snapshot?.AuthorityRevision ?? 0}, reason={rejectionReason ?? string.Empty}");
-    }
-
-    private void OnServerboundContainerBrowsePacket(ServerboundContainerBrowsePacket packet,
-        ITransportPeer peer)
-    {
-        if (TryGetServerPlayer(peer, out ServerPlayer player))
-            HandleContainerBrowse(packet, player);
-    }
-
-    private void HandleContainerBrowse(ServerboundContainerBrowsePacket packet, ServerPlayer player)
-    {
-        ContainerView view;
-        ContainerOperationResult result = packet.ShellNetId != 0
-            ? ContainerServer.Browse(player, packet.ShellNetId, packet.Offset,
-                packet.Count, out view)
-            : ContainerServer.Browse(player, packet.ContainerHandle, packet.Offset,
-                packet.Count, out view);
-        SendPacket(player.Peer, ProjectContainerView(packet.RequestId, result, view),
-            DeliveryMethod.ReliableOrdered);
-    }
-
-    private void OnServerboundContainerMutationPacket(ServerboundContainerMutationPacket packet,
-        ITransportPeer peer)
-    {
-        if (TryGetServerPlayer(peer, out ServerPlayer player))
-            HandleContainerMutation(packet, player);
-    }
-
-    private void HandleContainerMutation(ServerboundContainerMutationPacket packet, ServerPlayer player)
-    {
-        ITransportPeer peer = player.Peer;
-        Guid operationId = packet.OperationId?.Length == 16
-            ? new Guid(packet.OperationId) : Guid.Empty;
-        ContainerOperationResult result;
-        ushort materializedNetId = 0;
-        if (operationId == Guid.Empty)
-        {
-            result = new ContainerOperationResult
-            {
-                Kind = (ContainerOperationKind)packet.Kind,
-                Status = ContainerOperationStatus.InvalidRecord,
-                Reason = "operation-id-invalid"
-            };
-        }
-        else
-        {
-            switch ((ContainerOperationKind)packet.Kind)
-            {
-                case ContainerOperationKind.Deposit:
-                    result = ContainerServer.Deposit(player, operationId,
-                        packet.ShellNetId, packet.DestinationContainerHandle,
-                        packet.ExpectedDestinationRevision,
-                        packet.DestinationSlot, packet.ItemNetId);
-                    break;
-                case ContainerOperationKind.Withdraw:
-                    CoroutineManager.Instance.StartCoroutine(
-                        ContainerServer.Withdraw(player, operationId,
-                        packet.SourceContainerHandle, packet.ExpectedSourceRevision,
-                        packet.SourceSlot, packet.DestinationSlot,
-                        (withdrawalResult, withdrawnNetId) =>
-                            SendContainerMutationResult(peer, packet, operationId,
-                                withdrawalResult, withdrawnNetId)));
-                    return;
-                case ContainerOperationKind.Move:
-                    result = ContainerServer.Move(player, operationId,
-                        packet.SourceContainerHandle, packet.ExpectedSourceRevision,
-                        packet.SourceSlot, packet.DestinationContainerHandle,
-                        packet.ExpectedDestinationRevision, packet.DestinationSlot);
-                    break;
-                default:
-                    result = new ContainerOperationResult
-                    {
-                        OperationId = operationId,
-                        Kind = (ContainerOperationKind)packet.Kind,
-                        Status = ContainerOperationStatus.InvalidRecord,
-                        Reason = "container-mutation-kind-invalid"
-                    };
-                    break;
-            }
-        }
-        SendContainerMutationResult(peer, packet, operationId, result, materializedNetId);
-    }
-
-    private void SendContainerMutationResult(ITransportPeer peer,
-        ServerboundContainerMutationPacket packet, Guid operationId,
-        ContainerOperationResult result, ushort materializedNetId)
-    {
-        SendPacket(peer, new ClientboundContainerMutationResultPacket
-        {
-            RequestId = packet.RequestId,
-            OperationId = operationId.ToByteArray(),
-            Kind = (byte)result.Kind,
-            Accepted = result.Accepted,
-            Status = (byte)result.Status,
-            RejectionReason = result.Reason ?? string.Empty,
-            SourceRevision = result.SourceRevision,
-            DestinationRevision = result.DestinationRevision,
-            MaterializedItemNetId = materializedNetId
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    private static ClientboundContainerViewPacket ProjectContainerView(uint requestId,
-        ContainerOperationResult result, ContainerView view)
-    {
-        ContainerSlotView[] slots = view?.Slots?.ToArray() ?? Array.Empty<ContainerSlotView>();
-        return new ClientboundContainerViewPacket
+        SendPacket(player.Peer, new ClientboundItemListPacket
         {
             RequestId = requestId,
-            Accepted = result.Accepted,
-            RejectionReason = result.Reason ?? string.Empty,
-            ContainerHandle = view?.ContainerHandle ?? 0,
-            Revision = view?.Revision ?? 0,
-            Capacity = view?.Capacity ?? 0,
-            Offset = view?.Offset ?? 0,
-            HasMore = view?.HasMore ?? false,
-            Slots = slots.Select(slot => slot.Slot).ToArray(),
-            ItemHandles = slots.Select(slot => slot.ItemHandle).ToArray(),
-            PrefabNames = slots.Select(slot => slot.PrefabName ?? string.Empty).ToArray(),
-            DisplayNames = slots.Select(slot => slot.DisplayName ?? string.Empty).ToArray(),
-            ForeignOwned = slots.Select(slot => slot.ForeignOwned).ToArray(),
-            ChildContainerHandles = slots.Select(slot => slot.ChildContainerHandle).ToArray(),
-            ChildItemCounts = slots.Select(slot => slot.ChildItemCount).ToArray(),
-            StateVersions = slots.Select(slot => slot.StateVersion).ToArray()
-        };
+            Kind = ItemListKind.Owned,
+            Rows = OwnedItemRows.For(player).Select(row => new ItemRow
+            {
+                Handle = row.Handle,
+                PrefabName = row.Prefab ?? string.Empty,
+                DisplayName = row.DisplayName ?? string.Empty,
+                Where = row.Where ?? string.Empty,
+                Flags = row.Retrievable ? ItemRowFlags.Retrievable : ItemRowFlags.None
+            }).ToArray()
+        }, DeliveryMethod.ReliableOrdered);
     }
+
+    // A cold container's slots, opened by its shell's NetId or by a handle (a container, or a
+    // stored container item). Each row is its item's handle; a container item's opens it.
+    private static ClientboundItemListPacket ContainerList(ServerboundItemListRequestPacket packet, ServerPlayer player)
+    {
+        ContainerView view = null;
+        ContainerOperationResult result;
+        if (packet.ShellNetId != 0)
+            result = ContainerServer.Browse(player, packet.ShellNetId, 0, ContainerGraphLimit, out view);
+        else
+        {
+            uint handle = ContainerGraphHandle(packet.Container);
+            result = handle == 0
+                ? new ContainerOperationResult { Kind = ContainerOperationKind.Browse, Status = ContainerOperationStatus.NotFound, Reason = "container-handle-not-found" }
+                : ContainerServer.Browse(player, handle, 0, ContainerGraphLimit, out view);
+        }
+        ClientboundItemListPacket list = new()
+        {
+            RequestId = packet.RequestId,
+            Kind = ItemListKind.Container,
+            Refusal = RefusalOf(result),
+            Detail = result.Accepted ? string.Empty : result.Reason ?? string.Empty
+        };
+        if (!result.Accepted || view == null)
+            return list;
+        ContainerGraph graph = ContainerServer.Graph;
+        list.Container = graph.TryGetContainer(view.ContainerHandle, out ContainerRecord container)
+            ? ItemHandles.Of(container.PersistentContainerId) : 0;
+        list.Revision = view.Revision;
+        list.Capacity = view.Capacity;
+        list.Rows = view.Slots.Select(slot => new ItemRow
+        {
+            Handle = graph.TryGetItem(slot.ItemHandle, out StoredItemRecord stored) ? ItemHandles.Of(stored.PersistentItemId) : 0,
+            PrefabName = slot.PrefabName ?? string.Empty,
+            DisplayName = slot.DisplayName ?? string.Empty,
+            Slot = slot.Slot,
+            Revision = view.Revision,
+            Flags = (slot.ForeignOwned ? ItemRowFlags.SomeoneElses : ItemRowFlags.None) |
+                    (slot.IsContainer ? ItemRowFlags.Container : ItemRowFlags.None)
+        }).ToArray();
+        return list;
+    }
+
+    // The graph's own bound on one view: a container holds no more than this.
+    private const int ContainerGraphLimit = 64;
 }

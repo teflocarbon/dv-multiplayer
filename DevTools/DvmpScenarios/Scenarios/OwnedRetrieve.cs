@@ -6,8 +6,9 @@ using Dvmp.Lib;
 using Multiplayer.Server.Items.OwnedList;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using UnityEngine;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Items;
 
 namespace Dvmp.Scenarios
 {
@@ -73,6 +74,7 @@ namespace Dvmp.Scenarios
             Result k = await Retrieve(pair, client, keptId);
             Expect.That(!k.Accepted, "retrieving a mug from the client's own inventory is refused", k.Reason);
             Expect.Equal(OwnedItemRetrievalReasons.NothingToDo, k.Reason, "why");
+            Expect.That(k.FreshList, "a fresh owned-items list follows the refused retrieval");
 
             if (pair.Dedicated) return;
             ushort lantern = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Lantern", "host"));
@@ -100,6 +102,8 @@ namespace Dvmp.Scenarios
         {
             public bool Accepted;
             public string Reason = "";
+            /// <summary>An owned-items list the client didn't ask for arrived with the answer.</summary>
+            public bool FreshList;
         }
 
         /// <summary>The server's refusal reasons, as Run can read them.</summary>
@@ -123,22 +127,27 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator Retrieve(Step<Result> step, uint handle)
             {
-                ClientboundOwnedItemRetrieveResultPacket result = null;
-                void Got(ClientboundOwnedItemRetrieveResultPacket p) { if (p.Handle == handle) result = p; }
-                ItemClient.Current.OwnedItemRetrieveCompleted += Got;
+                ClientboundItemResultPacket result = null;
+                uint requestId = 0;
+                bool freshList = false;
+                void Got(ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = p; }
+                void Listed(ClientboundItemListPacket p) { if (p.Kind == ItemListKind.Owned && p.RequestId == 0) freshList = true; }
+                ItemClient.Current.ItemResultReceived += Got;
+                ItemClient.Current.ItemListReceived += Listed;
                 try
                 {
-                    ItemClient.Current.RequestOwnedItemRetrieval((uint)UnityEngine.Random.Range(1000, 1000000), handle);
+                    requestId = ItemClient.Current.SendItemRequest(new ItemRequest { Action = ItemAction.Retrieve, ItemHandle = handle });
                     float t0 = Time.realtimeSinceStartup;
                     while (result == null && Time.realtimeSinceStartup - t0 < 15f) yield return null;
+                    for (int i = 0; i < 30; i++) yield return null;
                 }
                 finally
                 {
-                    ItemClient.Current.OwnedItemRetrieveCompleted -= Got;
+                    ItemClient.Current.ItemResultReceived -= Got;
+                    ItemClient.Current.ItemListReceived -= Listed;
                 }
                 if (result == null) throw new Exception("no answer to the retrieval of " + handle);
-                for (int i = 0; i < 30; i++) yield return null;
-                step.Result = new Result { Accepted = result.Accepted, Reason = result.RejectionReason ?? "" };
+                step.Result = new Result { Accepted = result.Accepted, Reason = result.Detail ?? "", FreshList = freshList };
             }
         }
     }

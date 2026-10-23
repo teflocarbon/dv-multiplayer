@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using LiteNetLib.Utils;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Protocol.Packets.Common;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Debugging.Protocol;
 using NUnit.Framework;
@@ -16,29 +17,26 @@ namespace Multiplayer.Protocol.Tests.Items;
 [TestFixture]
 public sealed class ItemPacketFixtureTests
 {
-    [TestCase(ItemUpdateData.ItemUpdateType.ObjectState, false)]
-    [TestCase(ItemUpdateData.ItemUpdateType.ItemPosition, false)]
-    [TestCase(ItemUpdateData.ItemUpdateType.ItemState, true)]
-    [TestCase(ItemUpdateData.ItemUpdateType.FullSync, true)]
-    [TestCase(ItemUpdateData.ItemUpdateType.Create, true)]
-    [TestCase(ItemUpdateData.ItemUpdateType.Create | ItemUpdateData.ItemUpdateType.ObjectState, true)]
+    [TestCase(ItemUpdate.ItemUpdateType.ObjectState, false)]
+    [TestCase(ItemUpdate.ItemUpdateType.ItemState, true)]
+    [TestCase(ItemUpdate.ItemUpdateType.FullSync, true)]
+    [TestCase(ItemUpdate.ItemUpdateType.Create, true)]
+    [TestCase(ItemUpdate.ItemUpdateType.Create | ItemUpdate.ItemUpdateType.ObjectState, true)]
     public void PlacementDetectionDoesNotTreatObjectStateAsFullSync(
-        ItemUpdateData.ItemUpdateType updateType, bool expected)
+        ItemUpdate.ItemUpdateType updateType, bool expected)
     {
-        Assert.That(ItemUpdateData.IncludesItemState(updateType), Is.EqualTo(expected));
+        Assert.That(ItemUpdate.IncludesItemState(updateType), Is.EqualTo(expected));
     }
 
     // A flashlight's battery ticking on the server's copy must not count as moving it (playtest 3).
-    [TestCase(ItemUpdateData.ItemUpdateType.ObjectState, false)]
-    [TestCase(ItemUpdateData.ItemUpdateType.None, false)]
-    [TestCase(ItemUpdateData.ItemUpdateType.ItemPosition, true)]
-    [TestCase(ItemUpdateData.ItemUpdateType.ItemPosition | ItemUpdateData.ItemUpdateType.ObjectState, true)]
-    [TestCase(ItemUpdateData.ItemUpdateType.ItemState, true)]
-    [TestCase(ItemUpdateData.ItemUpdateType.FullSync, true)]
-    [TestCase(ItemUpdateData.ItemUpdateType.Create, true)]
-    public void ObjectStateAloneDoesNotChangePlacement(ItemUpdateData.ItemUpdateType updateType, bool expected)
+    [TestCase(ItemUpdate.ItemUpdateType.ObjectState, false)]
+    [TestCase(ItemUpdate.ItemUpdateType.None, false)]
+    [TestCase(ItemUpdate.ItemUpdateType.ItemState, true)]
+    [TestCase(ItemUpdate.ItemUpdateType.FullSync, true)]
+    [TestCase(ItemUpdate.ItemUpdateType.Create, true)]
+    public void ObjectStateAloneDoesNotChangePlacement(ItemUpdate.ItemUpdateType updateType, bool expected)
     {
-        Assert.That(ItemUpdateData.ChangesPlacement(updateType), Is.EqualTo(expected));
+        Assert.That(ItemUpdate.ChangesPlacement(updateType), Is.EqualTo(expected));
     }
 
     [Test]
@@ -55,8 +53,8 @@ public sealed class ItemPacketFixtureTests
     [TestCase(ItemState.Installed)]
     public void ItemStateRoundTripsOnlyItsWireSemanticFields(ItemState state)
     {
-        ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.ItemState, state);
-        ItemUpdateData result = RoundTrip(source);
+        ItemUpdate source = Fixture(ItemUpdate.ItemUpdateType.ItemState, state);
+        ItemUpdate result = RoundTrip(source);
 
         AssertCommon(source, result);
         Assert.That(result.ItemState, Is.EqualTo(state));
@@ -97,7 +95,7 @@ public sealed class ItemPacketFixtureTests
     [Test]
     public void CreateRoundTripsPrefabPlacementAndAllTrackedTypes()
     {
-        ItemUpdateData result = RoundTrip(Fixture(ItemUpdateData.ItemUpdateType.Create, ItemState.Dropped));
+        ItemUpdate result = RoundTrip(Fixture(ItemUpdate.ItemUpdateType.Create, ItemState.Dropped));
         Assert.Multiple(() => {
             Assert.That(result.PrefabName, Is.EqualTo("Cup2"));
             Assert.That(result.AuthoredItemKey, Is.EqualTo("0123456789abcdef0123456789abcdef"));
@@ -115,14 +113,14 @@ public sealed class ItemPacketFixtureTests
     [TestCase(ItemWorldParentKind.StaticParent)]
     public void WorldParentRoundTripsCompactAnchorAndLocalPose(ItemWorldParentKind kind)
     {
-        ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.ItemState, ItemState.Dropped);
+        ItemUpdate source = Fixture(ItemUpdate.ItemUpdateType.ItemState, ItemState.Dropped);
         source.WorldParentKind = kind;
         source.WorldParentNetId = 91;
         source.WorldParentKey = "fedcba9876543210fedcba9876543210";
         source.ParentLocalPosition = new Vector3(1.5f, .25f, -3f);
         source.ParentLocalRotation = new Quaternion(.182574f, .365148f, .547723f, .730297f);
 
-        ItemUpdateData result = RoundTrip(source);
+        ItemUpdate result = RoundTrip(source);
 
         Assert.Multiple(() =>
         {
@@ -147,9 +145,9 @@ public sealed class ItemPacketFixtureTests
     [Test]
     public void DestroyRoundTripsEnvelopeOnly()
     {
-        ItemUpdateData result = RoundTrip(Fixture(ItemUpdateData.ItemUpdateType.Destroy, ItemState.Thrown));
+        ItemUpdate result = RoundTrip(Fixture(ItemUpdate.ItemUpdateType.Destroy, ItemState.Thrown));
         Assert.Multiple(() => {
-            Assert.That(result.UpdateType, Is.EqualTo(ItemUpdateData.ItemUpdateType.Destroy));
+            Assert.That(result.UpdateType, Is.EqualTo(ItemUpdate.ItemUpdateType.Destroy));
             Assert.That(result.ItemNetId, Is.EqualTo(78));
             Assert.That(result.AuthorityRevision, Is.EqualTo(42));
             Assert.That(result.ItemState, Is.EqualTo(default(ItemState)));
@@ -161,12 +159,12 @@ public sealed class ItemPacketFixtureTests
     [Test]
     public void DestroyRoundTripsItsRemovalCause()
     {
-        ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.Destroy, ItemState.Dropped);
+        ItemUpdate source = Fixture(ItemUpdate.ItemUpdateType.Destroy, ItemState.Dropped);
         source.RemovalCause = new ChangeCause<ItemRemovalReason>(ItemRemovalReason.CollectedToLostAndFound,
             0, null, 9001, "OwnerDistance, owner Bentgear29");
         source.MoveCause = new ChangeCause<ItemMoveReason>(ItemMoveReason.Dropped); // not on a Destroy
 
-        ItemUpdateData result = RoundTrip(source);
+        ItemUpdate result = RoundTrip(source);
 
         Assert.That(result.RemovalCause.HasValue, Is.True);
         Assert.Multiple(() => {
@@ -177,16 +175,16 @@ public sealed class ItemPacketFixtureTests
         });
     }
 
-    [TestCase(ItemUpdateData.ItemUpdateType.ItemState)]
-    [TestCase(ItemUpdateData.ItemUpdateType.FullSync)]
-    [TestCase(ItemUpdateData.ItemUpdateType.Create)]
-    public void StateUpdatesRoundTripTheirMoveCause(ItemUpdateData.ItemUpdateType updateType)
+    [TestCase(ItemUpdate.ItemUpdateType.ItemState)]
+    [TestCase(ItemUpdate.ItemUpdateType.FullSync)]
+    [TestCase(ItemUpdate.ItemUpdateType.Create)]
+    public void StateUpdatesRoundTripTheirMoveCause(ItemUpdate.ItemUpdateType updateType)
     {
-        ItemUpdateData source = Fixture(updateType, ItemState.InHand);
+        ItemUpdate source = Fixture(updateType, ItemState.InHand);
         source.MoveCause = new ChangeCause<ItemMoveReason>(ItemMoveReason.TakenFromPlayer, 3, "Bentgear29", 77,
             "Liam's inventory -> Bentgear29's hand");
 
-        ItemUpdateData result = RoundTrip(source);
+        ItemUpdate result = RoundTrip(source);
 
         Assert.That(result.MoveCause.HasValue, Is.True);
         Assert.Multiple(() => {
@@ -198,11 +196,11 @@ public sealed class ItemPacketFixtureTests
         });
     }
 
-    [TestCase(ItemUpdateData.ItemUpdateType.ItemState)]
-    [TestCase(ItemUpdateData.ItemUpdateType.Destroy)]
-    public void UpdatesWithoutACauseRoundTripWithout(ItemUpdateData.ItemUpdateType updateType)
+    [TestCase(ItemUpdate.ItemUpdateType.ItemState)]
+    [TestCase(ItemUpdate.ItemUpdateType.Destroy)]
+    public void UpdatesWithoutACauseRoundTripWithout(ItemUpdate.ItemUpdateType updateType)
     {
-        ItemUpdateData result = RoundTrip(Fixture(updateType, ItemState.Dropped));
+        ItemUpdate result = RoundTrip(Fixture(updateType, ItemState.Dropped));
         Assert.Multiple(() => {
             Assert.That(result.MoveCause, Is.Null);
             Assert.That(result.RemovalCause, Is.Null);
@@ -210,29 +208,28 @@ public sealed class ItemPacketFixtureTests
     }
 
     [Test]
-    public void PositionAndObjectStateUpdatesCarryNoCause()
+    public void ObjectStateUpdatesCarryNoCause()
     {
-        // Only a placement change carries one: the many pose and object-state updates stay as small.
-        ItemUpdateData source = Fixture(ItemUpdateData.ItemUpdateType.ItemPosition | ItemUpdateData.ItemUpdateType.ObjectState,
-            ItemState.Dropped);
+        // Only a placement change carries one: the many object-state updates stay as small.
+        ItemUpdate source = Fixture(ItemUpdate.ItemUpdateType.ObjectState, ItemState.Dropped);
         source.MoveCause = new ChangeCause<ItemMoveReason>(ItemMoveReason.Moved);
         var withCause = new NetDataWriter();
-        ItemUpdateData.Serialize(withCause, source);
+        ItemUpdate.Serialize(withCause, source);
         source.MoveCause = null;
         var without = new NetDataWriter();
-        ItemUpdateData.Serialize(without, source);
+        ItemUpdate.Serialize(without, source);
 
         Assert.That(withCause.Length, Is.EqualTo(without.Length));
         Assert.That(RoundTrip(source).MoveCause, Is.Null);
     }
 
-    [TestCase(ItemUpdateData.ItemUpdateType.ObjectState)]
-    [TestCase(ItemUpdateData.ItemUpdateType.FullSync)]
-    public void StateBearingUpdatesRoundTripTrackedState(ItemUpdateData.ItemUpdateType updateType)
+    [TestCase(ItemUpdate.ItemUpdateType.ObjectState)]
+    [TestCase(ItemUpdate.ItemUpdateType.FullSync)]
+    public void StateBearingUpdatesRoundTripTrackedState(ItemUpdate.ItemUpdateType updateType)
     {
-        ItemUpdateData result = RoundTrip(Fixture(updateType, ItemState.Thrown));
+        ItemUpdate result = RoundTrip(Fixture(updateType, ItemState.Thrown));
         Assert.That(result.States, Has.Count.EqualTo(5));
-        if (updateType == ItemUpdateData.ItemUpdateType.FullSync)
+        if (updateType == ItemUpdate.ItemUpdateType.FullSync)
         {
             AssertWorldTransform(result);
             AssertVector(result.ThrowDirection, new Vector3(.839f, -.528f, -.132f));
@@ -248,7 +245,7 @@ public sealed class ItemPacketFixtureTests
     public void DecodedProjectionNeverContainsRecursiveUnityProperties()
     {
         DebugPacketProjection projection = DebugPacketProjectorRegistry.Project(
-            new CommonItemUpdatePacket { ItemData = Fixture(ItemUpdateData.ItemUpdateType.FullSync, ItemState.Thrown) }, 2);
+            new ClientboundItemUpdatesPacket { Updates = new List<ItemUpdate> { Fixture(ItemUpdate.ItemUpdateType.FullSync, ItemState.Thrown) } }, 2);
         string json = DebugJson.Serialize(projection.Wire);
         foreach (string forbidden in new[] { "normalized", "sqrMagnitude", "eulerAngles", "maximum depth" })
             Assert.That(json, Does.Not.Contain(forbidden).IgnoreCase);
@@ -257,28 +254,27 @@ public sealed class ItemPacketFixtureTests
     [Test]
     public void UnsupportedTrackedTypeFailsBeforeProducingAmbiguousWireData()
     {
-        ItemUpdateData data = Fixture(ItemUpdateData.ItemUpdateType.ObjectState, ItemState.Dropped);
+        ItemUpdate data = Fixture(ItemUpdate.ItemUpdateType.ObjectState, ItemState.Dropped);
         data.States = new Dictionary<string, object> { ["unsupported"] = new object() };
-        Assert.Throws<NotSupportedException>(() => ItemUpdateData.Serialize(new NetDataWriter(), data));
+        Assert.Throws<NotSupportedException>(() => ItemUpdate.Serialize(new NetDataWriter(), data));
     }
 
-    private static ItemUpdateData RoundTrip(ItemUpdateData source)
+    private static ItemUpdate RoundTrip(ItemUpdate source)
     {
         var writer = new NetDataWriter();
-        ItemUpdateData.Serialize(writer, source);
+        ItemUpdate.Serialize(writer, source);
         var reader = new NetDataReader(writer.Data, 0, writer.Length);
-        ItemUpdateData result = ItemUpdateData.Deserialize(reader);
+        ItemUpdate result = ItemUpdate.Deserialize(reader);
         Assert.That(reader.AvailableBytes, Is.Zero, "fixture must consume the complete payload");
         return result;
     }
 
-    private static ItemUpdateData Fixture(ItemUpdateData.ItemUpdateType updateType, ItemState state) => new()
+    private static ItemUpdate Fixture(ItemUpdate.ItemUpdateType updateType, ItemState state) => new()
     {
         UpdateType = updateType,
         ItemNetId = 78,
         AuthorityRevision = 42,
-        PersistentOwnerPlayerId = 2,
-        InventoryClaimPlayerId = 2,
+        Relation = ItemRelation.Mine,
         InventoryClaimSlot = 4,
         InventoryClaimFlags = ItemInventoryClaimFlags.Reserved,
         TransitionReason = ItemTransitionReason.ClientState,
@@ -299,19 +295,18 @@ public sealed class ItemPacketFixtureTests
         }
     };
 
-    private static void AssertCommon(ItemUpdateData source, ItemUpdateData result) => Assert.Multiple(() => {
+    private static void AssertCommon(ItemUpdate source, ItemUpdate result) => Assert.Multiple(() => {
         Assert.That(result.UpdateType, Is.EqualTo(source.UpdateType));
         Assert.That(result.ItemNetId, Is.EqualTo(source.ItemNetId));
         Assert.That(result.AuthorityRevision, Is.EqualTo(source.AuthorityRevision));
-        Assert.That(result.PersistentOwnerPlayerId, Is.EqualTo(source.PersistentOwnerPlayerId));
-        Assert.That(result.InventoryClaimPlayerId, Is.EqualTo(source.InventoryClaimPlayerId));
+        Assert.That(result.Relation, Is.EqualTo(source.Relation));
         Assert.That(result.InventoryClaimSlot, Is.EqualTo(source.InventoryClaimSlot));
         Assert.That(result.InventoryClaimFlags, Is.EqualTo(source.InventoryClaimFlags));
         Assert.That(result.TransitionReason, Is.EqualTo(source.TransitionReason));
         Assert.That(result.OriginatingPlayerId, Is.EqualTo(source.OriginatingPlayerId));
     });
 
-    private static void AssertWorldTransform(ItemUpdateData result)
+    private static void AssertWorldTransform(ItemUpdate result)
     {
         AssertVector(result.ItemPosition, new Vector3(9469.9f, 120.599f, 13616.892f));
         Assert.Multiple(() => {

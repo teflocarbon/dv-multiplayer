@@ -1,6 +1,7 @@
 using System.Globalization;
 using HarmonyLib;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
@@ -49,6 +50,11 @@ public static class MoneyPatch
             !NetworkRole.IsRemoteClient)
             return;
         if (__instance.TryGetComponent(out NetworkedItem networked) && networked.NetId != 0)
-            NetworkClient.Instance.SendMoneyItemDeposit(networked.NetId);
+            NetworkClient.Instance.SendItemRequest(new ItemRequest
+            {
+                ItemNetId = networked.NetId,
+                ExpectedRevision = networked.AuthorityRevision,
+                Action = ItemAction.DepositMoney
+            });
     }
 }

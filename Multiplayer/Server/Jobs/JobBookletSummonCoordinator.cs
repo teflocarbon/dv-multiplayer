@@ -106,14 +106,13 @@ public static class JobBookletSummonCoordinator
     {
         if (item == null)
             return;
-        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
+        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return;
         snapshot.ItemState = ItemState.Dropped;
         snapshot.PlayerId = 0;
         snapshot.ItemPosition = worldPosition - WorldMover.currentMove;
         snapshot.ItemRotation = rotation;
-        snapshot.InventoryClaimPlayerId = 0;
         snapshot.InventoryClaimSlot = -1;
         snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
         if (!LiveItems.TryApplyTransition(item, snapshot, requester,
@@ -126,7 +125,7 @@ public static class JobBookletSummonCoordinator
             return;
         }
         item.ApplyServerCanonicalSnapshot(snapshot);
-        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdate(snapshot);
     }
 
     private static void Publish(string eventName, NetworkedJob job, NetworkedItem item,

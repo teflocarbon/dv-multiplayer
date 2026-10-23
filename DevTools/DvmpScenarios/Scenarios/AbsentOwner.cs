@@ -108,7 +108,7 @@ namespace Dvmp.Scenarios
                     Id = record.PersistentItemId.ToString("D"),
                     Owner = record.Owner.ToString("D"),
                     OwnerConnected = PlayerNumbers.IsConnected(record.Owner),
-                    Number = PlayerNumbers.OwnerOf(record.Owner),
+                    Number = OwnerNumbers.Of(record.Owner),
                     LostEntry = entry == System.Guid.Empty ? "" : entry.ToString("D")
                 };
             }

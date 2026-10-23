@@ -30,9 +30,6 @@ public enum ItemTransitionReason : byte
     InitialRegistration,
     HostLocalState,
     ClientState,
-    // No longer used: adoption is gone (owned-items.md, PR 5). Kept so the reasons after it keep
-    // their numbers on the wire.
-    ClientAdoption,
     OwnerRecall,
     JobBookletSummon,
     FullSync,

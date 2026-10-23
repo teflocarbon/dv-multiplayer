@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
@@ -76,7 +77,7 @@ namespace Dvmp.Scenarios
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
                 byte me = Multiplayer.Shared.Session.NetworkLifecycle.Instance.LocalSession.PlayerId;
-                var radio = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.PersistentOwnerPlayerId == me && n.name.StartsWith("CommsRadio"));
+                var radio = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.StartsWith("CommsRadio"));
                 if (radio == null) return "the client owns no comms radio";
                 int slot = inv.IndexOf(radio.gameObject);
                 return slot >= 0 && radio.GetItemState() == ItemState.InInventory ? $"slot {slot}"

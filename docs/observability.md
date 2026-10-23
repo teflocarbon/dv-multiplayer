@@ -189,14 +189,15 @@ packet.decoded
 
 ### Schema-aware packet projection
 
-Decoded events represent the fields written by the packet's serialization schema rather than every public runtime property on the reusable C# object. `DebugPacketProjectorRegistry` provides explicit adapters for `CommonItemUpdatePacket`, `CommonItemsBulkUpdatePacket`, and direct `ItemUpdateData` handler stages.
+Decoded events represent the fields written by the packet's serialization schema rather than every public runtime property on the reusable C# object. `DebugPacketProjectorRegistry` provides explicit adapters for the five item packets (`ClientboundItemUpdatesPacket`, `ServerboundItemRequestPacket`, `ClientboundItemResultPacket`, `ServerboundItemListRequestPacket`, `ClientboundItemListPacket`; [design/items/wire.md](design/items/wire.md)) and direct `ItemUpdate` handler stages.
 
-The item adapter mirrors `ItemUpdateData.Serialize`:
+The item adapter mirrors `ItemUpdate.Serialize`:
 
 - `Destroy` contains only update type and network ID;
 - `PrefabName` appears only for `Create`;
 - dropped/thrown state updates contain position and rotation, with throw direction only for thrown state;
 - hand/inventory state updates contain player ID and no transform fields;
+- every update with item state has the recipient's `relation`; `inventoryClaim` appears only on the claimant's;
 - attached state updates contain car ID and front/rear attachment only;
 - tracked states appear only for `Create` or `ObjectState`;
 - unused default runtime properties are omitted;

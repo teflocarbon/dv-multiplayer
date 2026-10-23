@@ -158,7 +158,7 @@ namespace Dvmp.Scenarios
                 Vector3 side = car.transform.right;
                 Vector3 start = car.transform.position + side * 2.5f + Vector3.up * 3f;
                 Vector3 velocity = side * 2.5f + Vector3.up * 3.5f;
-                var snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
+                var snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
                 snapshot.ItemState = ItemState.Thrown;
                 snapshot.PlayerId = 0;
                 snapshot.ItemPosition = start - WorldMover.currentMove;
@@ -167,7 +167,6 @@ namespace Dvmp.Scenarios
                 snapshot.WorldParentKind = ItemWorldParentKind.World;
                 snapshot.WorldParentNetId = 0;
                 snapshot.WorldParentKey = string.Empty;
-                snapshot.InventoryClaimPlayerId = 0;
                 snapshot.InventoryClaimSlot = -1;
                 snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
                 if (!LiveItems.TryApplyTransition(item, snapshot, actor, ItemTransitionReason.Unknown, true,
@@ -180,7 +179,7 @@ namespace Dvmp.Scenarios
                 LiveItems.WriteToSnapshot(record, snapshot, ItemTransitionReason.Unknown);
                 snapshot.ItemState = ItemState.Thrown;
                 item.ApplyServerCanonicalSnapshot(snapshot);
-                server.SendItemUpdatePacket(snapshot);
+                server.SendItemUpdate(snapshot);
 
                 Vector3 startAbs = start - WorldMover.currentMove;
                 float travel = 0f, rise = 0f, fellAfter = 0f;

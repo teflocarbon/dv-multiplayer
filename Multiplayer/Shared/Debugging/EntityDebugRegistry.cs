@@ -300,8 +300,7 @@ public static class EntityDebugRegistry
         state["authorityRevision"] = item.AuthorityRevision;
         state["authoredItemKey"] = item.AuthoredItemKey ?? string.Empty;
         state["sceneAuthored"] = item.IsSceneAuthored;
-        state["persistentOwnerPlayerId"] = item.PersistentOwnerPlayerId;
-        state["inventoryClaimPlayerId"] = item.InventoryClaimPlayerId;
+        state["relation"] = item.Relation.ToString();
         state["inventoryClaimSlot"] = item.InventoryClaimSlot;
         state["inventoryClaimFlags"] = item.InventoryClaimFlags.ToString();
         if (ItemServer.Current?.AuthorityDebugState(item.NetId) is { } canonicalAuthority)

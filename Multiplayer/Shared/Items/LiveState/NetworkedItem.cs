@@ -5,6 +5,7 @@ using DV.Interaction;
 using DV.InventorySystem;
 using DV.Items;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.Physics;
 using Multiplayer.Core.Items.Projection;
 using Multiplayer.Core.Items.WorldItems;
@@ -104,10 +105,10 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private bool initialised;
     private bool registrationComplete = false;
     private const int MaxPendingSnapshots = 256;
-    private readonly PendingSnapshotQueue<ItemUpdateData> pendingSnapshots = new(
+    private readonly PendingSnapshotQueue<ItemUpdate> pendingSnapshots = new(
         MaxPendingSnapshots,
         snapshot => snapshot?.AuthorityRevision ?? 0,
-        snapshot => snapshot?.UpdateType == ItemUpdateData.ItemUpdateType.FullSync);
+        snapshot => snapshot?.UpdateType == ItemUpdate.ItemUpdateType.FullSync);
 
     //Track dirty states
     private bool createdDirty = true;   //if set, we created this item dirty and have not sent an update
@@ -125,8 +126,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     private Vector3 throwDirection;
 
     private bool applyingRemoteSnapshot;
-    private bool recallPreparationPending;
-    private uint recallPreparationOperationId;
     private bool placementSnapshotPending;
     private bool coldStorageRetirement;
     private bool coldMaterializationPending;
@@ -174,8 +173,12 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     internal ItemState DebugLastState => lastState;
     public NetworkedPlayer playerBelongsTo;
     public uint AuthorityRevision { get; private set; }
-    public byte PersistentOwnerPlayerId { get; private set; }
-    public byte InventoryClaimPlayerId { get; private set; }
+    /// <summary>
+    /// This game's player's relation to the item (D3): the server says only whether it's theirs,
+    /// someone else's or nobody's, never who owns it. On the server's own copy, the host's
+    /// player's (none on a dedicated host, where every owned item is someone else's).
+    /// </summary>
+    public ItemRelation Relation { get; private set; }
     public int InventoryClaimSlot { get; private set; } = -1;
     public ItemInventoryClaimFlags InventoryClaimFlags { get; private set; }
     public ItemTransitionReason LastTransitionReason { get; private set; }
@@ -496,15 +499,12 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         NetId = 0;
         pendingSnapshots.Clear();
         AuthorityRevision = 0;
-        PersistentOwnerPlayerId = 0;
-        InventoryClaimPlayerId = 0;
+        Relation = ItemRelation.Nobodys;
         InventoryClaimSlot = -1;
         InventoryClaimFlags = ItemInventoryClaimFlags.None;
         LastTransitionReason = ItemTransitionReason.Unknown;
         playerBelongsToId = 0;
         playerBelongsTo = null;
-        recallPreparationPending = false;
-        recallPreparationOperationId = 0;
         placementSnapshotPending = false;
         coldStorageRetirement = false;
         coldMaterializationPending = false;
@@ -528,7 +528,7 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
         // ForceEndInteraction, inventory purges and GrabHandlerItem.Throw raise the same base-game
         // callbacks as a local interaction. While projecting an authoritative snapshot those
         // callbacks are side effects, not new player intent, and must not enqueue an echo packet.
-        if (applyingRemoteSnapshot || recallPreparationPending || coldStorageRetirement ||
+        if (applyingRemoteSnapshot || coldStorageRetirement ||
             coldMaterializationPending || placementSnapshotPending)
             return;
         stateDirty = true;
@@ -555,13 +555,6 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             return;
         ItemState previousObservedState = lastState;
         ItemState currentState = GetItemState();
-        if (recallPreparationPending)
-        {
-            stateDirty = false;
-            PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState,
-                reason, "recall-prepare-pending");
-            return;
-        }
         // An installed gadget's placement is the gadget server's to commit (gadgets.md, "The
         // installed gadget and its item"): no game reports it as its own observation.
         if (currentState == ItemState.Installed)
@@ -641,10 +634,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
             ["activeSelf"] = gameObject.activeSelf,
             ["activeInHierarchy"] = gameObject.activeInHierarchy,
             ["authorityRevision"] = AuthorityRevision,
-            ["persistentOwnerPlayerId"] = PersistentOwnerPlayerId,
+            ["relation"] = Relation.ToString(),
             ["placementPlayerId"] = playerBelongsToId,
             ["hostPossessorPlayerId"] = HostPossessorPlayerId,
-            ["inventoryClaimPlayerId"] = InventoryClaimPlayerId,
             ["inventoryClaimSlot"] = InventoryClaimSlot,
             ["inventoryClaimFlags"] = InventoryClaimFlags.ToString(),
             ["transitionReason"] = LastTransitionReason.ToString(),

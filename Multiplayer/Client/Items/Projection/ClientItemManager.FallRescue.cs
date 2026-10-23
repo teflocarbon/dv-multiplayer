@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
+using Multiplayer.Shared.Protocol.Data.Items;
 
 namespace Multiplayer.Client.Items.Projection;
 
@@ -46,7 +47,13 @@ internal sealed partial class ClientItemManager
                 Time.unscaledTime - reportedAt < ClientReportCooldown)
                 continue;
             clientRescueReportedAt[item.NetId] = Time.unscaledTime;
-            ItemClient.Current.SendItemBelowMapReport(item.NetId, surfaceY);
+            ItemClient.Current.SendItemRequest(new ItemRequest
+            {
+                ItemNetId = item.NetId,
+                ExpectedRevision = item.AuthorityRevision,
+                Action = ItemAction.ReportBelowMap,
+                SurfaceHeight = surfaceY
+            });
         }
     }
 }

@@ -61,11 +61,11 @@ public interface INetworkedItemClientPart
     uint ReserveRevision();
 
     /// <summary>The host's revision for the item arrived (the item has taken it already).</summary>
-    void ObserveCanonicalRevision(ItemUpdateData snapshot);
+    void ObserveCanonicalRevision(ItemUpdate snapshot);
 
     /// <summary>A host convergence re-send this copy already agrees with: nothing to apply.</summary>
-    bool IgnoresConvergence(ItemUpdateData snapshot);
+    bool IgnoresConvergence(ItemUpdate snapshot);
 
     /// <summary>The host accepting this game's own drop of the item, which it keeps simulating.</summary>
-    bool IsLocalDropAcknowledgement(ItemUpdateData snapshot);
+    bool IsLocalDropAcknowledgement(ItemUpdate snapshot);
 }

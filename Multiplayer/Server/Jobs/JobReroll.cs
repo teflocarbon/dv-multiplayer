@@ -189,7 +189,7 @@ public static class JobReroll
     private static bool ThrowOutOfBin(NetworkedItem item, ServerPlayer requester, Vector3 start, Vector3 velocity,
         string refusal)
     {
-        ItemUpdateData snapshot = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState);
+        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return false;
         snapshot.ItemState = ItemState.Thrown;
@@ -200,7 +200,6 @@ public static class JobReroll
         snapshot.WorldParentKind = ItemWorldParentKind.World;
         snapshot.WorldParentNetId = 0;
         snapshot.WorldParentKey = string.Empty;
-        snapshot.InventoryClaimPlayerId = 0;
         snapshot.InventoryClaimSlot = -1;
         snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
         if (!LiveItems.TryApplyTransition(item, snapshot, requester,
@@ -218,7 +217,7 @@ public static class JobReroll
         // interior; moved into the world, it was in no cell until its flight was sampled, so every
         // player's interest dropped it and took it up again created at rest: the throw was lost.
         ServerItemManager.Instance?.RegisterHostWorldItem(item);
-        NetworkServer.Instance.SendItemUpdatePacket(snapshot);
+        NetworkServer.Instance.SendItemUpdate(snapshot);
         return true;
     }
 

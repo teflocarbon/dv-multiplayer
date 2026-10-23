@@ -60,7 +60,7 @@ public partial class NetworkedItem
         int queuedCount = pendingSnapshots.Count;
 
         bool releasePlacementGate = placementSnapshotPending;
-        while (pendingSnapshots.TryDequeue(out ItemUpdateData pending))
+        while (pendingSnapshots.TryDequeue(out ItemUpdate pending))
         {
             Multiplayer.LogDebug(() => $"NetworkedItem.FinaliseTrackedValues() itemNetId: {NetId}, item name: {name}. Dequeuing");
             DeferredSnapshotDrainPlan drainPlan = DeferredSnapshotDrainPlanner.Plan(
@@ -130,7 +130,7 @@ public partial class NetworkedItem
     }
 
     /// <summary>Drops the values another player holding this item reports themselves.</summary>
-    internal void KeepHostReportsForRemoteHolder(ItemUpdateData snapshot)
+    internal void KeepHostReportsForRemoteHolder(ItemUpdate snapshot)
     {
         snapshot.States = TrackedStateComposer.HostReportsForRemoteHolder(GetTrackedStateEntries(), snapshot.States);
     }
@@ -144,7 +144,7 @@ public partial class NetworkedItem
     }
 
 
-    public ItemUpdateData GetSnapshot(bool reserveClientRevision = false)
+    public ItemUpdate GetSnapshot(bool reserveClientRevision = false)
     {
         if (coldStorageRetirement || coldMaterializationPending)
         {
@@ -153,8 +153,8 @@ public partial class NetworkedItem
             MarkValuesClean();
             return null;
         }
-        ItemUpdateData snapshot;
-        ItemUpdateData.ItemUpdateType updateType = ItemUpdateData.ItemUpdateType.None;
+        ItemUpdate snapshot;
+        ItemUpdate.ItemUpdateType updateType = ItemUpdate.ItemUpdateType.None;
 
         bool hasDirtyVals = HasDirtyValues();
 
@@ -192,17 +192,17 @@ public partial class NetworkedItem
             // sent (state plus holder for inventory/hand states). Thrown remains covered
             // because wasThrown makes GetItemState() return the one-shot Thrown state.
             if (HasNetworkStateProjectionChanged(currentState))
-                updateType |= ItemUpdateData.ItemUpdateType.ItemState;
+                updateType |= ItemUpdate.ItemUpdateType.ItemState;
 
             if (hasDirtyVals)
             {
                 Multiplayer.LogDebug(GetDirtyValuesDebugString);
-                updateType |= ItemUpdateData.ItemUpdateType.ObjectState;
+                updateType |= ItemUpdate.ItemUpdateType.ObjectState;
             }
         }
         else
         {
-            updateType = ItemUpdateData.ItemUpdateType.Create;
+            updateType = ItemUpdate.ItemUpdateType.Create;
         }
 
         // Only the holder's game changes an item's object state, or the game of a player working
@@ -213,17 +213,17 @@ public partial class NetworkedItem
         // part decides (the server's own copy is the truth).
         bool pageOnlyWorldState = false;
         bool worldInteraction = false;
-        if (updateType == ItemUpdateData.ItemUpdateType.ObjectState && ClientPart is { } client &&
+        if (updateType == ItemUpdate.ItemUpdateType.ObjectState && ClientPart is { } client &&
             !client.MaySendObjectState(currentState, out worldInteraction, out pageOnlyWorldState))
         {
             PublishLocalState("item.snapshot-suppressed", currentState, lastState, "object-state",
                 "object-state-not-holder");
-            updateType = ItemUpdateData.ItemUpdateType.None;
+            updateType = ItemUpdate.ItemUpdateType.None;
             MarkValuesClean();
         }
 
         //no changes this snapshot
-        if (updateType == ItemUpdateData.ItemUpdateType.None)
+        if (updateType == ItemUpdate.ItemUpdateType.None)
         {
             serverPart?.ClearObservation();
             stateDirty = false;
@@ -297,9 +297,9 @@ public partial class NetworkedItem
         BeginColdStorageRetirement();
     }
 
-    public void ReceiveSnapshot(ItemUpdateData snapshot)
+    public void ReceiveSnapshot(ItemUpdate snapshot)
     {
-        if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
+        if (snapshot == null || snapshot.UpdateType == ItemUpdate.ItemUpdateType.None)
             return;
 
         if (snapshot.AuthorityRevision != 0 && snapshot.AuthorityRevision < AuthorityRevision)
@@ -333,7 +333,7 @@ public partial class NetworkedItem
         // Our own drop, accepted after we took the item back (a VR hand swap that got past the
         // release grace, a quick re-grab). The pickup we sent since follows it; applying the
         // drop would take the item out of the hand that has it now.
-        if (ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+        if (ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             ItemSnapshotApplicationPolicy.IsSupersededLocalRelease(
                 NetworkRole.IsServer,
                 NetworkRole.LocalPlayerId,
@@ -359,7 +359,7 @@ public partial class NetworkedItem
         // (a fixture stashed, owned-items PR 1c), and its "in your hand" must undo our stash, not be
         // skipped because the item is in our inventory.
         bool correction = snapshot.MoveCause?.Reason == ItemMoveReason.HostCorrection;
-        if (!correction && ItemUpdateData.IncludesItemState(snapshot.UpdateType) &&
+        if (!correction && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             (ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
                     NetworkRole.IsServer,
                     NetworkRole.LocalPlayerId,
@@ -385,7 +385,7 @@ public partial class NetworkedItem
         // The host's echo of our own object-state change (a lantern's knob still being turned).
         if (ItemSnapshotApplicationPolicy.IsOwnObjectStateEcho(NetworkRole.IsServer,
                 NetworkRole.LocalPlayerId, snapshot.OriginatingPlayerId,
-                snapshot.UpdateType == ItemUpdateData.ItemUpdateType.ObjectState))
+                snapshot.UpdateType == ItemUpdate.ItemUpdateType.ObjectState))
             return;
 
         if (ItemSnapshotApplicationPolicy.IsLocalThrowAcknowledgement(
@@ -416,7 +416,7 @@ public partial class NetworkedItem
 
         if (!registrationComplete && snapshot.States is { Count: > 0 })
         {
-            if (ItemUpdateData.IncludesItemState(snapshot.UpdateType))
+            if (ItemUpdate.IncludesItemState(snapshot.UpdateType))
             {
                 // Establish the authoritative wire baseline while tracked values wait for
                 // registration. An unchanged job-created object must not echo a redundant
@@ -482,7 +482,7 @@ public partial class NetworkedItem
         ApplySnapshot(snapshot);
     }
 
-    private void ApplyDeferredTrackedState(ItemUpdateData snapshot, string reason)
+    private void ApplyDeferredTrackedState(ItemUpdate snapshot, string reason)
     {
         PublishDeferredDrain("item.pending-snapshot-stale-placement-skipped", snapshot, reason);
         using IDisposable debugScope = DebugTrace.BeginApply("item", "item.pending-tracked-state-apply",
@@ -504,7 +504,7 @@ public partial class NetworkedItem
         catch { return false; }
     }
 
-    private void ApplyLocalThrowAcknowledgement(ItemUpdateData snapshot)
+    private void ApplyLocalThrowAcknowledgement(ItemUpdate snapshot)
     {
         lastState = ObservationBaselineAfterSnapshot(snapshot.ItemState);
         lastSentProjection = ItemWireStateComparer.StableBaselineAfterSend(
@@ -530,7 +530,7 @@ public partial class NetworkedItem
             });
     }
 
-    private void PublishDeferredDrain(string eventName, ItemUpdateData snapshot, string reason)
+    private void PublishDeferredDrain(string eventName, ItemUpdate snapshot, string reason)
     {
         DebugRuntime.Publish("item", eventName,
             NetworkRole.DebugSide,
@@ -545,7 +545,7 @@ public partial class NetworkedItem
             });
     }
 
-    private void ApplySnapshot(ItemUpdateData snapshot)
+    private void ApplySnapshot(ItemUpdate snapshot)
     {
         applyingRemoteSnapshot = true;
         try
@@ -558,12 +558,12 @@ public partial class NetworkedItem
         }
     }
 
-    private void ApplySnapshotCore(ItemUpdateData snapshot)
+    private void ApplySnapshotCore(ItemUpdate snapshot)
     {
         ApplyAuthorityMetadata(snapshot);
         // FullSync already contains ItemState. Test the semantic bit directly so an
         // ObjectState-only update (for example a page flip) cannot re-run placement.
-        bool appliesItemState = ItemUpdateData.IncludesItemState(snapshot.UpdateType);
+        bool appliesItemState = ItemUpdate.IncludesItemState(snapshot.UpdateType);
         bool probeWorldState = DebugRuntime.EnabledFor("item") && appliesItemState && (snapshot.ItemState is ItemState.Dropped or ItemState.Thrown);
         string parentBefore = probeWorldState ? ParentPath() : string.Empty;
         using IDisposable debugScope = DebugTrace.BeginApply("item", "item.snapshot-apply", NetworkRole.DebugSide,
@@ -600,7 +600,7 @@ public partial class NetworkedItem
 
         Multiplayer.LogDebug(() => $"NetworkedItem.ApplySnapshot() netID: {snapshot?.ItemNetId}, ItemUpdateType {snapshot?.UpdateType} About to process states");
 
-        if (snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || snapshot.UpdateType.HasFlag(ItemUpdateData.ItemUpdateType.ObjectState))
+        if (snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) || snapshot.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.ObjectState))
         {
             Multiplayer.LogDebug(() => $"NetworkedItem.ApplySnapshot() netID: {snapshot?.ItemNetId}, States: {snapshot?.States?.Count}");
             if (trackedValues.Count > 0 && snapshot.States != null)
@@ -639,7 +639,7 @@ public partial class NetworkedItem
         }
     }
 
-    public ItemUpdateData CreateUpdateData(ItemUpdateData.ItemUpdateType updateType,
+    public ItemUpdate CreateUpdateData(ItemUpdate.ItemUpdateType updateType,
         uint? authorityRevisionOverride = null)
     {
         if (transform == null || Item == null || Item?.InventorySpecs == null || Item?.InventorySpecs?.ItemPrefabName == null)
@@ -670,7 +670,7 @@ public partial class NetworkedItem
             rotation = transform.rotation;
         }
 
-        if (updateType.HasFlag(ItemUpdateData.ItemUpdateType.Create) || updateType.HasFlag(ItemUpdateData.ItemUpdateType.FullSync))
+        if (updateType.HasFlag(ItemUpdate.ItemUpdateType.Create) || updateType.HasFlag(ItemUpdate.ItemUpdateType.FullSync))
         {
             states = GetAllStateData();
         }
@@ -711,7 +711,7 @@ public partial class NetworkedItem
             }
         }
 
-        var updateData = new ItemUpdateData
+        var updateData = new ItemUpdate
         {
             UpdateType = updateType,
             ItemNetId = NetId,
@@ -726,13 +726,12 @@ public partial class NetworkedItem
             PlayerId = playerBelongsToId,
             PlayerHand = HandForState(lastState),
             AuthorityRevision = authorityRevisionOverride ?? AuthorityRevision,
-            PersistentOwnerPlayerId = PersistentOwnerPlayerId,
-            InventoryClaimPlayerId = InventoryClaimPlayerId,
+            Relation = Relation,
             InventoryClaimSlot = InventoryClaimSlot,
             InventoryClaimFlags = InventoryClaimFlags,
             TransitionReason = LastTransitionReason,
             OriginatingPlayerId = NetworkRole.LocalPlayerId,
-            AuthoredItemKey = updateType.HasFlag(ItemUpdateData.ItemUpdateType.Create)
+            AuthoredItemKey = updateType.HasFlag(ItemUpdate.ItemUpdateType.Create)
                 ? AuthoredItemKey ?? string.Empty
                 : string.Empty,
             BelongsToPlayer = Item.InventorySpecs.BelongsToPlayer,

@@ -1,6 +1,6 @@
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Protocol.Packets.Common;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Debugging.Protocol;
 using System;
 using System.Collections.Generic;
@@ -12,31 +12,34 @@ public static class DebugPacketProjectorSelfTests
 {
     public static void Run()
     {
-        Dictionary<string, object> thrown = Project(ItemUpdateData.ItemUpdateType.ItemState, ItemState.Thrown);
+        Dictionary<string, object> thrown = Project(ItemUpdate.ItemUpdateType.ItemState, ItemState.Thrown);
         Require(thrown, "position", "rotation", "throwDirection"); Omit(thrown, "playerId", "carNetId", "attachedFront", "prefabName", "states");
 
-        Dictionary<string, object> hand = Project(ItemUpdateData.ItemUpdateType.ItemState, ItemState.InHand);
+        Dictionary<string, object> hand = Project(ItemUpdate.ItemUpdateType.ItemState, ItemState.InHand);
         Require(hand, "playerId"); Omit(hand, "position", "rotation", "throwDirection", "carNetId", "attachedFront", "prefabName", "states");
 
-        Dictionary<string, object> inventory = Project(ItemUpdateData.ItemUpdateType.ItemState, ItemState.InInventory);
+        Dictionary<string, object> inventory = Project(ItemUpdate.ItemUpdateType.ItemState, ItemState.InInventory);
         Require(inventory, "playerId"); Omit(inventory, "position", "throwDirection", "carNetId");
 
-        Dictionary<string, object> attached = Project(ItemUpdateData.ItemUpdateType.ItemState, ItemState.Attached);
+        Dictionary<string, object> attached = Project(ItemUpdate.ItemUpdateType.ItemState, ItemState.Attached);
         Require(attached, "carNetId", "attachedFront"); Omit(attached, "position", "rotation", "throwDirection", "playerId");
 
-        Dictionary<string, object> create = Project(ItemUpdateData.ItemUpdateType.Create, ItemState.Dropped);
+        Dictionary<string, object> create = Project(ItemUpdate.ItemUpdateType.Create, ItemState.Dropped);
         Require(create, "prefabName", "position", "rotation", "states");
 
-        Dictionary<string, object> destroy = Project(ItemUpdateData.ItemUpdateType.Destroy, ItemState.Thrown);
+        Dictionary<string, object> destroy = Project(ItemUpdate.ItemUpdateType.Destroy, ItemState.Thrown);
         Require(destroy, "updateType", "itemNetId"); Omit(destroy, "itemState", "prefabName", "position", "states", "playerId");
 
-        Dictionary<string, object> objectState = Project(ItemUpdateData.ItemUpdateType.ObjectState, ItemState.Thrown);
+        Dictionary<string, object> objectState = Project(ItemUpdate.ItemUpdateType.ObjectState, ItemState.Thrown);
         Require(objectState, "itemState", "states"); Omit(objectState, "position", "rotation", "throwDirection", "prefabName");
 
-        Dictionary<string, object> full = Project(ItemUpdateData.ItemUpdateType.FullSync, ItemState.Thrown);
+        Dictionary<string, object> full = Project(ItemUpdate.ItemUpdateType.FullSync, ItemState.Thrown);
         Require(full, "position", "rotation", "throwDirection", "states"); Omit(full, "playerId", "carNetId", "attachedFront", "prefabName");
 
-        DebugPacketProjection packet = DebugPacketProjectorRegistry.Project(new CommonItemUpdatePacket { ItemData = Item(ItemUpdateData.ItemUpdateType.ItemState, ItemState.Thrown) }, 1);
+        Dictionary<string, object> unclaimed = Project(ItemUpdate.ItemUpdateType.ItemState, ItemState.InInventory);
+        Require(unclaimed, "relation"); Omit(unclaimed, "inventoryClaim", "persistentOwnerPlayerId");
+
+        DebugPacketProjection packet = DebugPacketProjectorRegistry.Project(new ClientboundItemUpdatesPacket { Updates = new List<ItemUpdate> { Item(ItemUpdate.ItemUpdateType.ItemState, ItemState.Thrown) } }, 1);
         string json = DebugJson.Serialize(packet.Wire);
         foreach (string forbidden in new[] { "normalized", "sqrMagnitude", "maximum depth", "eulerAngles" })
             if (json.IndexOf(forbidden, StringComparison.OrdinalIgnoreCase) >= 0) throw new InvalidOperationException("Packet projection contains recursive Unity property: " + forbidden);
@@ -46,8 +49,8 @@ public static class DebugPacketProjectorSelfTests
             throw new InvalidOperationException("Strict fallback projected a property or failed to project a vector directly: " + fallback);
     }
 
-    private static Dictionary<string, object> Project(ItemUpdateData.ItemUpdateType updateType, ItemState state) => DebugPacketProjectorRegistry.ProjectItemUpdate(Item(updateType, state));
-    private static ItemUpdateData Item(ItemUpdateData.ItemUpdateType updateType, ItemState state) => new()
+    private static Dictionary<string, object> Project(ItemUpdate.ItemUpdateType updateType, ItemState state) => DebugPacketProjectorRegistry.ProjectItemUpdate(Item(updateType, state));
+    private static ItemUpdate Item(ItemUpdate.ItemUpdateType updateType, ItemState state) => new()
     {
         UpdateType = updateType, ItemNetId = 78, PrefabName = "Cup2", ItemState = state,
         ItemPosition = new Vector3(9469.9f, 120.599f, 13616.892f), ItemRotation = new Quaternion(.175f, .732f, -.211f, .624f),

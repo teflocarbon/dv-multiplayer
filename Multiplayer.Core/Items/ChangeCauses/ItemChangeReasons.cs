@@ -72,13 +72,6 @@ public enum ItemMoveReason : byte
     Purchased,
     /// <summary>Given by an admin command.</summary>
     Granted,
-    /// <summary>
-    /// A client-made item the host adopted. No longer made: adoption is gone (owned-items.md, PR 5).
-    /// Kept so the members after it keep their numbers.
-    /// </summary>
-    Adopted,
-    /// <summary>A rejoining player's original handed back in place of their game's fresh copy.</summary>
-    ReturnedToRejoiningOwner,
     RestoredFromSave,
     /// <summary>In the hand (or a borrowed inventory item) of a player who disconnected.</summary>
     DroppedOnDisconnect,

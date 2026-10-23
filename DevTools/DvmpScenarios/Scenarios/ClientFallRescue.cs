@@ -142,7 +142,7 @@ namespace Dvmp.Scenarios
                 {
                     if (player == server.LocalPlayer || !player.KnownItems.ContainsKey(item)) continue;
                     if (!ServerItemManager.TryCreateConvergenceSnapshot(item, out var snapshot)) continue;
-                    server.SendItemUpdatePacket(snapshot, sendToPlayer: player);
+                    server.SendItemUpdate(snapshot, sendToPlayer: player);
                     sent++;
                 }
                 return new Sunk { Sent = sent, HostHasTerrain = NetworkedItemManager.BelowTerrain(item.transform.position, out _) != null };

@@ -62,7 +62,7 @@ namespace Dvmp.Scenarios
             }
             if (o.Who == "host")
             {
-                Expect.Empty(await pair.Host.Run(() => ServerRequests.NotHandledLocally(new[] { "ServerboundContainerBrowsePacket", "ServerboundContainerMutationPacket" })),
+                Expect.Empty(await pair.Host.Run(() => ServerRequests.NotHandledLocally(new[] { "ServerboundItemListRequestPacket", "ServerboundItemRequestPacket" })),
                     "the host's container requests that go over loopback");
                 return;
             }
@@ -137,7 +137,7 @@ namespace Dvmp.Scenarios
                     while (CUI.MutationSequence == seq && Time.realtimeSinceStartup - t0 < 10f) yield return null;
                     var r = CUI.LastMutation;
                     if (CUI.MutationSequence == seq || r == null) throw new Exception(what + ": no result");
-                    if (!r.Accepted) throw new Exception(what + " rejected: " + r.RejectionReason);
+                    if (!r.Accepted) throw new Exception(what + " rejected: " + r.Detail);
                     for (int i = 0; i < 60; i++) yield return null;   // the refreshed view
                 }
 
@@ -158,7 +158,7 @@ namespace Dvmp.Scenarios
                 if (CUI.ActiveRowCount != before + 1) throw new Exception("contents lost on reopen: " + string.Join("; ", log));
 
                 yield return Mutate(() => !c.RemoveItem(slot, true, false), "withdraw");
-                ushort materialized = CUI.LastMutation.MaterializedItemNetId;
+                ushort materialized = CUI.LastMutation.ItemNetId;
                 NetworkedItem back = null;
                 float w0 = Time.realtimeSinceStartup;
                 while (Time.realtimeSinceStartup - w0 < 10f && ((back = Find(materialized)) == null || inv.IndexOf(back.gameObject) < 0)) yield return null;
@@ -182,7 +182,7 @@ namespace Dvmp.Scenarios
                 var result = ContainerServer.Browse(host, box, 0, 64, out var view);
                 return new Browse
                 {
-                    Owner = PlayerNumbers.OwnerOf(r?.Owner ?? System.Guid.Empty), HostId = host.PlayerId, Status = result.Status.ToString(),
+                    Owner = OwnerNumbers.Of(r?.Owner ?? System.Guid.Empty), HostId = host.PlayerId, Status = result.Status.ToString(),
                     Reason = result.Reason ?? "", Rows = view?.Slots?.Count ?? -1
                 };
             }

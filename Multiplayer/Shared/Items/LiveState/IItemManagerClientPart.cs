@@ -33,5 +33,5 @@ public interface IItemManagerClientPart
     void ResolveAuthoritativeBindingCollision(NetworkedItem incoming, ushort authoritativeId, Type trackedItemType);
 
     /// <summary>An authored office prop was taken into a hand or inventory: it lets go of its slot.</summary>
-    void DetachAuthoredProjectionForPossession(NetworkedItem item, ItemUpdateData snapshot);
+    void DetachAuthoredProjectionForPossession(NetworkedItem item, ItemUpdate snapshot);
 }

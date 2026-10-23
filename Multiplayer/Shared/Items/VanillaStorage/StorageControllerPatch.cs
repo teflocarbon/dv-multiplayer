@@ -1,6 +1,7 @@
 using DV.CabControls;
 using DV.ThingTypes;
 using HarmonyLib;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
@@ -20,7 +21,7 @@ internal static class MultiplayerStoragePatchGuard
             return false;
         if (ItemServer.Current?.TryGetPersistentOwner(networked.NetId, out System.Guid owner) == true)
             return owner != System.Guid.Empty;
-        return networked.PersistentOwnerPlayerId != 0;
+        return networked.Relation.IsOwned();
     }
 }
 

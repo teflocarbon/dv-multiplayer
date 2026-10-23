@@ -7,11 +7,10 @@ using DV;
 using DV.InventorySystem;
 using DV.UI.Inventory;
 using DV.Util;
-using Multiplayer.Core.Items.Containers;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.LiveState;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
-using Multiplayer.Shared.Protocol.Packets.Serverbound;
+using Multiplayer.Shared.Protocol.Data.Items;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;
 using UnityEngine;
@@ -22,24 +21,26 @@ namespace Multiplayer.Client.Items.Containers;
 internal sealed class ColdContainerItemProxy : MonoBehaviour, IInventoryItemSpec
 {
     private IInventoryItemSpec source;
+    /// <summary>The handle of the container the row is in.</summary>
     public uint ContainerHandle { get; private set; }
+    /// <summary>The row's own handle: its item, and for a container item what opens it.</summary>
     public uint ItemHandle { get; private set; }
     public int Slot { get; private set; }
-    public uint ChildContainerHandle { get; private set; }
+    public bool IsContainer { get; private set; }
     public bool ForeignOwned { get; private set; }
 
-    public void Initialize(IInventoryItemSpec sourceSpec, ClientboundContainerViewPacket view, int row)
+    public void Initialize(IInventoryItemSpec sourceSpec, ClientboundItemListPacket view, ItemRow row)
     {
         source = sourceSpec;
-        ContainerHandle = view.ContainerHandle;
-        ItemHandle = view.ItemHandles[row];
-        Slot = view.Slots[row];
-        ChildContainerHandle = view.ChildContainerHandles[row];
-        ForeignOwned = view.ForeignOwned[row];
-        name = $"ColdContainerProxy:{view.PrefabNames[row]}:{ItemHandle}";
-        if (ChildContainerHandle != 0)
-            gameObject.AddComponent<ColdProxyContainer>().Initialize(ChildContainerHandle,
-                source?.LocalizedName ?? view.DisplayNames[row]);
+        ContainerHandle = view.Container;
+        ItemHandle = row.Handle;
+        Slot = row.Slot;
+        IsContainer = (row.Flags & ItemRowFlags.Container) != 0;
+        ForeignOwned = (row.Flags & ItemRowFlags.SomeoneElses) != 0;
+        name = $"ColdContainerProxy:{row.PrefabName}:{ItemHandle}";
+        if (IsContainer)
+            gameObject.AddComponent<ColdProxyContainer>().Initialize(ItemHandle,
+                source?.LocalizedName ?? row.DisplayName);
     }
 
     public GameObject GetGameObject() => gameObject;
@@ -67,9 +68,9 @@ internal sealed class ColdProxyContainer : AItemContainer
     public override bool DirectInteractionAllowed => true;
 
     protected override void Awake() { }
-    public void Initialize(uint containerHandle, string displayName)
+    public void Initialize(uint itemHandle, string displayName)
     {
-        handle = containerHandle;
+        handle = itemHandle;
         localizedName = displayName ?? string.Empty;
     }
     public override bool ValidItem(GameObject item) => false;
@@ -79,36 +80,42 @@ internal sealed class ColdProxyContainer : AItemContainer
     public override void ToggleContainerAccess() => ContainerUi.OpenChild(handle);
 }
 
-/// <summary>Detached-row adapter for Derail Valley's existing non-VR and VR inventory views.</summary>
+/// <summary>
+/// Detached-row adapter for Derail Valley's existing non-VR and VR inventory views: a cold
+/// container's list (docs/design/items/wire.md, "One list") shown as its slots, and the player's
+/// drags in it sent as item requests.
+/// </summary>
 internal static class ContainerUi
 {
     private static readonly List<GameObject> proxies = new();
-    private static ClientboundContainerViewPacket activeView;
+    // This UI's requests still waiting for their result: each one's answer reloads the view.
+    private static readonly HashSet<uint> pendingMutations = new();
+    private static ClientboundItemListPacket activeView;
     private static ushort activeShellNetId;
     private static ushort requestedShellNetId;
     private static uint pendingRequestId;
-    private static uint requestId;
     private static bool initialized;
 #if DEBUG
     private static uint mutationSequence;
-    private static ClientboundContainerMutationResultPacket lastMutation;
+    private static ClientboundItemResultPacket lastMutation;
     private static uint viewSequence;
-    private static ClientboundContainerViewPacket lastView;
+    private static ClientboundItemListPacket lastView;
 #endif
 
     public static bool Active => activeView?.Accepted == true;
-    public static uint ActiveHandle => activeView?.ContainerHandle ?? 0;
+    public static uint ActiveHandle => activeView?.Container ?? 0;
     public static uint ActiveRevision => activeView?.Revision ?? 0;
 #if DEBUG
     public static int ActiveCapacity => activeView?.Capacity ?? 0;
-    public static int ActiveRowCount => activeView?.Slots?.Length ?? 0;
-    public static int[] ActiveSlots => activeView?.Slots?.ToArray() ?? Array.Empty<int>();
-    public static uint[] ActiveChildContainerHandles =>
-        activeView?.ChildContainerHandles?.ToArray() ?? Array.Empty<uint>();
+    public static int ActiveRowCount => activeView?.Rows?.Length ?? 0;
+    public static int[] ActiveSlots => activeView?.Rows?.Select(row => row.Slot).ToArray() ?? Array.Empty<int>();
+    /// <summary>The handles of the active view's container items: each opens its contents.</summary>
+    public static uint[] ActiveChildContainerHandles => activeView?.Rows?
+        .Select(row => (row.Flags & ItemRowFlags.Container) != 0 ? row.Handle : 0).ToArray() ?? Array.Empty<uint>();
     public static uint MutationSequence => mutationSequence;
-    public static ClientboundContainerMutationResultPacket LastMutation => lastMutation;
+    public static ClientboundItemResultPacket LastMutation => lastMutation;
     public static uint ViewSequence => viewSequence;
-    public static ClientboundContainerViewPacket LastView => lastView;
+    public static ClientboundItemListPacket LastView => lastView;
 #endif
 
     public static void Open(AItemContainer container)
@@ -121,21 +128,18 @@ internal static class ContainerUi
         requestedShellNetId = shell.NetId;
         activeShellNetId = 0;
         activeView = null;
-        pendingRequestId = ++requestId;
+        pendingRequestId = ItemClient.Current.RequestItemList(ItemListKind.Container, requestedShellNetId);
         global::Multiplayer.Multiplayer.Log($"[Cold Container] Browse requested: " +
             $"request={pendingRequestId}, shellNetId={requestedShellNetId}, " +
             $"containerId={container.ContainerId}");
-        ItemClient.Current.RequestContainerView(pendingRequestId,
-            requestedShellNetId);
     }
 
-    public static void OpenChild(uint containerHandle)
+    /// <summary>Opens a container item's contents, by its row's handle.</summary>
+    public static void OpenChild(uint handle)
     {
-        if (containerHandle == 0 || ItemClient.Current == null) return;
+        if (handle == 0 || ItemClient.Current == null) return;
         EnsureInitialized();
-        pendingRequestId = ++requestId;
-        ItemClient.Current.RequestContainerView(pendingRequestId, 0,
-            containerHandle);
+        pendingRequestId = ItemClient.Current.RequestItemList(ItemListKind.Container, 0, handle);
     }
 
     public static bool TryInterceptAdd(AItemContainer destination, GameObject item, int slot)
@@ -158,39 +162,28 @@ internal static class ContainerUi
             return true;
         }
         EnsureInitialized();
-        ServerboundContainerMutationPacket packet = NewMutation(ContainerOperationKind.Deposit);
-        packet.DestinationContainerHandle = ActiveHandle;
-        packet.ExpectedDestinationRevision = ActiveRevision;
-        packet.DestinationSlot = slot;
         ColdContainerItemProxy proxy = item.GetComponent<ColdContainerItemProxy>();
-        if (proxy != null)
-        {
-            packet.Kind = (byte)ContainerOperationKind.Move;
-            packet.SourceContainerHandle = proxy.ContainerHandle;
-            packet.ExpectedSourceRevision = ActiveRevision;
-            packet.SourceSlot = proxy.Slot;
-        }
-        else
-        {
-            packet.ShellNetId = activeShellNetId;
-            packet.ItemNetId = item.GetComponent<NetworkedItem>()?.NetId ?? 0;
-        }
-        global::Multiplayer.Multiplayer.Log($"[Cold Container] Deposit requested: " +
-            $"request={packet.RequestId}, shellNetId={packet.ShellNetId}, " +
-            $"containerHandle={packet.DestinationContainerHandle}, itemNetId={packet.ItemNetId}, " +
-            $"slot={packet.DestinationSlot}, requestedSlot={requestedSlot}, " +
-            $"revision={packet.ExpectedDestinationRevision}");
-        PublishMutation("container.mutation-requested", packet.OperationId, new()
-        {
-            ["requestId"] = packet.RequestId,
-            ["kind"] = ((ContainerOperationKind)packet.Kind).ToString(),
-            ["shellNetId"] = packet.ShellNetId,
-            ["containerHandle"] = packet.DestinationContainerHandle,
-            ["itemNetId"] = packet.ItemNetId,
-            ["sourceSlot"] = packet.SourceSlot,
-            ["destinationSlot"] = packet.DestinationSlot
-        });
-        ItemClient.Current.RequestContainerMutation(packet);
+        ItemRequest request = proxy != null
+            ? new ItemRequest
+            {
+                // A row dragged from one open container into this one.
+                Action = ItemAction.MoveInContainer,
+                ItemHandle = proxy.ItemHandle,
+                ExpectedRevision = ActiveRevision,
+                Container = ActiveHandle,
+                ContainerRevision = ActiveRevision,
+                Slot = slot
+            }
+            : new ItemRequest
+            {
+                Action = ItemAction.Deposit,
+                ItemNetId = item.GetComponent<NetworkedItem>()?.NetId ?? 0,
+                ExpectedRevision = ActiveRevision,
+                Container = ActiveHandle,
+                ShellNetId = activeShellNetId,
+                Slot = slot
+            };
+        Send(request, $"requestedSlot={requestedSlot}");
         return true;
     }
 
@@ -198,7 +191,7 @@ internal static class ContainerUi
     {
         if (activeView?.Accepted != true || activeView.Capacity <= 0)
             return -1;
-        HashSet<int> occupied = new(activeView.Slots ?? Array.Empty<int>());
+        HashSet<int> occupied = new(activeView.Rows?.Select(row => row.Slot) ?? Enumerable.Empty<int>());
         if (requestedSlot >= 0 && requestedSlot < activeView.Capacity &&
             !occupied.Contains(requestedSlot))
             return requestedSlot;
@@ -212,24 +205,13 @@ internal static class ContainerUi
         int destinationInventorySlot)
     {
         if (!IsActive(source)) return false;
-        ServerboundContainerMutationPacket packet = NewMutation(ContainerOperationKind.Withdraw);
-        packet.SourceContainerHandle = ActiveHandle;
-        packet.ExpectedSourceRevision = ActiveRevision;
-        packet.SourceSlot = slot;
-        packet.DestinationSlot = destinationInventorySlot;
-        global::Multiplayer.Multiplayer.Log($"[Cold Container] Withdrawal requested: " +
-            $"request={packet.RequestId}, containerHandle={packet.SourceContainerHandle}, " +
-            $"sourceSlot={packet.SourceSlot}, inventorySlot={packet.DestinationSlot}, " +
-            $"revision={packet.ExpectedSourceRevision}");
-        PublishMutation("container.mutation-requested", packet.OperationId, new()
+        Send(new ItemRequest
         {
-            ["requestId"] = packet.RequestId,
-            ["kind"] = ((ContainerOperationKind)packet.Kind).ToString(),
-            ["containerHandle"] = packet.SourceContainerHandle,
-            ["sourceSlot"] = packet.SourceSlot,
-            ["destinationSlot"] = packet.DestinationSlot
-        });
-        ItemClient.Current.RequestContainerMutation(packet);
+            Action = ItemAction.Withdraw,
+            ItemHandle = RowAt(slot)?.Handle ?? 0,
+            ExpectedRevision = ActiveRevision,
+            Slot = destinationInventorySlot
+        }, $"sourceSlot={slot}");
         return true;
     }
 
@@ -240,82 +222,101 @@ internal static class ContainerUi
     public static bool TryInterceptMove(AItemContainer source, int from, int to)
     {
         if (!IsActive(source)) return false;
-        ServerboundContainerMutationPacket packet = NewMutation(ContainerOperationKind.Move);
-        packet.SourceContainerHandle = ActiveHandle;
-        packet.DestinationContainerHandle = ActiveHandle;
-        packet.ExpectedSourceRevision = ActiveRevision;
-        packet.ExpectedDestinationRevision = ActiveRevision;
-        packet.SourceSlot = from;
-        packet.DestinationSlot = to;
-        ItemClient.Current.RequestContainerMutation(packet);
+        Send(new ItemRequest
+        {
+            Action = ItemAction.MoveInContainer,
+            ItemHandle = RowAt(from)?.Handle ?? 0,
+            ExpectedRevision = ActiveRevision,
+            Container = ActiveHandle,
+            ContainerRevision = ActiveRevision,
+            Slot = to
+        }, $"sourceSlot={from}");
         return true;
+    }
+
+    private static ItemRow RowAt(int slot) => activeView?.Rows?.FirstOrDefault(row => row.Slot == slot);
+
+    private static void Send(ItemRequest request, string detail)
+    {
+        uint requestId = ItemClient.Current?.SendItemRequest(request) ?? 0;
+        if (requestId == 0)
+        {
+            global::Multiplayer.Multiplayer.LogWarning($"[Cold Container] {request.Action} not sent: " +
+                $"no item or row ({detail})");
+            return;
+        }
+        pendingMutations.Add(requestId);
+        global::Multiplayer.Multiplayer.Log($"[Cold Container] {request.Action} requested: " +
+            $"request={requestId}, containerHandle={request.Container}, itemNetId={request.ItemNetId}, " +
+            $"itemHandle={request.ItemHandle}, slot={request.Slot}, revision={request.ExpectedRevision}, {detail}");
+        PublishMutation("container.mutation-requested", requestId, new()
+        {
+            ["requestId"] = requestId,
+            ["kind"] = request.Action.ToString(),
+            ["shellNetId"] = request.ShellNetId,
+            ["containerHandle"] = request.Container,
+            ["itemNetId"] = request.ItemNetId,
+            ["itemHandle"] = request.ItemHandle,
+            ["destinationSlot"] = request.Slot
+        });
     }
 
     private static bool IsActive(AItemContainer container) => container != null &&
         DV.InventorySystem.Inventory.Instance?.ItemContainerRegistry?.ActiveContainer == container &&
         activeShellNetId != 0;
 
-    private static ServerboundContainerMutationPacket NewMutation(ContainerOperationKind kind) => new()
-    {
-        RequestId = ++requestId,
-        OperationId = Guid.NewGuid().ToByteArray(),
-        Kind = (byte)kind
-    };
-
     private static void EnsureInitialized()
     {
         if (initialized || ItemClient.Current == null) return;
         initialized = true;
         NetworkedItemManager.Cleared += Reset;
-        ItemClient.Current.ContainerViewReceived += OnView;
-        ItemClient.Current.ContainerMutationCompleted += OnMutation;
+        ItemClient.Current.ItemListReceived += OnView;
+        ItemClient.Current.ItemResultReceived += OnMutation;
     }
 
-    private static void OnMutation(ClientboundContainerMutationResultPacket result)
+    private static void OnMutation(ClientboundItemResultPacket result)
     {
+        if (result == null || !pendingMutations.Remove(result.RequestId))
+            return;
 #if DEBUG
         lastMutation = result;
         mutationSequence++;
 #endif
-        global::Multiplayer.Multiplayer.Log($"[Cold Container] Mutation completed: " +
-            $"request={result?.RequestId ?? 0}, accepted={result?.Accepted == true}, " +
-            $"status={result?.Status ?? 0}, reason={result?.RejectionReason ?? string.Empty}, " +
-            $"sourceRevision={result?.SourceRevision ?? 0}, " +
-            $"destinationRevision={result?.DestinationRevision ?? 0}");
-        if (result != null)
-            PublishMutation("container.mutation-completed", result.OperationId, new()
-            {
-                ["requestId"] = result.RequestId,
-                ["kind"] = ((ContainerOperationKind)result.Kind).ToString(),
-                ["accepted"] = result.Accepted,
-                ["status"] = ((ContainerOperationStatus)result.Status).ToString(),
-                ["reason"] = result.RejectionReason ?? string.Empty,
-                ["sourceRevision"] = result.SourceRevision,
-                ["destinationRevision"] = result.DestinationRevision,
-                ["materializedItemNetId"] = result.MaterializedItemNetId
-            }, result.Accepted ? DebugSeverity.Info : DebugSeverity.Warning);
+        global::Multiplayer.Multiplayer.Log($"[Cold Container] Request completed: " +
+            $"request={result.RequestId}, accepted={result.Accepted}, " +
+            $"refusal={result.Refusal}, detail={result.Detail ?? string.Empty}, " +
+            $"revision={result.Revision}, itemNetId={result.ItemNetId}");
+        PublishMutation("container.mutation-completed", result.RequestId, new()
+        {
+            ["requestId"] = result.RequestId,
+            ["accepted"] = result.Accepted,
+            ["refusal"] = result.Refusal.ToString(),
+            ["reason"] = result.Detail ?? string.Empty,
+            ["revision"] = result.Revision,
+            ["materializedItemNetId"] = result.ItemNetId
+        }, result.Accepted ? DebugSeverity.Info : DebugSeverity.Warning);
         if (activeShellNetId == 0) return;
-        pendingRequestId = ++requestId;
-        ItemClient.Current.RequestContainerView(pendingRequestId, 0,
-            ActiveHandle);
+        pendingRequestId = ItemClient.Current.RequestItemList(ItemListKind.Container, 0, ActiveHandle);
     }
 
-    private static void OnView(ClientboundContainerViewPacket view)
+    private static void OnView(ClientboundItemListPacket view)
     {
+        if (view == null || view.Kind != ItemListKind.Container)
+            return;
 #if DEBUG
         lastView = view;
         viewSequence++;
 #endif
-        if (view == null || view.RequestId != pendingRequestId)
+        if (view.RequestId != pendingRequestId)
         {
             global::Multiplayer.Multiplayer.Log($"[Cold Container] Browse response ignored: " +
-                $"response={view?.RequestId ?? 0}, pending={pendingRequestId}");
+                $"response={view.RequestId}, pending={pendingRequestId}");
             return;
         }
         global::Multiplayer.Multiplayer.Log($"[Cold Container] Browse response: " +
             $"request={view.RequestId}, accepted={view.Accepted}, " +
-            $"reason={view.RejectionReason ?? string.Empty}, handle={view.ContainerHandle}, " +
-            $"revision={view.Revision}, rows={view.Slots?.Length ?? 0}");
+            $"reason={view.Detail ?? string.Empty}, handle={view.Container}, " +
+            $"revision={view.Revision}, rows={view.Rows?.Length ?? 0}");
         activeView = view;
         if (!view.Accepted)
         {
@@ -328,34 +329,24 @@ internal static class ContainerUi
         Project(view);
     }
 
-    private static void Project(ClientboundContainerViewPacket view)
+    private static void Project(ClientboundItemListPacket view)
     {
         ClearProxies();
         AItemContainer active = DV.InventorySystem.Inventory.Instance?.ItemContainerRegistry?.ActiveContainer;
         if (active == null) return;
         ObservableCollectionExt<InventorySlotDisplayData> model = new();
-        int rows = new[]
-        {
-            view.Slots?.Length ?? 0,
-            view.ItemHandles?.Length ?? 0,
-            view.PrefabNames?.Length ?? 0,
-            view.DisplayNames?.Length ?? 0,
-            view.ForeignOwned?.Length ?? 0,
-            view.ChildContainerHandles?.Length ?? 0
-        }.Min();
-        Dictionary<int, int> rowBySlot = Enumerable.Range(0, rows)
-            .Where(row => view.Slots[row] >= 0 && view.Slots[row] < view.Capacity)
-            .GroupBy(row => view.Slots[row]).ToDictionary(group => group.Key,
-                group => group.First());
+        Dictionary<int, ItemRow> rowBySlot = (view.Rows ?? Array.Empty<ItemRow>())
+            .Where(row => row != null && row.Slot >= 0 && row.Slot < view.Capacity)
+            .GroupBy(row => row.Slot).ToDictionary(group => group.Key, group => group.First());
         for (int slot = 0; slot < view.Capacity; slot++)
         {
             IInventoryItemSpec spec = null;
-            if (rowBySlot.TryGetValue(slot, out int row))
+            if (rowBySlot.TryGetValue(slot, out ItemRow row))
             {
                 IInventoryItemSpec source = Globals.G?.Items?.items?.FirstOrDefault(spec =>
-                    spec != null && string.Equals(spec.ItemPrefabName, view.PrefabNames[row],
+                    spec != null && string.Equals(spec.ItemPrefabName, row.PrefabName,
                         StringComparison.Ordinal));
-                GameObject proxyObject = new($"ColdContainerProxy:{view.ItemHandles[row]}");
+                GameObject proxyObject = new($"ColdContainerProxy:{row.Handle}");
                 proxyObject.hideFlags = HideFlags.HideAndDontSave;
                 ColdContainerItemProxy proxy = proxyObject.AddComponent<ColdContainerItemProxy>();
                 proxy.Initialize(source, view, row);
@@ -384,14 +375,15 @@ internal static class ContainerUi
         NetworkedItemManager.Cleared -= Reset;
         if (initialized && ItemClient.Current != null)
         {
-            ItemClient.Current.ContainerViewReceived -= OnView;
-            ItemClient.Current.ContainerMutationCompleted -= OnMutation;
+            ItemClient.Current.ItemListReceived -= OnView;
+            ItemClient.Current.ItemResultReceived -= OnMutation;
         }
         initialized = false;
         activeView = null;
         activeShellNetId = 0;
         requestedShellNetId = 0;
         pendingRequestId = 0;
+        pendingMutations.Clear();
 #if DEBUG
         mutationSequence = 0;
         lastMutation = null;
@@ -401,14 +393,12 @@ internal static class ContainerUi
         ClearProxies();
     }
 
-    private static void PublishMutation(string eventName, byte[] operationId,
+    private static void PublishMutation(string eventName, uint requestId,
         Dictionary<string, object> data, DebugSeverity severity = DebugSeverity.Info)
     {
-        Guid operation = operationId?.Length == 16 ? new Guid(operationId) : Guid.Empty;
+        string request = requestId == 0 ? string.Empty : "request:" + requestId;
         DebugRuntime.Publish("inventory", eventName,
-            NetworkRole.DebugSide, severity, "ContainerOperation",
-            operation == Guid.Empty ? string.Empty : operation.ToString("D"),
-            correlationId: operation == Guid.Empty ? string.Empty : operation.ToString("D"),
-            data: data);
+            NetworkRole.DebugSide, severity, "ContainerOperation", request,
+            correlationId: request, data: data);
     }
 }

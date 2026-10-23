@@ -3,6 +3,7 @@ using DV.CabControls;
 using DV.InventorySystem;
 using DV.Interaction;
 using DV.Items;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.Physics;
 using Multiplayer.Shared.Debugging;
@@ -185,7 +186,7 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
             return;
         }
 
-        ItemUpdateData snapshot = item.GetSnapshot(reserveClientRevision: true);
+        ItemUpdate snapshot = item.GetSnapshot(reserveClientRevision: true);
         if (snapshot == null)
         {
             item.PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
@@ -193,12 +194,21 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
             return;
         }
 
-        ItemClient.Current?.SendItemUpdatePacket(snapshot);
+        // A player's own change is a request (docs/design/items/wire.md): the server answers it
+        // with the update everyone gets, or a correction.
+        ItemRequest request = ItemRequestTranslation.FromObservation(snapshot);
+        if (request == null)
+        {
+            item.PublishLocalState("item.snapshot-suppressed", currentState, previousObservedState, reason,
+                "not-a-request");
+            return;
+        }
+        ItemClient.Current?.SendItemRequest(request);
     }
 
     public uint ReserveRevision() => outboundRevisionPipeline.Reserve(item.AuthorityRevision);
 
-    public void ObserveCanonicalRevision(ItemUpdateData snapshot)
+    public void ObserveCanonicalRevision(ItemUpdate snapshot)
     {
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         bool ownAcknowledgement = localPlayerId != 0 &&
@@ -209,12 +219,12 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
 
     // Host convergence re-send (ServerItemManager.Convergence): only act when this copy actually
     // disagrees, so the periodic pass never nudges consistent items.
-    public bool IgnoresConvergence(ItemUpdateData snapshot) =>
+    public bool IgnoresConvergence(ItemUpdate snapshot) =>
         snapshot.TransitionReason == ItemTransitionReason.Convergence && !DisagreesWithConvergence(snapshot);
 
     private const float ConvergencePositionTolerance = 0.25f;
 
-    private bool DisagreesWithConvergence(ItemUpdateData snapshot)
+    private bool DisagreesWithConvergence(ItemUpdate snapshot)
     {
         if (Item == null || Item.IsGrabbed())
             return false; // a local interaction is in flight; the host will hear about it
@@ -237,7 +247,7 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         return (transform.position - WorldMover.currentMove - snapshot.ItemPosition).sqrMagnitude > tolerance2;
     }
 
-    public bool IsLocalDropAcknowledgement(ItemUpdateData snapshot) =>
+    public bool IsLocalDropAcknowledgement(ItemUpdate snapshot) =>
         snapshot.TransitionReason == ItemTransitionReason.ClientState &&
         snapshot.ItemState == ItemState.Dropped &&
         snapshot.OriginatingPlayerId != 0 &&
@@ -253,7 +263,7 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         return true;
     }
 
-    internal void ApplyLostAndFoundProjection(ItemUpdateData snapshot)
+    internal void ApplyLostAndFoundProjection(ItemUpdate snapshot)
     {
         if (snapshot == null)
             return;
@@ -272,7 +282,7 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
     {
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         bool preserveOwnerSilhouette = localPlayerId != 0 &&
-            item.PersistentOwnerPlayerId == localPlayerId &&
+            item.Relation == ItemRelation.Mine &&
             Item?.InventorySpecs?.IsEssential == true && item.InventoryClaimSlot >= 0 &&
             NetworkedItem.HasRetrievalFlag(item.InventoryClaimFlags);
         try
@@ -322,7 +332,7 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         item.StateDirty = false;
     }
 
-    internal void RestoreLostAndFoundProjection(ItemUpdateData snapshot)
+    internal void RestoreLostAndFoundProjection(ItemUpdate snapshot)
     {
         if (snapshot == null)
             return;

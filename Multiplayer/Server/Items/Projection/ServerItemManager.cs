@@ -25,8 +25,8 @@ namespace Multiplayer.Server.Items.Projection;
 internal sealed partial class ServerItemManager : IItemManagerServerPart
 {
     // Destroys waiting for the next tick, and who they go to.
-    private readonly List<ItemUpdateData> DestroyedItems = new(64);
-    private readonly Dictionary<ItemUpdateData, HashSet<byte>> DestroyRecipients = new();
+    private readonly List<ItemUpdate> DestroyedItems = new(64);
+    private readonly Dictionary<ItemUpdate, HashSet<byte>> DestroyRecipients = new();
     // The host's interest index: world items by cell, and the items that aren't in one.
     private readonly Dictionary<WorldItemCellCoord, HashSet<NetworkedItem>> HostItemsByCell = new();
     private readonly Dictionary<NetworkedItem, WorldItemCellCoord> HostCellByItem = new();
@@ -104,7 +104,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
     internal void OnSpatialPlayerDisconnected(byte playerId) => HostSpatial.OnPlayerDisconnected(playerId);
 
     /// <summary>A destroyed item: send its Destroy to the players who know it, at the next tick.</summary>
-    internal void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdateData snapshot)
+    internal void AddDirtyItemSnapshot(NetworkedItem netItem, ItemUpdate snapshot)
     {
         DestroyedItems.Add(snapshot);
         HashSet<byte> recipients = new();

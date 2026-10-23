@@ -104,7 +104,7 @@ internal static partial class ItemSaveLoad
 
         ServerPlayer owner = ResolveConnectedPlayer(saved.OwnerIdentity);
         ServerPlayer holder = ResolveConnectedPlayer(saved.PlacementPlayerIdentity);
-        ItemUpdateData seed = CreateRestoreSeed(item, saved, holder);
+        ItemUpdate seed = CreateRestoreSeed(item, saved, holder);
         LiveItems.LiveItem record = LiveItems.Ensure(item, owner, seed);
         ApplySavedRecord(record, saved);
         LiveItems.WriteToSnapshot(record, seed, ItemTransitionReason.PersistenceRestore);
@@ -142,11 +142,11 @@ internal static partial class ItemSaveLoad
         return instance.GetComponent<NetworkedItem>() ?? instance.AddComponent<NetworkedItem>();
     }
 
-    private static ItemUpdateData CreateRestoreSeed(NetworkedItem item, SavedItemRow saved,
+    private static ItemUpdate CreateRestoreSeed(NetworkedItem item, SavedItemRow saved,
         ServerPlayer holder)
     {
-        ItemUpdateData seed = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.ItemState) ??
-                              new ItemUpdateData();
+        ItemUpdate seed = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState) ??
+                              new ItemUpdate();
         seed.ItemState = ItemStateFrom(saved.Placement);
         seed.PlayerId = holder?.PlayerId ?? 0;
         seed.ItemPosition = saved.Position;

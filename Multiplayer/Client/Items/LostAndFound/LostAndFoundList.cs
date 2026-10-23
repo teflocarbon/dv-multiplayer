@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Multiplayer.Core.Items.LostAndFound;
+
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -17,15 +17,16 @@ namespace Multiplayer.Client.Items.LostAndFound;
 /// </summary>
 public static class LostAndFoundList
 {
-    private static readonly List<LostItemData> items = new();
+    private static readonly List<ItemRow> items = new();
 
     // The session's items are gone with the item manager: so is this list.
     static LostAndFoundList() => NetworkedItemManager.Cleared += Clear;
 
     public static event Action Changed;
-    public static IReadOnlyList<LostItemData> Items => items;
+    /// <summary>The rows, oldest first: each a handle (never the item's NetId), its revision, its claim slot and why it's there.</summary>
+    public static IReadOnlyList<ItemRow> Items => items;
 
-    public static void Apply(LostItemData[] received)
+    public static void Apply(ItemRow[] received)
     {
         items.Clear();
         if (received != null)
@@ -44,7 +45,7 @@ public static class LostAndFoundList
     {
         if (NetworkLifecycle.Instance?.LocalSession == null)
             yield break;
-        foreach (LostItemData item in items)
+        foreach (ItemRow item in items)
         {
             yield return new Dictionary<string, object>
             {
@@ -52,20 +53,13 @@ public static class LostAndFoundList
                 ["source"] = "client-authoritative-list",
                 ["status"] = "ListedByHost",
                 ["lostHandle"] = item.Handle,
-                ["netId"] = item.NetId,
                 ["revision"] = item.Revision,
                 ["prefabName"] = item.PrefabName ?? string.Empty,
                 ["displayName"] = item.DisplayName ?? string.Empty,
                 ["ownerPlayerId"] = DebugRuntime.Session?.PlayerId ?? 0,
-                ["reason"] = ((LostItemReason)item.Reason).ToString(),
-                ["lostUtc"] = FormatUtc(item.LostUtcTicks)
+                ["reason"] = item.Where ?? string.Empty,
+                ["claimSlot"] = item.Slot
             };
         }
-    }
-
-    private static string FormatUtc(long ticks)
-    {
-        try { return new DateTime(ticks, DateTimeKind.Utc).ToString("O"); }
-        catch { return $"invalid-ticks:{ticks}"; }
     }
 }

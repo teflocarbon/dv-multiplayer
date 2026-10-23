@@ -25,7 +25,7 @@ internal sealed partial class ClientItemManager
     // projection, kept dormant, or destroyed.
     // Dynamic client projections are fresh instances owned by one host-authoritative logical
     // lifetime.
-    private bool CreateItem(ItemUpdateData snapshot, bool acknowledge = true)
+    private bool CreateItem(ItemUpdate snapshot, bool acknowledge = true)
     {
         if (snapshot == null || snapshot.ItemNetId == 0)
         {

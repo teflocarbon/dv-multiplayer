@@ -1,181 +1,42 @@
-﻿using DV;
-using DV.InventorySystem;
-using LiteNetLib;
-using Multiplayer.Client.Items.ChangeCauses;
+﻿using LiteNetLib;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Client.Items.LostAndFound;
 using Multiplayer.Client.Items.Projection;
+using Multiplayer.Client.Items.Requests;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
-using Multiplayer.Shared.Protocol.Packets.Common;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Debugging.Protocol;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Multiplayer.Client.Session;
 
 // NetworkClient's items handlers and sends (see docs/design/code-layout.md).
 public partial class NetworkClient : IItemClient
 {
-    private void OnCommonItemsBulkUpdatePacket(CommonItemsBulkUpdatePacket packet)
+    private void OnClientboundItemUpdatesPacket(ClientboundItemUpdatesPacket packet)
     {
         using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client);
-        LogDebug(() => $"OnCommonItemsBulkUpdatePacket({packet?.Items?.Count})");
-
-        LogDebug(() =>
-        {
-            string debug = "";
-
-            foreach (var item in packet?.Items)
-            {
-                debug += "UpdateType: " + item?.UpdateType + "\r\n";
-                debug += "itemNetId: " + item?.ItemNetId + "\r\n";
-                debug += "PrefabName: " + item?.PrefabName + "\r\n";
-                debug += "Equipped: " + item?.ItemState + "\r\n";
-                debug += "Position: " + item?.ItemPosition + "\r\n";
-                debug += "Rotation: " + item?.ItemRotation + "\r\n";
-                debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
-                debug += "Player: " + item?.PlayerId + "\r\n";
-                debug += "CarNetId: " + item?.CarNetId + "\r\n";
-                debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
-
-                debug += $"States: {item?.States?.Count}\r\n";
-
-                if (item.States != null)
-                    foreach (var state in item?.States)
-                        debug += "\t" + state.Key + ": " + state.Value + "\r\n";
-                else
-                    debug += "\r\n";
-            }
-
-            return debug;
-        });
-
-        ClientItemManager.Instance?.ReceiveSnapshots(packet.Items);
+        LogDebug(() => $"OnClientboundItemUpdatesPacket({packet?.Updates?.Count})");
+        if (packet?.Updates != null)
+            ClientItemManager.Instance?.ReceiveSnapshots(packet.Updates);
     }
 
-    private void OnCommonItemUpdatePacket(CommonItemUpdatePacket packet)
+    private void OnClientboundItemResultPacket(ClientboundItemResultPacket packet)
     {
-        using IDisposable debugScope = DebugTrace.BeginHandler(packet, DebugRuntimeSide.Client, "Item", packet?.ItemData?.ItemNetId.ToString());
-        LogDebug(() => $"OnCommonItemUpdatePacket()");
-
-        LogDebug(() =>
-        {
-            string debug = "";
-
-            var item = packet.ItemData;
-            debug += "UpdateType: " + item?.UpdateType + "\r\n";
-            debug += "itemNetId: " + item?.ItemNetId + "\r\n";
-            debug += "PrefabName: " + item?.PrefabName + "\r\n";
-            debug += "Equipped: " + item?.ItemState + "\r\n";
-            debug += "Position: " + item?.ItemPosition + "\r\n";
-            debug += "Rotation: " + item?.ItemRotation + "\r\n";
-            debug += "ThrowDirection: " + item?.ThrowDirection + "\r\n";
-            debug += "Player: " + item?.PlayerId + "\r\n";
-            debug += "CarNetId: " + item?.CarNetId + "\r\n";
-            debug += "AttachedFront: " + item?.AttachedFront + "\r\n";
-
-            debug += $"States: {item?.States?.Count}\r\n";
-
-            if (item.States != null)
-                foreach (var state in item?.States)
-                    debug += "\t" + state.Key + ": " + state.Value + "\r\n";
-            else
-                debug += "\r\n";
-
-            return debug;
-        });
-
-        // Create and Destroy are representation-lifecycle operations. The bulk packet path
-        // already routes them through NetworkedItemManager, but the single-item path used to
-        // bypass it and call ReceiveSnapshot directly. That left Destroyed objects registered,
-        // inventoried, and visible even though the packet had arrived successfully.
-        if (packet.ItemData.UpdateType.HasAnyFlag(
-                ItemUpdateData.ItemUpdateType.Create |
-                ItemUpdateData.ItemUpdateType.Destroy))
-        {
-            ClientItemManager.Instance?.ReceiveSnapshots(
-                new List<ItemUpdateData> { packet.ItemData });
-            return;
-        }
-
-        if (!NetworkedItem.TryGet(packet.ItemData.ItemNetId, out NetworkedItem networkedItem))
-        {
-            DebugTrace.Validation("item", "Item", packet.ItemData.ItemNetId.ToString(), false, "unknown-network-entity", DebugRuntimeSide.Client);
-            LogWarning($"OnCommonItemUpdatePacket() Failed to find networked item for netId {packet.ItemData.ItemNetId}");
-            return;
-        }
-
-        if (packet.ItemData.MoveCause.HasValue)
-            ClientItemChangeLog.OnSnapshot(networkedItem, packet.ItemData, PlayerId);
-        networkedItem.ReceiveSnapshot(packet.ItemData);
+        ItemExchange.Receive(packet);
+        ItemResultReceived?.Invoke(packet);
     }
 
-    private void OnClientboundItemRecallResultPacket(ClientboundItemRecallResultPacket packet)
+    private void OnClientboundItemListPacket(ClientboundItemListPacket packet)
     {
-        Log($"[LostAndFound Recall] Recall result received: netId={packet.ItemNetId}, " +
-            $"operation={packet.OperationId}, " +
-            $"accepted={packet.Accepted}, revision={packet.AuthorityRevision}, " +
-            $"reason={packet.RejectionReason ?? string.Empty}");
-        DebugRuntime.Publish("item", packet.Accepted ? "item.recall-confirmed" : "item.recall-rejected",
-            DebugRuntimeSide.Client, packet.Accepted ? DebugSeverity.Info : DebugSeverity.Warning,
-            "Item", packet.ItemNetId.ToString(), new()
-            {
-                ["authorityRevision"] = packet.AuthorityRevision,
-                ["rejectionReason"] = packet.RejectionReason ?? string.Empty
-            });
-        if (NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item))
-            item?.CompleteLocalRecallPreparation(packet.OperationId, packet.Accepted);
+        ItemExchange.Receive(packet);
+        ItemListReceived?.Invoke(packet);
     }
-
-    private void OnClientboundItemRecallPreparePacket(ClientboundItemRecallPreparePacket packet)
-    {
-        string failureReason = string.Empty;
-        bool succeeded = NetworkedItem.TryGet(packet.ItemNetId, out NetworkedItem item) &&
-            item != null && item.TryPrepareLocalRecall(packet.OperationId, packet.RequestedSlot,
-                out failureReason);
-        if (item == null)
-            failureReason = "missing-local-item-representation";
-        SendPacketToServer(new ServerboundItemRecallPreparedPacket
-        {
-            OperationId = packet.OperationId,
-            ItemNetId = packet.ItemNetId,
-            Succeeded = succeeded,
-            FailureReason = failureReason ?? string.Empty
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    private void OnClientboundLostItemsSnapshotPacket(ClientboundLostItemsSnapshotPacket packet) =>
-        LostAndFoundExchange.ApplySnapshot(packet);
-
-    private void OnClientboundLostItemRetrieveResultPacket(ClientboundLostItemRetrieveResultPacket packet)
-    {
-        LostAndFoundExchange.ReportRetrieveResult(packet);
-        LostItemRetrieveCompleted?.Invoke(packet);
-    }
-
-    private void OnClientboundContainerViewPacket(ClientboundContainerViewPacket packet)
-    {
-        ContainerViewReceived?.Invoke(packet);
-    }
-
-    private void OnClientboundContainerMutationResultPacket(
-        ClientboundContainerMutationResultPacket packet)
-    {
-        ContainerMutationCompleted?.Invoke(packet);
-    }
-
-    //public void SendItemsBulkUpdatePacket(List<ItemUpdateData> items)
-    //{
-    //    Log($"Sending CommonItemsBulkUpdatePacket with {items.Count()} items");
-
-    //    SendNetSerializablePacketToServer(new CommonItemsBulkUpdatePacket { Items = items },
-    //            DeliveryMethod.ReliableOrdered);
-    //}
 
     IItemManagerClientPart IItemClient.CreateItemManagerPart(NetworkedItemManager manager) => new ClientItemManager(manager);
 
@@ -183,30 +44,40 @@ public partial class NetworkClient : IItemClient
 
     IEnumerable<Dictionary<string, object>> IItemClient.LostAndFoundDebugSnapshot() => LostAndFoundList.DebugSnapshot();
 
-    public void SendItemUpdatePacket(ItemUpdateData updateData)
+    public uint SendItemRequest(ItemRequest request)
     {
-        if (updateData == null || updateData.ItemNetId == 0)
+        if (request == null || request.ItemNetId == 0 && request.ItemHandle == 0)
         {
-            LogWarning($"Blocked local item snapshot with no host-issued network ID. UpdateType: {updateData?.UpdateType}, prefab: {updateData?.PrefabName}");
+            LogWarning($"Blocked an item request naming no item: {request?.Action}");
             DebugRuntime.Publish("item", "item.zero-id-send-blocked", DebugRuntimeSide.Client, DebugSeverity.Error,
-                "Item", "0", DebugTrace.ItemSnapshotData(updateData));
-            return;
+                "Item", "0", new() { ["action"] = request?.Action.ToString() ?? string.Empty });
+            return 0;
         }
+        ItemExchange.Number(request);
+        DebugRuntime.Publish("item", "item.request-sent", DebugRuntimeSide.Client, entityType: "Item",
+            entityId: request.ItemNetId.ToString(), data: new()
+            {
+                ["requestId"] = request.RequestId,
+                ["action"] = request.Action.ToString(),
+                ["itemHandle"] = request.ItemHandle,
+                ["expectedRevision"] = request.ExpectedRevision,
+                ["slot"] = request.Slot
+            });
+        SendPacketToServer(new ServerboundItemRequestPacket { Request = request }, DeliveryMethod.ReliableOrdered);
+        return request.RequestId;
+    }
 
-        DebugRuntime.Publish("item", "item.packet-send-requested", DebugRuntimeSide.Client, entityType: "Item",
-            entityId: updateData?.ItemNetId.ToString(), data: DebugTrace.ItemSnapshotData(updateData));
-        LogDebug(()=>
+    public uint RequestItemList(ItemListKind kind, ushort shellNetId = 0, uint container = 0)
+    {
+        uint requestId = ItemExchange.NextRequestId();
+        SendPacketToServer(new ServerboundItemListRequestPacket
         {
-            string debug = $"SendItemUpdatePacket() UpdateType: {updateData?.UpdateType}, itemNetId: {updateData?.ItemNetId}, PrefabName: {updateData?.PrefabName}, Equipped: {updateData?.ItemState}, Position: {updateData?.ItemPosition}, Rotation: {updateData?.ItemRotation}, ThrowDirection: {updateData?.ThrowDirection}, Player: {updateData?.PlayerId}, CarNetId: {updateData?.CarNetId}, AttachedFront: {updateData?.AttachedFront}";
-            debug += $"\r\nStates: {updateData?.States?.Count}";
-            if (updateData.States != null)
-                foreach (var state in updateData?.States)
-                    debug += $"\r\n\t{state.Key}: {state.Value}";
-            return debug;
-        });
-
-        SendPacketToServer(new CommonItemUpdatePacket { ItemData = updateData },
-                DeliveryMethod.ReliableOrdered);
+            RequestId = requestId,
+            Kind = kind,
+            ShellNetId = shellNetId,
+            Container = container
+        }, DeliveryMethod.ReliableOrdered);
+        return requestId;
     }
 
     public void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)
@@ -218,50 +89,6 @@ public partial class NetworkClient : IItemClient
             Projected = projected
         }, DeliveryMethod.ReliableOrdered);
     }
-
-    public void RequestLostItems(uint requestId)
-    {
-        SendPacketToServer(new ServerboundLostItemsRequestPacket { RequestId = requestId },
-            DeliveryMethod.ReliableOrdered);
-    }
-
-    public void RequestOwnedItems(uint requestId)
-    {
-        SendPacketToServer(new ServerboundOwnedItemsRequestPacket { RequestId = requestId },
-            DeliveryMethod.ReliableOrdered);
-    }
-
-    public void RequestOwnedItemRetrieval(uint requestId, uint handle)
-    {
-        SendPacketToServer(new ServerboundOwnedItemRetrievePacket { RequestId = requestId, Handle = handle },
-            DeliveryMethod.ReliableOrdered);
-    }
-
-    public event Action<ClientboundOwnedItemRetrieveResultPacket> OwnedItemRetrieveCompleted;
-
-    public void RequestContainerView(uint requestId, ushort shellNetId,
-        uint containerHandle = 0, int offset = 0, byte count = 64)
-    {
-        SendPacketToServer(new ServerboundContainerBrowsePacket
-        {
-            RequestId = requestId,
-            ShellNetId = shellNetId,
-            ContainerHandle = containerHandle,
-            Offset = offset,
-            Count = count
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void RequestContainerMutation(ServerboundContainerMutationPacket packet)
-    {
-        if (packet == null) return;
-        SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void RequestLostItemRetrieval(uint requestId, uint lostHandle, ushort currentNetId,
-        uint expectedRevision, int requestedSlot = -1) =>
-        SendPacketToServer(LostAndFoundExchange.Retrieval(requestId, lostHandle, currentNetId,
-            expectedRevision, requestedSlot), DeliveryMethod.ReliableOrdered);
 
     private void SendWorldItemCatalogue()
     {
@@ -318,27 +145,5 @@ public partial class NetworkClient : IItemClient
     {
         if (packet == null) return;
         SendPacketToServer(packet, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void SendItemRecall(ushort itemNetId, uint expectedRevision, int requestedSlot)
-    {
-        SendPacketToServer(new ServerboundItemRecallPacket
-        {
-            ItemNetId = itemNetId,
-            ExpectedRevision = expectedRevision,
-            RequestedSlot = requestedSlot
-        }, DeliveryMethod.ReliableOrdered);
-    }
-
-    public void SendItemBelowMapReport(ushort itemNetId, float surfaceHeight)
-    {
-        SendPacketToServer(new ServerboundItemBelowMapPacket { ItemNetId = itemNetId, SurfaceHeight = surfaceHeight },
-            DeliveryMethod.ReliableOrdered);
-    }
-
-    public void SendMoneyItemDeposit(ushort itemNetId)
-    {
-        SendPacketToServer(new ServerboundMoneyItemDepositPacket { ItemNetId = itemNetId },
-            DeliveryMethod.ReliableOrdered);
     }
 }

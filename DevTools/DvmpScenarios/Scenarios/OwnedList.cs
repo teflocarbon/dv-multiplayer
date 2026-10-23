@@ -8,6 +8,7 @@ using Multiplayer.Server.Items.OwnedList;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
+using Multiplayer.Shared.Protocol.Data.Items;
 
 namespace Dvmp.Scenarios
 {
@@ -101,8 +102,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator ClientRows(Step<Rows> step)
             {
-                uint id = (uint)UnityEngine.Random.Range(1000, 1000000);
-                ItemClient.Current.RequestOwnedItems(id);
+                uint id = ItemClient.Current.RequestItemList(ItemListKind.Owned);
                 float t0 = Time.realtimeSinceStartup;
                 while (OwnedItemsList.RequestId != id && Time.realtimeSinceStartup - t0 < 20f) yield return null;
                 if (OwnedItemsList.RequestId != id) throw new Exception("the owned-items list never came");

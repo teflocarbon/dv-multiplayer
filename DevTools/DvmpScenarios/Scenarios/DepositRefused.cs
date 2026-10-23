@@ -120,7 +120,7 @@ namespace Dvmp.Scenarios
                 step.Result = new Deposit
                 {
                     Accepted = r.Accepted,
-                    Reason = r.RejectionReason ?? "",
+                    Reason = r.Detail ?? "",
                     InInventory = item != null && inv.IndexOf(item.gameObject) >= 0
                 };
                 c.ToggleContainerAccess();

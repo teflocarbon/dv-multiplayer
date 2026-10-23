@@ -22,7 +22,7 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
     private readonly HashSet<NetworkedItem> DormantAuthoredClientProjections = new();
     private readonly Queue<NetworkedItem> PendingUnboundClientItems = new();
     private readonly HashSet<NetworkedItem> PendingUnboundClientItemSet = new();
-    private readonly Dictionary<ushort, ItemUpdateData> PendingSpecialItemSnapshots = new();
+    private readonly Dictionary<ushort, ItemUpdate> PendingSpecialItemSnapshots = new();
     private readonly Dictionary<ushort, PendingWorldProjection> PendingWorldProjections = new();
     private readonly HashSet<ushort> ClientLostAndFoundTombstones = new();
     private readonly HashSet<string> ClientDetachedAuthoredSlots = new(StringComparer.Ordinal);
@@ -32,8 +32,8 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
 
     private sealed class PendingWorldProjection
     {
-        public ItemUpdateData Create;
-        public readonly List<ItemUpdateData> Updates = new(8);
+        public ItemUpdate Create;
+        public readonly List<ItemUpdate> Updates = new(8);
     }
 
     internal ClientItemManager(NetworkedItemManager shell)
@@ -99,13 +99,13 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
         itemNetId != 0 && ClientLostAndFoundTombstones.Contains(itemNetId);
 
     /// <summary>The host's item snapshots, from the bulk and single item packets.</summary>
-    internal void ReceiveSnapshots(List<ItemUpdateData> snapshots)
+    internal void ReceiveSnapshots(List<ItemUpdate> snapshots)
     {
         foreach (var snapshot in snapshots)
         {
             try
             {
-                if (snapshot == null || snapshot.UpdateType == ItemUpdateData.ItemUpdateType.None)
+                if (snapshot == null || snapshot.UpdateType == ItemUpdate.ItemUpdateType.None)
                 {
                     Multiplayer.LogError($"NetworkedItemManager.ProcessReceived() Invalid Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
                     continue;

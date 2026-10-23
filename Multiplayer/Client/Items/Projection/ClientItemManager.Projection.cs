@@ -20,17 +20,17 @@ internal sealed partial class ClientItemManager
 {
     // Client snapshot receipt, deferred projections, and special-item routing.
 
-    private void ProcessReceivedAsClient(ItemUpdateData snapshot)
+    private void ProcessReceivedAsClient(ItemUpdate snapshot)
     {
         if (snapshot == null)
             return;
         // Before the item applies it, while the item still says whose it was.
-        if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
+        if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
         {
             NetworkedItem.TryGet(snapshot.ItemNetId, out NetworkedItem described);
             ClientItemChangeLog.OnSnapshot(described, snapshot, NetworkLifecycle.Instance?.LocalSession?.PlayerId ?? 0);
         }
-        if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create &&
+        if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Create &&
             RequiresLoadedWorldRegion(snapshot) && !IsWorldRegionReady(snapshot))
         {
             PendingWorldProjections[snapshot.ItemNetId] = new PendingWorldProjection { Create = snapshot };
@@ -43,10 +43,10 @@ internal sealed partial class ClientItemManager
                 });
             return;
         }
-        if (snapshot.UpdateType != ItemUpdateData.ItemUpdateType.Create &&
+        if (snapshot.UpdateType != ItemUpdate.ItemUpdateType.Create &&
             PendingWorldProjections.TryGetValue(snapshot.ItemNetId, out PendingWorldProjection pending))
         {
-            if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy)
+            if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy)
             {
                 PendingWorldProjections.Remove(snapshot.ItemNetId);
                 ItemClient.Current.SendWorldItemProjectionAck(snapshot.ItemNetId,
@@ -70,7 +70,7 @@ internal sealed partial class ClientItemManager
         NetworkedItemManager.TraceSnapshot("item.snapshot-dispatch", snapshot);
 
         (NetworkLifecycle.Instance.LocalSession as NetworkManager)?.LogDebug(() => $"NetworkedItemManager.ProcessReceivedAsClient() Update Type: {snapshot?.UpdateType}, ItemNetId: {snapshot?.ItemNetId}, prefabName: {snapshot?.PrefabName}");
-        if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Create)
+        if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Create)
         {
             if (WorldItemStableIdentity.IsValid(snapshot.AuthoredItemKey))
             {
@@ -127,7 +127,7 @@ internal sealed partial class ClientItemManager
 
             CreateItem(snapshot);
         }
-        else if (snapshot.UpdateType == ItemUpdateData.ItemUpdateType.Destroy)
+        else if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy)
         {
             DebugDesyncDetector.Forget(snapshot.ItemNetId);
             Dictionary<string, object> destroyData = DebugTrace.ItemSnapshotData(snapshot);
@@ -225,7 +225,7 @@ internal sealed partial class ClientItemManager
             }
 
             uint appliedRevision = pending.Create.AuthorityRevision;
-            foreach (ItemUpdateData update in pending.Updates)
+            foreach (ItemUpdate update in pending.Updates)
             {
                 ProcessReceivedAsClient(update);
                 appliedRevision = update.AuthorityRevision;
@@ -240,11 +240,11 @@ internal sealed partial class ClientItemManager
         }
     }
 
-    private static bool RequiresLoadedWorldRegion(ItemUpdateData snapshot) =>
+    private static bool RequiresLoadedWorldRegion(ItemUpdate snapshot) =>
         snapshot != null && snapshot.ItemState is ItemState.Dropped or ItemState.Thrown or
             ItemState.Attached;
 
-    private static bool IsWorldRegionReady(ItemUpdateData snapshot)
+    private static bool IsWorldRegionReady(ItemUpdate snapshot)
     {
         // Items riding a car are placed relative to it; their world position in the Create is
         // where the car was when it was sent and may be long gone. What they need is the car.
@@ -269,7 +269,7 @@ internal sealed partial class ClientItemManager
     {
         if (item == null || item.NetId == 0 ||
             !shell.DoNotCreateItem(item) ||
-            !PendingSpecialItemSnapshots.TryGetValue(item.NetId, out ItemUpdateData snapshot))
+            !PendingSpecialItemSnapshots.TryGetValue(item.NetId, out ItemUpdate snapshot))
             return;
 
         PendingSpecialItemSnapshots.Remove(item.NetId);
@@ -285,7 +285,7 @@ internal sealed partial class ClientItemManager
             snapshot.AuthorityRevision, true);
     }
 
-    private static void SuspendJobDocumentProjection(NetworkedItem item, ItemUpdateData snapshot)
+    private static void SuspendJobDocumentProjection(NetworkedItem item, ItemUpdate snapshot)
     {
         item.Client()?.SetNetworkBinding(false);
         item.gameObject.SetActive(false);

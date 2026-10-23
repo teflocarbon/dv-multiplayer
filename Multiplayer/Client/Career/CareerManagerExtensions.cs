@@ -1,8 +1,9 @@
 using DV.ServicePenalty.UI;
 using Multiplayer.Client.Items.LostAndFound;
+using Multiplayer.Client.Items.Requests;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
-using Multiplayer.Shared.Protocol.Packets.Clientbound;
+using Multiplayer.Shared.Protocol.Packets.Items;
 using Multiplayer.Shared.Session;
 using System;
 using System.Collections.Generic;
@@ -211,11 +212,12 @@ internal sealed class CareerManagerExtensionHubScreen : MultiplayerCareerManager
 
 internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScreen
 {
-    private readonly List<LostItemData> items = new();
+    private readonly List<ItemRow> items = new();
     private int first;
     private bool loading;
     private bool pending;
     private string message = string.Empty;
+    // The collection this screen is waiting on: only its own result clears "RETRIEVING".
     private uint requestId;
 
     public override void Activate(IDisplayScreen previousScreen)
@@ -223,10 +225,10 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
         Previous = previousScreen;
         LostAndFoundList.Changed += OnListChanged;
         if (ItemClient.Current != null)
-            ItemClient.Current.LostItemRetrieveCompleted += OnRetrieveCompleted;
+            ItemClient.Current.ItemResultReceived += OnRetrieveCompleted;
         loading = true;
         message = "LOADING...";
-        ItemClient.Current?.RequestLostItems(++requestId);
+        ItemClient.Current?.RequestItemList(ItemListKind.LostAndFound);
         RefreshFromModel();
     }
 
@@ -234,7 +236,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     {
         LostAndFoundList.Changed -= OnListChanged;
         if (ItemClient.Current != null)
-            ItemClient.Current.LostItemRetrieveCompleted -= OnRetrieveCompleted;
+            ItemClient.Current.ItemResultReceived -= OnRetrieveCompleted;
         Clear();
     }
 
@@ -250,17 +252,14 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
         else if (input == InputAction.Down) Selected = Wrapped(Selected + 1, items.Count);
         else if (input == InputAction.Confirm)
         {
-            LostItemData item = items[Selected];
-            pending = true;
-            message = "RETRIEVING...";
-            ItemClient.Current?.RequestLostItemRetrieval(++requestId,
-                item.Handle, item.NetId, item.Revision);
+            requestId = ItemClient.Current?.SendItemRequest(ItemExchange.CollectLost(items[Selected])) ?? 0;
+            pending = requestId != 0;
+            message = pending ? "RETRIEVING..." : "FAILED: NOT SENT";
         }
         else if (input == InputAction.PrintInfo)
         {
-            LostItemData item = items[Selected];
-            message = $"LOST {item.Handle}  NET {item.NetId}  " +
-                $"{((global::Multiplayer.Core.Items.LostAndFound.LostItemReason)item.Reason)}";
+            ItemRow item = items[Selected];
+            message = $"LOST {item.Handle}  {item.Where.ToUpperInvariant()}";
         }
         EnsureVisible();
         Render();
@@ -277,10 +276,11 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
         RefreshFromModel();
     }
 
-    private void OnRetrieveCompleted(ClientboundLostItemRetrieveResultPacket result)
+    private void OnRetrieveCompleted(ClientboundItemResultPacket result)
     {
+        if (!pending || result.RequestId != requestId) return;
         pending = false;
-        message = result.Accepted ? "ITEM RESTORED" : "FAILED: " + (result.RejectionReason ?? "UNKNOWN");
+        message = result.Accepted ? "ITEM RESTORED" : "FAILED: " + (result.Detail ?? result.Refusal.ToString()).ToUpperInvariant();
         RefreshFromModel();
     }
 
@@ -288,7 +288,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
     {
         uint selectedHandle = items.Count > 0 && Selected < items.Count ? items[Selected].Handle : 0;
         items.Clear();
-        items.AddRange(LostAndFoundList.Items.OrderBy(item => item.LostUtcTicks));
+        items.AddRange(LostAndFoundList.Items);
         int preserved = selectedHandle == 0 ? -1 : items.FindIndex(item => item.Handle == selectedHandle);
         Selected = preserved >= 0 ? preserved : Mathf.Clamp(Selected, 0, Math.Max(0, items.Count - 1));
         EnsureVisible();
@@ -324,6 +324,6 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
         Texts.Rows[itemRows].color = Host.Switcher.REGULAR_COLOR;
     }
 
-    private static string Display(LostItemData item) => string.IsNullOrWhiteSpace(item.DisplayName)
+    private static string Display(ItemRow item) => string.IsNullOrWhiteSpace(item.DisplayName)
         ? item.PrefabName ?? "ITEM" : item.DisplayName.Replace("(Clone)", string.Empty);
 }
