@@ -18,6 +18,8 @@ internal sealed class SavedItemRow
     public Guid OwnerIdentity { get; set; }
     public Guid PlacementPlayerIdentity { get; set; }
     public int ClaimSlot { get; set; } = -1;
+    /// <summary>Its slot of the holder's inventory (OI-SLOT-01), or -1.</summary>
+    public int Slot { get; set; } = -1;
     public ItemInventoryClaimFlags ClaimFlags { get; set; }
     public ItemWorldParentKind WorldParentKind { get; set; }
     public ushort WorldParentNetId { get; set; }
@@ -57,6 +59,7 @@ internal sealed class SavedItemRow
             ["ownerIdentity"] = FormatGuid(OwnerIdentity),
             ["placementPlayerIdentity"] = FormatGuid(PlacementPlayerIdentity),
             ["claimSlot"] = ClaimSlot,
+            ["slot"] = Slot,
             ["claimFlags"] = (byte)ClaimFlags,
             ["worldParentKind"] = (byte)WorldParentKind,
             ["worldParentNetId"] = WorldParentNetId,
@@ -89,6 +92,7 @@ internal sealed class SavedItemRow
             OwnerIdentity = ParseGuid((string)value["ownerIdentity"]),
             PlacementPlayerIdentity = ParseGuid((string)value["placementPlayerIdentity"]),
             ClaimSlot = (int?)value["claimSlot"] ?? -1,
+            Slot = (int?)value["slot"] ?? -1,
             ClaimFlags = (ItemInventoryClaimFlags)((byte?)value["claimFlags"] ?? 0),
             WorldParentKind = (ItemWorldParentKind)((byte?)value["worldParentKind"] ?? 0),
             WorldParentNetId = (ushort?)value["worldParentNetId"] ?? 0,

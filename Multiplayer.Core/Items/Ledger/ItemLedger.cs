@@ -286,6 +286,39 @@ public sealed class ItemLedger
         return Place(entry, to, cause);
     }
 
+    /// <summary>
+    /// Two items in one holder's inventory change slots (vanilla's swap), in one commit, since
+    /// each slot holds one item. Refused, with nothing changed, when either isn't where the
+    /// requester saw it, the homes aren't two slots of one holder, or either slot shows a third
+    /// item's claim. The claims follow as <see cref="Commit"/>'s do.
+    /// </summary>
+    public LedgerCommit Swap(Guid id, Home from, Guid otherId, Home otherFrom, LedgerCause cause = default)
+    {
+        if (!entries.TryGetValue(id, out LedgerEntry entry) || !entry.IsLive ||
+            !entries.TryGetValue(otherId, out LedgerEntry other) || !other.IsLive || id == otherId)
+            return LedgerCommit.Refused("unknown-item", entry?.Clone());
+        if (entry.Home != from || other.Home != otherFrom)
+            return LedgerCommit.Refused("stale-home", entry.Clone());
+        if (from.Kind != HomeKind.Slot || otherFrom.Kind != HomeKind.Slot || from.Holder != otherFrom.Holder)
+            return LedgerCommit.Refused("slot-invalid", entry.Clone());
+        if (ReservedByThird(otherFrom, id, otherId) || ReservedByThird(from, id, otherId))
+            return LedgerCommit.Refused("slot-reserved", entry.Clone());
+        entry.Home = otherFrom;
+        other.Home = from;
+        List<ClaimMove> moves = FollowClaim(entry, otherFrom);
+        moves.AddRange(FollowClaim(other, from));
+        Raise(LedgerChangeKind.Moved, entry, from, cause);
+        Raise(LedgerChangeKind.Moved, other, otherFrom, cause);
+        foreach (ClaimMove move in moves.Where(move => move.Id != entry.Id && move.Id != other.Id))
+            Raise(LedgerChangeKind.ClaimSlot, entries[move.Id], entries[move.Id].Home, cause);
+        return new LedgerCommit(null, entry.Clone(), moves);
+    }
+
+    // A slot another of the holder's essentials, neither of these two, claims from outside it.
+    private bool ReservedByThird(Home slot, Guid id, Guid otherId) => entries.Values.Any(third =>
+        third.IsLive && third.Id != id && third.Id != otherId && third.ClaimSlot == slot.Slot &&
+        third.Owner.IsPlayer(slot.Holder) && !(third.Home.Kind == HomeKind.Slot && third.Home.Holder == slot.Holder));
+
     private LedgerCommit Place(LedgerEntry entry, Home to, LedgerCause cause)
     {
         string refusal = SlotRefusal(to, entry.Id, entry.Owner);
@@ -542,6 +575,12 @@ public sealed class ItemLedger
                 .Append(entry.Born.From != Guid.Empty ? $" from {entry.Born.From:D}" : "").Append('\n');
         return text.ToString();
     }
+
+    /// <summary>
+    /// Why <paramref name="id"/> can't be put in <paramref name="home"/>, or empty: the slot rules every
+    /// commit checks, for an unowned item the ledger doesn't hold (OI-SLOT-03).
+    /// </summary>
+    public string CanTake(Home home, Guid id, OwnerRef owner = default) => SlotRefusal(home, id, owner);
 
     // Why a home can't be taken by the item named: an inventory slot out of range, another item in
     // it, or another of the holder's essentials claiming it (its silhouette fills the slot).

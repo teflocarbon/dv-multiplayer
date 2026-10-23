@@ -35,7 +35,9 @@ public enum ItemRemovalReason : byte
     /// <summary>Derail Valley destroyed it from an inventory (Inventory.DestroyItem).</summary>
     DestroyedFromInventory,
     /// <summary>Client only: the item left this player's interest. It still exists on the host.</summary>
-    LeftInterest
+    LeftInterest,
+    /// <summary>A leaving holder's inventory item went cold: its state is kept as data, its home unchanged (D12).</summary>
+    WentCold
 }
 
 /// <summary>
@@ -98,7 +100,13 @@ public enum ItemMoveReason : byte
     /// </summary>
     Issued,
     /// <summary>Made by the server for its owner, into their inventory: their starter kit, at their first join.</summary>
-    StarterKit
+    StarterKit,
+    /// <summary>The server collected it into its owner's Lost and Found.</summary>
+    CollectedToLostAndFound,
+    /// <summary>Put in a container's slot.</summary>
+    DepositedInContainer,
+    /// <summary>Moved from one of its holder's inventory slots to another (OI-SLOT-01).</summary>
+    SlotMoved
 }
 
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>

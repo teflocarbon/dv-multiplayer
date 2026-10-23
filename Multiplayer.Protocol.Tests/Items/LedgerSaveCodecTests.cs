@@ -21,25 +21,28 @@ public sealed class LedgerSaveCodecTests
     private static readonly Guid Bentgear = new("22222222-2222-2222-2222-222222222222");
 
     [Test]
-    public void EveryPlaceAndBothEnds_RoundTrip()
+    public void EveryHomeAndBothEnds_RoundTrip()
     {
         long now = 600;
         int next = 0;
         ItemLedger ledger = new(() => new Guid($"00000000-0000-0000-0000-{++next:x12}"), () => now);
-        Guid radio = Register(ledger, "CommsRadio", Home.With(Liam, HoldKind.Inventory, 3), essential: true);
-        Guid lantern = Register(ledger, "Lantern", Home.World("car:L-042"), shopStocked: true);
-        Register(ledger, "Mug", Home.Container(new Guid("33333333-3333-3333-3333-333333333333")));
-        Register(ledger, "Switch", Home.Installed("car:L-042", 17));
+        Guid radio = Register(ledger, "CommsRadio", Home.InSlot(Liam, 3), essential: true);
+        Guid lantern = Register(ledger, "Lantern", Home.TrainInterior("L-042"), shopStocked: true);
+        Register(ledger, "Mug", Home.Container(new Guid("33333333-3333-3333-3333-333333333333"), 5));
+        Register(ledger, "Switch", Home.Installed("L-042"));
+        Register(ledger, "Beacon", Home.Installed(":global:"));
         Register(ledger, "Hanger", Home.Snapped("hanger:4"));
-        Register(ledger, "EOTLantern", Home.Attached("car:L-043"));
+        Register(ledger, "EOTLantern", Home.Attached("L-043", false));
+        Register(ledger, "Book", Home.Shelf("shelf:harbor:2"));
         Register(ledger, "Shovel", Home.LostAndFound);
         Register(ledger, "Lighter", Home.Missing);
-        Register(ledger, "Oiler", Home.With(Bentgear, HoldKind.Belt));
+        Register(ledger, "Oiler", Home.InSlot(Bentgear, 34));
+        Register(ledger, "Lantern", Home.InHand(Bentgear, 1));
         now = 700;
         ledger.Replace(lantern, ItemRemovalReason.DestroyedByGame, new BirthRequest
         {
             Prefab = "LanternBroken",
-            Where = Home.World(),
+            Home = Home.World,
             Detail = "smashed"
         });
         ledger.MarkStarterKit(Liam);
@@ -56,23 +59,30 @@ public sealed class LedgerSaveCodecTests
     }
 
     [Test]
-    public void AHeldItem_IsSavedInItsHoldersInventory()
+    public void AnEssentialWithoutAClaim_StaysAnEssential()
     {
-        // As WorldItemPersistenceSave saves it, so the load finds it where the ledger says.
         ItemLedger ledger = new();
-        Register(ledger, "Lantern", Home.With(Bentgear, HoldKind.Hand));
+        ledger.Register(new BirthRequest
+        {
+            Owner = OwnerRef.Player(Liam), Prefab = "Map", Home = Home.LostAndFound,
+            Reason = BirthReason.Issued, Essential = true
+        });
+        ledger.Repair(ledger.All().Single().Id, Home.World);
 
         LedgerEntry read = LedgerSaveCodec.Read(LedgerSaveCodec.Write(ledger), out _, out _).Single();
 
-        Assert.That(read.Where, Is.EqualTo(Home.With(Bentgear, HoldKind.Inventory)));
+        Assert.That(read.Essential, Is.True);
     }
 
     [Test]
-    public void ANewerFormat_ReadsNothing()
+    public void ANewerFormat_OrTheOldOne_ReadsNothing()
     {
-        JObject saved = new() { ["format"] = LedgerSaveCodec.Format + 1, ["items"] = new JArray(new JObject()) };
-
-        Assert.That(LedgerSaveCodec.Read(saved, out _, out _), Is.Empty);
+        // Format 1 kept places, not homes: the load migrates from the stores (R3).
+        foreach (int format in new[] { 1, LedgerSaveCodec.Format + 1 })
+        {
+            JObject saved = new() { ["format"] = format, ["items"] = new JArray(new JObject()) };
+            Assert.That(LedgerSaveCodec.Read(saved, out _, out _), Is.Empty);
+        }
     }
 
     [Test]
@@ -83,7 +93,7 @@ public sealed class LedgerSaveCodecTests
         noOwner.Remove("owner");
         JObject unknownPlace = (JObject)good.DeepClone();
         unknownPlace["where"]["kind"] = "OnTheMoon";
-        JObject saved = new() { ["format"] = 1, ["items"] = new JArray(good, noOwner, unknownPlace, "junk") };
+        JObject saved = new() { ["format"] = LedgerSaveCodec.Format, ["items"] = new JArray(good, noOwner, unknownPlace, "junk") };
 
         List<LedgerEntry> read = LedgerSaveCodec.Read(saved, out _, out int unreadable);
 
@@ -102,26 +112,26 @@ public sealed class LedgerSaveCodecTests
     private static ItemLedger LedgerWithOne()
     {
         ItemLedger ledger = new();
-        Register(ledger, "Lantern", Home.World());
+        Register(ledger, "Lantern", Home.World);
         return ledger;
     }
 
-    private static Guid Register(ItemLedger ledger, string prefab, Home where, bool essential = false,
+    private static Guid Register(ItemLedger ledger, string prefab, Home home, bool essential = false,
         bool shopStocked = false) => ledger.Register(new BirthRequest
     {
-        Owner = Liam,
+        Owner = OwnerRef.Player(home.IsWithPlayer ? home.Holder : Liam),
         Prefab = prefab,
-        Where = where,
+        Home = home,
         Reason = BirthReason.Purchased,
         By = Liam,
         Detail = "at Harbor",
         Essential = essential,
-        PreferredClaimSlot = essential ? where.Slot : -1,
+        PreferredClaimSlot = essential ? home.Slot : -1,
         ShopStocked = shopStocked
     }).Entry.Id;
 
     private static string Describe(LedgerEntry entry) =>
-        $"{entry.Id}|{entry.Owner}|{entry.Prefab}|{entry.Where}|{entry.ClaimSlot}|{entry.ShopStocked}|" +
+        $"{entry.Id}|{entry.Owner}|{entry.Prefab}|{entry.Home}|{entry.ClaimSlot}|{entry.Essential}|{entry.ShopStocked}|" +
         $"{entry.Born.Reason}|{entry.Born.UtcTicks}|{entry.Born.By}|{entry.Born.From}|{entry.Born.Detail}|" +
         (entry.Ended == null ? "live" : $"{entry.Ended.Reason}|{entry.Ended.UtcTicks}|{entry.Ended.ReplacedBy}|{entry.Ended.Detail}");
 }

@@ -1,3 +1,4 @@
+using Multiplayer.Core.Items.Ledger;
 using DV.CabControls;
 using DV.Customization;
 using DV.Customization.Gadgets;
@@ -157,7 +158,10 @@ internal static class GadgetItemTransitions
         Guid saved = item.GetComponent<ItemIdentity>()?.Owner ?? Guid.Empty;
         if (saved == Guid.Empty)
             return;
-        record.Owner = saved;
+        // The load's check registers it if the ledger doesn't have it yet.
+        record.StoredOwner = saved;
+        if (ServerLedger.Loaded)
+            ServerLedger.Own(record, saved, BirthReason.Migrated, Guid.Empty, "a gadget's saved owner");
     }
 
     private static void SendToPlayersWhoKnow(NetworkedItem item, ItemUpdate snapshot)

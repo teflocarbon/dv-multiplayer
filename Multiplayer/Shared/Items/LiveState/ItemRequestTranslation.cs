@@ -8,8 +8,8 @@ namespace Multiplayer.Shared.Items.LiveState;
 /// request, one result"). The requester's game sees the change as an update of its copy
 /// (<see cref="NetworkedItem.GetSnapshot"/>) and sends it as a request (<see cref="FromObservation"/>);
 /// the server turns the request back into that change (<see cref="ToChange"/>) for the validation
-/// and the commit it has always used. Only what the action needs crosses the wire: the claim with
-/// a stash, the pose with a drop or a throw, the car with an attach.
+/// and the commit it has always used. Only what the action needs crosses the wire: the slot with
+/// a stash or a slot move, the pose with a drop or a throw, the car with an attach.
 /// </summary>
 public static class ItemRequestTranslation
 {
@@ -40,7 +40,7 @@ public static class ItemRequestTranslation
             ExpectedRevision = snapshot.AuthorityRevision,
             Action = action,
             Hand = action == ItemAction.Take ? snapshot.PlayerHand : PlayerHand.None,
-            Slot = stash ? snapshot.InventoryClaimSlot : -1,
+            Slot = stash ? snapshot.InventorySlot >= 0 ? snapshot.InventorySlot : snapshot.InventoryClaimSlot : -1,
             ClaimFlags = stash ? snapshot.InventoryClaimFlags : ItemInventoryClaimFlags.None,
             Position = snapshot.ItemPosition,
             Rotation = snapshot.ItemRotation,
@@ -68,7 +68,7 @@ public static class ItemRequestTranslation
         ItemState? state = request.Action switch
         {
             ItemAction.Take => ItemState.InHand,
-            ItemAction.Stash => ItemState.InInventory,
+            ItemAction.Stash or ItemAction.MoveSlot => ItemState.InInventory,
             ItemAction.Drop => ItemState.Dropped,
             ItemAction.Throw => ItemState.Thrown,
             ItemAction.Attach => ItemState.Attached,
@@ -88,7 +88,9 @@ public static class ItemRequestTranslation
             ItemState = state ?? ItemState.Dropped,
             PlayerId = playerId,
             PlayerHand = request.Action == ItemAction.Take ? request.Hand : PlayerHand.None,
-            InventoryClaimSlot = request.Action == ItemAction.Stash ? request.Slot : -1,
+            // The slot it goes in; its claim is the ledger's.
+            InventorySlot = request.Action is ItemAction.Stash or ItemAction.MoveSlot ? request.Slot : -1,
+            InventoryClaimSlot = -1,
             InventoryClaimFlags = request.Action == ItemAction.Stash ? request.ClaimFlags : ItemInventoryClaimFlags.None,
             ItemPosition = pose ? request.Position : default,
             ItemRotation = pose ? request.Rotation : UnityEngine.Quaternion.identity,

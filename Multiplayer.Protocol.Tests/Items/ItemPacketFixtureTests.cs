@@ -75,16 +75,27 @@ public sealed class ItemPacketFixtureTests
                 break;
             case ItemState.InInventory:
                 Assert.That(result.PlayerId, Is.EqualTo(source.PlayerId));
+                Assert.That(result.InventorySlot, Is.EqualTo(source.InventorySlot));
                 Assert.That(result.PlayerHand, Is.EqualTo(PlayerHand.None));
                 Assert.That(result.ItemPosition, Is.EqualTo(Vector3.zero));
                 break;
             case ItemState.Attached:
-            case ItemState.Installed:
                 Assert.Multiple(() => {
                     Assert.That(result.CarNetId, Is.EqualTo(source.CarNetId));
                     Assert.That(result.AttachedFront, Is.EqualTo(source.AttachedFront));
                 });
                 break;
+            case ItemState.Installed:
+                // An installed gadget is on its car (or the world), at no end (OI-SYNC-21).
+                Assert.That(result.CarNetId, Is.EqualTo(source.CarNetId));
+                Assert.That(result.AttachedFront, Is.False);
+                break;
+        }
+        Assert.That(ItemUpdate.HomeOf(result), Is.EqualTo(ItemUpdate.HomeOf(source)));
+        if (state != ItemState.InInventory)
+            Assert.That(result.InventorySlot, Is.EqualTo(-1), "only an inventory item carries a slot");
+        switch (state)
+        {
         }
         Assert.Multiple(() => {
             Assert.That(result.PrefabName, Is.Null);
@@ -288,6 +299,7 @@ public sealed class ItemPacketFixtureTests
         ThrowDirection = new Vector3(.839f, -.528f, -.132f),
         PlayerId = 2,
         PlayerHand = PlayerHand.Left,
+        InventorySlot = 17,
         CarNetId = 22,
         AttachedFront = true,
         States = new Dictionary<string, object> {

@@ -1176,9 +1176,7 @@ public partial class NetworkServer : NetworkManager
                 break;
 
             case PlayerLoadingState.ReadyForItems:
-                // Before the player's items go out: a save may hold two of their essentials on one
-                // slot, which left one with no silhouette and no recall.
-                LiveItems.EnsureDistinctClaimSlots(player, "owner-loading");
+                // Claims are the ledger's, one per slot by construction (OI-ESS-01): nothing to repair.
                 // World items will be spawned when the player is within the culling range
                 break;
 

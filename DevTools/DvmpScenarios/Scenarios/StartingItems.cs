@@ -79,7 +79,7 @@ namespace Dvmp.Scenarios
             Expect.That(newRadio.Length > 0 && newRadio != oldRadio, $"a new {radio}, under a new id", $"{oldRadio} -> {newRadio}");
             LedgerEntry made = await pair.Host.Run(() => Owned.Entry(newRadio));
             Expect.Equal("Issued", made.Born.Split(' ')[0], $"how the new {radio} was born");
-            Expect.Equal("With/Inventory", made.Place + "/" + made.Hold, $"where the new {radio} is");
+            Expect.Equal("Slot", made.Place, $"where the new {radio} is");
             LedgerEntry gone = await pair.Host.Run(() => Owned.Entry(oldRadio));
             Expect.That(!gone.Live, $"the destroyed {radio}'s entry has ended", gone.Ended);
 
@@ -157,7 +157,7 @@ namespace Dvmp.Scenarios
             public static Have Owned(string owner, string[] prefabs)
             {
                 Guid who = Guid.Parse(owner);
-                var live = ServerLedger.Ledger.LiveOwnedBy(who).Where(e => prefabs.Contains(e.Prefab)).OrderBy(e => e.Prefab).ToList();
+                var live = ServerLedger.Ledger.LiveOwnedBy(Multiplayer.Core.Items.Ledger.OwnerRef.Player(who)).Where(e => prefabs.Contains(e.Prefab)).OrderBy(e => e.Prefab).ToList();
                 return new Have { Prefabs = live.Select(e => e.Prefab).ToArray(), ItemIds = live.Select(e => e.Id.ToString("D")).ToArray() };
             }
 
@@ -176,8 +176,8 @@ namespace Dvmp.Scenarios
             public static ushort[] InLostAndFound(string owner, string prefab)
             {
                 Guid who = Guid.Parse(owner);
-                var ids = ServerLedger.Ledger.LiveOwnedBy(who)
-                    .Where(e => e.Prefab == prefab && e.Where.Place == Multiplayer.Core.Items.Ledger.HomeKind.LostAndFound)
+                var ids = ServerLedger.Ledger.LiveOwnedBy(Multiplayer.Core.Items.Ledger.OwnerRef.Player(who))
+                    .Where(e => e.Prefab == prefab && e.Home.Kind == Multiplayer.Core.Items.Ledger.HomeKind.LostAndFound)
                     .Select(e => e.Id).ToList();
                 return LiveItems.GetAll().Where(r => ids.Contains(r.PersistentItemId)).Select(r => r.NetId).ToArray();
             }
@@ -191,7 +191,7 @@ namespace Dvmp.Scenarios
             public static Kit KitSince(string owner, string[] except)
             {
                 Guid who = Guid.Parse(owner);
-                var kit = ServerLedger.Ledger.LiveOwnedBy(who).Where(e => e.Born.Reason == Multiplayer.Core.Items.Ledger.BirthReason.StarterKit && !except.Contains(e.Id.ToString("D"))).ToList();
+                var kit = ServerLedger.Ledger.LiveOwnedBy(Multiplayer.Core.Items.Ledger.OwnerRef.Player(who)).Where(e => e.Born.Reason == Multiplayer.Core.Items.Ledger.BirthReason.StarterKit && !except.Contains(e.Id.ToString("D"))).ToList();
                 var nets = new List<ushort>();
                 foreach (var e in kit)
                 {
@@ -200,7 +200,7 @@ namespace Dvmp.Scenarios
                 }
                 return new Kit
                 {
-                    Items = kit.Select(e => e.Prefab + " " + e.Where.Place + "/" + e.Where.Hold).ToArray(),
+                    Items = kit.Select(e => e.Prefab + " " + e.Home).ToArray(),
                     Ids = kit.Select(e => e.Id.ToString("D")).ToArray(),
                     NetIds = nets.ToArray(),
                     Marked = ServerLedger.Ledger.HasStarterKit(who)

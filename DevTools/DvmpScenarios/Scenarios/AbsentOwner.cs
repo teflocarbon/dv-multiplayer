@@ -83,17 +83,7 @@ namespace Dvmp.Scenarios
             public static Absent GiveToAbsent(ushort netId)
             {
                 LiveItems.TryGet(netId, out var record);
-                record.Owner = System.Guid.NewGuid();
-                // The ledger follows the records where they commit; this one is made by hand.
-                ServerLedger.Ledger.Register(new BirthRequest
-                {
-                    Id = record.PersistentItemId,
-                    Owner = record.Owner,
-                    Prefab = record.PrefabName,
-                    Where = ServerLedger.WhereOf(record),
-                    Reason = BirthReason.Granted,
-                    Detail = "absent-owner scenario"
-                });
+                ServerLedger.Own(record, System.Guid.NewGuid(), BirthReason.Granted, System.Guid.Empty, "absent-owner scenario");
                 return Read(netId);
             }
 

@@ -65,6 +65,7 @@ internal static partial class ItemSaveLoad
             OwnerIdentity = record.Owner,
             PlacementPlayerIdentity = record.Holder,
             ClaimSlot = record.InventoryClaimSlot,
+            Slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.Slot : -1,
             ClaimFlags = record.InventoryClaimFlags,
             WorldParentKind = spatial.ParentKind,
             WorldParentNetId = spatial.ParentNetId,

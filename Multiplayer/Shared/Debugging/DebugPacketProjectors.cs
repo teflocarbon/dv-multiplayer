@@ -185,6 +185,9 @@ public static class DebugPacketProjectorRegistry
         if (item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create)) result["prefabName"] = item.PrefabName;
         if (item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create) || item.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.ItemState))
         {
+            result["home"] = ItemUpdate.HomeOf(item).ToString();
+            if (item.ItemState == ItemState.InInventory)
+                result["slot"] = item.InventorySlot;
             switch (item.ItemState)
             {
                 case ItemState.Dropped:

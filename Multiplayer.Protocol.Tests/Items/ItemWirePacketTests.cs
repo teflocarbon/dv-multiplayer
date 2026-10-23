@@ -276,8 +276,9 @@ public sealed class ItemWirePacketTests
                 Assert.That(change.PlayerHand, Is.EqualTo(PlayerHand.Right));
                 break;
             case ItemState.InInventory:
-                Assert.That(change.InventoryClaimSlot, Is.EqualTo(4));
-                Assert.That(change.InventoryClaimFlags, Is.EqualTo(ItemInventoryClaimFlags.Reserved));
+                // The slot it's in; the claim is the ledger's, not the requester's.
+                Assert.That(change.InventorySlot, Is.EqualTo(11));
+                Assert.That(change.InventoryClaimSlot, Is.EqualTo(-1));
                 break;
             case ItemState.Dropped:
             case ItemState.Thrown:
@@ -292,9 +293,38 @@ public sealed class ItemWirePacketTests
                 Assert.That(change.AttachedFront, Is.True);
                 break;
         }
-        // Only a stash carries a claim: every other move leaves the server's record's claim alone.
+        // Only a stash names a slot: every other move leaves the server's record's slot alone.
         if (state != ItemState.InInventory)
-            Assert.That(change.HasClaim, Is.False);
+            Assert.That(change.InventorySlot, Is.EqualTo(-1));
+    }
+
+    [Test]
+    public void AStashWithoutItsSlot_AsksForItsClaim()
+    {
+        ItemUpdate observed = Observed(ItemUpdate.ItemUpdateType.ItemState, ItemState.InInventory);
+        observed.InventorySlot = -1;
+
+        Assert.That(ItemRequestTranslation.FromObservation(observed).Slot, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void ASlotMove_IsAStashIntoThatSlot()
+    {
+        ItemRequest request = OverTheWire(new ItemRequest
+        {
+            RequestId = 9, ItemNetId = 78, ExpectedRevision = 42, Action = ItemAction.MoveSlot, Slot = 20
+        });
+
+        ItemUpdate change = ItemRequestTranslation.ToChange(request, 3);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(change.ItemState, Is.EqualTo(ItemState.InInventory));
+            Assert.That(change.PlayerId, Is.EqualTo(3));
+            Assert.That(change.InventorySlot, Is.EqualTo(20));
+            Assert.That(change.InventoryClaimSlot, Is.EqualTo(-1));
+            Assert.That(change.AuthorityRevision, Is.EqualTo(42));
+        });
     }
 
     // A nearby player working an item where it lies: the server takes it only as an interaction.
@@ -353,6 +383,7 @@ public sealed class ItemWirePacketTests
         ItemState = state,
         PlayerId = 3,
         PlayerHand = PlayerHand.Right,
+        InventorySlot = 11,
         InventoryClaimSlot = 4,
         InventoryClaimFlags = ItemInventoryClaimFlags.Reserved,
         TransitionReason = ItemTransitionReason.ClientState,

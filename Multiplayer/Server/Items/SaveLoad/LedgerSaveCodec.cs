@@ -8,12 +8,13 @@ using System.Linq;
 namespace Multiplayer.Server.Items.SaveLoad;
 
 /// <summary>
-/// The ledger's save format, <c>Multiplayer.OwnedItemsV1</c> (docs/legacy/items/owned-items.md, "In the
-/// vanilla save"). Enums are written by name, so appending values never shifts a saved one.
+/// The ledger's save format, <c>Multiplayer.OwnedItemsV1</c> (docs/design/items/ledger.md, "Saving
+/// the ledger"). Enums are written by name, so appending values never shifts a saved one. Format 2
+/// writes exact homes; a format-1 ledger is read as none, and the load migrates from the stores.
 /// </summary>
 public static class LedgerSaveCodec
 {
-    public const int Format = 1;
+    public const int Format = 2;
 
     public static JObject Write(ItemLedger ledger)
     {
@@ -35,7 +36,7 @@ public static class LedgerSaveCodec
         List<LedgerEntry> entries = new();
         starterKits = new List<Guid>();
         unreadable = 0;
-        if (saved is not JObject root || ((int?)root["format"] ?? 0) > Format)
+        if (saved is not JObject root || ((int?)root["format"] ?? 0) != Format)
             return entries;
         foreach (JToken value in root["items"] as JArray ?? new JArray())
         {
@@ -54,20 +55,18 @@ public static class LedgerSaveCodec
 
     private static JObject Write(LedgerEntry entry)
     {
-        JObject where = new() { ["kind"] = entry.Where.Place.ToString() };
-        if (entry.Where.IsWithPlayer)
-        {
-            where["holder"] = entry.Where.Holder.ToString("D");
-            // A held item is saved in its holder's inventory (WorldItemPersistenceSave) and comes back
-            // there, so the ledger saves it there too, and the load finds it where it says.
-            where["hold"] = (entry.Where.Hold == HoldKind.Hand ? HoldKind.Inventory : entry.Where.Hold).ToString();
-        }
-        if (entry.Where.Slot >= 0)
-            where["slot"] = entry.Where.Slot;
-        if (entry.Where.Anchor.Length > 0)
-            where["anchor"] = entry.Where.Anchor;
-        if (entry.Where.GadgetUid != 0)
-            where["gadgetUid"] = entry.Where.GadgetUid;
+        Home home = entry.Home;
+        JObject where = new() { ["kind"] = home.Kind.ToString() };
+        if (home.IsWithPlayer)
+            where["holder"] = home.Holder.ToString("D");
+        if (home.Slot >= 0)
+            where["slot"] = home.Slot;
+        if (home.Hand != 0)
+            where["hand"] = home.Hand;
+        if (home.Anchor.Length > 0)
+            where["anchor"] = home.Anchor;
+        if (home.Kind == HomeKind.Attached)
+            where["front"] = home.Front;
 
         JObject born = new()
         {
@@ -84,13 +83,15 @@ public static class LedgerSaveCodec
         JObject item = new()
         {
             ["id"] = entry.Id.ToString("D"),
-            ["owner"] = entry.Owner.ToString("D"),
+            ["owner"] = entry.Owner.PlayerId.ToString("D"),
             ["prefab"] = entry.Prefab,
             ["where"] = where,
             ["born"] = born
         };
         if (entry.ClaimSlot >= 0)
             item["claimSlot"] = entry.ClaimSlot;
+        else if (entry.Essential)
+            item["essential"] = true;
         if (entry.ShopStocked)
             item["shopStocked"] = true;
         if (entry.Ended != null)
@@ -118,9 +119,8 @@ public static class LedgerSaveCodec
             !Enum.TryParse((string)born["reason"], out BirthReason birth))
             return null;
         Guid.TryParse((string)where["holder"], out Guid holder);
-        Enum.TryParse((string)where["hold"], out HoldKind hold);
-        Home at = Home.From(place, holder, hold, (int?)where["slot"] ?? -1,
-            (string)where["anchor"], (int?)where["gadgetUid"] ?? 0);
+        Home at = Home.From(place, holder, (int?)where["slot"] ?? -1, (byte?)where["hand"] ?? 0,
+            (string)where["anchor"], (bool?)where["front"] ?? false);
         Guid.TryParse((string)born["by"], out Guid by);
         Guid.TryParse((string)born["from"], out Guid from);
         End ended = null;
@@ -131,8 +131,9 @@ public static class LedgerSaveCodec
             Guid.TryParse((string)end["replacedBy"], out Guid replacedBy);
             ended = new End(reason, (long?)end["utc"] ?? 0, replacedBy, (string)end["detail"]);
         }
-        return new LedgerEntry(id, owner, (string)item["prefab"], at,
+        return new LedgerEntry(id, OwnerRef.Player(owner), (string)item["prefab"], at,
             new Birth(birth, (long?)born["utc"] ?? 0, by, from, (string)born["detail"]),
-            (int?)item["claimSlot"] ?? -1, (bool?)item["shopStocked"] ?? false, ended);
+            (int?)item["claimSlot"] ?? -1, (bool?)item["shopStocked"] ?? false, ended,
+            (bool?)item["essential"] ?? false);
     }
 }

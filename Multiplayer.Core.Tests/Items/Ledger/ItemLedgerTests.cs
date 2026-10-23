@@ -204,6 +204,55 @@ public sealed class ItemLedgerTests
     }
 
     [Test]
+    public void TwoItemsInOneInventory_SwapSlots_InOneCommit_AndTheClaimsFollow()
+    {
+        Guid radio = Issue(G(1), "CommsRadio", Liam, 3).Entry.Id;
+        Guid mug = Buy(G(2), "Mug", Liam).Entry.Id;
+        Assert.That(ledger.Commit(mug, Home.World, Home.InSlot(Liam, 7)).Committed, Is.True);
+        changes.Clear();
+
+        LedgerCommit swapped = ledger.Swap(radio, Home.InSlot(Liam, 3), mug, Home.InSlot(Liam, 7));
+
+        Assert.That(swapped.Committed, Is.True);
+        Assert.That(ledger.TryGetHome(radio, out Home radioHome) && radioHome == Home.InSlot(Liam, 7), Is.True);
+        Assert.That(ledger.TryGetHome(mug, out Home mugHome) && mugHome == Home.InSlot(Liam, 3), Is.True);
+        Assert.That(ClaimOf(radio), Is.EqualTo(7), "the owner put it there, off the belt");
+        Assert.That(changes.Count(change => change.Kind == LedgerChangeKind.Moved), Is.EqualTo(2));
+    }
+
+    [Test]
+    public void ASwap_FromStaleHomes_OrAcrossInventories_IsRefused_AndChangesNothing()
+    {
+        Guid a = Buy(G(1), "Mug", Liam).Entry.Id;
+        Guid b = Buy(G(2), "Mug", Liam).Entry.Id;
+        Guid c = Buy(G(3), "Mug", Bentgear).Entry.Id;
+        ledger.Commit(a, Home.World, Home.InSlot(Liam, 1));
+        ledger.Commit(b, Home.World, Home.InSlot(Liam, 2));
+        ledger.Commit(c, Home.World, Home.InSlot(Bentgear, 2));
+        changes.Clear();
+
+        Assert.That(ledger.Swap(a, Home.InSlot(Liam, 5), b, Home.InSlot(Liam, 2)).Refusal, Is.EqualTo("stale-home"));
+        Assert.That(ledger.Swap(a, Home.InSlot(Liam, 1), c, Home.InSlot(Bentgear, 2)).Refusal, Is.EqualTo("slot-invalid"));
+        Assert.That(changes, Is.Empty);
+        Assert.That(ledger.TryGetHome(a, out Home home) && home == Home.InSlot(Liam, 1), Is.True);
+    }
+
+    [Test]
+    public void ASwap_LeavesAThirdEssentialsClaimAlone()
+    {
+        Guid map = Issue(G(1), "Map", Liam, 4, home: Home.LostAndFound).Entry.Id;
+        Guid a = Buy(G(2), "Mug", Liam).Entry.Id;
+        Guid b = Buy(G(3), "Mug", Liam).Entry.Id;
+        ledger.Commit(a, Home.World, Home.InSlot(Liam, 1));
+        ledger.Commit(b, Home.World, Home.InSlot(Liam, 2));
+        Assert.That(ClaimOf(map), Is.EqualTo(4));
+
+        // Neither slot is the map's, so the swap goes; the map's silhouette stays in 4.
+        Assert.That(ledger.Swap(a, Home.InSlot(Liam, 1), b, Home.InSlot(Liam, 2)).Committed, Is.True);
+        Assert.That(ClaimOf(map), Is.EqualTo(4));
+    }
+
+    [Test]
     public void ACommit_RecordsWhereItWasAndWhy()
     {
         Guid lantern = Buy(G(1), "Lantern", Liam).Entry.Id;

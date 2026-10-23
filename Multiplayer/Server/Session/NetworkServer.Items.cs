@@ -399,8 +399,7 @@ public partial class NetworkServer : IItemServer
             case ItemAction.ReportBelowMap:
                 return CarryBelowMapReport(request, player);
             case ItemAction.MoveSlot:
-                // An inventory's slots are its game's until the server keeps them (R3).
-                return Refuse(request, "move-slot-not-kept-by-server", ItemRefusal.NotAllowed);
+                return CarryMoveSlot(request, player);
             default:
                 return Refuse(request, "item-action-invalid", ItemRefusal.Invalid);
         }
@@ -457,6 +456,36 @@ public partial class NetworkServer : IItemServer
         change.PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? string.Empty;
         string refusal = item.Server_ReceiveItemUpdate(change, player);
         return refusal == null ? Accept(request, RevisionOf(item.NetId), item.NetId) : Refuse(request, refusal);
+    }
+
+    // To another slot of the requester's inventory (inventory.md, "Moving between slots"): into an
+    // empty slot it's a stash with the slot named, so the slot rules refuse a reserved one; onto
+    // another of their items the two swap, as vanilla's inventory does.
+    private ClientboundItemResultPacket CarryMoveSlot(ItemRequest request, ServerPlayer player)
+    {
+        if (!NetworkedItem.TryGet(request.ItemNetId, out NetworkedItem item) || item == null)
+            return Refuse(request, "unknown-network-entity");
+        LiveItems.LiveItem occupant = LiveItems.GetAll().FirstOrDefault(record =>
+            record.NetId != item.NetId && record.Placement == ItemPlacementKind.PlayerInventory &&
+            record.Holder == player.Guid && record.Slot == request.Slot);
+        if (occupant == null)
+            return CarryChange(request, player);
+        if (!NetworkedItem.TryGet(occupant.NetId, out NetworkedItem other) || other == null)
+            return Refuse(request, "unknown-network-entity");
+        bool accepted = LiveItems.TrySwapSlots(item, other, player, request.ExpectedRevision,
+            out ItemUpdate first, out ItemUpdate second, out string reason);
+        Log($"[Inventory] P{player.PlayerId} swapped item {item.NetId} into slot {request.Slot} with item " +
+            $"{other.NetId}: {(accepted ? "done" : "refused, " + reason)}");
+        if (!accepted)
+            return Refuse(request, reason);
+        foreach ((NetworkedItem changed, ItemUpdate snapshot) in new[] { (item, first), (other, second) })
+        {
+            changed.ApplyServerCanonicalSnapshot(snapshot);
+            // The requester's game made this swap; it applies the other item's update like everyone.
+            snapshot.OriginatingPlayerId = changed == item ? player.PlayerId : (byte)0;
+            SendItemUpdate(snapshot);
+        }
+        return Accept(request, first.AuthorityRevision, item.NetId);
     }
 
     // An owner's recall, in one step (wire.md, "Recall"): the server commits it, and the update it

@@ -91,7 +91,7 @@ namespace Dvmp.Scenarios
             Expect.Equal(client, entry.Owner, $"the ledger's owner {when} (the client)");
             if (where == "Inventory")
             {
-                Expect.Equal("With/Inventory", entry.Place + "/" + entry.Hold, $"where the ledger has it {when}");
+                Expect.Equal("Slot", entry.Place, $"where the ledger has it {when}");
                 Expect.Equal(client, entry.Holder, $"who the ledger says has it {when}");
             }
             else

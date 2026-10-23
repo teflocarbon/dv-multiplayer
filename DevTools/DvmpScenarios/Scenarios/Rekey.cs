@@ -72,7 +72,7 @@ namespace Dvmp.Scenarios
             Report.Note($"under the Steam identity: {after}; left under the install GUID: {left}");
             Expect.Equal(before.Rows, after.Rows, "the owned-items list's rows");
             Expect.Equal(before.Ledger, after.Ledger, "the ledger's live entries");
-            Expect.Equal(before.Owned, after.Owned, "what the player owns (OwnedItemsSummary)");
+            Expect.Equal(before.Owned, after.Owned, "what the player owns (the ledger)");
             Expect.Equal(before.Essentials, after.Essentials, "the player's essentials (none issued again)");
             Expect.Equal(before.Lost, after.Lost, "the player's Lost and Found entries");
             Expect.Equal(before.Kit, after.Kit, "the starter kit");
@@ -150,11 +150,11 @@ namespace Dvmp.Scenarios
             {
                 Guid id = Guid.Parse(identity);
                 ServerPlayer player = NetworkServer.Instance.ServerPlayers.FirstOrDefault(p => p.PlayerId != 0 && p.Guid == id);
-                var owned = OwnedItemsSummary.For(id);
+                var owned = ServerLedger.Ledger.LiveOwnedBy(Multiplayer.Core.Items.Ledger.OwnerRef.Player(id));
                 return new Holdings
                 {
                     Rows = player != null ? OwnedItemRows.For(player).Count : 0,
-                    Ledger = ServerLedger.Ledger.LiveOwnedBy(id).Count,
+                    Ledger = owned.Count,
                     Owned = owned.Count,
                     Essentials = owned.Count(item => DV.Globals.G.Items.items.Any(spec => spec != null && spec.IsEssential &&
                         string.Equals(spec.ItemPrefabName, item.Prefab, StringComparison.OrdinalIgnoreCase))),

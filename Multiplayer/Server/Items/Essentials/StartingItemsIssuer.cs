@@ -6,6 +6,8 @@ using DV;
 using DV.CabControls;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Core.Items.Inventory;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Server.Chat;
 using Multiplayer.Server.Items.ChangeCauses;
@@ -91,9 +93,9 @@ public static class StartingItemsIssuer
             {
                 bool has = Has(player, prefab);
                 Multiplayer.Log($"Starting items: {player.Username} {(has ? "has" : "lacks")} a {prefab} " +
-                                $"(ledger: {string.Join(", ", ServerLedger.Ledger.LiveOwnedBy(owner).Where(e => e.Prefab == prefab).Select(e => e.Id.ToString("D") + " " + e.Where.Place))})");
+                                $"(ledger: {string.Join(", ", ServerLedger.Ledger.LiveOwnedBy(OwnerRef.Player(owner)).Where(e => e.Prefab == prefab).Select(e => e.Id.ToString("D") + " " + e.Home))})");
                 if (!has)
-                    wanted.Add((prefab, null, true, ItemMoveReason.Issued, FreeSlot(taken, 0)));
+                    wanted.Add((prefab, null, true, ItemMoveReason.Issued, ClaimSlot(taken)));
             }
             bool kit = !ServerLedger.Ledger.HasStarterKit(owner);
             if (kit)
@@ -102,22 +104,14 @@ public static class StartingItemsIssuer
             if (wanted.Count == 0)
                 yield break;
 
-            // Everything they carry takes a slot, and the server knows only the essentials' slots: a
-            // full inventory sends what's made to their Lost and Found instead (InventoryOverflow).
-            int carried = Carried(player);
+            // The server knows every slot (OI-SLOT-01): with none free, what's made goes to their
+            // Lost and Found instead (InventoryOverflow, OI-START-09), never to no slot.
             int made = 0;
             foreach (var item in wanted)
             {
                 if (player.PlayerId == 0)
                     yield break;
-                if (item.Slot < 0)
-                {
-                    Multiplayer.LogWarning($"Starting items: no free slot for {player.Username}'s {item.Prefab}");
-                    continue;
-                }
-                bool overflow = carried >= Slots;
-                if (!overflow)
-                    carried++;
+                bool overflow = item.Slot < 0;
                 bool ok = false;
                 yield return Make(player, item.Prefab, item.State, item.Essential, item.Reason, item.Slot, overflow,
                     result => ok = result);
@@ -135,64 +129,30 @@ public static class StartingItemsIssuer
         }
     }
 
-    /// <summary>Whether the player owns a live item of this prefab anywhere: the ledger, or the stores themselves.</summary>
-    private static bool Has(ServerPlayer player, string prefab)
-    {
-        if (ServerLedger.Ledger.CountLive(player.Guid, prefab) > 0)
-            return true;
-        if (!OwnedItemsSummary.For(player).Any(item => string.Equals(item.Prefab, prefab, StringComparison.Ordinal)))
-            return false;
-        // The ledger has none, but a store has one: nothing is made (no second copy), and where it
-        // is gets logged, as the ledger is still in shadow (a destroyed radio wasn't made again at
-        // the next rejoin, starting-items 2026-10-22).
-        Multiplayer.LogWarning($"Starting items: the ledger has no live {prefab} of {player.Username}'s, but " +
-                               StoresHolding(player, prefab) + "; none made");
-        return true;
-    }
+    /// <summary>Whether the player owns a live item of this prefab anywhere: the ledger alone (OI-START-04).</summary>
+    private static bool Has(ServerPlayer player, string prefab) =>
+        ServerLedger.Ledger.CountLive(OwnerRef.Player(player.Guid), prefab) > 0;
 
-    private static string StoresHolding(ServerPlayer player, string prefab)
-    {
-        List<string> found = new();
-        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
-            if (string.Equals(record.PrefabName, prefab, StringComparison.Ordinal) &&
-                record.Owner == player.Guid)
-                found.Add($"record {record.NetId} {record.PersistentItemId:D} {record.Placement}, last {record.LastMove.Reason}");
-        int pending = LostAndFoundServer.PendingPrefabsOwnedBy(player.Guid)
-            .Count(p => string.Equals(p, prefab, StringComparison.Ordinal));
-        if (pending > 0)
-            found.Add($"{pending} saved Lost and Found entr{(pending == 1 ? "y" : "ies")} not restored");
-        string identity = player.Guid.ToString("D");
-        int stored = ContainerServer.Graph.ExportSnapshot().Items.Count(item =>
-            string.Equals(item.PersistentOwnerIdentity, identity, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(item.PrefabName, prefab, StringComparison.Ordinal));
-        if (stored > 0)
-            found.Add($"{stored} in containers");
-        return "the stores hold " + string.Join("; ", found);
-    }
-
-    // The slots the player's inventory items are in, and the ones their essentials keep wherever
-    // those are (a silhouette, or an essential in Lost and Found).
+    // The slots that hold an item, owned or not, and the ones their essentials keep wherever those
+    // are (a silhouette, or an essential in Lost and Found): what the ledger would refuse.
     private static HashSet<int> TakenSlots(ServerPlayer player)
     {
-        HashSet<int> taken = new();
-        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
-        {
-            if (record.InventoryClaimSlot < 0)
-                continue;
-            bool held = record.Placement == ItemPlacementKind.PlayerInventory &&
-                        record.Holder == player.Guid;
-            bool claimed = record.Owner == player.Guid &&
-                           (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
-            if (held || claimed)
-                taken.Add(record.InventoryClaimSlot);
-        }
+        OwnerRef owner = OwnerRef.Player(player.Guid);
+        HashSet<int> taken = ServerLedger.Ledger.ClaimedSlots(owner);
+        for (int slot = 0; slot < Slots; slot++)
+            if (ServerLedger.Ledger.CanTake(Home.InSlot(player.Guid, slot), Guid.Empty, owner).Length > 0)
+                taken.Add(slot);
         return taken;
     }
 
-    // How many items the player has in their inventory and hands.
-    private static int Carried(ServerPlayer player) => LiveItems.GetAll().Count(record =>
-        record.Placement is ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand &&
-        record.Holder == player.Guid);
+    // An essential's slot, as the ledger chooses a claim (OI-ESS-02): the lowest free one off the belt.
+    private static int ClaimSlot(HashSet<int> taken)
+    {
+        int slot = InventorySlots.ChooseClaim(-1, taken, null);
+        if (slot >= 0)
+            taken.Add(slot);
+        return slot;
+    }
 
     private static int FreeSlot(HashSet<int> taken, int from)
     {
@@ -256,7 +216,9 @@ public static class StartingItemsIssuer
             snapshot.PlayerId = overflow ? (byte)0 : player.PlayerId;
             if (overflow)
                 snapshot.ItemPosition = player.AbsoluteWorldPosition + Vector3.up * 0.3f;
-            snapshot.InventoryClaimSlot = slot;
+            snapshot.InventorySlot = overflow ? -1 : slot;
+            // The claim it asks for; the ledger gives it (OI-ESS-01).
+            snapshot.InventoryClaimSlot = essential ? slot : -1;
             // An essential's slot is reserved for it (its silhouette, and recall).
             snapshot.InventoryClaimFlags = essential ? ItemInventoryClaimFlags.Reserved : ItemInventoryClaimFlags.None;
             ItemIdentity identity = instance.GetComponent<ItemIdentity>() ??
