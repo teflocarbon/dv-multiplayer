@@ -70,7 +70,7 @@ on the server and in every client, are made to agree with it.
 - **PR 6a, the owned-items list: built (2026-10-22), and tested in game with 6b, L7 and 7 on both host kinds (2026-10-23).** The packets, the
   server's rows from the ledger, and an Owned Items page in the career manager (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-list`.
-- **PR 6b, retrieval: built (2026-10-22), not yet run in game.** From the owned-items list into Lost
+- **PR 6b, retrieval: built (2026-10-22), and tested in game with 6a, L7 and 7 on both host kinds (2026-10-23).** From the owned-items list into Lost
   and Found: lying items, containers whole, and items with another player (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-retrieve`.
 - **Everything else: not started.** See the [plan](#plan).
@@ -1017,6 +1017,11 @@ Split in two, as small PRs: **6a the list**, **6b retrieval**.
   says what happened.
 - **Not yet:** detaching attached and snapped items, and the busy check for a container
   mid-withdrawal.
+- **Found by the batch, fixed here:** an item retrieved from Lost and Found (the Lost Items page, or
+  the reserved slot's Return) was never indexed for interest again. The retrieval's transition
+  indexed it while the entry still held it, which skips it, so a player who joined later, its owner
+  rejoining included, was never sent it (`starting-items` @dedicated). It is indexed once the entry
+  goes.
 
 ### 7. Lineage
 
