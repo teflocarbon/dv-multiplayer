@@ -16,9 +16,10 @@ namespace Dvmp.Scenarios
     /// in the essential's claim slot (item-lifecycle.md, "Retrieval claim slots"), wherever the
     /// essential is.
     /// - Known item bug E10 (default, LOST=1; expected to fail on beta,
-    ///   docs/research/item-bug-review.md): with nobody near, the server collects the radio into the
-    ///   absent client's Lost and Found. At the rejoin the server never sends it to its owner, so
-    ///   the owner has no silhouette and no recall; only a shed's Lost and Found shows it.
+    ///   docs/research/item-bug-review.md): the client walks 300 m off with nobody near the radio,
+    ///   and the server collects it into the client's Lost and Found. At the rejoin the server
+    ///   never sends it to its owner, so the owner has no silhouette and no recall; only a shed's
+    ///   Lost and Found shows it.
     /// - LOST=0 checks E1: the essential stays in the world, and ordinary items arriving first might
     ///   take its slot, the silhouette then refused (EnsureDroppedClaim never makes room). It rejoins
     ///   REJOINS times and fails on the first refusal. It held on a player host (6 rejoins).
@@ -54,20 +55,25 @@ namespace Dvmp.Scenarios
                 pair.Cleanup(() => pair.Host.Run<ushort[]>(s => Items.Destroy(s, mugs)));
                 await pair.Client.Run<int>(s => ItemBugFullInventoryEssential.InGame.StashAll(s, mugs), 300);
             }
-            await pair.Client.Run<Abs>(s => Walk.Away(s, 15, 0));
-            Report.Note("server: " + await pair.Host.Run(() => InGame.ServerClaim(d.Item)));
             if (o.Lost)
             {
+                // Lost and Found collects an online owner's world item beyond 200 m with nobody
+                // within 100 m (a dedicated host collects nothing while nobody is connected).
+                await pair.Client.Run<Abs>(s => Walk.Away(s, 300, 0));
                 if (!pair.Dedicated) await pair.Host.Run<Abs>(s => Walk.Away(s, 400, 0));
-                await pair.Client.Quit();
                 bool lost = false;
                 for (int t = 0; t < 30 && !lost; t++)
                 {
                     await Task.Delay(2000);
                     lost = (await pair.Host.Run(() => Items.Record(d.Item))).Lost;
                 }
-                Report.Note($"with the client gone: in its Lost and Found {lost}; server: " + await pair.Host.Run(() => InGame.ServerClaim(d.Item)));
-                Require.That(lost, "the dropped essential is collected into the absent client's Lost and Found");
+                Report.Note($"with the client 300 m away: in its Lost and Found {lost}; server: " + await pair.Host.Run(() => InGame.ServerClaim(d.Item)));
+                Require.That(lost, "the dropped essential is collected into the client's Lost and Found");
+                string online = await pair.Client.Run(() => InGame.Silhouette(d.Item));
+                Report.Note("before leaving: " + online);
+                Expect.That(online.StartsWith("silhouette in slot"), $"before leaving, the {d.Name} in Lost and Found has its silhouette", online);
+                await pair.Client.Quit();
+                await Task.Delay(4000);
                 await pair.Rejoin();
                 await Task.Delay(12000);
                 string at = await pair.Client.Run(() => InGame.Silhouette(d.Item));
@@ -75,6 +81,8 @@ namespace Dvmp.Scenarios
                 Expect.That(at.StartsWith("silhouette in slot"), $"the {d.Name} in Lost and Found has its silhouette in the client's inventory", at);
                 return;
             }
+            await pair.Client.Run<Abs>(s => Walk.Away(s, 15, 0));
+            Report.Note("server: " + await pair.Host.Run(() => InGame.ServerClaim(d.Item)));
 
             for (int i = 1; i <= o.Rejoins; i++)
             {
