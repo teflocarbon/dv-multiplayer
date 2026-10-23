@@ -1,3 +1,5 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/change-causes.md` (R3). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Why an item changed
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Built 2026-10-19 (#106).

@@ -16,7 +16,7 @@ The vanilla behaviour this builds on is researched in:
   layer (no job screens yet; see [Career Manager](#career-manager)).
 
 Job paperwork is a networked item, so the item rules in
-[design/item-lifecycle.md](design/item-lifecycle.md) and [world-sync.md](world-sync.md) apply to
+[design/item-lifecycle.md](legacy/items/item-lifecycle.md) and [world-sync.md](world-sync.md) apply to
 it. See [architecture.md](architecture.md) for the host/client model in general.
 
 ## Lifecycle

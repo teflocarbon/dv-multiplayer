@@ -1,7 +1,9 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/lost-and-found.md` (R6). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Lost and Found
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Vanilla's own Lost and
-> Found is in [research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md](../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md).
+> Found is in [research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md](../../research/DERAIL_VALLEY_LOST_AND_FOUND_LOGIC.md).
 > How ownership works is in [`owned-items.md`](owned-items.md).
 
 The server keeps a Lost and Found for every player. An owned item left lying far from its owner, or
@@ -153,4 +155,4 @@ load check counts such entries as the item's place.
 | `Multiplayer/Server/Items/NetworkedLostAndFoundManager.cs` | The server's Lost and Found: scan, collect, retrieve, save and load |
 | `Multiplayer/Server/Trains/CarDeleteLostAndFoundPatch.cs` | A deleted car's items |
 | `Multiplayer/Client/Items/LostAndFoundList.cs`, `LostAndFoundExchange.cs` | The client's list and retrieval |
-| Tests | `LostAndFoundTests`, `LostAndFoundAwayOwnerTests`; scenarios `lost-and-found`, `offline-lost-and-found`, `lost-and-found-many-owners`, `car-delete-owner`, `borrowed-disconnect` ([testing.md](../testing.md)) |
+| Tests | `LostAndFoundTests`, `LostAndFoundAwayOwnerTests`; scenarios `lost-and-found`, `offline-lost-and-found`, `lost-and-found-many-owners`, `car-delete-owner`, `borrowed-disconnect` ([testing.md](../../testing.md)) |

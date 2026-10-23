@@ -1,3 +1,5 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/physics.md` (R7). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Item spatial physics
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Built 2026-07 to
@@ -137,7 +139,7 @@ resend it.
 ### Landing on the terrain
 
 A small item with a convex mesh collider, such as the mug, can go straight through DV's terrain
-heightfield in plain PhysX ([research](../research/item-terrain-tunnelling.md)): beside the track,
+heightfield in plain PhysX ([research](../../research/item-terrain-tunnelling.md)): beside the track,
 about a quarter to a half of mugs thrown at 10 m/s. So every game guards the bodies it simulates
 (`NetworkedItemManager.TerrainGuard.cs`), right after each physics step (`WaitForFixedUpdate`):
 dynamic, awake, active and not held. A proxy is kinematic, so only a lease's simulator, or the
@@ -247,4 +249,4 @@ From the code, not run in game (2026-10-23). The bug review tracks them.
 
 `ItemSpatialStreamValidatorTests`, `ItemReleaseSyncTests`, `ItemSnapshotApplicationPolicyTests`;
 scenarios `train-items`, `host-throw-settles`, `server-throw`, `item-release`, `client-fall-rescue`,
-and `dvmp soak` ([testing.md](../testing.md)).
+and `dvmp soak` ([testing.md](../../testing.md)).

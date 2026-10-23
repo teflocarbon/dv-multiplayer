@@ -1,3 +1,5 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/containers.md` (R5). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Cold container storage
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Built 2026-07 (#12),
@@ -157,4 +159,4 @@ From the code, not run in game (2026-10-23). The bug review tracks them.
 | `Multiplayer/Server/Items/ColdContainerIdentity*.cs` | The shell's container id |
 | `Multiplayer/Client/Items/ColdContainerUi*.cs` | The client's UI bridge |
 | `Multiplayer.Core/Items/StorageTransitionPlanner.cs`, `Multiplayer/Shared/Items/StorageIntegration.cs` | DV's storage lists made to agree: an item in exactly the list its placement names |
-| Tests | `Multiplayer.Core.Tests/Containers/`; scenarios `containers`, `deposit-refused` ([testing.md](../testing.md)) |
+| Tests | `Multiplayer.Core.Tests/Containers/`; scenarios `containers`, `deposit-refused` ([testing.md](../../testing.md)) |

@@ -1,3 +1,5 @@
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/train-wake.md` (R7). The item docs start at [items/README.md](../../design/items/README.md).
+
 # Train item wake
 
 > Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Thresholds are untuned
@@ -99,7 +101,7 @@ A dedicated host never simulates a wake: it isn't a player.
 
 ## Events
 
-Category `train-item-wake` ([observability.md](../observability.md)):
+Category `train-item-wake` ([observability.md](../../observability.md)):
 `train-item.settlement-registered`, `support-removed`, `wake-witness-accepted`,
 `wake-witness-rejected`, `wake-granted`, `wake-pending`, `wake-expired`, `car-motion-wake`,
 `motion-baseline-reset`. The spatial manager adds `item.spatial-train-wake-granted` and

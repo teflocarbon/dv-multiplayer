@@ -96,7 +96,7 @@ public readonly struct ClaimMove
 /// The server's record of every item a player owns, keyed by the item's lifelong persistent id:
 /// whose it is, where it is, and how its life began and ended. Owners and holders are identities,
 /// never per-session player numbers, so an offline owner's items are as owned as anyone's.
-/// See docs/design/owned-items.md.
+/// See docs/legacy/items/owned-items.md.
 /// </summary>
 public sealed class ItemLedger
 {

@@ -41,7 +41,7 @@ Sources, as cited in the rows:
 | LC §… | `git show e3f25e66:docs/design/item-lifecycle.md` |
 | OQ §… | `git show e3f25e66:docs/design/item-ownership-open-questions.md` |
 | #n | That PR's description (scope it cut or deferred) |
-| Not built | Today's [owned-items.md](design/owned-items.md#not-built-yet), or the named doc's "Not built" / "Known issues" |
+| Not built | Today's [owned-items.md](legacy/items/owned-items.md#not-built-yet), or the named doc's "Not built" / "Known issues" |
 | F*n* | Finding *n* of the code-vs-doc mismatches listed in #322's description |
 | BR *id* | [research/item-bug-review.md](research/item-bug-review.md) |
 | Map | `items-ledger-bug-map.md` in the coordination notes (bugs whose home was "none") |
@@ -142,9 +142,8 @@ every other difference becomes a row.
 OI-SHOP-01 stays done; its workstream is paused.
 
 The item design docs the rows cite (`owned-items.md`, `item-lifecycle.md` and the rest) are legacy
-(the user, 2026-10-23): evidence of the code before the refactor, not design. Each moves to
-`docs/legacy/items/` in the PR that writes its replacement under `docs/design/items/`, and that PR
-updates the links here.
+(the user, 2026-10-23): evidence of the code before the refactor, not design. They are in
+`docs/legacy/items/` (moved 2026-10-24), each replaced under `docs/design/items/` by its PR.
 
 ## Identity and what is owned
 

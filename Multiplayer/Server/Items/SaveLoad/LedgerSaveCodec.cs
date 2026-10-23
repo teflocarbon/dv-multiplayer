@@ -8,7 +8,7 @@ using System.Linq;
 namespace Multiplayer.Server.Items.SaveLoad;
 
 /// <summary>
-/// The ledger's save format, <c>Multiplayer.OwnedItemsV1</c> (docs/design/owned-items.md, "In the
+/// The ledger's save format, <c>Multiplayer.OwnedItemsV1</c> (docs/legacy/items/owned-items.md, "In the
 /// vanilla save"). Enums are written by name, so appending values never shifts a saved one.
 /// </summary>
 public static class LedgerSaveCodec

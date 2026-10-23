@@ -7,7 +7,7 @@
 
 A shop is the start of an item's life: scan it, pay, buy it, and it's yours. This doc covers
 everything up to the moment the item exists with its owner. From that moment the item belongs to the
-owned-items design ([`owned-items.md`](owned-items.md), PR #275), and installing it on a train to
+owned-items design ([`owned-items.md`](../legacy/items/owned-items.md), PR #275), and installing it on a train to
 the gadget design ([`gadgets.md`](gadgets.md), PR #273).
 
 The shop becomes one server transaction. The server owns each register's basket and cash, each
@@ -473,11 +473,11 @@ Refusal reasons: `NotNear`, `NoScanner`, `NotSoldHere`, `NotAvailable`, `NeedsLi
 As built (checked 2026-10-23): `ShopDelivery.Spawn` puts every purchase on the counter, sets the
 owner (number and identity) of whoever scanned the line, sets `BelongsToPlayer` and the `Restock`
 flag, and logs `Purchased` with the shop and "i of n"; the ledger takes its birth from that move
-([owned-items.md](owned-items.md#what-an-owned-item-is)). There is no transaction id or payer in the
+([owned-items.md](../legacy/items/owned-items.md#what-an-owned-item-is)). There is no transaction id or payer in the
 detail, no Lost and Found delivery, and a line whose owner has left is delivered unowned. The rest
 of this section is the agreed seam, for PRs 3 and 6.
 
-The seam with [`owned-items.md`](owned-items.md) (PR #275), agreed with that session on 2026-10-21
+The seam with [`owned-items.md`](../legacy/items/owned-items.md) (PR #275), agreed with that session on 2026-10-21
 and written into both docs:
 
 1. **Shops hands over a finished item.** The server makes it and registers it with the ledger before
@@ -513,7 +513,7 @@ and written into both docs:
 
 A shop's scanner is a scene item, so today a player can put it in their inventory, and a player who
 leaves holding it keeps it in their saved inventory (gap 19). The user decided on 2026-10-21 that
-station equipment like it is a *fixture*, recorded in [`owned-items.md`](owned-items.md#fixtures):
+station equipment like it is a *fixture*, recorded in [`owned-items.md`](../legacy/items/owned-items.md#fixtures):
 
 - **Never owned,** and it never reaches Lost and Found.
 - **Hand only:** no inventory, belt or container.
