@@ -5,6 +5,7 @@ using DV.JObjectExtstensions;
 using DV.ThingTypes;
 using Multiplayer.Server.Gadgets;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
@@ -82,6 +83,17 @@ internal static partial class ItemSaveLoad
             Multiplayer.LogWarning($"Discarding persisted world item {saved.PrefabName} at height {saved.Position.y:0} " +
                                    "(an inventory item saved at the hidden inventory position by an older build)");
             return false;
+        }
+
+        // An offline player's inventory stays data until they join (D12, OI-COLD-01): no object is
+        // made for it. A scene-authored item has no id of its own to keep a row by, so an old save's
+        // is still made and waits for its holder.
+        if (saved.PersistentItemId != Guid.Empty && !WorldItemStableIdentity.IsValid(saved.AuthoredItemKey) &&
+            MustWaitForHolder(saved, ResolveConnectedPlayer(saved.PlacementPlayerIdentity)))
+        {
+            if (saved.Placement == ItemPlacementKind.PlayerHand)
+                saved.Slot = -1;
+            return ColdInventories.Add(saved);
         }
 
         NetworkedItem item = FindOrCreateRepresentation(saved);

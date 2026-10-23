@@ -35,6 +35,12 @@ namespace Dvmp.Scenarios
 
     public static class Owned
     {
+        /// <summary>Host: the handle lists name the item by (R2), or 0 when its record has no id.</summary>
+        [Step]
+        public static uint HandleOf(ushort netId) =>
+            LiveItems.TryGet(netId, out var r) && r.PersistentItemId != Guid.Empty
+                ? Multiplayer.Server.Items.Projection.ItemHandles.Of(r.PersistentItemId) : 0;
+
         /// <summary>Host: the item's lifelong id, or "" when its record has none.</summary>
         [Step]
         public static string IdOf(ushort netId) =>

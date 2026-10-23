@@ -145,7 +145,7 @@ internal sealed partial class ClientItemManager
             bool lostAndFoundProjection =
                 snapshot.TransitionReason == ItemTransitionReason.LostAndFoundCollection;
             bool coldContainerProjection =
-                snapshot.TransitionReason == ItemTransitionReason.ContainerDeposit;
+                snapshot.TransitionReason is ItemTransitionReason.ContainerDeposit or ItemTransitionReason.WentCold;
             bool dormantJobDocument =
                 snapshot.TransitionReason == ItemTransitionReason.InterestRetirement &&
                 netItem != null && shell.DoNotCreateItem(netItem);

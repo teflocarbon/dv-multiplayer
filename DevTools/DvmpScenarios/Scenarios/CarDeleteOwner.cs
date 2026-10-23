@@ -73,7 +73,8 @@ namespace Dvmp.Scenarios
             OwnerInfo back = await pair.Host.Run(() => Ownership.Read(mug));
             Report.Note($"after the rejoin: {back}");
             Expect.That(back.OwnerConnected, "the mug's owner (the client) has a session again after the rejoin", back.Owner);
-            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, mug), 60);
+            uint mugHandle = await pair.Host.Run(() => Owned.HandleOf(mug));   // the list names rows by handle (R2)
+            int slot = await pair.Client.Run<int>(s => LostAndFound.InGame.Retrieve(s, mugHandle), 60);
             Report.Note($"the client retrieved it into slot {slot}");
         }
     }

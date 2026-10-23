@@ -6,6 +6,7 @@ using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.OwnedList;
@@ -373,6 +374,22 @@ public partial class NetworkServer : IItemServer
 
     private ClientboundItemResultPacket Carry(ItemRequest request, ServerPlayer player)
     {
+        // An item kept as data on the server (inventory.md, "Data only on the server"; OI-COLD-06)
+        // has its object made again first; the request is answered once it has.
+        ushort needed = DataOnlyNamed(request, player);
+        if (needed != 0)
+        {
+            PlayerItems.WithObject(needed, made =>
+            {
+                if (player.Peer == null)
+                    return;
+                ClientboundItemResultPacket later = made != null ? Carry(request, player)
+                    : Refuse(request, "item-data-unavailable", ItemRefusal.UnknownItem);
+                if (later != null)
+                    CompleteItemRequest(player, later);
+            });
+            return null;
+        }
         switch (request.Action)
         {
             case ItemAction.Take:
@@ -403,6 +420,26 @@ public partial class NetworkServer : IItemServer
             default:
                 return Refuse(request, "item-action-invalid", ItemRefusal.Invalid);
         }
+    }
+
+    // The item a request names, the container shell it opens, or the one it would swap with or
+    // take back, when it's data only.
+    private static ushort DataOnlyNamed(ItemRequest request, ServerPlayer player)
+    {
+        if (PlayerItems.IsDataOnly(request.ItemNetId))
+            return request.ItemNetId;
+        if (PlayerItems.IsDataOnly(request.ShellNetId))
+            return request.ShellNetId;
+        LiveItems.LiveItem record = request.Action switch
+        {
+            ItemAction.MoveSlot => LiveItems.GetAll().FirstOrDefault(other =>
+                other.NetId != request.ItemNetId && other.Placement == ItemPlacementKind.PlayerInventory &&
+                other.Holder == player.Guid && other.Slot == request.Slot),
+            ItemAction.Retrieve when ItemHandles.TryResolve(request.ItemHandle, out Guid id) =>
+                Retrieval.Subject(player, id),
+            _ => null
+        };
+        return PlayerItems.IsDataOnly(record) ? record.NetId : (ushort)0;
     }
 
     private void CompleteItemRequest(ServerPlayer player, ClientboundItemResultPacket result)
@@ -703,7 +740,12 @@ public partial class NetworkServer : IItemServer
                 SendOwnedList(player, packet.RequestId);
                 break;
             case ItemListKind.Container:
-                SendPacket(player.Peer, ContainerList(packet, player), DeliveryMethod.ReliableOrdered);
+                // A shell kept as data on the server (OI-COLD-06) is made again before it's opened.
+                PlayerItems.WithObject(packet.ShellNetId, _ =>
+                {
+                    if (player.Peer != null)
+                        SendPacket(player.Peer, ContainerList(packet, player), DeliveryMethod.ReliableOrdered);
+                });
                 break;
             default:
                 SendPacket(player.Peer, new ClientboundItemListPacket

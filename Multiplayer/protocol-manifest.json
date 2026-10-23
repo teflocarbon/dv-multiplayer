@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.24-dev.0631+4c5c3d008cee71deef5e55e0a481d00a6dd12588",
-  "Fingerprint": "0b02842ab1584ae258f75b2cb9949b9485c3dac479ef68fdb07567f9f57f65d5",
+  "BuildVersion": "2026.10.24-dev.0721+1c809947d6fb4fbcffc6445ee4137764d1a3cd7f",
+  "Fingerprint": "7908d06a9e7b3009d93fcfcd600daa08594e0a5bfde1fb06eabf59e812a3f9f0",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1290,7 +1290,8 @@
       "StarterKit": 26,
       "CollectedToLostAndFound": 27,
       "DepositedInContainer": 28,
-      "SlotMoved": 29
+      "SlotMoved": 29,
+      "WentLive": 30
     },
     "Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason": {
       "Unknown": 0,
@@ -1471,7 +1472,8 @@
       "ClientInteraction": 15,
       "JobRerollRefused": 16,
       "GadgetInstalled": 17,
-      "GadgetRemoved": 18
+      "GadgetRemoved": 18,
+      "WentCold": 19
     },
     "Multiplayer.Shared.Protocol.Data.Items.ItemUpdate+ItemUpdateType": {
       "None": 0,

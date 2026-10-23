@@ -359,7 +359,8 @@ public static class NetworkedItemServer
                 // tells clients to keep an inert copy, so this, the item's end, would leave every
                 // client that saw the collection holding one for good.
                 if (updateData.TransitionReason is ItemTransitionReason.LostAndFoundCollection or
-                    ItemTransitionReason.ContainerDeposit or ItemTransitionReason.InterestRetirement)
+                    ItemTransitionReason.ContainerDeposit or ItemTransitionReason.InterestRetirement or
+                    ItemTransitionReason.WentCold)
                     updateData.TransitionReason = ItemTransitionReason.Unknown;
                 updateData.RemovalCause = removal;
                 ServerItemManager.Instance?.AddDirtyItemSnapshot(item, updateData);

@@ -295,6 +295,22 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     /// of <see cref="ItemRemovalReason.DestroyedByGame"/>. Call it before Object.Destroy.
     /// </summary>
     internal void NoteRemovalCause(ChangeCause<ItemRemovalReason> cause) => pendingRemovalCause = cause;
+
+    /// <summary>
+    /// Server: the item goes on as data only (a remote player's inventory item, OI-COLD-06) and this
+    /// object goes. Its NetId stays its own; the object made for it next takes it up.
+    /// </summary>
+    internal void HandOverToData()
+    {
+        BeginColdStorageRetirement();
+        HandOverNetId();
+    }
+
+    /// <summary>Server: this new object stands for an item kept as data, under its NetId.</summary>
+    internal bool TakeUpFromData(ushort netId) => TakeUpNetId(netId);
+
+    /// <summary>Server: an item kept as data is gone for good; its NetId is free.</summary>
+    internal static void FreeDataNetId(ushort netId) => FreeHandedOverNetId(netId);
     internal ChangeCause<ItemRemovalReason>? PendingRemovalCause => pendingRemovalCause;
     internal bool ColdStorageRetirement => coldStorageRetirement;
     internal bool ColdMaterializationPending => coldMaterializationPending;

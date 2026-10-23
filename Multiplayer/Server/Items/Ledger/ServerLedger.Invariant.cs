@@ -5,6 +5,7 @@ using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Debugging.Protocol;
 using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Session;
@@ -128,6 +129,9 @@ public static partial class ServerLedger
                 pendingLost.Contains(record.PersistentItemId) || record.PersistentItemId == Guid.Empty &&
                 record.Placement != ItemPlacementKind.PlayerInventory)
                 continue;
+            // Kept as data on the server: its row is the copy (ColdRows).
+            if (PlayerItems.IsDataOnly(record))
+                continue;
             ItemBase item = NetworkedItem.TryGet(record.NetId, out NetworkedItem networked) && networked != null
                 ? networked.Item : null;
             VanillaLists lists = VanillaLists.None;
@@ -173,8 +177,16 @@ public static partial class ServerLedger
         }
     }
 
-    /// <summary>Rows of cold inventories (D12), as the check sees them. Set by <c>Inventory/PlayerItems</c>.</summary>
-    internal static Func<IEnumerable<ObservedItem>> ColdRows = Enumerable.Empty<ObservedItem>;
+    // Cold inventories' rows (D12), and on the server the items in connected remote players'
+    // inventories, kept as data (OI-COLD-06).
+    private static IEnumerable<ObservedItem> ColdRows() => ColdInventories.All().Select(row => new ObservedItem
+    {
+        Id = row.PersistentItemId,
+        Name = row.PrefabName,
+        Source = ObservedSource.ColdRow,
+        Home = Home.InSlot(row.PlacementPlayerIdentity, row.Slot),
+        StoreOwner = row.OwnerIdentity == Guid.Empty ? OwnerRef.None : OwnerRef.Player(row.OwnerIdentity)
+    });
 
     private static HashSet<ItemBase> Members(StorageBase storage)
     {
