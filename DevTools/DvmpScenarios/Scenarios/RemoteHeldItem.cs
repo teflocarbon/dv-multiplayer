@@ -93,7 +93,7 @@ namespace Dvmp.Scenarios
                 LiveItems.TryGet(id, out var r);
                 NetworkedItem.TryGet(id, out NetworkedItem n);
                 var lantern = n == null ? null : n.GetComponentInChildren<Lantern>(true);
-                return new Held { State = r?.Placement.ToString() ?? "none", Player = r?.PlacementPlayerId ?? 0, Client = client.PlayerId, Lit = lantern != null && lantern.Ignited };
+                return new Held { State = r?.Placement.ToString() ?? "none", Player = PlayerNumbers.Of(r?.Holder ?? System.Guid.Empty), Client = client.PlayerId, Lit = lantern != null && lantern.Ignited };
             }
 
             /// <summary>Client: lights the lantern it holds, the way a lighter does: wick up, then

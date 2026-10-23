@@ -180,8 +180,8 @@ namespace Dvmp.Scenarios
             if (!LiveItems.TryGet(netId, out var r)) return result;
             result.Known = true;
             result.Placement = r.Placement.ToString();
-            result.Owner = r.PersistentOwnerPlayerId;
-            result.PlacementPlayer = r.PlacementPlayerId;
+            result.Owner = PlayerNumbers.OwnerOf(r.Owner);
+            result.PlacementPlayer = PlayerNumbers.Of(r.Holder);
             result.Revision = r.Revision;
             result.ParentKind = r.WorldParentKind.ToString();
             result.ParentNetId = r.WorldParentNetId;

@@ -169,7 +169,7 @@ namespace Dvmp.Scenarios
                 var result = ContainerServer.Browse(host, box, 0, 64, out var view);
                 return new Browse
                 {
-                    Owner = r?.PersistentOwnerPlayerId ?? 0, HostId = host.PlayerId, Status = result.Status.ToString(),
+                    Owner = PlayerNumbers.OwnerOf(r?.Owner ?? System.Guid.Empty), HostId = host.PlayerId, Status = result.Status.ToString(),
                     Reason = result.Reason ?? "", Rows = view?.Slots?.Count ?? -1
                 };
             }

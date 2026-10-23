@@ -127,7 +127,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static string ServerClaim(ushort id) =>
                 LiveItems.TryGet(id, out var r)
-                    ? $"{r.Placement} of {r.PlacementPlayerId}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
+                    ? $"{r.Placement} of {r.Holder}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
                     : "no record";
 
             /// <summary>Client: every item this player owns that the game has in the inventory is in

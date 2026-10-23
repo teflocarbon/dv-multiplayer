@@ -59,7 +59,7 @@ namespace Dvmp.Scenarios
                 Items.Track(now.NetId);
                 if (now.Lost) lost++;
                 Expect.Equal(owner, now.Owner, $"mug {id}'s owner after the restart");
-                Expect.Equal(AbsentOwner.AbsentNumber, now.Number, $"mug {id}'s owner number after the restart");
+                Expect.That(now.Absent, $"mug {id}'s owner has no session after the restart", now.Owner);
                 Expect.That(now.Lost ? now.LostEntry == id : now.Placement == "World", "the mug is in the world or in Lost and Found under its own id", now.ToString());
             }
             Report.Note($"after the restart {lost} of {ids.Length} in Lost and Found");

@@ -17,9 +17,10 @@ namespace Dvmp.Scenarios
     /// OwnedItemsSummary matched by that number as well as by identity, so the other player's comms
     /// radio counted as this player's: DV's starting-items safeguard made them none on joining, and
     /// /give refused one ("already has a CommsRadio somewhere"). A pair has one client, so the
-    /// shift is set up by hand: the host spawns an essential item owned by a player who isn't here
-    /// (a new identity) and gives its record the client's number, as a restored record whose owner
-    /// hasn't joined would have. Then the client's owned items (what its join packet tells DV it
+    /// shift was set up by hand, giving an absent player's record the client's number. Since R1 a
+    /// record keeps only its owner's identity (item-refactor.md, "Identity only"), so the host
+    /// spawns an essential item owned by a player who isn't here (a new identity). Then the
+    /// client's owned items (what its join packet tells DV it
     /// has, and what /give checks) don't include it; and if the client didn't own one already,
     /// /give (sent by the client, made an admin in memory only) gives it one, into its inventory.
     /// </summary>
@@ -35,7 +36,7 @@ namespace Dvmp.Scenarios
         protected override async Task Run(Pair pair, Options o)
         {
             Stale s = await pair.Host.Run<Stale>(st => InGame.SpawnStale(st, o.Prefab));
-            Report.Note($"host spawned {s.Prefab} {s.Item}, owned by an absent player whose number ({s.Number}) is now the client's");
+            Report.Note($"host spawned {s.Prefab} {s.Item}, owned by an absent player (wire owner number {s.Number})");
             Report.Note($"the client owned {s.Before} {s.Prefab} before, counts {s.After} now");
             Expect.Equal(s.Before, s.After, $"{s.Prefab} the client owns, with the absent player's (as many as before)");
             if (s.Before != 0)
@@ -94,10 +95,9 @@ namespace Dvmp.Scenarios
                 yield return Wait.Until(() => (item = go.GetComponent<NetworkedItem>()) != null && item.NetId != 0 && LiveItems.TryGet(item.NetId, out record),
                     10f, $"the spawned {spec.ItemPrefabName}'s server record");
                 Items.Track(item.NetId);
-                record.PersistentOwnerIdentity = Guid.NewGuid();
-                record.PersistentOwnerPlayerId = client.PlayerId;
+                record.Owner = Guid.NewGuid();   // records keep no owner number since R1: only an identity
                 yield return null;
-                step.Result = new Stale { Prefab = spec.ItemPrefabName, Item = item.NetId, Number = client.PlayerId, Before = before, After = Owned(spec.ItemPrefabName) };
+                step.Result = new Stale { Prefab = spec.ItemPrefabName, Item = item.NetId, Number = PlayerNumbers.OwnerOf(record.Owner), Before = before, After = Owned(spec.ItemPrefabName) };
             }
 
             /// <summary>Host: makes the client an admin, in memory only. Result: its name, and the

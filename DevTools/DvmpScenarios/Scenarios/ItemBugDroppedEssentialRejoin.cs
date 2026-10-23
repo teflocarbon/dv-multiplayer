@@ -107,7 +107,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static string ServerClaim(ushort id) =>
                 LiveItems.TryGet(id, out var r)
-                    ? $"{r.Placement} owner {r.PersistentOwnerPlayerId}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
+                    ? $"{r.Placement} owner {r.Owner}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
                     : "no record";
 
             /// <summary>Client: where the dropped essential's silhouette is, or what holds its claim

@@ -6,7 +6,6 @@ using System;
 using System.Collections;
 using System.Linq;
 using Multiplayer.Core.Items.Ledger;
-using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
@@ -23,15 +22,19 @@ namespace Dvmp.Scenarios
         public bool Exists;
         public ushort NetId;
         public string Id = "", Owner = "", Placement = "", Holder = "", LostEntry = "", LedgerOwner = "", LedgerWhere = "";
+        /// <summary>The owner number sent on the wire (until R2), and the holder's session number.</summary>
         public int Number, PlacementPlayer;
-        /// <summary>The owner number the client and the host's own player have now (0 for none).</summary>
+        /// <summary>The session numbers the client and the host's own player have now (0 for none).</summary>
         public int ClientNumber, HostNumber;
+        /// <summary>Whether the owner's identity has a session now.</summary>
+        public bool OwnerConnected;
 
         public bool Lost => LostEntry.Length > 0;
-        public bool Absent => Number == ItemTransition.AbsentOwnerId;
+        /// <summary>Owned by an identity with no session: an offline owner (item-refactor.md, "Identity only").</summary>
+        public bool Absent => Owner.Length > 0 && Owner != Guid.Empty.ToString("D") && !OwnerConnected;
 
         public override string ToString() => Exists
-            ? $"{NetId} {Id}: {Placement}{(Holder.Length > 0 ? " of " + Holder : "")}, owner {Owner} (number {Number}){(Lost ? ", in Lost and Found" : "")}; ledger {LedgerWhere}"
+            ? $"{NetId} {Id}: {Placement}{(Holder.Length > 0 ? " of " + Holder : "")}, owner {Owner}{(Absent ? " (offline)" : "")}{(Lost ? ", in Lost and Found" : "")}; ledger {LedgerWhere}"
             : $"{Id}: no item";
     }
 
@@ -61,8 +64,7 @@ namespace Dvmp.Scenarios
             }
             if (NetworkedItem.TryGet(netId, out NetworkedItem item) && item.Item?.InventorySpecs != null)
                 item.Item.InventorySpecs.BelongsToPlayer = true;
-            record.PersistentOwnerIdentity = owner;
-            record.PersistentOwnerPlayerId = ServerLedger.OwnerNumber(owner);
+            record.Owner = owner;
             if (!ServerLedger.Ledger.IsLive(record.PersistentItemId))
                 ServerLedger.Ledger.Register(new BirthRequest
                 {
@@ -92,11 +94,12 @@ namespace Dvmp.Scenarios
             Guid entry = LostAndFoundServer.EntryId(netId);
             info.Exists = true;
             info.Id = record.PersistentItemId.ToString("D");
-            info.Owner = record.PersistentOwnerIdentity.ToString("D");
-            info.Number = record.PersistentOwnerPlayerId;
+            info.Owner = record.Owner.ToString("D");
+            info.OwnerConnected = PlayerNumbers.IsConnected(record.Owner);
+            info.Number = PlayerNumbers.OwnerOf(record.Owner);
             info.Placement = record.Placement.ToString();
-            info.PlacementPlayer = record.PlacementPlayerId;
-            info.Holder = record.PlacementPlayerIdentity == Guid.Empty ? "" : record.PlacementPlayerIdentity.ToString("D");
+            info.PlacementPlayer = PlayerNumbers.Of(record.Holder);
+            info.Holder = record.Holder == Guid.Empty ? "" : record.Holder.ToString("D");
             info.LostEntry = entry == Guid.Empty ? "" : entry.ToString("D");
             if (ServerLedger.Ledger.TryGet(record.PersistentItemId, out Multiplayer.Core.Items.Ledger.LedgerEntry ledger))
             {
@@ -130,7 +133,7 @@ namespace Dvmp.Scenarios
         public static int LostCount(string owner)
         {
             if (!Guid.TryParse(owner, out Guid who)) return -1;
-            int bound = LiveItems.GetAll().Count(r => r.Placement == ItemPlacementKind.LostAndFound && r.PersistentOwnerIdentity == who);
+            int bound = LiveItems.GetAll().Count(r => r.Placement == ItemPlacementKind.LostAndFound && r.Owner == who);
             int waiting = LostAndFoundServer.PendingEntries().Count(p => p.Owner == who);
             return bound + waiting;
         }

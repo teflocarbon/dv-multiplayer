@@ -35,22 +35,22 @@ namespace Dvmp.Scenarios
             if (o.Owner == "host" && pair.Dedicated) throw new HarnessException("OWNER=host needs a player host: a dedicated host has no player to own the mug");
             ushort item;
             string owner;
-            int number;
+            bool ownerConnected;
             if (o.Owner == "absent")
             {
                 item = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
                 AbsentOwner.Absent a = await pair.Host.Run(() => AbsentOwner.InGame.GiveToAbsent(item));
-                (owner, number) = (a.Owner, a.Number);
-                Require.Equal(AbsentOwner.AbsentNumber, number, "the absent owner's number");
+                (owner, ownerConnected) = (a.Owner, a.OwnerConnected);
+                Require.That(!ownerConnected, "the absent owner has no session", owner);
             }
             else
             {
                 item = await pair.Host.Run<ushort>(s => Items.Spawn(s, "Mug", "host"));
                 Owned own = await pair.Host.Run<Owned>(s => InGame.Own(s, item));
                 Require.Equal(own.Host, own.Owner, "the mug's owner (the host's number)");
-                (owner, number) = (await pair.Host.Run(() => Dvmp.Scenarios.Owned.HostIdentity()), own.Owner);
+                (owner, ownerConnected) = (await pair.Host.Run(() => Dvmp.Scenarios.Owned.HostIdentity()), true);
             }
-            Report.Note($"mug {item} belongs to {o.Owner} {owner} (number {number})");
+            Report.Note($"mug {item} belongs to {o.Owner} {owner} (connected: {ownerConnected})");
 
             await pair.Client.Run<int>(s => Items.Stash(s, item, o.Hold == "hand"), 60);
             await Task.Delay(2000);   // the stash reaches the host's record
@@ -69,7 +69,7 @@ namespace Dvmp.Scenarios
                 // Straight to its owner's Lost and Found (owned-items.md, "Leaving"), not left where the client stood.
                 Expect.Equal("LostAndFound", after.Placement, "where the mug went when the client left");
                 Expect.Equal(owner, after.Owner, "the mug's owner after the client left");
-                Expect.Equal(number, after.Number, "the mug's owner number after the client left");
+                Expect.Equal(ownerConnected, after.OwnerConnected, "whether the mug's owner has a session after the client left (as before)");
                 Expect.Equal(after.Id, after.LostEntry, "the mug's Lost and Found entry (its own id)");
             }
             finally
@@ -98,7 +98,7 @@ namespace Dvmp.Scenarios
                 yield return Hands.Drop();
                 for (int i = 0; i < 60; i++) yield return null;
                 LiveItems.TryGet(id, out var r);
-                step.Result = new Owned { Owner = r?.PersistentOwnerPlayerId ?? 0, Host = NetworkLifecycle.Instance.LocalSession.PlayerId };
+                step.Result = new Owned { Owner = PlayerNumbers.OwnerOf(r?.Owner ?? System.Guid.Empty), Host = NetworkLifecycle.Instance.LocalSession.PlayerId };
             }
         }
     }

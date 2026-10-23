@@ -68,9 +68,7 @@ namespace Dvmp.Scenarios
             LiveItems.LiveItem record = null;
             yield return Wait.Until(() => item != null && item.NetId != 0 &&
                 (record = LiveItems.Ensure(item)) != null, 10f, $"the {spec.ItemPrefabName}'s record");
-            record.PersistentOwnerIdentity = owner.Guid;
-            record.PersistentOwnerPlayerId = owner.PlayerId;
-            owner.AddOwnedItem(item.NetId);
+            record.Owner = owner.Guid;
             // GadgetItem.Item is set in Start.
             for (int i = 0; i < 10; i++) yield return null;
             got(item);
@@ -100,7 +98,7 @@ namespace Dvmp.Scenarios
             result.NetId = record.NetId;
             result.Placement = record.Placement.ToString();
             result.CarGuid = record.Placement == ItemPlacementKind.Installed ? record.AttachedCarPersistentId : "";
-            result.OwnerGuid = record.PersistentOwnerIdentity == Guid.Empty ? "" : record.PersistentOwnerIdentity.ToString("D");
+            result.OwnerGuid = record.Owner == Guid.Empty ? "" : record.Owner.ToString("D");
             result.InstalledInVanilla = item != null && Multiplayer.Server.Gadgets.GadgetItemTransitions.IsInstalled(item);
             result.Anchor = gadget != null && gadget.Custom != null ? gadget.Custom.GetIdentificationKey() : "";
             result.Active = item != null && item.gameObject.activeInHierarchy;
