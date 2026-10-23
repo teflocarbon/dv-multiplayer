@@ -195,6 +195,22 @@ public sealed class AllowAllContainerCompatibility : IContainerCompatibilityPoli
     public bool IsCompatible(StoredItemRecord item, ContainerRecord destination) => true;
 }
 
+/// <summary>A saved container row, or a stored item's, that <see cref="ContainerGraph.ImportRows"/> refused, and why.</summary>
+public sealed class ContainerRowRefusal
+{
+    public ContainerRowRefusal(ContainerRecord container, StoredItemRecord item, string reason)
+    {
+        Container = container;
+        Item = item;
+        Reason = reason ?? string.Empty;
+    }
+
+    public ContainerRecord Container { get; }
+    public StoredItemRecord Item { get; }
+    public string Reason { get; }
+}
+
+/// <summary>What the graph holds, copied: for the owned-items list, the debug overlay and the save.</summary>
 public sealed class ContainerGraphSnapshot
 {
     public int Version { get; set; } = 2;
@@ -555,54 +571,83 @@ public sealed class ContainerGraph
             }).ToList()
     };
 
-    public ContainerOperationResult ImportSnapshot(ContainerGraphSnapshot snapshot)
+    /// <summary>
+    /// Loads rows from a save, each on its own (docs/design/items/save-load.md, "Rows stand alone";
+    /// C1): the containers, then the stored items. A row that breaks a rule (a slot out of range or
+    /// taken, a container it isn't in, an owner that isn't its container's, a child container that
+    /// isn't its, nesting deeper than the limit) is refused and returned, and every other row loads.
+    /// The caller keeps the refused rows as they were saved. Replaces whatever the graph held.
+    /// </summary>
+    public IReadOnlyList<ContainerRowRefusal> ImportRows(IEnumerable<ContainerRecord> containerRows,
+        IEnumerable<StoredItemRecord> itemRows)
     {
-        if (snapshot == null || snapshot.Version != 3)
-            return Reject(Guid.Empty, ContainerOperationKind.Browse,
-                ContainerOperationStatus.InvalidRecord, "snapshot-version-invalid");
-        ContainerGraph candidate = new(Limits, compatibility);
-        foreach (ContainerRecord container in snapshot.Containers ?? new List<ContainerRecord>())
-        {
-            ContainerOperationResult added = candidate.AddContainer(container);
-            if (!added.Accepted) return added;
-        }
-        HashSet<Guid> itemIds = new();
-        foreach (StoredItemRecord input in snapshot.Items ?? new List<StoredItemRecord>())
-        {
-            if (input == null || input.PersistentItemId == Guid.Empty || !itemIds.Add(input.PersistentItemId) ||
-                !candidate.containers.TryGetValue(input.ParentContainerId, out ContainerRecord parent) ||
-                !string.Equals(input.PersistentOwnerIdentity, parent.OwnerIdentity,
-                    StringComparison.Ordinal) ||
-                (input.DetachedState?.Length ?? 0) > Limits.MaximumDetachedStateBytes ||
-                input.Slot < 0 || input.Slot >= parent.Capacity ||
-                candidate.FindDirect(input.ParentContainerId, input.Slot) != null ||
-                input.LifecycleState is ItemLifecycleState.PreparingWithdrawal or
-                    ItemLifecycleState.MaterializedPendingCommit or ItemLifecycleState.Materialized)
-                return Reject(Guid.Empty, ContainerOperationKind.Browse,
-                    ContainerOperationStatus.InvalidRecord, "snapshot-item-invalid");
-            StoredItemRecord clone = input.Clone();
-            clone.SessionHandle = candidate.AllocateHandle();
-            if (clone.LifecycleState == ItemLifecycleState.ColdCommittedPendingRetirement)
-                clone.RetiringNetId = input.RetiringNetId;
-            candidate.items.Add(clone.PersistentItemId, clone);
-        }
-        foreach (StoredItemRecord item in candidate.items.Values)
-        {
-            if (!item.ChildContainerId.HasValue) continue;
-            if (!candidate.containers.TryGetValue(item.ChildContainerId.Value, out ContainerRecord child) ||
-                child.ParentItemId.HasValue && child.ParentItemId != item.PersistentItemId)
-                return Reject(Guid.Empty, ContainerOperationKind.Browse,
-                    ContainerOperationStatus.InvalidRecord, "snapshot-child-container-invalid");
-            child.ParentItemId = item.PersistentItemId;
-        }
-        ContainerOperationResult integrity = candidate.ValidateWholeGraph();
-        if (!integrity.Accepted) return integrity;
         containers.Clear();
         items.Clear();
-        foreach (var pair in candidate.containers) containers.Add(pair.Key, pair.Value);
-        foreach (var pair in candidate.items) items.Add(pair.Key, pair.Value);
-        nextSessionHandle = candidate.nextSessionHandle;
-        return Accept(Guid.Empty, ContainerOperationKind.Browse);
+        preparingWithdrawals.Clear();
+        List<ContainerRowRefusal> refused = new();
+        foreach (ContainerRecord row in containerRows ?? Enumerable.Empty<ContainerRecord>())
+        {
+            ContainerOperationResult added = AddContainer(row);
+            if (!added.Accepted)
+                refused.Add(new ContainerRowRefusal(row, null, added.Reason));
+        }
+        foreach (StoredItemRecord row in itemRows ?? Enumerable.Empty<StoredItemRecord>())
+        {
+            string reason = ImportItem(row);
+            if (reason.Length > 0)
+                refused.Add(new ContainerRowRefusal(null, row, reason));
+        }
+        return refused;
+    }
+
+    private string ImportItem(StoredItemRecord input)
+    {
+        if (input == null || input.PersistentItemId == Guid.Empty)
+            return "item-id-missing";
+        if (items.ContainsKey(input.PersistentItemId))
+            return "duplicate-item-id";
+        if (!containers.TryGetValue(input.ParentContainerId, out ContainerRecord parent))
+            return "container-not-found";
+        if (!string.Equals(input.PersistentOwnerIdentity, parent.OwnerIdentity, StringComparison.Ordinal))
+            return "container-foreign-owned-item";
+        if ((input.DetachedState?.Length ?? 0) > Limits.MaximumDetachedStateBytes)
+            return "detached-state-too-large";
+        if (input.Slot < 0 || input.Slot >= parent.Capacity)
+            return "container-slot-invalid";
+        if (FindDirect(input.ParentContainerId, input.Slot) != null)
+            return "container-slot-occupied";
+        ContainerRecord child = null;
+        if (input.ChildContainerId.HasValue &&
+            (!containers.TryGetValue(input.ChildContainerId.Value, out child) ||
+             child.ParentItemId.HasValue && child.ParentItemId != input.PersistentItemId))
+            return "child-container-invalid";
+        StoredItemRecord clone = input.Clone();
+        clone.SessionHandle = AllocateHandle();
+        // After a restart no Unity representation survives: every stored item is cold.
+        clone.LifecycleState = ItemLifecycleState.Cold;
+        clone.RetiringNetId = 0;
+        items.Add(clone.PersistentItemId, clone);
+        Guid? hadParent = child?.ParentItemId;
+        if (child != null)
+            child.ParentItemId = clone.PersistentItemId;
+        ContainerOperationResult depth = ValidateDepthFrom(RootOf(parent.PersistentContainerId));
+        if (depth.Accepted)
+            return string.Empty;
+        items.Remove(clone.PersistentItemId);
+        if (child != null)
+            child.ParentItemId = hadParent;
+        return depth.Reason;
+    }
+
+    // The outermost container above this one, through the items that hold each.
+    private Guid RootOf(Guid containerId)
+    {
+        HashSet<Guid> seen = new();
+        Guid current = containerId;
+        while (seen.Add(current) && containers.TryGetValue(current, out ContainerRecord container) &&
+               container.ParentItemId.HasValue && items.TryGetValue(container.ParentItemId.Value, out StoredItemRecord holder))
+            current = holder.ParentContainerId;
+        return current;
     }
 
     public ContainerOperationResult ValidateWholeGraph()

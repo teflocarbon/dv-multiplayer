@@ -102,7 +102,7 @@ public static class HomeInvariant
         ILookup<Guid, ObservedItem> copies = items.Where(item => item.Id != Guid.Empty).ToLookup(item => item.Id);
 
         // Rules 1 and 2: each live entry's item is in its home, and only there.
-        foreach (LedgerEntry entry in all.Where(entry => entry.IsLive && entry.Home.Kind != HomeKind.Missing))
+        foreach (LedgerEntry entry in all.Where(entry => entry.IsLive && entry.Home.Kind != HomeKind.Unloadable))
         {
             ObservedItem[] found = copies[entry.Id].ToArray();
             if (found.Length == 0)

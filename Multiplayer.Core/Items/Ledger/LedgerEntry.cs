@@ -30,10 +30,10 @@ public enum HomeKind : byte
     /// <summary>Snapped to a snap point (a hanger, a mount), by its parent's key.</summary>
     Snapped,
     /// <summary>
-    /// The load found no store holding it. Kept, and looked for again at the next load, until the
-    /// save-load PR (R4) recovers such an item instead (D9).
+    /// Its saved row can't be made because its prefab is gone (an item mod removed, D9). It has no
+    /// object; the row is kept verbatim, written back unchanged and tried again at each load.
     /// </summary>
-    Missing
+    Unloadable
 }
 
 /// <summary>How an owned item became owned. Saved by name.</summary>
@@ -51,8 +51,6 @@ public enum BirthReason : byte
     Replaced,
     /// <summary>Made by a player with a tool (a label from the label maker).</summary>
     Made,
-    /// <summary>Found in a store of a save written before the ledger.</summary>
-    Migrated,
     /// <summary>
     /// A second live item carrying an id the ledger already had: the copy got a new id, and
     /// <see cref="Birth.From"/> is the one it copied.
@@ -111,7 +109,7 @@ public readonly struct Home : IEquatable<Home>
         new(HomeKind.Installed, anchor: string.IsNullOrEmpty(anchor) ? WorldAnchor : anchor);
     public static Home Attached(string car, bool front) => new(HomeKind.Attached, anchor: car, front: front);
     public static Home Snapped(string parent) => new(HomeKind.Snapped, anchor: parent);
-    public static Home Missing => new(HomeKind.Missing);
+    public static Home Unloadable => new(HomeKind.Unloadable);
 
     /// <summary>Rebuilds a saved home. Fields a kind doesn't use are dropped.</summary>
     public static Home From(HomeKind kind, Guid holder, int slot, byte hand, string anchor, bool front) => kind switch
@@ -120,7 +118,7 @@ public readonly struct Home : IEquatable<Home>
         HomeKind.Hand => InHand(holder, hand),
         HomeKind.TrainInterior => TrainInterior(anchor),
         HomeKind.Shelf => Shelf(anchor),
-        HomeKind.Container => Guid.TryParse(anchor, out Guid container) ? Container(container, slot) : Missing,
+        HomeKind.Container => Guid.TryParse(anchor, out Guid container) ? Container(container, slot) : Unloadable,
         HomeKind.Installed => Installed(anchor),
         HomeKind.Attached => Attached(anchor, front),
         HomeKind.Snapped => Snapped(anchor),
