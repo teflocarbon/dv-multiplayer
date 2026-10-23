@@ -1,11 +1,11 @@
 using DV.Customization;
 using DV.Customization.Gadgets;
 using Multiplayer.Core.Gadgets;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Trains;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Gadgets;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Gadgets;

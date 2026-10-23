@@ -7,8 +7,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 

@@ -1,4 +1,4 @@
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs;

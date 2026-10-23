@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using HarmonyLib;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios

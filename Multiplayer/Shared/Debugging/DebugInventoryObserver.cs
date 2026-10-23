@@ -2,7 +2,7 @@ using DV;
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;
 using System;

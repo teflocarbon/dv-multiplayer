@@ -7,7 +7,7 @@ using DV.Shops;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios

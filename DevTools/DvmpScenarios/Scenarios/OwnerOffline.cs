@@ -1,8 +1,7 @@
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Shared.Items.LiveState;
 
 namespace Dvmp.Scenarios
 {

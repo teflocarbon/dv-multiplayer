@@ -2,12 +2,14 @@ using System;
 using System.Collections;
 using DV.CabControls;
 using DV.Shops;
-using Multiplayer.Server.Items;
+using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Utils;
 using UnityEngine;
-using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
+using ItemMoveReason = Multiplayer.Core.Items.ChangeCauses.ItemMoveReason;
 
 namespace Multiplayer.Server.Shops;
 

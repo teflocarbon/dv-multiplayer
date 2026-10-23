@@ -1,6 +1,6 @@
 using DV;
 using DV.InventorySystem;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Serialization;
 using Multiplayer.Debugging.Protocol;
 using Newtonsoft.Json;

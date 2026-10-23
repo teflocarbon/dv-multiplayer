@@ -2,8 +2,7 @@ using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LostAndFound;
 using UnityEngine;
 
 namespace Dvmp.Scenarios

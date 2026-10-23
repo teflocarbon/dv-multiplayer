@@ -3,7 +3,7 @@
 using System.Collections;
 using System.Linq;
 using Dvmp.Lib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios

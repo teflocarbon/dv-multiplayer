@@ -1,6 +1,6 @@
 using DV.Shops;
 using HarmonyLib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Server.Shops;

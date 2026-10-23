@@ -4,8 +4,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Multiplayer.Server.Chat;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -176,7 +177,7 @@ namespace Dvmp.Scenarios
             {
                 Guid who = Guid.Parse(owner);
                 var ids = OwnedItemsServer.Ledger.LiveOwnedBy(who)
-                    .Where(e => e.Prefab == prefab && e.Where.Place == Multiplayer.Core.Items.OwnedItemPlace.LostAndFound)
+                    .Where(e => e.Prefab == prefab && e.Where.Place == Multiplayer.Core.Items.Ledger.OwnedItemPlace.LostAndFound)
                     .Select(e => e.Id).ToList();
                 return AuthoritativeItemRegistry.GetAll().Where(r => ids.Contains(r.PersistentItemId)).Select(r => r.NetId).ToArray();
             }
@@ -190,7 +191,7 @@ namespace Dvmp.Scenarios
             public static Kit KitSince(string owner, string[] except)
             {
                 Guid who = Guid.Parse(owner);
-                var kit = OwnedItemsServer.Ledger.LiveOwnedBy(who).Where(e => e.Born.Reason == Multiplayer.Core.Items.OwnedItemBirth.StarterKit && !except.Contains(e.Id.ToString("D"))).ToList();
+                var kit = OwnedItemsServer.Ledger.LiveOwnedBy(who).Where(e => e.Born.Reason == Multiplayer.Core.Items.Ledger.OwnedItemBirth.StarterKit && !except.Contains(e.Id.ToString("D"))).ToList();
                 var nets = new List<ushort>();
                 foreach (var e in kit)
                 {

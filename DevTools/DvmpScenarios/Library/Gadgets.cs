@@ -7,9 +7,10 @@ using System.Linq;
 using DV.Customization;
 using DV.Customization.Gadgets;
 using DV.Customization.Gadgets.Implementations;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using UnityEngine;
 

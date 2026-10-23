@@ -6,9 +6,12 @@ using System.Collections;
 using System.Linq;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Server.Items.Access;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -137,7 +140,7 @@ namespace Dvmp.Scenarios
             GameObject copy = UnityEngine.Object.Instantiate(spec.gameObject, original.transform.position + Vector3.up * 0.5f,
                 Quaternion.identity, WorldMover.OriginShiftParent);
             // PersistentWorldItemIdentity is the mod's internal component.
-            Type identityType = typeof(AuthoritativeItemRegistry).Assembly.GetType("Multiplayer.Server.Items.PersistentWorldItemIdentity", true);
+            Type identityType = typeof(AuthoritativeItemRegistry).Assembly.GetType("Multiplayer.Server.Items.SaveLoad.PersistentWorldItemIdentity", true);
             Component identity = copy.GetComponent(identityType) ?? copy.AddComponent(identityType);
             identityType.GetProperty("Value").SetValue(identity, record.PersistentItemId);
             NetworkedItem item = copy.GetComponent<NetworkedItem>();

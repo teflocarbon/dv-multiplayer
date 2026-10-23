@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 

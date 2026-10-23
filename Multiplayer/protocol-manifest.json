@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.23-dev.2123+b40f3fe6070afbdf440e5f50c24ea02733faa2d9",
-  "Fingerprint": "cc2bcdee8abb0ca70e4dc2e46d9f9bd883df59e34f74fd059f226af5bdcf8515",
+  "BuildVersion": "2026.10.23-dev.2358+7e1d49a0b0a6faebaaa5dabdfbb754eb999fdf1e",
+  "Fingerprint": "d49b0fe782ebdaa57403e939fc31bf1d6d4d011359f26b33552a60f2cc909865",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1395,7 +1395,7 @@
       "EnvironmentDamageFuel": 201,
       "EnvironmentDamageCoal": 202
     },
-    "Multiplayer.Core.Items.ItemMoveReason": {
+    "Multiplayer.Core.Items.ChangeCauses.ItemMoveReason": {
       "Unknown": 0,
       "PickedUp": 1,
       "TakenFromInventory": 2,
@@ -1426,7 +1426,7 @@
       "Issued": 27,
       "StarterKit": 28
     },
-    "Multiplayer.Core.Items.ItemRemovalReason": {
+    "Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason": {
       "Unknown": 0,
       "DestroyedByGame": 1,
       "CollectedToLostAndFound": 2,
@@ -1517,7 +1517,7 @@
       "CoupleRefused": 8,
       "FollowingHost": 9
     },
-    "Multiplayer.Shared.Items.ItemState": {
+    "Multiplayer.Shared.Items.LiveState.ItemState": {
       "Dropped": 0,
       "Thrown": 1,
       "InHand": 2,

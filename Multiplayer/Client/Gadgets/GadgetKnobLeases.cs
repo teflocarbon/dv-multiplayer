@@ -3,7 +3,7 @@ using DV.Customization;
 using DV.Customization.Gadgets;
 using HarmonyLib;
 using Multiplayer.Core.Gadgets;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.Train;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;

@@ -7,13 +7,17 @@ using DV;
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.Utils;
-using Multiplayer.Server.Items;
+using Multiplayer.Core.Items.ChangeCauses;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Essentials;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using UnityEngine;
-using ItemMoveReason = Multiplayer.Core.Items.ItemMoveReason;
+using ItemMoveReason = Multiplayer.Core.Items.ChangeCauses.ItemMoveReason;
 
 namespace Multiplayer.Server.Chat;
 

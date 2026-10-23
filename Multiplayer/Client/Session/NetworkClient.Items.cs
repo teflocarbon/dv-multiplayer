@@ -1,9 +1,12 @@
 ﻿using DV;
 using DV.InventorySystem;
 using LiteNetLib;
-using Multiplayer.Client.Items;
+using Multiplayer.Client.Items.ChangeCauses;
+using Multiplayer.Client.Items.LiveState;
+using Multiplayer.Client.Items.LostAndFound;
+using Multiplayer.Client.Items.Projection;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Protocol.Packets.Common;

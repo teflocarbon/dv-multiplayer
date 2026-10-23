@@ -4,7 +4,7 @@ using DV.HUD;
 using HarmonyLib;
 using Multiplayer.Client.Session;
 using Multiplayer.Shared.Gadgets;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Gadgets;
 using Multiplayer.Shared.Session;
 using UnityEngine;

@@ -3,9 +3,9 @@ using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Server.Items.OwnedItems;
+using Multiplayer.Server.Items.OwnedList;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using UnityEngine;
 

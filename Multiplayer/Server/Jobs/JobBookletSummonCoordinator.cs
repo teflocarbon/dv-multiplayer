@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using DV.Booklets;
 using DV.ThingTypes;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -118,7 +119,7 @@ public static class JobBookletSummonCoordinator
         if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, requester,
                 ItemTransitionReason.JobBookletSummon, true, out string rejectionReason,
                 clearRetrievalClaim: true,
-                cause: ItemChangeLog.Move(global::Multiplayer.Core.Items.ItemMoveReason.JobBookletSummoned, requester,
+                cause: ItemChangeLog.Move(global::Multiplayer.Core.Items.ChangeCauses.ItemMoveReason.JobBookletSummoned, requester,
                     "to where " + requester.Username + " summoned it")))
         {
             Multiplayer.LogWarning($"Unable to summon job booklet {item.NetId}: {rejectionReason}");

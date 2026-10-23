@@ -5,12 +5,12 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Core.Containers;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Core.Items.Containers;
+using Multiplayer.Server.Items.Containers;
+using Multiplayer.Shared.Items.LiveState;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using CUI = Multiplayer.Client.Items.ColdContainerUiIntegration;
+using CUI = Multiplayer.Client.Items.Containers.ColdContainerUiIntegration;
 
 namespace Dvmp.Scenarios
 {

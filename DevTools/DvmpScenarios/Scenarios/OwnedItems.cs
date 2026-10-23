@@ -2,8 +2,9 @@ using System;
 using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
-using Multiplayer.Server.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Server.Items.Essentials;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
 

@@ -5,7 +5,7 @@ using DV.ThingTypes;
 using DV.Utils;
 using JetBrains.Annotations;
 using MPAPI.Interfaces;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Trains;
 using Multiplayer.Shared.World;

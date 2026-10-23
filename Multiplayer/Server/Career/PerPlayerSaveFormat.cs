@@ -2,12 +2,10 @@ using DV;
 using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using DV.ThingTypes;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Players;
-using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
-using Multiplayer.Core.Containers;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -131,7 +129,7 @@ public static class PerPlayerSaveFormat
             index++;
             if (item == null || string.IsNullOrEmpty(item.itemPrefabName) || WorldItemPersistenceManager.IsJobSystemDocument(item.itemPrefabName))
                 continue;
-            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Server.Items.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
+            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Server.Items.SaveLoad.PersistentWorldItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
                 ? saved : ConvertedItemId(owner, index, item);
             if (!known.Add(id))
                 continue;   // already a record: nothing to move

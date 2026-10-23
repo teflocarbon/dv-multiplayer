@@ -5,10 +5,14 @@
 using System;
 using System.Collections;
 using System.Linq;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
+using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Core.Items.LostAndFound;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 
 namespace Dvmp.Scenarios

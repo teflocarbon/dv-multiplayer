@@ -1,6 +1,6 @@
 using System.Collections;
 using HarmonyLib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Session;

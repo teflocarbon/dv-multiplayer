@@ -4,7 +4,6 @@ using DV.Logic.Job;
 using DV.ServicePenalty;
 using DV.UserManagement;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Newtonsoft.Json;

@@ -2,9 +2,9 @@ using System;
 using System.Collections;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
-using CUI = Multiplayer.Client.Items.ColdContainerUiIntegration;
+using CUI = Multiplayer.Client.Items.Containers.ColdContainerUiIntegration;
 
 namespace Dvmp.Scenarios
 {

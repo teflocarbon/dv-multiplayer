@@ -3,7 +3,7 @@ using DV.Logic.Job;
 using LiteNetLib;
 using Multiplayer.Client.Jobs;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Protocol.Data.World;

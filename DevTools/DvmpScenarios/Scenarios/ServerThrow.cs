@@ -4,9 +4,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
-using Multiplayer.Server.Items;
+using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -169,7 +171,7 @@ namespace Dvmp.Scenarios
                 snapshot.InventoryClaimSlot = -1;
                 snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
                 if (!AuthoritativeItemRegistry.TryApplyTransition(item, snapshot, actor, ItemTransitionReason.Unknown, true,
-                        out string rejection, cause: ItemChangeLog.Move(Multiplayer.Core.Items.ItemMoveReason.Thrown, actor, "dvmp server-throw")))
+                        out string rejection, cause: ItemChangeLog.Move(Multiplayer.Core.Items.ChangeCauses.ItemMoveReason.Thrown, actor, "dvmp server-throw")))
                     throw new Exception("the throw was refused: " + rejection);
                 var manager = ServerItemManager.Instance;
                 // In its world cell the moment the transition is committed, before anything applies it.

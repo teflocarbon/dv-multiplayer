@@ -1,6 +1,6 @@
 using DV.ServicePenalty.UI;
-using Multiplayer.Client.Items;
-using Multiplayer.Shared.Items;
+using Multiplayer.Client.Items.LostAndFound;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Session;
@@ -260,7 +260,7 @@ internal sealed class LostItemsCareerManagerScreen : MultiplayerCareerManagerScr
         {
             LostItemData item = items[Selected];
             message = $"LOST {item.Handle}  NET {item.NetId}  " +
-                $"{((global::Multiplayer.Core.Items.LostItemReason)item.Reason)}";
+                $"{((global::Multiplayer.Core.Items.LostAndFound.LostItemReason)item.Reason)}";
         }
         EnsureVisible();
         Render();

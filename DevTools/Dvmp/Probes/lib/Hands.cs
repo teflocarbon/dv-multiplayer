@@ -8,7 +8,7 @@ using DV.Interaction;
 using DV.Interaction.Inputs;
 using DV.UI;
 using Dvmp.Agent;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Lib

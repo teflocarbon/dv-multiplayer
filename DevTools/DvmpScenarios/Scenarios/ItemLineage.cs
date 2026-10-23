@@ -2,11 +2,12 @@ using System;
 using System.Collections;
 using System.Linq;
 using System.Threading.Tasks;
-using Multiplayer.Core.Items;
-using Multiplayer.Server.Items;
-using Multiplayer.Server.Items.OwnedItems;
+using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.OwnedList;
 using Multiplayer.Server.Session;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -83,7 +84,7 @@ namespace Dvmp.Scenarios
                 NetworkedItem made = go.GetComponent<NetworkedItem>();
                 float t0 = Time.realtimeSinceStartup;
                 while ((made == null || made.NetId == 0) && Time.realtimeSinceStartup - t0 < 5f) yield return null;
-                bool recorded = OwnedItemsServer.RecordReplacement(used, made, Multiplayer.Core.Items.ItemRemovalReason.DestroyedByGame, "item-lineage scenario");
+                bool recorded = OwnedItemsServer.RecordReplacement(used, made, Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason.DestroyedByGame, "item-lineage scenario");
                 UnityEngine.Object.Destroy(used.gameObject);
                 for (int i = 0; i < 30; i++) yield return null;
                 AuthoritativeItemRegistry.TryGet(made.NetId, out var record);

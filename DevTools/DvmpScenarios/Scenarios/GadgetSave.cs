@@ -3,7 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DV.Customization;
 using DV.Customization.Gadgets;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
@@ -132,7 +132,7 @@ namespace Dvmp.Scenarios
             }
 
             private static string Id(NetworkedItem item) =>
-                item.GetComponent<Multiplayer.Server.Items.PersistentWorldItemIdentity>().Value.ToString("D");
+                item.GetComponent<Multiplayer.Server.Items.SaveLoad.PersistentWorldItemIdentity>().Value.ToString("D");
         }
     }
 }

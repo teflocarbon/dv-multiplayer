@@ -2,7 +2,7 @@ using DV.Booklets;
 using DV.Logic.Job;
 using DV.ThingTypes;
 using Multiplayer.Shared.Debugging;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Data.Jobs;

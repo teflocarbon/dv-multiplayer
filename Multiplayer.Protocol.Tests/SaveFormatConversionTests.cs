@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Multiplayer.Core.Containers;
+using Multiplayer.Core.Items.Containers;
 using Multiplayer.Server.Career;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using Job = DV.Logic.Job.Job;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Jobs;
 using Multiplayer.Shared.Trains;

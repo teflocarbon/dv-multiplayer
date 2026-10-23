@@ -6,7 +6,7 @@ using DV.Interaction;
 using DV.Shops;
 using HarmonyLib;
 using Multiplayer.Core.Shops;
-using Multiplayer.Shared.Items;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Shops;
 using UnityEngine;
 
