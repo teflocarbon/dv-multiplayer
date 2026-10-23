@@ -15,6 +15,7 @@ host-authority model works end to end, then points at the rest.
 | [testing.md](testing.md) | Unit and protocol tests, the protocol fingerprint, and every dvmp scenario in the gate |
 | [observability.md](observability.md) | In-game debug overlay, structured events, traces and the debug HTTP API |
 | [playtest-tracker.md](playtest-tracker.md) | The working list from playtests: what broke, what's fixed, what's open |
+| [item-overhaul-checklist.md](item-overhaul-checklist.md) | Every requirement of the item overhaul, one row each, ticked as it's built. Every item PR lists the IDs it closes and ticks them (merged code plus a proving scenario on both host kinds) |
 
 ## How each system syncs
 
