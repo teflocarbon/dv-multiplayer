@@ -79,6 +79,11 @@ can see and touch.
 - **No duplicate on the server** (OI-COLD-06): an item in a connected remote player's inventory is
   data only on the server, like a cold item; that player's game holds the only object. The server
   keeps objects only for live homes it shows (the world, cars, shelves) and the host's own player.
+- **Cold inventories, client included** (D14, user): further than the bullets above, a
+  player's inventory holds no objects on their own game either. The client draws it from the
+  server's rows, as for a cold container, and an item becomes an object only when it is taken
+  out to a hand or the world (made at once from its row, predicted, confirmed by the server).
+  Where it is built is decided after a sizing of vanilla's inventory (OI-COLD-09 to -11).
 
 ## Decisions
 
@@ -104,6 +109,7 @@ can see and touch.
 | D11 | **Items from other mods** (custom_item_mod and the item packs it loads) will be built like vanilla items (their prefabs spawn on every game, each item's own saved state reaches clients, a client joins only with the same item mods), **paused for after the refactor** (the user, later the same day). Mod-specific compatibility (Railway Brake Shoe) isn't planned: the user is talking to that mod's developer | user, 2026-10-23 |
 | D12 | **Cold and live homes.** An item whose home nobody is using is cold: data only (its state, and its ledger entry if owned), with no object on any game. Cold homes: an offline player's inventory and claim slots, Lost and Found, a container. A leaving holder's inventory goes cold, and a joining owner's is made from its state in its exact slots. **Every inventory is server data:** a connected player's inventory objects are a view. The client is optimistic: it shows a stash, slot move, hotbar switch, drop or pick-up at once and sends it as a request; the server commits it to the ledger in its own order and confirms, and only a refusal rolls the client back. On the server, an item in a connected remote player's inventory is data only too (no duplicate object); that player's game holds the only object (OI-COLD-06) | user, 2026-10-24 |
 | D13 | **The gadget UID is the gadget's,** not the item's home: an installed item's home is `Installed(anchor)`, the anchor its car or the world (`:global:`), and the gadget keeps its own UID. OI-GAD-04 (the home records the UID) is not needed | user, 2026-10-24 |
+| D14 | **Cold inventories, like cold containers.** A player's inventory holds no game objects on any game, their own included: it is rows on the server (item, exact slot, state), and the client draws its inventory, hotbar and essential outlines from those rows, as the cold container UI does for a box. Taking an item out (to the hand, a drop, a use) makes its object from its row at once on that player's game (predicted, so it never waits) and the server confirms or rolls back; putting it away destroys the object and it is a row again. Only items in hands and in the world are objects. This goes further than D12's online half, where the player's game kept its inventory objects as a view | user, 2026-10-23 ("ColdInventories like we have with ColdContainers"), recorded 2026-10-24 |
 | L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and the legacy docs are in `docs/legacy/items/` (moved 2026-10-24, [Docs](#docs)) | user, 2026-10-23 |
 | C1 | Cold containers start fresh (D1), and their new save must make the failures behind F18 (an empty graph written over a save the import refused), the depth check and quarantine impossible by design, not by a stopgap | user, 2026-10-23 |
 

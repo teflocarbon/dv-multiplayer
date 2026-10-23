@@ -64,7 +64,7 @@ On 2026-10-24, with R3 (#342, #343, #344):
 | Starting items | 4 | 1 | 4 | 1 | 0 | 0 | 0 |
 | Essentials and claims | 5 | 0 | 8 | 2 | 0 | 0 | 1 |
 | Inventory slots | 0 | 0 | 2 | 1 | 0 | 0 | 0 |
-| Cold and live homes | 0 | 0 | 5 | 3 | 0 | 0 | 0 |
+| Cold and live homes | 0 | 0 | 5 | 6 | 0 | 0 | 0 |
 | Lost and Found | 10 | 2 | 2 | 8 | 0 | 0 | 0 |
 | The list and retrieval | 7 | 2 | 5 | 3 | 0 | 6 | 0 |
 | Lineage | 2 | 1 | 1 | 0 | 0 | 3 | 0 |
@@ -79,7 +79,7 @@ On 2026-10-24, with R3 (#342, #343, #344):
 | Gadgets seam | 1 | 1 | 1 | 1 | 0 | 7 | 1 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 267** | **63** | **14** | **47** | **83** | **0** | **49** | **11** |
+| **All 270** | **63** | **14** | **47** | **86** | **0** | **49** | **11** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -265,6 +265,9 @@ An item in a home nobody is using is data only, and every inventory is server da
 | OI-COLD-06 | **No duplicate on the server:** an item in a connected remote player's inventory is data only on the server, like a cold item; that player's game holds the only object | D12 (user, 2026-10-24: "keep data only") | `[~] #343 built` | #343 · `PlayerItems.DataOnly`: settled 1 s with its holder, the server destroys its object and keeps the record and NetId; `WithObject` makes it again for requests, shop deposits and container browses; job papers stay objects (OI-COLD-07, R6) · `cold-homes` (p): the lantern is data on the server, moved while data; `ledger-rows` (p) |
 | OI-COLD-07 | Job papers in a connected remote player's inventory are data only on the server too (OI-COLD-06): the server keeps the job's id, and the booklet or report is made again from its job (`BookletCreator`) when anything needs it | D12; OI-COLD-06; the user, 2026-10-24 (job papers: option A, deferred to R6) | `[ ]` | R6. R3 leaves them as objects on the server (`PlayerItems.ShouldBeData` skips `IsJobSystemDocument`), because the job system tracks them per player (`TryGetIssuedJobBooklet`) |
 | OI-COLD-08 | Lost and Found entries are data only on the server: no object until retrieved or recalled | D12; user 2026-10-24 (option A) | `[ ]` | R6. R3 leaves them as objects in vanilla's Lost and Found storage |
+| OI-COLD-09 | **A player's inventory holds no objects on any game, their own included:** it is the server's rows (item, exact slot, state), and the client draws its inventory, hotbar, item icons and essential outlines from them, as the cold container UI does | D14 (user 2026-10-23, recorded 2026-10-24) | `[ ]` | Decided, not built. Where it is built (R4, or a stage of its own) is set after a read-only sizing of vanilla's inventory. Today (#343) the player's own game keeps real objects in its inventory |
+| OI-COLD-10 | Taking an item out of an inventory (to the hand, a drop, a use) makes its object from its row at once on that player's game, predicted, and the server confirms or rolls it back; putting it away destroys the object and it is a row again | D14 (user 2026-10-23, recorded 2026-10-24) | `[ ]` | Decided, not built. Where it is built (R4, or a stage of its own) is set after a read-only sizing of vanilla's inventory |
+| OI-COLD-11 | Everything that reads inventory objects today reads the rows instead, each listed and checked: vanilla's `Inventory` and its UI and hotbar, the job booklets tracked per player, recall, starting items and essentials, and items from other mods | D14 (user 2026-10-23, recorded 2026-10-24) | `[ ]` | Decided, not built. Where it is built (R4, or a stage of its own) is set after a read-only sizing of vanilla's inventory. The sizing lists them |
 
 ## Lost and Found
 
