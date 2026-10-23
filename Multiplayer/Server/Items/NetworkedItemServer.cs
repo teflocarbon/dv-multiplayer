@@ -377,6 +377,12 @@ public static class NetworkedItemServer
             var updateData = item.CreateUpdateData(ItemUpdateData.ItemUpdateType.Destroy);
             if (updateData != null)
             {
+                // The snapshot carries the item's last transition. A Lost and Found collection's
+                // tells clients to keep an inert copy, so this, the item's end, would leave every
+                // client that saw the collection holding one for good.
+                if (updateData.TransitionReason is ItemTransitionReason.LostAndFoundCollection or
+                    ItemTransitionReason.ContainerDeposit or ItemTransitionReason.InterestRetirement)
+                    updateData.TransitionReason = ItemTransitionReason.Unknown;
                 updateData.RemovalCause = removal;
                 ServerItemManager.Instance?.AddDirtyItemSnapshot(item, updateData);
             }
