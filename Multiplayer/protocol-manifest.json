@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.24-dev.0609+4b21b50c390660f7e18e4d8fd9abe9a723440a19",
-  "Fingerprint": "152cba0c1fe047e0ed93d75ec4021e50f192f5b29d8ec112616e3a80753fb87e",
+  "BuildVersion": "2026.10.24-dev.0631+4c5c3d008cee71deef5e55e0a481d00a6dd12588",
+  "Fingerprint": "0b02842ab1584ae258f75b2cb9949b9485c3dac479ef68fdb07567f9f57f65d5",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",

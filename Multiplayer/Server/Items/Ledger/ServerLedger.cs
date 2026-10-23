@@ -261,6 +261,17 @@ public static partial class ServerLedger
         return InventorySlots.FirstFree(slot => !Free(slot));
     }
 
+    // A save from before every inventory item kept its slot has inventory items without one: each
+    // takes its saved claim, else the lowest free slot, essentials first, so the ledger can register
+    // it where it is.
+    private static void GiveSlots()
+    {
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll()
+                     .Where(r => r.Placement == ItemPlacementKind.PlayerInventory && r.Slot < 0 && r.Holder != Guid.Empty)
+                     .OrderByDescending(r => r.StoredClaimSlot >= 0).ThenBy(r => r.NetId).ToArray())
+            record.Slot = FreeSlot(record, record.Holder, record.StoredClaimSlot);
+    }
+
     // A claim the ledger moved as another essential took its slot: the owner's game is told.
     private static void OnLedgerChanged(LedgerChange change)
     {
@@ -391,6 +402,7 @@ public static partial class ServerLedger
     {
         loaded = true;
         bool migrating = multiplayerRoot?[SaveKey] == null;
+        GiveSlots();
         IReadOnlyList<OwnedItemLoadStep> steps = LoadReconciler.Plan(ledger.All(), StoreHits());
         LoadReconciler.ApplyToLedger(ledger, steps);
         if (migrating && multiplayerRoot?["Players"] is JObject players)

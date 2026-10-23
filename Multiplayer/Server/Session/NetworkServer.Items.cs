@@ -465,6 +465,8 @@ public partial class NetworkServer : IItemServer
     {
         if (!NetworkedItem.TryGet(request.ItemNetId, out NetworkedItem item) || item == null)
             return Refuse(request, "unknown-network-entity");
+        if (!global::Multiplayer.Core.Items.Inventory.InventorySlots.IsValid(request.Slot))
+            return Refuse(request, "slot-invalid");
         LiveItems.LiveItem occupant = LiveItems.GetAll().FirstOrDefault(record =>
             record.NetId != item.NetId && record.Placement == ItemPlacementKind.PlayerInventory &&
             record.Holder == player.Guid && record.Slot == request.Slot);
@@ -477,7 +479,12 @@ public partial class NetworkServer : IItemServer
         Log($"[Inventory] P{player.PlayerId} swapped item {item.NetId} into slot {request.Slot} with item " +
             $"{other.NetId}: {(accepted ? "done" : "refused, " + reason)}");
         if (!accepted)
+        {
+            // The requester's game swapped them already: both go back (inventory.md, "Optimistic").
+            item.SendCanonicalRejectionCorrection(player, reason);
+            other.SendCanonicalRejectionCorrection(player, reason);
             return Refuse(request, reason);
+        }
         foreach ((NetworkedItem changed, ItemUpdate snapshot) in new[] { (item, first), (other, second) })
         {
             changed.ApplyServerCanonicalSnapshot(snapshot);

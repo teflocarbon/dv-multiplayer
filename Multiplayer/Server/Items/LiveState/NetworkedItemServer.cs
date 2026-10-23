@@ -109,9 +109,12 @@ public static class NetworkedItemServer
             item.UpdateHostPossessor(snapshot.PlayerId);
         }
 
-        // The host's own player's change has happened in this world already
+        // The host's own player's change has happened in this world already: only its revision is
+        // new, which their next request (a second slot move) must name.
         if (senderPlayer != NetworkServer.Instance.LocalPlayer)
             item.ReceiveSnapshot(snapshot);
+        else
+            item.ApplyAuthorityMetadata(snapshot);
 
         // Placement is part of canonical authority, so the host interest index must change in
         // the same operation. Waiting for ProcessChanged leaves a window where inventory/hand
@@ -125,7 +128,7 @@ public static class NetworkedItemServer
         return null;
     }
 
-    private static void SendCanonicalRejectionCorrection(this NetworkedItem item, ServerPlayer senderPlayer, string rejectionReason)
+    internal static void SendCanonicalRejectionCorrection(this NetworkedItem item, ServerPlayer senderPlayer, string rejectionReason)
     {
         if (senderPlayer == null || NetworkServer.Instance == null)
             return;

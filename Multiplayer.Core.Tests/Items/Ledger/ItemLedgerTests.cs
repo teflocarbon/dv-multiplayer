@@ -204,6 +204,17 @@ public sealed class ItemLedgerTests
     }
 
     [Test]
+    public void AnItemRegisteredWhereItAlreadyIs_IsntInItsOwnWay()
+    {
+        // A first take or an issue: the item's record is in the slot before the ledger owns it.
+        Guid map = G(1);
+        ledger.SlotTakenOutside = (holder, slot, except) => holder == Liam && slot == 7 && except != map;
+
+        Assert.That(Issue(map, "Map", Liam, 7).Status, Is.EqualTo(RegistrationStatus.Registered));
+        Assert.That(Issue(G(2), "Map", Liam, 7, Home.InSlot(Liam, 7)).Refusal, Is.EqualTo("slot-occupied"));
+    }
+
+    [Test]
     public void TwoItemsInOneInventory_SwapSlots_InOneCommit_AndTheClaimsFollow()
     {
         Guid radio = Issue(G(1), "CommsRadio", Liam, 3).Entry.Id;

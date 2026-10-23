@@ -45,6 +45,11 @@ namespace Dvmp.Scenarios
             return slot;
         }
 
+        /// <summary>Host: the run removes this item afterwards, as one its spawn steps made (an item
+        /// made again under a new net ID, after a rejoin).</summary>
+        [Step]
+        public static void Track(ushort netId) => Items.Track(netId);
+
         /// <summary>This game: the slot its inventory shows the item in, or -1.</summary>
         [Step]
         public static int LocalSlot(ushort netId) =>

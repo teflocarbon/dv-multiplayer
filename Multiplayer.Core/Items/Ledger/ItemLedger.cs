@@ -196,7 +196,9 @@ public sealed class ItemLedger
     {
         if (request == null || request.Owner.IsNone || string.IsNullOrEmpty(request.Prefab))
             return new Registration(RegistrationStatus.Invalid, null, Guid.Empty);
-        string taken = SlotRefusal(request.Home, Guid.Empty, request.Owner);
+        // The item itself may already sit in that slot (its record, unowned until now); a copy of a
+        // live item is checked against the original, which keeps its slot.
+        string taken = SlotRefusal(request.Home, entries.ContainsKey(request.Id) ? Guid.Empty : request.Id, request.Owner);
         if (taken.Length > 0)
             return new Registration(RegistrationStatus.Refused, null, Guid.Empty, taken);
 
