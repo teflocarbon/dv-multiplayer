@@ -24,14 +24,18 @@ host-authority model works end to end, then points at the rest.
 | [design/track-graph-check.md](design/track-graph-check.md) | The join check that host and client numbered their tracks, junctions and turntables the same way |
 | [jobs.md](jobs.md) | Job generation, taking jobs, booklets and reports, validation and hand-in, save and rejoin |
 | [design/trains.md](design/trains.md) | Train sync: canonical topology (couplers, hoses, cocks, MU cables), control commits, motion and corrections |
-| [design/train-item-wake.md](design/train-item-wake.md) | Items inside moving trains: settlement and the host-side wake simulation |
-| [design/item-lifecycle.md](design/item-lifecycle.md) | The canonical item lifecycle: identity, ownership, placement, Lost and Found, persistence |
-| [design/item-world-sync.md](design/item-world-sync.md) | Scene-authored items, cell-based interest and world item streaming |
-| [design/item-spatial-physics.md](design/item-spatial-physics.md) | Thrown and dropped items: simulation leases, sampling and settlement |
-| [design/container-storage.md](design/container-storage.md) | Cold container storage on the host |
-| [design/shops.md](design/shops.md) | Planned: shops as a server transaction (shared registers and shelves, per-player stock, delivery to the owner, prediction), with an audit of today's shop code |
-| [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | Ownership rules that are decided, and the game-design questions that are still open |
-| [design/item-sync-review.md](design/item-sync-review.md) | The July review of item sync, with the status of each finding |
+| [design/item-lifecycle.md](design/item-lifecycle.md) | **Start here for items.** An item's whole life in short, the record's facts and placements, the state machine, cleanup precedence and the shared rules, with a link to each item system's doc |
+| [design/owned-items.md](design/owned-items.md) | Ownership and the owned-items ledger: one id for life, starting items, joining and leaving, essentials' claim slots and recall, the owned-items list and retrieval, lineage, `ItemAccess` and fixtures, and the decisions with their dates |
+| [design/lost-and-found.md](design/lost-and-found.md) | Lost and Found: what is collected and when, entries, retrieval, saving and loading |
+| [design/container-storage.md](design/container-storage.md) | Cold containers: contents as server records, browse, deposit, withdraw, saving |
+| [design/item-world-sync.md](design/item-world-sync.md) | Scene-authored items and the catalogue, cells and interest, projection to clients, convergence, anchored placements, the VR belt and office stock |
+| [design/item-spatial-physics.md](design/item-spatial-physics.md) | Thrown and dropped items: simulation leases, sampling, settlement, the terrain guard and fall rescue |
+| [design/train-item-wake.md](design/train-item-wake.md) | Items resting in moving trains, and the server waking them |
+| [design/item-persistence.md](design/item-persistence.md) | Which store saves each item, `WorldItemsV1`, and how a load rebuilds them |
+| [design/item-change-causes.md](design/item-change-causes.md) | Why an item moved or went away: the recorded causes, on the server and clients |
+| [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | The item-ownership questions still open |
+| [design/item-sync-review.md](design/item-sync-review.md) | Historical: the July 2026 review of item sync, with each finding's current status |
+| [design/shops.md](design/shops.md) | Shops as a server transaction: shared registers and shelves, the cash rules and the scanner are built; prediction, delivery to the owner, receipts, station fixtures and per-player stock are planned |
 
 ## Planned
 
@@ -41,7 +45,6 @@ host-authority model works end to end, then points at the rest.
 | [design/multi-anchor-streaming.md](design/multi-anchor-streaming.md) | Research: loading the world (scenery tiles, terrain, origin) around several far-apart players, what lives in which streamed scene, the exact patch points, costs and the measurements still needed |
 | [design/code-layout.md](design/code-layout.md) | Splitting `Multiplayer` into Shared, Server and Client (with `Multiplayer.Core` for the rules): the roles, where each folder goes, the boundary test, and the steps from namespaces to assemblies |
 | [design/host-local-session.md](design/host-local-session.md) | Removing the host's loopback client in stages while keeping one process: the host player's requests go straight to the server's handlers, then a local player session replaces the client; what moves, the dedicated host without a service identity, and the scenarios for each stage |
-| [design/owned-items.md](design/owned-items.md) | One id for life for every item a player owns, and a server-owned ledger of them: inventories, rejoin, Lost and Found, the player's list of their items and retrieving them, built on it; the migration from today's saves |
 | [design/gadgets.md](design/gadgets.md) | Syncing installable gadgets: the server owns installs, removals, mounts, holes, wiring, soldering and gadget state; requests, the per-anchor change log, `Installed` item placement, persistence in the vanilla save, dedicated hosts, late joiners, rollback, and the PR plan with its scenarios |
 | [design/dedicated-host.md](design/dedicated-host.md) | The full game as a host with no local player (`-mp-dedicated`, partly built): the investigation, the service identity, the world following a player, running unattended, and what's left |
 
@@ -54,7 +57,8 @@ host-authority model works end to end, then points at the rest.
 | [research/harness-time-budget.md](research/harness-time-budget.md) | Where dvmp spends wall-clock time: each launch's phases, what dominates a world load, loading against scenario time in a gate batch, and what a faster launch, an in-world reset or a hot reload would save |
 
 Each design doc starts with a status line and has a dated "Implementation status" section that says
-what is built, what is partial and what is not done. Update it when you change how a system syncs.
+what is built, what is partial and what is not done. The item docs are written as built instead, each
+with "Not built" and "Known issues" sections. Update them when you change how a system syncs.
 
 ## Vanilla game research
 

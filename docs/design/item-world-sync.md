@@ -1,1022 +1,274 @@
-# Multiplayer Item World Synchronization Design
-
-> Status: implemented, with the differences listed below. The host-authoritative path has replaced
-> distance-only world-item discovery; there is deliberately no prefab-name compatibility fallback
-> for scene-authored projections.
-
-## Implementation status (audited 2026-10-14)
-
-- **Runtime scenarios:** about 8 of the 29 listed below are covered by dvmp scenarios in
-  `DevTools/Scenarios/` (`train-items`, `lost-and-found`, `recall`, `rejoin`, `save-reload`,
-  `inventory-persist`, `containers`, `shop`, `borrowed-disconnect`); see
-  [`../testing.md`](../testing.md). Not covered: catalogue mismatch, cell enter/leave/re-enter,
-  stale-revision correction, two clients, office replenishment, missing-train recovery.
-- **Superseded:** cell baseline/delta packets with cell revisions. Items use per-item Create and
-  Destroy in the bulk packet.
-- **Differs:** interest (`ServerItemManager.Interest.cs`) enters at the 3 by 3
-  neighbourhood but only leaves outside 5 by 5 (87018fd). A player's set is rebuilt when they change
-  cell or the host item index changes, otherwise four times a second; membership is only rewritten
-  when it changed (fe11afa: ~4 ms to ~0.1 ms a tick near a yard; the station-arrival hitch went from
-  ~605 ms to 150-260 ms). A projection is marked known when sent, not when acknowledged; a negative
-  acknowledgement makes the host forget it and re-send the Create after 5 s (49d915d).
-- **Added since the design:** host convergence re-sends one resting world item per player every
-  0.1 s so drifted client copies heal (`ServerItemManager.Convergence.cs`, b601cc6); items more
-  than 1 m under the terrain are moved back to their last safe pose
-  (`ServerItemManager.FallRescue.cs`, 5cf63a0, f0277de). The host scans where it has terrain;
-  a remote client reports its own items under its terrain (`ClientItemManager.FallRescue.cs`,
-  from the item tick, which until #37 was subscribed on the host only), and the server rescues
-  one only if its copy is under that ground too. An item with a floor under it (a tunnel's) is
-  never rescued. Since the terrain guard puts an item that goes through the terrain back on it the
-  same physics step ([item-spatial-physics.md](item-spatial-physics.md#landing-on-the-terrain)),
-  the rescue is a backstop. Banknote amounts sync as a
-  host-authoritative tracked value and a client's spent note is deposited with the host
-  (`MoneyPatch`, 89c68e6, 99a8f5c).
-- **Where the code is:** the Shared `NetworkedItemManager` keeps the queues every game runs (local
-  state observations, tracked-value finalisation), the prefab lookup, the authored catalogue and
-  the spatial store. Its server part is `ServerItemManager` (`Server/Items`); its remote client's
-  part is `ClientItemManager` (`Client/Items`, behind `IItemManagerClientPart`, made through
-  `ItemClient.Current` on a game that isn't the host): snapshot receipt, deferred world
-  projections, job-document snapshots, Lost and Found tombstones, authored-projection binding,
-  unbound items and their temporary adoption, and the fall-rescue report. Each `NetworkedItem` has
-  the same two halves: on the server, `NetworkedItemServer` (validation and commits) and
-  `NetworkedItemServerPart` (`INetworkedItemServerPart`: a change to the server's own copy waiting
-  for the dirty pass, and who holds it by the server's record); on a remote client only,
-  `NetworkedItemClient` (`INetworkedItemClientPart`): the binding gate and unbound state, the Lost
-  and Found tombstone, adoption, the reset when the host retires it, the release grace and the
-  object-state send gate, sending the local player's changes with the revision they claim, and the
-  convergence and own-drop checks on what comes back.
-- **Persistence:** saves keep other players' inventory and hand items (325c2fb, dba0837) and skip
-  unowned dynamic items (faa42c0), job overviews/booklets, and, on load, "world" items above
-  1,500 m left by older builds (9b59a41).
-- **Not implemented:** missing train car on load going to recovery (`LostItemReason.SaveRecovery`
-  is unused); `InstalledGadget` placement (installed gadgets don't sync: customization holes travel
-  only with car spawns, and the switch and removal hooks never fire; designed in
-  [gadgets.md](gadgets.md));
-  chunked or compressed baselines (compression is commented out).
-- **Gaps:** client item updates are relayed to every player at `ReadyForItems` regardless of
-  interest; no pickup reach check.
-- **Prefab-name matching:** one path exists despite the note above. Rejoin restoration hands a
-  returning player their original item when their game asks to adopt a fresh copy of the same
-  prefab (`TryRestoreReturningOwnerItem`). It applies to player items, not scene-authored ones.
-
-## Goal
-
-Make the host the only authority for world-item identity, lifecycle, placement, ownership, state,
-and persistence. Clients receive bounded projections for the world cells and player-bound items
-relevant to them. A client can request an interaction, but it cannot introduce a scene-authored item
-or commit an item state transition.
-
-Derail Valley already supplies the spatial and presentation foundations:
-
-- all authored world items are scene-resident and distance-hidden rather than destroyed;
-- `ItemDisablerGrid` divides the absolute world into 128 metre cells;
-- the current cell and its eight neighbours form the native active item region;
-- `WorldStreamingInit.IsSceneAndTerrainRegionLoaded` gates safe item reactivation;
-- the floating origin is removed before grid calculation.
-
-Base-game findings are maintained separately in
-[`../research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md`](../research/DERAIL_VALLEY_WORLD_ITEM_STREAMING_LOGIC.md).
-The canonical cross-feature item state model, including the distinction between possession,
-ownership, recovery, and disposable stock, is maintained in
-[`item-lifecycle.md`](item-lifecycle.md).
-Installed gadget, train-customization, and wiring findings are maintained in
-[`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
-Snapped accessory and train-coupler attachment findings are maintained in
-[`../research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md`](../research/DERAIL_VALLEY_ITEM_SNAPPING_LOGIC.md).
-
-## Implemented architecture
-
-The current implementation includes:
-
-- pre-migration stable authored keys captured from `game_content_w3` objects;
-- inactive-inclusive host/client catalogues with count, collision, and digest negotiation;
-- hard quarantine of every unbound client object, including inactive objects later awakened by
-  DV's distance optimizers: exact authored objects become dormant, unauthorized dynamic objects
-  are destroyed, and only the temporary compatibility-adoption policy may retain an unbound item;
-- host-owned 128 metre cell indexes and exact 3 by 3 interest membership;
-- per-recipient Create/retire/re-enter projection lifetimes and compact session acknowledgements;
-- exact authored-key binding, with dynamic prefab instantiation kept as a separate path;
-- host validation of snapshot-shaped logical interaction requests, authority revisions, possession,
-  placement distance, and train/static-parent anchors;
-- durable UUID identity for dynamic records without sending UUIDs in ordinary packets;
-- parent-relative train-interior and static-parent placement;
-- authored overrides, dynamic world records, and authored tombstones in `WorldItemsV1`;
-- exclusion of multiplayer-owned world/inventory entries from vanilla storage persistence;
-- durable player GUID rebinding across disconnect/reconnect;
-- authored identity handoff through cold-container and Lost and Found detachment/materialization;
-- compact protocol fixtures and detached authority/codec tests;
-- host convergence and below-terrain rescue for resting world items.
-
-High-frequency rigidbody authority remains intentionally outside this implementation. The existing
-physics presentation continues to operate behind the new logical authority boundary until that
-separate project is undertaken. The separate spatial-motion, settlement, and delegated-simulation
-design is maintained in
-[`item-spatial-physics.md`](item-spatial-physics.md).
-
-## Non-goals
-
-- Do not network terrain, buildings, meshes, or decorative static scenery.
-- Do not replace Derail Valley's terrain or scene streamer.
-- Do not continuously simulate all distant Unity objects on the host.
-- Do not redesign high-frequency rigidbody, collision, or thrown-item physics replication here.
-  Network physics is specified separately in
-  [`item-spatial-physics.md`](item-spatial-physics.md).
-- Do not allow prefab-name matching to remain a second compatibility path.
-- Do not send persistent UUIDs in routine movement/state packets.
-- Do not preserve two competing item save authorities.
-- Do not implement future container ACLs as part of world sync; current access remains owner-only.
-
-## Core invariant
-
-> The host's authoritative item registry is canonical. A Unity GameObject on the host or a client is
-> a disposable presentation of that record and can never become authoritative merely because it is
-> active, interactive, locally simulated, or present in a vanilla storage list.
-
-This extends the model already used by cold containers and Lost and Found to ordinary world items.
-
-## Authority boundaries
-
-The host owns:
-
-- persistent identity;
-- runtime NetId allocation and retirement;
-- stable authored-object identity;
-- absolute transform and native grid cell;
-- placement and holder;
-- persistent owner and inventory claim;
-- container and Lost and Found membership;
-- item-specific serialized state;
-- lifecycle/tombstones;
-- authoritative revision;
-- saved state.
-
-Clients own only:
-
-- local presentation and prediction;
-- input intent;
-- acknowledgement that a projection was found and applied;
-- reporting local readiness or an explicit projection failure.
-
-## Spatial model
-
-World interest uses Derail Valley's native item cell calculation:
-
-```csharp
-Vector3 absolute = unityPosition - WorldMover.currentMove;
-int cellX = Mathf.FloorToInt(absolute.x / 128f);
-int cellZ = Mathf.FloorToInt(absolute.z / 128f);
-```
-
-The default subscribed world region is the player's current cell plus its eight neighbours, matching
-`ItemDisablerGrid.IsCoordActive`.
-
-```text
-NW  N  NE
- W  P   E
-SW  S  SE
-```
-
-Cell coordinates are derived independently on the host from authoritative absolute player
-positions. The client may report region readiness, but it cannot choose which authoritative records
-belong to a cell.
-
-### Interest is not only spatial
-
-The following records remain relevant independently of their world cell:
-
-- items in the recipient's inventory or hand;
-- items held by another nearby/visible player;
-- equipped or attached items whose parent entity is relevant;
-- an opened container shell and its bounded cold-data view;
-- owner Lost and Found list metadata;
-- active job artifacts required by a relevant job/station lifecycle.
-
-Spatial interest and placement interest are combined by the host into one recipient projection set.
-In the code (`IsNonSpatialRelevantTo`), a hand or inventory item is relevant to its holder, to its
-owner while the owner has a recall claim, and to players whose cells contain the holder; train
-interior and attached items follow their car's live position (and the car's occupants). Container
-views and the Lost and Found list travel on their own packets, and job documents bind to the job
-system's objects.
-
-## Catalogue bootstrap
-
-### Host catalogue
-
-After the world, items, and storage loading phases are ready, the host performs one inactive-inclusive
-catalogue pass over scene-authored `ItemBase` objects. For each object it records:
-
-```text
-SceneItemRecord
-  stableSceneKey
-  canonicalIdentityInput
-  prefabName
-  defaultAbsolutePosition
-  defaultAbsoluteRotation
-  currentAbsolutePosition
-  currentAbsoluteRotation
-  currentCell
-  placement
-  persistentOwner
-  authorityRevision
-  itemStatePayload
-  runtimeNetId
-  lifecycle
-```
-
-This is a one-time scan. Runtime movement updates spatial indexes incrementally.
-
-### Client catalogue
-
-Each client performs the same inactive-inclusive authored-object discovery, but the resulting objects
-are dormant projections:
-
-- no self-assigned authoritative NetId;
-- no outgoing state declaration;
-- no interaction until host binding;
-- no adoption merely because DV activates an ancestor;
-- indexed by stable scene key;
-- retained rather than destroyed when interest is retired.
-
-The client sends a catalogue version/count/hash after discovery. A mismatch is a visible loading or
-debug error, not permission to bind the next object with a matching prefab name. In the code a
-mismatched player gets no scene-authored items at all (`WorldItemCatalogueAccepted`); dynamic items
-still flow, and the server logs a warning.
-
-Both sides compare the catalogue as built from the scene (`AuthoredWorldItemCatalogue.Baseline*`),
-not the live key map. The live map loses a key while a taken office prop waits to be replenished
-(see "Replenishable authored office stock"), so comparing it rejected anyone who joined in that
-window. On 2026-10-19 a player was rejected although their catalogue matched the host's
-afterwards, and every shop scanner vanished for them for the whole session.
-
-### Stable scene key
-
-The identity input must be captured before DV migrates authored content out of its loading scene:
-
-```text
-authored loading-scene path/name
-+ complete pre-migration hierarchy path
-+ deterministic sibling discriminator at each ambiguous level
-+ ItemBase/component discriminator
-```
-
-The full input remains available in debug data. A fixed-size hash is used on the wire and in the
-runtime lookup. Catalogue construction must detect collisions and refuse ambiguous entries.
-
-Runtime inspection followed Unity instance `1098658` from registration as
-`game_content_w3/[origin shift content]/Offices/.../ElectricStove` to its final location as
-`game_w3/origin_shift_parent/ElectricStove`. DV preserves the object but changes its scene and
-flattens its hierarchy. Therefore an after-load scan cannot reconstruct authored identity.
-
-`WorldStreamingInit.LoadingRoutine` defines the first transition exactly. It synchronously loads
-`game_content_w3`, yields one frame, reparents every direct child of `[origin shift content]` to
-`origin_shift_parent`, and moves the remaining content-scene roots into the active `game_w3` scene.
-Loose-item physics then flattens individual objects further: `ItemReparentingBase.OnCollisionEnter`
-selects `WorldMover.OriginShiftParent` when no valid train/static parent exists, and `ParentItem`
-forces sibling index `999`. The catalogue must not depend on either post-transition hierarchy.
-
-The integration must capture the identity in `NetworkedItem.Awake`/`Register` while the staging
-hierarchy still exists, associate it with the surviving object across migration, and only
-finalize/count/hash the catalogue from `WorldStreamingInit.LoadingFinished`. A lightweight identity
-component or lifecycle-owned object-to-key map can carry it. The captured default catalogue record
-must survive even if save restoration removes or relocates its Unity projection. Client and host must
-run the identical capture algorithm. Objects created after staging without such an identity are
-dynamic items, not silently adopted authored items.
-
-The existing integration already supplies this hook: `ItemBase_Patch` postfixes `ItemBase.Awake` and
-immediately adds `NetworkedItem`, causing `NetworkedItem.Awake` to execute before the synchronous
-scene load returns to `WorldStreamingInit`. Identity capture belongs at the beginning of that method
-or its `Register` path; patching the loader coroutine is unnecessary.
-
-`Scene.handle`, the final `game_w3` sibling index, and the flattened runtime path are diagnostic only.
-
-### Separation from vanilla storage materialization
-
-`StartingItemsController` creates every saved world/storage record as a new instance of
-`Resources.Load(itemPrefabName)` at a safety position, then applies transform, parent, inventory,
-container, and `ItemSaveData` state. It does not bind the record back to an authored scene object, and
-`StorageItemData` carries no authored stable key.
-
-Therefore an authored multiplayer-managed item must not be persisted as an anonymous vanilla world
-record. Multiplayer persistence stores its stable authored key plus override/tombstone state. A saved
-dynamic item stores a complete dynamic record. During the transition period, the save boundary must
-ensure that exactly one system owns each item; otherwise the next load can produce both the default
-authored projection and a generic prefab materialization.
-
-Unity instance IDs, runtime NetIds, floating-origin positions, display names, and prefab names alone
-are not persistent authored identities.
-
-## Authoritative record categories
-
-### Unchanged scene-authored item
-
-The item is implied by the host catalogue and requires no full persistent record. Runtime baselines
-can send only stable identity, runtime binding, revision, and any required authority metadata.
-
-### Modified scene-authored item
-
-The host stores an override when an authored item is moved, held, owned, contained, internally
-modified, or otherwise differs from its default catalogue state.
-
-### Destroyed scene-authored item
-
-The host stores a tombstone. A client's dormant scene copy remains quarantined and cannot resurrect
-it when the area activates.
-
-### Dynamically spawned item
-
-The host stores a complete persistent record including prefab, persistent item ID, absolute transform,
-placement, ownership, state payload, and lifecycle. Clients instantiate it only after an authoritative
-Create/baseline entry.
-
-### Detached/cold item
-
-Cold-container and Lost and Found records remain authoritative without an ordinary world projection.
-They participate in the same persistent identity/placement graph, but they do not consume a world
-cell entry or routine NetId while detached.
-
-## Placement anchors
-
-Persistence and authority are separate concerns. An item on a train must be saved, but that does not
-make vanilla storage its authority. Multiplayer owns the item record while referring to a parent
-entity owned and persisted by another game system.
-
-```text
-ItemPlacement
-  World
-    absolutePosition
-    absoluteRotation
-
-  TrainInterior
-    persistentCarGuid
-    sessionCarNetId        // runtime/baseline only
-    localPosition
-    localRotation
-    lastKnownAbsolutePose  // recovery/debug
-
-  StaticParent
-    stableParentKey
-    localPosition
-    localRotation
-    lastKnownAbsolutePose
-
-  PlayerInventory / PlayerHand
-  Container
-  LostAndFound
-  InstalledGadget
-  SnappedAttachment
-  Retired
-```
-
-### Train-interior placement
-
-DV already persists the train car. Multiplayer persists the item with the car's stable `CarGUID` and
-an interior-local transform. The session car NetId can be included in live baselines but is never the
-durable reference.
-
-On load:
-
-1. Restore train cars through the existing train save/load path.
-2. Keep train-anchored item records logically present but unmaterialized until `TrainCarRegistry`
-   resolves their `CarGUID`.
-3. Materialize/bind the item and parent it through `ItemReparentingBase.ParentItemExternal` to the
-   resolved interior.
-4. If the car cannot be resolved after the train-load completion boundary, apply an explicit recovery
-   policy: owned/retrievable items go to their owner's Lost and Found; unowned items fall back to the
-   last known absolute pose or a designated recovery record. Never silently discard them.
-
-As implemented, `WorldItemPersistenceRestore` does not defer: the item is restored straight away at
-its saved absolute pose with its saved parent fields, and the car is looked up by `CarGUID` only
-when the saved parent NetId is zero. Saved records carry the previous session's car NetId, so
-that lookup is normally skipped. Steps 2 and 4 are not implemented.
-
-A train-anchored item inherits relevance from its train/occupants and nearby observers. It does not
-churn through the world-cell index as the train moves; its absolute position is derived from the
-anchor when needed. When it leaves the train, the host commits one placement transition to `World`
-using its current absolute pose and inserts it into the appropriate native item cell.
-
-This category describes an active loose item physically parented to a train interior. It is not the
-same as an installed gadget.
-
-### Installed-gadget placement
-
-Not implemented. The design is [gadgets.md](gadgets.md); the vanilla lifecycle, identity and wiring
-model are in
-[`../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md`](../research/DERAIL_VALLEY_GADGET_CUSTOMIZATION_LOGIC.md).
-
-Vanilla moves an installed gadget item into `StorageInstalledGadgets` and deactivates the item
-GameObject. Its `ItemSaveData` keeps the anchor (`placedOn`, the `CarGUID` for a car), the local
-pose, and `gadgetData` (UID, wires, soldering, mount points, settings), while a separate projection
-is linked to the anchor.
-
-In multiplayer the item record's placement is `Installed` on its anchor, and the projection is a
-presentation of that record, never a second saved item. Only the gadget server moves an item into or
-out of `Installed`, after validating the request; clients never send save JSON for the server to
-apply. Installing doesn't change the item's persistent owner. Installed items stay in vanilla's
-installed storage in the server's save and are skipped by `WorldItemsV1`; a missing anchor on load
-takes an owned item to its owner's Lost and Found.
-
-Holes, wiring, mount points and gadget settings are not item state. They travel in the gadget change
-log and anchor snapshots, ordered by a revision per anchor and keyed by the anchor and
-server-assigned customizer UIDs (gadgets.md, "The change log"). A client holds entries whose anchor
-doesn't exist yet in a per-anchor queue rather than applying them early.
-
-### Snapped-attachment placement
-
-`SnappableItem` attachments remain ordinary active item representations. Snapping reparents the
-item through `ItemReparentingBase`, aligns its item-specific anchor, changes physics/interaction
-state, and occupies one `ItemSnapPointBase`. It does not retire the item NetId or create a second
-projection.
-
-The authoritative record is:
-
-```text
-SnappedAttachment
-  persistentItemIdentity
-  snapPointType
-  anchorKind
-  stableAnchorIdentity
-  optionalLocalSnapData
-  placementRevision
-```
-
-Known stable anchors are:
-
-- coupler: `CarGUID` plus front/rear;
-- gadget-hosted point: customization identification key plus saved gadget UID; and
-- future snap families: an explicit stable snap-point key, never a transform instance ID.
-
-`Belt` is not a `SnappedAttachment`. It is the physical projection of a player inventory slot and
-its independent reservation state, and remains under inventory authority.
-
-#### VR belt items
-
-In VR, inventory slots 33-35 are the belt (`Inventory.IsValidVRBeltIndex`). An item in one stays in
-the `Inventory` (`Contains` is true), but DV keeps it active and `ItemBeltVR` snaps it, visible, to an
-`ItemSnapPointBelt` on the player's body. Multiplayer syncs it as an ordinary `InInventory`
-placement of its owner (`PlayerInventory` on the host), and `BeltItemPolicy` (Multiplayer.Core)
-covers the two places where the snap got in the way:
-
-- **Release.** Letting go next to the belt is not an inventory operation at first: the item is
-  ungrabbed in `Update`, and `ItemSnapPointInteractionBelt.OnUngrabDelayed` adds it to the belt slot
-  only at the end of that frame. `LateUpdate` in between saw an ungrabbed item outside the
-  inventory and sent `Dropped`, then `InInventory` the next frame. The host gave the item to the
-  world, and the inventory update behind it was either refused (the sender no longer possessed it
-  and had never been sent it as a world item) or accepted out of turn. For the frame of a VR
-  release of a belt-snappable item, `GetItemState` keeps the last state (`HoldVrRelease`); the next
-  frame reports `InInventory` or `Dropped`, whichever it was.
-- **Acknowledgement.** `PrepareForStateChange` unsnaps any snapped item before placing it. The
-  host's echo of the owner's own `InInventory` unsnapped the belt item, which fell to the floor in
-  the owner's game while staying in the inventory slot. A snapshot that puts an item on the local
-  player's belt into the local player's inventory leaves the snap alone (`KeepBeltSnap`); any other
-  placement still unsnaps it (and revokes the inventory membership, which unsnaps it in DV too).
-- **The hold's echo.** Taking an item off the belt equips it and reserves its slot. Letting go
-  clears the reservation (`UnequipItem` purges it), which changed the item's claim, so the release
-  frame sent `InHand` again. That echo came back a frame after the belt had the item, and applying
-  it unsnapped the item: the same fall as above, and DV then refuses every grab
-  (`InventoryViewVR.OnItemGrabbed` ends the interaction on an item `Contains` says is stashed), so it
-  could never be picked up. The held release frame sends nothing at all (the item stays dirty and the
-  next frame sends the outcome), and the owner's own `InHand` echo arriving once the item is
-  ungrabbed and in their inventory is ignored (`IsSupersededOwnHold`). Host corrections carry no
-  originating player, so they are never taken for an echo.
-
-Whether the belt takes a released item is DV's decision alone: the hand has to be inside the slot's
-trigger and properly touching its pointer detector (`ItemSnapPointInteractionBelt.RegularUngrabBehavior`).
-Otherwise the item drops as any released item does.
-
-Other games and the host project the item as an inventory item of its owner
-(`RemoteItemProjectionAction.RemoteInventory`): it is hidden with the avatar's inventory, not shown
-on the avatar's belt. The host saves it as any other possession, by the owner's GUID, and gives it
-back to the owner's inventory on their next join; the belt slot itself is not kept, so it comes back
-in the first free slot.
-
-Coupler validation includes point occupancy, allowed type, actor/item authority, proximity, and the
-chain's parked/coupled state. Coupling or moving the chain out of parked state commits a
-host-originated forced-unsnap transition. An occupied `GadgetWithSnapPoint` blocks ordinary removal;
-forced removal unsnaps the dependent item before removing the support. Those logical transitions
-must commit in that order or in one host transaction.
-
-Load ordering is dependency-based: trains and customizations, then installed gadgets (vanilla places
-each gadget and restores its UID, state and wires in one callback; wiring tolerates any order because
-both ends save the edge), then snapped accessories and mounts in the after-load pass. Missing anchors
-remain deferred rather than allowing vanilla's load callback to log and abandon the authoritative snap.
-
-Snapped train items inherit train relevance. Although their physical parent may be the train
-interior, they retain `SnappedAttachment` placement because occupancy and forced-unsnap behavior are
-semantically different from a loose `TrainInterior` item.
-
-### Static-parent placement
-
-A valid `ItemStaticParent` is likewise an anchor, not another save authority. An authored static
-parent requires its own stable key; a dynamic static parent requires persistent identity. If the
-anchor is missing during load, use the recorded absolute pose or the appropriate owner recovery path
-and emit an invariant warning.
-
-### Single-owner invariant
-
-Parenting never changes the item save owner:
-
-```text
-MultiplayerManaged item on world root       -> multiplayer save
-MultiplayerManaged item on train interior   -> multiplayer save
-MultiplayerManaged item on static parent    -> multiplayer save
-MultiplayerManaged item in cold/container   -> multiplayer save
-```
-
-The parent system may save the train, static customization, player, or container shell. It must not
-also serialize a second anonymous copy of the child item.
-
-### Vanilla `StorageWorld` boundary
-
-DV's `StorageWorld` is not an authoritative catalogue of physical world objects. It rejects
-non-player-owned items and is populated by inventory transitions for player-owned loose items.
-Nonessential authored furniture is scene-resident and absent from this storage. Multiplayer world
-placement must therefore be derived from the authoritative registry, never from
-`StorageController.IsInStorageWorld` alone.
-
-## Projection lifecycle
-
-Per recipient, an item projection moves through explicit states:
-
-```text
-Unknown
-  -> CreatePending
-  -> DeferredForRegion
-  -> BoundPendingApply
-  -> Known
-  -> RetirePending
-  -> Unknown
-```
-
-### Entering interest
-
-1. Host calculates newly subscribed native cells.
-2. Host sends a cell baseline containing relevant authoritative records and the cell revision.
-3. Client resolves each stable scene key or creates each dynamic representation.
-4. If `WorldStreamingInit.IsSceneAndTerrainRegionLoaded` is false, the entry remains deferred.
-5. Client binds the host NetId, applies the authoritative state, and gates interaction appropriately.
-6. Client acknowledges successful apply or reports a specific failure.
-7. Host marks only successfully acknowledged projections as known.
-
-Sending a packet is not proof that the client has a representation.
-
-### Leaving interest
-
-1. Host removes cells no longer subscribed after the selected hysteresis/grace policy.
-2. Host sends an explicit cell or entity retirement.
-3. Client revokes interaction and networking authority immediately.
-4. Scene-authored objects return to the dormant catalogue; they are not destroyed.
-5. Dynamic projections are unregistered and retired/destroyed unless another interest source retains
-   them.
-6. Client acknowledges retirement.
-7. Host removes the corresponding known projection state.
-
-Re-entering always permits a fresh baseline. The current permanent `KnownItems` assumption must not
-survive retirement.
-
-### Moving between cells
-
-The host commits transform and cell membership together:
-
-```text
-validate transition
-commit absolute transform and authority revision
-remove old cell edge
-add new cell edge
-publish update/enter/retire effects per recipient
-```
-
-A recipient subscribed to both cells receives an ordinary transform update. A recipient subscribed
-only to the old cell receives retirement. A recipient subscribed only to the new cell receives a
-baseline/Create.
-
-## Client interaction protocol
-
-Blocking all client traffic would also block valid gameplay. Client state declarations should be
-replaced with host-validated intents:
-
-```text
-RequestPickup
-RequestDrop
-RequestThrow
-RequestEquip
-RequestInsertIntoContainer
-RequestWithdrawFromContainer
-RequestUse
-RequestAttachOrSnap
-```
-
-Each request identifies the runtime item, expected authority revision, actor, and operation-specific
-data. The host validates:
-
-- the actor/session;
-- projection knowledge and revision;
-- distance and region readiness where applicable;
-- current placement and holder;
-- ownership and theft rules;
-- container/Lost and Found state;
-- whether another operation is in flight;
-- operation-specific game rules.
-
-The host commits and broadcasts the resulting authoritative transition. Clients may predict visual
-motion, but rejection applies the latest authoritative correction.
-
-For this feature, a validated `RequestDrop` or `RequestThrow` establishes the logical placement,
-holder release, revision, and initial motion parameters. Subsequent high-frequency rigidbody motion
-continues through the existing item-update path as an explicit compatibility boundary. That path may
-update the host's accepted canonical transform, but it cannot create an item or change identity,
-ownership, holder, storage membership, attachment, or lifecycle.
-
-An unbound scene-authored client object can never send an adoption/create request. The remaining
-`TemporaryClientAdoptionCompatibility` path is explicitly transitional: it accepts only a
-non-authored, non-job item already marked as player property and associated with player/storage
-state. It exists solely for unconverted Derail Valley producers: the first-join starter kit, DV's
-client-generated essentials, and the rejoin restoration that hands a returning player their
-original instead of the fresh copy. (Client shop purchases are converted: the host spawns them and
-the buyer owns them, `NetworkServer.SpawnShopPurchase`.) Each producer
-must become an explicit request -> host validation -> host creation operation; once the last is
-converted, the adoption packets, coordinators, transition reason, and compatibility policy are
-deleted. It is not a supported extension point or a second authority model.
-
-## Cell baseline and delta protocol
-
-Conceptually:
-
-```text
-WorldCellBaseline
-  cellX, cellZ
-  cellRevision
-  catalogueVersion
-  entries[]
-
-WorldCellDelta
-  cellX, cellZ
-  fromRevision, toRevision
-  changes[]
-
-WorldCellRetire
-  cellX, cellZ
-  expectedRevision
-
-WorldProjectionAck
-  cellX, cellZ
-  appliedRevision
-  appliedEntityIds[]
-  failures[]
-```
-
-Reliable ordered delivery is appropriate for baseline, lifecycle, and authoritative placement
-changes. High-frequency physical prediction can use the existing item update path once authority and
-revision semantics are preserved.
-
-If a delta's `fromRevision` does not match the client's applied cell revision, the client requests a
-fresh baseline. Failed/deferred entities are never silently marked applied.
-
-## Deferred network-physics authority
-
-Logical item authority and physical simulation authority are deliberately separate projects.
-
-This design establishes host authority for identity, lifecycle, placement transitions, ownership,
-interest, graph membership, revisions, and persistence. It does not attempt to solve remote terrain
-physics, rigidbody ownership, collision validation, sleeping, or reconciliation for thrown objects.
-
-During the transition:
-
-- existing movement/physics replication remains in service;
-- its packets are accepted only for an already known, materialized item in a compatible logical
-  placement;
-- movement reports cannot imply pickup, drop, inventory, ownership, snap, container, or lifecycle
-  transitions;
-- discontinuities and invalid placement changes remain observable; and
-- the protocol boundary is isolated so a later physics-authority implementation can replace it
-  without changing the catalogue, placement graph, interest lifecycle, or persistence format.
-
-A future physics project may choose host simulation, delegated simulation leases, or another
-reconciliation model. This world-sync implementation does not commit to one.
-
-## Host persistence
-
-### Save authority
-
-The host is the only authority that saves multiplayer-managed items. Derail Valley continues to save
-the world and non-item gameplay systems, while multiplayer owns item identity, placement, ownership,
-graph relationships, and lifecycle.
-
-DV's `ItemSaveData` remains the serializer for specialized per-item state. Multiplayer wraps that
-payload with canonical metadata rather than reimplementing every item's save logic.
-
-### Persisted data
-
-```text
-WorldItemSave
-  formatVersion
-  catalogueVersion/hash
-  sceneItemOverrides[]
-  sceneItemTombstones[]
-  dynamicItemRecords[]
-  detachedItemRecords[]
-  placement/anchor/container graph
-```
-
-An untouched scene-authored item is not written individually. The default catalogue supplies it on
-load. Only differences and tombstones are persisted.
-
-Dynamic and detached items require complete records with persistent UUIDs. Routine session packets
-continue to use compact NetIds or handles; persistent UUIDs appear only in persistence, baseline
-identity establishment when required, and exceptional reconciliation/debug paths.
-
-### Save transaction
-
-```text
-PREPARE
-- revision-fence item mutations
-- request ItemSaveData from materialized host objects
-- combine materialized snapshots with dormant/cold records
-- validate ownership and placement graph
-- build and size-check save DTO
-
-COMMIT
-- write authoritative item save chunk
-- release revision fence
-```
-
-The save must include inactive host scene items and records with no Unity representation. It cannot
-depend solely on vanilla `StorageWorld.SaveStorage()` enumeration.
-
-### Preventing double save/load
-
-Every item must have exactly one save owner:
-
-```text
-VanillaManaged
-MultiplayerManaged
-```
-
-Vanilla storage save/load must exclude `MultiplayerManaged` objects. Multiplayer load creates or
-binds those records exactly once and prevents vanilla StartingItems/storage reconstruction from
-duplicating them.
-
-Initially, explicit exceptions may remain for categories not yet integrated, such as specialized
-installed gadgets or physical license artifacts. The target architecture has one authority, not two
-parallel compatibility versions.
-
-### Load reconstruction
-
-1. Build the host's authored scene catalogue.
-2. Validate the saved catalogue version/hash.
-3. Apply scene overrides and tombstones.
-4. Restore dynamic and detached records.
-5. Rebuild placement/container/Lost and Found graph indexes.
-6. Materialize only records required by the host's current presentation and player-bound state.
-7. Begin accepting client catalogue hashes and cell subscriptions.
-
-## Cooperation with Derail Valley optimizers
-
-DV activation remains a presentation decision. Multiplayer should not globally disable
-`ItemDisabler`, `ItemDisablerGrid`, or office optimizers.
-
-On clients:
-
-- DV may activate an authored object because it entered the 3 by 3 grid;
-- multiplayer keeps interaction/network emission gated until the host projection is applied;
-- a host baseline may arrive before DV reports the scene/terrain region ready and must remain
-  deferred;
-- DV may deactivate an ancestor without retiring the host projection state;
-- explicit host retirement revokes the projection even if DV leaves the object active.
-
-On the host:
-
-- inactive objects remain members of the authoritative catalogue;
-- their canonical state does not disappear when DV hides them;
-- registry changes, not `activeSelf`, drive persistence and replication.
-
-## Replenishable authored office stock
-
-Eligible scene-authored office props represent replenishable stock slots rather than eternal
-one-off objects. When a player takes one from world/static placement into a hand or inventory:
-
-1. The taken object permanently leaves the authored catalogue and receives a persistent dynamic
-   item identity.
-2. The authored slot retains its stable key, prefab, baseline transform, and interest cell.
-3. The host waits until no ready player is interested in the slot's 3 by 3 cell neighbourhood,
-   followed by a short empty-area dwell.
-4. The host instantiates a fresh replacement at the baseline transform and publishes it under the
-   original authored key.
-5. A client may instantiate that replacement only when it previously detached the same local
-   authored key; every other missing-key projection remains a catalogue integrity failure.
-
-Dropping the taken dynamic item back near the original desk does not re-adopt it. This keeps the
-fork rule deterministic and prevents its persistent state from becoming authored state again.
-
-Initial exclusions are conservative: player-owned or essential items, job documents, shop items,
-installed gadgets, snapped items, and item containers are never replenished through this path.
-
-Authored office props that remain authored but are physically displaced use a different cleanup
-path. The host compares their canonical and live transforms with the authored baseline. Once the
-slot's interest neighbourhood has been empty continuously for 15 seconds, the existing object is
-returned to its baseline pose, its velocities are cleared, and one authoritative spatial commit is
-published. No new identity or duplicate object is created. This covers furniture disturbed by
-collisions or other non-possession interactions; any object that entered a hand or inventory already
-followed the persistent-fork and replenishment path above.
-
-The taken fork is durable only while it remains relevant gameplay state. Its host record carries a
-`replenishableStockFork` classification, and the save format has a field for it, but office props
-are not `BelongsToPlayer`, so the save skips forks with other unowned dynamic items (faa42c0): a fork
-does not survive a host reload. While held it behaves like an ordinary dynamic item. After it is dropped into world, static-parent, or train-interior placement and remains
-outside every player's interest continuously for 30 seconds, the host destroys it and removes its
-persistent record. This prevents abandoned replenished bins and furniture from accumulating forever
-without allowing clients to decide what disappears.
-
-Lost and Found has strict precedence over disposable-fork cleanup. Any Lost and Found registry
-membership, persistent player owner, or inventory retrieval claim makes the fork ineligible for
-abandonment deletion. Lost and Found itself already rejects unowned/nonpersonal stock, so an
-ordinary office bin normally never enters that subsystem; the explicit precedence guard protects
-future ownership transitions and recovery paths from turning cleanup into an item-loss race.
-
-## Job items and station state
-
-Job overviews, booklets, and reports already have specialized construction/binding requirements.
-They should use the same interest and acknowledgement lifecycle but retain logical job recipes where
-the physical object cannot be reconstructed from a prefab alone.
-
-Station/job logical state should be baselined before or alongside dependent physical artifacts. A
-client that has terrain ready but not station/job dependencies keeps those projections deferred and
-reports the dependency, rather than creating a generic duplicate.
-
-## Failure handling
-
-- Stable scene key not found: report mismatch, keep entry unresolved, request catalogue/baseline
-  reconciliation.
-- Stable key collision: fail catalogue construction for those entries; never choose arbitrarily.
-- Region not loaded: defer without marking known.
-- Apply failure: quarantine the projection and return the failure reason.
-- Missing delta revision: request a fresh cell baseline.
-- Client state declaration for host-managed item: reject and send authoritative correction.
-- Stale interaction intent: reject using expected/current revision diagnostics.
-- Retirement acknowledgement timeout: retain host-side pending state and retry; do not assume cleanup.
-- Host save serialization failure: keep the previous durable save and surface a blocking invariant.
-
-## Performance requirements
-
-- One inactive-inclusive catalogue scan per world load, never a periodic hierarchy scan.
-- Cell membership indexed as dictionaries/sets; do not scan every item for every player each tick.
-- Player world interest recalculated on native cell transitions, teleport, load-state change, or
-  explicit reconciliation. (Implemented as: on cell change or item-index change, otherwise four
-  times a second.)
-- Item cell membership updated only when an authoritative world item crosses a boundary.
-- Baselines are bounded and packet-chunked.
-- Debug detail gathering remains demand-driven; normal authority code records compact facts.
-- No new fixed-period full-world reconciliation loop. (Convergence re-sends one known item per
-  player every 0.1 s; the host's below-terrain rescue walks every item once a second.)
-
-These constraints are important because previous periodic item/debug scans caused visible stutter on
-both host and client.
-
-## Observability
-
-Required events include:
-
-```text
-world.catalogue-built
-world.catalogue-mismatch
-world.catalogue-key-collision
-world.cell-entered
-world.cell-baseline-sent
-world.cell-baseline-received
-world.projection-deferred
-world.projection-bound
-world.projection-apply-failed
-world.projection-acknowledged
-world.cell-retire-sent
-world.projection-retired
-world.cell-revision-mismatch
-world.item-cell-migrated
-world.client-authority-rejected
-world.save-snapshot-created
-world.save-invariant-violation
-```
-
-The implemented events are published on the `item-world` channel with a `world-item.` prefix
-(for example `world-item.catalogue-negotiated`, `world-item.projection-deferred`,
-`world-item.player-cells-updated`, `world-item.projection-enter-ack`); there are no cell revision
-events because cell baselines were superseded.
-
-The dashboard should expose per-player subscribed cells, baseline revision, pending/deferred
-projections, stable scene key, runtime NetId, authority revision, readiness reason, and last failure.
-
-## Implementation phases
-
-### Phase 1: catalogue and diagnostics
-
-Implemented.
-
-- Implement stable scene identity and collision detection.
-- Build host/client inactive-inclusive catalogues.
-- Compare count/hash without changing gameplay behavior.
-- Add dashboard catalogue and native-cell diagnostics.
-- Add runtime scenarios proving host/client identity agreement across distant offices.
-
-### Phase 2: native cell interest lifecycle
-
-Implemented with per-item baselines batched through the existing item bulk packet.
-
-- Replace per-player all-item distance scanning with 128 metre cell indexes.
-- Add explicit enter, baseline, acknowledgement, retire, and re-enter behavior.
-- Keep current item mutation protocol temporarily, but remove permanent known-state assumptions.
-- Verify teleport and region-unavailable deferral.
-
-### Phase 3: scene projection binding
-
-Implemented.
-
-- Bind scene-authored items by stable key rather than prefab order.
-- Make exact unbound authored objects dormant and destroy unauthorized unbound dynamic objects.
-- Instantiate fresh dynamic projections; never reuse an old logical lifetime by prefab name.
-- Add dynamic-item creation alongside authored binding.
-
-### Phase 4: host intent authority
-
-Implemented by treating client snapshots as revision-fenced requests. They are validated and then
-rewritten from the canonical record before application/relay; client Create and Destroy are rejected.
-
-- Convert pickup/drop/throw/equip/container/snap/use paths from client state declaration to validated
-  logical intent.
-- Add logical prediction correction and revision handling without replacing high-frequency physics
-  replication.
-- Reject all client attempts to create or authoritatively mutate catalogue items.
-
-### Phase 5: authoritative item persistence
-
-Implemented for free world, train-interior, static-parent, player-bound authored overrides, dynamic
-world records, and authored tombstones. Installed gadgets remain owned by their specialized gadget
-save/sync subsystem, while cold containers and Lost and Found retain their detached save authorities.
-
-- Add default catalogue plus overrides/tombstones/dynamic records.
-- Reuse `ItemSaveData` payloads.
-- Exclude multiplayer-managed items from vanilla storage save/load.
-- Validate host restart, client reconnect, cold containers, Lost and Found, jobs, and ownership.
-
-Network physics is implemented as the separate spatial lease/settlement layer described in
-`item-spatial-physics.md`; it does not alter catalogue identity or cell
-authority.
-
-## Required runtime scenario suite
-
-In-game scenarios run through the dvmp harness: one directory per scenario under
-`DevTools/Scenarios/` (see [`../../DevTools/README.md`](../../DevTools/README.md)). The status
-section above lists which of these are covered.
-
-1. Host and client authored catalogue counts/hashes match.
-2. Identical prefabs in one office bind to the correct stable scene keys.
-3. Client enters a cell while the host remains elsewhere and receives the authoritative baseline.
-4. Client leaves and re-enters an unchanged cell without duplicates or missing items.
-5. Host changes an item while the client is absent; re-entry receives the latest revision.
-6. Authored item crosses a cell boundary with recipients subscribed to old, new, both, and neither.
-7. Client receives a baseline before region readiness, defers it, then applies it after readiness.
-8. Client catalogue mismatch produces a visible failure and no prefab-name misbinding.
-9. Lost or duplicated baseline acknowledgement causes retry/resync without duplicate Unity objects.
-10. Client attempts to authoritatively create a scene item and is rejected.
-11. Client attempts pickup with a stale revision and receives correction.
-12. Two clients in different offices receive disjoint bounded projection sets.
-13. A player-held item remains projected across world-cell boundaries.
-14. A permanently destroyed authored item remains absent after leave/re-enter.
-15. A modified authored item survives host save/restart and binds to the correct projection.
-16. A dynamic item survives host save/restart with persistent identity and a fresh session NetId.
-17. A cold-container shell crosses cells without hydrating its contents.
-18. A Lost and Found item is removed from world-cell projection and remains owner-retrievable.
-19. Job state arrives before its physical artifact and binds without a duplicate.
-20. Repeated teleport across boundaries produces no leaked known entries, projections, or fixtures.
-21. An item placed in a train interior follows the moving car without world-cell membership churn.
-22. A train-interior item survives host save/restart, resolves the same `CarGUID`, and restores its
-    local pose exactly once.
-23. An item thrown from a train commits one `TrainInterior -> World` transition and enters the correct
-    native item cell.
-24. A saved item whose train no longer exists follows the configured recovery path and is never
-    duplicated or discarded.
-25. Host and client throws inside a moving cab remain train-relative, converge without host/client
-    correction jitter, and settle inside the same train interior.
-26. A settled train-interior item follows a subsequently moving train on every observer without
-    receiving world velocity a second time.
-27. Taking an eligible authored office prop forks it into a persistent dynamic item, but does not
-    replenish while any player remains interested in the source area.
-28. Once every player leaves the source area, the authored office slot replenishes exactly once and
-    all clients bind the replacement to the original authored key.
-29. Essential, job, shop, installed, snapped, and container items never enter authored stock
-    replenishment.
-
-Every scenario must assert cleanup isolation on host and client.
-
-## Open questions
-
-1. Do `TerrainGrid` and the 128 metre item grid share boundaries or only overlapping readiness?
-2. Does DV already serialize a stable authored object identifier that is preferable to a hierarchy
-   hash?
-3. Which vanilla storage/save categories can be transferred first without breaking gadgets,
-   customization, licenses, or tutorials?
-4. Which interactions require client prediction to remain responsive at real network latency?
-5. Should a cell baseline carry per-entity acknowledgement only on failure, or always carry a compact
-   applied bitmap/hash?
-6. For an unowned item whose saved train no longer exists, should recovery use its last absolute pose,
-   a station recovery location, or another durable holding state?
-7. Which train relevance signal should item projections inherit while the current train protocol still
-   creates every trainset on every client?
-8. What stable identity is available for authored and dynamic `ItemStaticParent` anchors?
+# Item world sync
+
+> Status: as built, checked against the code on 2026-10-23 (`items/lineage`). Built 2026-07 to
+> 2026-10 (#12 onwards). Covers scene-authored items, interest, projection to clients, convergence,
+> office stock and the placements anchored to other things. Motion is in
+> [`item-spatial-physics.md`](item-spatial-physics.md), saving in
+> [`item-persistence.md`](item-persistence.md).
+
+> The server's item registry is canonical. A Unity object on the server or a client is a disposable
+> presentation of its record, and never becomes authoritative because it is active, interactive,
+> simulated locally, or in a vanilla storage list.
+
+The server owns identity, NetIds, the authored keys, pose and cell, placement and holder, owner and
+claim, containment and Lost and Found, each item's saved state, lifecycle and revision. A client owns
+only its presentation, its input, and acknowledging that a projection was applied (or wasn't).
+
+## Pieces
+
+Paths under `Multiplayer/`.
+
+| Where | What |
+| --- | --- |
+| `Shared/Items/NetworkedItemManager*.cs` | What every game runs: local observations, tracked-value finalisation, the prefab lookup, the authored catalogue, the spatial store, the terrain guard |
+| `Server/Items/ServerItemManager*.cs` | The server's part: the cell index (`.WorldIndex`), interest and delivery (`.Interest`), convergence, fall rescue, players' items |
+| `Client/Items/ClientItemManager*.cs` | A remote client's part: snapshot receipt, deferred projections, job documents, Lost and Found copies, authored binding, unbound items, the fall-rescue report |
+| `Shared/Items/NetworkedItem*.cs` | One item. On the server, `NetworkedItemServer` (validation, commits) and `NetworkedItemServerPart`; on a remote client, `NetworkedItemClient` (binding gate, release grace, object-state gate, revisions it claims, convergence and own-drop checks) |
+| `Server/Items/AuthoredWorldItemReplenishmentManager.cs` | Office stock |
+
+## Scene-authored items and the catalogue
+
+**The key.** A `NetworkedItem` captures its `AuthoredItemKey` in `Awake` (from `ItemBase_Patch`, so
+before the scene load returns) when its scene starts with `game_content_` or its root is
+`[origin shift content]` (`WorldItemStableIdentity`). DV then moves the content into `game_w3` and
+flattens the hierarchy (`WorldStreamingInit.LoadingRoutine`; loose items are reparented again with
+sibling index 999), so a scan after load can't rebuild the identity. The key is the first 128 bits of
+SHA-256 over the normalised scene, the hierarchy path with sibling indices, the prefab name, and the
+absolute position and rotation to the millimetre. Only the hash is kept. An object made after
+staging has no key: it is a dynamic item.
+
+**The catalogue** (`AuthoredWorldItemCatalogue.Rebuild`) scans `Resources.FindObjectsOfTypeAll<ItemBase>`
+in `game*` scenes, inactive included, no clones, with inventory specs. A duplicate key is recorded as
+a collision and the first object found keeps it. The baseline count, collision count and digest (16
+bytes of SHA-256 over the sorted keys) are frozen when it is built, once, lazily, in every game.
+
+**Joining.** A client makes every unbound item quarantined once its world has loaded: an authored one
+dormant (no NetId, no outgoing state, no interaction, kept by key), any other destroyed. It sends its
+catalogue (`ServerboundWorldItemCataloguePacket`). The server accepts it only with no collisions on
+either side, the same count and the same digest, sets `WorldItemCatalogueAccepted` and answers
+(`ClientboundWorldItemCataloguePacket`). A rejected player gets no scene-authored items for the
+session; dynamic items still flow. Both sides compare the catalogue as built, not the live key map:
+the live map loses a key while a taken office prop waits to be replenished, and comparing it once
+rejected a player whose scanners then vanished for the session (2026-10-19).
+
+**Static parents** (shelves) are keyed the same way, from scene, path and position, and resolved by
+`WorldItemStaticParentRegistry`.
+
+An authored item isn't saved as a vanilla world record: vanilla's `StartingItemsController` makes
+every saved record a fresh prefab instance and could never bind it back, so the next load would have
+the authored object and a copy. The mod saves the key and its override or tombstone instead
+([item-persistence.md](item-persistence.md)).
+
+## Dynamic items
+
+An item that isn't scene-authored (bought, issued, restored, withdrawn, a taken office prop) has a
+persistent GUID from the server ([owned-items.md](owned-items.md#one-id-for-life)) and a NetId while
+it exists. Packets use the NetId. A client's copy is a fresh prefab instance for one Create's
+lifetime, never reused as another item, and destroyed when the server retires it.
+
+## Cells and interest
+
+**Cells.** 128 m squares on absolute X and Z (`WorldItemCellCoord`). The server indexes each item
+(`RefreshHostWorldItem`):
+
+- nowhere: waiting for a restore, in Lost and Found, an installed gadget's item, destroyed;
+- non-spatial (`HostNonSpatialItems`): hand, inventory, container, installed, train interior,
+  attached, snapped;
+- both, for a world item with an owner's recall claim;
+- otherwise its cell.
+
+It is re-indexed on every committed placement change (at the record's pose, in the same operation,
+before the caller applies the Unity state), every accepted change to the server's own copy, every
+`RegisterHostWorldItem`, and the fall rescue. Accepted spatial samples take a cheaper path
+(`RefreshHostSpatialPosition`).
+
+**Interest** (`ServerItemManager.Interest`). Each network tick (24 Hz) a `ReadyForItems` player's set
+is rebuilt if their 3×3 cells changed, the index changed, or 0.25 s passed. The set is the items in
+the 3×3 cells plus the non-spatial items relevant to them; an item already near stays until it is
+outside 5×5. Membership is only rewritten when it changed (fe11afa). Non-spatial relevance
+(`IsNonSpatialRelevantTo`):
+
+- installed items: everyone;
+- a hand or inventory item: its holder, its owner while the owner has a recall claim on it, or anyone
+  whose cells hold the holder (`ItemPossessionInterestPolicy`);
+- an item with an owner's recall claim: that owner, anywhere;
+- a train-interior item: the car's occupants, or anyone whose cells hold its current position;
+- attached and snapped items: the car's occupants, or by the car's position.
+
+A leaving item is dropped from the player's nearby, known and acknowledged sets, and a `Destroy` with
+`InterestRetirement` goes out. Lost and Found items are sent once as a collection projection to
+players who don't know them.
+
+## Delivery
+
+`ProcessChanged`, every network tick:
+
+1. Every change to the server's own copies (`GetSnapshot`) is committed as the server's own
+   transition (its own player's, or actor 0 on a dedicated host). For an item another player holds,
+   only server-authoritative object state is kept (`TryKeepRemotePossession`).
+2. Per player, per nearby item (`KnownItemDeliveryEvaluator`): unknown gives a `Create` (marked known
+   at once); dirty gives the dirty snapshot; known before its last change gives a `FullSync`. A Create
+   is built from the record and the last accepted spatial pose; a job report's render recipe goes
+   first. A Create waits while a negative acknowledgement holds it back.
+3. Destroys go only to players who knew the item.
+4. It all goes as one `CommonItemsBulkUpdatePacket` per player (reliable ordered, uncompressed), then
+   any open leases.
+
+A client's accepted update is relayed with `CommonItemUpdatePacket` to every `ReadyForItems` player,
+interest ignored.
+
+**Outbound from a game** (`NetworkedItem.GetSnapshot`). Dirty means re-evaluate. An `ItemState` goes
+out only when its wire projection changes (`ItemWireStateComparer`; `Thrown` is one-shot and
+baselines as `Dropped`). Object state goes only if the client part allows it. A client reserves the
+revision it expects through `ItemOutboundRevisionPipeline`, so quick transitions pipeline; a server
+correction resets it. Clients never send position-only updates: motion is the spatial stream.
+
+**Server checks** (`NetworkedItemServer`). A non-possessor's update needs the item acknowledged
+(`item-not-projected-to-sender`); a release must be within 64 m, its parent within 192 m; server-only
+tracked values from a client are refused (`TrackedStateComposer`). Every placement change goes
+through the state machine ([item-lifecycle.md](item-lifecycle.md#the-state-machine)). There is no
+pickup range check.
+
+## Projection on a client
+
+`ClientItemManager.ProcessReceivedAsClient`:
+
+- A Create for a dropped, thrown or attached item whose region isn't ready waits: ready means the car
+  exists (train-interior, attached), else `WorldStreamingInit.IsSceneAndTerrainRegionLoaded`. Later
+  updates for it queue (the last 64); a Destroy cancels it. Up to 8 ready ones are projected a frame.
+- A Create with an authored key binds the dormant scene object; any other is a fresh prefab instance.
+  Both acknowledge (`ServerboundWorldItemProjectionAckPacket`: NetId, revision, `Projected`).
+- A Destroy retires the projection: an authored object goes dormant and keeps its key, a dynamic one
+  is destroyed. An `InterestRetirement` is acknowledged `Projected=false`.
+- Job documents bind to the job system's objects, or wait for them.
+
+**Acknowledgements.** A positive one adds the item to the player's acknowledged set, if the player
+knows it at that revision or older. A negative one removes it, and if the item was known, forgets it
+and holds its Create back 5 s. The acknowledged set gates a non-possessor's updates and who may
+simulate the item. The releasing player is added when the server accepts their release.
+
+**Receiving a snapshot** (`NetworkedItem.ReceiveSnapshot`). An older revision than the copy's is
+refused. A client ignores a convergence snapshot unless it disagrees (a newer revision, not lying in
+the world, or more than 0.25 m off, car-relative in a train). Local echoes are filtered
+(`ItemSnapshotApplicationPolicy`: its own throw and VR release, a superseded release or hold, its own
+object state, its own desktop drop). Snapshots with tracked state wait until tracked values are
+final. Placement is applied by state: dropped or thrown (world pose, parent, a dynamic body with no
+velocity, a throw replayed by direction), hand or inventory (another player's through
+`RemoteItemProjectionPlanner`), attached, installed; then tracked values (`TrackedStateComposer`).
+
+**Convergence** (`ServerItemManager.Convergence`). Every 0.1 s, for each loaded remote player, the
+next item they know in turn that is in `World`, `TrainInterior` or `StaticParent`, with no open
+lease, not in Lost and Found and not waiting for a restore, is sent as a `Dropped` snapshot with the
+server's live pose (`Convergence`). Drifted copies heal.
+
+**DV's optimizers stay on.** `ItemDisabler`, `ItemDisablerGrid` and the office optimizers decide what
+is active, on every game. On a client, DV activating an authored object doesn't make it interactive
+before the server's projection; DV deactivating it doesn't retire the projection. On the server,
+inactive objects stay in the catalogue and their state stays: the registry, not `activeSelf`, drives
+saving and replication.
+
+## Placements anchored to something else
+
+The parent's own system saves the parent (the train, the shelf, the player); the item's record and
+save stay the mod's. Parenting never changes who saves the item.
+
+- **Train interior.** The record keeps the car (`WorldParentNetId`, its GUID) and an interior-local
+  pose; it doesn't move through cells with the train. Leaving the train is a placement change to
+  `World` at its absolute pose. Restored at its saved pose straight away
+  ([item-persistence.md](item-persistence.md)).
+- **Static parent.** A shelf (`ItemStaticParent`) by its stable key and a local pose.
+- **Attached.** An EOT lantern on a car's end (`AttachedCarNetId`, front or rear).
+- **Snapped** (`SnappedAttachment`). A `SnappableItem` on a snap point (a hanger, a coupler): still an
+  ordinary item with its NetId, reparented through `ItemReparentingBase`. A snapped train item keeps
+  `SnappedAttachment`, not `TrainInterior`. Anchors are a car's GUID and end for a coupler, or a gadget
+  key and UID, never a transform's instance id.
+- **Installed.** A gadget on a car ([gadgets.md](gadgets.md#the-installed-gadget-and-its-item)): only a
+  gadget transition may enter or leave it.
+- **Vanilla's `StorageWorld`** isn't a catalogue of world objects: it rejects non-player items, and
+  authored furniture is never in it. Placement comes from the registry, never from
+  `StorageController.IsInStorageWorld`.
+
+### VR belt items
+
+In VR, inventory slots 33–35 are the belt (`Inventory.IsValidVRBeltIndex`). An item there stays in the
+`Inventory`, but DV keeps it active and `ItemBeltVR` snaps it to the player's body. It syncs as an
+ordinary `InInventory` of its holder, and `BeltItemPolicy` covers where the snap got in the way:
+
+- **Release.** Letting go next to the belt adds the item to the slot only at the end of that frame
+  (`ItemSnapPointInteractionBelt.OnUngrabDelayed`), so `LateUpdate` saw a dropped item first. For the
+  frame of a VR release of a belt-snappable item, the state is held (`HoldVrRelease`); the next frame
+  reports `InInventory` or `Dropped`.
+- **Acknowledgement.** The server's echo of the holder's own `InInventory` unsnapped the item, which
+  fell while staying in the slot. A snapshot putting an item on the local player's belt into their
+  inventory leaves the snap alone (`KeepBeltSnap`).
+- **The hold's echo.** Taking an item off the belt and letting go sent `InHand` again, and its echo
+  unsnapped the item, which DV then wouldn't let anyone grab. The release frame sends nothing, and the
+  holder's own `InHand` echo after the item is in their inventory is ignored (`IsSupersededOwnHold`).
+  Server corrections carry no originating player, so they're never taken for an echo.
+
+Whether the belt takes an item is DV's decision alone. Other games show it as an inventory item of its
+holder (`RemoteItemProjectionAction.RemoteInventory`), hidden with the avatar's inventory. A save keeps
+it as a possession, but not the belt slot: it comes back in the first free slot.
+
+## Replenishable office stock
+
+Eligible authored office props (`NetworkedItemManager.IsEligibleAuthoredOfficeProp`: not personal,
+essential, snapped, a container, a gadget, a job document or a shop slot) are stock slots, not one
+object forever (`AuthoredWorldItemReplenishmentManager`, every 0.5 s):
+
+1. **Taken.** Moved from `World` or `StaticParent` into a hand or inventory, the object leaves its
+   authored key and becomes a dynamic item marked as a stock fork, with a GUID of its own. Clients
+   detach their copy as they apply the possession. Dropping it back by the desk doesn't make it
+   authored again.
+2. **Replenished.** Once no `ReadyForItems` player's 3×3 holds the slot's cell for 3 s, a fresh
+   instance takes the key at the baseline pose. Only a client that detached that key may make one;
+   others bind their dormant object.
+3. **Displaced but not taken.** A prop moved more than 0.25 m or 5 degrees (by its record or live) is
+   put back at its baseline, with one spatial commit, after 15 s with nobody's 3×3 on its baseline
+   cell.
+4. **Abandoned.** An unowned, unclaimed fork in the world, on a shelf or in a train, with nobody's
+   3×3 on its cell for 30 s, is destroyed (`AbandonedStockForkCleared`).
+
+Office props aren't personal, so a fork is never saved and doesn't survive a restart. Lost and Found
+membership, an owner or a claim makes a fork ineligible for cleanup
+([item-lifecycle.md](item-lifecycle.md#cleanup-precedence)).
+
+## Job documents
+
+Overviews, booklets and reports go through the same interest and acknowledgement, but bind to the job
+system's objects (a report's render recipe goes before its Create), and are never saved as items: the
+job system saves the job and recreates them ([jobs.md](../jobs.md)).
+
+## Not built
+
+- Recovery when a train-interior item's car isn't there at load (`LostItemReason.SaveRecovery` is
+  unused).
+- Compressed or chunked bulk updates (compression is commented out).
+- A sync-completion barrier at join (a fixed 0.25 s wait).
+- Relays that respect interest.
+- A pickup reach check.
+
+## Known issues
+
+From the code, not run in game (2026-10-23). The bug review tracks them.
+
+- **A static-parent item drops out of every player's interest after a spatial sample or a commit.**
+  `RefreshHostSpatialPosition` makes any non-world parent non-spatial, but `IsNonSpatialRelevantTo`
+  has no `StaticParent` case, so clients retire it until something re-indexes it.
+- Every change to one of the server's own copies (a lantern flickering) re-indexes the item and clears
+  every player's cached cells, so interest is rebuilt for everyone next tick.
+- A projection that fails on the immediate (not deferred) path sends no negative acknowledgement, so
+  the server never re-sends the Create.
+- A late retirement acknowledgement can cancel a re-entry and hold the Create back 5 s.
+- A key collision on the server rejects every client's catalogue.
+- `WorldItemStaticParentRegistry` rescans the scene on every miss, and its keys include the parent's
+  absolute position, so a moved parent never resolves.
+- An office prop's reset checks interest at its baseline cell only, so one knocked into a watched cell
+  can snap back in view.
+
+## Tests
+
+`RemoteItemProjectionPlannerTests`, `ItemSnapshotApplicationPolicyTests`, `ItemWireStateProjectionTests`,
+`ItemOutboundRevisionPipelineTests`, `TrackedStateComposerTests`, `ItemPossessionInterestPolicyTests`,
+`BeltItemPolicyTests`, `AuthoredHierarchyPolicyTests`; scenarios in [testing.md](../testing.md). Not
+covered in game: a catalogue mismatch, cell enter/leave/re-enter, two clients, office replenishment.

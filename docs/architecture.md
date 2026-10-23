@@ -242,8 +242,8 @@ Concrete cases:
   item: placement, holder, persistent owner, inventory claim, revision. A client's
   `CommonItemUpdatePacket` goes through `NetworkedItem.Server_ReceiveItemUpdate` and
   `AuthoritativeItemRegistry.TryApplyTransition`, which runs `ItemAuthorityStateMachine` from
-  `Multiplayer.Core`. An item update can't create an item (the only client-originated path is
-  the temporary `ServerboundItemAdoptionPacket` bridge); a rejected change is answered with a
+  `Multiplayer.Core`. An item update can't create an item: the server makes every item it
+  keeps, and client item adoption is gone (owned-items PR 5). A rejected change is answered with a
   canonical correction. Physics of a thrown or dropped item may be leased to one client, which
   sends samples and a settlement the host validates. See
   [design/item-lifecycle.md](design/item-lifecycle.md) and
@@ -433,12 +433,15 @@ The regression scenarios for this are `rejoin` (including `CRASH=1`), `save-relo
 | [jobs.md](jobs.md) | Job generation, booklets, validation and reports. |
 | [design/trains.md](design/trains.md) | Train authority layers, topology commands and snapshots, controls, brakes, motion, baseline. |
 | [design/train-item-wake.md](design/train-item-wake.md) | Loose items riding on trains: gluing, waking on impacts and acceleration, settlement. |
-| [design/item-lifecycle.md](design/item-lifecycle.md) | Item identity, ownership, placement states and allowed transitions. |
-| [design/item-world-sync.md](design/item-world-sync.md) | Item catalogue, interest streaming, placement anchors, host persistence. |
+| [design/item-lifecycle.md](design/item-lifecycle.md) | Start here for items: an item's life, its placements, the state machine and shared rules, and the doc for each item system. |
+| [design/owned-items.md](design/owned-items.md) | Ownership and the owned-items ledger, starting items, joining and leaving, recall, the owned-items list and retrieval. |
+| [design/lost-and-found.md](design/lost-and-found.md) | Lost and Found: collection, entries, retrieval, saving. |
+| [design/item-world-sync.md](design/item-world-sync.md) | Item catalogue, interest streaming, projection to clients, placement anchors, office stock. |
 | [design/item-spatial-physics.md](design/item-spatial-physics.md) | Thrown and dropped item physics: leases, samples, settlement, validation. |
-| [design/container-storage.md](design/container-storage.md) | Containers and their host transactions, cold containers, Lost and Found. |
-| [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | Ownership rules decided so far and the questions still open. |
-| [design/item-sync-review.md](design/item-sync-review.md) | Review of the item sync implementation, with known gaps. |
+| [design/container-storage.md](design/container-storage.md) | Cold containers: contents as server records, browse, deposit, withdraw. |
+| [design/item-persistence.md](design/item-persistence.md) | Where each item is saved, and loading. |
+| [design/item-ownership-open-questions.md](design/item-ownership-open-questions.md) | The ownership questions still open. |
+| [design/item-sync-review.md](design/item-sync-review.md) | Historical: the July 2026 review of item sync. |
 | [testing.md](testing.md) | Unit, protocol and in-game (dvmp) test layers. |
 | [observability.md](observability.md) | Debug events, overlay, packet inspector, HTTP firehose, captures. |
 | [development.md](development.md) | Building, deploying and the development workflow. |
