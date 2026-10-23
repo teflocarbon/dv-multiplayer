@@ -333,6 +333,62 @@ public sealed class ItemLedgerTests
             Is.EqualTo(Home.Installed("car:L-042", 9)));
     }
 
+    [Test]
+    public void Rekey_MovesOwnersHoldersCausesAndTheStarterKit_AndRaisesNothing()
+    {
+        // An install GUID re-keyed to a Steam ID (InstallGuidRekey): what Liam owns, has with him
+        // and caused, and his starter kit, are the new identity's.
+        Guid steam = G(0xC3);
+        Guid lantern = G(1), radio = G(2), borrowed = G(3), theirs = G(4);
+        Buy(lantern, "Lantern", Liam);
+        Issue(radio, "CommsRadio", Liam, 2);
+        Buy(borrowed, "Mug", Bentgear);
+        ledger.Move(borrowed, Home.With(Liam, HoldKind.Hand));
+        Buy(theirs, "Mug", Bentgear);
+        ledger.MarkStarterKit(Liam);
+        changes.Clear();
+
+        int changed = ledger.Rekey(Liam, steam);
+
+        Assert.That(changed, Is.EqualTo(3));
+        Assert.That(changes, Is.Empty);
+        Assert.That(ledger.OwnerOf(lantern), Is.EqualTo(steam));
+        Assert.That(ledger.TryGet(lantern, out LedgerEntry bought) && bought.Born.By == steam, Is.True, "who caused it");
+        Assert.That(ledger.TryGet(radio, out LedgerEntry issued) && issued.Where == Home.With(steam, HoldKind.Inventory, 2), Is.True);
+        Assert.That(ledger.OwnerOf(borrowed), Is.EqualTo(Bentgear), "someone else's item stays theirs");
+        Assert.That(ledger.TryGet(borrowed, out LedgerEntry held) && held.Where.Holder == steam, Is.True, "and is with the new identity");
+        Assert.That(ledger.HasStarterKit(steam), Is.True);
+        Assert.That(ledger.HasStarterKit(Liam), Is.False);
+        Assert.That(ledger.HasIdentity(Liam), Is.False);
+        Assert.That(ledger.HasIdentity(steam), Is.True);
+        Assert.That(ledger.LiveOwnedBy(steam), Has.Count.EqualTo(2));
+        Assert.That(ledger.TryGet(theirs, out LedgerEntry untouched) && untouched.Owner == Bentgear, Is.True);
+    }
+
+    [Test]
+    public void Rekey_ToNobodyOrItself_ChangesNothing()
+    {
+        Buy(G(1), "Lantern", Liam);
+
+        Assert.That(ledger.Rekey(Liam, Guid.Empty), Is.Zero);
+        Assert.That(ledger.Rekey(Guid.Empty, Liam), Is.Zero);
+        Assert.That(ledger.Rekey(Liam, Liam), Is.Zero);
+        Assert.That(ledger.OwnerOf(G(1)), Is.EqualTo(Liam));
+    }
+
+    [Test]
+    public void HasIdentity_CountsAStarterKitAndAnItemHeldOrCaused()
+    {
+        Assert.That(ledger.HasIdentity(Liam), Is.False);
+        ledger.MarkStarterKit(Liam);
+        Assert.That(ledger.HasIdentity(Liam), Is.True);
+
+        Buy(G(1), "Mug", Bentgear);
+        ledger.Move(G(1), Home.With(G(0xD4), HoldKind.Inventory, 1));
+        Assert.That(ledger.HasIdentity(G(0xD4)), Is.True, "a holder");
+        Assert.That(ledger.HasIdentity(Guid.Empty), Is.False);
+    }
+
     private Registration Buy(Guid id, string prefab, Guid owner, bool shopStocked = false) =>
         ledger.Register(new BirthRequest
         {

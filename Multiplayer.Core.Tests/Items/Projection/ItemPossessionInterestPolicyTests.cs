@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Core.Items.Projection;
 using NUnit.Framework;
 
@@ -5,26 +6,37 @@ namespace Multiplayer.Core.Tests.Items.Projection;
 
 public sealed class ItemPossessionInterestPolicyTests
 {
+    private static readonly Guid PlayerOne = new("00000000-0000-0000-0000-000000000001");
+    private static readonly Guid PlayerTwo = new("00000000-0000-0000-0000-000000000002");
+    private static readonly Guid PlayerThree = new("00000000-0000-0000-0000-000000000003");
+
     [Test]
     public void DistantForeignHolderDoesNotRetireOwnersRecallSilhouette()
     {
         Assert.That(ItemPossessionInterestPolicy.IsRelevant(ownerHasRecallClaim: true,
-            placementPlayerId: 1, recipientPlayerId: 2, holderNearby: false), Is.True);
+            holder: PlayerOne, recipient: PlayerTwo, holderNearby: false), Is.True);
     }
 
     [Test]
     public void DistantUnrelatedObserverDoesNotReceiveCarriedItem()
     {
         Assert.That(ItemPossessionInterestPolicy.IsRelevant(ownerHasRecallClaim: false,
-            placementPlayerId: 1, recipientPlayerId: 3, holderNearby: false), Is.False);
+            holder: PlayerOne, recipient: PlayerThree, holderNearby: false), Is.False);
     }
 
-    [TestCase(true, 1, 1)]
-    [TestCase(true, 1, 3)]
-    public void HolderAndNearbyObserverRemainRelevant(bool expected, byte holder, byte recipient)
+    [Test]
+    public void NobodyHoldingIsNotTheRecipient()
     {
-        bool holderNearby = recipient == 3;
-        Assert.That(ItemPossessionInterestPolicy.IsRelevant(false, holder, recipient,
-            holderNearby), Is.EqualTo(expected));
+        Assert.That(ItemPossessionInterestPolicy.IsRelevant(false, Guid.Empty, Guid.Empty, false), Is.False);
+    }
+
+    [TestCase(1)]
+    [TestCase(3)]
+    public void HolderAndNearbyObserverRemainRelevant(int recipientNumber)
+    {
+        Guid recipient = recipientNumber == 1 ? PlayerOne : PlayerThree;
+        bool holderNearby = recipient == PlayerThree;
+        Assert.That(ItemPossessionInterestPolicy.IsRelevant(false, PlayerOne, recipient,
+            holderNearby), Is.True);
     }
 }

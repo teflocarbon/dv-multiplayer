@@ -15,8 +15,8 @@ public interface IItemServer
     /// <summary>Whether the item is in the server's Lost and Found.</summary>
     bool IsInLostAndFound(ushort itemNetId);
 
-    /// <summary>The owner the server's record of the item names (0 for nobody); false if it has no record.</summary>
-    bool TryGetPersistentOwner(ushort itemNetId, out byte ownerPlayerId);
+    /// <summary>The owner the server's record of the item names (empty for nobody); false if it has no record.</summary>
+    bool TryGetPersistentOwner(ushort itemNetId, out Guid owner);
 
     /// <summary>Where the server's record of the item puts it; false if it has no record.</summary>
     bool TryGetPlacement(ushort itemNetId, out ItemPlacementKind placement);

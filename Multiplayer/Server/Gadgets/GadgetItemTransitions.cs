@@ -152,15 +152,12 @@ internal static class GadgetItemTransitions
     /// </summary>
     private static void AdoptSavedOwner(NetworkedItem item, LiveItems.LiveItem record)
     {
-        if (record.PersistentOwnerIdentity != Guid.Empty)
+        if (record.Owner != Guid.Empty)
             return;
         Guid saved = item.GetComponent<ItemIdentity>()?.Owner ?? Guid.Empty;
         if (saved == Guid.Empty)
             return;
-        record.PersistentOwnerIdentity = saved;
-        record.PersistentOwnerPlayerId = ServerLedger.OwnerNumber(saved);
-        ServerPlayer owner = NetworkServer.Instance?.ServerPlayers.FirstOrDefault(player => player.Guid == saved);
-        owner?.AddOwnedItem(item.NetId);
+        record.Owner = saved;
     }
 
     private static void SendToPlayersWhoKnow(NetworkedItem item, ItemUpdateData snapshot)

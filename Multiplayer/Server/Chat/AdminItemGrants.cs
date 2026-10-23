@@ -118,12 +118,8 @@ internal static class AdminItemGrants
                 continue;
             }
             LiveItems.LiveItem record = LiveItems.Ensure(networked);
-            if (record != null && record.PersistentOwnerPlayerId == 0)
-            {
-                record.PersistentOwnerPlayerId = player.PlayerId;
-                record.PersistentOwnerIdentity = player.Guid;
-                player.AddOwnedItem(networked.NetId);
-            }
+            if (record != null && record.Owner == Guid.Empty)
+                record.Owner = player.Guid;
             bool inInventory = PutInInventory(player, networked, record);
             if (!inInventory && record != null)
                 ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Granted, player,

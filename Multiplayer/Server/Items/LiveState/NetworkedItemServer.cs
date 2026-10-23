@@ -264,7 +264,7 @@ public static class NetworkedItemServer
     private static bool SenderPossesses(this NetworkedItem item, ServerPlayer senderPlayer) =>
         senderPlayer != null &&
         LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority) &&
-        authority.PlacementPlayerId == senderPlayer.PlayerId &&
+        authority.Holder == senderPlayer.Guid &&
         authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
 
     private static bool IsIgnoredNonHolderObjectState(this NetworkedItem item, ItemUpdateData snapshot, ServerPlayer senderPlayer) =>
@@ -409,7 +409,7 @@ public static class NetworkedItemServer
         LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record);
         return ItemChangeLog.Removal(ItemRemovalReason.DestroyedByGame, detail: ItemChangeCauses.Detail(
             "no cause recorded",
-            record != null ? "was " + record.Placement + (record.PlacementPlayerId != 0 ? " of P" + record.PlacementPlayerId : "") : null,
+            record != null ? "was " + record.Placement + (record.Holder != Guid.Empty ? " of " + ItemChangeLog.PlayerName(record.Holder) : "") : null,
             "parent " + parent,
             item.gameObject.scene.isLoaded ? null : "scene unloaded",
             record != null && record.LastMove.Reason != ItemMoveReason.Unknown ? "last move " + record.LastMove : null,

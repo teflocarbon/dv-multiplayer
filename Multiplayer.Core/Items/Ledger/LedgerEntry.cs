@@ -189,14 +189,14 @@ public sealed class LedgerEntry
 
     public Guid Id { get; }
     /// <summary>The owner's identity: a player's ID now, a company's later.</summary>
-    public Guid Owner { get; }
+    public Guid Owner { get; internal set; }
     public string Prefab { get; }
     public Home Where { get; internal set; }
     /// <summary>An essential's retrieval claim slot in its owner's inventory, or -1.</summary>
     public int ClaimSlot { get; internal set; }
     /// <summary>The item still has vanilla's Restock flag, so it counts against its owner's shop stock.</summary>
     public bool ShopStocked { get; internal set; }
-    public Birth Born { get; }
+    public Birth Born { get; internal set; }
     public End Ended { get; internal set; }
 
     public bool IsLive => Ended == null;

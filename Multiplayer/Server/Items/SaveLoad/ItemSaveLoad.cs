@@ -82,25 +82,17 @@ internal static partial class ItemSaveLoad
             }
 
             if (!LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
-                record.PlacementPlayerIdentity != player.Guid)
+                record.Holder != player.Guid)
                 continue;
 
-            BindConnectedOwner(item, record, player);
+            ReturnHeldItem(item, record, player);
         }
     }
 
-    private static void BindConnectedOwner(NetworkedItem item, LiveItems.LiveItem record,
+    private static void ReturnHeldItem(NetworkedItem item, LiveItems.LiveItem record,
         ServerPlayer player)
     {
         pendingOwnerRepresentations.Remove(item);
-        record.PlacementPlayerId = player.PlayerId;
-
-        if (record.PersistentOwnerIdentity == player.Guid)
-        {
-            record.PersistentOwnerPlayerId = player.PlayerId;
-            if (record.InventoryClaimSlot >= 0)
-                record.InventoryClaimPlayerId = player.PlayerId;
-        }
 
         // The saved holder is back: what was held for them goes into their inventory.
         ChangeCause<ItemMoveReason> restored =

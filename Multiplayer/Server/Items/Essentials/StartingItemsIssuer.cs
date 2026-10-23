@@ -155,8 +155,7 @@ public static class StartingItemsIssuer
         List<string> found = new();
         foreach (LiveItems.LiveItem record in LiveItems.GetAll())
             if (string.Equals(record.PrefabName, prefab, StringComparison.Ordinal) &&
-                (record.PersistentOwnerIdentity == player.Guid ||
-                 record.PersistentOwnerIdentity == Guid.Empty && record.PersistentOwnerPlayerId == player.PlayerId))
+                record.Owner == player.Guid)
                 found.Add($"record {record.NetId} {record.PersistentItemId:D} {record.Placement}, last {record.LastMove.Reason}");
         int pending = LostAndFoundServer.PendingPrefabsOwnedBy(player.Guid)
             .Count(p => string.Equals(p, prefab, StringComparison.Ordinal));
@@ -181,8 +180,8 @@ public static class StartingItemsIssuer
             if (record.InventoryClaimSlot < 0)
                 continue;
             bool held = record.Placement == ItemPlacementKind.PlayerInventory &&
-                        (record.PlacementPlayerIdentity == player.Guid || record.PlacementPlayerId == player.PlayerId);
-            bool claimed = record.InventoryClaimPlayerId == player.PlayerId &&
+                        record.Holder == player.Guid;
+            bool claimed = record.Owner == player.Guid &&
                            (record.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
             if (held || claimed)
                 taken.Add(record.InventoryClaimSlot);
@@ -193,7 +192,7 @@ public static class StartingItemsIssuer
     // How many items the player has in their inventory and hands.
     private static int Carried(ServerPlayer player) => LiveItems.GetAll().Count(record =>
         record.Placement is ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand &&
-        (record.PlacementPlayerIdentity == player.Guid || record.PlacementPlayerId == player.PlayerId));
+        record.Holder == player.Guid);
 
     private static int FreeSlot(HashSet<int> taken, int from)
     {
@@ -265,7 +264,7 @@ public static class StartingItemsIssuer
                                                    instance.AddComponent<ItemIdentity>();
             ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(reason, player,
                 overflow ? "inventory full, slot " + slot + " kept" : "slot " + slot);
-            if (LiveItems.RegisterMaterializedColdItem(item, player, player.PlayerId, player.Guid,
+            if (LiveItems.RegisterMaterializedColdItem(item, player, player.Guid,
                     snapshot, identity.Ensure(), cause) == null)
                 throw new InvalidOperationException("registration failed");
             item.ApplyServerCanonicalSnapshot(snapshot);

@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
@@ -25,8 +26,8 @@ public static class ItemAccessServer
         LiveItems.LiveItem record, out string reason)
     {
         ItemAccessDecision decision = ItemAccess.Decide(new ItemAccessRequest(action,
-            actorOwnsItem: actor != null && record != null && record.PersistentOwnerPlayerId != 0 &&
-                           record.PersistentOwnerPlayerId == actor.PlayerId,
+            actorOwnsItem: actor != null && record != null && record.Owner != Guid.Empty &&
+                           record.Owner == actor.Guid,
             isFixture: IsFixture(item, record),
             isEssential: item?.Item?.InventorySpecs?.IsEssential == true));
         reason = decision.Reason;

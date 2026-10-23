@@ -130,8 +130,7 @@ internal sealed class OfficeStockReplenishment
         foreach (LiveItems.LiveItem record in LiveItems.GetAll().ToArray())
         {
             if (record == null || !record.IsReplenishableStockFork ||
-                record.PersistentOwnerPlayerId != 0 || record.PersistentOwnerIdentity != Guid.Empty ||
-                record.InventoryClaimPlayerId != 0 || record.InventoryClaimSlot >= 0 ||
+                record.Owner != Guid.Empty || record.InventoryClaimSlot >= 0 ||
                 LostAndFoundServer.Contains(record.NetId) ||
                 record.Placement is not (ItemPlacementKind.World or ItemPlacementKind.StaticParent or
                     ItemPlacementKind.TrainInterior) ||

@@ -52,6 +52,16 @@ public class ItemUpdateData
     public Dictionary<string, object> States { get; set; }
     public PlayerHand PlayerHand { get; set; }
     public uint AuthorityRevision { get; set; }
+
+    /// <summary>
+    /// The owner number sent for an owner with no session. The server decides by identity and has
+    /// no number for an offline owner; the wire still names owners by number (until each player
+    /// is told its relation to the item instead), so this one, never given to a player, tells a
+    /// client the item is owned, and not by anyone it knows.
+    /// </summary>
+    public const byte OfflineOwnerNumber = 255;
+
+    /// <summary>The owner's session number, <see cref="OfflineOwnerNumber"/> for an offline owner, 0 for none.</summary>
     public byte PersistentOwnerPlayerId { get; set; }
     public byte InventoryClaimPlayerId { get; set; }
     public int InventoryClaimSlot { get; set; } = -1;

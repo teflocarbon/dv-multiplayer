@@ -62,8 +62,8 @@ internal static partial class ItemSaveLoad
             // An item in a player's hand when the host saves goes back into their inventory.
             Placement = spatial.Placement == ItemPlacementKind.PlayerHand && IsPlayerPossession(record)
                 ? ItemPlacementKind.PlayerInventory : spatial.Placement,
-            OwnerIdentity = ResolveSavedOwnerIdentity(record),
-            PlacementPlayerIdentity = ResolvePlacementIdentity(record),
+            OwnerIdentity = record.Owner,
+            PlacementPlayerIdentity = record.Holder,
             ClaimSlot = record.InventoryClaimSlot,
             ClaimFlags = record.InventoryClaimFlags,
             WorldParentKind = spatial.ParentKind,
@@ -78,15 +78,6 @@ internal static partial class ItemSaveLoad
             Rotation = spatial.Rotation,
             State = TrySaveItemState(record.NetId, item)
         };
-    }
-
-    private static Guid ResolveSavedOwnerIdentity(LiveItems.LiveItem record)
-    {
-        if (record.PersistentOwnerIdentity != Guid.Empty)
-            return record.PersistentOwnerIdentity;
-
-        return NetworkServer.Instance.ServerPlayers
-                   .FirstOrDefault(player => player.PlayerId == record.PersistentOwnerPlayerId)?.Guid ?? Guid.Empty;
     }
 
     private static JObject TrySaveItemState(ushort netId, NetworkedItem item)
@@ -117,20 +108,7 @@ internal static partial class ItemSaveLoad
     /// </summary>
     internal static bool IsPlayerPossession(LiveItems.LiveItem record) =>
         record?.Placement is ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand &&
-        ResolvePlacementIdentity(record) != Guid.Empty;
-
-    // The GUID of the player holding an item. A record of the host's own player's item may carry
-    // only the runtime player ID.
-    private static Guid ResolvePlacementIdentity(LiveItems.LiveItem record)
-    {
-        if (record.PlacementPlayerIdentity != Guid.Empty)
-            return record.PlacementPlayerIdentity;
-        if (record.PlacementPlayerId == 0)
-            return Guid.Empty;
-        NetworkServer server = NetworkServer.Instance;
-        ServerPlayer holder = server?.ServerPlayers.FirstOrDefault(player => player.PlayerId == record.PlacementPlayerId);
-        return holder?.Guid ?? Guid.Empty;
-    }
+        record.Holder != Guid.Empty;
 
     private static bool ShouldPersist(LiveItems.LiveItem record)
     {
@@ -155,7 +133,7 @@ internal static partial class ItemSaveLoad
             // restored from the save is a fresh prefab copy without BelongsToPlayer, and was lost at
             // the save after (found by ledger-save, 2026-10-21).
             if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) ||
-                item?.Item?.InventorySpecs?.BelongsToPlayer != true && record.PersistentOwnerIdentity == Guid.Empty)
+                item?.Item?.InventorySpecs?.BelongsToPlayer != true && record.Owner == Guid.Empty)
                 return false;
             return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                 ItemPlacementKind.StaticParent || IsPlayerPossession(record);

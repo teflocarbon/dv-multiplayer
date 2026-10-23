@@ -38,11 +38,9 @@ public static class ShopDelivery
                 trigger.OnPurchased(obj);
             NetworkedItem networked = obj.GetOrAddComponent<NetworkedItem>();
             if (buyer != null && buyer.Guid != Guid.Empty && networked != null && networked.NetId != 0 &&
-                LiveItems.Ensure(networked) is { PersistentOwnerPlayerId: 0 } record)
+                LiveItems.Ensure(networked) is { } record && record.Owner == Guid.Empty)
             {
-                record.PersistentOwnerPlayerId = buyer.PlayerId;
-                record.PersistentOwnerIdentity = buyer.Guid;
-                buyer.AddOwnedItem(networked.NetId);
+                record.Owner = buyer.Guid;
                 ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Purchased, buyer,
                     $"at {shop.name}, {i + 1} of {amount}, owner {buyer.Username}, lying in the world"));
             }

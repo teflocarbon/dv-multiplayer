@@ -872,7 +872,7 @@ public partial class NetworkServer : NetworkManager
 
         // The same player reconnecting (e.g. after a crash) before their old connection has timed
         // out. Retire the stale session now: left alone it holds their slot, and when it finally
-        // times out its cleanup unbinds item ownership by identity - including from the new session.
+        // times out its cleanup drops what it holds - which by identity is the new session's too.
         ServerPlayer stale = ServerPlayers.FirstOrDefault(player =>
             playerId != Guid.Empty && player.Guid == playerId && player.Peer != SelfPeer);
         if (stale != null)
@@ -923,9 +923,10 @@ public partial class NetworkServer : NetworkManager
 
     /// <summary>
     ///     Admits a player whose login has been accepted: creates their <see cref="ServerPlayer"/>
-    ///     and binds their saved records to it (their ID, items, Lost and Found and world items), as
-    ///     every login must, the host's own player's included (host-player-persist). The local
-    ///     player becomes <see cref="LocalPlayer"/> before the records are bound.
+    ///     and gives them what the save held back for them (the items in their inventory), as every
+    ///     login must, the host's own player's included (host-player-persist). Nothing is bound to
+    ///     their session number: owners and holders are identities. The local player becomes
+    ///     <see cref="LocalPlayer"/> first.
     /// </summary>
     private ServerPlayer AdmitPlayer(ITransportPeer peer, string username, string originalUsername, Guid playerId,
         Guid legacyGuid, ulong steamId, string characterId, bool isVr, bool isLocalPlayer)
@@ -941,8 +942,6 @@ public partial class NetworkServer : NetworkManager
         if (isLocalPlayer)
             LocalPlayer = serverPlayer;
         global::Multiplayer.Server.Career.InstallGuidRekey.OnLogin(serverPlayer);
-        LiveItems.RebindPersistentOwner(serverPlayer);
-        LostAndFoundServer.OnOwnerConnected(serverPlayer);
         ItemSaveLoad.OnOwnerConnected(serverPlayer);
         DedicatedHost.OnPlayersChanged(someoneLeft: false);
         return serverPlayer;

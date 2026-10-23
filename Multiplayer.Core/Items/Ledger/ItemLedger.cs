@@ -325,6 +325,48 @@ public sealed class ItemLedger
 
     public IReadOnlyCollection<Guid> StarterKitsGiven => starterKitsGiven;
 
+    /// <summary>Whether anything in the ledger is a player's: an entry they own, have with them or
+    /// caused, or their starter kit.</summary>
+    public bool HasIdentity(Guid player) =>
+        player != Guid.Empty && (starterKitsGiven.Contains(player) || entries.Values.Any(entry =>
+            entry.Owner == player || entry.Where.Holder == player || entry.Born.By == player));
+
+    /// <summary>
+    /// A player's identity changed (an install GUID re-keyed to their Steam account): what they own,
+    /// what they have with them, what they caused and their starter kit move to the new identity,
+    /// ended entries included, raising nothing (nothing moved). Returns how many entries changed.
+    /// </summary>
+    public int Rekey(Guid from, Guid to)
+    {
+        if (from == Guid.Empty || to == Guid.Empty || from == to)
+            return 0;
+        int changed = 0;
+        foreach (LedgerEntry entry in entries.Values)
+        {
+            bool touched = false;
+            if (entry.Owner == from)
+            {
+                entry.Owner = to;
+                touched = true;
+            }
+            if (entry.Where.IsWithPlayer && entry.Where.Holder == from)
+            {
+                entry.Where = Home.With(to, entry.Where.Hold, entry.Where.Slot);
+                touched = true;
+            }
+            if (entry.Born.By == from)
+            {
+                entry.Born = new Birth(entry.Born.Reason, entry.Born.UtcTicks, to, entry.Born.From, entry.Born.Detail);
+                touched = true;
+            }
+            if (touched)
+                changed++;
+        }
+        if (starterKitsGiven.Remove(from))
+            starterKitsGiven.Add(to);
+        return changed;
+    }
+
     /// <summary>
     /// Replaces the ledger with saved entries, raising nothing. An id saved twice keeps its first
     /// entry. Returns the entries it refused.

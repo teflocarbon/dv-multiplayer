@@ -35,13 +35,14 @@ public static class OwnedItemsSummary
     }
 
     public static List<OwnedItem> For(ServerPlayer player) =>
-        player == null ? new List<OwnedItem>() : For(player.Guid, player.PlayerId);
+        player == null ? new List<OwnedItem>() : For(player.Guid);
 
     /// <param name="guid">The player's identity.</param>
-    /// <param name="playerId">Their player number this session, for records without an owner identity.</param>
-    public static List<OwnedItem> For(Guid guid, byte playerId)
+    public static List<OwnedItem> For(Guid guid)
     {
         List<OwnedItem> owned = new();
+        if (guid == Guid.Empty)
+            return owned;
 
         // Live records: hands, inventory, the world, trains, containers' live items and Lost and Found,
         // including saved items still waiting for this owner to connect.
@@ -49,14 +50,7 @@ public static class OwnedItemsSummary
         {
             if (record.Placement == ItemPlacementKind.Destroyed || string.IsNullOrEmpty(record.PrefabName))
                 continue;
-            // Player numbers are handed out per session, and a record restored from the save keeps
-            // the number its owner had then: another player can have it now. That counted one
-            // player's radio as another's, so DV wouldn't make them one and /give refused it. The
-            // number is used only for a record without an owner identity.
-            bool mine = record.PersistentOwnerIdentity != Guid.Empty
-                ? record.PersistentOwnerIdentity == guid
-                : record.PersistentOwnerPlayerId != 0 && record.PersistentOwnerPlayerId == playerId;
-            if (!mine)
+            if (record.Owner != guid)
                 continue;
             int slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.InventoryClaimSlot : -1;
             owned.Add(new OwnedItem(record.PrefabName, slot));

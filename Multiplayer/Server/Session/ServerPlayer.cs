@@ -1,9 +1,7 @@
 using DV.JObjectExtstensions;
-using Multiplayer.Core.Items.LiveState;
-using Multiplayer.Server.Items.LiveState;
-using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data;
+using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Data.Player;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Trains;
@@ -25,11 +23,11 @@ public class ServerPlayer : IDisposable
     #region ID Management
     private static readonly NetIdAllocator<byte> idAllocator = CreateIdAllocator();
 
-    // The owner number of an owner who isn't connected is never a player's.
+    // The number the wire sends for an owner who isn't connected is never a player's.
     private static NetIdAllocator<byte> CreateIdAllocator()
     {
         NetIdAllocator<byte> allocator = new(value => unchecked((byte)(value + 1)));
-        allocator.TryReserve(ItemTransition.AbsentOwnerId);
+        allocator.TryReserve(ItemUpdateData.OfflineOwnerNumber);
         return allocator;
     }
 
@@ -38,8 +36,6 @@ public class ServerPlayer : IDisposable
         Multiplayer.LogDebug(() => $"Disposing ServerPlayer {Username} ({PlayerId})");
         if (PlayerId != 0)
         {
-            LiveItems.UnbindPersistentOwner(this);
-            LostAndFoundServer.OnOwnerDisconnected(this);
             idAllocator.Release(PlayerId);
             PlayerId = 0;
         }
@@ -141,7 +137,6 @@ public class ServerPlayer : IDisposable
 
     public Dictionary<NetworkedItem, uint> KnownItems { get; private set; } = new Dictionary<NetworkedItem, uint>(); //NetworkedItem, last updated tick
     public Dictionary<NetworkedItem, float> NearbyItems { get; private set; } = new Dictionary<NetworkedItem, float>(); //NetworkedItem, time since near the item
-    public HashSet<ushort> OwnedItems { get; private set; } = new HashSet<ushort>();
     public HashSet<ushort> AcknowledgedWorldItems { get; } = new HashSet<ushort>();
     // Items this player failed to project: when the host may send their Create again.
     internal Dictionary<ushort, float> ProjectionRetryAt { get; } = new Dictionary<ushort, float>();
@@ -262,45 +257,6 @@ public class ServerPlayer : IDisposable
         : (Quaternion.Euler(0, RawRotationY, 0) * car.transform.rotation).eulerAngles.y;
     #endregion
 
-    #region Item Ownership
-    public bool OwnsItem(ushort itemNetId) => OwnedItems.Contains(itemNetId);
-
-    public void AddOwnedItem(ushort itemNetId)
-    {
-        OwnedItems.Add(itemNetId);
-        NetworkServer.Instance.LogDebug(() => $"Player {Username} now owns item {itemNetId}");
-    }
-
-    public void AddOwnedItems(IEnumerable<ushort> itemNetIds)
-    {
-        OwnedItems.UnionWith(itemNetIds);
-        NetworkServer.Instance.LogDebug(() => $"Player {Username} batch added items: {string.Join(", ", itemNetIds)}");
-    }
-
-    public void RemoveOwnedItem(ushort itemNetId)
-    {
-        if (OwnedItems.Remove(itemNetId))
-        {
-            NetworkServer.Instance.LogDebug(() => $"Player {Username} no longer owns item {itemNetId}");
-        }
-    }
-
-    public void ClearOwnedItems()
-    {
-        OwnedItems.Clear();
-        NetworkServer.Instance.LogDebug(() => $"Cleared all owned items for player {Username}");
-    }
-
-    public bool TryGetOwnedItem(ushort itemNetId, out NetworkedItem item)
-    {
-        if (OwnedItems.Contains(itemNetId) && NetworkedItem.TryGet(itemNetId, out item))
-        {
-            return true;
-        }
-        item = null;
-        return false;
-    }
-    #endregion
 
     public override string ToString()
     {

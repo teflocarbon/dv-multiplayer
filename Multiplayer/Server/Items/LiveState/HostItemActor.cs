@@ -26,6 +26,9 @@ internal static class HostItemActor
     /// <summary>Whether the host's world has someone to commit its changes: its player, or the server itself.</summary>
     public static bool Present => Player != null || IsServer;
 
+    /// <summary>The simulator id of the server itself, with no player of its own.</summary>
+    public const byte ServerSimulatorId = 0;
+
     /// <summary>The simulator id of the host's own simulation in item leases and samples.</summary>
-    public static byte SimulatorId => Player?.PlayerId ?? ItemTransition.ServerActorId;
+    public static byte SimulatorId => Player?.PlayerId ?? ServerSimulatorId;
 }
