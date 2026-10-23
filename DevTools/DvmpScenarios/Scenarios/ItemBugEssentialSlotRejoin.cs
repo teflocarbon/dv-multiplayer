@@ -14,13 +14,14 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Known item bug (expected to fail on beta, docs/research/item-bug-review.md): a player
-    /// rearranges their inventory, moving an essential (the comms radio, slot 0) to another slot
-    /// and an ordinary item into the essential's old slot, then rejoins. Every essential must be
-    /// back in a slot of its own, visible, and no two items may share a slot. The server never
-    /// hears of a move inside the inventory, so it still has the radio's claim on its old slot.
+    /// A player rearranges their inventory, moving an essential (the comms radio, slot 0) to
+    /// another slot and an ordinary item into the essential's old slot, then rejoins
+    /// (docs/research/item-bug-review.md). Every essential must be back in a slot of its own,
+    /// visible, and no two items may share a slot. Before R3 the server never heard of a move
+    /// inside the inventory and kept the radio's claim on its old slot; now each move is a request
+    /// the ledger commits (OI-SLOT-02), so the rejoin finds every item where the player left it.
     /// </summary>
-    [Scenario("item-bug-essential-slot-rejoin", "Known bug: an essential moved to another slot, an ordinary item put in its old slot, and a rejoin: every essential must come back in a slot of its own")]
+    [Scenario("item-bug-essential-slot-rejoin", "An essential moved to another slot, an ordinary item put in its old slot, and a rejoin: every essential comes back in a slot of its own")]
     [Needs(Need.RestartsGames)]
     [Budget(600)]
     public sealed class ItemBugEssentialSlotRejoin : Scenario<ItemBugEssentialSlotRejoin.Options>
@@ -51,6 +52,10 @@ namespace Dvmp.Scenarios
             Report.Note($"{o.Who}: {before.Essential} {before.EssentialId} moved {o.Slot}->{before.EssentialSlot}, {before.Other} {before.OtherId} moved into slot {o.Slot}");
             string record = await pair.Host.Run(() => InGame.ServerClaim(before.EssentialId));
             Report.Note($"server record of {before.Essential}: {record}");
+            ServerSlot essentialAt = await pair.Host.Run(() => Ledger.Where(before.EssentialId));
+            ServerSlot otherAt = await pair.Host.Run(() => Ledger.Where(before.OtherId));
+            Expect.Equal(before.EssentialSlot, essentialAt.Slot, $"the server's slot for the {before.Essential}, before the {how}");
+            Expect.Equal(o.Slot, otherAt.Slot, $"the server's slot for the {before.Other}, before the {how}");
 
             if (o.Restart)
             {
@@ -128,7 +133,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static string ServerClaim(ushort id) =>
                 LiveItems.TryGet(id, out var r)
-                    ? $"{r.Placement} of {r.Holder}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
+                    ? $"{r.Placement} of {r.Holder}, slot {r.Slot}, claim slot {r.InventoryClaimSlot} ({r.InventoryClaimFlags})"
                     : "no record";
 
             /// <summary>Client: every item this player owns that the game has in the inventory is in
