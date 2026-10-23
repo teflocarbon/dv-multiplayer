@@ -80,7 +80,7 @@ arguments the action uses are written:
 | --- | --- | --- |
 | `Take` | the hand; the item's states | the live state (`CarryChange`) |
 | `Stash` | the slot and claim flags; states | the live state |
-| `MoveSlot` | the slot | refused (`NotAllowed`, `move-slot-not-kept-by-server`): a client's slots are its game's until R3 makes them the server's |
+| `MoveSlot` | the slot | moves the item to that slot of its holder's inventory, or swaps it with the holder's own item there (`NetworkServer.CarryMoveSlot`, `LiveItems.TrySwapSlots`); refused on `slot-occupied` or `slot-reserved` (R3, [inventory.md](inventory.md)) |
 | `Drop` | the pose and its parent (world, a train car, a static parent); states | the live state |
 | `Throw` | as `Drop`, with a direction | the live state |
 | `Recall` | the claim slot | `LiveItems.TryRecall`, or Lost and Found for an essential there |

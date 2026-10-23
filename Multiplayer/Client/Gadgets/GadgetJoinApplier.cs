@@ -15,7 +15,7 @@ using UnityEngine;
 namespace Multiplayer.Client.Gadgets;
 
 /// <summary>
-/// Puts a joining player's installed gadgets on their cars (gadgets.md, "Late joiners") the way
+/// Puts a joining player's installed gadgets on their cars and the world (gadgets.md, "Late joiners") the way
 /// vanilla loads a save (StartingItemsController): every gadget's item loads its saved state, which
 /// places it and restores its UID, soldering, wires, mount points and settings; then every item's
 /// after-load pass binds mounts. Wires resolve in any order because both ends save them. The
@@ -45,15 +45,27 @@ internal static class GadgetJoinApplier
         GadgetRunningClient.Reset();
         GadgetKnobLeases.Reset();
         Applying = true;
-        List<(TrainCar car, InstalledGadgetData data)> wanted = new();
+        // Each anchor's vanilla key (a car's GUID, or the world's) and its name for the log.
+        List<(string key, string on, InstalledGadgetData data)> wanted = new();
         foreach (GadgetAnchorSnapshotData anchor in packet.Anchors ?? [])
         {
-            if (!NetworkedTrainCar.TryGet(anchor.CarNetId, out TrainCar car) || car == null)
+            string key, on;
+            if (anchor.CarNetId == 0)
+            {
+                key = WorldCustomization.KEY;
+                on = "the world";
+            }
+            else if (NetworkedTrainCar.TryGet(anchor.CarNetId, out TrainCar car) && car != null)
+            {
+                key = car.CarGUID;
+                on = car.ID;
+            }
+            else
             {
                 Multiplayer.LogWarning($"Installed gadgets on car {anchor.CarNetId}, which this game doesn't have: skipped");
                 continue;
             }
-            wanted.AddRange((anchor.Gadgets ?? []).Select(gadget => (car, gadget)));
+            wanted.AddRange((anchor.Gadgets ?? []).Select(gadget => (key, on, gadget)));
         }
 
         // Their items' Creates came just before, on the same channel; give them a moment to apply.
@@ -63,9 +75,9 @@ internal static class GadgetJoinApplier
             yield return null;
 
         List<ItemSaveData> placed = new();
-        foreach ((TrainCar car, InstalledGadgetData data) in wanted)
+        foreach ((string key, string on, InstalledGadgetData data) in wanted)
         {
-            if (TryPlace(car, data, out ItemSaveData saveData))
+            if (TryPlace(key, on, data, out ItemSaveData saveData))
                 placed.Add(saveData);
         }
         foreach (ItemSaveData saveData in placed)
@@ -88,12 +100,12 @@ internal static class GadgetJoinApplier
         done?.Invoke();
     }
 
-    private static bool TryPlace(TrainCar car, InstalledGadgetData data, out ItemSaveData saveData)
+    private static bool TryPlace(string key, string on, InstalledGadgetData data, out ItemSaveData saveData)
     {
         saveData = null;
         if (!NetworkedItem.TryGet(data.ItemNetId, out NetworkedItem item) || item == null)
         {
-            Multiplayer.LogWarning($"Installed gadget item {data.ItemNetId} on {car.ID} never arrived: skipped");
+            Multiplayer.LogWarning($"Installed gadget item {data.ItemNetId} on {on} never arrived: skipped");
             return false;
         }
         GadgetItem gadgetItem = item.GetComponent<GadgetItem>();
@@ -112,11 +124,11 @@ internal static class GadgetJoinApplier
         try
         {
             JObject state = JObject.Parse(data.State);
-            // Loading a gadget whose car is missing sends it to vanilla's Lost and Found.
-            if ((string)state["placedOn"] != car.CarGUID)
+            // Loading a gadget whose anchor is missing sends it to vanilla's Lost and Found.
+            if ((string)state["placedOn"] != key)
             {
                 Multiplayer.LogWarning($"Installed gadget {item.name} ({data.ItemNetId}) is on '{state["placedOn"]}', " +
-                                       $"not {car.ID}'s {car.CarGUID}: skipped");
+                                       $"not {on}'s '{key}': skipped");
                 return false;
             }
             // Vanilla sets this in Start, which an inactive item never runs; Place needs it.
@@ -129,7 +141,7 @@ internal static class GadgetJoinApplier
         }
         catch (Exception exception)
         {
-            Multiplayer.LogException($"Installed gadget {item.name} ({data.ItemNetId}) on {car.ID} failed to load", exception);
+            Multiplayer.LogException($"Installed gadget {item.name} ({data.ItemNetId}) on {on} failed to load", exception);
             return false;
         }
     }

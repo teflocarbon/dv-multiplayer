@@ -17,8 +17,8 @@ namespace Dvmp.Scenarios
     /// the server, with no object there, its ledger home its slot. A move to another slot has the
     /// object made again, moves it and lets it go back to data. A move the server refuses (a stale
     /// revision) puts it back where it was in the client's game. When the client leaves, the item
-    /// is a cold row in the same slot, with no object anywhere and its ledger home unchanged; at the
-    /// rejoin it is made again in that slot.
+    /// is a cold row in the same slot, with no object anywhere and its ledger home unchanged, and the
+    /// item in their hand goes to a free slot first (D5); at the rejoin both are made again in those slots.
     /// </summary>
     [Scenario("cold-homes", "Inventory items are data on the server: no duplicate, moves made live, a refused move rolls back, cold rows across a rejoin")]
     [Needs(Need.RestartsGames)]
@@ -59,7 +59,11 @@ namespace Dvmp.Scenarios
                 "the client's game moved the lantern before the server answered", $"to slot {other}");
             await Same(pair, lantern, free, "the lantern, its move refused");
 
-            // Cold: the client leaves; the lantern is a row in its slot, no object anywhere.
+            // Cold: the client leaves holding a mug; the lantern is a row in its slot, the mug a row in
+            // a free one, no object anywhere.
+            ushort mug = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
+            await pair.Client.Run<int>(s => Items.Stash(s, mug, true), 60);
+            string mugId = await pair.Host.Run(() => Owned.IdOf(mug));
             await Until.Value(() => pair.Host.Run(() => InGame.State(id)), state => state == "data", 20,
                 "the lantern is data again before the client leaves");
             await pair.Client.Quit();
@@ -67,6 +71,10 @@ namespace Dvmp.Scenarios
                 "the lantern is cold once the client has left");
             Expect.Equal(free, await pair.Host.Run(() => InGame.RowSlot(id)), "the cold row's slot");
             Expect.Equal(free, await pair.Host.Run(() => InGame.LedgerSlot(id)), "the ledger's slot for the cold lantern");
+            Expect.Equal("cold", await pair.Host.Run(() => InGame.State(mugId)), "the mug that was in the client's hand");
+            int mugSlot = await pair.Host.Run(() => InGame.RowSlot(mugId));
+            Expect.That(mugSlot >= 0 && mugSlot != free, "the held mug went to a free slot", $"slot {mugSlot}");
+            Expect.Equal(mugSlot, await pair.Host.Run(() => InGame.LedgerSlot(mugId)), "the ledger's slot for the cold mug");
 
             // Live again: the rejoin makes it in the same slot.
             await pair.Rejoin();
@@ -75,6 +83,9 @@ namespace Dvmp.Scenarios
             Require.That(now != 0, "the lantern is live again after the rejoin");
             await pair.Host.Run(() => Ledger.Track(now));
             await Same(pair, now, free, "the lantern, after the rejoin");
+            ushort mugNow = await pair.Host.Run(() => Owned.NetIdOf(mugId));
+            await pair.Host.Run(() => Ledger.Track(mugNow));
+            await Same(pair, mugNow, mugSlot, "the mug, after the rejoin");
         }
 
         // The server's record and the ledger have it in this slot, and so does the client's game.

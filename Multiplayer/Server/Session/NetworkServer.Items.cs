@@ -225,10 +225,12 @@ public partial class NetworkServer : IItemServer
     }
 
     // What one player is told of an item: its relation to it, never the owner (D3), and the claim
-    // only if it's the claimant. A Destroy, or an item with no record, is nobody's.
+    // only if it's the claimant. A Destroy, or an item with no record, is nobody's, except a Lost and
+    // Found tombstone: its owner keeps the essential's silhouette by it (OI-ESS-08).
     private static ItemUpdate BuildFor(ItemUpdate update, ServerPlayer recipient)
     {
-        if (update.UpdateType == ItemUpdate.ItemUpdateType.Destroy ||
+        if (update.UpdateType == ItemUpdate.ItemUpdateType.Destroy &&
+            update.TransitionReason != ItemTransitionReason.LostAndFoundCollection ||
             !LiveItems.TryGet(update.ItemNetId, out LiveItems.LiveItem record))
             return update.For(ItemRelation.Nobodys, false);
         return update.For(ItemRelations.Of(record.Owner, recipient.Guid),

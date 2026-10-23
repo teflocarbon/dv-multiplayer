@@ -266,6 +266,17 @@ public static class LiveItems
                 ItemWorldParentKind.StaticParent => ItemPlacementKind.StaticParent,
                 _ => requestedPlacement
             };
+        // Into a player's hands from the world, or from another player (OI-ACC-07). Asked before the
+        // state machine, so the refusal of a take from another player is ItemAccess's; a placement
+        // with a player is always the actor's (ItemStateMachine).
+        if (actor != null && appliesPlacement &&
+            requestedPlacement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
+            TakeAction(record, actor.Guid) is { } take &&
+            !ItemAccessServer.Allows(actor, take, item, record, out rejectionReason))
+        {
+            PublishRejected(item, record, actor, snapshot, rejectionReason);
+            return false;
+        }
         TransitionResult result = ItemStateMachine.Apply(currentState, new ItemTransition
         {
             Actor = actorIdentity,
@@ -293,15 +304,6 @@ public static class LiveItems
         if (result.State.Placement == LivePlacement.PlayerInventory && record.Placement != ItemPlacementKind.PlayerInventory &&
             (actor ?? PlayerNumbers.Session(result.State.Holder)) is ServerPlayer stasher &&
             !ItemAccessServer.Allows(stasher, ItemAccessAction.Stash, item, record, out rejectionReason))
-        {
-            PublishRejected(item, record, actor, snapshot, rejectionReason);
-            return false;
-        }
-        // Into a player's hands from the world, or from another player (OI-ACC-07).
-        if (actor != null && result.State.Holder == actor.Guid &&
-            result.State.Placement is LivePlacement.PlayerHand or LivePlacement.PlayerInventory &&
-            TakeAction(record, actor.Guid) is { } take &&
-            !ItemAccessServer.Allows(actor, take, item, record, out rejectionReason))
         {
             PublishRejected(item, record, actor, snapshot, rejectionReason);
             return false;
@@ -500,10 +502,13 @@ public static class LiveItems
         record.LastReason = ItemTransitionReason.SpatialSettlement;
         // Coming to rest where it was thrown isn't news, and would hide who threw it: only a
         // settlement that lands it somewhere else (into a car) is recorded.
+        // The ledger takes where it landed either way: from one car into another is a new home.
         ItemWhereabouts after = ItemChangeLog.Whereabouts(record);
+        ChangeCause<ItemMoveReason> settled = ItemChangeLog.Move(ItemMoveReason.Settled,
+            detail: ItemChangeLog.Describe(before, after));
+        ServerLedger.OnSettled(record, settled);
         if (ItemMoveClassifier.Changed(before, after))
-            ItemChangeLog.RecordMove(item, record, ItemChangeLog.Move(ItemMoveReason.Settled,
-                detail: ItemChangeLog.Describe(before, after)));
+            ItemChangeLog.RecordMove(item, record, settled);
         item.ApplyAuthorityMetadata(AuthorityMetadata(record, record.Revision, record.LastReason));
         Publish("item.spatial-pose-committed", item, record, new()
         {

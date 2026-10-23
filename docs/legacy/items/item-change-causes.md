@@ -1,4 +1,4 @@
-> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by `items/change-causes.md` (R3). The item docs start at [items/README.md](../../design/items/README.md).
+> Legacy: describes the item system before the refactor (names as on `beta` 04bfe277). Read it only as evidence of how the code behaves today, not as design. Replaced by [items/change-causes.md](../../design/items/change-causes.md) (R3). The item docs start at [items/README.md](../../design/items/README.md).
 
 # Why an item changed
 

@@ -8,9 +8,8 @@ namespace Multiplayer.Server.Items.Access;
 
 /// <summary>
 /// The server's side of <see cref="ItemAccess"/>: it works out the facts for a player's request on
-/// an item and asks the policy (owned-items.md, "Permissions", PR 1c). Called today where a player
-/// stashes an item and where they deposit one; the other actions are wired by the PRs that change
-/// them.
+/// an item and asks the policy (docs/design/items/access.md). Called for every action: a stash, a
+/// deposit, a recall, a retrieval, and a take from the world or from another player.
 /// </summary>
 public static class ItemAccessServer
 {

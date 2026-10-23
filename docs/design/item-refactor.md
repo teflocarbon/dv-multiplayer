@@ -46,7 +46,7 @@ The homes:
 | `Shelf(key)` | on a static parent, by its key | an item on a station shelf |
 | `Container(container, slot)` | in a cold container, by the container's id | a flashlight in a toolbox |
 | `LostAndFound` | its owner's Lost and Found, with the reason and time | a lantern left 300 m away |
-| `Installed(anchor, gadget uid)` | a gadget on a car (by its GUID) or on the world (vanilla's `WorldCustomization`, key `:global:`) (the [seam](#the-gadget-seam) only) | a bolted plate; a mod's trackside gadget |
+| `Installed(anchor)` | a gadget on a car (by its GUID) or on the world (vanilla's `WorldCustomization`, key `:global:`) (the [seam](#the-gadget-seam) only) | a bolted plate; a mod's trackside gadget |
 | `Attached(car, front)` | an EOT lantern on a car's end | |
 | `Snapped(parent)` | a hanger, a mount | |
 
@@ -103,6 +103,7 @@ can see and touch.
 | D10 | **Binning** destroys the item, as in vanilla, and ends its entry `Discarded`, by the player who binned it; an essential is issued again at its owner's next join; only your own or unowned items can be binned (someone else's is refused and drops by the bin) | user, 2026-10-23 |
 | D11 | **Items from other mods** (custom_item_mod and the item packs it loads) will be built like vanilla items (their prefabs spawn on every game, each item's own saved state reaches clients, a client joins only with the same item mods), **paused for after the refactor** (the user, later the same day). Mod-specific compatibility (Railway Brake Shoe) isn't planned: the user is talking to that mod's developer | user, 2026-10-23 |
 | D12 | **Cold and live homes.** An item whose home nobody is using is cold: data only (its state, and its ledger entry if owned), with no object on any game. Cold homes: an offline player's inventory and claim slots, Lost and Found, a container. A leaving holder's inventory goes cold, and a joining owner's is made from its state in its exact slots. **Every inventory is server data:** a connected player's inventory objects are a view. The client is optimistic: it shows a stash, slot move, hotbar switch, drop or pick-up at once and sends it as a request; the server commits it to the ledger in its own order and confirms, and only a refusal rolls the client back. On the server, an item in a connected remote player's inventory is data only too (no duplicate object); that player's game holds the only object (OI-COLD-06) | user, 2026-10-24 |
+| D13 | **The gadget UID is the gadget's,** not the item's home: an installed item's home is `Installed(anchor)`, the anchor its car or the world (`:global:`), and the gadget keeps its own UID. OI-GAD-04 (the home records the UID) is not needed | user, 2026-10-24 |
 | L1 | **The current item docs are legacy.** They are evidence of today's behaviour, never a template or settled design; new docs are written from scratch, one per subsystem under `docs/design/items/`, and the legacy docs are in `docs/legacy/items/` (moved 2026-10-24, [Docs](#docs)) | user, 2026-10-23 |
 | C1 | Cold containers start fresh (D1), and their new save must make the failures behind F18 (an empty graph written over a save the import refused), the depth check and quarantine impossible by design, not by a stopgap | user, 2026-10-23 |
 
@@ -396,7 +397,7 @@ violation:
    vanilla's Lost and Found list unless its home is `LostAndFound`.
 
 It runs at load (after loading), before every save, and in Debug builds every 5 s. In Debug a
-violation logs an error and a debug event (`item.invariant`) and fails the scenario that is
+violation logs an error and a debug event (`item.invariant-broken`) and fails the scenario that is
 running: the scenario runner calls it after every run and fails the run on any violation
 (OI-LED-09). In Release (D7) it logs the error and puts the item in its ledger home, else in its
 owner's Lost and Found. Core unit tests cover each rule and a fuzz run of random ledger changes
@@ -419,8 +420,8 @@ Every behaviour PR proves its rows on both host kinds.
 
 Only what installed gadgets need, nothing of their features (paused):
 
-- the `Installed(anchor, gadget uid)` home, the anchor a car or the world, with the real UID
-  (OI-GAD-04, OI-GAD-10);
+- the `Installed(anchor)` home, the anchor a car or the world; the gadget keeps its own UID (D13;
+  OI-GAD-10);
 - an install and a removal are ledger changes like any other; the gadget server calls the ledger,
   the ledger doesn't call the gadget server;
 - an installed gadget's owner is the ledger's: `dvmpPersistentOwner` goes (it saved the owner a

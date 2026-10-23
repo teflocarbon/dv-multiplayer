@@ -82,7 +82,9 @@ internal static class GadgetItemTransitions
         GadgetBase gadget = item.GetComponent<GadgetItem>()?.Gadget;
         if (gadget == null || gadget.Custom == null)
             return;
-        if (gadget.Custom is not TrainCarCustomization { TrainCar: { } car })
+        // On a car or on the world (OI-GAD-10); the anchor is the car's GUID or the world's key.
+        TrainCar car = (gadget.Custom as TrainCarCustomization)?.TrainCar;
+        if (car == null && gadget.Custom is not WorldCustomization)
         {
             RemoveOffTrain(gadget, item);
             return;
@@ -94,7 +96,10 @@ internal static class GadgetItemTransitions
         ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
         if (snapshot == null)
             return;
-        NetworkedTrainCar.TryGetNetId(car, out ushort carNetId);
+        ushort carNetId = 0;
+        if (car != null)
+            NetworkedTrainCar.TryGetNetId(car, out carNetId);
+        string on = car != null ? "on " + car.ID : "on the world";
         snapshot.ItemState = ItemState.Installed;
         snapshot.PlayerId = 0;
         snapshot.CarNetId = carNetId;
@@ -104,15 +109,15 @@ internal static class GadgetItemTransitions
         snapshot.ItemRotation = gadget.transform.rotation;
         if (!LiveItems.TryApplyGadgetTransition(item, snapshot, null,
                 ItemTransitionReason.GadgetInstalled, out string rejection,
-                ItemChangeLog.Move(ItemMoveReason.InstalledAsGadget, detail: "on " + car.ID)))
+                ItemChangeLog.Move(ItemMoveReason.InstalledAsGadget, detail: on)))
         {
-            Multiplayer.LogWarning($"Gadget {item.name} (netId {item.NetId}) installed on {car.ID}, but its " +
+            Multiplayer.LogWarning($"Gadget {item.name} (netId {item.NetId}) installed {on}, but its " +
                                    $"record refused it: {rejection}");
             return;
         }
         if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
         {
-            record.AttachedCarPersistentId = car.CarGUID ?? string.Empty;
+            record.AttachedCarPersistentId = car?.CarGUID ?? string.Empty;
             AdoptSavedOwner(item, record);
         }
         SendToPlayersWhoKnow(item, snapshot);
@@ -174,9 +179,10 @@ internal static class GadgetItemTransitions
     }
 
     /// <summary>
-    /// Gadgets go on vehicles only in multiplayer (gadgets.md, "Off-train installs"). One a save
-    /// from before has on the world, the house, the shed or the paint station is taken off into the
-    /// world at its pose once the save's items have loaded, an ordinary item with its owner.
+    /// Gadgets go on vehicles only in multiplayer (gadgets.md, "Off-train installs"), and a save's
+    /// gadgets on the world stay (OI-GAD-10). One a save from before has on the house, the shed or the
+    /// paint station is taken off into the world at its pose once the save's items have loaded, an
+    /// ordinary item with its owner.
     /// </summary>
     private static void RemoveOffTrain(GadgetBase gadget, NetworkedItem item)
     {
@@ -194,8 +200,8 @@ internal static class GadgetItemTransitions
         if (gadget == null || !gadget.IsLinked)
             yield break;
         Multiplayer.Log($"Gadget {item?.name} (netId {item?.NetId}) was installed on " +
-                        $"{gadget.Custom?.GetIdentificationKey()}; gadgets go on vehicles only in multiplayer, " +
-                        "so it's taken off into the world");
+                        $"{gadget.Custom?.GetIdentificationKey()}; gadgets go on vehicles " +
+                        "or the world, so it's taken off into the world");
         gadget.ForceRemove(reparentToTrainCar: false);
     }
 

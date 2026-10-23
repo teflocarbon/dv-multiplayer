@@ -310,6 +310,20 @@ public static partial class ServerLedger
         ledger.Repair(id, now, new LedgerCause(cause.Reason, PlayerNumbers.Identity(cause.PlayerId), cause.Detail));
     }
 
+    /// <summary>
+    /// Host: a thrown or dropped item came to rest. Physics decides where it lands, so the ledger
+    /// takes that home as it is (the world, a car's interior, a shelf), with no commit first.
+    /// </summary>
+    internal static void OnSettled(LiveItems.LiveItem record, ChangeCause<ItemMoveReason> cause)
+    {
+        if (!loaded || record == null || !ledger.TryGetHome(record.PersistentItemId, out Home home))
+            return;
+        Home now = HomeOf(record);
+        if (now.Kind == HomeKind.Missing || HomeInvariant.Agrees(home, now))
+            return;
+        ledger.Repair(record.PersistentItemId, now, new LedgerCause(cause.Reason, PlayerNumbers.Identity(cause.PlayerId), cause.Detail));
+    }
+
     /// <summary>Host: an item is going away (<see cref="ItemChangeLog.RecordRemoval"/>).</summary>
     internal static void OnRemoved(NetworkedItem item, ChangeCause<ItemRemovalReason> cause)
     {
@@ -466,7 +480,8 @@ public static partial class ServerLedger
             : LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == itemId);
         if (ledger.TryGetHome(itemId, out Home home) && home.Kind == HomeKind.LostAndFound)
             return true;
-        if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
+        // With a player before the object: one in a remote player's inventory is data on the server.
+        if (record == null)
             refused = "unknown-item";
         else if (record.Owner == Guid.Empty)
             refused = "item-has-no-owner";
@@ -474,6 +489,8 @@ public static partial class ServerLedger
             refused = "item-is-with-a-player";
         else if (record.Placement == ItemPlacementKind.LostAndFound)
             return true;
+        else if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
+            refused = "unknown-item";
         else if (!LostAndFoundServer.Collect(item, reason, detail))
             refused = "collection-refused";
         return refused.Length == 0;

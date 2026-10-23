@@ -387,8 +387,12 @@ public static class LostAndFoundServer
             Reason = reason,
             LostUtcTicks = DateTime.UtcNow.Ticks
         };
-        if (registry.Add(record) != LostItemRegistryResult.Added)
+        LostItemRegistryResult added = registry.Add(record);
+        if (added != LostItemRegistryResult.Added)
         {
+            // A duplicate id here is one the ledger's check missed (OI-ID-06): logged like a refused restore.
+            Multiplayer.LogError($"Lost and Found: collecting {item.name} (netId {item.NetId}, " +
+                                 $"{authority.PersistentItemId:D}) was refused: {added}");
             LiveItems.RollbackLostAndFoundCollection(item, previousRevision,
                 previousPlacement, previousHolder, previousReason);
             return false;

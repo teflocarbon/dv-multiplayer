@@ -29,6 +29,9 @@ namespace Dvmp.Scenarios
     {
         public sealed class Options
         {
+            /// <summary>The Steam ID has data already: a mug of its own in the stashed mug's slot (OI-ID-19).
+            /// The two are merged, and the stashed mug, its slot taken, goes to Lost and Found.</summary>
+            public bool Merge = false;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -52,6 +55,13 @@ namespace Dvmp.Scenarios
             Require.AtLeast(before.Essentials, 1, "the client's essentials");
             await pair.Host.Run(() => Saves.Manual());
 
+            string seededId = "";
+            if (o.Merge)
+            {
+                int keptSlot = (await pair.Host.Run(() => Ledger.Where(kept))).Slot;
+                seededId = await pair.Host.Run(() => InGame.SeedMug(steam, keptSlot));
+                Report.Note($"the Steam ID's own mug {seededId} in slot {keptSlot}, the stashed mug's");
+            }
             await pair.Host.Run(() => InGame.ResolveAs(install, steam));
             pair.Cleanup(async () =>
             {
@@ -70,22 +80,37 @@ namespace Dvmp.Scenarios
             Holdings after = await pair.Host.Run(() => InGame.Of(steam));
             Holdings left = await pair.Host.Run(() => InGame.Of(install));
             Report.Note($"under the Steam identity: {after}; left under the install GUID: {left}");
-            Expect.Equal(before.Rows, after.Rows, "the owned-items list's rows");
-            Expect.Equal(before.Ledger, after.Ledger, "the ledger's live entries");
-            Expect.Equal(before.Owned, after.Owned, "what the player owns (the ledger)");
+            int seeded = o.Merge ? 1 : 0;
+            Expect.Equal(before.Rows + seeded, after.Rows, "the owned-items list's rows");
+            Expect.Equal(before.Ledger + seeded, after.Ledger, "the ledger's live entries");
+            Expect.Equal(before.Owned + seeded, after.Owned, "what the player owns (the ledger)");
             Expect.Equal(before.Essentials, after.Essentials, "the player's essentials (none issued again)");
-            Expect.Equal(before.Lost, after.Lost, "the player's Lost and Found entries");
+            Expect.Equal(before.Lost + seeded, after.Lost, "the player's Lost and Found entries");
             Expect.Equal(before.Kit, after.Kit, "the starter kit");
             Expect.Equal(0, left.Ledger + left.Owned + left.Lost + (left.Kit ? 1 : 0), "anything left under the install GUID");
 
             OwnerInfo k = await pair.Host.Run(() => Ownership.ById(keptId));
             Expect.Equal(steam, k.Owner, "the stashed mug's owner");
-            Expect.Equal(steam, k.Holder, "the stashed mug's holder");
             // It went cold when the client left and was made again at the rejoin, under a new net ID (D12).
             ushort keptNow = await pair.Host.Run(() => Owned.NetIdOf(keptId));
             await pair.Host.Run(() => Ledger.Track(keptNow));
-            Expect.That(await Until.Value(() => pair.Client.Run(() => Owned.InInventory(keptNow)), v => v, 20, "the stashed mug in the client's inventory"),
-                "the stashed mug is in the client's inventory after the rejoin");
+            if (o.Merge)
+            {
+                // Its slot was the Steam ID's: it went to Lost and Found, and the Steam ID's mug is in the slot.
+                Expect.That(k.Lost, "the stashed mug, its slot taken, is in Lost and Found", k.ToString());
+                ushort seededNow = await pair.Host.Run(() => Owned.NetIdOf(seededId));
+                await pair.Host.Run(() => Ledger.Track(seededNow));
+                OwnerInfo sd = await pair.Host.Run(() => Ownership.ById(seededId));
+                Expect.Equal(steam, sd.Holder, "the Steam ID's mug's holder");
+                Expect.That(await Until.Value(() => pair.Client.Run(() => Owned.InInventory(seededNow)), v => v, 20, "the Steam ID's mug in the client's inventory"),
+                    "the Steam ID's own mug is in the client's inventory after the merge");
+            }
+            else
+            {
+                Expect.Equal(steam, k.Holder, "the stashed mug's holder");
+                Expect.That(await Until.Value(() => pair.Client.Run(() => Owned.InInventory(keptNow)), v => v, 20, "the stashed mug in the client's inventory"),
+                    "the stashed mug is in the client's inventory after the rejoin");
+            }
 
             OwnerInfo l = await pair.Host.Run(() => Ownership.ById(lostId));
             Expect.Equal(steam, l.Owner, "the lost mug's owner");
@@ -165,6 +190,33 @@ namespace Dvmp.Scenarios
                     Lost = Ownership.LostCount(identity),
                     Kit = ServerLedger.Ledger.HasStarterKit(id)
                 };
+            }
+
+            /// <summary>Host: gives an identity no one is logged in as a mug in an inventory slot, kept as a
+            /// cold row with its ledger entry, as if it had played before. Result: the mug's id.</summary>
+            [Step]
+            public static string SeedMug(string identity, int slot)
+            {
+                Guid owner = Guid.Parse(identity), id = Guid.NewGuid();
+                var registered = ServerLedger.Ledger.Register(new Multiplayer.Core.Items.Ledger.BirthRequest
+                {
+                    Id = id,
+                    Owner = Multiplayer.Core.Items.Ledger.OwnerRef.Player(owner),
+                    Prefab = "Mug",
+                    Home = Multiplayer.Core.Items.Ledger.Home.InSlot(owner, slot),
+                    Reason = Multiplayer.Core.Items.Ledger.BirthReason.Granted,
+                    Detail = "rekey scenario: the Steam ID's own mug"
+                });
+                if (!registered.Accepted) throw new Exception("the ledger refused the seeded mug: " + registered.Refusal);
+                Multiplayer.Server.Items.Inventory.ColdInventories.Add(new Multiplayer.Server.Items.SaveLoad.SavedItemRow
+                {
+                    PersistentItemId = id,
+                    PrefabName = "Mug",
+                    OwnerIdentity = owner,
+                    PlacementPlayerIdentity = owner,
+                    Slot = slot
+                });
+                return id.ToString("D");
             }
 
             /// <summary>Host: moves an identity's data back to another (the run's cleanup), as a re-key does.</summary>

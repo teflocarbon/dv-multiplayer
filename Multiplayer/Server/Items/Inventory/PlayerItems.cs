@@ -275,11 +275,12 @@ internal static partial class PlayerItems
             item.Initialize(itemBase, item.NetId, true);
             item.FinaliseTrackedValuesAutomatically();
 
-            // One the ledger sent to Lost and Found (its slot was taken when two identities were
-            // merged, OI-ID-19), or with no slot and none free, goes there by way of the player's feet.
+            // Its own slot if it's still free, else its claim or the first free one. One the ledger
+            // sent to Lost and Found (its slot was taken when two identities were merged, OI-ID-19),
+            // or with no slot free, goes there by way of the player's feet (OI-START-09's route).
             bool lost = ServerLedger.Ledger.TryGetHome(row.PersistentItemId, out Home home) && home.Kind == HomeKind.LostAndFound;
-            int slot = lost ? -1 : row.Slot >= 0 ? row.Slot
-                : ServerLedger.FreeSlot(row.PersistentItemId, row.OwnerIdentity, row.ClaimSlot, player.Guid, row.ClaimSlot);
+            int slot = lost ? -1
+                : ServerLedger.FreeSlot(row.PersistentItemId, row.OwnerIdentity, row.ClaimSlot, player.Guid, row.Slot, row.ClaimSlot);
             bool overflow = slot < 0;
             if (overflow)
                 instance.transform.position = player.AbsoluteWorldPosition + WorldMover.currentMove + Vector3.up * 0.3f;
