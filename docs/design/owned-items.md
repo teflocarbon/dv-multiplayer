@@ -1,7 +1,9 @@
 # Owned items
 
-> Status: designed 2026-10-21, not started. Nothing below is built. It replaces how player
-> inventories, rejoin, Lost and Found and item returns work today
+> Status: PRs 1a to 5 are merged into beta (2026-10-22). 6a to 8 (the list, retrieval, essentials kept
+> out of containers, lineage, retrieving installed gadgets) are a stack in review; see
+> [Implementation status](#implementation-status). It replaces how player
+> inventories, rejoin, Lost and Found and item returns worked before
 > ([`item-lifecycle.md`](item-lifecycle.md), [`item-ownership-open-questions.md`](item-ownership-open-questions.md)),
 > and it is what the gadget design's [Owned items](gadgets.md#owned-items) section points to.
 
