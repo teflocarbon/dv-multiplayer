@@ -92,6 +92,8 @@ that fixes it.
 [research/item-terrain-tunnelling.md](research/item-terrain-tunnelling.md) was measured in game
 rather than read from the code: small items such as the mug fall straight through DV's terrain in
 plain PhysX, and vanilla doesn't catch them. The mod's terrain guard does.
+[research/cold-inventory-sizing.md](research/cold-inventory-sizing.md) sizes decision D14 (inventories
+with no objects, the client's included) against vanilla's inventory and the mod's code, with a PR plan.
 
 ## Generated
 
