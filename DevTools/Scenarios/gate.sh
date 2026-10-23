@@ -71,6 +71,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "starting-items|starting-items|"
   "owned-list|owned-list|"
   "owned-retrieve|owned-retrieve|"
+  "item-lineage|item-lineage|"
   "containers-host|containers|WHO=host|player"
   "client-fall-rescue|client-fall-rescue|"
   "manual-uncouple|manual-uncouple|N=3"

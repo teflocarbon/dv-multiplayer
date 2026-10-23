@@ -76,7 +76,8 @@ on the server and in every client, are made to agree with it.
 - **Essentials stay out of containers: built (2026-10-22), and tested in game with 6a, 6b and 7 on both host kinds (2026-10-23).** `ItemAccess` refuses
   depositing an essential (`essential-not-in-containers`, item-review L7). Scenario: `deposit-refused
   OWNER=essential`.
-- **Everything else: not started.** See the [plan](#plan).
+- **PR 7, lineage: built ahead (2026-10-22), and tested in game with 6a, 6b and L7 on both host kinds (2026-10-23).** `RecordReplacement` for the
+  gadget PRs' server-side swaps (see [7](#7-lineage)). Scenario: `item-lineage`.- **Everything else: not started.** See the [plan](#plan).
 
 ## Why
 
@@ -1043,6 +1044,18 @@ After gadget PRs 4, 5 and 9, which make tape, spools and labels server-side.
   - a duct tape used up through the gadget server's mount request ends with `replacedBy`, and the
     empty roll is born `Replaced`, owned by the tape's owner;
   - none of the ended ones is listed.
+
+As built ahead of the gadget PRs (2026-10-22):
+
+- **`OwnedItemsServer.RecordReplacement(used, replacement, reason)`** is the call each server-side swap
+  makes before destroying the used item. The replacement becomes the used item's owner's, born
+  `Replaced` from it, and the used item's entry ends with `replacedBy`.
+- **Money deposits and destroys** already end their entries with their reason (`OnRemoved`). No change
+  was needed.
+- **Wiring is left to gadget PRs 4, 5 and 9:** duct tape, spools and labels each call
+  `RecordReplacement` from their own swap.
+- **Scenario `item-lineage`:** a server step swaps a mug for a lantern, standing in for the tape until
+  those PRs land. A plain destroy is checked too. The banknote step waits for the money work.
 
 ### 8. Retrieving installed gadgets
 

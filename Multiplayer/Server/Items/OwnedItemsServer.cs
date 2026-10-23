@@ -121,6 +121,36 @@ public static class OwnedItemsServer
         ledger.End(record.PersistentItemId, cause.Reason, detail: cause.Detail);
     }
 
+    /// <summary>
+    /// Host: the server made <paramref name="replacement"/> as vanilla used <paramref name="used"/> up
+    /// (owned-items.md, "Lineage", PR 7): spent duct tape and its empty roll, an empty spool, a
+    /// broken label. The replacement is the used item's owner's, born Replaced, and the used item's
+    /// entry ends with replacedBy. Call it before the used item is destroyed. False when the used item
+    /// isn't owned.
+    /// </summary>
+    public static bool RecordReplacement(NetworkedItem used, NetworkedItem replacement, ItemRemovalReason endReason, string detail = null)
+    {
+        if (!loaded || used == null || replacement == null ||
+            !AuthoritativeItemRegistry.TryGet(used.NetId, out AuthoritativeItemRegistry.Record usedRecord) ||
+            !ledger.TryGet(usedRecord.PersistentItemId, out OwnedItemEntry usedEntry) || !usedEntry.IsLive)
+            return false;
+        AuthoritativeItemRegistry.Record made = AuthoritativeItemRegistry.Ensure(replacement);
+        if (made == null || made.PersistentItemId == Guid.Empty)
+            return false;
+        made.PersistentOwnerIdentity = usedEntry.Owner;
+        made.PersistentOwnerPlayerId = OwnerNumber(usedEntry.Owner);
+        if (replacement.Item?.InventorySpecs != null)
+            replacement.Item.InventorySpecs.BelongsToPlayer = true;
+        OwnedItemRegistration registration = ledger.Replace(usedRecord.PersistentItemId, endReason, new OwnedItemBirthRequest
+        {
+            Id = made.PersistentItemId,
+            Prefab = made.PrefabName,
+            Where = WhereOf(made),
+            Detail = detail ?? "replaced " + usedEntry.Prefab
+        });
+        return registration.Accepted;
+    }
+
     /// <summary>Host: a deposit committed the item to a cold container under its own id.</summary>
     internal static void OnDeposited(Guid itemId, Guid containerId)
     {
