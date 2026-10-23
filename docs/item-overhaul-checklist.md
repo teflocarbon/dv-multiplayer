@@ -55,23 +55,23 @@ On 2026-10-23, at beta 1a0b732f:
 
 | Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision | Paused | Not needed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Identity and what is owned | 8 | 3 | 0 | 2 | 1 | 4 | 0 |
-| The ledger as the source of truth | 4 | 4 | 0 | 6 | 0 | 0 | 0 |
-| Joining, rejoining and leaving | 3 | 2 | 0 | 5 | 1 | 0 | 0 |
+| Identity and what is owned | 8 | 3 | 0 | 3 | 0 | 4 | 0 |
+| The ledger as the source of truth | 4 | 4 | 0 | 8 | 0 | 0 | 0 |
+| Joining, rejoining and leaving | 3 | 2 | 0 | 6 | 0 | 0 | 0 |
 | Starting items | 4 | 3 | 1 | 2 | 0 | 0 | 0 |
-| Essentials and claims | 4 | 0 | 1 | 9 | 1 | 0 | 0 |
-| Lost and Found | 9 | 4 | 0 | 8 | 1 | 0 | 0 |
+| Essentials and claims | 4 | 0 | 1 | 10 | 0 | 0 | 1 |
+| Lost and Found | 9 | 4 | 0 | 9 | 0 | 0 | 0 |
 | The list and retrieval | 7 | 7 | 0 | 2 | 0 | 6 | 0 |
 | Lineage | 2 | 2 | 0 | 0 | 0 | 3 | 0 |
 | Fixtures and `ItemAccess` | 4 | 0 | 0 | 4 | 0 | 7 | 0 |
 | Containers | 1 | 1 | 0 | 12 | 0 | 1 | 0 |
-| Persistence | 7 | 1 | 0 | 11 | 0 | 0 | 0 |
+| Persistence | 6 | 1 | 0 | 11 | 0 | 0 | 1 |
 | Projection and world sync | 1 | 2 | 0 | 11 | 0 | 4 | 0 |
 | Physics and train wake | 0 | 1 | 0 | 9 | 0 | 5 | 0 |
 | Shops seam | 1 | 0 | 0 | 0 | 0 | 9 | 0 |
 | Gadgets seam | 1 | 1 | 0 | 1 | 0 | 6 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 227** | **56** | **31** | **2** | **82** | **4** | **45** | **7** |
+| **All 230** | **55** | **31** | **2** | **88** | **0** | **45** | **9** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -81,8 +81,12 @@ On 2026-10-23, at beta 1a0b732f:
     that workstream. OI-PHY-05 and OI-PHY-12 are in the refactor.
   - **Not needed:** old saves start every player's items fresh (D1), so the migration rows aren't
     needed.
-- **Waiting for the user:** OI-ID-12 and OI-LF-17 (job papers), OI-JOIN-06 (a leaving player's hand
-  item) and OI-ESS-12 (red for every owned item). The refactor plan asks about these (its D3 and D5).
+- **Nothing in the refactor waits for the user.** The last four (job papers, OI-ID-12 and OI-LF-17; a leaver's hand
+  item, OI-JOIN-06; red, OI-ESS-12) were decided on 2026-10-23 (the plan's D3 and D5) and are in the
+  refactor. So are the one-home check (OI-LED-15, D7) and recreating an unloadable item
+  (OI-LED-16, D9). Paused rows that still need a decision when their workstream resumes: OI-ID-16,
+  OI-ID-17, OI-FIX-03, OI-FIX-04, OI-SYNC-12 and OI-GAD-08.
+- **Not needed** also covers OI-PER-02 and OI-ESS-16 (rebuilds and repairs of old saves, D1).
 - **Built, unproved** rows each need a scenario (or a Core test) before they can be ticked.
 - **The 49 findings** each carry the item-review session's triage (2026-10-23, from the code): 15
   real bugs, 16 decided but not built, 18 doc-only. A doc-only row is one where the code does
@@ -109,7 +113,7 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-ID-09 | An unowned personal (`BelongsToPlayer`) item becomes owned by the first player to put it in a hand or inventory, born `Claimed`; pickup never transfers an existing owner | LC §Ownership establishment; OI §What an owned item is | `[x]` | Pre-overhaul (9e641a2), kept by #304 · `ItemAuthorityStateMachine.cs:175` (`MayEstablishPersistentOwner`) · `lost-and-found` :46, `absent-owner` :50-53 (p+d); Core `ItemAuthorityStateMachineTests`, `AbsentOwnerTests`. Born `Claimed` isn't checked (OI-LIN-07) |
 | OI-ID-10 | A non-personal item stays unowned even when carried, so it is never listed, retrievable or sent to Lost and Found | OI §Decisions ("Found items aren't yours"); LC §Forbidden | `[x]` | `ItemAuthorityStateMachine.cs:175` · Core `ItemAuthorityStateMachineTests.NonPersonalItemClaim_DoesNotEstablishPersistentOwnership` (a Core rule). The one scenario that checks it in game is a KnownBug (`item-bug-car-delete-unowned` :35). Saving a carried one is OI-PER-19 |
 | OI-ID-11 | Ownership changes only through a named, accepted server transition; every accepted transition advances the revision, and a refused one changes nothing | LC §Canonical lifecycle; OQ §Invariants | `[x]` | `ItemAuthorityStateMachine` · Core `ItemAuthorityStateMachineTests.AcceptedTransition_HasOnePlacementAndIncreasesRevisionExactlyOnce`, `StaleRevision_IsRejectedWithoutChangingCanonicalState`, `RecallByNonOwner_IsRejectedWithoutMutation`, the transition fuzz test |
-| OI-ID-12 | Job papers (booklets, overviews, reports) are the job's, never owned items or listed | OI §Decisions; F7 | `needs decision` | Nothing excludes them from the first-taker rule (`ItemAuthorityStateMachine.cs:174-177`) or the ledger. Whether they become owned and listed is unchecked in game (F7). Decided 2026-10-21, never built: confirm, then build. Item-review triage: decided, not built. An owned booklet also becomes Missing at each load |
+| OI-ID-12 | Job papers (booklets, overviews, reports) are the job's, never owned items or listed | OI §Decisions; F7; refactor D5 | `[ ]` | **Decided, in the refactor (user 2026-10-23, D5):** job papers are never owned or in the ledger. Nothing excludes them today from the first-taker rule (`ItemAuthorityStateMachine.cs:174-177`) or the ledger. Item-review triage: decided, not built. An owned booklet also becomes Missing at each load |
 | OI-ID-13 | An admin `/give` is owned by its target, born `Granted` | OI §What an owned item is | `[~] built, unproved` | `AdminItemGrants.cs:117-148` sets the owner and moves it `Granted`, which the ledger takes as its birth (`OwnedItemsServer.cs:411`). `owned-items` :53 checks only that the item arrives |
 | OI-ID-14 | An owner can be a company (an owner kind beside the GUID); gadgets, garage keys, loco paint, the MU controller and the loco remote are company-owned | OI §Companies | `paused: companies` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. Decided in outline 2026-10-21; details are company-career.md's |
 | OI-ID-15 | A company Lost and Found, and retrieval and red by membership | OI §Companies | `paused: companies` | Paused for the item refactor (D4, user 2026-10-23); was [ ]. As OI-ID-14 |
@@ -131,10 +135,12 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-LED-08 | Vanilla never moves an owned item; a check reports an owned item in vanilla's Lost and Found list whose `where` isn't `LostAndFound`, and any item in a dedicated host's own vanilla inventory | OI §Making vanilla agree | `[~] built, unproved` | `OwnedItemsServer.Audit` (`:232-266`) reports an owned item in vanilla's Lost and Found whose *record* (not ledger entry) isn't there, and anything in a dedicated host's vanilla inventory; but that line carries no id, so the scenarios' `AuditFor` filters it out and it never fails a run. It skips `Container` records, live entries with no record, and items in several vanilla storages |
 | OI-LED-09 | The check runs in debug builds as well as from the `ledger-*` scenarios | OI §Making vanilla agree, §1b | `[ ]` | Only scenarios call `Audit` (`DevTools/DvmpScenarios/Library/OwnedItems.cs:78, 88`) |
 | OI-LED-10 | Inactive is not gone: the ledger and the load check find items by id among inactive objects too, never by `FindObjectsOfType` | OI §Making vanilla agree | `[~] built, unproved` | Lookups go through the registry and `NetworkedItem`'s id maps, never `FindObjectsOfType`. No scenario checks an inactive (LOD'd) item |
-| OI-LED-11 | `Missing`: an entry whose store didn't hold it at load is kept, shown in the list as lost track of, and checked again at each load | OI §Loading, §The owned-items list | `[~] built, unproved` | `MarkMissing` keeps the entry live and later loads re-check it (`OwnedItemReconciler.cs:134-139, 182-185`); the list shows it as "missing". No scenario makes an item go missing |
+| OI-LED-11 | `Missing`: an entry whose store didn't hold it at load is kept, shown in the list as lost track of, and checked again at each load | OI §Loading, §The owned-items list | `[~] built, unproved` | `MarkMissing` keeps the entry live and later loads re-check it (`OwnedItemReconciler.cs:134-139, 182-185`); the list shows it as "missing". No scenario makes an item go missing. D9 (user 2026-10-23) replaces `Missing` with OI-LED-16 |
 | OI-LED-12 | Ended entries are kept for lineage, the newest 100 per owner, and pruned beyond that | OI §In the vanilla save | `[x]` | #278 · `OwnedItemLedger.cs` · Core `OwnedItemLedgerTests` |
 | OI-LED-13 | A dvmp eval helper dumps the ledger (`Ledger.Dump()`) | OI §1b | `[ ]` | None. `OwnedItemsServer.Describe` (`:269`) has no callers; scenarios read entries through `Library/OwnedItems.cs` |
 | OI-LED-14 | Code comments cite item docs that exist: none points at a removed section or describes the shadow ledger | F14; F2 | `[ ]` | `OwnedItemsServer.cs:19-24, 354-356`; `AuthoritativeItemRegistry.cs:764`; `NetworkedLostAndFoundManager.cs:488-489`. Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
+| OI-LED-15 | Every owned item has exactly one home, checked at load, at every save and (in Debug) every few seconds, and asserted by scenarios after every run. In Debug a breach fails loudly; in Release it is logged and repaired: the item goes to the ledger's home, else to its owner's Lost and Found (`SaveRecovery`) | Refactor D7 (user 2026-10-23) | `[ ]` | Decided, in the refactor. Today's `Audit` is the nearest (OI-LED-08, -09) |
+| OI-LED-16 | An entry whose saved state is missing or won't load is recreated fresh from its prefab, with the same id, in its owner's Lost and Found (`SaveRecovery`), with an error logged. If the prefab itself is gone (an item mod removed), the entry stays `Unloadable` with its saved state kept verbatim and is retried at each load | Refactor D9 (user 2026-10-23) | `[ ]` | Decided, in the refactor. It replaces `Missing` (OI-LED-11) |
 
 ## Joining, rejoining and leaving
 
@@ -145,7 +151,7 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-JOIN-03 | An offline owner keeps their items: the absent owner number (255), never 0, so the first-taker rule, other players' recalls and vanilla's Lost and Found never take them | #304; OI §2a | `[x]` | #304 · `ItemTransitionCommand.AbsentOwnerId` (`ItemAuthorityStateMachine.cs:83`), `OwnedItemsServer.OwnerNumber` · `absent-owner` :50-67, `owner-offline` :69-70, :79, :88 (p+d); Core `AbsentOwnerTests` |
 | OI-JOIN-04 | A departing borrower's item (another player's, in hand, inventory or belt) goes to its owner's Lost and Found at once (`BorrowerLeft`), whether the owner is online or not | OI §Leaving; #305 | `[x]` | #305 · `ServerItemManager.PlayerItems.cs:133` (`BorrowerLeft`) · `borrowed-disconnect` :71-74 with `OWNER=absent` (+`HOLD=hand`, +`LEAVE=crash`) (p+d); `OWNER=host` (p only) |
 | OI-JOIN-05 | A borrowed item is never saved under the borrower, and a leave never makes a second copy | OQ §Invariants; OI §Leaving | `[~] built, unproved` | `borrowed-disconnect` checks the owner's Lost and Found only; nothing checks the leaver's save or a second copy |
-| OI-JOIN-06 | A leaving player's own held item goes into their inventory (dropped where they stand only if no slot is free), and isn't left on the ground, off its train, under a lease, or as unsaved unowned office stock | OI §Leaving; #305 "left for later"; F9; BR SL2 | `needs decision` | Decided 2026-10-21, deferred by #305, never built: today it is dropped where they stand (`ServerItemManager.PlayerItems.cs:102-118`). Confirm, then build. Item-review triage: decided, not built. A found item in hand is lost |
+| OI-JOIN-06 | A leaving player's own or unowned held item goes into a free inventory slot; with none free, an owned one goes to their Lost and Found and an unowned one drops at their feet. Never left off its train, under a lease, or unsaved | OI §Leaving; #305 "left for later"; F9; BR SL2; refactor D5 | `[ ]` | **Decided, in the refactor (user 2026-10-23, D5).** Today it is dropped where they stand (`ServerItemManager.PlayerItems.cs:102-118`). Item-review triage: decided, not built. A found item in hand is lost |
 | OI-JOIN-07 | Unowned items a leaver carries stay with them and come back at their next join | OI §Leaving | `[~] built, unproved` | No scenario. `rejoin` :49 checks that a held item goes to the world instead |
 | OI-JOIN-08 | An offline player's saved possessions are only their own and unowned items (an item borrowed when the server restarts goes to its owner, BR SL1) | OI §Leaving, §Loading; BR SL1 | `[ ]` | SL1: saved under the borrower and released only to them (`WorldItemPersistenceSave.cs:64`, `WorldItemPersistenceRestore.cs:210-216`). Needs a restart without the client rejoining, which the pair harness can't do yet |
 | OI-JOIN-09 | Login re-binds nothing, since nothing is keyed by number | OI §Joining and rejoining | `[ ]` | Follows OI-LED-07 |
@@ -171,7 +177,7 @@ On 2026-10-23, at beta 1a0b732f:
 
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
-| OI-ESS-01 | Claim slots are assigned by the ledger, unique per owner by construction, when an essential is issued or first stashed; the runtime repair (`EnsureDistinctClaimSlots`) goes, and migration repairs old clashes once | OI §Joining and rejoining ("Claim slots"), §What goes away; F4 | `[ ]` | The repair still runs after transitions, recalls, retrievals and at owner load (`AuthoritativeItemRegistry.cs:358,593,702`; `NetworkServer.cs:1202`). Core's one-off repair is built (#278) but the server doesn't use it. Item-review triage: decided, not built. |
+| OI-ESS-01 | Claim slots are assigned by the ledger, unique per owner by construction, when an essential is issued or first stashed, and the runtime repair (`EnsureDistinctClaimSlots`) goes | OI §Joining and rejoining ("Claim slots"), §What goes away; F4 | `[ ]` | The repair still runs after transitions, recalls, retrievals and at owner load (`AuthoritativeItemRegistry.cs:358,593,702`; `NetworkServer.cs:1202`). Item-review triage: decided, not built. The one-off repair for old saves is OI-ESS-16 |
 | OI-ESS-02 | The issuer and the ledger's slot policy agree on which slot a new claim takes | F4; BR E4 | `[ ]` | The issuer picks the lowest free slot (`StartingItemsIssuer.cs:87`), the policy the highest. Item-review triage: decided, not built. |
 | OI-ESS-03 | Claim repair and make-room don't aim at the VR belt (slots 33-35), and don't rank by a slot the server may have wrong | BR E4 | `[ ]` | `EssentialClaimSlotPolicy.cs:82-86`, `InventoryIntegration.cs:209`. Code only |
 | OI-ESS-04 | The host's own player's claim clashes are repaired too | BR E5 | `[ ]` | It skips `ReadyForItems` (`NetworkServer.cs:1062-1066`). Moot once OI-ESS-01 lands |
@@ -182,10 +188,11 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-ESS-09 | A silhouette that arrives after an ordinary item took its slot makes room or is retried, never refused for good | BR E1 | `[ ]` | `InventoryIntegration.cs:141-171`. Code only: it held in 6 rejoins (`item-bug-dropped-essential-rejoin LOST=0`) |
 | OI-ESS-10 | A client never restores another owner's claim onto a slot that one of its own essentials claims (two radios on slot 0) | BR E2b | `[ ]` | `StateApplication.cs:814-821`, `InventoryIntegration.cs:203-206`. Code only |
 | OI-ESS-11 | An essential recalled out of a moving cab ends its physics lease, so a save writes it in the inventory | BR SL4 | `[ ]` | KnownBug `item-bug-recall-lease`. The recall commits through `ApplyCore`, which skips the lease revoke (`AuthoritativeItemRegistry.cs:572`) |
-| OI-ESS-12 | **Red for every item someone else owns**, online or not: item updates gain an "owned by someone not here" bit, and `InventoryPresentationPlanner` shows red for any owner but the local player (moves the protocol fingerprint) | OI §Decisions, §Retrieval ("Red"), §2b; F8; Not built | `needs decision` | Decided 2026-10-21; the planned PR 2b was never written. Today only a recallable essential shows red (`InventoryPresentation.cs:68-70`). Confirm, then build. Item-review triage: decided, not built. |
+| OI-ESS-12 | **Red for every item someone else owns**, online or not: item updates gain an "owned by someone not here" bit, and `InventoryPresentationPlanner` shows red for any owner but the local player (moves the protocol fingerprint) | OI §Decisions, §Retrieval ("Red"), §2b; F8; Not built; refactor D3 | `[ ]` | **Decided, in the refactor (user 2026-10-23, D3):** red for every item someone else owns. The refactor's wire tells a client each item's relation (mine, someone else's, nobody's) in place of the owner bit. The planned PR 2b was never written. Today only a recallable essential shows red (`InventoryPresentation.cs:68-70`). Item-review triage: decided, not built. |
 | OI-ESS-13 | Vanilla's inventory hazards (H1-H8: a stale reserved map after a swap, load slot collisions, a refused storage move leaving an item in none, ...) can't hide or lose an item | Map ("V H1-H8"); BR §Vanilla facts | `[ ]` | No home. #306 avoids part of H2 |
 | OI-ESS-14 | No game makes essentials or the kit, so DV's safeguard can't put a fresh essential on a dropped one's slot (E3) or count a borrowed one as its own (E9), no duplicate discard can destroy the wrong copy (E7), and no kit lives only on a client (E8) | BR E3, E7, E8, E9 | `[x]` | #306, #307 · the code paths are deleted (`StartingItemsControllerPatch` keeps the safeguards off) · `starting-items`, `rejoin` :56 (p+d) |
 | OI-ESS-15 | An essential moved to another slot, with an ordinary item put in its old one, is back in its own slot after a rejoin or a restart, for a client and for the host's player | BR E6 | `[x]` | Claim slots (`InventoryClaimPlanner`) · `item-bug-essential-slot-rejoin` (+`RESTART=1`; `WHO=host` p only), passing as a regression check (p+d) |
+| OI-ESS-16 | Migration repairs an old save's claim-slot clashes once | OI §Joining and rejoining ("Claim slots"), §Migration; split from OI-ESS-01 | `not needed: fresh items (user 2026-10-23, D1)` | Old saves start every player's items fresh. Core's one-off repair is built (#278) but unused |
 
 ## Lost and Found
 
@@ -207,11 +214,11 @@ On 2026-10-23, at beta 1a0b732f:
 | OI-LF-14 | An item retrieved from Lost and Found is indexed for interest again, so a player who joins later (its owner rejoining) is sent it | #310 | `[x]` | #310 · `NetworkedLostAndFoundManager.TryRetrieve` · `starting-items` (p+d; it failed on d before the fix) |
 | OI-LF-15 | An entry lives as long as its item: the reconcile removes an entry whose item is gone or moved out, and a destroyed item isn't saved | LC §Lost and Found lifecycle | `[x]` | `LostItemEntryReconciler.Classify` (Core) · Core `LostAndFoundTests.Reconcile_*` |
 | OI-LF-16 | Nothing expires: an absent player's items wait however long they're away | OI §Decisions | `[~] built, unproved` | No expiry exists in the code. Nothing proves an entry survives a long absence across restarts |
-| OI-LF-17 | A lost job booklet goes to the Lost and Found of the player it was issued to, issued by identity, not number | OI §Lost and Found ("Job papers"); F7 | `needs decision` | With OI-ID-12. Issuance is by number today, used only for summoning (`NetworkedJob.cs:102-113`). Item-review triage: decided, not built. |
+| OI-LF-17 | A lost job booklet goes to the Lost and Found of the player it was issued to, issued by identity, not number | OI §Lost and Found ("Job papers"); F7; refactor D5 | `[ ]` | **Decided, in the refactor (user 2026-10-23, D5),** with OI-ID-12. Issuance is by number today, used only for summoning (`NetworkedJob.cs:102-113`). Item-review triage: decided, not built. |
 | OI-LF-18 | Lost and Found's distance checks measure from the item's live position on the server | LC §Placement and motion; F15 | `[ ]` | `BuildCandidate` uses `transform.position` (`NetworkedLostAndFoundManager.cs:744-746`). Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 | OI-LF-19 | Retrieval revives the same object, which kept its NetId while it lay inert in vanilla's Lost and Found storage | LC §Lost and Found lifecycle; F16 | `[ ]` | The item keeps its NetId and object, inert, and is revived (`NetworkedLostAndFoundManager.cs:155-210`). Item-review triage: doc-only. **Rewritten to the code's rule, user 2026-10-23**; ticked once the new doc and a scenario or test prove it. |
 | OI-LF-20 | Reasons on the wire, append only: `OwnerDistance` (offline owners too), `ContainerCleared`, `BorrowerLeft` and `RetrievedByOwner` in use | OI §Lost and Found ("Reasons") | `[~] built, unproved` | The paths that use them are proved (OI-LF-01, -02, -09, OI-JOIN-04, OI-LIST-08); no scenario checks the reason an entry records |
-| OI-LF-21 | `SaveRecovery` is used, by migration and load reconciliation | OI §Lost and Found ("Reasons") | `[ ]` | Unused. See OI-PER-07, OI-PER-12, OI-MIG-04 |
+| OI-LF-21 | `SaveRecovery` is used by load reconciliation, by the one-home guarantee in a Release build, and for an unloadable item recreated fresh | OI §Lost and Found ("Reasons"); refactor D7, D9 | `[ ]` | Unused. See OI-PER-07, OI-PER-12, OI-LED-15, OI-LED-16 (OI-MIG-04's use isn't needed) |
 | OI-LF-22 | `GadgetDestinationMissing` is used: an installed gadget whose car is gone at load goes to its owner's Lost and Found | OI §Lost and Found ("Reasons"); #305 "left for later"; GD §Persistence | `[ ]` | Not routed on beta. Gadget 3a (#314) uses this reason for a car deleted at runtime, not for a car missing at load |
 
 ## The list and retrieval
@@ -298,7 +305,7 @@ On 2026-10-23, at beta 1a0b732f:
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
 | OI-PER-01 | The ledger is saved as `Multiplayer.OwnedItemsV1`, in the same pass as the stores, after a Lost and Found reconcile | OI §In the vanilla save; #282 | `[x]` | #282 · `OwnedItemsSaveCodec.cs`, `OwnedItemsServer.WriteSave` · `ledger-save` restart 1 (p+d); Protocol `OwnedItemsSaveCodecTests`. The order after the Lost and Found reconcile isn't checked |
-| OI-PER-02 | It's additive: a build without the ledger drops it, and the next ledger build rebuilds it by migration | OI §In the vanilla save | `[x]` | #282 · `OwnedItemsServer.cs:169-172` (a save written without the key) · `ledger-save` :103-107, :135 (born `Migrated`, p+d) |
+| OI-PER-02 | It's additive: a build without the ledger drops it, and the next ledger build rebuilds it by migration | OI §In the vanilla save | `not needed: fresh items (user 2026-10-23, D1)` | A format marker drops old item data, so a rebuild across builds doesn't apply. Was [x]: #282 · `OwnedItemsServer.cs:169-172` (a save written without the key) · `ledger-save` :103-107, :135 (born `Migrated`, p+d) |
 | OI-PER-03 | The load check runs once all stores have loaded, before anyone logs in | OI §Loading; #282 | `[x]` | #282 · `OwnedItemsServer` load check · `ledger-save` :97 (p+d) |
 | OI-PER-04 | An owned world item survives two restarts (kept by owner, not by `BelongsToPlayer`; the restore sets the flag again) | OI §Known bugs ("found in game"); #282 | `[x]` | #282 · `WorldItemPersistenceSave.ShouldPersist`, `WorldItemPersistenceRestore` · `ledger-save` ground item across two restarts (p+d) |
 | OI-PER-05 | Load: an item in the store its `where` names is kept; in exactly one other store, that store wins and `where` is corrected and logged | OI §Loading | `[x]` | #282 · `OwnedItemReconciler.ApplyToLedger` (Core, `:176-205`) · `ledger-save` (Keep, p+d); Core `OwnedItemReconcilerTests` (Correct) |
