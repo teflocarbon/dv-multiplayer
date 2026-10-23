@@ -26,7 +26,8 @@ public static class ItemAccessServer
         ItemAccessDecision decision = ItemAccess.Decide(new ItemAccessRequest(action,
             actorOwnsItem: actor != null && record != null && record.PersistentOwnerPlayerId != 0 &&
                            record.PersistentOwnerPlayerId == actor.PlayerId,
-            isFixture: IsFixture(item, record)));
+            isFixture: IsFixture(item, record),
+            isEssential: item?.Item?.InventorySpecs?.IsEssential == true));
         reason = decision.Reason;
         return decision.Allowed;
     }

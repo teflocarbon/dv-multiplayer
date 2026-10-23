@@ -73,6 +73,9 @@ on the server and in every client, are made to agree with it.
 - **PR 6b, retrieval: built (2026-10-22), and tested in game with 6a, L7 and 7 on both host kinds (2026-10-23).** From the owned-items list into Lost
   and Found: lying items, containers whole, and items with another player (see
   [6](#6-the-list-and-retrieval)). Scenario: `owned-retrieve`.
+- **Essentials stay out of containers: built (2026-10-22), and tested in game with 6a, 6b and 7 on both host kinds (2026-10-23).** `ItemAccess` refuses
+  depositing an essential (`essential-not-in-containers`, item-review L7). Scenario: `deposit-refused
+  OWNER=essential`.
 - **Everything else: not started.** See the [plan](#plan).
 
 ## Why
@@ -209,6 +212,11 @@ All were decided with the user on 2026-10-21.
   still collects a lost booklet for the player it was issued to.
 - **Red means its owner can take it back.** Any item another player owns shows red to whoever holds it,
   whether its owner is online or not.
+- **Essentials stay out of containers** (decided 2026-10-22, item-review's L7). A deposit of an
+  essential (comms radio, maps, wallet, ...) is refused by `ItemAccess`
+  (`essential-not-in-containers`), the same way a fixture is, and the item stays in the
+  inventory. An essential's claim slot and recall then always work. Before, one deposited could
+  come back without its reserved claim.
 
 ## The model
 

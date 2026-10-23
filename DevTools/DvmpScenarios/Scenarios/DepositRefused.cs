@@ -20,7 +20,8 @@ namespace Dvmp.Scenarios
     {
         public sealed class Options
         {
-            /// <summary>Whose the mug is: absent (a player who isn't here) or host (the host's own player).</summary>
+            /// <summary>Whose the mug is: absent (a player who isn't here) or host (the host's own player); or
+            /// essential: the client tries one of its own essentials instead, which is refused too.</summary>
             public string Owner = "absent";
         }
 
@@ -28,6 +29,18 @@ namespace Dvmp.Scenarios
         {
             if (o.Owner == "host" && pair.Dedicated) throw new HarnessException("OWNER=host needs a player host: a dedicated host has no player to own the mug");
             await Task.Delay(5000);   // a just-joined client is still receiving its restored items
+            if (o.Owner == "essential")
+            {
+                // An essential never goes in a container (owned-items.md, item-review L7): its claim and
+                // recall must always work. The client tries one of its own, from its inventory.
+                ushort toolbox = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "ItemContainerToolbox", "client"));
+                Deposit essential = await pair.Client.Run<Deposit>(s => InGame.TryDeposit(s, toolbox, 0), 120);
+                Report.Note("the client's own essential: " + essential);
+                Expect.That(!essential.Accepted, "the deposit of an essential is refused");
+                Expect.Equal("essential-not-in-containers", essential.Reason, "why it was refused");
+                Expect.That(essential.InInventory, "the essential is still in the client's inventory");
+                return;
+            }
             ushort box = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "ItemContainerToolbox", "client"));
             ushort theirs = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             OwnerInfo given = await pair.Host.Run(() => Ownership.Give(theirs, o.Owner));
@@ -73,14 +86,23 @@ namespace Dvmp.Scenarios
                 var inv = DV.InventorySystem.Inventory.Instance;
                 NetworkedItem Find(ushort id) => NetworkedItem.TryGet(id, out NetworkedItem n) ? n : null;
                 NetworkedItem box = null, item = null;
-                yield return Wait.Until(() => (box = Find(boxId)) != null && (item = Find(itemId)) != null, 20f, "the container and the item to arrive");
+                // Item 0: the first essential already in the inventory.
+                if (itemId == 0)
+                    for (int s = 0; s < inv.Capacity && item == null; s++)
+                        if (inv.PeekItemAtSlot(s, false)?.GetComponent<InventoryItemSpec>()?.IsEssential == true)
+                            item = inv.PeekItemAtSlot(s, false).GetComponent<NetworkedItem>();
+                if (itemId == 0 && item == null) throw new Exception("no essential in the inventory");
+                yield return Wait.Until(() => (box = Find(boxId)) != null && (item ?? (item = Find(itemId))) != null, 20f, "the container and the item to arrive");
                 var open = inv.ItemContainerRegistry.ActiveContainer;   // leftovers from an earlier run
                 if (open != null) { open.ToggleContainerAccess(); for (int i = 0; i < 10; i++) yield return null; }
                 if (Hands.Held != null) yield return Hands.Drop();
-                yield return LocalPlayer.GoTo(item);
-                yield return Hands.Pickup(itemId);
-                inv.AddItemToInventory(item.gameObject);
-                for (int i = 0; i < 60; i++) yield return null;
+                if (itemId != 0)
+                {
+                    yield return LocalPlayer.GoTo(item);
+                    yield return Hands.Pickup(itemId);
+                    inv.AddItemToInventory(item.gameObject);
+                    for (int i = 0; i < 60; i++) yield return null;
+                }
                 if (inv.IndexOf(item.gameObject) < 0) throw new Exception("the item did not go into the inventory: " + item.GetItemState());
                 yield return LocalPlayer.GoTo(box);
                 yield return Hands.Pickup(boxId);

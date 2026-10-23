@@ -67,6 +67,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "rejoin-mid-sweep-crash|rejoin-mid-sweep|LEAVE=crash"
   "deposit-refused|deposit-refused|"
   "deposit-refused-host|deposit-refused|OWNER=host|player"
+  "deposit-refused-essential|deposit-refused|OWNER=essential"
   "starting-items|starting-items|"
   "owned-list|owned-list|"
   "owned-retrieve|owned-retrieve|"
