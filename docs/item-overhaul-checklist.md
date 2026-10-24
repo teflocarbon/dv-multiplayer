@@ -64,7 +64,7 @@ On 2026-10-24, with R3 (#342, #343, #344) and R4a (#347):
 | Starting items | 3 | 1 | 5 | 1 | 0 | 0 | 0 |
 | Essentials and claims | 5 | 0 | 8 | 3 | 0 | 0 | 1 |
 | Inventory slots | 0 | 0 | 2 | 1 | 0 | 0 | 0 |
-| Cold and live homes | 0 | 0 | 5 | 9 | 0 | 0 | 0 |
+| Cold and live homes | 0 | 0 | 5 | 10 | 0 | 0 | 0 |
 | Lost and Found | 10 | 1 | 5 | 6 | 0 | 0 | 0 |
 | The list and retrieval | 7 | 2 | 5 | 3 | 0 | 6 | 0 |
 | Lineage | 2 | 1 | 1 | 0 | 0 | 3 | 0 |
@@ -79,7 +79,7 @@ On 2026-10-24, with R3 (#342, #343, #344) and R4a (#347):
 | Gadgets seam | 0 | 0 | 3 | 1 | 0 | 7 | 1 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 274** | **51** | **9** | **83** | **71** | **0** | **49** | **11** |
+| **All 275** | **51** | **9** | **83** | **72** | **0** | **49** | **11** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -121,7 +121,7 @@ prove again without unticking them (OI-REF-02 and OI-REF-01, below).
 | R2 The wire | OI-ID-07, OI-ESS-10, OI-ESS-12, OI-CON-07, OI-SYNC-19, OI-SYNC-20, OI-LIST-17, OI-LIST-22 | OI-ESS-06 |
 | R3 The ledger decides | OI-LED-04, OI-COLD-01, OI-COLD-02, OI-COLD-04, OI-COLD-05, OI-COLD-06, OI-LED-05, OI-LED-08, OI-LED-09, OI-LED-10, OI-LED-13, OI-LED-15, OI-GAD-10, OI-ID-05, OI-ID-06, OI-ID-13, OI-ID-18, OI-ESS-01, OI-ESS-02, OI-ESS-03, OI-ESS-04, OI-ESS-08, OI-ESS-09, OI-START-04, OI-START-06, OI-START-08, OI-START-09, OI-SLOT-01, OI-SLOT-03, OI-ACC-05, OI-ACC-07, OI-LF-08, OI-LF-20, OI-GAD-04, OI-LIST-12, OI-LIST-20, OI-LIST-21, OI-LIN-07, OI-ID-19, OI-SYNC-21 | OI-ID-01, OI-ID-09, OI-ID-10, OI-ID-11, OI-LED-01, OI-LED-03, OI-LED-12, OI-ESS-14, OI-ESS-15, OI-START-02, OI-START-03, OI-START-05, OI-LIST-01, OI-LIST-02, OI-LIST-03, OI-LIST-08, OI-LIST-11, OI-LIST-19, OI-LIN-01, OI-LIN-06, OI-ACC-01, OI-ACC-02, OI-ACC-03, OI-FIX-01 |
 | R4 Saving and loading | OI-PER-01, OI-COLD-03, OI-PER-03, OI-PER-04, OI-PER-06, OI-PER-07, OI-PER-09, OI-PER-10, OI-PER-12, OI-PER-13, OI-PER-14, OI-PER-15, OI-PER-16, OI-PER-17, OI-PER-18, OI-PER-19, OI-PER-20, OI-PER-21, OI-PER-22, OI-PER-23, OI-SLOT-02, OI-JOIN-01, OI-JOIN-02, OI-JOIN-05, OI-JOIN-07, OI-JOIN-08, OI-LED-16, OI-LF-16, OI-LF-21, OI-LF-22, OI-CON-04, OI-CON-05, OI-START-01, OI-GAD-01, OI-GAD-02, OI-ID-02, OI-ID-03, OI-ID-04, OI-ESS-17 | OI-LF-15; OI-LED-02, OI-PER-05 and OI-PER-08 are rewritten to the new format (no stores to reconcile, no `Migrated`, no `Missing`) |
-| R4C Cold inventories on the client | OI-COLD-09, OI-COLD-10, OI-COLD-11, OI-COLD-12, OI-COLD-13, OI-COLD-14, OI-COLD-07 | |
+| R4C Cold inventories on the client | OI-COLD-09, OI-COLD-10, OI-COLD-11, OI-COLD-12, OI-COLD-13, OI-COLD-14, OI-COLD-07; OI-COLD-15 | |
 | R5 Containers on the ledger | OI-CON-02, OI-CON-03, OI-CON-06, OI-CON-09, OI-CON-11, OI-CON-12, OI-CON-13, OI-CON-15, OI-ACC-04, OI-LIST-18, OI-LIST-23 | OI-CON-01, OI-LIST-10, OI-LF-07, OI-ESS-07 |
 | R6 Every vanilla path | OI-LF-02, OI-LF-04, OI-LF-10, OI-LF-11, OI-LF-17, OI-ID-12, OI-JOIN-06, OI-JOIN-10, OI-JOIN-11, OI-START-07, OI-START-10, OI-ESS-13, OI-LIST-06, OI-LIST-14, OI-LIN-05, OI-VAN-01, OI-VAN-02, OI-VAN-03, OI-VAN-04, OI-VAN-05, OI-VAN-06, OI-COLD-08 | OI-LF-01, OI-LF-03, OI-LF-09, OI-LF-12, OI-LF-13, OI-LF-14, OI-JOIN-04 |
 | R7 Leases, physics and projection | OI-ESS-11, OI-PHY-01, OI-PHY-02, OI-PHY-03, OI-PHY-04, OI-PHY-05, OI-PHY-06, OI-PHY-07, OI-PHY-08, OI-PHY-11, OI-PHY-12, OI-PER-11, OI-SYNC-04, OI-SYNC-07, OI-SYNC-08, OI-SYNC-09, OI-SYNC-10, OI-SYNC-11, OI-SYNC-13, OI-SYNC-17, OI-SYNC-18, OI-LIST-09, OI-GAD-06 | OI-SYNC-01 |
@@ -273,6 +273,7 @@ An item in a home nobody is using is data only, and every inventory is server da
 | OI-COLD-12 | An alarm clock and a boombox keep working while stashed: the client plays the ring or the music from the row's state, as vanilla does from a pocket | D14; user 2026-10-24 (after the sizing) | `[ ]` | R4C (C6). As rows they would go silent; the user chose to keep them working. See the [sizing](research/cold-inventory-sizing.md), "Items that act while stashed" |
 | OI-COLD-13 | Each vanilla item's own saved state (`ItemSaveData`) goes up from the client at put-away and down with its row, so a take-out makes it as it was (a lighter's fuel, a paint can, duct tape, a spool) | D14; user 2026-10-24 (after the sizing) | `[ ]` | R4C (C1, C2). The same wire OI-MOD-02 needs for mod items (paused, D11); built here for vanilla items |
 | OI-COLD-14 | In VR, belt items stay live objects, like hands; only inventory slots are rows | D14; user 2026-10-24 (after the sizing) | `[ ]` | R4C (C3). The VR backpack grab is a take-out like the hotbar's |
+| OI-COLD-15 | A client's job booklet (and overview) is back in their own inventory, in its slot, after a restart, on a player host and on a dedicated host; today vanilla reprints it into the host's inventory (dedicated: nobody's) and the client must reprint it at a validator | D14/OI-COLD-07; user 2026-10-24 | `[ ]` | R4C (C7), with OI-COLD-07. Found by R4. Known bug: `item-bug-booklet-restart`. Unchecked: a job report's render recipe isn't saved (docs/jobs.md), so a restored report may not draw on a client; R4C checks it |
 
 ## Lost and Found
 
