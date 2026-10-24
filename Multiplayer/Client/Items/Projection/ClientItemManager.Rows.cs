@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using DV.Utils;
+using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -38,11 +39,8 @@ internal sealed partial class ClientItemManager
         for (int i = 0; i < rows.Count; i++)
         {
             ItemUpdate row = rows[i];
-            // A row sent after the join (a server-made item, or the state of one the server moved
-            // into a slot) is no news for an item this game has taken out since: its own change decides.
-            if (!full && row != null && !InventoryStandIn.TryGet(row.ItemNetId, out _) &&
-                NetworkedItem.TryGet(row.ItemNetId, out NetworkedItem taken) && taken != null &&
-                taken.Item != null && taken.Item.IsGrabbed())
+            // A row sent after the join can be no news by now (InventoryRows.IsLate).
+            if (!full && row != null && InventoryRows.IsLate(row))
                 continue;
             try
             {

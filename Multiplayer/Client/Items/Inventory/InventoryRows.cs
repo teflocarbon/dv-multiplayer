@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -46,6 +47,17 @@ internal static class InventoryRows
         update.PlayerId == NetworkRole.LocalPlayerId;
 
     /// <summary>
+    /// Whether a row sent after the join (a recall or Lost and Found retrieval into a slot, with its
+    /// state) is no news here: its item has an object here and no stand-in (kept live in its slot, or
+    /// taken out since: its own change decides), or its stand-in is past the row's revision (moved
+    /// since).
+    /// </summary>
+    public static bool IsLate(ItemUpdate row) =>
+        InventoryStandIn.TryGet(row.ItemNetId, out InventoryStandIn standIn) && !InventorySilhouettes.IsSilhouette(standIn)
+            ? row.AuthorityRevision < standIn.Revision
+            : NetworkedItem.TryGet(row.ItemNetId, out NetworkedItem item) && item != null;
+
+    /// <summary>
     /// The server's rows: each one replaces what was kept for its item. <paramref name="full"/>
     /// is the whole inventory (the join): any other row is gone.
     /// </summary>
@@ -58,7 +70,7 @@ internal static class InventoryRows
         for (int i = 0; i < updates.Count; i++)
         {
             ItemUpdate update = updates[i];
-            if (update == null || update.ItemNetId == 0)
+            if (update == null || update.ItemNetId == 0 || !full && IsLate(update))
                 continue;
             rows[update.ItemNetId] = new Row
             {

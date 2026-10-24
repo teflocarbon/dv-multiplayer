@@ -597,7 +597,7 @@ public static class LiveItems
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         snapshot.MoveCause = recalled;
         ItemChangeLog.RecordMove(item, record, recalled);
-        PlayerItems.Stored(record);
+        PlayerItems.Stored(record, sendRow: true);
         Publish("item.recall-accepted", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,
@@ -795,7 +795,7 @@ public static class LiveItems
         created.MoveCause = retrieved;
         ItemChangeLog.RecordMove(item, record, retrieved);
         snapshot = created;
-        PlayerItems.Stored(record);
+        PlayerItems.Stored(record, sendRow: true);
         Publish("item.lost-and-found-retrieval-authority-applied", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,

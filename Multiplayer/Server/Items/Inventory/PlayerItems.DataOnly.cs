@@ -46,6 +46,8 @@ internal static partial class PlayerItems
     {
         public float NotBefore;
         public int Frames;
+        // A move the server made (a recall, a Lost and Found retrieval): its holder is sent the row, with its state.
+        public bool SendRow;
     }
 
     // The items the server has just put in (or changed in) a player's inventory while they have an
@@ -112,17 +114,19 @@ internal static partial class PlayerItems
     /// transition, a recall, a Lost and Found retrieval, a swap, an object made for a request):
     /// if it has an object, the object goes in the next frame and the item is data only (D14,
     /// OI-COLD-11). <paramref name="grace"/> keeps an object made for a request a moment longer.
+    /// <paramref name="sendRow"/> is a move the server made into the slot (a recall, a Lost and
+    /// Found retrieval), whose holder has no state for it: they're sent its row when it goes.
     /// </summary>
-    internal static void Stored(LiveItems.LiveItem record, bool grace = false)
+    internal static void Stored(LiveItems.LiveItem record, bool grace = false, bool sendRow = false)
     {
         if (record == null || record.Placement != ItemPlacementKind.PlayerInventory || record.NetId == 0 ||
             NetworkLifecycle.Instance?.IsHost() != true || IsDataOnly(record))
             return;
         float notBefore = grace ? Time.realtimeSinceStartup + RequestGraceSeconds : 0f;
-        if (pendingData.TryGetValue(record.NetId, out Pending pending))
-            pending.NotBefore = Math.Max(pending.NotBefore, notBefore);
-        else
-            pendingData[record.NetId] = new Pending { NotBefore = notBefore };
+        if (!pendingData.TryGetValue(record.NetId, out Pending pending))
+            pendingData[record.NetId] = pending = new Pending();
+        pending.NotBefore = Math.Max(pending.NotBefore, notBefore);
+        pending.SendRow |= sendRow;
     }
 
     /// <summary>Host, every frame: the server's objects of the items it just put in inventories go to data.</summary>
@@ -135,7 +139,7 @@ internal static partial class PlayerItems
         {
             if (entry.Value.NotBefore > now)
                 continue;
-            bool wait = ToData(entry.Key);
+            bool wait = ToData(entry.Key, entry.Value.SendRow);
             if (wait && ++entry.Value.Frames < MaxWaitFrames)
                 continue;
             if (wait)
@@ -148,7 +152,7 @@ internal static partial class PlayerItems
     // (it's being made, or restored, or its holder's game isn't ready for items). Left an object: a
     // loaded magazine (its ammo is an object inside it; OI-CON-16). Job papers go too: their job
     // keeps them by NetId, and they're made again from it (JobPapers; OI-COLD-07).
-    private static bool ToData(ushort netId)
+    private static bool ToData(ushort netId, bool sendRow)
     {
         if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.PlayerInventory ||
             record.Slot < 0 ||
@@ -170,11 +174,11 @@ internal static partial class PlayerItems
             return false;
         if (holder.LoadingState < PlayerLoadingState.ReadyForItems)
             return true;
-        GoData(record, item, holder);
+        GoData(record, item, holder, sendRow);
         return false;
     }
 
-    private static void GoData(LiveItems.LiveItem record, NetworkedItem item, ServerPlayer holder)
+    private static void GoData(LiveItems.LiveItem record, NetworkedItem item, ServerPlayer holder, bool sendRow = false)
     {
         MakeOrdinary(item);
         if (record.PersistentItemId == Guid.Empty)
@@ -226,7 +230,7 @@ internal static partial class PlayerItems
         Multiplayer.LogDebug(() => $"Inventory: {record.PrefabName} (netId {record.NetId}) in {holder.Username}'s slot {record.Slot} is data only on the server");
         // A move the server made (a recall, a Lost and Found retrieval) reached the holder as an
         // update with no state: their stand-in is given the row's, so a take-out isn't a fresh item.
-        if (!fromHolder)
+        if (sendRow && !fromHolder)
             NetworkServer.Instance.SendInventoryRows(holder, new List<ItemUpdate> { CreateOf(record) },
                 new List<string> { row.State?.ToString(Newtonsoft.Json.Formatting.None) ?? string.Empty });
     }

@@ -55,5 +55,9 @@ internal static class InventorySlotMovePatch
             Action = ItemAction.MoveSlot,
             Slot = slot
         });
+        // The stand-in expects the revision its move commits at, as a put-away does: a row sent before
+        // the move (InventoryRows.IsLate) doesn't put it back, and a refusal's correction sets it back.
+        if (standIn != null)
+            standIn.Revision++;
     }
 }
