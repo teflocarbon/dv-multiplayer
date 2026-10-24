@@ -104,8 +104,8 @@ namespace Dvmp.Scenarios
             [Step]
             public static Seen Seen(ushort netId)
             {
-                // Stored on a client, it's a stand-in with no object (D14).
-                if (InventoryStandIn.TryGet(netId, out InventoryStandIn standIn))
+                // Stored on a client, it's a stand-in with no object (D14); a silhouette is its object's.
+                if (InventoryStandIn.TryGet(netId, out InventoryStandIn standIn) && !InventorySilhouettes.IsSilhouette(standIn))
                     return new Seen
                     {
                         Relation = standIn.Relation.ToString(),

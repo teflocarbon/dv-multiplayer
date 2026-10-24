@@ -15,7 +15,8 @@ namespace Dvmp.Scenarios
     /// <summary>
     /// A repeated request does nothing twice (wire.md, "One request, one result"; F21). The client
     /// deposits its mug into its toolbox, then sends the withdrawal twice in one frame and once more
-    /// after its answer, all with the same RequestId: one answer for the two at once, the same answer
+    /// after its answer, all with the same RequestId: one answer for the two at once (or the same answer
+    /// twice, if the server finished the first in its frame), the same answer
     /// again for the late repeat, and one mug, in the client's inventory. A new request for the same
     /// row is then refused: the row is gone, so only the repeat was answered from memory.
     /// </summary>
@@ -41,9 +42,12 @@ namespace Dvmp.Scenarios
             Withdrawal w = await pair.Client.Run<Withdrawal>(s => InGame.WithdrawRepeatedly(s, box), 120);
             Report.Note(w.ToString());
             Expect.That(w.Accepted, "the withdrawal is accepted", w.Detail);
-            Expect.Equal(1, w.AnswersToTwo, "answers to the two sends in one frame (the second was still pending)");
+            // The second send in the frame is still pending (one answer for both), or, with a withdrawal
+            // the server finishes at once (C5: it makes no object), already answered (the same answer twice).
+            Expect.That(w.AnswersToTwo is 1 or 2 && w.TwoSame, "the two sends in one frame get one answer, or the same answer twice",
+                $"{w.AnswersToTwo} answer(s), {(w.TwoSame ? "the same" : "different")}");
             Expect.That(w.RepeatSame, "the late repeat gets the same answer (accepted, same revision and item)", w.Repeat);
-            Expect.Equal(2, w.Answers, "answers in all");
+            Expect.Equal(w.AnswersToTwo + 1, w.Answers, "answers in all (one more for the late repeat)");
             Expect.That(w.InInventory, "the withdrawn mug is in the client's inventory");
             Expect.That(!w.FreshAccepted, "a new request for the same row is refused: the row is gone", w.Fresh);
 
@@ -58,7 +62,7 @@ namespace Dvmp.Scenarios
 
         public sealed class Withdrawal
         {
-            public bool Accepted, RepeatSame, FreshAccepted, InInventory;
+            public bool Accepted, RepeatSame, TwoSame, FreshAccepted, InInventory;
             public int AnswersToTwo, Answers;
             public ushort ItemNetId;
             public uint Revision;
@@ -117,6 +121,8 @@ namespace Dvmp.Scenarios
                     yield return Wait.Until(() => answers.Count > 0, 15f, "the withdrawal's answer");
                     for (int i = 0; i < 120; i++) yield return null;
                     w.AnswersToTwo = answers.Count;
+                    w.TwoSame = answers.All(a => a.Accepted == answers[0].Accepted && a.Refusal == answers[0].Refusal &&
+                        a.Revision == answers[0].Revision && a.ItemNetId == answers[0].ItemNetId);
                     ClientboundItemResultPacket first = answers[0];
                     w.Accepted = first.Accepted;
                     w.Detail = first.Detail ?? "";

@@ -3,6 +3,7 @@ using HarmonyLib;
 using Multiplayer.Client.Items.Containers;
 using Multiplayer.Client.Items.LostAndFound;
 using Multiplayer.Core.Items.Inventory;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
@@ -40,8 +41,14 @@ internal static class InventoryOwnershipUiPatch
             return true;
 
         NetworkedItem item = slot.NetworkedItem;
-        InventoryItemPresentation presentation = InventoryIntegration.Project(item,
-            item != null && ItemServer.Current?.IsInLostAndFound(item.NetId) == true);
+        // A silhouette is its item's stand-in (InventorySilhouettes); with no object of the item
+        // here, it's drawn and recalled from its row.
+        InventoryStandIn silhouette = item == null && slot.ItemObject != null ? slot.ItemObject.GetComponent<InventoryStandIn>() : null;
+        ushort netId = item?.NetId ?? silhouette?.NetId ?? 0;
+        bool lostAndFound = netId != 0 && ItemServer.Current?.IsInLostAndFound(netId) == true;
+        InventoryItemPresentation presentation = silhouette != null
+            ? InventoryIntegration.Project(silhouette, lostAndFound)
+            : InventoryIntegration.Project(item, lostAndFound);
 
         global::Multiplayer.Multiplayer.Log($"[Inventory Integration] Slot snapshot: " +
             $"absoluteSlot={slot.AbsoluteSlot}, dropped={slot.Dropped}, reserved={slot.Reserved}, " +
@@ -49,15 +56,24 @@ internal static class InventoryOwnershipUiPatch
             $"relation={item?.Relation.ToString() ?? "none"}, local=P{InventoryIntegration.LocalPlayerId}, " +
             $"route={presentation.RecallRoute}");
 
+        ItemRelation relation = item?.Relation ?? silhouette?.Relation ?? ItemRelation.Nobodys;
         if (presentation.RecallRoute == InventoryRecallRoute.Vanilla)
+        {
+            // Vanilla's Get adds the slot's object: a stand-in's item has none here to add.
+            if (silhouette != null)
+                return false;
+            // The object takes its slot back from its stand-in, for vanilla to add it.
+            if (slot.ItemObject != null && item != null && slot.ItemObject != item.gameObject)
+                InventorySilhouettes.ToObject(DV.InventorySystem.Inventory.Instance, item.gameObject);
             return true;
+        }
         if (presentation.RecallRoute == InventoryRecallRoute.BlockForeignOwner)
         {
             DebugRuntime.Publish("item", "item.foreign-item-recall-blocked",
-                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
+                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", netId.ToString(), new()
                 {
                     ["localPlayerId"] = InventoryIntegration.LocalPlayerId,
-                    ["relation"] = item.Relation.ToString(),
+                    ["relation"] = relation.ToString(),
                     ["slot"] = slot.AbsoluteSlot
                 });
             return false;
@@ -65,18 +81,21 @@ internal static class InventoryOwnershipUiPatch
         if (presentation.RecallRoute == InventoryRecallRoute.BlockNotRecallable)
         {
             DebugRuntime.Publish("item", "item.recall-blocked-not-eligible",
-                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", item.NetId.ToString(), new()
+                DebugRuntimeSide.Client, DebugSeverity.Warning, "Item", netId.ToString(), new()
                 {
                     ["localPlayerId"] = InventoryIntegration.LocalPlayerId,
-                    ["relation"] = item.Relation.ToString(),
-                    ["isEssential"] = item.Item?.InventorySpecs?.IsEssential == true,
+                    ["relation"] = relation.ToString(),
+                    ["isEssential"] = item != null ? item.Item?.InventorySpecs?.IsEssential == true : silhouette.IsEssential,
                     ["slot"] = slot.AbsoluteSlot
                 });
             return false;
         }
 
         // A recall, from wherever it is: the server collects it from Lost and Found if it's there.
-        NetworkedItemManager.Instance?.RequestItemRecall(item, slot.AbsoluteSlot);
+        if (item != null)
+            NetworkedItemManager.Instance?.RequestItemRecall(item, slot.AbsoluteSlot);
+        else
+            NetworkedItemManager.Instance?.RequestItemRecall(netId, silhouette.Revision, relation, slot.AbsoluteSlot);
         return false;
     }
 
@@ -93,6 +112,13 @@ internal static class InventoryOwnershipUiPatch
             : null;
         ColdContainerItemProxy coldProxy = data?.Spec as ColdContainerItemProxy;
         InventoryStandIn standIn = data?.Spec as InventoryStandIn;
+        // A silhouette is drawn as its item's object here is, if there is one.
+        if (standIn != null && InventorySilhouettes.IsSilhouette(standIn) &&
+            NetworkedItem.TryGet(standIn.NetId, out NetworkedItem behind) && behind != null)
+        {
+            item = behind;
+            standIn = null;
+        }
         InventoryItemPresentation presentation = standIn != null
             ? InventoryIntegration.Project(standIn)
             : InventoryIntegration.Project(item, item != null && ItemServer.Current?.IsInLostAndFound(item.NetId) == true);
@@ -112,7 +138,7 @@ internal static class InventoryOwnershipUiPatch
         if (markedEvents.Add(key))
             DebugRuntime.Publish("item", "item.foreign-item-ui-marked", DebugRuntimeSide.Client,
                 entityType: coldProxy != null ? "Container" : "Item",
-                entityId: coldProxy != null ? coldProxy.ContainerHandle.ToString() : item.NetId.ToString(), data: new()
+                entityId: coldProxy != null ? coldProxy.ContainerHandle.ToString() : (item?.NetId ?? standIn?.NetId ?? 0).ToString(), data: new()
                 {
                     ["localPlayerId"] = localPlayerId,
                     ["relation"] = item?.Relation.ToString() ?? string.Empty,

@@ -6,6 +6,7 @@ using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.Physics;
 using Multiplayer.Server.Items.Access;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.Projection;
@@ -386,6 +387,8 @@ public static class LiveItems
         });
         ServerItemManager.Instance?.OnAuthoritativeItemTransition(item, snapshot, record, actor,
             previousPlacement, appliesPlacement);
+        // Into (or within) an inventory: its object goes to data in the next frame (D14).
+        PlayerItems.Stored(record);
         return true;
     }
 
@@ -594,6 +597,7 @@ public static class LiveItems
         WriteToSnapshot(record, snapshot, ItemTransitionReason.OwnerRecall);
         snapshot.MoveCause = recalled;
         ItemChangeLog.RecordMove(item, record, recalled);
+        PlayerItems.Stored(record);
         Publish("item.recall-accepted", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,
@@ -665,6 +669,8 @@ public static class LiveItems
             snapshot.MoveCause = cause;
             ItemChangeLog.RecordMove(networked, changed, cause);
         }
+        PlayerItems.Stored(record);
+        PlayerItems.Stored(otherRecord);
         Publish("item.slots-swapped", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,
@@ -789,6 +795,7 @@ public static class LiveItems
         created.MoveCause = retrieved;
         ItemChangeLog.RecordMove(item, record, retrieved);
         snapshot = created;
+        PlayerItems.Stored(record);
         Publish("item.lost-and-found-retrieval-authority-applied", item, record, new()
         {
             ["requestingPlayerId"] = requester.PlayerId,
@@ -887,7 +894,7 @@ public static class LiveItems
     /// makes the only object from it.
     /// </summary>
     internal static LiveItem RegisterDataOnly(ushort netId, ServerPlayer holder, SavedItemRow row, int slot,
-        ChangeCause<ItemMoveReason> cause)
+        ChangeCause<ItemMoveReason> cause, Func<LiveItem, string> own = null)
     {
         if (netId == 0 || holder == null || row == null || row.PersistentItemId == Guid.Empty || slot < 0)
             return null;
@@ -907,7 +914,12 @@ public static class LiveItems
         };
         records[netId] = record;
         ServerLedger.BindNetId(row.PersistentItemId, netId);
-        ServerLedger.Settle(record, row.OwnerIdentity, row.ClaimSlot, cause);
+        // Born as the caller says (a grant), or settled where it now is (born there if new).
+        string refused = own?.Invoke(record) ?? string.Empty;
+        if (own == null)
+            ServerLedger.Settle(record, row.OwnerIdentity, row.ClaimSlot, cause);
+        else if (refused.Length > 0)
+            Multiplayer.LogWarning($"item.ledger-refused: {row.PrefabName} (netId {netId}) wasn't made {ItemChangeLog.PlayerName(row.OwnerIdentity)}'s: {refused}");
         return record;
     }
 

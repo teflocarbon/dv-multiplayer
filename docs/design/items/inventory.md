@@ -110,22 +110,28 @@ stash the server keeps in the player's hand drops at their feet, so the two game
 An item in a connected remote player's inventory is data on the server, not a second object
 (OI-COLD-06, `PlayerItems.DataOnly.cs`). That player's game holds the only object.
 
-- **Going to data.** `PlayerItems.Update` scans every 0.25 s. An item that has sat 1 s in a remote
-  player's inventory (`ShouldBeData`: a slot, the holder connected and loaded and sent the item, not
-  being made or moved, not waiting for its restore) goes: its row is kept in `ColdInventories` (its
+- **Going to data.** When the server commits an item into a remote player's inventory (a stash, a slot
+  move, a recall, a Lost and Found retrieval: `PlayerItems.Stored`, from each commit), it queues it,
+  and `PlayerItems.Update` puts it to data that frame, or as soon as the holder's game is ready for
+  items and the item isn't being made, moved or restored: its row is kept in `ColdInventories` (its
   state, slot, owner, claim), its `LiveItem` stays, and the server's object is destroyed
   (`GoData`). The holder keeps theirs, and so does an owner whose silhouette stands for it; anyone
   else who was shown it gets a `Destroy` (`WentCold`). The NetId stays the item's
   ([live-state.md](live-state.md#data-only-records)). Container shells go to data too
-  (`PlayerItems.DataOnlyShell` finds one by its container id).
+  (`PlayerItems.DataOnlyShell` finds one by its container id). Items the server makes straight into
+  an inventory (starting items, admin grants, a container withdrawal) are data from the start, with
+  no object made (`PlayerItems.Issue`): the holder is sent the row and draws its stand-in.
 - **Made again first.** Anything that names such an item has the server's object made from its row,
   under the same NetId and in its slot, before it runs (`PlayerItems.WithObject`): an item request
   naming the item, the shell it opens, the item a `MoveSlot` would swap with, or a retrieval's subject
   (`NetworkServer.DataOnlyNamed`); a shop banknote deposit (`HandleShopDeposit`); a container browse
   (`HandleItemListRequest`). The players who had it are marked as knowing the new object, so it isn't
-  sent to them again. Once the request is done and it settles, it goes back to data.
-- **Not data:** the host's own player's items (the host's game is theirs) and job papers, which stay
-  objects on the server; making them data is OI-COLD-07, R6.
+  sent to them again. Once the request is done it goes back to data (it is queued again, after a
+  second's grace).
+- **Not data:** job papers, which stay objects on the server (OI-COLD-07, R4C C7), and a loaded
+  magazine, whose ammo has no row yet (OI-CON-16, R5). The host's own player's items are data too
+  since R4C C4 ([The host's own player](#the-hosts-own-player)): the server puts one away as its
+  stand-in once it's committed to the host's slot (`HostInventory.Stow`).
 
 ## Cold inventories
 
@@ -200,7 +206,10 @@ and ledger homes. How its changes reach the server:
 - Its slot moves and swaps, recalls, collections and container requests are requests through its local
   session (`LocalPlayerSession.Items`), handled in-process by the same handlers as a client's
   (`NetworkServer.RegisterLocalItems`).
-- Its items are never data only, and `PlayerItems.Join` makes its cold rows as objects once the load has run (the load joins it: it is admitted first).
+- Its items are data only too (R4C C4, D14): its slots hold stand-ins, an object the server commits
+  to one of its slots is put away as its stand-in (`HostInventory.Stow`), and the load takes its cold
+  rows up as data and draws their stand-ins (`PlayerItems.JoinHost`; the load joins it: it is admitted
+  first). Job papers and loaded magazines stay objects.
 
 A dedicated host has no player and no inventory: the server moves items about the world but never
 holds one ([live-state.md](live-state.md#a-change)).

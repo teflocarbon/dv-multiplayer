@@ -15,8 +15,9 @@ internal interface IInventoryRowHolder
 
     /// <summary>
     /// Whether an object added straight into a slot (not from a hand) becomes its stand-in as it
-    /// goes in. The host's are put away by its sweep once they settle instead: they come from the
-    /// server's own flows, which go on using the object.
+    /// goes in. The host's are put away once the server has committed them to their slot instead
+    /// (HostInventory.Stow): they come from the server's own flows, which go on using the object
+    /// until then.
     /// </summary>
     bool CatchesDirectAdds { get; }
 

@@ -10,6 +10,7 @@ using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -125,6 +126,64 @@ internal static partial class PlayerItems
             if (!knowers.Contains(owner.PlayerId))
                 knownBy[record.NetId] = knowers.Append(owner.PlayerId).ToArray();
         }
+    }
+
+    /// <summary>
+    /// An item the server puts straight into a player's inventory (a starting item, a grant, a
+    /// withdrawal; D14, OI-COLD-11): a row kept as data from the start, in <paramref name="slot"/>,
+    /// under a reserved NetId, with no object made on the server. A remote player is sent the row
+    /// with its state and draws its stand-in; the host's own player's is drawn here. The ledger
+    /// settles it where it now is (born there if it's new), or <paramref name="own"/> makes it its
+    /// owner's. Its record, or null if it couldn't be made (nothing changed).
+    /// </summary>
+    internal static LiveItems.LiveItem Issue(ServerPlayer player, SavedItemRow row, int slot,
+        ChangeCause<ItemMoveReason> cause, Func<LiveItems.LiveItem, string> own = null)
+    {
+        if (player == null || player.PlayerId == 0 || row == null || row.PersistentItemId == Guid.Empty || slot < 0)
+            return null;
+        row.PlacementPlayerIdentity = player.Guid;
+        row.Slot = slot;
+        if (!ColdInventories.Add(row))
+        {
+            Multiplayer.LogWarning($"Inventory: {row.PrefabName} ({row.PersistentItemId:D}) is already a row; not made again for {player.Username}");
+            return null;
+        }
+        ushort netId = NetworkedItem.ReserveDataNetId();
+        LiveItems.LiveItem record = netId == 0 ? null : LiveItems.RegisterDataOnly(netId, player, row, slot, cause, own);
+        if (record == null)
+        {
+            if (netId != 0)
+                NetworkedItem.FreeDataNetId(netId);
+            ColdInventories.Remove(row.PersistentItemId);
+            Multiplayer.LogError($"Inventory: couldn't make {player.Username}'s {row.PrefabName} as a row in slot {slot}" +
+                                 (netId == 0 ? ": no NetId left" : string.Empty));
+            return null;
+        }
+        knownBy[netId] = new[] { player.PlayerId };
+        ItemChangeLog.RecordMove(null, record, cause);
+        ItemUpdate create = CreateOf(record);
+        create.MoveCause = cause;
+        string state = row.State?.ToString(Formatting.None) ?? string.Empty;
+        if (player == NetworkServer.Instance.LocalPlayer)
+            HostInventory.Draw(create, state);
+        else
+            NetworkServer.Instance.SendInventoryRows(player, new List<ItemUpdate> { create }, new List<string> { state });
+        return record;
+    }
+
+    /// <summary>An issued row is taken back (its withdrawal wasn't committed): it's gone from its holder's inventory and the cold store.</summary>
+    internal static void Unissue(LiveItems.LiveItem record, string why)
+    {
+        if (record == null || !IsDataOnly(record))
+            return;
+        Multiplayer.LogWarning($"Inventory: {record.PrefabName} (netId {record.NetId}) is taken back out of slot {record.Slot}: {why}");
+        if (HostInventory.Holds(record.NetId) && InventoryStandIn.TryGet(record.NetId, out InventoryStandIn standIn))
+        {
+            VanillaInventorySlots.Forget(DV.InventorySystem.Inventory.Instance, standIn.gameObject);
+            standIn.Retire();
+        }
+        ColdInventories.Remove(record.PersistentItemId);
+        DataGoesCold(record, null);
     }
 
     // A data-only item's Create, from its record alone: there is no object to write it.

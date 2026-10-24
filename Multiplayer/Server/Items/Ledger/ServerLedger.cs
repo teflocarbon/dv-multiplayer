@@ -203,7 +203,8 @@ public static partial class ServerLedger
             By = by,
             From = copiedFrom,
             Detail = copiedFrom != Guid.Empty ? $"a copy of {copiedFrom:D}, {reason}" : detail,
-            Essential = item != null && item.Item?.InventorySpecs?.IsEssential == true,
+            Essential = item != null ? item.Item?.InventorySpecs?.IsEssential == true
+                : ItemSaveLoad.FindSpec(record.PrefabName)?.IsEssential == true,
             PreferredClaimSlot = preferredClaim,
             ShopStocked = IsShopStocked(record.NetId)
         });

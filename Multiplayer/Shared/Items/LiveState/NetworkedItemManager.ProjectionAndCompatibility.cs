@@ -1,5 +1,6 @@
 using DV;
 using UnityEngine;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -35,27 +36,31 @@ public partial class NetworkedItemManager
         return true;
     }
 
-    public bool RequestItemRecall(NetworkedItem item, int requestedSlot)
+    public bool RequestItemRecall(NetworkedItem item, int requestedSlot) =>
+        item != null && RequestItemRecall(item.NetId, item.AuthorityRevision, item.Relation, requestedSlot);
+
+    /// <summary>A recall by the item's NetId: a silhouette with no object of its item here asks with its row's.</summary>
+    public bool RequestItemRecall(ushort netId, uint expectedRevision, ItemRelation relation, int requestedSlot)
     {
-        if (item == null || item.NetId == 0)
+        if (netId == 0)
             return false;
         byte localPlayerId = NetworkRole.LocalPlayerId;
         DebugRuntime.Publish("item", "item.recall-requested",
             NetworkRole.DebugSide,
-            entityType: "Item", entityId: item.NetId.ToString(), data: new()
+            entityType: "Item", entityId: netId.ToString(), data: new()
             {
                 ["requestingPlayerId"] = localPlayerId,
                 ["requestedSlot"] = requestedSlot,
-                ["expectedRevision"] = item.AuthorityRevision,
-                ["relation"] = item.Relation.ToString()
+                ["expectedRevision"] = expectedRevision,
+                ["relation"] = relation.ToString()
             });
 
         // One step, the host's player's too (docs/design/items/wire.md, "Recall"): the server
         // commits it and everyone gets the update.
         return ItemClient.Current?.SendItemRequest(new ItemRequest
         {
-            ItemNetId = item.NetId,
-            ExpectedRevision = item.AuthorityRevision,
+            ItemNetId = netId,
+            ExpectedRevision = expectedRevision,
             Action = ItemAction.Recall,
             Slot = requestedSlot
         }) > 0;
