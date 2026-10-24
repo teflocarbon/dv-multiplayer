@@ -28,7 +28,12 @@ internal sealed partial class ClientItemManager
         InventoryRows.Observe(snapshot);
         // The local inventory is stand-ins (D14): one going in is placed, one leaving is made.
         if (ReceiveAsStandIn(snapshot, null))
+        {
+            // Collected from Lost and Found into a slot: it's no longer there, as for an object below.
+            if (snapshot.TransitionReason == ItemTransitionReason.LostAndFoundRetrieval)
+                ClientLostAndFoundTombstones.Remove(snapshot.ItemNetId);
             return;
+        }
         NetworkedItem leftStandIn = LeaveStandIn(snapshot);
         // Before the item applies it, while the item still says whose it was.
         if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)

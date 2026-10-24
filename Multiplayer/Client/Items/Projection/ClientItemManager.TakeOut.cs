@@ -89,7 +89,7 @@ internal sealed partial class ClientItemManager
         if (result == null || result.ItemNetId == 0 || !pendingTakeOuts.TryGetValue(result.ItemNetId, out PendingTakeOut pending))
             return;
         pendingTakeOuts.Remove(result.ItemNetId);
-        if (result.Accepted || InventoryStandIn.TryGet(result.ItemNetId, out _))
+        if (result.Accepted || InventoryStandIn.TryGet(result.ItemNetId, out InventoryStandIn back) && !InventorySilhouettes.IsSilhouette(back))
             return;
         Multiplayer.Log($"Inventory: taking {pending.Slot.PrefabName} (netId {result.ItemNetId}) out was refused " +
                         $"({result.Refusal}, {result.Detail}); it goes back in slot {pending.Slot.InventorySlot}");

@@ -110,6 +110,11 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
             section == controller.hotbarController);
         GameObject itemObject = controller.provider.Inventory.PeekItemAtSlot(absoluteSlot, true);
         NetworkedItem item = itemObject != null ? itemObject.GetComponent<NetworkedItem>() : null;
+        // A silhouette's stand-in (InventorySilhouettes) stands for the object of its item here, if there is one.
+        InventoryStandIn standIn = itemObject != null ? itemObject.GetComponent<InventoryStandIn>() : null;
+        if (item == null && standIn != null && InventorySilhouettes.IsSilhouette(controller.provider.Inventory, standIn) &&
+            NetworkedItem.TryGet(standIn.NetId, out NetworkedItem behind))
+            item = behind;
         snapshot = new InventorySlotRuntimeSnapshot(absoluteSlot, itemObject, item,
             controller.provider.Inventory.GetSlotDroppedState(absoluteSlot),
             controller.provider.Inventory.GetSlotReservedState(absoluteSlot));
@@ -183,6 +188,9 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         InventoryClaimPlan plan = SlotClaimPlanner.EnsureDroppedClaim(view, expectedSlot);
         string failure = string.Empty;
         bool succeeded = !plan.Rejected;
+        // Vanilla adds and drops the object itself; its stand-in is the silhouette once it's dropped.
+        if (succeeded && plan.Action != InventoryClaimAction.None)
+            InventorySilhouettes.ToObject(inventory, item);
         if (succeeded)
         {
             switch (plan.Action)
@@ -204,6 +212,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                     break;
             }
         }
+        InventorySilhouettes.ToStandIn(inventory, item);
         return ClaimResult(inventory, item, plan, succeeded,
             plan.Rejected ? plan.Reason : failure);
     }
@@ -259,6 +268,14 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         if (inventory == null || item == null)
             return new InventoryRemovalSnapshot(-1, -1, false, -1, -1, false);
         using IDisposable authoritativeRemoval = InventoryIntegration.BeginAuthoritativeRemoval();
+        // A silhouette goes with its object: the object takes the slot back, and is purged below.
+        InventorySilhouettes.ToObject(inventory, item);
+        if (itemNetId != 0 && InventoryStandIn.TryGet(itemNetId, out InventoryStandIn stale) &&
+            InventorySilhouettes.IsSilhouette(inventory, stale))
+        {
+            VanillaInventorySlots.Forget(inventory, stale.gameObject);
+            stale.Retire();
+        }
         int slotBefore = inventory.IndexOf(item);
         int equippedBefore = inventory.GetEquipSlotForItem(item);
         bool containedBefore = inventory.Contains(item, true);
@@ -319,14 +336,22 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         purgingForeignDroppedClaims = true;
         try
         {
-            foreach (GameObject candidate in (inventory.GetItemsArray(true) ?? [])
+            foreach (GameObject entry in (inventory.GetItemsArray(true) ?? [])
                          .Where(value => value != null).Distinct().ToArray())
             {
-                int slot = inventory.IndexOf(candidate);
+                int slot = inventory.IndexOf(entry);
                 if (slot < 0 || !inventory.GetSlotDroppedState(slot) ||
                     !inventory.GetSlotReservedState(slot) && !inventory.GetSlotLockState(slot))
                     continue;
-                NetworkedItem networkedItem = candidate.GetComponent<NetworkedItem>();
+                GameObject candidate = entry;
+                NetworkedItem networkedItem = entry.GetComponent<NetworkedItem>();
+                // A silhouette's stand-in is judged by its item's object here; without one, it stays.
+                InventoryStandIn silhouette = entry.GetComponent<InventoryStandIn>();
+                if (silhouette != null && NetworkedItem.TryGet(silhouette.NetId, out NetworkedItem behind) && behind != null)
+                {
+                    networkedItem = behind;
+                    candidate = behind.gameObject;
+                }
                 bool localPossessionActive = inventory.GetEquipSlotForItem(candidate) >= 0 ||
                     networkedItem?.Item?.IsGrabbed() == true;
                 bool retrievalClaim = networkedItem != null &&
@@ -400,7 +425,8 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                 if (inventory == null || expectedSlot < 0)
                     return false;
                 GameObject occupant = inventory.PeekItemAtSlot(expectedSlot, true);
-                return occupant != null && occupant != item;
+                return occupant != null && occupant != item &&
+                    occupant != InventorySilhouettes.Of(inventory, item)?.gameObject;
             }
         }
         public bool CurrentSlotReserved => CurrentSlot >= 0 &&
@@ -480,10 +506,10 @@ internal static class InventoryIntegration
     }
 
     /// <summary>A stand-in's slot as drawn: from its row (D14).</summary>
-    public static InventoryItemPresentation Project(InventoryStandIn standIn) =>
+    public static InventoryItemPresentation Project(InventoryStandIn standIn, bool isLostAndFound = false) =>
         InventoryPresentationPlanner.Plan(new InventoryPresentationInput(
             standIn?.NetId ?? 0, standIn?.Relation ?? ItemRelation.Nobodys, runtime.LocalPlayerId != 0,
-            standIn != null && standIn.IsEssential, standIn?.HasRetrievalClaim == true, false));
+            standIn != null && standIn.IsEssential, standIn?.HasRetrievalClaim == true, isLostAndFound));
 
     // The local player's inventory UI (Client/Items/Inventory/InventoryOwnershipUiPatch) asks with these.
     internal static bool RuntimeActive => runtime.RuntimeActive;

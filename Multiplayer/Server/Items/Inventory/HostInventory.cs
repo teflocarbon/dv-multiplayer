@@ -46,7 +46,7 @@ internal sealed class HostInventory : IInventoryRowHolder
 
     /// <summary>Whether the host's stand-in holds this item: it's kept as data in the host's own slot.</summary>
     public static bool Holds(ushort netId) =>
-        Instance.Active && InventoryStandIn.TryGet(netId, out _) &&
+        Instance.Active && InventoryStandIn.TryGet(netId, out InventoryStandIn standIn) && !InventorySilhouettes.IsSilhouette(standIn) &&
         LiveItems.TryGet(netId, out LiveItems.LiveItem record) && record.Holder == Player.Guid;
 
     public bool PutsAwayAsStandIn(NetworkedItem item) =>

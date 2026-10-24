@@ -19,8 +19,9 @@ internal static class InventoryTakeOutPatch
 {
     private static InventoryStandIn StandIn(GameObject item) => item != null ? item.GetComponent<InventoryStandIn>() : null;
 
+    // A silhouette isn't taken out: its item is elsewhere (InventorySilhouettes).
     private static GameObject TakeOut(InventoryStandIn standIn, string reason) =>
-        InventoryRowHolder.Current?.TakeOut(standIn, reason)?.gameObject;
+        InventorySilhouettes.IsSilhouette(standIn) ? null : InventoryRowHolder.Current?.TakeOut(standIn, reason)?.gameObject;
 
     [HarmonyPatch(typeof(GrabberStashingHandler), nameof(GrabberStashingHandler.UnStash))]
     [HarmonyPrefix]
