@@ -21,6 +21,11 @@ namespace Dvmp.Scenarios
     /// the host only. The job is abandoned afterwards.
     ///   WHO=client (default) or host: who takes the job and presses the button; host needs a player
     ///   host. STATION=FM.
+    ///   FAR=1 (with WHO=host): the host stashes its booklet and the client goes 2.6 km away; the press
+    ///   makes the booklet from its row at the printer, and its job's update has every game make a
+    ///   copy, near it or not. The host stashes it again: the far client must have no copy of it
+    ///   left (R4C C9 B5: only the games that knew the paper were told it went). The holder is the
+    ///   host's player because the far game must be another than the server's.
     /// </summary>
     [Scenario("booklet-summon", "The validator's reprint button brings the presser's booklet back to the printer on both games")]
     [Budget(240)]
@@ -31,6 +36,8 @@ namespace Dvmp.Scenarios
             /// <summary>client or host: who takes the job and presses the button.</summary>
             public string Who = "client";
             public string Station = "FM";
+            /// <summary>The booklet is pressed out of the host's slot with the client far away, and stashed again.</summary>
+            public bool Far;
         }
 
         // FM's office, by the validator and the overviews, and a place 2.6 km away (as `jobs`).
@@ -45,6 +52,7 @@ namespace Dvmp.Scenarios
                 Report.Note("a dedicated host has no player to press the button: skipped");
                 return;
             }
+            if (o.Far && !host) throw new HarnessException("FAR=1 needs WHO=host: the far game must be another than the server's");
             Peer who = host ? pair.Host : pair.Client;
             Peer[] players = pair.Dedicated ? new[] { pair.Client } : new[] { pair.Host, pair.Client };
 
@@ -68,6 +76,11 @@ namespace Dvmp.Scenarios
             pair.Cleanup(() => pair.Host.Run(() => InGame.Abandon(job)));
             ushort booklet = await who.Run<ushort>(s => InGame.Accept(s, job), 60);
             Report.Note($"booklet {booklet}");
+            if (o.Far)
+            {
+                await Far(pair, job, o.Station, booklet);
+                return;
+            }
 
             await who.Run(() => InGame.CarryAway(booklet, OfficeX + 60f, OfficeZ), 90);
             await who.Run(() => Players.TeleportToGround(OfficeX, OfficeZ), 90);
@@ -84,6 +97,25 @@ namespace Dvmp.Scenarios
             Report.Note($"after: host {after.Host}; client {after.Client}");
             foreach ((string peer, Booklets b) in after)
                 Expect.Equal(before.Host.Count, b.Count, $"{peer}: the job's booklets after the press (moved, not printed again)");
+        }
+
+        // FAR=1: the host's booklet pressed out of its slot while the client is far away, then stashed again.
+        private static async Task Far(Pair pair, string job, string station, ushort booklet)
+        {
+            int slot = await pair.Host.Run<int>(s => Items.Stash(s, booklet, false), 60);
+            Report.Note($"the host stashed booklet {booklet} in slot {slot}; the client goes 2.6 km away");
+            await pair.Client.Run(() => Players.TeleportToGround(AwayX, AwayZ), 90);
+            await Task.Delay(3000);
+            await pair.Host.Run(() => InGame.Reprint(station));
+            await Until.Value(() => pair.Host.Run(() => InGame.BookletState(job, station, booklet)), b => b.Distance >= 0 && b.Distance < 2f, 15,
+                $"host: booklet {booklet} out of its slot, at the printer (m)");
+            int copied = await pair.Client.Run(() => InGame.Copies(booklet));
+            Report.Note($"the far client has {copied} copy(ies) of it while it's at the printer" + (copied == 0 ? ": nothing to leave behind, the check below proves nothing" : ""));
+            int again = await pair.Host.Run<int>(s => Items.Stash(s, booklet, false), 60);
+            Report.Note($"the host stashed it again, in slot {again}");
+            await Task.Delay(3000);   // it goes to data, and every game is told
+            Expect.Zero(await pair.Client.Run(() => InGame.Copies(booklet)), $"the far client's copies of booklet {booklet}, back in the host's slot (B5)");
+            Expect.Zero(await pair.Host.Run(() => InGame.Copies(booklet)), $"the host's objects of booklet {booklet}, back in its slot");
         }
 
         public sealed class Booklets
@@ -188,6 +220,13 @@ namespace Dvmp.Scenarios
                     Distance = item == null ? -1f : Vector3.Distance(item.transform.position, printer),
                 };
             }
+
+            /// <summary>Either peer: the booklet objects here (inactive ones too) with this NetId; a stand-in isn't one.</summary>
+            [Step]
+            public static int Copies(ushort netId) =>
+                Resources.FindObjectsOfTypeAll<JobBooklet>().Count(b => b.gameObject.scene.IsValid() &&
+                    b.GetComponent<Multiplayer.Shared.Items.Inventory.InventoryStandIn>() == null &&
+                    b.GetComponent<NetworkedItem>()?.NetId == netId);
 
             /// <summary>Host: abandons the job, so the station generates new ones for the next run.</summary>
             [Step]

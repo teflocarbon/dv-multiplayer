@@ -22,6 +22,8 @@ namespace Dvmp.Scenarios
     /// is made in that frame with the saved state it went in with, and the frame it takes stays
     /// within MAX_MS. The server and the ledger have it in the slot after each stash. WHO=host does
     /// it with the host's own player, whose slots are stand-ins too (R4C C4). PREFABS= limits the list.
+    /// QUICK=1 stashes it again the moment it's in the hand, before the take-out's echo comes back
+    /// (R4C C9 A4): for 3 s after, every frame, it has no object and its slot holds its stand-in.
     /// </summary>
     [Scenario("hotbar-cycle", "Every vanilla item stashed into the hotbar, taken out and stashed again: no object while stored, its state in the first frame, the frame time bounded")]
     [Budget(3600)]
@@ -35,6 +37,8 @@ namespace Dvmp.Scenarios
             public string Who = "client";
             /// <summary>The longest a take-out's frame may take, in milliseconds.</summary>
             public float MaxMs = 100f;
+            /// <summary>Stashes it again as soon as it's in the hand, and watches its slot for 3 s.</summary>
+            public bool Quick;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -50,7 +54,7 @@ namespace Dvmp.Scenarios
             foreach (string prefab in prefabs)
             {
                 ushort id = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, prefab, o.Who));
-                Cycled c = await who.Run<Cycled>(s => InGame.Cycle(s, id), 90);
+                Cycled c = await who.Run<Cycled>(s => InGame.Cycle(s, id, o.Quick), 90);
                 Report.Note($"{prefab} {id}: {c}");
                 if (c.Refused.Length > 0)
                 {
@@ -102,11 +106,12 @@ namespace Dvmp.Scenarios
 
             /// <summary>
             /// This player picks the item up with a free hotbar slot selected, stashes it through the
-            /// hotbar, takes it out and stashes it again. Result: the slot, the take-out's frame
-            /// time, and what went wrong.
+            /// hotbar, takes it out and stashes it again (<paramref name="quick"/>: as soon as it's in
+            /// the hand, then watches its slot every frame for 3 s). Result: the slot, the take-out's
+            /// frame time, and what went wrong.
             /// </summary>
             [Step]
-            public static IEnumerator Cycle(Step<Cycled> step, ushort id)
+            public static IEnumerator Cycle(Step<Cycled> step, ushort id, bool quick)
             {
                 var result = new Cycled();
                 var failures = new List<string>();
@@ -163,15 +168,37 @@ namespace Dvmp.Scenarios
                 result.NextFrameMs = (Time.realtimeSinceStartup - f0) * 1000f;
                 yield return Within(() => Hands.Held != null && Hands.Held.NetId == id, 5f);
                 if (Hands.Held == null || Hands.Held.NetId != id) { Fail("not in the hand 5 s after the take-out"); yield break; }
-                yield return new WaitForSecondsRealtime(1.5f);
-                if (Hands.Held == null || Hands.Held.NetId != id) failures.Add("taken out, it left the hand (rolled back?)");
+                if (!quick)
+                {
+                    yield return new WaitForSecondsRealtime(1.5f);
+                    if (Hands.Held == null || Hands.Held.NetId != id) failures.Add("taken out, it left the hand (rolled back?)");
+                }
 
-                // In again.
+                // In again (QUICK: now, before the take-out's echo).
                 hotbar.UpdateSelectedSlot(slot, false);
                 handler.StashToggle(slot);
+                if (quick)
+                {
+                    // Once the put-away has retired the object, the take's late echo mustn't take the
+                    // stand-in out again (it dropped at the player's feet for a round trip).
+                    yield return Within(() => PlayerInventory.IsStandIn(id) && !(NetworkedItem.TryGet(id, out NetworkedItem going) && going != null), 1f);
+                    var seen = new HashSet<string>();
+                    float watched = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - watched < 3f)
+                    {
+                        string at = $"{Time.realtimeSinceStartup - watched:0.00} s after the second stash";
+                        if (NetworkedItem.TryGet(id, out NetworkedItem back) && back != null && seen.Add("object"))
+                            failures.Add($"its object is there {at} ({back.GetItemState()})");
+                        if (!PlayerInventory.IsStandIn(id) && seen.Add("stand-in"))
+                            failures.Add($"no stand-in {at}");
+                        if (PlayerInventory.Slot(id) != slot && seen.Add("slot"))
+                            failures.Add($"in slot {PlayerInventory.Slot(id)}, not {slot}, {at}");
+                        yield return null;
+                    }
+                }
                 yield return Within(() => PlayerInventory.Holds(id), 5f);
                 if (!PlayerInventory.Holds(id)) { Fail("not in the inventory 5 s after the second stash"); yield break; }
-                yield return new WaitForSecondsRealtime(1.5f);
+                if (!quick) yield return new WaitForSecondsRealtime(1.5f);
                 result.Slot = PlayerInventory.Slot(id);
                 result.StandIn = PlayerInventory.IsStandIn(id);
                 if (result.Slot != slot) failures.Add($"stashed again into slot {result.Slot}, not {slot}");
