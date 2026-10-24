@@ -184,7 +184,7 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
         try
         {
             JObject state = JObject.Parse(State);
-            return (string)state["jobId"] ?? (string)state["feeId"];
+            return Jobs.JobPapers.NameOf(state) ?? (string)state["feeId"];
         }
         catch
         {
