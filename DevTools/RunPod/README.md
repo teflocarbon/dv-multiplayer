@@ -39,13 +39,17 @@ bash DevTools/RunPod/push.sh <pod ip> <port of 22/tcp>
 Then on the pod: `dvmp up --session g1 --transport gns`, `dvmp scenario run NAME --session g1`.
 To watch the games: `ssh -L 6901:localhost:6901 ...` and open http://localhost:6901/vnc.html.
 
-## Sizing (trial, RTX A4500 pod: 10.2 vCPU, 62 GB RAM, 20 GB VRAM)
+## Sizing
 
-- Per game: 6–7 GB RAM and 3.3–4.4 GB VRAM. The host is bigger: it loads the whole map's tiles.
-- With harness mode's 4 job workers, a host alone takes about 2.3 cores at 30 fps. Unity starts a
-  worker per core it sees, and under Wine it sees the whole machine (47 workers on a 48-core host),
-  which held games at 18 fps.
-- CPU decides how many pairs fit, not VRAM: compare pods by vCPU.
+- Per game: 6–7 GB RAM and 3.3–4.4 GB VRAM, about 7.7 GB VRAM a pair. The host is bigger: it
+  loads the whole map's tiles.
+- Two pairs on a 20 GB pod with 15.3 vCPU passed `recall` at once (2026-10-25): four games at the
+  20 fps background cap took about 7.2 cores and 15.4 GB VRAM. So VRAM decides how many pairs
+  fit: about one pair per 8 GB.
+- That relies on harness mode's 4 job workers. Unity starts a worker per core it sees, and under
+  Wine it sees the whole machine (47 workers on a 48-core host), which held games at 18 fps.
+- Create pods from the RunPod console with the `dvmp-pod` template: the API's create has refused
+  GPUs the console offered. Attach the global volume when creating the pod; it can't be added later.
 
 ## Under Wine
 
