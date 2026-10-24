@@ -234,13 +234,15 @@ internal static partial class PlayerItems
     }
 
     /// <summary>
-    /// Host: a player joined. Each of their cold rows is made again in its exact slot, for a client
-    /// and for the host's own player (D12; OI-COLD-03 makes it happen before their inventory shows).
-    /// A player admitted before the load (the host's own) has no rows yet: the load joins them.
+    /// Host: a player joined. The host's own player's cold rows are made again here, in their exact
+    /// slots: its game is the server's. A remote player's go live as rows once their game is ready
+    /// for items (<see cref="SendRows"/>, OI-COLD-03). The host's own player is admitted before the
+    /// load, when it has no rows yet: the load joins it.
     /// </summary>
     public static void Join(ServerPlayer player)
     {
-        if (player == null || player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true || !ServerLedger.Loaded)
+        if (player == null || player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true ||
+            player != NetworkServer.Instance.LocalPlayer || !ServerLedger.Loaded)
             return;
         foreach (SavedItemRow row in ColdInventories.Of(player.Guid))
             CoroutineManager.Instance.StartCoroutine(GoLive(player, row));

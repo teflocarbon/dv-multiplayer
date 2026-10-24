@@ -53,18 +53,18 @@ the named PR; scenario line numbers are at beta 1a0b732f.
 
 ## Where it stands
 
-On 2026-10-24, with R3 (#342, #343, #344) and R4a (#347):
+On 2026-10-24, with R3 (#342, #343, #344), R4a (#347) and R4b (#348):
 
 | Area | Done | Built, unproved | In a PR or branch | Not started | Needs decision | Paused | Not needed |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | The refactor's full runs | 0 | 0 | 0 | 2 | 0 | 0 | 0 |
 | Identity and what is owned | 6 | 0 | 8 | 1 | 0 | 4 | 0 |
 | The ledger as the source of truth | 5 | 0 | 9 | 1 | 0 | 0 | 1 |
-| Joining, rejoining and leaving | 4 | 0 | 4 | 3 | 0 | 0 | 0 |
+| Joining, rejoining and leaving | 3 | 0 | 6 | 2 | 0 | 0 | 0 |
 | Starting items | 3 | 1 | 5 | 1 | 0 | 0 | 0 |
-| Essentials and claims | 5 | 0 | 8 | 3 | 0 | 0 | 1 |
-| Inventory slots | 0 | 0 | 2 | 1 | 0 | 0 | 0 |
-| Cold and live homes | 0 | 0 | 5 | 10 | 0 | 0 | 0 |
+| Essentials and claims | 5 | 1 | 8 | 2 | 0 | 0 | 1 |
+| Inventory slots | 0 | 0 | 3 | 0 | 0 | 0 | 0 |
+| Cold and live homes | 0 | 0 | 6 | 9 | 0 | 0 | 0 |
 | Lost and Found | 10 | 1 | 5 | 6 | 0 | 0 | 0 |
 | The list and retrieval | 7 | 2 | 5 | 3 | 0 | 6 | 0 |
 | Lineage | 2 | 1 | 1 | 0 | 0 | 3 | 0 |
@@ -79,7 +79,7 @@ On 2026-10-24, with R3 (#342, #343, #344) and R4a (#347):
 | Gadgets seam | 0 | 0 | 3 | 1 | 0 | 7 | 1 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 275** | **51** | **9** | **83** | **72** | **0** | **49** | **11** |
+| **All 275** | **50** | **10** | **87** | **68** | **0** | **49** | **11** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
@@ -195,8 +195,8 @@ The item design docs the rows cite (`owned-items.md`, `item-lifecycle.md` and th
 
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
-| OI-JOIN-01 | A returning player gets their possessions back in their inventory at the saved slot (a hand item in the inventory), for a client and for the host's own player | OI §Joining and rejoining | `[x]` | Pre-overhaul (325c2fb) · `ItemSaveLoad.OnOwnerConnected` · `rejoin` :56, `inventory-persist` :44-45 (p+d); `host-player-persist` for the host's own player (p, by nature) |
-| OI-JOIN-02 | Possessions at rejoin are read from the ledger (`With(identity)`), not from `WorldItemsV1` records held back at load | OI §Joining and rejoining; F5 | `[ ]` | `ItemSaveLoad.cs:67-86` reads the held-back records. Item-review triage: decided, not built. |
+| OI-JOIN-01 | A returning player gets their possessions back in their inventory at the saved slot (a hand item in the inventory), for a client and for the host's own player | OI §Joining and rejoining | `[~] #348 built` | #348 · `PlayerItems.SendRows` (a client), `PlayerItems.Join` (the host's own player, after the load) · `rejoin` (p), `inventory-persist` (p), `inventory-slots` (p); `host-player-persist` (p) for the host's own player |
+| OI-JOIN-02 | Possessions at rejoin are read from the ledger (`With(identity)`), not from `WorldItemsV1` records held back at load | OI §Joining and rejoining; F5 | `[~] #348 built` | #348 · `PlayerItems.RowsOf` reads the ledger's entries in the joiner's slots with their cold rows; nothing is held back at load · `inventory-slots` (p), `rejoin` (p), `item-bug-essential-slot-rejoin` (p) |
 | OI-JOIN-03 | An offline owner keeps their items: an identity with no session, never nobody, so the first-taker rule, other players' recalls and vanilla's Lost and Found never take them | #304; OI §2a | `[x]` | #304; #331 · `LiveItem.Owner` is the identity, `PlayerNumbers.IsConnected`; on the wire until R2 `ItemUpdateData.OfflineOwnerNumber` · `absent-owner`, `owner-offline` check an identity with no session (p; d: end pass); Core `ItemStateMachineTests.TakingAnOfflineOwnersPersonalItem_*`, `NobodyElseRecallsAnOfflineOwnersEssential` |
 | OI-JOIN-04 | A departing borrower's item (another player's, in hand, inventory or belt) goes to its owner's Lost and Found at once (`BorrowerLeft`), whether the owner is online or not | OI §Leaving; #305 | `[x]` | #305 · `ServerItemManager.PlayerItems.cs:133` (`BorrowerLeft`) · `borrowed-disconnect` :71-74 with `OWNER=absent` (+`HOLD=hand`, +`LEAVE=crash`) (p+d); `OWNER=host` (p only) |
 | OI-JOIN-05 | A borrowed item is never saved under the borrower, and a leave never makes a second copy | OQ §Invariants; OI §Leaving | `[~] #347 built` | #347 · a borrowed item's ledger row keeps its owner; saved in the borrower's slot it goes to the owner's Lost and Found at load (`Recover`) · Core `ItemLoadPlannerTests.AnItemSavedWithABorrower_GoesToItsOwnersLostAndFound`; no scenario checks the leaver's save: needs one (OI-REF-02) |
@@ -242,14 +242,14 @@ The item design docs the rows cite (`owned-items.md`, `item-lifecycle.md` and th
 | OI-ESS-14 | No game makes essentials or the kit, so DV's safeguard can't put a fresh essential on a dropped one's slot (E3) or count a borrowed one as its own (E9), no duplicate discard can destroy the wrong copy (E7), and no kit lives only on a client (E8) | BR E3, E7, E8, E9 | `[x]` | #306, #307 · the code paths are deleted (`StartingItemsControllerPatch` keeps the safeguards off) · `starting-items`, `rejoin` :56 (p+d) |
 | OI-ESS-15 | An essential moved to another slot, with an ordinary item put in its old one, is back in its own slot after a rejoin or a restart, for a client and for the host's player | BR E6 | `[x]` | Claim slots (`SlotClaimPlanner`) · `item-bug-essential-slot-rejoin` (+`RESTART=1`; `WHO=host` p only), passing as a regression check (p+d) |
 | OI-ESS-16 | Migration repairs an old save's claim-slot clashes once | OI §Joining and rejoining ("Claim slots"), §Migration; split from OI-ESS-01 | `not needed: fresh items (user 2026-10-23, D1)` | Old saves start every player's items fresh. Core's one-off repair is built (#278) but unused |
-| OI-ESS-17 | A late-joining owner sees the silhouette of an essential another connected player holds as data only on the server | D14 sizing (code reading, not seen in a game) | `[ ]` | R4. A possible bug found by the [sizing](research/cold-inventory-sizing.md): check it with a scenario, and fix it if it's real |
+| OI-ESS-17 | A late-joining owner sees the silhouette of an essential another connected player holds as data only on the server | D14 sizing (code reading, not seen in a game) | `[~] built, unproved` | #348 · at the owner's join, each essential of theirs another connected player holds as data is sent to them as a `Create` and they are added to its `knownBy` (`PlayerItems.SendHeldEssentials`, `JoinRows.SendsHeldEssential`) · Core `JoinRowsTests`. Needs 3 players (a second client): the owner joins late while another remote player holds their essential as data. The host's own player can't stand in (its items are never data only), so no pair can reach it: OI-REF-01 |
 
 ## Inventory slots
 
 | ID | Requirement | Source | Status | Proof, or what's missing |
 | --- | --- | --- | --- | --- |
 | OI-SLOT-01 | The server records every inventory item's exact slot, owned or not (an owned item's ledger home is `Slot(holder, slot)`); moving an item between slots is a request the server commits | [item-refactor.md](design/item-refactor.md) §What's wrong today; the user, 2026-10-23 (goal b) | `[~] #342 built` | #342 · `LiveItem.Slot` is the exact slot of every inventory item, owned or not, and an owned one's ledger home is `Slot(holder, slot)`; a slot move is a `MoveSlot` request (`InventorySlotMovePatch`) the server commits · `inventory-slots` (p) |
-| OI-SLOT-02 | A save writes each inventory item's slot, and a reload or a rejoin puts it back in that slot, for a client and for the host's own player | [item-refactor.md](design/item-refactor.md); the user, 2026-10-23 (goal b) | `[ ]` | `WorldItemsV1` saves only `claimSlot`, and a restore fills from the front (`NetworkedItem.StateApplication.cs:677`). R4, scenario `inventory-slots RESTART=1` |
+| OI-SLOT-02 | A save writes each inventory item's slot, and a reload or a rejoin puts it back in that slot, for a client and for the host's own player | [item-refactor.md](design/item-refactor.md); the user, 2026-10-23 (goal b) | `[~] #348 built` | #347 saves each slot in the ledger row; #348 makes each row in it · `inventory-slots RESTART=1` (p): two lanterns moved and swapped, and the comms radio in its claim, back in the same slots after a save and restart; `WHO=host RESTART=1` (p) for the host's own player; `inventory-slots` (p) after a rejoin |
 | OI-SLOT-03 | Two items never share one holder's slot on the server; a request into an occupied slot is refused | [item-refactor.md](design/item-refactor.md) §The ledger | `[~] #342 built` | #342 · `Commit` refuses `slot-occupied`; unowned items are checked too (`UnownedInSlot`, cold rows included); the one-home check's `OneItemPerSlot` · Core `ItemLedgerTests`, `HomeInvariantTests`; `inventory-slots` (p) |
 
 ## Cold and live homes
@@ -261,7 +261,7 @@ An item in a home nobody is using is data only, and every inventory is server da
 | --- | --- | --- | --- | --- |
 | OI-COLD-01 | An item whose home is cold (an offline player's inventory or claim slot, Lost and Found, a container) has no object on any game: only its saved state, and its ledger entry if owned | D12 | `[~] #343 built` | #343 · a leaver's inventory items are cold rows with no object, and a connected remote player's are data on the server (OI-COLD-06); a container's contents were rows already · `cold-homes` (p). Lost and Found entries: deferred to R6 (OI-COLD-08), user 2026-10-24 |
 | OI-COLD-02 | When a holder leaves, each item in their inventory goes cold in one ledger change: the server takes its state through `ItemSaveData` and destroys the object on every game; a hand item goes to a free slot first (D5) | D12 | `[~] #343 built` | #343 · `PlayerItems.Leave`/`GoCold`: a hand item to a free slot (D5), a borrowed one to its owner's Lost and Found, the rest rows in `ColdInventories`, objects destroyed on every game (`WentCold`), the ledger home unchanged · `cold-homes` (p) |
-| OI-COLD-03 | When an owner joins, each cold item in their inventory is made from its state in its exact slot before their inventory is shown, for a client and for the host's own player | D12; OI-SLOT-02 | `[ ]` | R4, built as rows: the joiner is sent their rows with state and NetId and the client makes the objects from them (D14, R4C's C1 server half) |
+| OI-COLD-03 | When an owner joins, each cold item in their inventory is made from its state in its exact slot before their inventory is shown, for a client and for the host's own player | D12; OI-SLOT-02 | `[~] #348 built` | #348 · `PlayerItems.SendRows` at `ReadyForItems`: each row a data-only record (`LiveItems.RegisterDataOnly`) in its exact slot, sent in one `ClientboundInventoryRowsPacket` with its state, made on the client (`ClientItemManager.MakeFromRow`); the host's own player's rows made by `GoLive` once the load has run · `inventory-slots RESTART=1` (p) and `WHO=host RESTART=1` (p): every item back in its slot after a restart; `cold-homes` (p); Protocol `ItemWirePacketTests.InventoryRows_RoundTripEachRowWithItsState` |
 | OI-COLD-04 | No vanilla path, sweep or respawn can move or destroy a cold item, and the invariant check finds no object for an item in a cold home | D12 | `[~] #343 built` | #343 · a cold item has no object, so nothing in vanilla can reach it; the one-home check reads cold rows (`ObservedSource.ColdRow`) · `cold-homes` (p): no object anywhere for the cold lantern and mug; clean check after every run |
 | OI-COLD-05 | **Every inventory is server data, with optimistic clients:** a connected player's stash, slot move, hotbar switch, drop and pick-up show at once on their game (no wait) and go to the server as a request; the server commits each to the ledger and confirms, and only a refusal rolls the client back. The client never changes an inventory without telling the server | D12; OI-SLOT-01; R2 §The wire | `[~] #343 built` | #342 `MoveSlot` requests; #343 rollback: a refused request corrects the client, both items for a swap · `cold-homes` (p): a stale-revision move rolls back; `inventory-slots` (p) |
 | OI-COLD-06 | **No duplicate on the server:** an item in a connected remote player's inventory is data only on the server, like a cold item; that player's game holds the only object | D12 (user, 2026-10-24: "keep data only") | `[~] #343 built` | #343 · `PlayerItems.DataOnly`: settled 1 s with its holder, the server destroys its object and keeps the record and NetId; `WithObject` makes it again for requests, shop deposits and container browses; job papers stay objects (OI-COLD-07, R6) · `cold-homes` (p): the lantern is data on the server, moved while data; `ledger-rows` (p) |

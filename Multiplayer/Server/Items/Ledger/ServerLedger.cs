@@ -104,6 +104,13 @@ public static partial class ServerLedger
         return id;
     }
 
+    /// <summary>An item kept as data from the start (no object to claim its id): its NetId by its id.</summary>
+    internal static void BindNetId(Guid id, ushort netId)
+    {
+        if (id != Guid.Empty && netId != 0)
+            netIdByPersistentId[id] = netId;
+    }
+
     /// <summary>
     /// Commits an accepted transition's change of home before live state applies it (OI-LED-04):
     /// an owned item moves in the ledger, from where the record had it; an item a player takes

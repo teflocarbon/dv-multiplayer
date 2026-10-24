@@ -26,6 +26,12 @@ public partial class NetworkClient : IItemClient
             ClientItemManager.Instance?.ReceiveSnapshots(packet.Updates);
     }
 
+    private void OnClientboundInventoryRowsPacket(ClientboundInventoryRowsPacket packet)
+    {
+        LogDebug(() => $"OnClientboundInventoryRowsPacket({packet?.Rows?.Count})");
+        ClientItemManager.Instance?.ReceiveInventoryRows(packet?.Rows, packet?.States);
+    }
+
     private void OnClientboundItemResultPacket(ClientboundItemResultPacket packet)
     {
         ItemExchange.Receive(packet);

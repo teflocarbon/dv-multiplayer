@@ -871,6 +871,37 @@ public static class LiveItems
         return record;
     }
 
+    /// <summary>
+    /// Registers a joiner's inventory item as data only from the start (OI-COLD-03, OI-COLD-06): a
+    /// live record under a reserved NetId, in <paramref name="slot"/> of <paramref name="holder"/>'s
+    /// inventory, with no object on the server. Its row stays in the cold store; the holder's game
+    /// makes the only object from it.
+    /// </summary>
+    internal static LiveItem RegisterDataOnly(ushort netId, ServerPlayer holder, SavedItemRow row, int slot,
+        ChangeCause<ItemMoveReason> cause)
+    {
+        if (netId == 0 || holder == null || row == null || row.PersistentItemId == Guid.Empty || slot < 0)
+            return null;
+        LiveItem record = new()
+        {
+            NetId = netId,
+            Revision = 1,
+            Placement = ItemPlacementKind.PlayerInventory,
+            Holder = holder.Guid,
+            Slot = slot,
+            StoredOwner = row.OwnerIdentity,
+            InventoryClaimFlags = row.ClaimFlags,
+            PrefabName = row.PrefabName,
+            LastReason = ItemTransitionReason.HostLocalState,
+            PersistentItemId = row.PersistentItemId,
+            AuthoredItemKey = string.Empty
+        };
+        records[netId] = record;
+        ServerLedger.BindNetId(row.PersistentItemId, netId);
+        ServerLedger.Settle(record, row.OwnerIdentity, row.ClaimSlot, cause);
+        return record;
+    }
+
     public static void RollbackLostAndFoundCollection(NetworkedItem item, uint previousRevision,
         ItemPlacementKind previousPlacement, Guid previousHolder,
         ItemTransitionReason previousReason)

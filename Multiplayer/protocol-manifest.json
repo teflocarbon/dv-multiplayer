@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.24-dev.1239+3c8a84e59164a8189a3a18d219023fa8df3fdeaa",
-  "Fingerprint": "41cb822292225e39e8059a477548ef309f89ef11dba165f296860dd61712b02b",
+  "BuildVersion": "2026.10.24-dev.1259+88d0e7d3aa01640fe82c57ae53f3f264719b4b3f",
+  "Fingerprint": "482dd60b90fb8f71504f6a96f49b3f15e6898cb0b5c94632af3e7133cfdb37a0",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1043,6 +1043,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs.ServerboundWarehouseMachineControllerRequestPacket",
       "Direction": "Serverbound",
       "Category": "Serverbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "EC5E08CC2727D927",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Items.ClientboundInventoryRowsPacket",
+      "Direction": "Clientbound",
+      "Category": "Items",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

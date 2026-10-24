@@ -309,6 +309,9 @@ public partial class NetworkedItem : IdMonoBehaviour<ushort, NetworkedItem>
     /// <summary>Server: this new object stands for an item kept as data, under its NetId.</summary>
     internal bool TakeUpFromData(ushort netId) => TakeUpNetId(netId);
 
+    /// <summary>Server: a NetId for an item kept as data from the start (a joiner's inventory row), or 0.</summary>
+    internal static ushort ReserveDataNetId() => ReserveNetId(out ushort netId) ? netId : (ushort)0;
+
     /// <summary>Server: an item kept as data is gone for good; its NetId is free.</summary>
     internal static void FreeDataNetId(ushort netId) => FreeHandedOverNetId(netId);
     internal ChangeCause<ItemRemovalReason>? PendingRemovalCause => pendingRemovalCause;

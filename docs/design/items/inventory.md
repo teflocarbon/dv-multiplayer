@@ -1,6 +1,6 @@
 # Inventories
 
-> Status: built in R3 of the [item refactor](../item-refactor.md), 2026-10-24. This page says what the
+> Status: built in R3 of the [item refactor](../item-refactor.md), 2026-10-24; the join as rows in R4. This page says what the
 > code does. Every player's inventory is server data: each item in it has an exact slot on the
 > server, a client's change to it is a request, a leaver's inventory goes cold and comes back at
 > join. Claims are issued by the ledger ([ledger.md](ledger.md), [essentials.md](essentials.md));
@@ -145,23 +145,36 @@ ledger entry stays, home `Slot(holder, slot)`.
    A data-only item already has its row: only its record and NetId go. A scene-authored item becomes
    an ordinary one first, so the scene doesn't make it again. Job papers don't go cold (R6, OI-COLD-07).
 
-The save writes every row (`ItemSaveLoad.Save`), and a load makes no object for an item whose holder
-isn't connected: its row goes straight into `ColdInventories` (`ItemSaveLoad.Restore`). A row saved in a
-hand has no slot, and gets one at load. Writing it in R4's format is R4's (`save-load.md`).
+The save writes every row (`ItemSaveLoad.WriteSave`), and the load makes no object for an item whose
+holder isn't connected: its row goes straight into `ColdInventories` (`KeepCold`,
+[save-load.md](save-load.md#loading)). A row saved from a hand is written in a free slot.
 
-**Joining** (`PlayerItems.Join`, from `NetworkServer.AdmitPlayer`, after the re-key): each of the
-player's rows is made again (`GoLive`), once the ledger is loaded. The prefab is made, its state loaded
-a frame later, as vanilla's starting items are, and it's registered in its holder's inventory under
-its own id (`LiveItems.RegisterMaterializedColdItem`) and sent to everyone. Its slot:
+**Joining** (R4, OI-COLD-03, OI-JOIN-02). A remote player's inventory goes live as rows when their game
+is ready for items (`PlayerItems.SendRows`, from the `ReadyForItems` step of the join), before
+anything else of theirs is sent:
 
-- its saved slot if it's still free (`ServerLedger.FreeSlot`, the row's slot first), else its claim,
-  else the lowest free one;
-- with no slot free, or with the ledger's home `LostAndFound` (a re-key clash), it overflows: it's
-  dropped at the player's feet and sent to their Lost and Found (`InventoryOverflow`); an unowned one
-  stays there.
+1. Their rows are read from the ledger: each entry whose home is a slot of theirs, with its cold row,
+   then their other rows (unowned items they carry, a row the ledger moved to Lost and Found).
+2. Each row becomes a live record kept as data only from the start (`LiveItems.RegisterDataOnly`),
+   under a NetId reserved for it (`NetworkedItem.ReserveDataNetId`), in its saved slot if it's still
+   free (`ServerLedger.FreeSlot`, the row's slot first), else its claim, else the lowest free one. Its
+   row stays in `ColdInventories`. No object is made on the server.
+3. The joiner is sent one `ClientboundInventoryRowsPacket`: each item's `Create`, built for them, and
+   its saved state (`ItemSaveData` JSON). Their game makes each object from its row
+   (`ClientItemManager.MakeFromRow`, at the safety position under its NetId), loads its state a frame
+   later, as vanilla's starting items do, and places it by its `Create`. R4C's take-out reuses
+   `MakeFromRow`.
+4. An essential of theirs that another connected player holds as data has no object for interest to
+   find, so they are sent its `Create` too and kept up to date with it (OI-ESS-17).
 
-A row whose prefab is unknown, or whose making fails, stays cold. Making the rows before the player's
-inventory is shown is OI-COLD-03, R4.
+Made as objects instead, by `GoLive` (the prefab made, its state loaded a frame later, registered
+in its holder's inventory under its own id by `LiveItems.RegisterMaterializedColdItem`, sent to
+everyone): job papers (OI-COLD-07, R6); a row with no free slot or whose ledger home is `LostAndFound`
+(a re-key clash), which overflows: dropped at the player's feet and sent to their Lost and Found
+(`InventoryOverflow`), or left there if unowned; and the host's own player's rows, made once the
+load has run (`PlayerItems.Join`; it is admitted before the load, so the load joins it).
+A row whose prefab is unknown stays cold; one whose state won't load
+comes back fresh in its owner's Lost and Found (D9).
 
 ## The re-key merge
 
@@ -187,7 +200,7 @@ and ledger homes. How its changes reach the server:
 - Its slot moves and swaps, recalls, collections and container requests are requests through its local
   session (`LocalPlayerSession.Items`), handled in-process by the same handlers as a client's
   (`NetworkServer.RegisterLocalItems`).
-- Its items are never data only, and `PlayerItems.Join` makes its cold rows as it is admitted.
+- Its items are never data only, and `PlayerItems.Join` makes its cold rows as objects once the load has run (the load joins it: it is admitted first).
 
 A dedicated host has no player and no inventory: the server moves items about the world but never
 holds one ([live-state.md](live-state.md#a-change)).
