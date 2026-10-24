@@ -259,9 +259,9 @@ internal static partial class PlayerItems
         while (!ServerLedger.Loaded && player.PlayerId != 0)
             yield return null;
         // A report (the one paper that comes here, JobPapers) is made from its recipe, not a prefab.
-        // An unowned one becomes its holder's, so Lost and Found takes it as it takes other items.
+        // An unowned one stays unowned, as other items do, so with no slot it's left at their feet.
         bool paper = JobPapers.IsPaper(row.PrefabName);
-        Guid owner = paper && row.OwnerIdentity == Guid.Empty ? player.Guid : row.OwnerIdentity;
+        Guid owner = row.OwnerIdentity;
         GameObject instance;
         if (paper)
         {
