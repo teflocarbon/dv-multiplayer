@@ -1,13 +1,16 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Utils;
 using Newtonsoft.Json;
+using UnityEngine;
 
 namespace Multiplayer.Server.Items.Inventory;
 
@@ -41,20 +44,43 @@ internal static partial class PlayerItems
             yield return null;
         if (player.PlayerId == 0)
             yield break;
+        // A paper's row goes live while its job wants it (JobPaperRows.Wanted), and the save's jobs are
+        // known once their stations register: a paper whose job isn't known yet waits a while for it, so
+        // it isn't dropped (and printed again), while the rest are drawn now. One whose job never comes is
+        // dropped after.
         int drawn = 0;
+        List<SavedItemRow> waiting = new();
         foreach (SavedItemRow row in RowsOf(player).ToArray())
         {
-            if (IsTakenUp(row.PersistentItemId))
-                continue;
-            ItemUpdate create = TakeUp(player, row);
-            if (create == null)
-                continue;
-            HostInventory.Draw(create, row.State?.ToString(Formatting.None) ?? string.Empty);
-            drawn++;
+            if (JobUnknown(row))
+                waiting.Add(row);
+            else
+                drawn += DrawRow(player, row);
         }
+        float until = Time.realtimeSinceStartup + JobsWait;
+        while (player.PlayerId != 0 && Time.realtimeSinceStartup < until && waiting.Any(JobUnknown))
+            yield return null;
+        if (player.PlayerId == 0)
+            yield break;
+        foreach (SavedItemRow row in waiting)
+            drawn += DrawRow(player, row);
         if (drawn > 0)
             Multiplayer.Log($"Inventory: {drawn} item(s) of the host's own inventory are stand-ins from their rows");
     }
+
+    private static int DrawRow(ServerPlayer player, SavedItemRow row)
+    {
+        if (IsTakenUp(row.PersistentItemId) || TakeUp(player, row) is not { } create)
+            return 0;
+        HostInventory.Draw(create, row.State?.ToString(Formatting.None) ?? string.Empty);
+        return 1;
+    }
+
+    private const float JobsWait = 10f;
+
+    private static bool JobUnknown(SavedItemRow row) =>
+        JobPapers.IsPaper(row.PrefabName) && JobPapers.JobIdOf(row.State) is { } jobId &&
+        !NetworkedJob.TryGetFromJobId(jobId, out _);
 
     /// <summary>Whether a row of this holder hasn't gone live yet: the host's join is still drawing its inventory.</summary>
     internal static bool RowsPending(Guid holder) =>

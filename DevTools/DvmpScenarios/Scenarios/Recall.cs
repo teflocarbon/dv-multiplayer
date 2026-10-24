@@ -17,8 +17,12 @@ namespace Dvmp.Scenarios
     /// Essential item recall: the client drops an essential item (its slot keeps a reserved
     /// silhouette), walks away and recalls it into that slot. With TAKEN=1 the host picks the item
     /// up first, so the recall has to take it from another player's hands (a player host only).
+    /// STASHED=1 (with TAKEN): the host then puts it in its own inventory, and the client, its owner
+    /// with its silhouette, must stop seeing it in the host's hand within 2 s (R4C C9 A5: the host's
+    /// stash went to data in the same frame and was never sent); the recall then takes it from the
+    /// host's inventory.
     /// </summary>
-    [Scenario("recall", "A dropped essential item is recalled into its reserved slot (TAKEN=1: out of the host's hands)")]
+    [Scenario("recall", "A dropped essential item is recalled into its reserved slot (TAKEN=1: out of the host's hands; STASHED=1: out of its inventory)")]
     public sealed class Recall : Scenario<Recall.Options>
     {
         public sealed class Options
@@ -29,10 +33,13 @@ namespace Dvmp.Scenarios
             public int Slot = -1;
             /// <summary>The host picks the item up before the recall.</summary>
             public bool Taken;
+            /// <summary>The host picks it up and puts it in its own inventory before the recall.</summary>
+            public bool Stashed;
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
+            o.Taken |= o.Stashed;
             if (o.Taken && pair.Dedicated) throw new HarnessException("TAKEN=1 needs a player host: a dedicated host has no hands to take the item");
             if (o.Slot < 0)
                 await EssentialToInventory(pair);
@@ -41,6 +48,15 @@ namespace Dvmp.Scenarios
             Require.Equal("Dropped", d.State, "the essential item's state after the drop");
             if (o.Taken)
                 Require.Equal(d.Item, await pair.Host.Run<ushort>(s => InGame.Take(s, d.Item)), "the item the host holds");
+            if (o.Stashed)
+            {
+                Require.That(await pair.Client.Run<float>(s => InGame.InHostHand(s, d.Item, true, 5f)) >= 0, "the client sees its item in the host's hand");
+                int hostSlot = await pair.Host.Run<int>(s => Items.Stash(s, d.Item, false), 60);
+                Report.Note($"the host put it in its slot {hostSlot}");
+                float gone = await pair.Client.Run<float>(s => InGame.InHostHand(s, d.Item, false, 2f));
+                Expect.That(gone >= 0, "the client stops seeing its item in the host's hand within 2 s of the host's stash (A5)",
+                    gone >= 0 ? $"after {gone:0.##} s" : "still in it");
+            }
 
             await pair.Client.Run<Abs>(s => Walk.Away(s, 40, 0));
             Recalled r = await pair.Client.Run<Recalled>(s => InGame.Recall(s, d.Item, d.Slot));
@@ -52,6 +68,8 @@ namespace Dvmp.Scenarios
             Expect.That(h.Placement == "PlayerInventory" && h.PlacementPlayer == h.ClientId, "the host records it in the client's inventory", $"{h.Placement} of player {h.PlacementPlayer}, the client is {h.ClientId}");
             if (o.Taken)
                 Expect.That(await pair.Host.Run(() => Items.Held()) != d.Item, "the host no longer holds the recalled item");
+            if (o.Stashed)
+                Expect.Equal(-1, await pair.Host.Run(() => Ledger.LocalSlot(d.Item)), "the host's slot with the recalled item");
         }
 
         // Earlier runs in the same save can leave the client's essentials dropped or in its Lost
@@ -159,6 +177,19 @@ namespace Dvmp.Scenarios
                 for (int i = 0; i < 60; i++) yield return null;
                 Hands.ReleaseControl();
                 step.Result = Hands.Held?.NetId ?? 0;
+            }
+
+            /// <summary>Client: waits up to <paramref name="seconds"/> for this game's copy of the item to be
+            /// (<paramref name="held"/>), or no longer be, in a player's hand here: an active object in
+            /// state InHand. Result: the seconds it took, -1 if it didn't.</summary>
+            [Step]
+            public static IEnumerator InHostHand(Step<float> step, ushort id, bool held, float seconds)
+            {
+                bool InHand() => NetworkedItem.TryGet(id, out NetworkedItem item) && item != null &&
+                                 item.gameObject.activeInHierarchy && item.GetItemState() == ItemState.InHand;
+                float t0 = Time.realtimeSinceStartup;
+                while (InHand() != held && Time.realtimeSinceStartup - t0 < seconds) yield return null;
+                step.Result = InHand() == held ? Time.realtimeSinceStartup - t0 : -1f;
             }
 
             /// <summary>Client: recalls an essential item into its reserved slot (what clicking the

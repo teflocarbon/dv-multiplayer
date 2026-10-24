@@ -305,7 +305,11 @@ public partial class NetworkedItem
         if (snapshot == null || snapshot.UpdateType == ItemUpdate.ItemUpdateType.None)
             return;
 
-        if (snapshot.AuthorityRevision != 0 && snapshot.AuthorityRevision < AuthorityRevision)
+        // A correction is the server's word on the item as it is now. A remote client's channel is
+        // ordered, so one below this copy's revision means this copy's was predicted (a stand-in's
+        // stash or move expected to commit, then refused): it still applies.
+        bool correction = snapshot.MoveCause?.Reason == ItemMoveReason.HostCorrection;
+        if (!(correction && NetworkRole.IsRemoteClient) && snapshot.AuthorityRevision != 0 && snapshot.AuthorityRevision < AuthorityRevision)
         {
             DebugRuntime.Publish("item", "item.stale-authority-snapshot-rejected",
                 NetworkRole.DebugSide,
@@ -361,7 +365,6 @@ public partial class NetworkedItem
         // unsnapped the belt item. A correction is never such an echo: the host refused what we did
         // (a fixture stashed, owned-items PR 1c), and its "in your hand" must undo our stash, not be
         // skipped because the item is in our inventory.
-        bool correction = snapshot.MoveCause?.Reason == ItemMoveReason.HostCorrection;
         if (!correction && ItemUpdate.IncludesItemState(snapshot.UpdateType) &&
             (ItemSnapshotApplicationPolicy.IsSupersededLocalHold(
                     NetworkRole.IsServer,

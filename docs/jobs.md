@@ -350,14 +350,26 @@ Under D14 a player's inventory holds rows, not objects, and job papers are no ex
 - **Its object is made again from its job when it leaves the slot**, under the same NetId
   (`JobPapers.Make` and `Track`, with `BookletCreator`). The server's `BookletCreator` patches leave
   it unregistered while it's made. The job then registers it again, and other games print their copy
-  from that update. A game that has the paper as a stand-in doesn't print it.
+  from that update. A game that has the paper as a stand-in doesn't print it. When the paper goes
+  back into its row, every game ready for items is told it's gone, not only the ones that knew it: a
+  far game printed its copy from the job's update too.
 - **Joining.** A paper's row goes live only while its job wants it (`JobPaperRows.Wanted`):
   - a booklet while its job is in progress;
   - an overview while its job is offered, in place of the one the job printed on the board at the load.
   
-  Otherwise it goes, as vanilla's load destroys the booklets no job claims.
+  Otherwise it goes, as vanilla's load destroys the booklets no job claims. A report has no job to
+  print it again: one with no free slot (or homed in Lost and Found) goes to Lost and Found like other
+  items, made from its recipe in `PlayerItems.GoLive`. An unowned one is left at the player's feet,
+  as other unowned items are, since Lost and Found takes only owned items. One with no recipe (saved before C7) can never be made, so it
+  goes. The host's own join draws its other rows at once and waits up to 10 s for its papers' jobs to
+  be registered, so a booklet isn't dropped (and printed again) for a job not known yet.
+- **Leaving.** A holder who leaves takes their papers' rows cold, and their jobs forget the NetIds
+  (`JobPaperRows.Forget`), so an overview's row is wanted again at their rejoin. `NetworkedJob` looks
+  its papers up by kind, so a NetId kept by mistake never stands for another item.
 - **When a job ends**, its papers in inventories go with it (`JobPaperRows.OnJobEnded`): a connected
-  holder's is made and destroyed, and an absent holder's row is dropped.
+  holder's is made, taken out of its slot and destroyed, and an absent holder's row is dropped. A job
+  update for an overview that has gone since carries none, and a station clears its dirty jobs before
+  it sends them, so one that fails can't hold up the station's updates.
 - **A summon** of a stashed copy makes its object first, then moves it to the printer.
 
 ## Tasks and warehouses

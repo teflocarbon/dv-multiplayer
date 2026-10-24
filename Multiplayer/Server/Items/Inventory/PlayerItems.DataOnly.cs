@@ -7,6 +7,7 @@ using DV.CabControls;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
@@ -45,6 +46,8 @@ internal static partial class PlayerItems
     {
         public float NotBefore;
         public int Frames;
+        // A move the server made (a recall, a Lost and Found retrieval): its holder is sent the row, with its state.
+        public bool SendRow;
     }
 
     // The items the server has just put in (or changed in) a player's inventory while they have an
@@ -56,9 +59,12 @@ internal static partial class PlayerItems
     // object made again is known to them, so they aren't sent it a second time.
     private static readonly Dictionary<ushort, byte[]> knownBy = new();
 
-    // The state each holder's game sent as it put an item away (D14, OI-COLD-13), kept as its row's
-    // state when the server's object goes: the holder's copy is the item as it was.
+    // The state each holder's game sent as it put an item away (D14, OI-COLD-13), laid over the
+    // server's own when its object goes: the holder's copy is the item as it was in their hands.
     private static readonly Dictionary<ushort, JObject> stashedStates = new();
+    // What only the server keeps in an item's state, which a holder's copy never replaces: a
+    // container's id, which every game's copy mints for itself.
+    private static readonly HashSet<string> serverKeys = new(StringComparer.Ordinal) { ContainerIdentityPatch.SaveKey };
 
     /// <summary>Keeps the state a player's game sent with a stash, for the item's row.</summary>
     public static void KeepStashedState(ushort netId, string state)
@@ -108,17 +114,19 @@ internal static partial class PlayerItems
     /// transition, a recall, a Lost and Found retrieval, a swap, an object made for a request):
     /// if it has an object, the object goes in the next frame and the item is data only (D14,
     /// OI-COLD-11). <paramref name="grace"/> keeps an object made for a request a moment longer.
+    /// <paramref name="sendRow"/> is a move the server made into the slot (a recall, a Lost and
+    /// Found retrieval), whose holder has no state for it: they're sent its row when it goes.
     /// </summary>
-    internal static void Stored(LiveItems.LiveItem record, bool grace = false)
+    internal static void Stored(LiveItems.LiveItem record, bool grace = false, bool sendRow = false)
     {
         if (record == null || record.Placement != ItemPlacementKind.PlayerInventory || record.NetId == 0 ||
             NetworkLifecycle.Instance?.IsHost() != true || IsDataOnly(record))
             return;
         float notBefore = grace ? Time.realtimeSinceStartup + RequestGraceSeconds : 0f;
-        if (pendingData.TryGetValue(record.NetId, out Pending pending))
-            pending.NotBefore = Math.Max(pending.NotBefore, notBefore);
-        else
-            pendingData[record.NetId] = new Pending { NotBefore = notBefore };
+        if (!pendingData.TryGetValue(record.NetId, out Pending pending))
+            pendingData[record.NetId] = pending = new Pending();
+        pending.NotBefore = Math.Max(pending.NotBefore, notBefore);
+        pending.SendRow |= sendRow;
     }
 
     /// <summary>Host, every frame: the server's objects of the items it just put in inventories go to data.</summary>
@@ -131,7 +139,7 @@ internal static partial class PlayerItems
         {
             if (entry.Value.NotBefore > now)
                 continue;
-            bool wait = ToData(entry.Key);
+            bool wait = ToData(entry.Key, entry.Value.SendRow);
             if (wait && ++entry.Value.Frames < MaxWaitFrames)
                 continue;
             if (wait)
@@ -141,15 +149,17 @@ internal static partial class PlayerItems
     }
 
     // One item the server put in an inventory: its object goes to data now. True to wait a frame
-    // (it's being made, or restored, or its holder's game isn't ready for items). Left an object: a
-    // loaded magazine (its ammo is an object inside it; OI-CON-16). Job papers go too: their job
-    // keeps them by NetId, and they're made again from it (JobPapers; OI-COLD-07).
-    private static bool ToData(ushort netId)
+    // (it's being made, or restored, or its holder's game isn't ready for items). Left an object: one
+    // that can't be a stand-in, as in its holder's game: a loaded magazine (its ammo is an object
+    // inside it; OI-CON-16), an expired or missing-licence report (no recipe to make it again from).
+    // Job papers go too: their job keeps them by NetId, and they're made again from it (JobPapers;
+    // OI-COLD-07).
+    private static bool ToData(ushort netId, bool sendRow)
     {
         if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.PlayerInventory ||
             record.Slot < 0 ||
             !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null || item.Item == null ||
-            item.ColdStorageRetirement || InventoryStandIn.HoldsAmmo(item.gameObject))
+            item.ColdStorageRetirement || !InventoryStandIn.CanStandIn(item.gameObject))
         {
             // It stays an object (or has gone): its object's state is the item's, not a stash's.
             stashedStates.Remove(netId);
@@ -166,11 +176,11 @@ internal static partial class PlayerItems
             return false;
         if (holder.LoadingState < PlayerLoadingState.ReadyForItems)
             return true;
-        GoData(record, item, holder);
+        GoData(record, item, holder, sendRow);
         return false;
     }
 
-    private static void GoData(LiveItems.LiveItem record, NetworkedItem item, ServerPlayer holder)
+    private static void GoData(LiveItems.LiveItem record, NetworkedItem item, ServerPlayer holder, bool sendRow = false)
     {
         MakeOrdinary(item);
         if (record.PersistentItemId == Guid.Empty)
@@ -179,16 +189,19 @@ internal static partial class PlayerItems
         row.PlacementPlayerIdentity = record.Holder;
         row.OwnerIdentity = record.Owner;
         row.Slot = record.Slot;
-        if (stashedStates.TryGetValue(record.NetId, out JObject stashed))
-            row.State = JobPapers.Complete(item.gameObject, stashed);
+        bool fromHolder = stashedStates.TryGetValue(record.NetId, out JObject stashed);
+        if (fromHolder)
+            row.State = JobPapers.Complete(item.gameObject, WithHolderValues(row.State, stashed));
         if (!ColdInventories.Add(row))
             return;
         stashedStates.Remove(record.NetId);
 
         // The holder keeps theirs (it was sent the change that put it there, known or not), and so
         // does an owner whose silhouette stands for it (recall). Anyone else who was shown it (in the
-        // holder's inventory, nearby) is told it's gone.
+        // holder's inventory, nearby) is told it's gone. So is every other game for a job paper: its
+        // job's update made each one a copy when the object was made, near it or not.
         List<byte> keeping = new();
+        bool paper = JobPapers.IsPaper(record.PrefabName);
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
             bool knew = player.KnownItems.Remove(item);
@@ -199,7 +212,8 @@ internal static partial class PlayerItems
                 keeping.Add(player.PlayerId);
                 continue;
             }
-            if (!knew)
+            if (!knew && !(paper && player.Peer != NetworkServer.Instance.SelfPeer &&
+                           player.LoadingState >= PlayerLoadingState.ReadyForItems))
                 continue;
             ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
             if (destroy == null)
@@ -216,6 +230,28 @@ internal static partial class PlayerItems
         StorageIntegration.MoveTo(item.Item, StorageMembership.None);
         Object.Destroy(item.gameObject);
         Multiplayer.LogDebug(() => $"Inventory: {record.PrefabName} (netId {record.NetId}) in {holder.Username}'s slot {record.Slot} is data only on the server");
+        // A move the server made (a recall, a Lost and Found retrieval) reached the holder as an
+        // update with no state: their stand-in is given the row's, so a take-out isn't a fresh item.
+        if (sendRow && !fromHolder)
+            NetworkServer.Instance.SendInventoryRows(holder, new List<ItemUpdate> { CreateOf(record) },
+                new List<string> { row.State?.ToString(Newtonsoft.Json.Formatting.None) ?? string.Empty });
+    }
+
+    // The holder's copy of an item's state over the server's: what changed in their hands (fuel, a
+    // label, tape used) is theirs, and what only the server keeps stays the server's.
+    private static JObject WithHolderValues(JObject server, JObject holder)
+    {
+        if (server == null)
+        {
+            foreach (string key in serverKeys)
+                holder.Remove(key);
+            return holder;
+        }
+        JObject merged = (JObject)server.DeepClone();
+        foreach (JProperty property in holder.Properties())
+            if (!serverKeys.Contains(property.Name))
+                merged[property.Name] = property.Value.DeepClone();
+        return merged;
     }
 
     // A scene-authored item becomes an ordinary one, so the scene doesn't make it again while it's data.
@@ -433,6 +469,8 @@ internal static partial class PlayerItems
                     NetworkServer.Instance.SendItemUpdate(destroy, knower);
         knownBy.Remove(record.NetId);
         pendingData.Remove(record.NetId);
+        if (JobPapers.IsPaper(record.PrefabName))
+            Jobs.JobPaperRows.Forget(record.NetId);
         LiveItems.Remove(record.NetId);
         NetworkedItem.FreeDataNetId(record.NetId);
         Multiplayer.Log($"Item {record.PrefabName} (netId {record.NetId}) removed: {destroy.RemovalCause}");

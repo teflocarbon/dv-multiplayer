@@ -1,4 +1,5 @@
 using System.Linq;
+using DV.CabControls;
 using DV.ThingTypes;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Server.Items.ChangeCauses;
@@ -69,6 +70,23 @@ internal static class JobPaperRows
         Multiplayer.Log($"Job papers: {row.PrefabName} ({row.PersistentItemId:D}) of {ItemChangeLog.PlayerName(row.PlacementPlayerIdentity)} goes: {why}");
     }
 
+    /// <summary>
+    /// A paper's NetId goes (its holder left, and it went cold): its job no longer keeps it by
+    /// that NetId, so its row is wanted again when they're back and no NetId used again later
+    /// stands for it.
+    /// </summary>
+    public static void Forget(ushort netId)
+    {
+        if (netId == 0)
+            return;
+        foreach (NetworkedJob job in NetworkedJob.GetAllJobs())
+        {
+            if (job.JobOverviewNetId == netId)
+                job.SetOverviewRow(0);
+            job.UnregisterJobBooklet(netId);
+        }
+    }
+
     /// <summary>Whether a booklet of the job is kept in any player's inventory, here or not.</summary>
     public static bool HasBookletRow(string jobId) =>
         jobId != null && ColdInventories.All().Any(row => row.PrefabName == nameof(JobBooklet) && JobPapers.JobIdOf(row.State) == jobId);
@@ -96,10 +114,13 @@ internal static class JobPaperRows
                 Drop(row, $"its job {jobId} is over");
     }
 
+    // Out of its slot first: vanilla's DestroyJobOverview is a bare Destroy, which would leave the
+    // host's slot pointing at it.
     private static void Destroy(NetworkedItem item)
     {
         if (item == null)
             return;
+        NetworkedJob.RemoveFromInventory(item.GetComponent<ItemBase>(), item.NetId);
         if (item.GetTrackedItem<JobBooklet>() is { } booklet)
             booklet.DestroyJobBooklet();
         else if (item.GetTrackedItem<JobOverview>() is { } overview)

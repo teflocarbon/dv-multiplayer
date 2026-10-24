@@ -196,10 +196,12 @@ public class ServerStationController : MonoBehaviour
         }
 
         //Send jobs with a changed status
+        // Cleared first: a job that fails to send mustn't hold up the station's updates for good.
         if (dirtyJobs.Count > 0)
         {
-            NetworkServer.Instance.SendJobsUpdatePacket(station.NetId, dirtyJobs.ToArray());
+            NetworkedJob[] batch = dirtyJobs.ToArray();
             dirtyJobs.Clear();
+            NetworkServer.Instance.SendJobsUpdatePacket(station.NetId, batch);
         }
     }
 }

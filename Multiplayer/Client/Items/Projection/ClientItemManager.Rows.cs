@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using DV.Utils;
+using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -22,14 +23,14 @@ internal sealed partial class ClientItemManager
     // made until the item leaves its slot (MakeFromRow).
 
     /// <summary>Fills the joiner's inventory with stand-ins for the rows the server sent.</summary>
-    internal void ReceiveInventoryRows(List<ItemUpdate> rows, string[] states)
+    internal void ReceiveInventoryRows(List<ItemUpdate> rows, string[] states, bool full)
     {
         if (rows == null || rows.Count == 0)
             return;
-        CoroutineManager.Instance.StartCoroutine(FillFromRows(rows, states ?? Array.Empty<string>()));
+        CoroutineManager.Instance.StartCoroutine(FillFromRows(rows, states ?? Array.Empty<string>(), full));
     }
 
-    private IEnumerator FillFromRows(List<ItemUpdate> rows, string[] states)
+    private IEnumerator FillFromRows(List<ItemUpdate> rows, string[] states, bool full)
     {
         // The rows can come before the player's inventory exists.
         while (DV.InventorySystem.Inventory.Instance == null)
@@ -38,6 +39,9 @@ internal sealed partial class ClientItemManager
         for (int i = 0; i < rows.Count; i++)
         {
             ItemUpdate row = rows[i];
+            // A row sent after the join can be no news by now (InventoryRows.IsLate).
+            if (!full && row != null && InventoryRows.IsLate(row))
+                continue;
             try
             {
                 if (ReceiveAsStandIn(row, i < states.Length ? states[i] : string.Empty))

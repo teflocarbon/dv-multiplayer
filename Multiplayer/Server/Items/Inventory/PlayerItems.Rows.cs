@@ -79,9 +79,9 @@ internal static partial class PlayerItems
     }
 
     // One row goes live as data: a record in its slot under a reserved NetId, its row kept. An item
-    // the ledger moved to Lost and Found, and one with no free slot, are made as objects instead
-    // (GoLive), as before. A job paper joins its job, or goes if its job is over (OI-COLD-07).
-    // Returns its Create, or null.
+    // the ledger moved to Lost and Found, one with no free slot, and one that can't be a stand-in
+    // (InventoryStandIn.CanStandIn) are made as objects instead (GoLive), as before. A job paper
+    // joins its job, or goes if its job is over (OI-COLD-07). Returns its Create, or null.
     private static ItemUpdate TakeUp(ServerPlayer player, SavedItemRow row)
     {
         bool lost = ServerLedger.Ledger.TryGetHome(row.PersistentItemId, out Home home) && home.Kind == HomeKind.LostAndFound;
@@ -91,17 +91,27 @@ internal static partial class PlayerItems
         // save goes, as vanilla's load destroys the booklets no job claims.
         NetworkedJob job = null;
         bool paper = JobPapers.IsPaper(row.PrefabName);
+        // A report has no job to print it again. One saved before C7 has no recipe either: it can never
+        // be made (nor shown), so it goes rather than keep a slot for nothing.
+        bool report = row.PrefabName == nameof(JobReport);
+        if (report && !JobPapers.HasRecipe(row.State))
+        {
+            JobPaperRows.Drop(row, "it was saved before C7, with no recipe to make it from");
+            return null;
+        }
         if (paper && !JobPaperRows.Wanted(row, out job))
         {
             JobPaperRows.Drop(row, "its job is over or has another");
             return null;
         }
-        if (paper && slot < 0)
+        // A booklet or overview with no slot goes (its job prints another); a report goes to Lost and
+        // Found, as any item with no slot does (GoLive).
+        if (paper && !report && slot < 0)
         {
             JobPaperRows.Drop(row, "no slot for it");
             return null;
         }
-        if (slot < 0 || !ItemSaveLoad.PrefabKnown(row.PrefabName))
+        if (slot < 0 || !ItemSaveLoad.PrefabKnown(row.PrefabName) || !InventoryStandIn.CanStandIn(row.PrefabName))
         {
             CoroutineManager.Instance.StartCoroutine(GoLive(player, row));
             return null;

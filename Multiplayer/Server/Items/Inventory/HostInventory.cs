@@ -94,6 +94,7 @@ internal sealed class HostInventory : IInventoryRowHolder
                 return;
             }
             item.ApplyHostLocalCanonicalTransition(snapshot, host);
+            TellKnowers(item, record, host);
         }
         string state = standIn.State;
         if (item.Item.IsGrabbed())
@@ -116,6 +117,21 @@ internal sealed class HostInventory : IInventoryRowHolder
     }
 
     // The object goes back where vanilla had its stand-in: an object in a slot, as before D14.
+    // The stash goes to every game that was shown the item: its object goes to data in this frame,
+    // before the server's tick would send the change, and an owner whose silhouette stands for it
+    // is told nowhere else (StoreAsData tells only the others that it's gone).
+    private static void TellKnowers(NetworkedItem item, LiveItems.LiveItem record, ServerPlayer host)
+    {
+        ItemUpdate stashed = item.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
+        if (stashed == null)
+            return;
+        LiveItems.WriteToSnapshot(record, stashed, ItemTransitionReason.HostLocalState);
+        stashed.ItemState = ItemState.InInventory;
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
+            if (player != host && player.Peer != NetworkServer.Instance.SelfPeer && player.KnownItems.ContainsKey(item))
+                NetworkServer.Instance.SendItemUpdate(stashed, player);
+    }
+
     private static void Undo(DV.InventorySystem.Inventory inventory, NetworkedItem item, InventoryStandIn standIn, string why)
     {
         Multiplayer.LogWarning($"Inventory: the host's {standIn.PrefabName} (netId {standIn.NetId}) stays an object in its slot: {why}");

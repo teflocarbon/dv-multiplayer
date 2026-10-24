@@ -25,6 +25,8 @@ internal sealed partial class ClientItemManager
     {
         if (snapshot == null)
             return;
+        if (SupersededForStandIn(snapshot))
+            return;
         InventoryRows.Observe(snapshot);
         // The local inventory is stand-ins (D14): one going in is placed, one leaving is made.
         if (ReceiveAsStandIn(snapshot, null))
