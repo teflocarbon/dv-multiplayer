@@ -102,7 +102,8 @@ namespace Dvmp.Scenarios
                 c.ToggleContainerAccess();
                 yield return Wait.Until(() => CUI.Active, 10f, "the container view");
                 uint seq = CUI.MutationSequence;
-                if (c.AddItem(item.gameObject, -1)) throw new Exception("the deposit was not intercepted");
+                // Put away, it's a stand-in on a client (D14).
+                if (c.AddItem(PlayerInventory.SlotObject(itemId), -1)) throw new Exception("the deposit was not intercepted");
                 yield return Wait.Until(() => CUI.MutationSequence != seq && CUI.LastMutation != null, 10f, "the deposit's result");
                 if (!CUI.LastMutation.Accepted) throw new Exception("deposit rejected: " + CUI.LastMutation.Detail);
                 c.ToggleContainerAccess();

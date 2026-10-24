@@ -85,6 +85,14 @@ namespace Dvmp.Scenarios
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
                 byte me = NetworkLifecycle.Instance.LocalSession.PlayerId;
+                // Stored on a client, it's a stand-in with no object (D14).
+                var stored = PlayerInventory.Stored().FirstOrDefault(e => PlayerInventory.PrefabOf(e.go).Replace("(Clone)", "") == prefab);
+                if (stored.go != null && PlayerInventory.IsStandIn(stored.netId))
+                    return new Inventory
+                    {
+                        Free = Enumerable.Range(0, inv.Capacity).Count(s => inv.PeekItemAtSlot(s, true) == null),
+                        Essential = stored.netId, EssentialSlot = stored.slot, Where = $"slot {stored.slot}"
+                    };
                 var item = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.Replace("(Clone)", "") == prefab);
                 int slot = item != null ? inv.IndexOf(item.gameObject) : -1;
                 return new Inventory

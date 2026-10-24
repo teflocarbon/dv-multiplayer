@@ -157,9 +157,9 @@ namespace Dvmp.Scenarios
                 w.FreshAccepted = fresh.Accepted;
                 w.Fresh = fresh.Accepted ? "accepted" : $"refused {fresh.Refusal} {fresh.Detail}";
 
-                NetworkedItem mug = null;
-                yield return Wait.Until(() => NetworkedItem.TryGet(w.ItemNetId, out mug) && mug != null, 10f, "the withdrawn mug");
-                w.InInventory = inv.IndexOf(mug.gameObject) >= 0;
+                // On a client the withdrawn mug is a stand-in (D14).
+                yield return Wait.Until(() => PlayerInventory.SlotObject(w.ItemNetId) != null, 10f, "the withdrawn mug");
+                w.InInventory = PlayerInventory.Slot(w.ItemNetId) >= 0;
                 step.Result = w;
                 c.ToggleContainerAccess();
                 for (int i = 0; i < 10; i++) yield return null;

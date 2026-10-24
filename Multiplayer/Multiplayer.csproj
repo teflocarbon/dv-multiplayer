@@ -52,6 +52,7 @@
         <Publicize Include="DV.Inventory:DV.InventorySystem.Inventory.inventoryItemsExcludingDropped" />
         <Publicize Include="DV.Inventory:DV.InventorySystem.Inventory.lockedAndReservedMap" />
         <Publicize Include="DV.Inventory:DV.InventorySystem.Inventory.removeItemFromWorldCoros" />
+        <Publicize Include="DV.Inventory:DV.InventorySystem.Inventory.FinalizeRemoveItemFromWorld" />
         <Publicize Include="DV.UI" IncludeCompilerGeneratedMembers="false" />
         <Publicize Include="DV.UIFramework" IncludeCompilerGeneratedMembers="false" />
         <Publicize Include="Facepunch.Steamworks.Win64" IncludeCompilerGeneratedMembers="false" />

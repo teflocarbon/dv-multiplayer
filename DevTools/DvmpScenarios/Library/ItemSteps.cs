@@ -143,9 +143,10 @@ namespace Dvmp.Scenarios
             yield return Hands.Pickup(netId);
             if (!hand) DV.InventorySystem.Inventory.Instance.AddItemToInventory(item.gameObject);
             for (int i = 0; i < 90; i++) yield return null;
-            if (item.GetItemState() != (hand ? ItemState.InHand : ItemState.InInventory))
-                throw new Exception("not where it should be: " + item.GetItemState());
-            step.Result = DV.InventorySystem.Inventory.Instance.IndexOf(item.gameObject);
+            // Put away, a remote client keeps a stand-in and no object (D14); the host its object.
+            if (hand ? item == null || item.GetItemState() != ItemState.InHand : !PlayerInventory.Holds(netId))
+                throw new Exception("not where it should be: " + (item != null ? item.GetItemState().ToString() : "no object, no stand-in"));
+            step.Result = PlayerInventory.Slot(netId);
         }
 
         /// <summary>Where this game has the item: position, state, revision, an open lease, and how

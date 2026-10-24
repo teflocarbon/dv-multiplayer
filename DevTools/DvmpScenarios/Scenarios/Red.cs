@@ -101,6 +101,16 @@ namespace Dvmp.Scenarios
             [Step]
             public static Seen Seen(ushort netId)
             {
+                // Stored on a client, it's a stand-in with no object (D14).
+                if (InventoryStandIn.TryGet(netId, out InventoryStandIn standIn))
+                    return new Seen
+                    {
+                        Relation = standIn.Relation.ToString(),
+                        State = "InInventory",
+                        Red = InventoryIntegration.Project(standIn).ShowForeignStyle,
+                        InInventory = PlayerInventory.Slot(netId) >= 0,
+                        ClaimSlot = standIn.ClaimSlot
+                    };
                 if (!NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null) return new Seen { State = "no item" };
                 return new Seen
                 {
