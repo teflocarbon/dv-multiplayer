@@ -68,6 +68,16 @@
         <ProjectReference Include="..\Tools\DedicatedHost\ServerApp\ServerApp.csproj" ReferenceOutputAssembly="false" />
         <EmbeddedResource Include="$(ProtocolManifestPath)" LogicalName="Multiplayer.ProtocolManifest.json" Condition="'$(ManifestEmbedPass)' == 'true' AND Exists('$(ProtocolManifestPath)')" />
     </ItemGroup>
+    <!-- The GameNetworkingSockets transport is for test pairs without Steam (docs/testing.md, "GNS
+         pairs") and exists in Debug builds only: a release must not run without Steam. Its DLL comes
+         from DevTools/Gns/build-gns.ps1; post-build.ps1 installs it with a Debug build and refuses to
+         package it. -->
+    <PropertyGroup>
+        <GnsDll Condition="'$(GnsDll)' == ''">$(LOCALAPPDATA)\dvmp\gns\1.6.1\GameNetworkingSockets.dll</GnsDll>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(Configuration)' != 'Debug'">
+        <Compile Remove="Shared\Transport\Gns\**" />
+    </ItemGroup>
     <!-- The client/server split is a compile error to cross (docs/design/code-layout.md): the role
          analyzer fails the build on a reference across roles not in the allow-list (DVMP0001), or a
          file whose namespace isn't its folder's (DVMP0002). -->
@@ -181,10 +191,10 @@
         <!-- Update Json, copy to game directory and make package if in 'Release' -->
         <!-- Windows: use powershell -->
         <Exec Condition="$(ConfigurationName) == 'Release' AND $([MSBuild]::IsOsPlatform('Windows'))" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
-        <Exec Condition="$(ConfigurationName) == 'Debug' AND $([MSBuild]::IsOsPlatform('Windows'))" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer')&quot;" />
+        <Exec Condition="$(ConfigurationName) == 'Debug' AND $([MSBuild]::IsOsPlatform('Windows'))" Command="powershell -executionpolicy bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)\Mods\Multiplayer' -GnsDll '$(GnsDll)')&quot;" />
         <!-- Linux/macOS: use pwsh -->
         <Exec Condition="$(ConfigurationName) == 'Release' AND !$([MSBuild]::IsOsPlatform('Windows'))" Command="pwsh -ExecutionPolicy Bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -Target '$(TargetPath)' -GameDir '$(DvInstallDir)/Mods/Multiplayer')&quot;" ContinueOnError="true" />
-        <Exec Condition="$(ConfigurationName) == 'Debug' AND !$([MSBuild]::IsOsPlatform('Windows'))" Command="pwsh -ExecutionPolicy Bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)/Mods/Multiplayer')&quot;" ContinueOnError="true" />
+        <Exec Condition="$(ConfigurationName) == 'Debug' AND !$([MSBuild]::IsOsPlatform('Windows'))" Command="pwsh -ExecutionPolicy Bypass -Command &quot;(../post-build.ps1 -Ver '@(VersionNumber)' -NoArchive -Target '$(TargetPath)' -GameDir '$(DvInstallDir)/Mods/Multiplayer' -GnsDll '$(GnsDll)')&quot;" ContinueOnError="true" />
     </Target>
     <Target Name="GenerateProtocolManifest" AfterTargets="Build" Condition="'$(ManifestEmbedPass)' != 'true'">
         <Exec Command="&quot;$(MSBuildProjectDirectory)\..\Tools\ProtocolManifestGenerator\bin\$(Configuration)\net48\ProtocolManifestGenerator.exe&quot; &quot;$(TargetPath)&quot; &quot;$(DvInstallDir)\DerailValley_Data\Managed&quot; &quot;$(ProtocolManifestPath)&quot;" />
