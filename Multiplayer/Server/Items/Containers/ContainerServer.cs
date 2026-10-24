@@ -11,6 +11,7 @@ using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
+using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.Access;
@@ -44,7 +45,8 @@ public static class ContainerServer
     private const uint ScanIntervalTicks = 24;
     private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly HostRuntimeCompatibility compatibility = new();
-    private static ContainerGraph graph = new(compatibility: compatibility);
+    private static readonly LedgerOwners owners = new();
+    private static ContainerGraph graph = new(compatibility: compatibility, owners: owners);
     private static readonly Dictionary<ushort, Guid> shellByNetId = new();
     // No request is served before the load has run (OI-CON-05, OI-PER-23).
     private const string Loading = "items-loading";
@@ -61,7 +63,7 @@ public static class ContainerServer
     public static void Clear()
     {
         compatibility.Clear();
-        graph = new ContainerGraph(compatibility: compatibility);
+        graph = new ContainerGraph(compatibility: compatibility, owners: owners);
         shellByNetId.Clear();
     }
 
@@ -185,16 +187,18 @@ public static class ContainerServer
 
         // The item's own id, not one of the record's: one id for life (ledger.md). A container
         // item's container has that id too (OI-CON-09).
-        Guid itemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid();
+        Guid itemId = authority.PersistentItemId;
+        if (itemId == Guid.Empty)
+            return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.InvalidRecord,
+                "item-has-no-id", operationId);
         if (IsShell(item))
-            EnsureShellRecord(item, itemId, ResolveShellOwner(item) ?? actor.Guid.ToString("D"));
+            EnsureShellRecord(item, itemId);
         JObject detached = item.GetComponent<ItemSaveData>()?.SaveItemData();
         StoredItemRecord record = new()
         {
             PersistentItemId = itemId,
             PrefabName = item.Item.InventorySpecs?.ItemPrefabName ?? item.name,
             DisplayName = item.Item.InventorySpecs?.LocalizedName ?? item.name,
-            PersistentOwnerIdentity = (authority.Owner != Guid.Empty ? authority.Owner : actor.Guid).ToString("D"),
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
             StateVersion = 1,
             DetachedState = detached == null ? Array.Empty<byte>() :
@@ -205,7 +209,7 @@ public static class ContainerServer
         // combinations that the running game has already accepted.
         if (destinationIsOpenedShell)
             compatibility.Remember(destination.PrefabName, record.PrefabName, true);
-        ContainerOperationResult result = graph.CommitDeposit(new DepositCommand
+        DepositCommand command = new()
         {
             OperationId = operationId,
             ActorIdentity = actor.Guid.ToString("D"),
@@ -214,13 +218,34 @@ public static class ContainerServer
             DestinationSlot = slot,
             PhysicalNetId = itemNetId,
             Item = record
-        });
-        if (!result.Accepted) return result;
+        };
+        ContainerOperationResult check = graph.CheckDeposit(command);
+        if (!check.Accepted)
+            return check;
 
+        // The ledger first (docs/design/items/containers.md, "Deposit"): the item's home is the
+        // slot the graph checked, and every later failure moves it back.
+        Home before = ServerLedger.HomeOf(authority), stored = Home.Container(destinationId, slot);
+        ChangeCause<ItemMoveReason> depositing = ItemChangeLog.Move(ItemMoveReason.DepositedInContainer, actor,
+            $"{destination.PrefabName} slot {slot}");
+        string ledgerRefused = ServerLedger.CommitStored(itemId, record.PrefabName, before, stored, depositing);
+        if (ledgerRefused.Length > 0)
+            return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.InvalidState,
+                "deposit-ledger-refused:" + ledgerRefused, operationId);
+        ContainerOperationResult result = graph.CommitDeposit(command);
+        if (!result.Accepted)
+        {
+            RollBackDeposit(itemId, record.PrefabName, stored, before, result.Reason);
+            return result;
+        }
+
+        // Retirement (OI-CON-06): until its Destroy is sent the object is the item, and a failure
+        // takes the deposit back, so the item is never both an object and a row; once it's sent
+        // the row is the item, and the object goes whatever else fails.
+        bool sent = false;
         try
         {
-            ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
-            if (destroy == null)
+            ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy) ??
                 throw new InvalidOperationException("deposit-destroy-projection-failed");
             LiveItems.WriteToSnapshot(authority, destroy,
                 ItemTransitionReason.ContainerDeposit);
@@ -241,6 +266,7 @@ public static class ContainerServer
                 player.AcknowledgedWorldItems.Remove(item.NetId);
             }
             NetworkServer.Instance.SendItemUpdate(destroy);
+            sent = true;
             // Out of interest now, not when Unity destroys it at the end of the frame: a scan
             // before then would find a player who no longer knows it and send it again.
             ServerItemManager.Instance?.UnregisterHostWorldItem(item);
@@ -249,30 +275,38 @@ public static class ContainerServer
             InventoryIntegration.PurgeContainerMembership(item.gameObject);
             StorageIntegration.MoveTo(item.Item, StorageMembership.None);
             UnityEngine.Object.Destroy(item.gameObject);
-            graph.FinalizeDepositRetirement(operationId, record.PersistentItemId);
-            // The ledger's home is the exact slot the graph put it in (R3's one-home check).
-            ServerLedger.OnDeposited(record.PersistentItemId, destinationId,
-                graph.TryGetItem(record.PersistentItemId, out StoredItemRecord stored) ? stored.Slot : slot);
-            Publish("container.deposit-committed", shellNetId, result, new()
-            {
-                ["itemNetId"] = itemNetId,
-                ["slot"] = slot,
-                ["persistentItemId"] = record.PersistentItemId.ToString("D")
-            });
         }
         catch (Exception exception)
         {
-            item.Item.InteractionAllowed = false;
-            item.gameObject.SetActive(false);
             Multiplayer.LogException("Cold-container representation retirement failed", exception);
-            Publish("container.deposit-retirement-pending", shellNetId, result, new()
+            Publish("container.deposit-retirement-failed", shellNetId, result, new()
             {
                 ["itemNetId"] = itemNetId,
+                ["destroySent"] = sent,
                 ["error"] = exception.Message
             }, DebugSeverity.Error);
+            if (!sent)
+            {
+                item.CancelColdStorageRetirement();
+                RollBackDeposit(itemId, record.PrefabName, stored, before, "deposit-retirement-failed");
+                return graph.RevokeDeposit(operationId, itemId, "deposit-retirement-failed");
+            }
+            UnityEngine.Object.Destroy(item.gameObject);
         }
+        graph.FinalizeDepositRetirement(operationId, itemId);
+        Publish("container.deposit-committed", shellNetId, result, new()
+        {
+            ["itemNetId"] = itemNetId,
+            ["slot"] = slot,
+            ["persistentItemId"] = itemId.ToString("D")
+        });
         return result;
     }
+
+    // A deposit that went no further: the ledger puts the item back where it was.
+    private static void RollBackDeposit(Guid itemId, string prefab, Home stored, Home before, string why) =>
+        ServerLedger.CommitStored(itemId, prefab, stored, before,
+            ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "deposit rolled back: " + why));
 
     public static IEnumerator Withdraw(ServerPlayer actor, Guid operationId,
         uint containerHandle, uint expectedRevision, int sourceSlot, int destinationInventorySlot,
@@ -312,11 +346,10 @@ public static class ContainerServer
             completed?.Invoke(prepared, 0);
             yield break;
         }
-        // Somebody else's item comes out only while they're connected; one with no owner
-        // recorded is the withdrawer's.
-        if (!Guid.TryParse(record.PersistentOwnerIdentity, out Guid owner) || owner == Guid.Empty)
-            owner = actor.Guid;
-        if (owner != actor.Guid && !PlayerNumbers.IsConnected(owner))
+        // Its owner is the ledger's (OI-CON-02): somebody else's item comes out only while they're
+        // connected, and one nobody owns comes out nobody's.
+        Guid.TryParse(graph.OwnerOf(record.PersistentItemId), out Guid owner);
+        if (owner != Guid.Empty && owner != actor.Guid && !PlayerNumbers.IsConnected(owner))
         {
             graph.AbortWithdrawal(operationId, "withdraw-persistent-owner-offline");
             completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
@@ -327,29 +360,38 @@ public static class ContainerServer
 
         // Into the inventory as a row (D14, OI-COLD-11): the item is kept as data from the start, in
         // its slot, and the withdrawer's game draws its stand-in. No object is made on the server.
+        // The ledger moves first, and back if the item can't be made or the graph refuses (OI-CON-03).
+        Home inBox = Home.Container(container.PersistentContainerId, sourceSlot), taken = default;
+        bool ledgerMoved = false;
         try
         {
             if (actor.PlayerId == 0)
                 throw new InvalidOperationException("withdraw-actor-left");
             if (FindItemSpec(record.PrefabName) == null)
                 throw new InvalidOperationException("withdraw-prefab-not-found");
-            ContainerOperationResult materialized = graph.MarkWithdrawalMaterialized(operationId);
-            if (!materialized.Accepted)
-                throw new InvalidOperationException("withdraw-materialization-phase-rejected:" +
-                    materialized.Reason);
             SavedItemRow row = ItemSaveLoad.RowOfStored(record);
             row.OwnerIdentity = owner;
             int slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, -1, actor.Guid, destinationInventorySlot);
             if (slot < 0)
                 throw new InvalidOperationException("withdraw-inventory-full");
-            // A scene's own item stays taken from the scene, as the object it was would have.
-            ItemSaveLoad.RecordAuthoredTaken(row);
             ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, actor,
                 ItemChangeCauses.Detail(ItemChangeLog.Describe(
                         new ItemWhereabouts(LivePlacement.Container, Guid.Empty, owner),
                         new ItemWhereabouts(LivePlacement.PlayerInventory, actor.Guid, owner)),
                     "slot " + slot));
-            LiveItems.LiveItem made = PlayerItems.Issue(actor, row, slot, cause);
+            taken = Home.InSlot(actor.Guid, slot);
+            string refused = ServerLedger.CommitStored(record.PersistentItemId, record.PrefabName, inBox, taken, cause);
+            if (refused.Length > 0)
+                throw new InvalidOperationException("withdraw-ledger-refused:" + refused);
+            ledgerMoved = true;
+            ContainerOperationResult materialized = graph.MarkWithdrawalMaterialized(operationId);
+            if (!materialized.Accepted)
+                throw new InvalidOperationException("withdraw-materialization-phase-rejected:" +
+                    materialized.Reason);
+            // A scene's own item stays taken from the scene, as the object it was would have.
+            ItemSaveLoad.RecordAuthoredTaken(row);
+            // Its entry is where it goes already: the row is only placed, not settled again.
+            LiveItems.LiveItem made = PlayerItems.Issue(actor, row, slot, cause, own: _ => string.Empty);
             if (made == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
             ContainerOperationResult committed = graph.CommitWithdrawal(operationId);
@@ -369,6 +411,9 @@ public static class ContainerServer
         }
         catch (Exception exception)
         {
+            if (ledgerMoved)
+                ServerLedger.CommitStored(record.PersistentItemId, record.PrefabName, taken, inBox,
+                    ItemChangeLog.Move(ItemMoveReason.HostCorrection, actor, "withdrawal rolled back: " + exception.Message));
             graph.AbortWithdrawal(operationId, exception.Message);
             if (exception.Message != "withdraw-actor-left")
                 Multiplayer.LogException("Cold-container withdrawal failed", exception);
@@ -406,7 +451,7 @@ public static class ContainerServer
             !graph.TryGetContainer(destinationHandle, out ContainerRecord destination))
             return Failure(ContainerOperationKind.Move, ContainerOperationStatus.NotFound,
                 "container-handle-not-found", operationId);
-        ContainerOperationResult moved = graph.Move(new MoveCommand
+        MoveCommand command = new()
         {
             OperationId = operationId,
             ActorIdentity = actor.Guid.ToString("D"),
@@ -416,11 +461,28 @@ public static class ContainerServer
             DestinationContainerId = destination.PersistentContainerId,
             ExpectedDestinationRevision = expectedDestinationRevision,
             DestinationSlot = destinationSlot
-        });
+        };
+        ContainerOperationResult check = graph.CheckMove(command);
+        if (!check.Accepted)
+            return check;
         // Cold records have no netId; the line says which containers and slots instead.
+        ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(ItemMoveReason.Moved, actor,
+            $"{source.PrefabName} slot {sourceSlot} -> {destination.PrefabName} slot {destinationSlot}");
+        // The ledger first, and back if the graph refuses after all.
+        Home from = Home.Container(source.PersistentContainerId, sourceSlot);
+        Home to = Home.Container(destination.PersistentContainerId, destinationSlot);
+        graph.TryGetItem(check.ItemId, out StoredItemRecord item);
+        string prefab = item?.PrefabName ?? string.Empty;
+        string refused = ServerLedger.CommitStored(check.ItemId, prefab, from, to, cause);
+        if (refused.Length > 0)
+            return Failure(ContainerOperationKind.Move, ContainerOperationStatus.InvalidState,
+                "move-ledger-refused:" + refused, operationId);
+        ContainerOperationResult moved = graph.Move(command);
         if (moved.Accepted)
-            Multiplayer.Log("Cold item moved: " + ItemChangeLog.Move(ItemMoveReason.Moved, actor,
-                $"{source.PrefabName} slot {sourceSlot} -> {destination.PrefabName} slot {destinationSlot}"));
+            Multiplayer.Log("Cold item moved: " + cause);
+        else
+            ServerLedger.CommitStored(check.ItemId, prefab, to, from,
+                ItemChangeLog.Move(ItemMoveReason.HostCorrection, actor, "move rolled back: " + moved.Reason));
         return moved;
     }
 
@@ -431,7 +493,7 @@ public static class ContainerServer
         {
             ["debugKey"] = $"container:{container.SessionHandle}",
             ["persistentContainerId"] = container.PersistentContainerId.ToString("D"),
-            ["ownerIdentity"] = container.OwnerIdentity,
+            ["keeper"] = graph.KeeperOf(container.PersistentContainerId),
             ["capacity"] = container.Capacity,
             ["revision"] = container.Revision,
             ["sessionHandle"] = container.SessionHandle,
@@ -462,9 +524,10 @@ public static class ContainerServer
         id = Guid.Empty;
         if (!LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) || record.PersistentItemId == Guid.Empty)
             return false;
-        string owner = ResolveShellOwner(shell);
-        if (string.IsNullOrEmpty(owner)) return false;
-        EnsureShellRecord(shell, record.PersistentItemId, owner);
+        // Bound once it has a keeper (an owner, or a holder: OI-CON-08), so a box nobody has
+        // touched lying in the world adds no row to the save.
+        if (!HasKeeper(shell)) return false;
+        EnsureShellRecord(shell, record.PersistentItemId);
         shellByNetId[shell.NetId] = id = record.PersistentItemId;
         return true;
     }
@@ -492,7 +555,7 @@ public static class ContainerServer
     // An item vanilla gives a container of its own (a toolbox; a tool's magazine too).
     private static bool IsShell(NetworkedItem item) => item.GetComponent<AItemContainer>() != null;
 
-    private static void EnsureShellRecord(NetworkedItem shell, Guid id, string owner)
+    private static void EnsureShellRecord(NetworkedItem shell, Guid id)
     {
         if (graph.TryGetContainer(id, out _)) return;
         AItemContainer container = shell?.GetComponent<AItemContainer>();
@@ -500,7 +563,6 @@ public static class ContainerServer
         ContainerOperationResult result = graph.AddContainer(new ContainerRecord
         {
             PersistentContainerId = id,
-            OwnerIdentity = owner,
             PrefabName = shell.Item?.InventorySpecs?.ItemPrefabName ?? shell.name,
             Capacity = container.Capacity
         });
@@ -508,13 +570,9 @@ public static class ContainerServer
             Multiplayer.LogWarning($"Unable to bind cold container {id:D}: {result.Reason}");
     }
 
-    private static string ResolveShellOwner(NetworkedItem shell)
-    {
-        if (!LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem authority))
-            return null;
-        Guid owner = authority.Owner != Guid.Empty ? authority.Owner : authority.Holder;
-        return owner != Guid.Empty ? owner.ToString("D") : null;
-    }
+    private static bool HasKeeper(NetworkedItem shell) =>
+        LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem authority) &&
+        (authority.Owner != Guid.Empty || authority.Holder != Guid.Empty);
 
     // Its owner opens a shell; so does whoever holds one nobody owns (OI-CON-08).
     private static bool ActorOwnsPhysicalShell(ServerPlayer actor, ushort shellNetId) =>
@@ -581,5 +639,18 @@ public static class ContainerServer
         }
 
         public void Clear() => cache.Clear();
+    }
+
+    /// <summary>The graph's owners are the ledger's, and a live shell's holder its live record's.</summary>
+    private sealed class LedgerOwners : IContainerOwners
+    {
+        public string OwnerOf(Guid itemId) =>
+            ServerLedger.Ledger.TryGet(itemId, out LedgerEntry entry) && entry.IsLive && entry.Owner.PlayerId != Guid.Empty
+                ? entry.Owner.PlayerId.ToString("D") : string.Empty;
+
+        public string HolderOf(Guid containerId) =>
+            TryGetShellNetId(containerId, out ushort netId) && LiveItems.TryGet(netId, out LiveItems.LiveItem shell) &&
+            shell.Holder != Guid.Empty && shell.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory
+                ? shell.Holder.ToString("D") : string.Empty;
     }
 }

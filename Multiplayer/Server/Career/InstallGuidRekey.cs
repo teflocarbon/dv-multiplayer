@@ -2,7 +2,6 @@ using Multiplayer.Core.Items.Ledger;
 using System;
 using System.Linq;
 using DV.JObjectExtstensions;
-using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
@@ -23,7 +22,8 @@ namespace Multiplayer.Server.Career;
 ///
 /// It covers the save as loaded (Players and the <c>Items</c> key), the rows the load kept as they were,
 /// and the state already loaded (the item registry, the
-/// ledger's owners, holders and starter kits, Lost and Found, the cold-container graph, cold inventories).
+/// ledger's owners, holders and starter kits, Lost and Found, cold inventories; the cold-container
+/// graph has no owners of its own, they are the ledger's).
 /// </summary>
 public static class InstallGuidRekey
 {
@@ -64,7 +64,6 @@ public static class InstallGuidRekey
          ColdInventories.HasIdentity(id) ||
          LostAndFoundServer.HasOwner(id) ||
          ItemSaveLoad.KeptNames(id) ||
-         ContainerServer.Graph.HasOwner(id.ToString("D")) ||
          ServerLedger.Ledger.HasIdentity(id));
 
     /// <summary>Re-keys the save root and the imported state. Returns how many records changed.</summary>
@@ -73,7 +72,6 @@ public static class InstallGuidRekey
         int changed = root != null ? RekeySave(root, from, to) : 0;
         changed += LiveItems.RekeyIdentity(from, to);
         changed += LostAndFoundServer.RekeyOwner(from, to);
-        changed += ContainerServer.Graph.RekeyOwner(from.ToString("D"), to.ToString("D"));
         bool kit = ServerLedger.Ledger.HasStarterKit(from);
         RekeyResult merged = ServerLedger.Ledger.Rekey(from, to);
         changed += merged.Changed + (kit ? 1 : 0);
@@ -114,7 +112,7 @@ public static class InstallGuidRekey
         }
 
         // The items as saved, for a login before they have loaded: every identity in them (owners,
-        // holders, who caused an entry, a container's owner, a starter kit). Rows are edited in
+        // holders, who caused an entry, an earlier build's container owner, a starter kit). Rows are edited in
         // place, so one the load can't read stays as it was.
         return changed + RekeyToken(root[ItemsSaveCodec.Key], from, to);
     }

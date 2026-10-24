@@ -20,7 +20,7 @@ one pass and read in one pass. Enums are written by name.
   "states":       { "<id>": { "prefab": "…", "position": […], "state": { …the item's ItemSaveData… } } },
   "unowned":      [ { "id": "…", "prefab": "…", "placement": "World", "state": { … } } ],
   "authored":     [ { "authoredKey": "…", … }, { "authoredKey": "…", "placement": "Destroyed" } ],
-  "containers":   [ { "id": "<the shell's item id>", "owner": "…", "prefab": "…", "capacity": 12 } ],
+  "containers":   [ { "id": "<the shell's item id>", "prefab": "…", "capacity": 12 } ],
   "lostAndFound": [ { "id": "…", "reason": "OwnerDistance", "utc": 0, "display": "…" } ],
   "players":      { "<identity>": { "starterKit": true } }
 }
@@ -32,7 +32,7 @@ one pass and read in one pass. Enums are written by name.
 | `states` | each owned item's one row (`SavedItemRow`): its pose and its state, by id. An installed gadget has none (vanilla's `Storage_InstalledGadgets` keeps its state) |
 | `unowned` | each unowned item worth keeping, with its home in the row: one a player carries, one in a container, a player's item lying about |
 | `authored` | scene items changed from the scene: an override (moved) or a tombstone (gone), by authored key |
-| `containers` | each cold container: its id, which is its shell's item id (OI-CON-09), and its size. Its contents are items whose home is `Container(id, slot)`; a container is stored in another when an item with its id is. Its owner stays in this row until R5 |
+| `containers` | each cold container: its id, which is its shell's item id (OI-CON-09), and its size. Its contents are items whose home is `Container(id, slot)`; a container is stored in another when an item with its id is. It names no owner: its shell's owner is the ledger's (R5), and an owner an earlier build wrote is ignored |
 | `lostAndFound` | each Lost and Found entry's reason and time. Its owner and claim are the ledger's |
 | `players` | who has had a starter kit |
 
@@ -79,7 +79,7 @@ check waits (`ServerLedger.Loaded`).
    an item in a car that is gone, a slot saved under someone other than its owner, or no saved row
    (`SaveRecovery`). Cars load before items, so a train-interior item finds its car if it exists.
 3. Unowned rows: an inventory or hand item becomes its holder's cold row, a stored one its container's
-   row (owned by the container's owner), anything else is made live.
+   row (still nobody's: whoever keeps the container sees it), anything else is made live.
 4. Containers and their items go into the container graph (`ContainerServer.LoadRows`), one row at a
    time, and a row the graph refuses stands alone (OI-CON-04, F18): an owned item refused (a slot past
    the end, a taken slot) goes to its owner's Lost and Found (`SaveRecovery`), logged as a warning ("its
@@ -138,8 +138,8 @@ as a row. On a player host the reprint waits until the host's items are back in 
 
 `InstallGuidRekey` moves a player's install GUID to their Steam ID. Before the load it edits the saved
 `Items` key in place: every string equal to the old identity (an owner, a holder, a `born.by`, a
-container's owner) and every property named by it (a starter kit), so a row the load can't read moves
-too. After the load it re-keys the ledger, live state, cold rows, Lost and Found and the containers, and
+an earlier build's container owner) and every property named by it (a starter kit), so a row the load can't read moves
+too. After the load it re-keys the ledger, live state, cold rows, Lost and Found (a container has no owner of its own to re-key), and
 the rows the load kept verbatim (`ItemSaveLoad.RekeyKept`).
 
 ## Reading it

@@ -320,7 +320,7 @@ public static partial class ServerLedger
                 ledger.Repair(record.PersistentItemId, Home.LostAndFound,
                     new LedgerCause(ItemMoveReason.CollectedToLostAndFound, detail: cause.Detail));
                 return;
-            // OnDeposited moves it; leaving a player's interest is a client's view; a leaver's
+            // The deposit committed it first; leaving a player's interest is a client's view; a leaver's
             // inventory going cold keeps its home. An item remade fresh keeps its entry.
             case ItemRemovalReason.DepositedInContainer:
             case ItemRemovalReason.LeftInterest:
@@ -362,12 +362,26 @@ public static partial class ServerLedger
         return registration.Accepted;
     }
 
-    /// <summary>Host: a deposit committed the item to a cold container's slot under its own id.</summary>
-    internal static void OnDeposited(Guid itemId, Guid containerId, int slot = -1)
+    /// <summary>
+    /// Moves an owned item by its id in the ledger, for a container's row, which has no live record
+    /// (docs/design/items/containers.md): a deposit, a withdrawal, a move between boxes, and their
+    /// rollbacks. Empty when it moved or isn't owned; else why not. A home that disagreed is logged
+    /// and the ledger moved anyway, as for a record.
+    /// </summary>
+    internal static string CommitStored(Guid id, string name, Home from, Home to, ChangeCause<ItemMoveReason> cause)
     {
-        if (loaded && ledger.IsLive(itemId))
-            ledger.Repair(itemId, Home.Container(containerId, slot),
-                new LedgerCause(ItemMoveReason.DepositedInContainer));
+        if (!restored || id == Guid.Empty || !ledger.IsLive(id))
+            return string.Empty;
+        LedgerCause because = new(cause.Reason, PlayerNumbers.Identity(cause.PlayerId), cause.Detail);
+        LedgerCommit commit = ledger.Commit(id, from, to, because);
+        if (commit.Refusal == "stale-home")
+        {
+            ledger.TryGetHome(id, out Home had);
+            Multiplayer.LogError($"item.ledger-stale-home: {name} ({id:D}) was {from} by its container but {had} " +
+                                 $"by the ledger; moved to {to} ({cause})");
+            commit = ledger.Repair(id, to, because);
+        }
+        return commit.Committed ? string.Empty : commit.Refusal;
     }
 
     /// <summary>

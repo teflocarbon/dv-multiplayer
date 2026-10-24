@@ -148,23 +148,26 @@ public sealed class ItemsSaveCodecTests
     }
 
     [Test]
-    public void Containers_RoundTrip_AndOneWithoutAnOwnerIsntRead()
+    public void Containers_RoundTrip_WithoutAnOwner_AndOneWithoutASizeIsntRead()
     {
         Guid id = Guid.NewGuid();
         ContainerRecord container = new()
         {
-            PersistentContainerId = id, OwnerIdentity = Liam.ToString("D"), PrefabName = "ItemContainerToolbox",
-            Capacity = 8
+            PersistentContainerId = id, PrefabName = "ItemContainerToolbox", Capacity = 8
         };
 
-        ContainerRecord read = ItemsSaveCodec.ReadContainer(ItemsSaveCodec.WriteContainer(container));
+        JObject row = ItemsSaveCodec.WriteContainer(container);
+        ContainerRecord read = ItemsSaveCodec.ReadContainer(row);
 
+        // Its owner is the ledger's (R5): the row has none, and an earlier build's is ignored.
+        Assert.That(row.ContainsKey("owner"), Is.False);
         Assert.That(read.PersistentContainerId, Is.EqualTo(id));
-        Assert.That(read.OwnerIdentity, Is.EqualTo(Liam.ToString("D")));
         Assert.That(read.PrefabName, Is.EqualTo("ItemContainerToolbox"));
         Assert.That(read.Capacity, Is.EqualTo(8));
-        container.OwnerIdentity = string.Empty;
-        Assert.That(ItemsSaveCodec.ReadContainer(ItemsSaveCodec.WriteContainer(container)), Is.Null);
+        row["owner"] = Liam.ToString("D");
+        Assert.That(ItemsSaveCodec.ReadContainer(row)?.PersistentContainerId, Is.EqualTo(id));
+        row["capacity"] = 0;
+        Assert.That(ItemsSaveCodec.ReadContainer(row), Is.Null);
     }
 
     [Test]

@@ -10,13 +10,15 @@ namespace Multiplayer.Core.Tests.Items.Containers;
 public sealed class ContainerGraphTests
 {
     private const string Owner = "owner-a";
+    private TestOwners owners;
     private ContainerGraph graph;
     private Guid root;
 
     [SetUp]
     public void SetUp()
     {
-        graph = new ContainerGraph();
+        owners = new TestOwners();
+        graph = new ContainerGraph(owners: owners);
         root = Guid.NewGuid();
         Assert.That(graph.AddContainer(Container(root, Owner, 4)).Accepted, Is.True);
     }
@@ -281,7 +283,7 @@ public sealed class ContainerGraphTests
     [Test]
     public void CompatibilityPolicy_IsHostControlled()
     {
-        ContainerGraph rejecting = new(compatibility: new RejectAllCompatibility());
+        ContainerGraph rejecting = new(compatibility: new RejectAllCompatibility(), owners: owners);
         Guid container = Guid.NewGuid();
         rejecting.AddContainer(Container(container, Owner, 4));
 
@@ -298,7 +300,7 @@ public sealed class ContainerGraphTests
         {
             MaximumItemsPerOwner = 1,
             MaximumCapacity = 4
-        });
+        }, owners: owners);
         Guid container = Guid.NewGuid();
         limited.AddContainer(Container(container, Owner, 4));
         Assert.That(limited.CommitDeposit(DepositCommand(Guid.NewGuid(), container, 0,
@@ -320,7 +322,7 @@ public sealed class ContainerGraphTests
         {
             MaximumCapacity = 4,
             MaximumDetachedStateBytes = 32
-        });
+        }, owners: owners);
         limited.AddContainer(Container(root, Owner, 4));
 
         ContainerOperationResult result = limited.CommitDeposit(DepositCommand(Guid.NewGuid(),
@@ -334,10 +336,10 @@ public sealed class ContainerGraphTests
     public void RevisionExhaustion_RejectsMutationInsteadOfReusingRevision()
     {
         Guid exhausted = Guid.NewGuid();
+        owners.Own(exhausted, Owner);
         graph.AddContainer(new ContainerRecord
         {
             PersistentContainerId = exhausted,
-            OwnerIdentity = Owner,
             Capacity = 1,
             Revision = uint.MaxValue
         });
@@ -356,13 +358,12 @@ public sealed class ContainerGraphTests
         item.DetachedState = new byte[] { 1, 2, 3 };
         Deposit(root, 0, item, physicalNetId: 801);
         ContainerGraphSnapshot snapshot = graph.ExportSnapshot();
-        ContainerGraph loaded = new();
+        ContainerGraph loaded = new(owners: owners);
 
         IReadOnlyList<ContainerRowRefusal> refused = loaded.ImportRows(snapshot.Containers, snapshot.Items);
 
         Assert.That(refused, Is.Empty);
         Assert.That(loaded.TryGetItem(item.PersistentItemId, out var restored), Is.True);
-        Assert.That(restored.PersistentOwnerIdentity, Is.EqualTo(item.PersistentOwnerIdentity));
         Assert.That(restored.DetachedState, Is.EqualTo(item.DetachedState));
         Assert.That(restored.LifecycleState, Is.EqualTo(ItemLifecycleState.Cold));
         Assert.That(restored.RetiringNetId, Is.Zero);
@@ -398,22 +399,24 @@ public sealed class ContainerGraphTests
         Assert.That(graph.TryGetItem(fine.PersistentItemId, out _), Is.True);
     }
 
+
     [Test]
-    public void AForeignOwnedRow_IsRefused()
+    public void AForeignOwnedRow_LoadsAndShowsAsSomeoneElses()
     {
+        // Rows stand alone and owners are the ledger's: a row has no owner to disagree with.
         StoredItemRecord foreign = Stored(Item(owner: "owner-b"), root, 0);
 
         IReadOnlyList<ContainerRowRefusal> refused = graph.ImportRows(new[] { Container(root, Owner, 4) }, new[] { foreign });
+        graph.Browse(Owner, root, 0, 64, out var view);
 
-        Assert.That(refused.Single().Reason, Is.EqualTo("container-foreign-owned-item"));
-        Assert.That(graph.ItemCount, Is.Zero);
-        Assert.That(graph.ContainerCount, Is.EqualTo(1));
+        Assert.That(refused, Is.Empty);
+        Assert.That(view.Slots.Single().ForeignOwned, Is.True);
     }
 
     [Test]
     public void ARowNestedTooDeep_IsRefused()
     {
-        ContainerGraph shallow = new(new ContainerLimits { MaximumDepth = 1 });
+        ContainerGraph shallow = new(new ContainerLimits { MaximumDepth = 1 }, owners: owners);
         Guid outer = Guid.NewGuid(), middle = Guid.NewGuid(), inner = Guid.NewGuid();
         // A container's id is its shell's item id.
         StoredItemRecord middleShell = Stored(Item(id: middle), outer, 0);
@@ -443,35 +446,87 @@ public sealed class ContainerGraphTests
     }
 
     [Test]
-    public void RekeyOwner_MovesContainersAndTheirItemsTogether()
+    public void AnUnownedItem_CannotBeDeposited()
     {
-        Deposit(root, 0);
-        Guid other = Guid.NewGuid();
-        Assert.That(graph.AddContainer(Container(other, "owner-b", 4)).Accepted, Is.True);
+        ContainerOperationResult result = graph.CommitDeposit(DepositCommand(Guid.NewGuid(),
+            root, expectedRevision: 0, Item(owner: string.Empty)));
 
-        Assert.That(graph.RekeyOwner(Owner, "owner-c"), Is.EqualTo(2));
-
-        Assert.That(graph.HasOwner(Owner), Is.False);
-        Assert.That(graph.HasOwner("owner-c"), Is.True);
-        Assert.That(graph.Browse("owner-c", root, 0, 64, out var view).Accepted, Is.True);
-        Assert.That(view.Slots, Has.Count.EqualTo(1));
-        Assert.That(graph.TryGetContainer(other, out var untouched) && untouched.OwnerIdentity == "owner-b", Is.True);
-        Assert.That(graph.ValidateWholeGraph().Accepted, Is.True);
-        Assert.That(graph.RekeyOwner(string.Empty, "owner-c"), Is.Zero);
+        Assert.That(result.Reason, Is.EqualTo("deposit-item-not-owned"));
+        Assert.That(graph.ItemCount, Is.Zero);
     }
 
     [Test]
-    public void SnapshotRekey_SurvivesImport()
+    public void TheOwnerIsTheLedgers_SoARekeyNeedsNothingFromTheGraph()
     {
-        Deposit(root, 0);
-        ContainerGraphSnapshot snapshot = graph.ExportSnapshot();
+        StoredItemRecord item = Item();
+        Deposit(root, 0, item);
 
-        Assert.That(snapshot.RekeyOwner(Owner, "owner-c"), Is.EqualTo(2));
+        owners.Own(root, "owner-c");
+        owners.Own(item.PersistentItemId, "owner-c");
 
-        ContainerGraph imported = new();
-        Assert.That(imported.ImportRows(snapshot.Containers, snapshot.Items), Is.Empty);
-        Assert.That(imported.HasOwner("owner-c"), Is.True);
-        Assert.That(imported.HasOwner(Owner), Is.False);
+        Assert.That(graph.Browse(Owner, root, 0, 64, out _).Status, Is.EqualTo(ContainerOperationStatus.Unauthorized));
+        Assert.That(graph.Browse("owner-c", root, 0, 64, out var view).Accepted, Is.True);
+        Assert.That(view.Slots.Single().ForeignOwned, Is.False);
+        Assert.That(graph.ValidateWholeGraph().Accepted, Is.True);
+    }
+
+    [Test]
+    public void AnUnownedShell_IsKeptByWhoeverHoldsIt()
+    {
+        // OI-CON-08: nobody owns the box; its holder opens it, and the next holder after them.
+        Guid box = Guid.NewGuid();
+        graph.AddContainer(Container(box, string.Empty, 4));
+        owners.Hold(box, Owner);
+
+        Assert.That(graph.Browse(Owner, box, 0, 64, out _).Accepted, Is.True);
+        Assert.That(graph.Browse("owner-b", box, 0, 64, out _).Status, Is.EqualTo(ContainerOperationStatus.Unauthorized));
+        owners.Hold(box, "owner-b");
+        Assert.That(graph.KeeperOf(box), Is.EqualTo("owner-b"));
+        Assert.That(graph.Browse("owner-b", box, 0, 64, out _).Accepted, Is.True);
+    }
+
+    [Test]
+    public void AnUnownedBoxInsideAnother_IsKeptByTheOuterBoxesKeeper()
+    {
+        StoredItemRecord inner = Item(owner: string.Empty);
+        graph.ImportRows(new[] { Container(root, Owner, 4), Container(inner.PersistentItemId, string.Empty, 4) },
+            new[] { Stored(inner, root, 0) });
+
+        Assert.That(graph.KeeperOf(inner.PersistentItemId), Is.EqualTo(Owner));
+        Assert.That(graph.Browse(Owner, inner.PersistentItemId, 0, 64, out _).Accepted, Is.True);
+    }
+
+    [Test]
+    public void CheckDeposit_ChangesNothing()
+    {
+        StoredItemRecord item = Item();
+        DepositCommand command = DepositCommand(Guid.NewGuid(), root, 0, item);
+
+        ContainerOperationResult checkedFirst = graph.CheckDeposit(command);
+
+        Assert.That(checkedFirst.Accepted, Is.True);
+        Assert.That(graph.ItemCount, Is.Zero);
+        graph.TryGetContainer(root, out var container);
+        Assert.That(container.Revision, Is.Zero);
+        Assert.That(graph.CommitDeposit(command).Accepted, Is.True, "the check didn't remember the operation");
+    }
+
+    [Test]
+    public void RevokeDeposit_TakesTheItemBackOutAndARepeatIsRefused()
+    {
+        // OI-CON-06: an object that couldn't be retired stays live, and the box doesn't keep a copy.
+        StoredItemRecord item = Item();
+        Guid operation = Guid.NewGuid();
+        DepositCommand command = DepositCommand(operation, root, 0, item);
+        graph.CommitDeposit(command);
+
+        ContainerOperationResult revoked = graph.RevokeDeposit(operation, item.PersistentItemId, "deposit-retirement-failed");
+
+        Assert.That(revoked.Reason, Is.EqualTo("deposit-retirement-failed"));
+        Assert.That(graph.TryGetItem(item.PersistentItemId, out _), Is.False);
+        Assert.That(graph.CommitDeposit(command).Accepted, Is.False);
+        Assert.That(graph.RevokeDeposit(operation, item.PersistentItemId, "again").Reason,
+            Is.EqualTo("item-not-pending-retirement"));
     }
 
     private void Deposit(Guid container, int slot, StoredItemRecord item = null,
@@ -504,21 +559,26 @@ public sealed class ContainerGraphTests
         SourceSlot = 0
     };
 
-    private static ContainerRecord Container(Guid id, string owner, int capacity) => new()
+    // A container, its shell owned in the ledger by owner (nobody when empty).
+    private ContainerRecord Container(Guid id, string owner, int capacity)
     {
-        PersistentContainerId = id,
-        OwnerIdentity = owner,
-        Capacity = capacity
-    };
+        owners.Own(id, owner);
+        return new ContainerRecord { PersistentContainerId = id, Capacity = capacity };
+    }
 
-    private static StoredItemRecord Item(string owner = Owner, Guid? id = null) => new()
+    // An item owned in the ledger by owner (nobody when empty).
+    private StoredItemRecord Item(string owner = Owner, Guid? id = null)
     {
-        PersistentItemId = id ?? Guid.NewGuid(),
-        PrefabName = "TestItem",
-        DisplayName = "Test Item",
-        PersistentOwnerIdentity = owner,
-        StateVersion = 1
-    };
+        StoredItemRecord item = new()
+        {
+            PersistentItemId = id ?? Guid.NewGuid(),
+            PrefabName = "TestItem",
+            DisplayName = "Test Item",
+            StateVersion = 1
+        };
+        owners.Own(item.PersistentItemId, owner);
+        return item;
+    }
 
     private static StoredItemRecord Stored(StoredItemRecord item, Guid parent, int slot)
     {
@@ -531,5 +591,17 @@ public sealed class ContainerGraphTests
     private sealed class RejectAllCompatibility : IContainerCompatibilityPolicy
     {
         public bool IsCompatible(StoredItemRecord item, ContainerRecord destination) => false;
+    }
+
+    // The ledger's owners and the live shells' holders, as the server's oracle gives them.
+    private sealed class TestOwners : IContainerOwners
+    {
+        private readonly Dictionary<Guid, string> owned = new();
+        private readonly Dictionary<Guid, string> held = new();
+
+        public void Own(Guid id, string owner) => owned[id] = owner ?? string.Empty;
+        public void Hold(Guid id, string holder) => held[id] = holder ?? string.Empty;
+        public string OwnerOf(Guid itemId) => owned.TryGetValue(itemId, out string owner) ? owner : string.Empty;
+        public string HolderOf(Guid containerId) => held.TryGetValue(containerId, out string holder) ? holder : string.Empty;
     }
 }

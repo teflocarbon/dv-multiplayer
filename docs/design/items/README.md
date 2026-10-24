@@ -49,7 +49,7 @@ mirror them in `Multiplayer.Core.Tests/Items/` and `Multiplayer.Protocol.Tests/I
 | `Inventory` | slots, the belt, claims as a client shows them | ✓ | ✓ | ✓ | ✓ | [inventory.md](inventory.md) |
 | `Essentials` | starting items and the issuer (the claim rules are Core `Inventory` and `Ledger`) | | ✓ | | | [essentials.md](essentials.md) |
 | `LostAndFound` | collection, entries, retrieval | ✓ | ✓ | ✓ | | `lost-and-found.md` (R6) |
-| `Containers` | cold containers | ✓ | ✓ | ✓ | | `containers.md` (R5) |
+| `Containers` | cold containers | ✓ | ✓ | ✓ | | [containers.md](containers.md) |
 | `OwnedList` | the owned-items page and retrieval | ✓ | ✓ | ✓ | | [owned-list.md](owned-list.md) |
 | `Access` | `ItemAccess`, fixtures | ✓ | ✓ | | | [access.md](access.md) |
 | `WorldItems` | scene-authored items, the catalogue, static parents, office stock | ✓ | ✓ | | ✓ | `world-items.md` (R7) |
