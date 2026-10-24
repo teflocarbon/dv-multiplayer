@@ -158,6 +158,8 @@ public sealed class DepositCommand
     public int DestinationSlot { get; set; }
     public ushort PhysicalNetId { get; set; }
     public StoredItemRecord Item { get; set; }
+    /// <summary>A job paper: nobody owns one (D5, OI-ID-12), so it goes in unowned, by whoever carries it.</summary>
+    public bool JobPaper { get; set; }
 }
 
 public sealed class WithdrawalCommand
@@ -377,16 +379,17 @@ public sealed class ContainerGraph
             (command.Item.DetachedState?.Length ?? 0) > Limits.MaximumDetachedStateBytes)
             return Reject(command.OperationId, ContainerOperationKind.Deposit,
                 ContainerOperationStatus.InvalidRecord, "invalid-item-record");
-        // A deposit never changes ownership: only the depositor's own items go in (OI-CON-01).
+        // A deposit never changes ownership: only the depositor's own items go in (OI-CON-01), and job
+        // papers, which nobody owns (D5, OI-ID-12).
         string owner = OwnerOf(command.Item.PersistentItemId);
-        if (owner.Length == 0 || !string.Equals(owner, command.ActorIdentity, StringComparison.Ordinal))
+        if (owner.Length == 0 ? !command.JobPaper : !string.Equals(owner, command.ActorIdentity, StringComparison.Ordinal))
             return Reject(command.OperationId, ContainerOperationKind.Deposit,
                 ContainerOperationStatus.Unauthorized, "deposit-item-not-owned");
         // A container already stored in another is this too: its id is its shell's.
         if (items.ContainsKey(command.Item.PersistentItemId))
             return Reject(command.OperationId, ContainerOperationKind.Deposit,
                 ContainerOperationStatus.DuplicateIdentity, "duplicate-item-id");
-        if (CountOwnedItems(owner) >= Limits.MaximumItemsPerOwner)
+        if (owner.Length > 0 && CountOwnedItems(owner) >= Limits.MaximumItemsPerOwner)
             return Reject(command.OperationId, ContainerOperationKind.Deposit,
                 ContainerOperationStatus.OwnerQuotaExceeded, "owner-item-quota-exceeded");
         if (CountKeptItems(KeeperOf(destination.PersistentContainerId)) >= Limits.MaximumItemsPerOwner)

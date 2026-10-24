@@ -1,26 +1,28 @@
+using System;
 using System.Collections.Generic;
 
 namespace Multiplayer.Core.Jobs;
 
 /// <summary>
-/// Tracks which authoritative physical booklet copy is issued to each player for one job.
-/// The job may own many copies, but a player has at most one currently issued copy.
+/// Tracks which authoritative physical booklet copy is issued to each player for one job, by the
+/// player's identity, not their number, so it outlives their session (OI-LF-17). The job may own many
+/// copies, but a player has at most one currently issued copy.
 /// </summary>
 public sealed class JobBookletIssuanceIndex
 {
-    private readonly Dictionary<byte, ushort> playerToItem = new();
-    private readonly Dictionary<ushort, byte> itemToPlayer = new();
+    private readonly Dictionary<Guid, ushort> playerToItem = new();
+    private readonly Dictionary<ushort, Guid> itemToPlayer = new();
 
     public int Count => playerToItem.Count;
 
-    public bool Assign(byte playerId, ushort itemNetId)
+    public bool Assign(Guid playerId, ushort itemNetId)
     {
-        if (playerId == 0 || itemNetId == 0)
+        if (playerId == Guid.Empty || itemNetId == 0)
             return false;
 
         if (playerToItem.TryGetValue(playerId, out ushort previousItem))
             itemToPlayer.Remove(previousItem);
-        if (itemToPlayer.TryGetValue(itemNetId, out byte previousPlayer))
+        if (itemToPlayer.TryGetValue(itemNetId, out Guid previousPlayer))
             playerToItem.Remove(previousPlayer);
 
         playerToItem[playerId] = itemNetId;
@@ -28,21 +30,21 @@ public sealed class JobBookletIssuanceIndex
         return true;
     }
 
-    public bool TryGetItem(byte playerId, out ushort itemNetId)
+    public bool TryGetItem(Guid playerId, out ushort itemNetId)
     {
         itemNetId = 0;
-        return playerId != 0 && playerToItem.TryGetValue(playerId, out itemNetId);
+        return playerId != Guid.Empty && playerToItem.TryGetValue(playerId, out itemNetId);
     }
 
-    public bool TryGetPlayer(ushort itemNetId, out byte playerId)
+    public bool TryGetPlayer(ushort itemNetId, out Guid playerId)
     {
-        playerId = 0;
+        playerId = Guid.Empty;
         return itemNetId != 0 && itemToPlayer.TryGetValue(itemNetId, out playerId);
     }
 
     public bool RemoveItem(ushort itemNetId)
     {
-        if (!itemToPlayer.TryGetValue(itemNetId, out byte playerId))
+        if (!itemToPlayer.TryGetValue(itemNetId, out Guid playerId))
             return false;
         itemToPlayer.Remove(itemNetId);
         playerToItem.Remove(playerId);

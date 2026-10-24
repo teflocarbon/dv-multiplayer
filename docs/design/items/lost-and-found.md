@@ -9,16 +9,18 @@
 | Side | Code |
 | --- | --- |
 | Core | `LostItemCollectionPolicy`, `LostItemRegistry`, `LostItemReason` (`Multiplayer.Core/Items/LostAndFound/`) |
-| Server | `LostAndFoundServer`, `DeletedCarItems`, `CarDeleteLostAndFoundPatch` (`Multiplayer/Server/Items/LostAndFound/`); `LiveItems.TryMoveToLostAndFound` (`LiveItems.LostAndFound.cs`) |
+| Server | `LostAndFoundServer`, `DeletedCarItems`, `CarDeleteLostAndFoundPatch` (`Multiplayer/Server/Items/LostAndFound/`); `LiveItems.TryMoveToLostAndFound`, `LiveItems.KeeperOf` (`LiveItems.LostAndFound.cs`) |
 
 The server keeps a Lost and Found for every player. **An owned item goes to its owner's Lost and
-Found; an unowned item never does.** Owned means the ledger has an owner for it: vanilla's
-`BelongsToPlayer` flips in the dumpster, the shop and a withdrawal, so nothing decides on it.
+Found; an unowned item never does,** except a job booklet, kept for the player it was issued to
+([below](#job-papers)). Owned means the ledger has an owner for it: vanilla's `BelongsToPlayer`
+flips in the dumpster, the shop and a withdrawal, so nothing decides on it. Whose Lost and Found an
+item goes to is its keeper (`LiveItems.KeeperOf`): its owner, or a booklet's issued player.
 
 ## Ways in
 
 Every way in goes through `LostAndFoundServer.Collect(item, reason, detail)`, which refuses an item
-the ledger has no owner for (`item-has-no-owner`) and an id that already has an entry (OI-ID-06,
+with no keeper (`item-has-no-owner`) and an id that already has an entry (OI-ID-06,
 asked before the ledger moves, LF9).
 
 | `LostItemReason` | When | Code |
@@ -86,3 +88,19 @@ holds the coupler. That serves each way in:
 The owned-items list words an attached item "on the end of car L-042" (OI-LIST-06).
 
 Scenario: `attached-offline`.
+
+## Job papers
+
+A booklet, an overview and a report are the job's, never owned (D5, OI-ID-12): no ledger entry, not
+in the owned list. A booklet is still somebody's to lose: **a lost booklet goes to the Lost and
+Found of the player it was issued to** (OI-LF-17), by identity, so it reaches them offline or after
+a rejoin. Its entry's owner is that player (`LiveItems.KeeperOf`, from the job's
+`JobBookletIssuanceIndex`), the collection policy weighs that player's distance and presence, and
+only they retrieve it: the retrieval asks the entry (`LostAndFoundServer.KeeperOf`), not the ledger.
+A booklet on a deleted car goes there too. An overview or a report nobody was issued stays where it
+is.
+
+A booklet in Lost and Found isn't saved, as one lying about isn't (`ItemSaveLoad.IsUnsavedJobPaper`):
+after a restart the job is still on, and its player summons another at a validator.
+
+Scenario: `booklet-not-owned`.

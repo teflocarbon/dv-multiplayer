@@ -30,12 +30,14 @@ public enum ItemAccessAction : byte
 /// </summary>
 public readonly struct ItemAccessRequest
 {
-    public ItemAccessRequest(ItemAccessAction action, bool actorOwnsItem, bool isFixture, bool isEssential = false)
+    public ItemAccessRequest(ItemAccessAction action, bool actorOwnsItem, bool isFixture, bool isEssential = false,
+        bool isJobPaper = false)
     {
         Action = action;
         ActorOwnsItem = actorOwnsItem;
         IsFixture = isFixture;
         IsEssential = isEssential;
+        IsJobPaper = isJobPaper;
     }
 
     public ItemAccessAction Action { get; }
@@ -44,6 +46,8 @@ public readonly struct ItemAccessRequest
     public bool IsFixture { get; }
     /// <summary>One of Derail Valley's essentials (comms radio, maps, wallet, ...): it never goes in a container.</summary>
     public bool IsEssential { get; }
+    /// <summary>A job paper (a booklet, an overview, a report): its job's, never owned (D5, OI-ID-12).</summary>
+    public bool IsJobPaper { get; }
 }
 
 public readonly struct ItemAccessDecision
@@ -83,8 +87,12 @@ public static class ItemAccess
             return ItemAccessDecision.Refuse(EssentialStaysOut);
         return request.Action switch
         {
-            // Containers hold only their owner's own items (container-storage.md).
-            ItemAccessAction.Deposit when !request.ActorOwnsItem => ItemAccessDecision.Refuse("deposit-item-not-owned"),
+            // Containers hold only their owner's own items (container-storage.md), and job papers: nobody
+            // owns one, and whoever carries it may put it in a box (the caller asks that they carry it).
+            ItemAccessAction.Deposit when !request.ActorOwnsItem && !request.IsJobPaper => ItemAccessDecision.Refuse("deposit-item-not-owned"),
+            // A lost booklet comes back to the player it was issued to, whose Lost and Found entry it is
+            // (OI-LF-17; the caller asks that the entry is theirs).
+            ItemAccessAction.Recall when request.IsJobPaper => ItemAccessDecision.Allow,
             ItemAccessAction.Retrieve or ItemAccessAction.Recall when !request.ActorOwnsItem =>
                 ItemAccessDecision.Refuse("requester-not-persistent-owner"),
             // Vanilla has no way to take from another player; retrieval is the owner's way back.

@@ -96,7 +96,8 @@ the record works out the new placement and slot, then `ServerLedger.CommitTransi
 then is the update written, logged (`ItemChangeLog.RecordMove`) and sent. A refusal puts the record back
 (`RestoreFrom`) and corrects the sender. `CommitTransition` commits an owned item (`ServerLedger.Commit`);
 makes an unowned personal item (`BelongsToPlayer`) its first taker's (`Own`, born `Claimed`, or the
-cause's birth: `Purchased`, `Granted`, ...); and holds any other unowned item to `CanTake`.
+cause's birth: `Purchased`, `Granted`, ...), except a job paper, which is its job's and never owned or
+in the ledger (D5, OI-ID-12: `Own` makes nothing of one); and holds any other unowned item to `CanTake`.
 
 Recall (`TryRecall`), Lost and Found collection and retrieval and slot swaps (`TrySwapSlots` →
 `ServerLedger.Swap`) commit the same way. A `MoveSlot` request into an empty slot is a stash there, onto

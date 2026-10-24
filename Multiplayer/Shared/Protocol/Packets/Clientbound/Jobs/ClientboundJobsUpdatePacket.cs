@@ -51,7 +51,7 @@ public class ClientboundJobsUpdatePacket
                 ItemNetID = validationItemNetId,
                 ItemPositionData = itemPositionData,
                 IssuedToPlayerId = job.Cause == NetworkedJob.DirtyCause.JobBooklet
-                    ? job.LastChangedJobBookletIssuedToPlayerId : (byte)0
+                    ? JobServer.Current?.PlayerNumberOf(job.LastChangedJobBookletIssuedTo) ?? 0 : (byte)0
             };
 
             jobData.Add(data);

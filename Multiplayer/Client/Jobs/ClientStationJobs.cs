@@ -1,3 +1,4 @@
+using System;
 using DV.Booklets;
 using DV.Logic.Job;
 using DV.ThingTypes;
@@ -77,8 +78,7 @@ public static class ClientStationJobs
             station.TakenJobs.Add(newJob);
             newJob.TakeJob(true); //take job as if loaded from save to prevent debt controller kicking in
             foreach (JobBookletCopyData booklet in jobData.JobBooklets ?? [])
-                GenerateJobBookletCopy(networkedJob, booklet.ItemNetId, booklet.Position,
-                    booklet.IssuedToPlayerId);
+                GenerateJobBookletCopy(networkedJob, booklet.ItemNetId, booklet.Position);
         }
         else
         {
@@ -188,8 +188,7 @@ public static class ClientStationJobs
         if (job.JobState != JobState.InProgress || job.ItemNetID == 0 ||
             netJob.TryGetJobBooklet(job.ItemNetID, out _))
             return;
-        GenerateJobBookletCopy(netJob, job.ItemNetID, job.ItemPositionData,
-            job.IssuedToPlayerId);
+        GenerateJobBookletCopy(netJob, job.ItemNetID, job.ItemPositionData);
     }
 
     private static void HandleJobStateChange(NetworkedStationController station, NetworkedJob netJob, JobUpdateStruct updateData)
@@ -239,7 +238,7 @@ public static class ClientStationJobs
                     JobBooklet jobBooklet = BookletCreator.CreateJobBooklet(netJob.Job, validator.bookletPrinter.spawnAnchor.position, validator.bookletPrinter.spawnAnchor.rotation, WorldMover.OriginShiftParent, true);
                     netItem = jobBooklet.GetOrAddComponent<NetworkedItem>();
                     netItem.Initialize(jobBooklet, updateData.ItemNetID, false);
-                    netJob.RegisterJobBooklet(netItem, updateData.IssuedToPlayerId);
+                    netJob.RegisterJobBooklet(netItem, Guid.Empty);
                     printed = true;
                 }
 
@@ -395,8 +394,9 @@ public static class ClientStationJobs
             });
     }
 
+    // Unissued: issuance is the server's, by identity (OI-LF-17).
     private static void GenerateJobBookletCopy(NetworkedJob networkedJob, ushort itemNetId,
-        ItemPositionData posData, byte issuedToPlayerId)
+        ItemPositionData posData)
     {
         if (networkedJob == null || itemNetId == 0 ||
             networkedJob.TryGetJobBooklet(itemNetId, out _))
@@ -404,7 +404,7 @@ public static class ClientStationJobs
         // This player's own, stashed: a stand-in in its slot, made from its row when taken out (OI-COLD-07).
         if (InventoryStandIn.TryGet(itemNetId, out _))
         {
-            networkedJob.RegisterBookletRow(itemNetId, issuedToPlayerId);
+            networkedJob.RegisterBookletRow(itemNetId, Guid.Empty);
             return;
         }
         JobBooklet booklet = BookletCreator.CreateJobBooklet(networkedJob.Job,
@@ -412,6 +412,6 @@ public static class ClientStationJobs
             WorldMover.OriginShiftParent, true);
         NetworkedItem item = booklet.GetOrAddComponent<NetworkedItem>();
         item.Initialize(booklet, itemNetId, false);
-        networkedJob.RegisterJobBooklet(item, issuedToPlayerId);
+        networkedJob.RegisterJobBooklet(item, Guid.Empty);
     }
 }

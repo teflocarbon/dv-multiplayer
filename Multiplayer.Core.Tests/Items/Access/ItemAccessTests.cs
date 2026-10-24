@@ -34,6 +34,16 @@ public sealed class ItemAccessTests
     }
 
     [Test]
+    public void AJobPaper_IsDepositedByWhoeverCarriesIt_AndRecalledByItsEntrysPlayer()
+    {
+        // Nobody owns a job paper (D5, OI-ID-12); a lost booklet is its issued player's entry (OI-LF-17).
+        Assert.That(ItemAccess.Decide(new ItemAccessRequest(ItemAccessAction.Deposit, false, false, isJobPaper: true)).Allowed, Is.True);
+        Assert.That(ItemAccess.Decide(new ItemAccessRequest(ItemAccessAction.Recall, false, false, isJobPaper: true)).Allowed, Is.True);
+        Assert.That(ItemAccess.Decide(new ItemAccessRequest(ItemAccessAction.Retrieve, false, false, isJobPaper: true)).Allowed, Is.False,
+            "papers aren't in the owned list");
+    }
+
+    [Test]
     public void TakingFromAnotherPlayer_IsRefused()
     {
         Assert.That(ItemAccess.Decide(new ItemAccessRequest(ItemAccessAction.TakeFromPlayer, false, false)).Allowed, Is.False);

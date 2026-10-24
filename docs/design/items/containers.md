@@ -216,7 +216,10 @@ overview or a report as a row, as an inventory does ([inventory.md](inventory.md
   does a booklet whose job has since printed the withdrawer another copy at a validator (the deposit
   let the job forget it): theirs is that copy (`withdraw-paper-copy-issued`, H2). The job takes the
   paper only once the withdrawal is committed, so a rollback never costs the board its overview (H5).
-  A booklet is its taker's, as a personal item is, so only they deposit it: a paper nobody owns isn't taken (`deposit-item-not-owned`).
+  Nobody owns a job paper (D5, OI-ID-12), so whoever carries one may deposit it: the access policy
+  lets a paper in (`ItemAccessRequest.IsJobPaper`), and the graph takes it unowned
+  (`DepositCommand.JobPaper`), still held to the box keeper's quota. An owned paper from an older
+  save goes in only by its owner.
 - **Its job ends:** a booklet or overview in a box goes from it (`JobPaperRows.DropStored`); a
   report outlives its job. A booklet in a box counts as carried, so the load doesn't print another
   (`JobPaperRows.HasBookletRow`).

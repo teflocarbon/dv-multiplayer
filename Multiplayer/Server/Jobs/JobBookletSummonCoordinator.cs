@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -64,10 +65,10 @@ public static class JobBookletSummonCoordinator
                     Vector3.up * (0.02f * index);
                 Quaternion rotation = validator.bookletPrinter.spawnAnchor.rotation;
 
-                if (!job.TryGetIssuedJobBooklet(requester.PlayerId, out ushort copy))
+                if (!job.TryGetIssuedJobBooklet(requester.Guid, out ushort copy))
                 {
                     NetworkedItem item;
-                    job.PendingBookletIssuedToPlayerId = requester.PlayerId;
+                    job.PendingBookletIssuedTo = requester.Guid;
                     try
                     {
                         JobBooklet booklet = BookletCreator.CreateJobBooklet(job.Job, position,
@@ -76,7 +77,7 @@ public static class JobBookletSummonCoordinator
                     }
                     finally
                     {
-                        job.PendingBookletIssuedToPlayerId = 0;
+                        job.PendingBookletIssuedTo = Guid.Empty;
                     }
                     Publish("job.booklet-copy-issued", job, item, requester.PlayerId);
                 }

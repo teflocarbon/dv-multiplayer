@@ -88,6 +88,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "car-delete-owner-absent|car-delete-owner|OWNER=absent"
   "car-delete-attached|car-delete-attached|"
   "attached-offline|attached-offline|"
+  "booklet-not-owned|booklet-not-owned|"
   "lost-and-found-many-owners|lost-and-found-many-owners|"
   "offline-sweep-mid-save|offline-sweep-mid-save|"
   "rejoin-mid-sweep|rejoin-mid-sweep|"

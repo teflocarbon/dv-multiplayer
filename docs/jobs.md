@@ -160,7 +160,15 @@ crew. Any player can hand in any booklet of the job.
 
 What is per player is the booklet copy. A job can have many physical booklet copies, each with its
 own item NetId, and `JobBookletIssuanceIndex` (in `Multiplayer.Core`, unit tested) records at most
-one copy per player. The player who took the job gets the first copy.
+one copy per player, by the player's identity (OI-LF-17). The player who took the job gets the first
+copy. Only the server issues: the wire still names the player by number (`IssuedToPlayerId`, through
+`IJobServer.PlayerNumberOf`), and a client registers its copies unissued.
+
+A booklet, an overview and a report are the job's, never anyone's owned item (D5, OI-ID-12): no
+ledger entry, not in the owned list, though a player takes one first (`ServerLedger.Own` and the
+first-taker rule leave papers out). Whoever carries one may put it in a box, and a lost booklet goes
+to the Lost and Found of the player it was issued to
+([lost-and-found.md](design/items/lost-and-found.md#job-papers)).
 
 ## Booklets and reports as items
 
@@ -214,8 +222,9 @@ Doesn't work, or unverified:
 - **Reports across a reload**: a report's recipe is saved in its row's state
   (`JobPapers.Complete`, `mpJobReport`), and a report restored from the save is made from it
   (`ItemSaveLoad.MakePaper`), its recipe registered again under its new NetId for clients.
-- **Issuance across sessions**: the issuance index is keyed by session player ID and isn't saved;
-  after a reload or rejoin, a reprint may issue a fresh copy rather than summon the old one.
+- **Issuance across sessions**: the issuance index is keyed by identity, so a player who rejoins
+  has their copy summoned, not a fresh one printed. It isn't saved: after a reload a reprint may
+  issue a fresh copy rather than summon the old one.
 
 ## Validation and hand-in
 

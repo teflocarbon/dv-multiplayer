@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Shared.Session;
 
 namespace Multiplayer.Shared.Jobs;
@@ -11,6 +12,10 @@ public interface IJobServer
 {
     /// <summary>A job was abandoned, completed or expired in the server's world.</summary>
     void OnJobEnded(NetworkedJob job);
+
+    /// <summary>The number of the connected player with this identity, 0 when none: the wire names a
+    /// booklet's player by number, the server issues it by identity (OI-LF-17).</summary>
+    byte PlayerNumberOf(Guid identity);
 }
 
 public static class JobServer

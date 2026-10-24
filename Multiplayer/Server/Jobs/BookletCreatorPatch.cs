@@ -50,7 +50,7 @@ public static class BookletCreator_Patch
         {
             NetworkedItem netItem = __result.GetOrAddComponent<NetworkedItem>();
             netItem.Initialize(__result, 0, false);
-            networkedJob.RegisterJobBooklet(netItem, networkedJob.PendingBookletIssuedToPlayerId);
+            networkedJob.RegisterJobBooklet(netItem, networkedJob.PendingBookletIssuedTo);
         }
     }
 

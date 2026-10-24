@@ -11,6 +11,7 @@ using Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs;
 using Multiplayer.Shared.Protocol.Packets.Serverbound.Jobs;
 using Multiplayer.Shared.Transport;
 using Multiplayer.Debugging.Protocol;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -28,6 +29,8 @@ public partial class NetworkServer : IJobServer
         JobPaperRows.OnJobEnded(job);
         job.DestroyJobBooklets();
     }
+
+    byte IJobServer.PlayerNumberOf(Guid identity) => Items.LiveState.PlayerNumbers.Of(identity);
 
     partial void RegisterLocalJobs()
     {
@@ -149,7 +152,7 @@ public partial class NetworkServer : IJobServer
                         { JobNetId = packet.JobNetId, Invalid = true }, DeliveryMethod.ReliableOrdered);
                     return;
                 }
-                networkedJob.PendingBookletIssuedToPlayerId = player.PlayerId;
+                networkedJob.PendingBookletIssuedTo = player.Guid;
                 try
                 {
                     networkedStationController.JobValidator.ProcessJobOverview(
@@ -157,7 +160,7 @@ public partial class NetworkServer : IJobServer
                 }
                 finally
                 {
-                    networkedJob.PendingBookletIssuedToPlayerId = 0;
+                    networkedJob.PendingBookletIssuedTo = Guid.Empty;
                 }
                 break;
 

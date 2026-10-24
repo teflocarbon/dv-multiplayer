@@ -456,6 +456,20 @@ public sealed class ContainerGraphTests
     }
 
     [Test]
+    public void AJobPaper_GoesInUnowned_ButAnotherPlayersOwnedPaperDoesnt()
+    {
+        // Nobody owns a job paper (D5, OI-ID-12): whoever carries it may put it in a box.
+        DepositCommand paper = DepositCommand(Guid.NewGuid(), root, expectedRevision: 0, Item(owner: string.Empty));
+        paper.JobPaper = true;
+        Assert.That(graph.CommitDeposit(paper).Accepted, Is.True);
+        Assert.That(graph.ItemCount, Is.EqualTo(1));
+
+        DepositCommand foreign = DepositCommand(Guid.NewGuid(), root, expectedRevision: 1, Item(owner: "owner-b"), slot: 1);
+        foreign.JobPaper = true;
+        Assert.That(graph.CommitDeposit(foreign).Reason, Is.EqualTo("deposit-item-not-owned"));
+    }
+
+    [Test]
     public void TheOwnerIsTheLedgers_SoARekeyNeedsNothingFromTheGraph()
     {
         StoredItemRecord item = Item();
