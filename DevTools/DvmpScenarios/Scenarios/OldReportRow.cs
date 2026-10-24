@@ -12,20 +12,20 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// A job report's row that can't go live at a join stays cold (docs/design/items/inventory.md,
-    /// "Job papers"; R4C C9 B4, B6). A report has no job to print it again, so its row is never
-    /// dropped. The host prints a job report beside the client, which stashes it, then:
+    /// A job report's row that can't go live in its slot at a join (docs/design/items/inventory.md,
+    /// "Job papers"; R4C C9 B4, B6, review 4). The host prints a job report beside the client, which
+    /// stashes it, then:
     /// - default (B4): the host saves with the report's recipe (<c>mpJobReport</c>) taken out of its
     ///   row, as a save from before C7 has it, and both games restart. The row was taken up into its
-    ///   slot and every take-out failed (item-data-unavailable); now it stays in the cold store, the
-    ///   client has no stand-in for it, and the host logs that it stays cold.
+    ///   slot and every take-out failed (item-data-unavailable). It can never be made, so now it goes:
+    ///   the cold store and the client's slots don't have it, and the host logs why.
     /// - UNSLOTTED=1 (B6): the report is the client's own. The client leaves, and while it's away
     ///   its row loses its slot to Lost and Found, as an identity merge leaves one
-    ///   (leave-full-inventory). At the rejoin the row was dropped ("goes:"); now it stays cold, and the
-    ///   host logs that it stays cold.
-    /// The row is forgotten afterwards.
+    ///   (leave-full-inventory). At the rejoin the row was dropped ("goes:"); now it goes to Lost and
+    ///   Found (the user, 2026-10-25), made from its recipe and naming its job.
+    /// The row and the item are forgotten afterwards.
     /// </summary>
-    [Scenario("old-report-row", "A job report's row saved with no recipe (UNSLOTTED=1: with no slot) stays cold at the join instead of going live or being dropped")]
+    [Scenario("old-report-row", "A job report's row saved with no recipe goes at the join; UNSLOTTED=1: one with no slot goes to Lost and Found")]
     [Needs(Need.RestartsGames)]
     [Budget(600)]
     public sealed class OldReportRow : Scenario<OldReportRow.Options>
@@ -70,11 +70,29 @@ namespace Dvmp.Scenarios
                 await Task.Delay(20000);   // the client receives its items
             }
 
-            Expect.Equal("cold", await pair.Host.Run(() => ColdHomes.InGame.State(id)), "the report's row after the join (in the cold store, not live)");
             Expect.Equal(-1, await pair.Client.Run(() => InGame.ReportSlot(report.JobId)), $"the client's slot with a report for {report.JobId} after the join");
             LogLine[] lines = await pair.Host.LogsSince(cursor);
-            Expect.That(lines.Any(l => l.Message.Contains(id) && l.Message.Contains("stays cold")), "the host logs that the report stays cold");
-            Expect.Empty(lines.Where(l => l.Message.Contains(id) && l.Message.Contains(" goes: ")).Select(l => l.Message), "lines dropping the report's row");
+            string[] dropped = lines.Where(l => l.Message.Contains(id) && l.Message.Contains(" goes: ")).Select(l => l.Message).ToArray();
+            if (o.Unslotted)
+            {
+                Lost lost = await pair.Host.Run(() => InGame.InLostAndFound(id));
+                Report.Note("after the rejoin: " + lost);
+                Expect.That(lost.There, "the report is in Lost and Found after the rejoin");
+                Expect.Equal(report.JobId, lost.JobId, "the job the report in Lost and Found names (made from its recipe)");
+                Expect.Empty(dropped, "lines dropping the report's row");
+            }
+            else
+            {
+                Expect.Equal("gone", await pair.Host.Run(() => ColdHomes.InGame.State(id)), "the recipe-less report's row after the join");
+                Expect.That(dropped.Any(l => l.Contains("no recipe")), "the host logs that the report goes for having no recipe");
+            }
+        }
+
+        public sealed class Lost
+        {
+            public bool There;
+            public string JobId = "";
+            public override string ToString() => There ? $"in Lost and Found, naming '{JobId}'" : "not in Lost and Found";
         }
 
         // ---- runs inside the games
@@ -105,6 +123,22 @@ namespace Dvmp.Scenarios
                         return slot;
                 }
                 return -1;
+            }
+
+            /// <summary>Host: whether the item is in Lost and Found, and the job its report object names.</summary>
+            [Step]
+            public static Lost InLostAndFound(string id)
+            {
+                Guid wanted = Guid.Parse(id);
+                var record = Multiplayer.Server.Items.LiveState.LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == wanted);
+                if (record == null || !Multiplayer.Server.Items.LostAndFound.LostAndFoundServer.Contains(record.NetId))
+                    return new Lost();
+                return new Lost
+                {
+                    There = true,
+                    JobId = Multiplayer.Shared.Items.LiveState.NetworkedItem.TryGet(record.NetId, out var item) && item != null
+                        ? item.GetComponent<JobReport>()?.jobID ?? "" : "(no object)"
+                };
             }
 
             /// <summary>Host, cleanup: the report's cold row and its ledger entry go.</summary>
