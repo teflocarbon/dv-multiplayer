@@ -1,7 +1,10 @@
 // A save written with a change on top of what the mod wrote: a bad row, an old key, a missing
-// prefab, as a scenario needs one in the save it then restarts from.
+// prefab, a car gone from vanilla's data, as a scenario needs one in the save it then restarts from.
 using System;
 using System.Collections;
+using System.Linq;
+using DV;
+using DV.Common;
 using HarmonyLib;
 using Multiplayer.Server.Career;
 using Newtonsoft.Json.Linq;
@@ -11,6 +14,7 @@ namespace Dvmp.Scenarios
     public static class SaveEdits
     {
         private static Func<JObject, string> edit;
+        private static string[] carsGone;
         private static string result = "";
         private static bool patched;
 
@@ -20,13 +24,7 @@ namespace Dvmp.Scenarios
         /// </summary>
         public static IEnumerator SaveWith(Step<string> step, Func<JObject, string> change)
         {
-            if (!patched)
-            {
-                new Harmony("dvmp.scenarios.save-edits").Patch(
-                    AccessTools.Method(typeof(NetworkedSaveGameManager), nameof(NetworkedSaveGameManager.Server_UpdateInternalData)),
-                    postfix: new HarmonyMethod(AccessTools.Method(typeof(SaveEdits), nameof(AfterSave))));
-                patched = true;
-            }
+            Patch();
             edit = change;
             result = "";
             yield return Saves.Manual();
@@ -34,8 +32,51 @@ namespace Dvmp.Scenarios
             step.Result = result;
         }
 
+        /// <summary>
+        /// Host: a manual save without these cars (by GUID) in vanilla's car data, once, as a car
+        /// that didn't load would leave it (a removed car mod); what the mod saved still names them.
+        /// Result: how many were taken out.
+        /// </summary>
+        [Step]
+        public static IEnumerator SaveWithoutCars(Step<int> step, string[] carGuids)
+        {
+            Patch();
+            carsGone = carGuids;
+            result = "";
+            yield return Saves.Manual();
+            carsGone = null;
+            step.Result = int.TryParse(result, out int n) ? n : 0;
+        }
+
+        private static void Patch()
+        {
+            if (patched)
+                return;
+            new Harmony("dvmp.scenarios.save-edits").Patch(
+                AccessTools.Method(typeof(NetworkedSaveGameManager), nameof(NetworkedSaveGameManager.Server_UpdateInternalData)),
+                postfix: new HarmonyMethod(AccessTools.Method(typeof(SaveEdits), nameof(AfterSave))));
+            patched = true;
+        }
+
+        // Vanilla has written its cars by the time the mod's postfix runs (SaveGameManager.UpdateInternalData).
         private static void AfterSave(SaveGameData data)
         {
+            if (carsGone != null)
+            {
+                JObject cars = data.GetJObject(SaveGameKeys.Cars);
+                int removed = 0;
+                if (cars?["carsData"] is JArray all)
+                    foreach (JToken car in all.ToArray())
+                        if (Array.IndexOf(carsGone, (string)car["carGuid"]) >= 0)
+                        {
+                            car.Remove();
+                            removed++;
+                        }
+                if (cars != null)
+                    data.SetJObject(SaveGameKeys.Cars, cars);
+                result = removed.ToString();
+                carsGone = null;
+            }
             if (edit == null)
                 return;
             JObject root = data.GetJObject("Multiplayer") ?? new JObject();
