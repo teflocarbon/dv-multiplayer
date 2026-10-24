@@ -75,10 +75,12 @@ namespace Dvmp.Scenarios
         [Step]
         public static Abs Position(ushort netId) => Positions.Of(Find(netId).transform.position);
 
-        /// <summary>Which of these items this game has.</summary>
+        /// <summary>Which of these items this game has: as an object, or as a stand-in in a client's inventory (D14).</summary>
         [Step]
         public static ushort[] Existing(ushort[] ids) =>
-            Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId)).Select(i => i.NetId).ToArray();
+            Dev.All<NetworkedItem>().Where(i => i != null && ids.Contains(i.NetId)).Select(i => i.NetId)
+                .Concat(Multiplayer.Shared.Items.Inventory.InventoryStandIn.All.Where(s => ids.Contains(s.NetId)).Select(s => s.NetId))
+                .Distinct().ToArray();
 
         /// <summary>Host: destroys the items. Result: those still there 30 frames later.</summary>
         [Step]
