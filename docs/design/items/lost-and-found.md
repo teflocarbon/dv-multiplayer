@@ -15,7 +15,8 @@ The server keeps a Lost and Found for every player. **An owned item goes to its 
 Found; an unowned item never does,** except a job booklet, kept for the player it was issued to
 ([below](#job-papers)). Owned means the ledger has an owner for it: vanilla's `BelongsToPlayer`
 flips in the dumpster, the shop and a withdrawal, so nothing decides on it. Whose Lost and Found an
-item goes to is its keeper (`LiveItems.KeeperOf`): its owner, or a booklet's issued player.
+item goes to is its keeper (`LiveItems.KeeperOf`): its owner, or a booklet's issued player. A binned
+item is never collected: it is going, its binner's choice ([vanilla-storage.md](vanilla-storage.md#bins)).
 
 ## Ways in
 

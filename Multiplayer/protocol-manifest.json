@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.25-dev.1041+a55d900a95efcec373665fd51f342f1208c5a4a9",
-  "Fingerprint": "a8062881accc512c6a8c8ec0ed2a56fe1859893e7e5e29d845b68625936467a1",
+  "BuildVersion": "2026.10.25-dev.1051+33cf548094fe91b9d60c0de4686ece202c610530",
+  "Fingerprint": "da89fa2c4672fa153a61bea983d7bad5d4c594203b203a134fa8b6acea71d00b",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1320,7 +1320,8 @@
       "SlotMoved": 29,
       "WentLive": 30,
       "LoadedIntoMagazine": 31,
-      "UnloadedFromMagazine": 32
+      "UnloadedFromMagazine": 32,
+      "BinRefused": 33
     },
     "Multiplayer.Core.Items.ChangeCauses.ItemRemovalReason": {
       "Unknown": 0,
@@ -1335,7 +1336,8 @@
       "DestroyedFromInventory": 9,
       "LeftInterest": 10,
       "WentCold": 11,
-      "RemadeFresh": 12
+      "RemadeFresh": 12,
+      "Discarded": 13
     },
     "Multiplayer.Core.Items.Ledger.ItemRelation": {
       "Nobodys": 0,

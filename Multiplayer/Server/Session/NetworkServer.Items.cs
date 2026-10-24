@@ -63,6 +63,11 @@ public partial class NetworkServer : IItemServer
     }
 
 
+    bool IItemServer.AllowsRespawnOrDestroy(NetworkedItem item, RespawnOnDrop respawner) =>
+        Items.VanillaStorage.Binning.AllowsRespawnOrDestroy(item, respawner);
+
+    void IItemServer.BeforeRespawnOrDestroyStep(NetworkedItem item) => Items.VanillaStorage.Binning.BeforeRespawnOrDestroyStep(item);
+
     IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);
 
     INetworkedItemServerPart IItemServer.CreateItemPart(NetworkedItem item) => new NetworkedItemServerPart(item);

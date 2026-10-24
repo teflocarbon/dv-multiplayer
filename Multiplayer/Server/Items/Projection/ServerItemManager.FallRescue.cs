@@ -109,6 +109,19 @@ internal sealed partial class ServerItemManager
         else
             target = new Vector3(fallenAt.x, surfaceAbsoluteY + 0.5f, fallenAt.z);
 
+        PutAt(item, record, target, ItemChangeLog.Move(ItemMoveReason.RescuedFromBelowMap,
+            detail: $"from {fallenAt} to {target}, {source}"));
+    }
+
+    /// <summary>
+    /// Host: puts a world item at a position (absolute), at rest, and tells everyone who has it now
+    /// rather than waiting for the convergence pass: a fall rescue, a refused bin (OI-VAN-02).
+    /// </summary>
+    internal void PutAt(NetworkedItem item, LiveItems.LiveItem record, Vector3 target, ChangeCause<ItemMoveReason> moved)
+    {
+        // Whoever threw it no longer has its physics.
+        if (shell.HasActiveSpatialState(item.NetId))
+            HostSpatial.RevokeLease(item.NetId, "put-by-server");
         Rigidbody rb = item.Item.ItemRigidbody;
         if (rb != null)
         {
@@ -119,10 +132,7 @@ internal sealed partial class ServerItemManager
         item.transform.position = target + WorldMover.currentMove;
         record.Position = target;
         record.Rotation = item.transform.rotation;
-
-        ChangeCause<ItemMoveReason> rescued = ItemChangeLog.Move(ItemMoveReason.RescuedFromBelowMap,
-            detail: $"from {fallenAt} to {target}, {source}");
-        ItemChangeLog.RecordMove(item, record, rescued);
+        ItemChangeLog.RecordMove(item, record, moved);
         RefreshHostWorldItem(item);
 
         // Tell everyone who has it now rather than waiting for the convergence pass.
@@ -132,7 +142,7 @@ internal sealed partial class ServerItemManager
                 continue;
             if (TryCreateConvergenceSnapshot(item, out ItemUpdate snapshot))
             {
-                snapshot.MoveCause = rescued;
+                snapshot.MoveCause = moved;
                 NetworkServer.Instance.SendItemUpdate(snapshot, sendToPlayer: player);
             }
         }

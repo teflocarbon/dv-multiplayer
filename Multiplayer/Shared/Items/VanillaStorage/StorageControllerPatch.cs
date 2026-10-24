@@ -80,16 +80,15 @@ internal static class StorageControllerAddLostItemPatch
     [HarmonyPrefix]
     private static bool Prefix(ItemBase item)
     {
-        if (!MultiplayerStoragePatchGuard.IsManaged(item, out NetworkedItem networked))
+        if (!MultiplayerStoragePatchGuard.Active)
             return true;
 
-        // Vanilla calls this method from several local presentation/recovery paths, including
-        // contact with the physical Lost and Found shed. None of those process-local calls are
-        // allowed to become multiplayer authority. Explicit host recovery callers must invoke
-        // LostAndFoundServer.Collect with a stable reason after validating policy.
+        // Vanilla calls this from its own paths (a respawn, a shelf, a snap point, a cleared
+        // container, a gadget's load, a shop): none may put any item in its list in multiplayer,
+        // owned or not (OI-VAN-06). Lost and Found is the server's: LostAndFoundServer.Collect.
         global::Multiplayer.Multiplayer.LogDebug(() =>
-            $"Suppressed vanilla Lost and Found insertion for managed item {networked.NetId} " +
-            $"({item.name})");
+            $"Suppressed vanilla Lost and Found insertion for {(item != null ? item.name : "null")}" +
+            (NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem networked) && networked != null ? $" (netId {networked.NetId})" : ""));
         return false;
     }
 }

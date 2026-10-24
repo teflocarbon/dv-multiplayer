@@ -186,6 +186,9 @@ public static class LostAndFoundServer
             if (item.NetId == 0 || !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority))
                 continue;
             seen.Add(item.NetId);
+            // A binned item is going, its binner's choice (OI-VAN-02), not lost.
+            if (VanillaStorage.Binning.IsBinned(item.NetId))
+                continue;
             LostItemCandidate candidate = BuildCandidate(item, authority, now);
             LostItemDecision initial = Evaluate(candidate);
             if (initial.Kind is LostItemDecisionKind.Ineligible or LostItemDecisionKind.Protected)
