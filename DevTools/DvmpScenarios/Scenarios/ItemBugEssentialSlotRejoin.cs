@@ -170,8 +170,9 @@ namespace Dvmp.Scenarios
                     if (essential && slot < 0)
                         failures.Add($"essential {Name(n.gameObject)} {n.NetId} is in no slot: {state}, active {n.gameObject.activeInHierarchy}, claim {n.InventoryClaimSlot}");
                 }
-                // Stored items on a client are stand-ins (D14): each in one slot, and no object besides.
-                var standIns = InventoryStandIn.All.Where(s => s.Relation == ItemRelation.Mine).ToList();
+                // Stored items on a client are stand-ins (D14): each in one slot, and no object besides (a
+                // silhouette is a stand-in too, its item's object elsewhere).
+                var standIns = InventoryStandIn.All.Where(s => s.Relation == ItemRelation.Mine && !InventorySilhouettes.IsSilhouette(s)).ToList();
                 foreach (var s in standIns)
                 {
                     int slot = inv.IndexOf(s.gameObject);

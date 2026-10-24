@@ -12,8 +12,10 @@ using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Essentials;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -25,7 +27,7 @@ namespace Multiplayer.Server.Chat;
 
 /// <summary>
 /// Items an admin gives a player (/give, /restore in ChatManager), for one who lost theirs, e.g. to
-/// a crash. Each item goes straight into the player's inventory, owned by them, the way a saved
+/// a crash. Each item goes straight into the player's inventory as a row, owned by them, the way a saved
 /// inventory comes back at login, so it's theirs to recall and find in Lost and Found. Only if
 /// that's refused is it left at their feet.
 ///
@@ -89,13 +91,21 @@ internal static class AdminItemGrants
         return prefabs;
     }
 
-    /// <summary>Spawns the items at the player's feet, owned by them, half a second apart.</summary>
+    /// <summary>
+    /// Gives the items, owned by them, half a second apart: each into a free slot as a row (D14),
+    /// or at their feet once their inventory is full.
+    /// </summary>
     public static IEnumerator Spawn(ServerPlayer player, IReadOnlyList<InventoryItemSpec> specs)
     {
         foreach (InventoryItemSpec spec in specs)
         {
             if (player == null || player.Peer == null)
                 yield break;
+            if (player.Guid != Guid.Empty && GiveAsRow(player, spec))
+            {
+                yield return new WaitForSeconds(0.5f);
+                continue;
+            }
             // A little in front of them, off the ground, so it settles beside them.
             Quaternion facing = Quaternion.Euler(0f, player.WorldRotationY, 0f);
             Vector3 at = player.WorldPosition + facing * new Vector3(0f, 0.6f, 0.8f);
@@ -121,44 +131,34 @@ internal static class AdminItemGrants
                 continue;
             }
             LiveItems.LiveItem record = LiveItems.Ensure(networked);
-            // Owned by its target, born Granted (OI-ID-13), before it moves.
+            // Owned by its target, born Granted (OI-ID-13).
             string refused = ServerLedger.Own(record, player.Guid, BirthReason.Granted, Guid.Empty, "by an admin command");
             if (refused.Length > 0)
                 Multiplayer.LogWarning($"Couldn't make {player.Username} the owner of {spec.ItemPrefabName}: {refused}");
-            bool inInventory = PutInInventory(player, networked, record);
-            if (!inInventory && record != null)
+            if (record != null)
                 ItemChangeLog.RecordMove(networked, record, ItemChangeLog.Move(ItemMoveReason.Granted, player,
                     "at their feet, owner " + player.Username));
-            Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {networked.NetId}), " +
-                            (inInventory ? "in their inventory" : "at their feet"));
+            Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {networked.NetId}), at their feet");
             yield return new WaitForSeconds(0.5f);
         }
     }
 
-    // As a saved inventory item comes back at the owner's login (WorldItemPersistenceRestore): the
-    // host makes it "in this player's inventory", and their game puts it in a free slot.
-    private static bool PutInInventory(ServerPlayer player, NetworkedItem item, LiveItems.LiveItem record)
+    // Into a free slot as a row, owned by them and born Granted (OI-ID-13), with no object made:
+    // their game draws its stand-in, as a saved inventory comes back at login. False when their
+    // inventory is full.
+    private static bool GiveAsRow(ServerPlayer player, InventoryItemSpec spec)
     {
+        Guid id = Guid.NewGuid();
+        int slot = ServerLedger.FreeSlot(id, player.Guid, -1, player.Guid);
+        if (slot < 0)
+            return false;
+        SavedItemRow row = new() { PersistentItemId = id, PrefabName = spec.ItemPrefabName, OwnerIdentity = player.Guid };
+        LiveItems.LiveItem record = PlayerItems.Issue(player, row, slot,
+            ItemChangeLog.Move(ItemMoveReason.Granted, player, "by an admin command, slot " + slot),
+            made => ServerLedger.Own(made, player.Guid, BirthReason.Granted, Guid.Empty, "by an admin command"));
         if (record == null)
             return false;
-        ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.FullSync);
-        if (snapshot == null)
-            return false;
-        snapshot.ItemState = ItemState.InInventory;
-        snapshot.PlayerId = player.PlayerId;
-        snapshot.PlayerHand = PlayerHand.None;
-        snapshot.AuthorityRevision = record.Revision;
-        if (!LiveItems.TryApplyTransition(item, snapshot, player,
-                ItemTransitionReason.HostLocalState, true, out string rejection,
-                cause: ItemChangeLog.Move(ItemMoveReason.Granted, player, "by an admin command")))
-        {
-            Multiplayer.LogWarning($"Couldn't put {item.name} in {player.Username}'s inventory ({rejection}); leaving it at their feet");
-            return false;
-        }
-        LiveItems.WriteToSnapshot(record, snapshot, ItemTransitionReason.HostLocalState);
-        item.ApplyServerCanonicalSnapshot(snapshot);
-        ServerItemManager.Instance?.RegisterHostWorldItem(item);
-        NetworkServer.Instance.SendItemUpdate(snapshot);
+        Multiplayer.Log($"Gave {player.Username} a {spec.ItemPrefabName} (item {record.NetId}), in their inventory, slot {record.Slot}");
         return true;
     }
 }

@@ -11,6 +11,7 @@ using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.Access;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
+using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.Access;
 using Multiplayer.Server.Items.ChangeCauses;
@@ -21,6 +22,7 @@ using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items.ChangeCauses;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.VanillaStorage;
@@ -324,117 +326,57 @@ public static class ContainerServer
             yield break;
         }
 
-        GameObject instance = null;
-        NetworkedItem item = null;
+        // Into the inventory as a row (D14, OI-COLD-11): the item is kept as data from the start, in
+        // its slot, and the withdrawer's game draws its stand-in. No object is made on the server.
         try
         {
-            GameObject prefab = FindItemSpec(record.PrefabName)?.gameObject;
-            if (prefab == null) throw new InvalidOperationException("withdraw-prefab-not-found");
-            instance = ItemStateText.Instantiate(prefab,
-                StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
-            instance.name = record.PrefabName;
-            InventoryItemSpec spec = instance.GetComponent<InventoryItemSpec>();
-            if (spec != null)
-                spec.BelongsToPlayer = string.Equals(record.PersistentOwnerIdentity,
-                    actor.Guid.ToString("D"), StringComparison.Ordinal);
-            item = instance.GetOrAddComponent<NetworkedItem>();
-            if (WorldItemStableIdentity.IsValid(record.AuthoredItemKey))
-                item.AdoptAuthoredItemKey(record.AuthoredItemKey);
-            item?.BeginColdMaterialization();
-        }
-        catch (Exception exception)
-        {
-            item?.AbortColdMaterialization();
-            if (instance != null) UnityEngine.Object.Destroy(instance);
-            graph.AbortWithdrawal(operationId, exception.Message);
-            Multiplayer.LogException("Cold-container withdrawal preparation failed", exception);
-            completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
-                ContainerOperationStatus.InvalidState, exception.Message, operationId), 0);
-            yield break;
-        }
-
-        // Derail Valley's own StartingItemsController waits one frame after instantiation
-        // before invoking ItemSaveData.LoadItemData. Components such as Lantern populate
-        // dependencies in Awake/Start and throw when state is loaded in the creation frame.
-        yield return null;
-
-        if (actor.PlayerId == 0)
-        {
-            // The withdrawer left while the item woke (owned-items.md, 2a): it stays in the box,
-            // rather than becoming a held item with nobody holding it.
-            item?.AbortColdMaterialization();
-            UnityEngine.Object.Destroy(instance);
-            graph.AbortWithdrawal(operationId, "withdraw-actor-left");
-            completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
-                ContainerOperationStatus.InvalidState, "withdraw-actor-left", operationId), 0);
-            yield break;
-        }
-
-        try
-        {
-            ItemSaveData saveData = instance.GetComponent<ItemSaveData>();
-            if (saveData != null && record.DetachedState?.Length > 0)
-            {
-                JObject state = JObject.Parse(Encoding.UTF8.GetString(record.DetachedState));
-                saveData.LoadItemData(state);
-                saveData.PostLoadItemData();
-            }
-            ItemStateText.FinishContainer(instance);
-            ItemBase itemBase = instance.GetComponent<ItemBase>();
-            if (item == null || itemBase == null || item.NetId == 0)
-                throw new InvalidOperationException("withdraw-authoritative-registration-failed");
-            item.Initialize(itemBase, item.NetId, true);
-            item.FinaliseTrackedValuesAutomatically();
+            if (actor.PlayerId == 0)
+                throw new InvalidOperationException("withdraw-actor-left");
+            if (FindItemSpec(record.PrefabName) == null)
+                throw new InvalidOperationException("withdraw-prefab-not-found");
             ContainerOperationResult materialized = graph.MarkWithdrawalMaterialized(operationId);
             if (!materialized.Accepted)
                 throw new InvalidOperationException("withdraw-materialization-phase-rejected:" +
                     materialized.Reason);
-
-            ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
-            snapshot.ItemState = ItemState.InInventory;
-            snapshot.PlayerId = actor.PlayerId;
-            snapshot.InventoryClaimSlot = destinationInventorySlot;
-            snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
-            // Its stored state brought its id back (ItemIdentityPatch.Load); else the record's,
-            // which is the item's own id.
-            ItemIdentity identity = instance.GetComponent<ItemIdentity>() ??
-                                                   instance.AddComponent<ItemIdentity>();
-            if (identity.Value == Guid.Empty)
-                identity.Value = record.PersistentItemId;
-            if (LiveItems.RegisterMaterializedColdItem(item, actor,
-                    owner, snapshot, identity.Value) == null)
+            SavedItemRow row = ItemSaveLoad.RowOfStored(record);
+            row.OwnerIdentity = owner;
+            int slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, -1, actor.Guid, destinationInventorySlot);
+            if (slot < 0)
+                throw new InvalidOperationException("withdraw-inventory-full");
+            // A scene's own item stays taken from the scene, as the object it was would have.
+            ItemSaveLoad.RecordAuthoredTaken(row);
+            ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, actor,
+                ItemChangeCauses.Detail(ItemChangeLog.Describe(
+                        new ItemWhereabouts(LivePlacement.Container, Guid.Empty, owner),
+                        new ItemWhereabouts(LivePlacement.PlayerInventory, actor.Guid, owner)),
+                    "slot " + slot));
+            LiveItems.LiveItem made = PlayerItems.Issue(actor, row, slot, cause);
+            if (made == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
-            item.ApplyServerCanonicalSnapshot(snapshot);
-            // The item was indexed by its spawn position when it woke, before it had a record;
-            // re-index it as held. Left in that cell, it was never sent to the holder again
-            // (after a rejoin, the withdrawn item was missing from their inventory).
-            ServerItemManager.Instance?.RegisterHostWorldItem(item);
-            if (actor.PlayerId == InventoryIntegration.LocalPlayerId &&
-                !InventoryIntegration.ContainsActive(instance))
-                throw new InvalidOperationException("withdraw-local-inventory-projection-failed");
             ContainerOperationResult committed = graph.CommitWithdrawal(operationId);
             if (!committed.Accepted)
+            {
+                PlayerItems.Unissue(made, "its withdrawal wasn't committed");
                 throw new InvalidOperationException("withdraw-logical-commit-failed:" + committed.Reason);
-            item.CompleteColdMaterialization();
-            PublishMaterializedItem(snapshot, item);
+            }
             Publish("container.withdrawal-committed", 0, committed, new()
             {
-                ["itemNetId"] = item.NetId,
+                ["itemNetId"] = made.NetId,
                 ["sourceSlot"] = sourceSlot,
-                ["destinationInventorySlot"] = destinationInventorySlot,
+                ["destinationInventorySlot"] = slot,
                 ["containerHandle"] = containerHandle
             });
-            completed?.Invoke(committed, item.NetId);
+            completed?.Invoke(committed, made.NetId);
         }
         catch (Exception exception)
         {
-            item?.AbortColdMaterialization();
-            if (instance != null) UnityEngine.Object.Destroy(instance);
             graph.AbortWithdrawal(operationId, exception.Message);
-            Multiplayer.LogException("Cold-container withdrawal failed", exception);
+            if (exception.Message != "withdraw-actor-left")
+                Multiplayer.LogException("Cold-container withdrawal failed", exception);
             completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
                 ContainerOperationStatus.InvalidState, exception.Message, operationId), 0);
         }
+        yield break;
     }
 
     internal static void PublishMaterializedItem(ItemUpdate snapshot, NetworkedItem item)

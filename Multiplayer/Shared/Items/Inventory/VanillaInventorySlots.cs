@@ -112,6 +112,18 @@ internal static class VanillaInventorySlots
         (statusChanged?.GetValue(inventory) as DV.InventorySystem.Inventory.InventoryStatusChangedDelegate)?.Invoke(
             state, action, InventorySlotState.Empty, InventoryActionType.None);
 
+    /// <summary>The slot vanilla keeps this object in, dropped or not, or -1: its own data, not <c>IndexOf</c> (which answers for silhouettes too).</summary>
+    public static int SlotOf(DV.InventorySystem.Inventory inventory, GameObject item)
+    {
+        if (inventory == null || item == null)
+            return -1;
+        InventoryItemData[] slots = inventory.InventoryItems;
+        for (int i = 0; i < slots.Length; i++)
+            if (slots[i] != null && slots[i].item == item)
+                return i;
+        return -1;
+    }
+
     /// <summary>The item vanilla keeps in a slot, dropped or not, or null.</summary>
     public static GameObject At(DV.InventorySystem.Inventory inventory, int slot) =>
         inventory == null || slot < 0 || slot >= inventory.InventoryItems.Length ? null : inventory.InventoryItems[slot]?.item;

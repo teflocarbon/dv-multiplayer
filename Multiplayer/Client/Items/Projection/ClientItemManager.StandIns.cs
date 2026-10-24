@@ -90,17 +90,29 @@ internal sealed partial class ClientItemManager
         // An enabled VR belt slot holds the object itself, as a hand does (OI-COLD-14).
         if (inventory.IsValidVRBeltIndex(update.InventorySlot) && InventoryStandIn.IsBeltSnappablePrefab(prefabName))
             return false;
-        if (NetworkedItem.TryGet(update.ItemNetId, out NetworkedItem item) && item != null)
+        NetworkedItem.TryGet(update.ItemNetId, out NetworkedItem item);
+        bool held = false, refused = false;
+        if (item != null)
         {
             // A loaded magazine stays the object it is, its ammo inside (OI-CON-16).
             if (!InventoryStandIn.CanStandIn(item.gameObject))
                 return false;
-            bool held = inventory.GetEquipSlotForItem(item.gameObject) >= 0 || item.Item?.IsGrabbed() == true;
+            held = inventory.GetEquipSlotForItem(item.gameObject) >= 0 || item.Item?.IsGrabbed() == true;
             // The player holds it: their own request decides, unless this is the server refusing
             // it (a take-out rolled back), which puts it back in its slot.
-            bool refused = rollBack || update.MoveCause?.Reason == Core.Items.ChangeCauses.ItemMoveReason.HostCorrection;
+            refused = rollBack || update.MoveCause?.Reason == Core.Items.ChangeCauses.ItemMoveReason.HostCorrection;
             if (held && !refused)
                 return false;
+        }
+        // Its silhouette goes, as the object's did: the item is placed in its slot below.
+        if (standIn != null && InventorySilhouettes.IsSilhouette(inventory, standIn))
+        {
+            VanillaInventorySlots.Forget(inventory, standIn.gameObject);
+            standIn.Retire();
+            standIn = null;
+        }
+        if (item != null)
+        {
             if (string.IsNullOrEmpty(state))
                 state = ItemStateText.Capture(item.gameObject);
             if (held)
@@ -134,7 +146,9 @@ internal sealed partial class ClientItemManager
     /// </summary>
     internal NetworkedItem LeaveStandIn(ItemUpdate update)
     {
-        if (update == null || !InventoryStandIn.TryGet(update.ItemNetId, out InventoryStandIn standIn))
+        // A silhouette isn't stored: its item is elsewhere, and its object, if any, takes the update.
+        if (update == null || !InventoryStandIn.TryGet(update.ItemNetId, out InventoryStandIn standIn) ||
+            InventorySilhouettes.IsSilhouette(standIn))
             return null;
         VanillaInventorySlots.Forget(DV.InventorySystem.Inventory.Instance, standIn.gameObject);
         NetworkedItem made = null;

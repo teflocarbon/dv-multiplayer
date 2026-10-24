@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.ChangeCauses;
@@ -25,20 +24,18 @@ namespace Multiplayer.Server.Items.Inventory;
 /// (<see cref="PlayerItems.StoreAsData"/>);</item>
 /// <item>a take-out makes the object from its row in that frame, the one object that is both the
 /// server's and the player's, and the host's observed change (ProcessChanged) commits the take;</item>
-/// <item>an object that reaches a slot any other way (the server's own flows, vanilla adding one
-/// directly: a purchase, a reprinted booklet, a starting item) is put away by the sweep once it has
-/// settled, as the server's object of a remote player's item goes.</item>
+/// <item>an object that reaches a slot any other way (the server's own flows: a recall, a Lost and
+/// Found retrieval; vanilla adding one directly: a purchase) is put away once the server has
+/// committed it there (<see cref="Stow"/>, from <see cref="PlayerItems.Stored"/>), as the server's
+/// object of a remote player's item goes;</item>
+/// <item>starting items, grants and withdrawals are made as rows, drawn as stand-ins with no object
+/// (<see cref="Draw"/>).</item>
 /// </list>
 /// A dedicated host has no player and so no row holder.
 /// </summary>
 internal sealed class HostInventory : IInventoryRowHolder
 {
-    // How long an object sits in one of the host's slots, unchanged, before the sweep puts it away.
-    private const float SettleSeconds = 1f;
-
     public static readonly HostInventory Instance = new();
-
-    private static readonly Dictionary<ushort, float> settlingSince = new();
 
     private static ServerPlayer Player => HostItemActor.Player;
 
@@ -49,7 +46,7 @@ internal sealed class HostInventory : IInventoryRowHolder
 
     /// <summary>Whether the host's stand-in holds this item: it's kept as data in the host's own slot.</summary>
     public static bool Holds(ushort netId) =>
-        Instance.Active && InventoryStandIn.TryGet(netId, out _) &&
+        Instance.Active && InventoryStandIn.TryGet(netId, out InventoryStandIn standIn) && !InventorySilhouettes.IsSilhouette(standIn) &&
         LiveItems.TryGet(netId, out LiveItems.LiveItem record) && record.Holder == Player.Guid;
 
     public bool PutsAwayAsStandIn(NetworkedItem item) =>
@@ -71,7 +68,6 @@ internal sealed class HostInventory : IInventoryRowHolder
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         ServerPlayer host = Player;
         int slot = inventory.IndexOf(standIn.gameObject);
-        settlingSince.Remove(item.NetId);
         if (host == null || slot < 0 || !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
         {
             Undo(inventory, item, standIn, "no record or slot");
@@ -133,8 +129,8 @@ internal sealed class HostInventory : IInventoryRowHolder
     /// <summary>
     /// The object of an item the host's stand-in holds, made from its row in this frame and put in
     /// the stand-in's place, parked as vanilla parks a stashed item; the stand-in goes. Vanilla (a
-    /// take-out) or a request then acts on it, and one left in its slot is put away again by the
-    /// sweep. Null if it couldn't be made (the stand-in stays).
+    /// take-out) or a request then acts on it, and one left in its slot is put away again a moment
+    /// later (PlayerItems.WithObject). Null if it couldn't be made (the stand-in stays).
     /// </summary>
     internal static NetworkedItem MakeInSlot(ushort netId, string reason)
     {
@@ -147,7 +143,6 @@ internal sealed class HostInventory : IInventoryRowHolder
             return null;
         inventory.FinalizeRemoveItemFromWorld(item.gameObject);
         VanillaInventorySlots.Rebind(inventory, standIn.gameObject, item.gameObject);
-        settlingSince.Remove(netId);
         NetworkedItemManager.TraceItem("item.taken-out-of-stand-in", item, new()
         {
             ["reason"] = reason ?? string.Empty,
@@ -166,7 +161,10 @@ internal sealed class HostInventory : IInventoryRowHolder
         CommitPutAway(item, standIn);
     }
 
-    /// <summary>The host's join: a row taken up as data is drawn as its stand-in in its slot.</summary>
+    /// <summary>
+    /// A row the server keeps as data in one of the host's slots (the host's join, a starting item,
+    /// a grant, a withdrawal) is drawn as its stand-in there.
+    /// </summary>
     internal static void Draw(ItemUpdate row, string state)
     {
         InventoryStandIn standIn = InventoryStandIn.For(row.ItemNetId, row.PrefabName);
@@ -179,44 +177,27 @@ internal sealed class HostInventory : IInventoryRowHolder
     }
 
     /// <summary>
-    /// Host, from the data-only scan: any object of the host's own player's in one of its slots
-    /// (not a silhouette, not on an enabled VR belt slot) that the server has there, and that has
-    /// sat there a second, is put away as a stand-in.
+    /// The server has committed an object of the host's own player's into one of its slots (from
+    /// <see cref="PlayerItems.Stored"/>): once vanilla has it there, it's put away as a stand-in.
+    /// Not a silhouette, nor on an enabled VR belt slot (OI-COLD-14), nor anything that stays an
+    /// object (<see cref="PutsAwayAsStandIn"/>). False to look again next frame: vanilla hasn't
+    /// added it to that slot yet.
     /// </summary>
-    internal static void Sweep(float now)
+    internal static bool Stow(NetworkedItem item, LiveItems.LiveItem record)
     {
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         ServerPlayer host = Player;
         if (!Instance.Active || host == null)
-        {
-            settlingSince.Clear();
-            return;
-        }
-        HashSet<ushort> seen = new();
-        for (int slot = 0; slot < inventory.InventoryItems.Length; slot++)
-        {
-            GameObject gameObject = VanillaInventorySlots.At(inventory, slot);
-            if (gameObject == null || InventoryStandIn.Is(gameObject) || inventory.GetSlotDroppedState(slot) ||
-                !gameObject.TryGetComponent(out NetworkedItem item) || item.Item == null ||
-                inventory.IsValidVRBeltIndex(slot) && item.Item.IsBeltSnappable || !Instance.PutsAwayAsStandIn(item) ||
-                !LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) ||
-                record.Placement != ItemPlacementKind.PlayerInventory || record.Holder != host.Guid || record.Slot != slot)
-                continue;
-            seen.Add(item.NetId);
-            if (!settlingSince.TryGetValue(item.NetId, out float since))
-            {
-                settlingSince[item.NetId] = now;
-                continue;
-            }
-            if (now - since < SettleSeconds)
-                continue;
-            settlingSince.Remove(item.NetId);
-            Instance.StowWithoutRequest(item);
-        }
-        foreach (ushort gone in new List<ushort>(settlingSince.Keys))
-            if (!seen.Contains(gone))
-                settlingSince.Remove(gone);
+            return inventory != null;
+        if (record.Holder != host.Guid || record.Slot < 0 || !Instance.PutsAwayAsStandIn(item))
+            return true;
+        if (VanillaInventorySlots.At(inventory, record.Slot) != item.gameObject)
+            return false;
+        if (inventory.GetSlotDroppedState(record.Slot) ||
+            inventory.IsValidVRBeltIndex(record.Slot) && item.Item.IsBeltSnappable ||
+            inventory.GetEquipSlotForItem(item.gameObject) >= 0)
+            return true;
+        Instance.StowWithoutRequest(item);
+        return true;
     }
-
-    internal static void Clear() => settlingSince.Clear();
 }
