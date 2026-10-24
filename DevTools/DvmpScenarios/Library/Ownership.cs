@@ -134,14 +134,12 @@ namespace Dvmp.Scenarios
             for (int i = 0; i < 30; i++) yield return null;
         }
 
-        /// <summary>Host: how many items in Lost and Found an owner has (by identity), bound or still waiting.</summary>
+        /// <summary>Host: how many items in Lost and Found an owner has (by identity).</summary>
         [Step]
         public static int LostCount(string owner)
         {
             if (!Guid.TryParse(owner, out Guid who)) return -1;
-            int bound = LiveItems.GetAll().Count(r => r.Placement == ItemPlacementKind.LostAndFound && r.Owner == who);
-            int waiting = LostAndFoundServer.PendingEntries().Count(p => p.Owner == who);
-            return bound + waiting;
+            return LiveItems.GetAll().Count(r => r.Placement == ItemPlacementKind.LostAndFound && r.Owner == who);
         }
 
         /// <summary>Host: how many players other than the host's own are connected (a killed client

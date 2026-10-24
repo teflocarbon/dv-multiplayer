@@ -1,88 +1,277 @@
 using DV.CabControls;
-using DV.InventorySystem;
+using DV.ThingTypes;
+using Multiplayer.Core.Items.Containers;
+using Multiplayer.Core.Items.Inventory;
+using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Core.Items.LostAndFound;
+using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
+using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
-using Multiplayer.Server.Session;
+using Multiplayer.Server.Items.LostAndFound;
+using Multiplayer.Server.Players;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.WorldItems;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Server.Items.SaveLoad;
 
+/// <summary>
+/// The save (docs/design/items/save-load.md, "The key"): every item in one pass, read from the
+/// ledger and live state together. An owned item's owner, home and claim are its ledger entry; its
+/// state is one row, wherever its copy is (an object, a cold row, a container's row, Lost and
+/// Found's object). Then vanilla's lists, written as a mirror from the same rows (D2).
+/// </summary>
 internal static partial class ItemSaveLoad
 {
-    public static void WriteSave(JObject multiplayerRoot)
+    public static void WriteSave(JObject multiplayerRoot, SaveGameData data)
     {
         if (multiplayerRoot == null || NetworkLifecycle.Instance?.IsHost() != true)
             return;
-
-        TryImport();
-        if (!importAttempted)
+        // Before the load, the save's own key stays as it was.
+        if (!loaded)
             return;
-
-        JArray records = new();
-        foreach (LiveItems.LiveItem record in RecordsRequiringPersistence())
+        if (newerKey != null)
         {
-            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item?.Item == null)
-                continue;
-
-            records.Add(RowOf(record, item).ToJson());
+            multiplayerRoot[ItemsSaveCodec.Key] = newerKey.DeepClone();
+            return;
         }
-        // Offline players' inventories, kept as data (D12): saved as they were when they went cold.
-        foreach (SavedItemRow row in ColdInventories.All())
-            records.Add(row.ToJson());
 
-        foreach (JObject tombstone in destroyedAuthoredRecords)
-            records.Add(tombstone.DeepClone());
+        PromoteSceneItemsInInventories();
+        SaveContext context = new();
+        WriteOwned(context);
+        WriteUnowned(context);
+        foreach (ContainerRecord container in ContainerServer.Graph.ExportSnapshot().Containers)
+            context.Items.Containers.Add(ItemsSaveCodec.WriteContainer(container));
+        context.Items.Containers.AddRange(kept.Containers.Select(row => row.DeepClone()));
+        context.Items.UnreadableLedger.AddRange(kept.Ledger.Select(row => row.DeepClone()));
+        foreach (KeyValuePair<string, JToken> state in kept.States)
+            context.Items.UnreadableStates[state.Key] = state.Value.DeepClone();
+        context.Items.UnreadableLostAndFound.AddRange(kept.LostAndFound.Select(row => row.DeepClone()));
+        context.Items.StarterKits.AddRange(ServerLedger.Ledger.StarterKitsGiven);
 
-        multiplayerRoot[SaveKey] = records;
+        multiplayerRoot[ItemsSaveCodec.Key] = ItemsSaveCodec.Write(context.Items);
+        // Not written again (D1).
+        foreach (string old in ItemsSaveCodec.OldKeys)
+            multiplayerRoot.Remove(old);
+        WriteVanillaMirror(data, context);
     }
 
-    private static System.Collections.Generic.IEnumerable<LiveItems.LiveItem>
-        RecordsRequiringPersistence() =>
-        LiveItems.GetAll().Where(record =>
-            ShouldPersist(record) || NetworkedItemManager.Instance?.HasActiveSpatialState(record.NetId) == true);
+    private sealed class SaveContext
+    {
+        public ItemsSave Items { get; } = new();
+        /// <summary>Slots given to items saved from a hand, so two hands' items don't share one.</summary>
+        public HashSet<(Guid Holder, int Slot)> HandSlots { get; } = new();
+        /// <summary>The host's own player's inventory, slot by slot, for vanilla's mirror.</summary>
+        public List<StorageItemData> Mirror { get; } = new();
+        public Guid MirrorHolder { get; } = NetworkLifecycle.Instance?.IsDedicatedHost == true ? Guid.Empty : PlayerIdentity.Local;
+    }
+
+    // An owned item: its entry, its state under its id, and its Lost and Found row.
+    private static void WriteOwned(SaveContext context)
+    {
+        ItemsSave items = context.Items;
+        Dictionary<Guid, (LiveItems.LiveItem Record, NetworkedItem Item)> live = LiveCopies();
+        Dictionary<Guid, StoredItemRecord> stored = ContainerServer.Graph.ExportSnapshot().Items
+            .Where(row => row.PersistentItemId != Guid.Empty)
+            .GroupBy(row => row.PersistentItemId).ToDictionary(group => group.Key, group => group.First());
+        int noState = 0;
+        foreach (LedgerEntry entry in ServerLedger.Ledger.All())
+        {
+            if (!entry.IsLive)
+            {
+                items.Ledger.Add(entry);
+                continue;
+            }
+            if (entry.Home.Kind == HomeKind.Unloadable)
+            {
+                if (keptOwned.TryGetValue(entry.Id, out KeptItem keptItem))
+                {
+                    items.Ledger.Add(entry);
+                    items.LedgerRows[entry.Id] = (JObject)keptItem.Ledger.DeepClone();
+                    if (keptItem.State != null)
+                        items.States[entry.Id] = (JObject)keptItem.State.DeepClone();
+                    if (keptItem.LostAndFound != null)
+                        items.LostAndFound[entry.Id] = (JObject)keptItem.LostAndFound.DeepClone();
+                }
+                continue;
+            }
+
+            SavedItemRow row = OwnedRow(entry.Id, live, stored);
+            LedgerEntry saved = entry;
+            LostItemRecord lost = null;
+            if (entry.Home.Kind == HomeKind.Hand)
+            {
+                // Never saved in a hand: in a free slot of the holder's, or their Lost and Found.
+                int slot = SaveSlot(entry.Id, entry.Owner, entry.ClaimSlot, entry.Home.Holder, context);
+                saved = WithHome(entry, slot >= 0 ? Home.InSlot(entry.Home.Holder, slot) : Home.LostAndFound);
+                if (slot < 0)
+                    lost = new LostItemRecord { PersistentItemId = entry.Id, Reason = LostItemReason.InventoryOverflow, LostUtcTicks = DateTime.UtcNow.Ticks };
+            }
+            items.Ledger.Add(saved);
+            // An installed gadget's state is vanilla's installed storage's.
+            if (entry.Home.Kind == HomeKind.Installed)
+                continue;
+            if (row == null)
+            {
+                noState++;
+                Multiplayer.LogWarning($"Items: {entry.Prefab} ({entry.Id:D}) is {entry.Home} but has no copy to save; " +
+                                       "it is made fresh in Lost and Found at the next load");
+                continue;
+            }
+            items.States[entry.Id] = row.ToJson(owned: true);
+            if (saved.Home.Kind == HomeKind.LostAndFound &&
+                (lost != null || LostAndFoundServer.TryGetEntry(entry.Id, out lost)))
+                items.LostAndFound[entry.Id] = ItemsSaveCodec.WriteLost(lost);
+            if (saved.Home.Kind == HomeKind.Slot && saved.Home.Holder == context.MirrorHolder)
+                context.Mirror.Add(MirrorItem(row, saved.Home.Slot, owned: true));
+        }
+        if (noState > 0)
+            Multiplayer.LogError($"Items: {noState} owned item(s) had no copy to save");
+    }
+
+    // Each unowned item worth keeping: one a player carries, a player's item lying about, a scene
+    // item moved from where the scene has it (an override) or gone (a tombstone).
+    private static void WriteUnowned(SaveContext context)
+    {
+        ItemsSave items = context.Items;
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll().ToArray())
+        {
+            if (record.PersistentItemId != Guid.Empty && ServerLedger.Ledger.IsLive(record.PersistentItemId))
+                continue;
+            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item?.Item == null ||
+                PlayerItems.IsDataOnly(record))
+                continue;
+            if (WorldItemStableIdentity.IsValid(record.AuthoredItemKey))
+            {
+                if (AuthoredMoved(record))
+                    items.Authored.Add(RowOf(record, item).ToJson(owned: false));
+                continue;
+            }
+            if (!ShouldPersistUnowned(record, item))
+                continue;
+            SavedItemRow row = RowOf(record, item);
+            if (row.Placement == ItemPlacementKind.PlayerHand)
+            {
+                int slot = SaveSlot(record.PersistentItemId, OwnerRef.None, -1, record.Holder, context);
+                if (slot < 0)
+                {
+                    // No slot for it: saved where it was taken from, the world at the holder's feet.
+                    row.Placement = ItemPlacementKind.World;
+                    row.PlacementPlayerIdentity = Guid.Empty;
+                }
+                else
+                {
+                    row.Placement = ItemPlacementKind.PlayerInventory;
+                    row.Slot = slot;
+                }
+            }
+            items.Unowned.Add(row.ToJson(owned: false));
+            if (row.Placement == ItemPlacementKind.PlayerInventory && row.PlacementPlayerIdentity == context.MirrorHolder)
+                context.Mirror.Add(MirrorItem(row, row.Slot, owned: false));
+        }
+        // An offline player's unowned items, kept as data (D12).
+        foreach (SavedItemRow row in ColdInventories.All())
+            if (!ServerLedger.Ledger.IsLive(row.PersistentItemId))
+                items.Unowned.Add(row.ToJson(owned: false));
+        // A container's items the ledger doesn't hold: their container is their home.
+        foreach (StoredItemRecord stored in ContainerServer.Graph.ExportSnapshot().Items)
+            if (!ServerLedger.Ledger.IsLive(stored.PersistentItemId))
+            {
+                SavedItemRow row = RowOfStored(stored);
+                row.Placement = ItemPlacementKind.Container;
+                row.ContainerId = stored.ParentContainerId;
+                row.Slot = stored.Slot;
+                items.Unowned.Add(row.ToJson(owned: false));
+            }
+        items.Unowned.AddRange(kept.Unowned.Select(row => row.DeepClone()));
+        items.Authored.AddRange(destroyedAuthoredRecords.Select(row => row.DeepClone()));
+        items.Authored.AddRange(kept.Authored.Select(row => row.DeepClone()));
+    }
+
+    private static Dictionary<Guid, (LiveItems.LiveItem, NetworkedItem)> LiveCopies()
+    {
+        Dictionary<Guid, (LiveItems.LiveItem, NetworkedItem)> live = new();
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
+            if (record.PersistentItemId != Guid.Empty && record.Placement is not ItemPlacementKind.Destroyed and not ItemPlacementKind.Container &&
+                NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item?.Item != null && !PlayerItems.IsDataOnly(record))
+                live[record.PersistentItemId] = (record, item);
+        return live;
+    }
+
+    // An owned item's one copy: its object (Lost and Found's included), else a cold row, else a container's row.
+    private static SavedItemRow OwnedRow(Guid id, Dictionary<Guid, (LiveItems.LiveItem Record, NetworkedItem Item)> live,
+        Dictionary<Guid, StoredItemRecord> stored)
+    {
+        if (ColdInventories.TryGet(id, out SavedItemRow cold))
+            return cold;
+        if (live.TryGetValue(id, out (LiveItems.LiveItem Record, NetworkedItem Item) copy))
+            return RowOf(copy.Record, copy.Item);
+        return stored.TryGetValue(id, out StoredItemRecord record) ? RowOfStored(record) : null;
+    }
 
     /// <summary>The item's saved row: its record, and its state from the object.</summary>
     internal static SavedItemRow RowOf(LiveItems.LiveItem record, NetworkedItem item)
     {
         ItemSpatialStateData checkpoint = null;
         NetworkedItemManager.Instance?.TryGetLatestSpatialState(record.NetId, out checkpoint);
-        SpatialCheckpoint spatial = SpatialCheckpoint.From(record, checkpoint);
-
+        ItemWorldParentKind parentKind = checkpoint?.WorldParentKind ?? record.WorldParentKind;
+        ItemPlacementKind placement = checkpoint == null ? record.Placement : parentKind switch
+        {
+            ItemWorldParentKind.TrainInterior => ItemPlacementKind.TrainInterior,
+            ItemWorldParentKind.StaticParent => ItemPlacementKind.StaticParent,
+            _ => ItemPlacementKind.World
+        };
         return new SavedItemRow
         {
             PersistentItemId = record.PersistentItemId,
             AuthoredItemKey = record.AuthoredItemKey,
             PrefabName = record.PrefabName,
+            DisplayName = item.Item?.InventorySpecs?.LocalizedName ?? string.Empty,
             Revision = record.Revision,
             HasPersistentOverride = record.HasPersistentOverride || checkpoint != null,
             IsReplenishableStockFork = record.IsReplenishableStockFork,
-            // An item in a player's hand when the host saves goes back into their inventory.
-            Placement = spatial.Placement == ItemPlacementKind.PlayerHand && IsPlayerPossession(record)
-                ? ItemPlacementKind.PlayerInventory : spatial.Placement,
+            Placement = placement,
             OwnerIdentity = record.Owner,
             PlacementPlayerIdentity = record.Holder,
             ClaimSlot = record.InventoryClaimSlot,
             Slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.Slot : -1,
             ClaimFlags = record.InventoryClaimFlags,
-            WorldParentKind = spatial.ParentKind,
-            WorldParentNetId = spatial.ParentNetId,
-            WorldParentKey = spatial.ParentKey,
+            WorldParentKind = parentKind,
+            WorldParentNetId = checkpoint?.WorldParentNetId ?? record.WorldParentNetId,
+            WorldParentKey = checkpoint?.WorldParentKey ?? record.WorldParentKey ?? string.Empty,
             WorldParentPersistentId = record.WorldParentPersistentId,
             AttachedCarPersistentId = record.AttachedCarPersistentId,
             AttachedFront = record.AttachedFront,
-            ParentLocalPosition = spatial.ParentLocalPosition,
-            ParentLocalRotation = spatial.ParentLocalRotation,
-            Position = spatial.Position,
-            Rotation = spatial.Rotation,
+            ParentLocalPosition = checkpoint?.ParentLocalPosition ?? record.ParentLocalPosition,
+            ParentLocalRotation = checkpoint?.ParentLocalRotation ?? record.ParentLocalRotation,
+            Position = checkpoint?.AbsolutePosition ?? record.Position,
+            Rotation = checkpoint?.Rotation ?? record.Rotation,
+            ChildContainerId = item.GetComponent<ContainerIdentity>()?.PersistentId ?? Guid.Empty,
             State = TrySaveItemState(record.NetId, item)
         };
+    }
+
+    private static SavedItemRow RowOfStored(StoredItemRecord stored)
+    {
+        SavedItemRow row = new()
+        {
+            PersistentItemId = stored.PersistentItemId,
+            AuthoredItemKey = stored.AuthoredItemKey ?? string.Empty,
+            PrefabName = stored.PrefabName,
+            DisplayName = stored.DisplayName ?? string.Empty,
+            Placement = ItemPlacementKind.Container,
+            ChildContainerId = stored.ChildContainerId ?? Guid.Empty,
+            StateVersion = stored.StateVersion
+        };
+        row.TakeDetachedState(stored.DetachedState);
+        return row;
     }
 
     private static JObject TrySaveItemState(ushort netId, NetworkedItem item)
@@ -93,99 +282,81 @@ internal static partial class ItemSaveLoad
         }
         catch (Exception ex)
         {
-            Multiplayer.LogWarning($"World item state save failed for {netId}: {ex.Message}\r\n{ex.StackTrace}");
+            Multiplayer.LogWarning($"Item state save failed for {netId}: {ex.Message}\r\n{ex.StackTrace}");
             return null;
         }
     }
 
-    /// <summary>
-    /// Job overviews and booklets belong to DV's job system, which saves jobs and recreates their
-    /// paperwork on load. Persisting them as world items as well restored a dead copy of every
-    /// board overview on each load, piling stacked duplicates onto the job boards.
-    /// </summary>
-    internal static bool IsJobSystemDocument(string prefabName) =>
-        prefabName is "JobOverview" or "JobBooklet";
-
-    /// <summary>
-    /// An item in a player's inventory or hand, connected or not, the host's own player included:
-    /// every player's possessions are saved by their GUID (PerPlayerSaveFormat). Restored, it waits
-    /// for that player to connect and goes back into their inventory, wherever the server runs.
-    /// </summary>
-    internal static bool IsPlayerPossession(LiveItems.LiveItem record) =>
-        record?.Placement is ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand &&
-        record.Holder != Guid.Empty;
-
-    private static bool ShouldPersist(LiveItems.LiveItem record)
+    // A player's item lying about is saved; any other unowned one comes back from its source each
+    // load (the paint station's spray can), so saving it added a copy every load. Whatever a player
+    // carries is saved with them, as vanilla's inventory keeps everything in it.
+    private static bool ShouldPersistUnowned(LiveItems.LiveItem record, NetworkedItem item)
     {
-        if (record == null || record.Placement is ItemPlacementKind.Container or
-            ItemPlacementKind.LostAndFound or ItemPlacementKind.Installed or ItemPlacementKind.Destroyed)
+        if (record.PersistentItemId == Guid.Empty || IsJobSystemDocument(record.PrefabName))
             return false;
-        if (IsJobSystemDocument(record.PrefabName))
-            return false;
-
-        if (record.PersistentItemId != Guid.Empty)
-        {
-            // Whatever a player carries is theirs to keep, as vanilla's inventory keeps everything
-            // in it: an item found in the world (a mug) has no BelongsToPlayer, and was lost from
-            // the inventory at the next load.
-            if (IsPlayerPossession(record))
-                return NetworkedItem.TryGet(record.NetId, out NetworkedItem carried) && carried?.Item != null;
-
-            // Like vanilla's world storage, only keep dynamic items a player owns. Unowned ones
-            // are respawned by their source each load (e.g. the paint station's spray can, which
-            // vanilla only skips when the player already owns one), so persisting them added a
-            // copy every load. An item with an owner is a player's whatever its prefab says: a mug
-            // restored from the save is a fresh prefab copy without BelongsToPlayer, and was lost at
-            // the save after (found by ledger-save, 2026-10-21).
-            if (!NetworkedItem.TryGet(record.NetId, out NetworkedItem item) ||
-                item?.Item?.InventorySpecs?.BelongsToPlayer != true && record.Owner == Guid.Empty)
-                return false;
-            return record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
-                ItemPlacementKind.StaticParent || IsPlayerPossession(record);
-        }
-
-        if (!WorldItemStableIdentity.IsValid(record.AuthoredItemKey))
-            return false;
-
-        return record.HasPersistentOverride ||
-               (record.Position - record.BaselinePosition).sqrMagnitude > 0.0001f ||
-               Quaternion.Angle(record.Rotation, record.BaselineRotation) > 0.1f ||
-               record.Placement != record.BaselinePlacement;
+        if (IsPlayerPossession(record))
+            return true;
+        return item.Item?.InventorySpecs?.BelongsToPlayer == true &&
+               record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
+                   ItemPlacementKind.StaticParent or ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment;
     }
 
-    private struct SpatialCheckpoint
+    private static bool AuthoredMoved(LiveItems.LiveItem record) =>
+        record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent or
+            ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment &&
+        (record.HasPersistentOverride || (record.Position - record.BaselinePosition).sqrMagnitude > 0.0001f ||
+         Quaternion.Angle(record.Rotation, record.BaselineRotation) > 0.1f || record.Placement != record.BaselinePlacement);
+
+    // A scene item in a player's inventory becomes an ordinary one before it is saved there, so the
+    // scene doesn't make it again beside the saved copy (OI-PER-16).
+    private static void PromoteSceneItemsInInventories()
     {
-        public ItemPlacementKind Placement { get; private set; }
-        public Vector3 Position { get; private set; }
-        public Quaternion Rotation { get; private set; }
-        public ItemWorldParentKind ParentKind { get; private set; }
-        public ushort ParentNetId { get; private set; }
-        public string ParentKey { get; private set; }
-        public Vector3 ParentLocalPosition { get; private set; }
-        public Quaternion ParentLocalRotation { get; private set; }
-
-        public static SpatialCheckpoint From(LiveItems.LiveItem record,
-            ItemSpatialStateData checkpoint)
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll().ToArray())
         {
-            ItemWorldParentKind parentKind = checkpoint?.WorldParentKind ?? record.WorldParentKind;
-            return new SpatialCheckpoint
-            {
-                Placement = checkpoint == null ? record.Placement : PlacementFrom(parentKind),
-                Position = checkpoint?.AbsolutePosition ?? record.Position,
-                Rotation = checkpoint?.Rotation ?? record.Rotation,
-                ParentKind = parentKind,
-                ParentNetId = checkpoint?.WorldParentNetId ?? record.WorldParentNetId,
-                ParentKey = checkpoint?.WorldParentKey ?? record.WorldParentKey ?? string.Empty,
-                ParentLocalPosition = checkpoint?.ParentLocalPosition ?? record.ParentLocalPosition,
-                ParentLocalRotation = checkpoint?.ParentLocalRotation ?? record.ParentLocalRotation
-            };
+            if (!IsPlayerPossession(record) || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) ||
+                item == null || !item.IsSceneAuthored)
+                continue;
+            RecordDestroyed(item);
+            LiveItems.PromoteAuthoredToPersistent(item);
+            item.DetachAuthoredItemKey();
         }
+    }
 
-        private static ItemPlacementKind PlacementFrom(ItemWorldParentKind parentKind) => parentKind switch
-        {
-            ItemWorldParentKind.TrainInterior => ItemPlacementKind.TrainInterior,
-            ItemWorldParentKind.StaticParent => ItemPlacementKind.StaticParent,
-            _ => ItemPlacementKind.World
-        };
+    // A slot for an item saved from a hand: its claim, else the lowest free one, the belt last; -1
+    // when the inventory is full.
+    private static int SaveSlot(Guid id, OwnerRef owner, int claim, Guid holder, SaveContext context)
+    {
+        if (holder == Guid.Empty)
+            return -1;
+        bool Taken(int slot) => context.HandSlots.Contains((holder, slot)) ||
+            ServerLedger.Ledger.CanTake(Home.InSlot(holder, slot), id, owner).Length > 0;
+        int chosen = claim >= 0 && owner.IsPlayer(holder) && InventorySlots.IsValid(claim) && !Taken(claim)
+            ? claim : InventorySlots.FirstFree(Taken);
+        if (chosen >= 0)
+            context.HandSlots.Add((holder, chosen));
+        return chosen;
+    }
+
+    private static LedgerEntry WithHome(LedgerEntry entry, Home home) =>
+        new(entry.Id, entry.Owner, entry.Prefab, home, entry.Born, entry.ClaimSlot, entry.ShopStocked, entry.Ended,
+            entry.Essential);
+
+    private static StorageItemData MirrorItem(SavedItemRow row, int slot, bool owned) =>
+        new(row.PrefabName, Vector3.zero, Quaternion.identity, owned, state: row.State, inventorySlotIndex: slot);
+
+    // Vanilla's lists (D2): the host's own player's inventory, so the career opens in single player
+    // with their things; nothing in the world or Lost and Found lists. Never read back.
+    private static void WriteVanillaMirror(SaveGameData data, SaveContext context)
+    {
+        if (data == null)
+            return;
+        // The host's own player's cold rows, when they aren't in the game (a listen host's player
+        // is always here; a dedicated host has none).
+        foreach (SavedItemRow row in ColdInventories.Of(context.MirrorHolder))
+            if (context.Mirror.All(item => item.inventorySlotIndex != row.Slot))
+                context.Mirror.Add(MirrorItem(row, row.Slot, ServerLedger.Ledger.IsLive(row.PersistentItemId)));
+        data.SetObject(SaveGameKeys.Storage_Inventory, context.Mirror.OrderBy(item => item.inventorySlotIndex).ToList());
+        data.SetObject(SaveGameKeys.Storage_World, new List<StorageItemData>());
+        data.SetObject(SaveGameKeys.Storage_LostAndFound, new List<StorageItemData>());
     }
 }

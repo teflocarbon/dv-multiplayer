@@ -220,26 +220,9 @@ namespace Dvmp.Scenarios
                     out string reason) ? "" : reason;
             }
 
-            private static bool holdUnloaded;
-            private static bool hostTickPatched;
-
-            /// <summary>Host: as if the ledger had (or hadn't) loaded. Unloaded, ServerLedger.HostTick is
-            /// skipped, or its next tick would reconcile again; the patch stays for the life of the game.</summary>
+            /// <summary>Host: as if the load had (or hadn't) run. Nothing loads it again meanwhile.</summary>
             [Step]
-            public static void SetLoaded(bool on)
-            {
-                if (!on && !hostTickPatched)
-                {
-                    new Harmony("dvmp.scenarios.ledger-rows." + typeof(InGame).Assembly.GetName().Name).Patch(
-                        AccessTools.Method(typeof(ServerLedger), nameof(ServerLedger.HostTick)),
-                        prefix: new HarmonyMethod(AccessTools.Method(typeof(InGame), nameof(SkipHostTick))));
-                    hostTickPatched = true;
-                }
-                holdUnloaded = !on;
-                ServerLedger.loaded = on;
-            }
-
-            private static bool SkipHostTick() => !holdUnloaded;
+            public static void SetLoaded(bool on) => ServerLedger.loaded = on;
 
             /// <summary>Host: the issuer's pass for the player, as at a join, to its end. Result: how many
             /// ledger entries the player gained.</summary>

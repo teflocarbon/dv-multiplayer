@@ -39,16 +39,13 @@ namespace Multiplayer.Server.Items.Containers;
 /// <summary>Host authority for detached container contents; shells remain ordinary network items.</summary>
 public static class ContainerServer
 {
-    internal const string SaveKey = "ColdContainers";
     private const uint ScanIntervalTicks = 24;
     private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly HostRuntimeCompatibility compatibility = new();
     private static ContainerGraph graph = new(compatibility: compatibility);
     private static readonly Dictionary<ushort, Guid> shellByNetId = new();
-    private static bool saveImportAttempted;
-
-    /// <summary>The save's records have been read (the owned-items ledger is checked against them after).</summary>
-    internal static bool ImportAttempted => saveImportAttempted;
+    // No request is served before the load has run (OI-CON-05, OI-PER-23).
+    private const string Loading = "items-loading";
 
     public static ContainerGraph Graph => graph;
 
@@ -56,7 +53,6 @@ public static class ContainerServer
     {
         if (NetworkLifecycle.Instance?.IsHost() != true || unchecked(tick - lastScanTick) < ScanIntervalTicks) return;
         lastScanTick = tick;
-        TryImportSave();
         BindPhysicalShells();
     }
 
@@ -65,17 +61,14 @@ public static class ContainerServer
         compatibility.Clear();
         graph = new ContainerGraph(compatibility: compatibility);
         shellByNetId.Clear();
-        saveImportAttempted = false;
     }
 
-    public static void WriteSave(JObject multiplayerRoot)
-    {
-        if (multiplayerRoot == null) return;
-        TryImportSave();
-        if (!saveImportAttempted) return;
-        multiplayerRoot[SaveKey] = Convert.ToBase64String(
-            ContainerSnapshotCodec.Encode(graph.ExportSnapshot()));
-    }
+    /// <summary>
+    /// The load (docs/design/items/save-load.md): the saved containers and their items, each row on
+    /// its own. A row the graph refuses is returned, and the rest load (OI-CON-04, F18).
+    /// </summary>
+    internal static IReadOnlyList<ContainerRowRefusal> LoadRows(IEnumerable<ContainerRecord> containers,
+        IEnumerable<StoredItemRecord> items) => graph.ImportRows(containers, items);
 
     public static bool TryResolveShell(ushort shellNetId, out Guid containerId) =>
         TryGetOrBindShell(shellNetId, out containerId);
@@ -84,6 +77,8 @@ public static class ContainerServer
         int offset, int count, out ContainerView view)
     {
         view = null;
+        if (!ServerLedger.Loaded)
+            return Failure(ContainerOperationKind.Browse, ContainerOperationStatus.NotFound, Loading);
         if (actor == null || !TryGetOrBindShell(shellNetId, out Guid id))
             return Failure(ContainerOperationKind.Browse, ContainerOperationStatus.NotFound,
                 "container-shell-not-bound");
@@ -101,6 +96,8 @@ public static class ContainerServer
         int offset, int count, out ContainerView view)
     {
         view = null;
+        if (!ServerLedger.Loaded)
+            return Failure(ContainerOperationKind.Browse, ContainerOperationStatus.NotFound, Loading);
         if (actor == null || !graph.TryGetContainer(containerHandle, out ContainerRecord container))
             return Failure(ContainerOperationKind.Browse, ContainerOperationStatus.NotFound,
                 "container-handle-not-found");
@@ -112,6 +109,8 @@ public static class ContainerServer
         ushort shellNetId, uint destinationHandle, uint expectedRevision, int slot,
         ushort itemNetId)
     {
+        if (!ServerLedger.Loaded)
+            return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.NotFound, Loading, operationId);
         Guid destinationId = Guid.Empty;
         ContainerRecord destination = null;
         bool destinationResolved = destinationHandle != 0
@@ -278,6 +277,12 @@ public static class ContainerServer
         uint containerHandle, uint expectedRevision, int sourceSlot, int destinationInventorySlot,
         Action<ContainerOperationResult, ushort> completed)
     {
+        if (!ServerLedger.Loaded)
+        {
+            completed?.Invoke(Failure(ContainerOperationKind.Withdraw, ContainerOperationStatus.NotFound, Loading,
+                operationId), 0);
+            yield break;
+        }
         if (destinationInventorySlot < 0)
         {
             completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
@@ -389,12 +394,12 @@ public static class ContainerServer
             snapshot.PlayerId = actor.PlayerId;
             snapshot.InventoryClaimSlot = destinationInventorySlot;
             snapshot.InventoryClaimFlags = ItemInventoryClaimFlags.None;
-            // Its stored state brought its id back (ItemIdentityPatch.Load); a record
-            // from before the item's id was the record's key is the fallback.
+            // Its stored state brought its id back (ItemIdentityPatch.Load); else the record's,
+            // which is the item's own id.
             ItemIdentity identity = instance.GetComponent<ItemIdentity>() ??
                                                    instance.AddComponent<ItemIdentity>();
             if (identity.Value == Guid.Empty)
-                identity.Value = ServerLedger.ItemIdOf(record);
+                identity.Value = record.PersistentItemId;
             if (LiveItems.RegisterMaterializedColdItem(item, actor,
                     owner, snapshot, identity.Value) == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
@@ -453,6 +458,8 @@ public static class ContainerServer
         uint sourceHandle, uint expectedSourceRevision, int sourceSlot,
         uint destinationHandle, uint expectedDestinationRevision, int destinationSlot)
     {
+        if (!ServerLedger.Loaded)
+            return Failure(ContainerOperationKind.Move, ContainerOperationStatus.NotFound, Loading, operationId);
         if (actor == null || !graph.TryGetContainer(sourceHandle, out ContainerRecord source) ||
             !graph.TryGetContainer(destinationHandle, out ContainerRecord destination))
             return Failure(ContainerOperationKind.Move, ContainerOperationStatus.NotFound,
@@ -572,32 +579,6 @@ public static class ContainerServer
     private static InventoryItemSpec FindItemSpec(string prefabName) =>
         Globals.G?.Items?.items?.FirstOrDefault(spec => spec != null &&
             string.Equals(spec.ItemPrefabName, prefabName, StringComparison.Ordinal));
-
-    private static void TryImportSave()
-    {
-        if (saveImportAttempted || StartingItemsController.Instance == null ||
-            !StartingItemsController.Instance.itemsLoaded || SaveGameManager.Instance?.data == null)
-            return;
-        saveImportAttempted = true;
-        string encoded = (string)SaveGameManager.Instance.data.GetJObject("Multiplayer")?[SaveKey];
-        if (string.IsNullOrWhiteSpace(encoded)) return;
-        try
-        {
-            if (!ContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded),
-                    out ContainerGraphSnapshot snapshot, out string reason))
-            {
-                Multiplayer.LogWarning($"Cold-container save rejected: {reason}");
-                return;
-            }
-            ContainerOperationResult imported = graph.ImportSnapshot(snapshot);
-            if (!imported.Accepted)
-                Multiplayer.LogWarning($"Cold-container graph rejected: {imported.Reason}");
-        }
-        catch (FormatException exception)
-        {
-            Multiplayer.LogException("Cold-container save encoding is invalid", exception);
-        }
-    }
 
     private static ContainerOperationResult Failure(ContainerOperationKind kind,
         ContainerOperationStatus status, string reason, Guid operationId = default) => new()

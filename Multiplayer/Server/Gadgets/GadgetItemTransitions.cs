@@ -116,10 +116,7 @@ internal static class GadgetItemTransitions
             return;
         }
         if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
-        {
             record.AttachedCarPersistentId = car?.CarGUID ?? string.Empty;
-            AdoptSavedOwner(item, record);
-        }
         SendToPlayersWhoKnow(item, snapshot);
     }
 
@@ -149,24 +146,6 @@ internal static class GadgetItemTransitions
             return;
         }
         SendToPlayersWhoKnow(item, snapshot);
-    }
-
-    /// <summary>
-    /// The owner of an installed gadget is saved with it in vanilla's installed storage
-    /// (<see cref="ItemIdentityPatch.OwnerKey"/>), since the mod's own records don't
-    /// keep installed items. A record made at load takes it back.
-    /// </summary>
-    private static void AdoptSavedOwner(NetworkedItem item, LiveItems.LiveItem record)
-    {
-        if (record.Owner != Guid.Empty)
-            return;
-        Guid saved = item.GetComponent<ItemIdentity>()?.Owner ?? Guid.Empty;
-        if (saved == Guid.Empty)
-            return;
-        // The load's check registers it if the ledger doesn't have it yet.
-        record.StoredOwner = saved;
-        if (ServerLedger.Loaded)
-            ServerLedger.Own(record, saved, BirthReason.Migrated, Guid.Empty, "a gadget's saved owner");
     }
 
     private static void SendToPlayersWhoKnow(NetworkedItem item, ItemUpdate snapshot)

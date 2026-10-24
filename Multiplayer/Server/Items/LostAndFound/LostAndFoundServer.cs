@@ -40,20 +40,8 @@ public static class LostAndFoundServer
     private static uint lastScanTick; // the tick can advance by more than one a frame
     private static readonly LostItemRegistry registry = new();
     private static readonly Dictionary<ushort, float> eligibleSince = new();
-    private static readonly List<JObject> pendingSaveImports = new();
-
-    /// <summary>Prefab names of saved Lost and Found items, not yet restored, that belong to this owner.</summary>
-    internal static IEnumerable<string> PendingPrefabsOwnedBy(Guid owner) =>
-        pendingSaveImports
-            .Where(value => Guid.TryParse((string)value["ownerIdentity"], out Guid identity) && identity == owner)
-            .Select(value => (string)value["prefabName"] ?? string.Empty)
-            .Where(prefab => prefab.Length > 0);
     private static readonly Dictionary<ushort, Dictionary<string, object>> lastEvaluations = new();
     private static uint generation;
-    private static bool saveImportAttempted;
-
-    /// <summary>The save's records have been read (the owned-items ledger is checked against them after).</summary>
-    internal static bool ImportAttempted => saveImportAttempted;
 
     public static uint Generation => generation;
     public static bool Contains(ushort itemNetId) => registry.TryGet(itemNetId, out _);
@@ -84,11 +72,10 @@ public static class LostAndFoundServer
 
     public static void HostTick(uint tick)
     {
-        if (!NetworkLifecycle.Instance.IsHost() || unchecked(tick - lastScanTick) < ScanIntervalTicks)
+        if (!NetworkLifecycle.Instance.IsHost() || unchecked(tick - lastScanTick) < ScanIntervalTicks ||
+            !ServerLedger.Loaded)
             return;
         lastScanTick = tick;
-        TryImportSave();
-        TryBindPendingSaveEntries();
         ReconcileCanonicalPlacements();
         float now = Time.realtimeSinceStartup;
         bool capturePolicyDiagnostics = DebugOverlayController.LostAndFoundDiagnosticsVisible;
@@ -131,7 +118,6 @@ public static class LostAndFoundServer
     /// </summary>
     public static ItemRow[] RowsFor(ServerPlayer player)
     {
-        TryBindPendingSaveEntries();
         ReconcileCanonicalPlacements();
         return player == null ? Array.Empty<ItemRow>() :
             registry.GetForOwner(player.Guid.ToString("D")).OrderBy(record => record.LostUtcTicks)
@@ -148,6 +134,12 @@ public static class LostAndFoundServer
         out string rejectionReason)
     {
         snapshot = null;
+        // No request is served before the load has run (OI-PER-23).
+        if (!ServerLedger.Loaded)
+        {
+            rejectionReason = "items-loading";
+            return false;
+        }
         if (!registry.TryGetByPersistentId(itemId, out LostItemRecord lost))
         {
             rejectionReason = "unknown-lost-item";
@@ -463,10 +455,8 @@ public static class LostAndFoundServer
     {
         registry.Clear();
         eligibleSince.Clear();
-        pendingSaveImports.Clear();
         lastEvaluations.Clear();
         generation = 0;
-        saveImportAttempted = false;
     }
 
     /// <summary>Detached main-thread diagnostics used by the in-game observability overlay.</summary>
@@ -496,24 +486,6 @@ public static class LostAndFoundServer
                     ? policyDecision : "Candidate";
                 result.Add(entry);
             }
-            int pendingIndex = 0;
-            foreach (JObject pending in pendingSaveImports)
-            {
-                result.Add(new Dictionary<string, object>
-                {
-                    ["debugKey"] = $"pending-save:{pendingIndex++}",
-                    ["source"] = "save-import",
-                    ["status"] = "AwaitingRebind",
-                    ["netId"] = 0,
-                    ["revision"] = (uint?)pending["revision"] ?? 0,
-                    ["ownerIdentity"] = (string)pending["ownerIdentity"] ?? string.Empty,
-                    ["prefabName"] = (string)pending["prefabName"] ?? string.Empty,
-                    ["displayName"] = (string)pending["displayName"] ?? string.Empty,
-                    ["reason"] = ((LostItemReason)((byte?)pending["reason"] ?? 0)).ToString(),
-                    ["persistentItemId"] = (string)pending["persistentItemId"] ?? string.Empty,
-                    ["storageIndex"] = (int?)pending["storageIndex"] ?? -1
-                });
-            }
         }
         // The host player's own list, as its session has it.
         if (ItemClient.Current?.LostAndFoundDebugSnapshot() is { } localList)
@@ -521,240 +493,51 @@ public static class LostAndFoundServer
         return result.ToArray();
     }
 
-    public static void WriteSave(JObject multiplayerRoot)
+    /// <summary>
+    /// The load (docs/design/items/save-load.md): an entry for an item the load made, in its owner's
+    /// Lost and Found. Its row is a reason and a time; its owner and claim are the ledger's.
+    /// </summary>
+    internal static bool RestoreEntry(NetworkedItem item, Guid owner, LostItemReason reason, long lostUtcTicks,
+        string displayName, int claimSlot, ItemInventoryClaimFlags claimFlags)
     {
-        if (multiplayerRoot == null) return;
-        TryImportSave();
-        TryBindPendingSaveEntries();
-        // If DV asks for a save before starting items/storage are ready, leave the previously
-        // loaded semantic array untouched. A later save will replace it from the live registry.
-        if (!saveImportAttempted)
-            return;
-        // Don't save an entry whose item is gone: with no storage slot it could never bind again.
+        if (item == null || item.NetId == 0 || owner == Guid.Empty)
+            return false;
+        LiveItems.LiveItem record = LiveItems.RestoreLostRecord(item, owner, 0, null,
+            claimSlot, claimFlags, ItemMoveReason.RestoredFromSave);
+        if (record == null)
+            return false;
+        LostItemRecord entry = new()
+        {
+            PersistentItemId = record.PersistentItemId,
+            NetId = item.NetId,
+            Revision = record.Revision,
+            OwnerIdentity = owner.ToString("D"),
+            PrefabName = record.PrefabName,
+            DisplayName = string.IsNullOrEmpty(displayName) ? item.Item?.name ?? record.PrefabName : displayName,
+            AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
+            InventoryClaimSlot = claimSlot,
+            InventoryClaimFlags = (byte)claimFlags,
+            Reason = reason,
+            LostUtcTicks = lostUtcTicks > 0 ? lostUtcTicks : DateTime.UtcNow.Ticks
+        };
+        LostItemRegistryResult result = registry.Restore(entry);
+        LogRestore(result, entry.PersistentItemId, "load");
+        if (result is not (LostItemRegistryResult.Added or LostItemRegistryResult.Updated))
+            return false;
+        ProjectToInertStorage(item);
+        generation++;
+        return true;
+    }
+
+    /// <summary>The save: every entry whose item is still there, for <c>Multiplayer.Items</c>' rows.</summary>
+    internal static IReadOnlyList<LostItemRecord> Entries()
+    {
         ReconcileCanonicalPlacements();
-        JArray values = new();
-        foreach (LostItemRecord record in registry.GetAll())
-            values.Add(Serialize(record));
-        // An owner's runtime player ID is not available until they reconnect. Preserve their
-        // unbound semantic records across intermediate saves rather than silently losing them.
-        foreach (JObject pending in pendingSaveImports)
-            values.Add(pending.DeepClone());
-        multiplayerRoot["LostAndFound"] = values;
+        return registry.GetAll();
     }
 
-    private static void TryImportSave()
-    {
-        if (saveImportAttempted || StartingItemsController.Instance == null ||
-            !StartingItemsController.Instance.itemsLoaded || SaveGameManager.Instance?.data == null)
-            return;
-        StorageController storage = StorageController.Instance;
-        if (storage?.StorageLostAndFound == null)
-            return;
-        saveImportAttempted = true;
-        JObject root = SaveGameManager.Instance.data.GetJObject("Multiplayer");
-        JArray saved = root?["LostAndFound"] as JArray;
-        List<ItemBase> available = storage.StorageLostAndFound.GetStorageItemList()
-            .Where(item => item != null).ToList();
-
-        // Papers are presentation debris, including the vanilla zero-origin safeguard path.
-        foreach (ItemBase license in available.Where(IsLicensePaper).ToArray())
-        {
-            storage.RemoveItemFromStorageItemList(storage.StorageLostAndFound, license);
-            available.Remove(license);
-            UnityEngine.Object.Destroy(license.gameObject);
-        }
-        if (saved != null)
-            pendingSaveImports.AddRange(saved.OfType<JObject>().Select(value => (JObject)value.DeepClone()));
-        UseItemIds(storage.StorageLostAndFound.GetStorageItemList());
-        TryBindPendingSaveEntries();
-    }
-
-    /// <summary>A saved entry not yet bound (its owner hasn't joined), for the owned-items ledger.</summary>
-    internal readonly struct PendingEntry
-    {
-        public PendingEntry(Guid itemId, Guid owner, string prefab, int claimSlot)
-        {
-            ItemId = itemId;
-            Owner = owner;
-            Prefab = prefab;
-            ClaimSlot = claimSlot;
-        }
-
-        public Guid ItemId { get; }
-        public Guid Owner { get; }
-        public string Prefab { get; }
-        public int ClaimSlot { get; }
-    }
-
-    internal static IEnumerable<PendingEntry> PendingEntries()
-    {
-        foreach (JObject value in pendingSaveImports)
-        {
-            if (!Guid.TryParse((string)value["persistentItemId"], out Guid id) || id == Guid.Empty ||
-                !Guid.TryParse((string)value["ownerIdentity"], out Guid owner))
-                continue;
-            ItemInventoryClaimFlags flags = (ItemInventoryClaimFlags)((byte?)value["inventoryClaimFlags"] ?? 0);
-            bool retrievalClaim = (flags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0;
-            yield return new PendingEntry(id, owner, (string)value["prefabName"] ?? string.Empty,
-                retrievalClaim ? (int?)value["inventoryClaimSlot"] ?? -1 : -1);
-        }
-    }
-
-    // An entry and its stored item have one id from the load on. Vanilla saves a stored item's
-    // state, and with it the item's id, only when the item has ItemSaveData (StorageSerializer): a
-    // mug has none, comes back with no id and is given a new one. Then the entry's id is the item's
-    // and the item takes it back. An item with saved state keeps its own id, and an entry from a save
-    // before the item's id was the entry's (a record id minted per collection) takes it.
-    private static void UseItemIds(List<ItemBase> restoredItems)
-    {
-        HashSet<ItemBase> taken = new();
-        foreach (JObject value in pendingSaveImports)
-        {
-            Guid.TryParse((string)value["persistentItemId"], out Guid saved);
-            ItemBase stored = FindStoredItem(restoredItems, restoredItems.Where(item => item != null && !taken.Contains(item)).ToList(),
-                saved, (int?)value["storageIndex"] ?? -1, (string)value["prefabName"] ?? string.Empty);
-            if (stored == null)
-                continue;
-            taken.Add(stored);
-            Guid itemId = ItemIdOf(stored);
-            if (itemId == saved || saved == Guid.Empty && itemId == Guid.Empty)
-                continue;
-            if (itemId != Guid.Empty && stored.GetComponent<ItemSaveData>() != null)
-            {
-                Multiplayer.LogDebug(() => $"Lost and Found: saved entry {saved:D} takes its item's id {itemId:D}");
-                value["persistentItemId"] = itemId.ToString("D");
-            }
-            else if (saved != Guid.Empty)
-            {
-                Multiplayer.LogDebug(() => $"Lost and Found: stored {stored.name} takes its entry's id {saved:D}");
-                GiveId(stored, saved);
-            }
-        }
-    }
-
-    private static void GiveId(ItemBase stored, Guid id)
-    {
-        ItemIdentity identity = stored.GetComponent<ItemIdentity>() ??
-                                               stored.gameObject.AddComponent<ItemIdentity>();
-        identity.Value = id;
-        if (NetworkedItem.TryGetNetworkedItem(stored, out NetworkedItem item) && item.NetId != 0 &&
-            LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record))
-            record.PersistentItemId = ServerLedger.ClaimPersistentId(item, id);
-    }
-
-    private static Guid ItemIdOf(ItemBase item) =>
-        item != null && item.TryGetComponent(out ItemIdentity identity) ? identity.Value : Guid.Empty;
-
-    // The stored item an entry binds to: the one with the entry's id, else (an older save) the one
-    // at its storage index if the prefab matches, else the first with its prefab.
-    private static ItemBase FindStoredItem(List<ItemBase> restoredItems, List<ItemBase> available, Guid id,
-        int storageIndex, string prefab)
-    {
-        ItemBase byId = id == Guid.Empty ? null : available.FirstOrDefault(candidate => ItemIdOf(candidate) == id);
-        if (byId != null)
-            return byId;
-        ItemBase baseItem = storageIndex >= 0 && storageIndex < restoredItems.Count ? restoredItems[storageIndex] : null;
-        if (baseItem == null || !available.Contains(baseItem) ||
-            !string.Equals(baseItem.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal))
-            baseItem = available.FirstOrDefault(candidate =>
-                string.Equals(candidate.InventorySpecs?.ItemPrefabName, prefab, StringComparison.Ordinal));
-        return baseItem;
-    }
-
-    private static void TryBindPendingSaveEntries()
-    {
-        if (pendingSaveImports.Count == 0 || NetworkServer.Instance == null)
-            return;
-        StorageController storage = StorageController.Instance;
-        if (storage?.StorageLostAndFound == null)
-            return;
-        int countBefore = registry.Count;
-        List<ItemBase> restoredItems = storage.StorageLostAndFound.GetStorageItemList();
-        List<ItemBase> available = restoredItems
-            .Where(item => item != null && !registry.TryGet(
-                NetworkedItem.TryGetNetworkedItem(item, out NetworkedItem existing) ? existing.NetId : (ushort)0,
-                out _)).ToList();
-
-        foreach (JObject value in pendingSaveImports.ToArray())
-        {
-            if (!Guid.TryParse((string)value["persistentItemId"], out Guid persistentItemId) ||
-                persistentItemId == Guid.Empty)
-            {
-                // Clean-break format: do not infer persistent identity from a transient NetId.
-                pendingSaveImports.Remove(value);
-                Multiplayer.LogWarning("Ignoring Lost and Found save record without persistentItemId");
-                continue;
-            }
-            string ownerIdentity = (string)value["ownerIdentity"] ?? string.Empty;
-            if (registry.TryGetByPersistentId(persistentItemId, out _))
-            {
-                pendingSaveImports.Remove(value);
-                Multiplayer.LogWarning($"Ignoring duplicate Lost and Found persistentItemId {persistentItemId:D}");
-                continue;
-            }
-            string prefab = (string)value["prefabName"] ?? string.Empty;
-            int storageIndex = (int?)value["storageIndex"] ?? -1;
-            if (storageIndex < 0)
-            {
-                // Saved after its item was destroyed (older builds kept such entries). Nothing of
-                // it is in storage, and the same-prefab fallback below would bind it to another
-                // item, such as a live booklet of another job.
-                pendingSaveImports.Remove(value);
-                Multiplayer.LogWarning($"Dropping Lost and Found save record {persistentItemId:D} " +
-                    $"({prefab}) with no stored item");
-                continue;
-            }
-            if (!Guid.TryParse(ownerIdentity, out Guid ownerId) || ownerId == Guid.Empty)
-            {
-                pendingSaveImports.Remove(value);
-                Multiplayer.LogWarning($"Dropping Lost and Found save record {persistentItemId:D} ({prefab}) with no owner");
-                continue;
-            }
-            // Bound at load whether its owner is here or not: an entry is its owner's identity's, so an
-            // offline owner's is theirs as much as anyone's, and nothing changes when they join.
-            string ownerName = ItemChangeLog.PlayerName(ownerId);
-            ItemBase baseItem = FindStoredItem(restoredItems, available, persistentItemId, storageIndex, prefab);
-            if (baseItem == null)
-            {
-                // DV's Lost and Found storage, loaded with the save, has nothing left for this
-                // entry, and it won't gain anything later. Kept, it showed nowhere but still
-                // counted as the owner's item: DV made them no new radio and /give refused one.
-                pendingSaveImports.Remove(value);
-                Multiplayer.LogWarning($"Lost and Found: {ownerName}'s saved {prefab} ({persistentItemId:D}) " +
-                                       "isn't in the game's Lost and Found storage; dropping the entry");
-                continue;
-            }
-            if (baseItem == null || !NetworkedItem.TryGetNetworkedItem(baseItem, out NetworkedItem item) || item.NetId == 0)
-                continue;
-            string authoredItemKey = (string)value["authoredItemKey"] ?? string.Empty;
-            if (WorldItemStableIdentity.IsValid(authoredItemKey))
-                item.AdoptAuthoredItemKey(authoredItemKey);
-            available.Remove(baseItem);
-            uint revision = (uint?)value["revision"] ?? 0;
-            int claimSlot = (int?)value["inventoryClaimSlot"] ?? -1;
-            ItemInventoryClaimFlags claimFlags = (ItemInventoryClaimFlags)((byte?)value["inventoryClaimFlags"] ?? 0);
-            LiveItems.RestoreLostRecord(item, ownerId, revision, prefab,
-                claimSlot, claimFlags, ItemMoveReason.RestoredFromSave);
-            LostItemRecord restored = new()
-            {
-                PersistentItemId = persistentItemId,
-                NetId = item.NetId,
-                Revision = revision,
-                OwnerIdentity = ownerIdentity,
-                PrefabName = prefab,
-                DisplayName = (string)value["displayName"] ?? baseItem.name,
-                AuthoredItemKey = authoredItemKey,
-                InventoryClaimSlot = claimSlot,
-                InventoryClaimFlags = (byte)claimFlags,
-                Reason = (LostItemReason)((byte?)value["reason"] ?? 0),
-                LostUtcTicks = (long?)value["lostUtcTicks"] ?? DateTime.UtcNow.Ticks
-            };
-            LogRestore(registry.Restore(restored), persistentItemId, "save import");
-            pendingSaveImports.Remove(value);
-        }
-        if (registry.Count > countBefore)
-            generation++;
-    }
+    internal static bool TryGetEntry(Guid itemId, out LostItemRecord entry) =>
+        registry.TryGetByPersistentId(itemId, out entry);
 
     private static void LogRestore(LostItemRegistryResult result, Guid persistentItemId, string during)
     {
@@ -880,6 +663,9 @@ public static class LostAndFoundServer
         }
     }
 
+    /// <summary>Drops an entry whose item the server is about to replace (an item remade fresh).</summary>
+    internal static void Forget(ushort itemNetId, string reason) => RemoveStaleEntry(itemNetId, reason);
+
     private static void RemoveStaleEntry(ushort itemNetId, string reason)
     {
         if (registry.RemoveStale(itemNetId, out LostItemRecord removed) !=
@@ -910,26 +696,17 @@ public static class LostAndFoundServer
     public static void SetInventoryClaimSlot(ushort itemNetId, int slot) =>
         registry.SetInventoryClaimSlot(itemNetId, slot);
 
-    /// <summary>Whether a Lost and Found entry, restored or not yet, belongs to this player ID.</summary>
-    internal static bool HasOwner(Guid owner) =>
-        registry.HasOwner(owner.ToString("D")) || PendingOwnedBy(owner).Any();
+    /// <summary>Whether a Lost and Found entry belongs to this player ID.</summary>
+    internal static bool HasOwner(Guid owner) => registry.HasOwner(owner.ToString("D"));
 
     /// <summary>A player's ID changed (InstallGuidRekey): their entries follow. Returns how many changed.</summary>
     internal static int RekeyOwner(Guid from, Guid to)
     {
         int changed = registry.RekeyOwner(from.ToString("D"), to.ToString("D"));
-        foreach (JObject value in PendingOwnedBy(from).ToArray())
-        {
-            value["ownerIdentity"] = to.ToString("D");
-            changed++;
-        }
         if (changed > 0)
             generation++;
         return changed;
     }
-
-    private static IEnumerable<JObject> PendingOwnedBy(Guid owner) =>
-        pendingSaveImports.Where(value => Guid.TryParse((string)value["ownerIdentity"], out Guid identity) && identity == owner);
 
     private static Guid OwnerOf(LostItemRecord record) =>
         Guid.TryParse(record.OwnerIdentity, out Guid owner) ? owner : Guid.Empty;
@@ -1011,28 +788,6 @@ public static class LostAndFoundServer
     {
         try { return new DateTime(ticks, DateTimeKind.Utc).ToString("O"); }
         catch { return $"invalid-ticks:{ticks}"; }
-    }
-
-    private static JObject Serialize(LostItemRecord record)
-    {
-        int storageIndex = -1;
-        if (NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item?.Item != null)
-            storageIndex = StorageController.Instance?.StorageLostAndFound?.GetStorageItemList()
-                .IndexOf(item.Item) ?? -1;
-        return new JObject
-        {
-            ["persistentItemId"] = record.PersistentItemId.ToString("D"),
-            ["storageIndex"] = storageIndex,
-            ["revision"] = record.Revision,
-            ["ownerIdentity"] = record.OwnerIdentity,
-            ["prefabName"] = record.PrefabName,
-            ["displayName"] = record.DisplayName,
-            ["authoredItemKey"] = record.AuthoredItemKey ?? string.Empty,
-            ["inventoryClaimSlot"] = record.InventoryClaimSlot,
-            ["inventoryClaimFlags"] = record.InventoryClaimFlags,
-            ["reason"] = (byte)record.Reason,
-            ["lostUtcTicks"] = record.LostUtcTicks
-        };
     }
 
     private static void TraceDecision(NetworkedItem item, LiveItems.LiveItem authority,

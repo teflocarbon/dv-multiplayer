@@ -17,7 +17,7 @@ Built in R3 for the ledger and inventories; the save (R4), containers (R5) and L
 
 The homes: `Slot(holder, slot)`, `Hand(holder, hand)`, `World`, `TrainInterior(car)`, `Shelf(key)`,
 `Container(container, slot)`, `LostAndFound`, `Installed(anchor)`, `Attached(car,
-front)` and `Snapped(parent)` ([the plan](../item-refactor.md#the-guarantee) says what each names).
+front)`, `Snapped(parent)` and `Unloadable` (its prefab is gone, R4) ([the plan](../item-refactor.md#the-guarantee) says what each names).
 A ledger entry's home is `Home`, its kind `HomeKind` (`Multiplayer.Core/Items/Ledger/LedgerEntry.cs`), exact since R3
 ([ledger.md](ledger.md)).
 
@@ -29,7 +29,7 @@ Used in code and docs, and nothing else for these things:
 | --- | --- | --- |
 | **ledger** | `ItemLedger` (Core `Items/Ledger`), `ServerLedger` (Server `Items/Ledger`) | Owned items only, keyed by the item's GUID, saved. Since R3 it alone decides each one's **owner** and **home** ([ledger.md](ledger.md)) |
 | **live state** | `LiveItems` and its `LiveItem` records (Server `Items/LiveState`), `NetworkedItem` (Shared `Items/LiveState`), `ItemStateMachine` (Core `Items/LiveState`) | Every item, owned or not, right now: NetId, pose, physics, parent, the holder this second, what each client is shown, revisions |
-| **saving and loading** | `ItemSaveLoad`, `SavedItemRow`, `LedgerSaveCodec`, `ItemIdentity` (Server `Items/SaveLoad`), `LoadReconciler` (Core `Items/SaveLoad`) | Writes the vanilla save and reads it back, and hands what it reads to the ledger and live state |
+| **saving and loading** | `ItemSaveLoad`, `SavedItemRow`, `ItemsSaveCodec`, `ItemIdentity` (Server `Items/SaveLoad`), `ItemLoadPlanner` (Core `Items/SaveLoad`) | Writes every item into one key of the save, `Multiplayer.Items`, and loads it once before anyone logs in, into the ledger and live state ([save-load.md](save-load.md)) |
 
 **On a conflict, the ledger wins on owner and home, and live state on pose and physics** (R3,
 [live-state.md](live-state.md)).
@@ -45,7 +45,7 @@ mirror them in `Multiplayer.Core.Tests/Items/` and `Multiplayer.Protocol.Tests/I
 | --- | --- | --- | --- | --- | --- | --- |
 | `Ledger` | owners and homes of owned items; the invariant | ✓ | ✓ | | | [ledger.md](ledger.md) |
 | `LiveState` | every item now: the record, the state machine, the item component | ✓ | ✓ | ✓ | ✓ | [live-state.md](live-state.md) |
-| `SaveLoad` | the item save, item identity in the save | ✓ | ✓ | | | `save-load.md` (R4) |
+| `SaveLoad` | the item save, item identity in the save | ✓ | ✓ | | | [save-load.md](save-load.md) |
 | `Inventory` | slots, the belt, claims as a client shows them | ✓ | ✓ | ✓ | ✓ | [inventory.md](inventory.md) |
 | `Essentials` | starting items and the issuer (the claim rules are Core `Inventory` and `Ledger`) | | ✓ | | | [essentials.md](essentials.md) |
 | `LostAndFound` | collection, entries, retrieval | ✓ | ✓ | ✓ | | `lost-and-found.md` (R6) |

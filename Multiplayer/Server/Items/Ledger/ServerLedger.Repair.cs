@@ -33,7 +33,7 @@ public static partial class ServerLedger
                 PutHome(record);
                 break;
             case InvariantRule.NoStray when record != null && record.StoredOwner != Guid.Empty:
-                Own(record, record.StoredOwner, BirthReason.Migrated, Guid.Empty, RepairDetail);
+                Own(record, record.StoredOwner, BirthReason.Claimed, Guid.Empty, RepairDetail);
                 break;
         }
         // A cold row that disagrees has no object to move: its holder's join makes it again, and the

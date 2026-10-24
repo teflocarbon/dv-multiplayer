@@ -82,16 +82,19 @@ namespace Dvmp.Scenarios
             }
 
             /// <summary>Host: what the save it just wrote holds for its own player: the format marker,
-            /// how many item records its GUID owns, and how many entries DV's own inventory list (the
-            /// copy for vanilla) has.</summary>
+            /// how many items Multiplayer.Items has in its GUID's inventory (its ledger homes and unowned
+            /// rows), and how many entries DV's own inventory list (the mirror for vanilla) has.</summary>
             [Step]
             public static Saved ReadSave()
             {
                 var data = SaveGameManager.Instance.data;
                 var root = data.GetJObject("Multiplayer");
                 string guid = Multiplayer.Shared.Session.PlayerIdentity.Local.ToString("D");
-                int records = (root?["WorldItemsV1"] as JArray)?.OfType<JObject>()
-                    .Count(r => string.Equals((string)r["placementPlayerIdentity"], guid, StringComparison.OrdinalIgnoreCase)) ?? 0;
+                JObject items = root?["Items"] as JObject;
+                int records = ((items?["ledger"] as JArray)?.OfType<JObject>()
+                    .Count(r => string.Equals((string)r["where"]?["holder"], guid, StringComparison.OrdinalIgnoreCase)) ?? 0) +
+                    ((items?["unowned"] as JArray)?.OfType<JObject>()
+                    .Count(r => string.Equals((string)r["holder"], guid, StringComparison.OrdinalIgnoreCase)) ?? 0);
                 var mirror = StorageSerializer.LoadStorageData(DV.ThingTypes.StorageType.Inventory, data);
                 return new Saved { Format = (int?)root?["PlayerStateFormat"] ?? 0, HostRecords = records, Mirror = mirror?.Count ?? 0 };
             }

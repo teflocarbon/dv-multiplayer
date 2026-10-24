@@ -281,8 +281,21 @@ internal static partial class PlayerItems
             ItemSaveData saveData = instance.GetComponent<ItemSaveData>();
             if (saveData != null && row.State != null)
             {
-                saveData.LoadItemData(row.State);
-                saveData.PostLoadItemData();
+                try
+                {
+                    saveData.LoadItemData(row.State);
+                    saveData.PostLoadItemData();
+                }
+                catch (Exception exception) when (ServerLedger.Ledger.IsLive(row.PersistentItemId))
+                {
+                    // Its state won't load: it comes back fresh in its owner's Lost and Found (D9, OI-LED-16).
+                    item.AbortColdMaterialization();
+                    Object.Destroy(instance);
+                    ColdInventories.Remove(row.PersistentItemId);
+                    CoroutineManager.Instance.StartCoroutine(ItemSaveLoad.RemakeFresh(null, row.PersistentItemId,
+                        row.PrefabName, exception.Message));
+                    yield break;
+                }
             }
             ItemBase itemBase = instance.GetComponent<ItemBase>();
             if (itemBase == null || item.NetId == 0)

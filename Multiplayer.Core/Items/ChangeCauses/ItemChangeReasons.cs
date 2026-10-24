@@ -37,7 +37,12 @@ public enum ItemRemovalReason : byte
     /// <summary>Client only: the item left this player's interest. It still exists on the host.</summary>
     LeftInterest,
     /// <summary>A leaving holder's inventory item went cold: its state is kept as data, its home unchanged (D12).</summary>
-    WentCold
+    WentCold,
+    /// <summary>
+    /// Its saved state wouldn't load: the server made it again fresh from its prefab, with the same id,
+    /// in its owner's Lost and Found (D9). Its entry lives on.
+    /// </summary>
+    RemadeFresh
 }
 
 /// <summary>
