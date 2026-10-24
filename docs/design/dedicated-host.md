@@ -715,8 +715,8 @@ they're blocked for good. A dedicated host needs a serverbound fee-payment reque
 ### Steam
 
 - **The game doesn't need Steam** (section 1). **The mod does.** The only transport is
-  `SteamWorksTransport` (`Shared/Session/NetworkManager.cs:41`; `LiteNetLibTransport` is
-  commented out). Its "normal" UDP socket is Steam's networking-sockets library on DV's
+  `SteamWorksTransport` (`Shared/Session/NetworkManager.cs:41`; `LiteNetLibTransport` was
+  removed on 2026-10-24). Its "normal" UDP socket is Steam's networking-sockets library on DV's
   `SteamClient` (`Shared/Transport/SteamworksTransport.cs:59-85`), and relay access starts
   only if `DVSteamworks.Success` (`Shared/Transport/DVSteamworksPatch.cs:13-17`). `HostGamePane` refuses
   to host without Steam (`HostGamePane.cs:71-77`). There's no `SteamGameServer` path.
@@ -725,8 +725,8 @@ they're blocked for good. A dedicated host needs a serverbound fee-payment reque
   that way; relay joins by SteamID and lobby creation with two instances on one account are
   untested. On a separate machine it needs its own copy of DV.
 - Ways out later: a Steam game-server login (DV has no dedicated-server app ID, so this needs
-  checking), or reviving `LiteNetLibTransport` for direct UDP (no relay or NAT traversal, so port
-  forwarding).
+  checking), or a direct-UDP transport (no relay or NAT traversal, so port forwarding;
+  `LiteNetLibTransport` was removed on 2026-10-24, and the GNS transport is Debug-only, for test pairs).
 - Public listing creates a Steam lobby owned by the host's account (`Server/Session/LobbyServerManager.cs:88-93`,
   `:188-217`), and its `CurrentPlayers` counts the host (`:159-183`).
 

@@ -97,10 +97,11 @@ dvmp up --session g1 --fresh --transport gns                           # MCP: tr
 TRANSPORT=gns PAIRS="p:1 d:1" ONLY="recall" bash DevTools/Scenarios/gate.sh
 ```
 
-`dvmp status` and `up`'s result show each game's `transport`, and `up` only reuses a pair on the
-transport it was asked for. What matches Steam, what doesn't, and which runs must stay on Steam
-pairs (train-sync and coupling baselines, join/rejoin/auth/lobbies, `LAG=`, soak and perf,
-`--verified`): [`docs/testing.md`, "GNS pairs"](../docs/testing.md#gns-pairs).
+`dvmp status` and `up`'s result show each game's `transport`. `up --transport X` only reuses a pair
+on transport X; a plain `up` keeps the running pair's (a client it starts joins on the host's, so a
+scenario's rejoin or restart stays on GNS) and starts new games on Steam. What matches Steam, what
+doesn't, and which runs must stay on Steam pairs (train-sync and coupling baselines,
+join/rejoin/auth/lobbies, `LAG=`, soak and perf, `--verified`): [`docs/testing.md`, "GNS pairs"](../docs/testing.md#gns-pairs).
 
 ## Host-only sessions
 

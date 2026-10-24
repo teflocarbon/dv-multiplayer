@@ -17,13 +17,14 @@ namespace Dvmp;
 /// (which has no player of its own) can then tell its client apart from itself.</param>
 /// <param name="Reseed">Restart the session's games with their user data copied afresh from the
 /// real profile (<see cref="UserData"/>); named sessions only.</param>
-/// <param name="Transport">"steam" (the default) or "gns": both games run on Valve's open-source
+/// <param name="Transport">"steam" or "gns": both games run on Valve's open-source
 /// GameNetworkingSockets (<c>-dvmp-transport gns</c>) without Steam, as a cloud pod does. Debug
-/// builds of the mod only (docs/testing.md, "GNS pairs").</param>
+/// builds of the mod only (docs/testing.md, "GNS pairs"). Null (no --transport) keeps
+/// the running pair's transport, as a scenario's rejoin needs, and launches new games on Steam.</param>
 internal sealed record UpOptions(bool Fresh, string? Save, int Width, int Height, bool Arrange,
     bool Background = true, int FpsCap = 30, bool Sound = false, bool Trace = false,
     string? NewSession = null, string? NewSessionName = null, int? BackgroundFpsCap = null, bool HostOnly = false,
-    bool Dedicated = false, bool Verified = false, bool Reseed = false, string Transport = "steam");
+    bool Dedicated = false, bool Verified = false, bool Reseed = false, string? Transport = null);
 
 /// <summary>
 /// Brings up (or reuses) a host + client pair of real game instances joined to each other.
@@ -197,8 +198,8 @@ internal static class Session
             List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
             // --dedicated only reuses a dedicated host; without it, either kind is reused (a client joining
             // a dedicated host-only host goes through here).
-            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified && TransportOf(a) == o.Transport);
-            Agent? client = agents.FirstOrDefault(a => a.Role == "client" && WorldLoaded(a) && TransportOf(a) == o.Transport);
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified && TransportFits(a, o));
+            Agent? client = agents.FirstOrDefault(a => a.Role == "client" && WorldLoaded(a) && TransportFits(a, o));
             if (!o.Fresh)
             {
                 host = await ReusableAsync(host);
@@ -218,7 +219,7 @@ internal static class Session
                 JsonObject server = await RunProbeExpressionAsync(host,
                     "new { port = global::Multiplayer.Multiplayer.Settings.Port, password = global::Multiplayer.Multiplayer.Settings.Password ?? \"\" }");
                 int rejoinPort = Sessions.Port() ?? server["port"]!.GetValue<int>();
-                Process lone = await LaunchAsync("client", o);
+                Process lone = await LaunchAsync("client", o with { Transport = TransportOf(host) });
                 Agent rejoined = await JoinAsync(lone, rejoinPort, server["password"]!.GetValue<string>(), o);
                 Mark("ready");
                 Win32.SetTitle(rejoined.Pid, "DVMP CLIENT (" + ClientName + ")" + TitleSuffix);
@@ -283,7 +284,7 @@ internal static class Session
 
             Mark("checking existing games");
             List<Agent> agents = (await Agents.DiscoverAsync()).Where(a => a.LaunchedByDvmp).ToList();
-            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified && TransportOf(a) == o.Transport);
+            Agent? host = agents.FirstOrDefault(a => a.Role == "host" && WorldLoaded(a) && (!o.Dedicated || IsDedicated(a)) && IsVerified(a) == o.Verified && TransportFits(a, o));
             if (!o.Fresh) host = await ReusableAsync(host);
             if (!o.Fresh && host != null)
             {
@@ -594,10 +595,13 @@ internal static class Session
     // Launched with -dvmp-transport gns (UpOptions.Transport).
     private static string TransportOf(Agent agent) => agent.Transport;
 
+    // Without --transport, any: up keeps the running pair's, and launches new games on Steam.
+    private static bool TransportFits(Agent agent, UpOptions o) => o.Transport == null || TransportOf(agent) == o.Transport;
+
     // Why the pair can't run on o.Transport, or null.
     private static string? TransportProblem(UpOptions o)
     {
-        if (o.Transport == Steam) return null;
+        if (o.Transport is null or Steam) return null;
         if (o.Transport != Gns) return $"--transport '{o.Transport}' isn't one: steam or gns";
         // A GNS game never starts Steam, so it has no ticket to check.
         if (o.Verified) return "--verified needs Steam tickets, so it runs on Steam pairs only, not --transport gns";

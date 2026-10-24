@@ -129,7 +129,7 @@ player anyway, the session drops it.
 
 ### Managers
 
-- `Shared/Session/NetworkManager.cs`: shared base. Owns the LiteNetLib `NetPacketProcessor`, the transport(s),
+- `Shared/Session/NetworkManager.cs`: shared base. Owns the LiteNetLib `NetPacketProcessor`, the transport,
   `SendPacket` helpers and the receive path. A handler that throws is logged and swallowed so it
   can't abort the rest of the receive batch.
 - `Server/Session/NetworkServer.cs`: login, loading states, every serverbound handler, broadcasts.
@@ -143,7 +143,9 @@ player anyway, the session drops it.
 
 ### Transports
 
-`Multiplayer/Shared/Transport/`. `ITransport` abstracts the socket library.
+`Multiplayer/Shared/Transport/`. `ITransport` abstracts the socket library. Steam and GNS are the only
+transports; LiteNetLib is used only for packet serialization (`NetDataWriter`, `NetPacketProcessor`,
+`DeliveryMethod`) and LAN discovery.
 
 - `SteamworksTransport.cs` is the transport in use (`NetworkManager` gets it from `TransportSwitch`). A
   server opens both a normal UDP socket on the configured port and a Steam relay socket. A client
@@ -158,7 +160,6 @@ player anyway, the session drops it.
   without a Steam client (cloud pods). It exists in **Debug builds only**: `-dvmp-transport gns`
   selects it, a game on it never starts Steam, and a release has neither the code nor the DLL
   ([testing.md, "GNS pairs"](testing.md#gns-pairs)).
-- `LiteNetLibTransport.cs` is an alternative transport that nothing uses at the moment.
 
 ### Packets
 

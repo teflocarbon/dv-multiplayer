@@ -21,7 +21,6 @@ public abstract class NetworkManager
     protected readonly NetDataWriter cachedWriter = new();
 
     private readonly ITransport transport;
-    protected readonly NetManager netManager;
 
     protected abstract string LogPrefix { get; }
 
@@ -52,7 +51,6 @@ public abstract class NetworkManager
 
     public virtual void PollEvents()
     {
-        //netManager.PollEvents();
         transport?.PollEvents();
     }
 

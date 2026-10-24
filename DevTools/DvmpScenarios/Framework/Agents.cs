@@ -23,6 +23,8 @@ namespace Dvmp.Scenarios
         public string Role { get; private set; }
         public string LaunchId { get; private set; }
         public bool Dedicated { get; private set; }
+        /// <summary>"gns" for a game started with -dvmp-transport gns, else "steam".</summary>
+        public string Transport { get; private set; }
         /// <summary>The scenario assembly this game has loaded, by hash, for this launch.</summary>
         public string LoadedHash { get; set; }
 
@@ -45,7 +47,7 @@ namespace Dvmp.Scenarios
                 if ((s >= 0 && s + 1 < args.Length ? args[s + 1] : "default") != session) continue;
                 int pid = info.Value<int>("pid");
                 if (!FromInstall(pid, gameDir)) continue;
-                GameAgent agent = new() { Pid = pid, Port = info.Value<int>("port"), token = info.Value<string>("token"), Dedicated = args.Contains("-mp-dedicated") };
+                GameAgent agent = new() { Pid = pid, Port = info.Value<int>("port"), token = info.Value<string>("token"), Dedicated = args.Contains("-mp-dedicated"), Transport = TransportOf(args) };
                 try
                 {
                     JObject status = await agent.CallAsync("/v1/status", new JObject(), TimeSpan.FromSeconds(10));
@@ -56,6 +58,12 @@ namespace Dvmp.Scenarios
                 catch (HarnessException) { }
             }
             return found;
+        }
+
+        private static string TransportOf(string[] args)
+        {
+            int t = Array.IndexOf(args, "-dvmp-transport");
+            return t >= 0 && t + 1 < args.Length && args[t + 1] == "gns" ? "gns" : "steam";
         }
 
         private static bool FromInstall(int pid, string gameDir)

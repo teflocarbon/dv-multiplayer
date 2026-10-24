@@ -62,7 +62,7 @@ public static class McpTools
         [Description("Launch the host as a dedicated server (-mp-dedicated): no avatar, no player slot.")] bool dedicated = false,
         [Description("Start or reuse only a host, with its own identity (needs a named session).")] bool hostOnly = false,
         [Description("Launch the host checking Steam tickets (no -mp-allow-unverified); use with fresh.")] bool verified = false,
-        [Description("\"steam\" (default) or \"gns\": both games run on Valve's open-source GameNetworkingSockets without Steam, as on a cloud pod (Debug builds only; not with verified). See docs/testing.md, \"GNS pairs\".")] string transport = "steam",
+        [Description("\"steam\" or \"gns\": both games run on Valve's open-source GameNetworkingSockets without Steam, as on a cloud pod (Debug builds only; not with verified). Default: keep the running pair's, or Steam for new games. See docs/testing.md, \"GNS pairs\".")] string? transport = null,
         [Description("Name for a brand-new session started with newSession.")] string? newSessionName = null,
         [Description(Session)] string? session = null,
         CancellationToken ct = default)

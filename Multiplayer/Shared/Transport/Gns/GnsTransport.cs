@@ -122,6 +122,8 @@ public class GnsTransport : ITransport
     public void Stop(bool sendDisconnectPackets)
     {
         Multiplayer.LogDebug(() => "GnsTransport.Stop()");
+        if (GnsNative.Sockets == IntPtr.Zero)
+            return; // GNS already stopped: the game is quitting
 
         if (client != null)
         {
@@ -150,6 +152,8 @@ public class GnsTransport : ITransport
 
     public void PollEvents()
     {
+        if (GnsNative.Sockets == IntPtr.Zero)
+            return;
         while (debugMessages.TryDequeue(out string message))
             Multiplayer.Log($"GNS: {message}");
 
@@ -210,6 +214,8 @@ public class GnsTransport : ITransport
     public void UpdateSettings(Settings settings)
     {
         IntPtr utils = GnsNative.Utils;
+        if (utils == IntPtr.Zero)
+            return;
 
         float chance = 0f;
         if (settings.SimulatePacketLoss)
@@ -480,6 +486,8 @@ public class GnsConnectionRequest : IConnectionRequest
 
     public void Reject(NetDataWriter data = null)
     {
+        if (GnsNative.Sockets == IntPtr.Zero)
+            return;
         if (data != null)
             peer?.Send(data, DeliveryMethod.ReliableUnordered);
 
@@ -505,6 +513,8 @@ public class GnsPeer : ITransportPeer
 
     public void Send(NetDataWriter writer, DeliveryMethod deliveryMethod)
     {
+        if (GnsNative.Sockets == IntPtr.Zero)
+            return;
         int sendType = (int)SteamWorksTransport.ToSendType(deliveryMethod);
 
         int result = GnsNative.SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(
@@ -521,6 +531,8 @@ public class GnsPeer : ITransportPeer
 
     public void Disconnect(NetDataWriter data = null)
     {
+        if (GnsNative.Sockets == IntPtr.Zero)
+            return;
         if (data != null)
             Send(data, DeliveryMethod.ReliableUnordered);
 

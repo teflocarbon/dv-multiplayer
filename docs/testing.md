@@ -312,6 +312,11 @@ v1.6.1 has the interface versions DV's Steamworks SDK uses (`SteamNetworkingSock
   years of Steam's fixes to the open-source tree, so 1.6.1 is as close as a public build gets.
 - Connections are encrypted with Windows' BCrypt and self-signed certificates instead of
   Steam-issued ones, so the peer's identity isn't authenticated (test pairs don't need it).
+- GNS's warnings reach the game log as `GNS: ...`; Steam's sockets log inside the Steam client.
+  A joining client logs `recv queue overflow` while the world streams in, at 1000 messages or
+  1 MB queued: GNS drops what doesn't fit unacknowledged, so the host sends it again and nothing
+  is lost. Those limits (`RecvBufferMessages`, `RecvBufferSize`) are the same defaults in Steam's
+  sockets.
 
 **Runs that stay on Steam pairs.** GNS pairs add capacity for the item and world scenarios; they
 don't replace these. A result that differs between GNS and Steam is checked on Steam.
@@ -323,7 +328,9 @@ don't replace these. A result that differs between GNS and Steam is checked on S
 
 **In the gate.** `TRANSPORT=gns` (or `UP_ARGS="--transport gns"`) starts the gate's pairs on GNS.
 Every run's line and the summary name the transport its pair ran on (`dvmp status` reports each
-game's), and a gate run against an already running pair records that pair's.
+game's), and a gate run against an already running pair records that pair's. A plain `dvmp up`
+keeps a running pair's transport, so a scenario that rejoins its client or restarts the pair stays
+on GNS.
 
 ```bash
 TRANSPORT=gns PAIRS="p:1 d:1" ONLY="train-items recall" bash DevTools/Scenarios/gate.sh

@@ -104,6 +104,9 @@ internal static class GnsNative
     private static extern bool GameNetworkingSockets_Init(IntPtr identity, StringBuilder errMsg);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern void GameNetworkingSockets_Kill();
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr SteamNetworkingSockets_LibV12();
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -208,5 +211,21 @@ internal static class GnsNative
         debugOutput = onDebugOutput;
         SteamAPI_ISteamNetworkingUtils_SetGlobalCallback_SteamNetConnectionStatusChanged(Utils, statusChanged);
         SteamAPI_ISteamNetworkingUtils_SetDebugOutputFunction(Utils, DebugOutputWarning, debugOutput);
+
+        UnityEngine.Application.quitting += Kill;
+    }
+
+    /// <summary>
+    ///     Stops GNS as the game quits, before Mono shuts down. GNS's service thread enters managed
+    ///     code when it logs, and a game whose service thread was still running hung on quit.
+    /// </summary>
+    private static void Kill()
+    {
+        if (Sockets == IntPtr.Zero)
+            return;
+        SteamAPI_ISteamNetworkingUtils_SetDebugOutputFunction(Utils, 0, null);
+        GameNetworkingSockets_Kill();
+        Sockets = IntPtr.Zero;
+        Utils = IntPtr.Zero;
     }
 }

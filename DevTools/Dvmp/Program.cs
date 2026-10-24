@@ -78,7 +78,7 @@ internal static class Program
                         BackgroundFpsCap: Opt(args, "--bg-fps") is string bg ? int.Parse(bg) : null,
                         HostOnly: args.Contains("--host-only"), Dedicated: args.Contains("--dedicated"),
                         Verified: args.Contains("--verified"), Reseed: args.Contains("--reseed"),
-                        Transport: Opt(args, "--transport") ?? "steam"),
+                        Transport: Opt(args, "--transport")),
                     Timeout.InfiniteTimeSpan, CancellationToken.None)),
                 "down" => Print(await Session.DownAsync(CancellationToken.None, all: args.Contains("--all"))),
                 "soak" => Print(await Soak.RunAsync(Opt(args, "-t"), int.Parse(Opt(args, "-n") ?? "15"), int.Parse(Opt(args, "--seed") ?? "1"),
