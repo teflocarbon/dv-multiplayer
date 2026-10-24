@@ -11,15 +11,15 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Known item bug SL4 (expected to fail on beta, docs/research/item-bug-review.md): the client
-    /// drops its comms radio in a moving loco's cab, where the item has a physics lease, and recalls
-    /// it into its slot. The recall commits the inventory placement without ending the lease
-    /// (LiveItems.TryCommitPreparedRecall skips the only revoke), so the lease lives
-    /// on and the save writes the lease's placement: after a restart the radio is back in the cab,
-    /// not in the inventory.
+    /// Item bug SL4 (docs/research/item-bug-review.md): the client drops its comms radio in a moving
+    /// loco's cab, where the item has a physics lease, and recalls it into its slot. Before R3 the
+    /// recall committed the inventory placement without ending the lease, so the save wrote the
+    /// lease's placement and after a restart the radio was back in the cab. Since R3 the lease is
+    /// gone after the recall (likely because an item in a remote player's inventory is data on
+    /// the server, OI-COLD-06, so its object goes with its lease). The radio doesn't always still have a lease when it's recalled (it may have settled):
+    /// such a run checks only the recall and the restart, and says so.
     /// </summary>
-    [Scenario("item-bug-recall-lease", "Known bug SL4: an essential recalled out of a moving cab must have no physics lease left, and be in the inventory after a save and restart")]
-    [KnownBug("SL4")]
+    [Scenario("item-bug-recall-lease", "An essential recalled out of a moving cab has no physics lease left, and is in the inventory after a save and restart")]
     [Needs(Need.RestartsGames)]
     [Budget(900)]
     public sealed class ItemBugRecallLease : Scenario<ItemBugRecallLease.Options>
@@ -43,7 +43,8 @@ namespace Dvmp.Scenarios
             Running<object> push = pair.Host.Start(() => Cars.Push(loco, o.Speed, 20f, 3f), 120);
             await pair.Client.Run<float>(s => Items.CarryIntoCab(s, loco, d.Item, "drop", 30), 90);
             bool leased = await pair.Host.Run(() => InGame.Leased(d.Item));
-            Report.Note($"in the moving cab: the host has a physics lease on it: {leased}");
+            Report.Note(leased ? "in the moving cab: the host has a physics lease on it"
+                : "in the moving cab: no physics lease on it (it settled), so this run doesn't test SL4's lease");
 
             Recall.Recalled r = await pair.Client.Run<Recall.Recalled>(s => Recall.InGame.Recall(s, d.Item, o.Slot));
             Report.Note($"recalled: slot {r.Slot}, {r.State} after {r.Seconds:0.#} s");
