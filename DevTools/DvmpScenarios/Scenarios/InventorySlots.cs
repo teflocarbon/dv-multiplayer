@@ -16,11 +16,12 @@ namespace Dvmp.Scenarios
     /// reach the server and the ledger, an essential moved off the belt claims its new slot and one
     /// on the belt keeps its old claim, a move into a slot another essential reserves is refused and
     /// leaves the item where it was in both games, and after a rejoin every item is back in the same
-    /// slot. WHO=host does it with the host's own player (no rejoin: R4's RESTART=1 covers it).
+    /// slot. WHO=host does it with the host's own player. RESTART=1 saves and restarts the pair
+    /// instead of the rejoin (docs/design/items/save-load.md), which is how WHO=host comes back.
     /// </summary>
     [Scenario("inventory-slots", "Inventory slots are the server's: stash, move, swap, the belt, a reserved slot, and a rejoin into the same slots")]
     [Needs(Need.RestartsGames)]
-    [Budget(400)]
+    [Budget(500)]
     public sealed class InventorySlots : Scenario<InventorySlots.Options>
     {
         public sealed class Options
@@ -29,6 +30,10 @@ namespace Dvmp.Scenarios
             public string Essential = "CommsRadio";
             /// <summary>Whose inventory: "client", or "host" (the host's own player; needs a player host).</summary>
             public string Who = "client";
+            /// <summary>True: save and restart the pair instead of a rejoin.</summary>
+            public bool Restart = false;
+            /// <summary>The save to reload (RESTART=1).</summary>
+            public string Session = "DVMP Test Career 2";
         }
 
         // The belt's first slot (InventorySlots.FirstBeltSlot): game code, so not callable from Run.
@@ -89,24 +94,35 @@ namespace Dvmp.Scenarios
             await Same(pair, who, first, secondSlot, "the first lantern, refused the reserved slot");
             await who.Run<int>(s => Items.Stash(s, radio, false), 60);
             await Same(pair, who, radio, claim, $"the {o.Essential}, picked up again");
-            if (host)
+            if (host && !o.Restart)
                 return;
 
-            // A rejoin: every item comes back in the slot it left in (its net ID may be new).
+            // A rejoin, or a save and restart: every item comes back in the slot it left in (its
+            // net ID may be new).
             string firstId = await pair.Host.Run(() => Owned.IdOf(first));
             string secondId = await pair.Host.Run(() => Owned.IdOf(second));
-            await pair.Client.Quit();
-            await Task.Delay(4000);
-            await pair.Rejoin();
-            await Task.Delay(12000);   // the client receives its items
+            string again = o.Restart ? "after the restart" : "after the rejoin";
+            if (o.Restart)
+            {
+                await pair.Host.Run(() => Saves.Manual());
+                await pair.Restart(o.Session);
+                await Task.Delay(15000);   // the client receives its items
+            }
+            else
+            {
+                await pair.Client.Quit();
+                await Task.Delay(4000);
+                await pair.Rejoin();
+                await Task.Delay(12000);   // the client receives its items
+            }
             ushort firstNow = await pair.Host.Run(() => Owned.NetIdOf(firstId));
             ushort secondNow = await pair.Host.Run(() => Owned.NetIdOf(secondId));
             ushort radioNow = await pair.Host.Run(() => Owned.NetIdOf(radioId));
             await pair.Host.Run(() => Ledger.Track(firstNow));
             await pair.Host.Run(() => Ledger.Track(secondNow));
-            await Same(pair, who, firstNow, secondSlot, "the first lantern, after the rejoin");
-            await Same(pair, who, secondNow, free, "the second lantern, after the rejoin");
-            await Same(pair, who, radioNow, claim, $"the {o.Essential}, after the rejoin");
+            await Same(pair, who, firstNow, secondSlot, "the first lantern, " + again);
+            await Same(pair, who, secondNow, free, "the second lantern, " + again);
+            await Same(pair, who, radioNow, claim, $"the {o.Essential}, " + again);
         }
 
         // The server has it in this slot, the ledger agrees, and so does the player's game.
