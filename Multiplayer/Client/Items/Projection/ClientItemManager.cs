@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Client.Items.Physics;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -16,7 +17,7 @@ namespace Multiplayer.Client.Items.Projection;
 /// client's fall-rescue report. The Shared manager creates it on a remote client only and drives it
 /// (<see cref="IItemManagerClientPart"/>); client code reaches it as <see cref="Instance"/>.
 /// </summary>
-internal sealed partial class ClientItemManager : IItemManagerClientPart
+internal sealed partial class ClientItemManager : IItemManagerClientPart, IInventoryRowHolder
 {
     // Exact scene-authored Unity objects remain dormant while outside host interest. They are
     // rebound only by stable authored key; dynamic projections are never pooled or reused.

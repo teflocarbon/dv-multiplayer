@@ -194,7 +194,7 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
                     failure = succeeded ? string.Empty : "essential-claim-drop-failed";
                     break;
                 case InventoryClaimAction.AddToExpectedSlotThenDrop:
-                    succeeded = inventory.AddItemToInventory(item, plan.TargetSlot, false) >= 0 &&
+                    succeeded = InventoryPutAwayPatch.NotAPutAway(() => inventory.AddItemToInventory(item, plan.TargetSlot, false)) >= 0 &&
                         inventory.DropItemFromHandsOrInventory(item) != null;
                     failure = succeeded ? string.Empty : "essential-claim-repair-failed";
                     break;

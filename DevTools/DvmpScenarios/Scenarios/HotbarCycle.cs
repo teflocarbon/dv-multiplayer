@@ -18,10 +18,10 @@ namespace Dvmp.Scenarios
     /// Every vanilla item out of the hotbar and back (docs/design/items/inventory.md, "Taking out";
     /// D14, OI-COLD-10): the player picks each up, stashes it into a hotbar slot through the hotbar
     /// (GrabberStashingHandler, as the key does), takes it out the same way and stashes it again.
-    /// On a client the slot holds a stand-in and no object while it's stored; taken out, the object
+    /// The slot holds a stand-in and no object while it's stored; taken out, the object
     /// is made in that frame with the saved state it went in with, and the frame it takes stays
     /// within MAX_MS. The server and the ledger have it in the slot after each stash. WHO=host does
-    /// it with the host's own player, which keeps objects until R4C C4. PREFABS= limits the list.
+    /// it with the host's own player, whose slots are stand-ins too (R4C C4). PREFABS= limits the list.
     /// </summary>
     [Scenario("hotbar-cycle", "Every vanilla item stashed into the hotbar, taken out and stashed again: no object while stored, its state in the first frame, the frame time bounded")]
     [Budget(3600)]
@@ -97,7 +97,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static string[] Prefabs() =>
                 DV.Globals.G.Items.items.Where(s => s != null && !s.IsEssential && s.GetComponent<Money>() == null &&
-                                                    Multiplayer.Client.Items.Projection.ClientItemManager.CanStandIn(s.ItemPrefabName))
+                                                    InventoryStandIn.CanStandIn(s.ItemPrefabName))
                     .Select(s => s.ItemPrefabName).Distinct().OrderBy(p => p, StringComparer.Ordinal).ToArray();
 
             /// <summary>
@@ -114,7 +114,7 @@ namespace Dvmp.Scenarios
                 var inv = Inventory.Instance;
                 var handler = UnityEngine.Object.FindObjectOfType<GrabberStashingHandler>() ?? throw new Exception("no GrabberStashingHandler");
                 var hotbar = UnityEngine.Object.FindObjectOfType<HotbarController>() ?? throw new Exception("no HotbarController");
-                bool remote = Multiplayer.Shared.Session.NetworkRole.IsRemoteClient;
+                bool rows = InventoryRowHolder.Current != null;
 
                 int slot = Enumerable.Range(InventoryUtils.HOTBAR_START_INDEX, InventoryUtils.HOTBAR_SIZE)
                     .Where(s => inv.PeekItemAtSlot(s, true) == null && !inv.GetSlotReservedState(s)).DefaultIfEmpty(-1).First();
@@ -141,8 +141,9 @@ namespace Dvmp.Scenarios
                 if (!PlayerInventory.Holds(id)) { Fail("not in the inventory 5 s after the first stash"); yield break; }
                 if (PlayerInventory.Slot(id) != slot && !PlayerInventory.MoveTo(id, slot)) { Fail($"couldn't move it to hotbar slot {slot}"); yield break; }
                 yield return new WaitForSecondsRealtime(1.5f);
-                if (remote && !PlayerInventory.IsStandIn(id)) failures.Add("stashed, a client kept its object, not a stand-in");
-                if (remote && NetworkedItem.TryGet(id, out NetworkedItem left) && left != null) failures.Add("stashed, its object is still there");
+                if (!rows) failures.Add("this game's inventory isn't rows");
+                if (!PlayerInventory.IsStandIn(id)) failures.Add("stashed, it kept its object, not a stand-in");
+                if (NetworkedItem.TryGet(id, out NetworkedItem left) && left != null) failures.Add("stashed, its object is still there");
 
                 // Out: the object is made in this frame, with the state it went in with.
                 hotbar.UpdateSelectedSlot(slot, false);
@@ -174,7 +175,7 @@ namespace Dvmp.Scenarios
                 result.Slot = PlayerInventory.Slot(id);
                 result.StandIn = PlayerInventory.IsStandIn(id);
                 if (result.Slot != slot) failures.Add($"stashed again into slot {result.Slot}, not {slot}");
-                if (remote && !result.StandIn) failures.Add("stashed again, a client kept its object");
+                if (!result.StandIn) failures.Add("stashed again, it kept its object");
                 Hands.ReleaseControl();
                 result.Failures = failures.ToArray();
 

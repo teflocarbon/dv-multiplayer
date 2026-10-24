@@ -279,9 +279,16 @@ internal sealed partial class ServerItemManager
             if (LiveItems.TryGet(item.NetId, out LiveItems.LiveItem existingRecord) &&
                 existingRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Installed)
                 continue;
+            uint dirtyBefore = item.LastDirtyTick;
             ItemUpdate snapshot = item.GetSnapshot();
             if (snapshot != null && hostActs && !TryKeepRemotePossession(item, snapshot, hostPlayer))
+            {
+                // Nothing of it is the server's to send, so it isn't a change: as one, each player
+                // who knew the item was sent the server's copy whole instead (a FullSync), its
+                // drift and all (a lantern's wick swinging in the holder's projected hand).
+                item.KeepLastDirtyTick(dirtyBefore);
                 continue;
+            }
             if (snapshot != null && hostActs)
             {
                 string rejectionReason;

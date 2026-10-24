@@ -1,16 +1,14 @@
 using DV.InventorySystem;
 using HarmonyLib;
-using Multiplayer.Client.Items.Projection;
-using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
-namespace Multiplayer.Client.Items.Inventory;
+namespace Multiplayer.Shared.Items.Inventory;
 
 /// <summary>
 /// The local player taking an item out of a slot (docs/design/items/inventory.md, "Taking out";
 /// D14, OI-COLD-10): before vanilla acts on a stand-in, its object is made from the row in the same
-/// frame and swapped in (<see cref="ClientItemManager.TakeOut"/>). The hotbar's unstash peeks the
+/// frame and swapped in (<see cref="IInventoryRowHolder.TakeOut"/>, on a client or for a player host's own player). The hotbar's unstash peeks the
 /// slot before it equips, so it's taken out before the peek; the UI's equip and the VR backpack
 /// grab go through <c>EquipItem</c>; the UI's drop through <c>DropItemFromHandsOrInventory</c>. A
 /// move onto an enabled VR belt slot takes the item out (the belt holds objects, OI-COLD-14), and
@@ -22,7 +20,7 @@ internal static class InventoryTakeOutPatch
     private static InventoryStandIn StandIn(GameObject item) => item != null ? item.GetComponent<InventoryStandIn>() : null;
 
     private static GameObject TakeOut(InventoryStandIn standIn, string reason) =>
-        ClientItemManager.StandInsActive ? ClientItemManager.Instance?.TakeOut(standIn, reason)?.gameObject : null;
+        InventoryRowHolder.Current?.TakeOut(standIn, reason)?.gameObject;
 
     [HarmonyPatch(typeof(GrabberStashingHandler), nameof(GrabberStashingHandler.UnStash))]
     [HarmonyPrefix]
@@ -110,11 +108,11 @@ internal static class InventoryTakeOutPatch
     private static void OffBelt(DV.InventorySystem.Inventory inventory, int slot)
     {
         GameObject gameObject = VanillaInventorySlots.At(inventory, slot);
-        ClientItemManager manager = ClientItemManager.Instance;
+        IInventoryRowHolder holder = InventoryRowHolder.Current;
         NetworkedItem item = gameObject != null ? gameObject.GetComponent<NetworkedItem>() : null;
-        if (manager == null || item == null || inventory.GetSlotDroppedState(slot) ||
-            inventory.IsValidVRBeltIndex(slot) && item.Item.IsBeltSnappable || !manager.PutsAwayAsStandIn(item))
+        if (holder == null || item == null || inventory.GetSlotDroppedState(slot) ||
+            inventory.IsValidVRBeltIndex(slot) && item.Item.IsBeltSnappable || !holder.PutsAwayAsStandIn(item))
             return;
-        manager.StowWithoutRequest(item);
+        holder.StowWithoutRequest(item);
     }
 }

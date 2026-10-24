@@ -13,6 +13,7 @@ using Dvmp.Lib;
 using Multiplayer.Client.Shops;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -129,7 +130,7 @@ namespace Dvmp.Scenarios
                 int shopIndex = shops.IndexOf(shop);
                 CashRegisterWithModules reg = shop.cashRegister;
                 ScanItemCashRegisterModule mod = shop.scanItemResourceModules.First(m => m.name.StartsWith(item));
-                Wallet w = Resources.FindObjectsOfTypeAll<Wallet>().First(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Shared.Players.NetworkedPlayer>() == null);
+                Wallet w = Resources.FindObjectsOfTypeAll<Wallet>().FirstOrDefault(x => x.gameObject.scene.IsValid() && x.GetComponentInParent<Multiplayer.Shared.Players.NetworkedPlayer>() == null);
 
                 yield return TakeScanner(shop);
                 double start = Inventory.Instance.PlayerMoney;
@@ -144,8 +145,27 @@ namespace Dvmp.Scenarios
                 double cost = reg.GetTotalCost();
                 if (cost > 0)
                 {
+                    // A wallet in a slot is its stand-in (D14): it's taken out to pay, as a player does,
+                    // the scanner left by the register, and put away again after.
+                    InventoryStandIn stored = w == null
+                        ? InventoryStandIn.All.FirstOrDefault(s => s.Prefab != null && s.Prefab.GetComponent<Wallet>() != null)
+                        : null;
+                    if (stored != null)
+                    {
+                        yield return Hands.Drop();
+                        Inventory.Instance.EquipItem(stored.gameObject, Inventory.Instance.IndexOf(stored.gameObject), 0);
+                        yield return Wait.Until(() => Hands.Held != null && Hands.Held.GetComponent<Wallet>() != null, 5f, "the wallet in the hand");
+                        w = Hands.Held.GetComponent<Wallet>();
+                    }
+                    if (w == null) throw new InvalidOperationException("no wallet, as an object or a stand-in");
                     Shop.InGame.WalletUse(w).HandleUse(reg.GetComponent<ItemUseTarget>());
                     yield return Wait.Until(() => reg.DepositedCash >= cost, 10f, "the payment on the register");
+                    if (stored != null)
+                    {
+                        ushort walletId = w.GetComponent<NetworkedItem>().NetId;
+                        Inventory.Instance.AddItemToInventory(w.gameObject);
+                        yield return Wait.Until(() => PlayerInventory.Holds(walletId), 5f, "the wallet put away");
+                    }
                 }
                 double deposited = reg.DepositedCash;
 

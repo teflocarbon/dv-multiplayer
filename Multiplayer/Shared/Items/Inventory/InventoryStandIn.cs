@@ -8,6 +8,7 @@ using DV.Items;
 using DV.Common;
 using DV.Localization;
 using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -82,6 +83,53 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
     public static InventoryItemSpec FindSpec(string prefabName) =>
         string.IsNullOrEmpty(prefabName) ? null : Globals.G?.Items?.items?.FirstOrDefault(spec =>
             spec != null && string.Equals(spec.ItemPrefabName, prefabName, StringComparison.Ordinal));
+
+    /// <summary>Whether an item of this prefab can be a stand-in: a prefab known here, not job papers (C7).</summary>
+    public static bool CanStandIn(string prefabName) =>
+        FindSpec(prefabName) != null && !NetworkedItemManager.IsJobDocumentPrefab(prefabName);
+
+    /// <summary>
+    /// Whether this object can be a stand-in: its prefab can, and none of its magazines holds
+    /// anything. A magazine's ammo (a boombox's cassette, a sprayer's can, a soldering tool's
+    /// spool) is a live object inside it that no row keeps yet, so a loaded one stays an object
+    /// in its slot (OI-CON-16).
+    /// </summary>
+    public static bool CanStandIn(GameObject item) =>
+        item != null && item.GetComponent<InventoryItemSpec>() is { } spec && CanStandIn(spec.ItemPrefabName) &&
+        !HoldsAmmo(item);
+
+    /// <summary>Whether a magazine of this object holds anything.</summary>
+    public static bool HoldsAmmo(GameObject item) =>
+        item.GetComponentsInChildren<ItemMagazine>(true)
+            .Any(magazine => Enumerable.Range(0, magazine.Capacity).Any(slot => magazine[slot] != null));
+
+    /// <summary>The stand-in an object of the local player's becomes as it's put away, with its row's fields and state.</summary>
+    public static InventoryStandIn ForObject(NetworkedItem item)
+    {
+        InventoryStandIn standIn = For(item.NetId, item.Item.InventorySpecs.itemPrefabName);
+        standIn.Relation = item.Relation;
+        standIn.ClaimSlot = item.InventoryClaimSlot;
+        standIn.ClaimFlags = item.InventoryClaimFlags;
+        standIn.Revision = item.AuthorityRevision;
+        standIn.State = ItemStateText.Capture(item.gameObject);
+        return standIn;
+    }
+
+    /// <summary>
+    /// Into the slot its row has (OI-SLOT-01): an essential in its claim slot through the claim,
+    /// anything else exactly, as an object was placed before D14; the first free slot if that fails.
+    /// </summary>
+    public void Place(ItemUpdate row)
+    {
+        bool reserved = NetworkedItem.HasRetrievalFlag(row.InventoryClaimFlags);
+        bool inClaim = row.InventoryClaimSlot >= 0 &&
+            (row.InventorySlot < 0 || row.InventorySlot == row.InventoryClaimSlot);
+        bool placed = inClaim
+            ? InventoryIntegration.RestoreClaim(gameObject, row.InventoryClaimSlot).Succeeded || reserved
+            : row.InventorySlot >= 0 && InventoryIntegration.PlaceAt(gameObject, row.InventorySlot) >= 0;
+        if (!placed && InventoryIntegration.AddActive(gameObject) < 0)
+            Multiplayer.LogWarning($"Inventory: no slot for {PrefabName} (netId {NetId}), which the server has in slot {row.InventorySlot}");
+    }
 
     /// <summary>Whether items of this prefab snap to the VR belt (an enabled belt slot keeps them as objects).</summary>
     public static bool IsBeltSnappablePrefab(string prefabName) =>

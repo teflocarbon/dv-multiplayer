@@ -49,7 +49,9 @@ namespace Dvmp.Scenarios
             {
                 Expect.Equal("SomeoneElses", mineTold.Host, "what the host's own player is told of the client's mug");
                 Expect.That(!mineTold.HostClaim, "the host's own player isn't told the client's claim");
-                Expect.Equal("SomeoneElses", mineTold.HostCopy, "the relation on the host's own copy of the client's mug");
+                // Kept as data only on the server, it has no copy there (OI-COLD-06); one that has says so.
+                if (mineTold.HostCopy.Length > 0)
+                    Expect.Equal("SomeoneElses", mineTold.HostCopy, "the relation on the host's own copy of the client's mug");
             }
 
             Told foundTold = await Check(pair, found, "the found", "Nobodys", red: false);
@@ -85,7 +87,7 @@ namespace Dvmp.Scenarios
 
         public sealed class Told
         {
-            /// <summary>The relations each player is told; "" for no host player.</summary>
+            /// <summary>The relations each player is told; "" for no host player (HostCopy: or no copy on the host).</summary>
             public string Client = "", Host = "", HostCopy = "";
             public bool ClientClaim, HostClaim, OwnerConnected;
             public string Owner = "";
@@ -127,10 +129,15 @@ namespace Dvmp.Scenarios
             [Step]
             public static Told Told(ushort netId)
             {
-                if (!LiveItems.TryGet(netId, out var record) || !NetworkedItem.TryGet(netId, out NetworkedItem item))
+                if (!LiveItems.TryGet(netId, out var record))
                     throw new Exception("no record for " + netId);
                 NetworkServer server = NetworkServer.Instance;
-                ItemUpdate update = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState);
+                // In a remote player's inventory the server keeps it as data only, with no copy
+                // (OI-COLD-06): its update is the record's alone.
+                NetworkedItem.TryGet(netId, out NetworkedItem item);
+                ItemUpdate update = item != null
+                    ? item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState)
+                    : new ItemUpdate { UpdateType = ItemUpdate.ItemUpdateType.ItemState, ItemNetId = netId, PrefabName = record.PrefabName };
                 LiveItems.WriteToSnapshot(record, update, ItemTransitionReason.Unknown);
                 ServerPlayer client = server.ServerPlayers.First(p => p != server.LocalPlayer && p.PlayerId != 0);
                 ItemUpdate toClient = NetworkServer.BuildFor(update, client);
@@ -141,7 +148,7 @@ namespace Dvmp.Scenarios
                     ClientClaim = toClient.HasClaim,
                     Host = toHost?.Relation.ToString() ?? "",
                     HostClaim = toHost?.HasClaim == true,
-                    HostCopy = server.LocalPlayer == null ? "" : item.Relation.ToString(),
+                    HostCopy = server.LocalPlayer == null || item == null ? "" : item.Relation.ToString(),
                     Owner = record.Owner.ToString("D"),
                     OwnerConnected = PlayerNumbers.IsConnected(record.Owner)
                 };
