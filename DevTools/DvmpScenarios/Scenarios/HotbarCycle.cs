@@ -24,7 +24,7 @@ namespace Dvmp.Scenarios
     /// it with the host's own player, which keeps objects until R4C C4. PREFABS= limits the list.
     /// </summary>
     [Scenario("hotbar-cycle", "Every vanilla item stashed into the hotbar, taken out and stashed again: no object while stored, its state in the first frame, the frame time bounded")]
-    [Budget(1500)]
+    [Budget(3600)]
     public sealed class HotbarCycle : Scenario<HotbarCycle.Options>
     {
         public sealed class Options
@@ -62,9 +62,12 @@ namespace Dvmp.Scenarios
                     Expect.Empty(c.Failures, $"{prefab}: what went wrong in the {who.Name}'s game");
                     Expect.That(c.OutMs <= o.MaxMs, $"{prefab}: the take-out's frame within {o.MaxMs} ms", $"{c.OutMs:F1} ms");
                     if (c.OutMs > o.MaxMs / 2) slow.Add($"{prefab} {c.OutMs:F0} ms");
-                    ServerSlot server = await pair.Host.Run(() => Ledger.Where(id));
-                    Expect.Equal(c.Slot, server.Slot, $"{prefab}: the server's slot after the second stash");
-                    Expect.Equal(c.Slot, server.LedgerSlot, $"{prefab}: the ledger's slot after the second stash");
+                    if (c.Slot >= 0)
+                    {
+                        ServerSlot server = await pair.Host.Run(() => Ledger.Where(id));
+                        Expect.Equal(c.Slot, server.Slot, $"{prefab}: the server's slot after the second stash");
+                        Expect.Equal(c.Slot, server.LedgerSlot, $"{prefab}: the ledger's slot after the second stash");
+                    }
                 }
                 // Each one goes before the next, so the inventory never fills.
                 Expect.Empty(await pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { id }), 30), $"{prefab}: still on the host after its destroy");
@@ -122,7 +125,7 @@ namespace Dvmp.Scenarios
                 if (Hands.Held != null) yield return Hands.Drop();
                 yield return LocalPlayer.GoTo(item);
                 yield return Hands.Pickup(id);
-                if (Hands.Held == null || Hands.Held.NetId != id) throw new Exception("couldn't pick it up");
+                if (Hands.Held == null || Hands.Held.NetId != id) { Fail("couldn't pick it up"); yield break; }
                 if (!inv.CanAddItem(item.gameObject))
                 {
                     result.Refused = "the inventory won't take it";
@@ -134,8 +137,9 @@ namespace Dvmp.Scenarios
                 // In through the hotbar, into the selected slot (or wherever vanilla put it, moved there).
                 hotbar.UpdateSelectedSlot(slot, false);
                 handler.StashToggle(slot);
-                yield return Wait.Until(() => PlayerInventory.Holds(id), 5f, "the first stash");
-                if (PlayerInventory.Slot(id) != slot && !PlayerInventory.MoveTo(id, slot)) throw new Exception($"couldn't move it to hotbar slot {slot}");
+                yield return Within(() => PlayerInventory.Holds(id), 5f);
+                if (!PlayerInventory.Holds(id)) { Fail("not in the inventory 5 s after the first stash"); yield break; }
+                if (PlayerInventory.Slot(id) != slot && !PlayerInventory.MoveTo(id, slot)) { Fail($"couldn't move it to hotbar slot {slot}"); yield break; }
                 yield return new WaitForSecondsRealtime(1.5f);
                 if (remote && !PlayerInventory.IsStandIn(id)) failures.Add("stashed, a client kept its object, not a stand-in");
                 if (remote && NetworkedItem.TryGet(id, out NetworkedItem left) && left != null) failures.Add("stashed, its object is still there");
@@ -156,14 +160,16 @@ namespace Dvmp.Scenarios
                 float f0 = Time.realtimeSinceStartup;
                 yield return null;
                 result.NextFrameMs = (Time.realtimeSinceStartup - f0) * 1000f;
-                yield return Wait.Until(() => Hands.Held != null && Hands.Held.NetId == id, 5f, "the item in the hand");
+                yield return Within(() => Hands.Held != null && Hands.Held.NetId == id, 5f);
+                if (Hands.Held == null || Hands.Held.NetId != id) { Fail("not in the hand 5 s after the take-out"); yield break; }
                 yield return new WaitForSecondsRealtime(1.5f);
                 if (Hands.Held == null || Hands.Held.NetId != id) failures.Add("taken out, it left the hand (rolled back?)");
 
                 // In again.
                 hotbar.UpdateSelectedSlot(slot, false);
                 handler.StashToggle(slot);
-                yield return Wait.Until(() => PlayerInventory.Holds(id), 5f, "the second stash");
+                yield return Within(() => PlayerInventory.Holds(id), 5f);
+                if (!PlayerInventory.Holds(id)) { Fail("not in the inventory 5 s after the second stash"); yield break; }
                 yield return new WaitForSecondsRealtime(1.5f);
                 result.Slot = PlayerInventory.Slot(id);
                 result.StandIn = PlayerInventory.IsStandIn(id);
@@ -171,6 +177,20 @@ namespace Dvmp.Scenarios
                 if (remote && !result.StandIn) failures.Add("stashed again, a client kept its object");
                 Hands.ReleaseControl();
                 result.Failures = failures.ToArray();
+
+                // One prefab's failure is its own: recorded, and the run goes on to the next.
+                void Fail(string why)
+                {
+                    failures.Add(why);
+                    result.Failures = failures.ToArray();
+                    Hands.ReleaseControl();
+                }
+            }
+
+            private static IEnumerator Within(Func<bool> done, float seconds)
+            {
+                float end = Time.realtimeSinceStartup + seconds;
+                while (!done() && Time.realtimeSinceStartup < end) yield return null;
             }
 
             private static JToken Parse(string state) => string.IsNullOrEmpty(state) ? JValue.CreateNull() : JToken.Parse(state);

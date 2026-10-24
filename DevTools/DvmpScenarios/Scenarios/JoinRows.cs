@@ -24,7 +24,7 @@ namespace Dvmp.Scenarios
         public sealed class Options
         {
             /// <summary>The items to stash, comma-separated.</summary>
-            public string Prefabs = "Lantern,Mug,Lighter";
+            public string Prefabs = "Lantern,Mug,lighter";
         }
 
         protected override async Task Run(Pair pair, Options o)

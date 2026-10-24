@@ -30,7 +30,7 @@ namespace Dvmp.Scenarios
         public sealed class Options
         {
             /// <summary>The items changed in the hand, comma-separated.</summary>
-            public string Prefabs = "Lighter,DuctTape";
+            public string Prefabs = "lighter,DuctTape";
             /// <summary>Also every vanilla magazine, loaded with its ammo.</summary>
             public bool Magazines = true;
         }

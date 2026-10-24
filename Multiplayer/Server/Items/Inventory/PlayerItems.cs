@@ -263,7 +263,7 @@ internal static partial class PlayerItems
             Multiplayer.LogWarning($"Inventory: no item called {row.PrefabName}; {player.Username}'s {row.PersistentItemId:D} stays cold");
             yield break;
         }
-        GameObject instance = Object.Instantiate(spec.gameObject,
+        GameObject instance = ItemStateText.Instantiate(spec.gameObject,
             StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
         instance.name = row.PrefabName;
         InventoryItemSpec placed = instance.GetComponent<InventoryItemSpec>();
@@ -300,6 +300,7 @@ internal static partial class PlayerItems
                     yield break;
                 }
             }
+            ItemStateText.FinishContainer(instance);
             ItemBase itemBase = instance.GetComponent<ItemBase>();
             if (itemBase == null || item.NetId == 0)
                 throw new InvalidOperationException("no net id");
