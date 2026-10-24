@@ -225,15 +225,14 @@ public sealed class ContainerGraphTests
     [Test]
     public void NestedMove_CannotPlaceContainerInsideItsDescendant()
     {
-        Guid child = Guid.NewGuid();
+        StoredItemRecord childShell = Item();
+        Guid child = childShell.PersistentItemId;
         graph.AddContainer(Container(child, Owner, 4));
-        StoredItemRecord childShell = Item(childContainerId: child);
         Deposit(root, 0, childShell);
         graph.FinalizeDepositRetirement(Guid.NewGuid(), childShell.PersistentItemId);
-        graph.TryGetContainer(root, out var rootRecord);
         graph.TryGetContainer(child, out var childRecord);
 
-        StoredItemRecord rootShell = Item(childContainerId: root);
+        StoredItemRecord rootShell = Item(id: root);
         ContainerOperationResult result = graph.CommitDeposit(new DepositCommand
         {
             OperationId = Guid.NewGuid(),
@@ -246,6 +245,37 @@ public sealed class ContainerGraphTests
 
         Assert.That(result.Status, Is.EqualTo(ContainerOperationStatus.CycleDetected));
         Assert.That(graph.ItemCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void AStoredShell_OpensTheContainerWithItsId()
+    {
+        // OI-CON-09: the container's id is its shell's item id, so nothing can mint another.
+        StoredItemRecord shell = Item();
+        graph.AddContainer(Container(shell.PersistentItemId, Owner, 4));
+        Deposit(root, 1, shell);
+        graph.TryGetContainer(shell.PersistentItemId, out var inner);
+
+        graph.Browse(Owner, root, 0, 64, out var view);
+
+        Assert.That(graph.IsContainer(shell.PersistentItemId), Is.True);
+        Assert.That(view.Slots.Single().IsContainer, Is.True);
+        Assert.That(view.Slots.Single().ChildContainerHandle, Is.EqualTo(inner.SessionHandle));
+        // Stored once: the same shell can't go into a second slot.
+        graph.TryGetContainer(root, out var current);
+        Assert.That(graph.CommitDeposit(DepositCommand(Guid.NewGuid(), root, current.Revision, shell, slot: 2)).Status,
+            Is.EqualTo(ContainerOperationStatus.DuplicateIdentity));
+    }
+
+    [Test]
+    public void AContainerInsideItself_IsRefusedAtImport()
+    {
+        StoredItemRecord self = Stored(Item(id: root), root, 0);
+
+        IReadOnlyList<ContainerRowRefusal> refused = graph.ImportRows(new[] { Container(root, Owner, 4) }, new[] { self });
+
+        Assert.That(refused.Single().Reason, Is.EqualTo("container-cycle-detected"));
+        Assert.That(graph.ItemCount, Is.Zero);
     }
 
     [Test]
@@ -385,10 +415,9 @@ public sealed class ContainerGraphTests
     {
         ContainerGraph shallow = new(new ContainerLimits { MaximumDepth = 1 });
         Guid outer = Guid.NewGuid(), middle = Guid.NewGuid(), inner = Guid.NewGuid();
-        StoredItemRecord middleShell = Stored(Item(), outer, 0);
-        middleShell.ChildContainerId = middle;
-        StoredItemRecord innerShell = Stored(Item(), middle, 0);
-        innerShell.ChildContainerId = inner;
+        // A container's id is its shell's item id.
+        StoredItemRecord middleShell = Stored(Item(id: middle), outer, 0);
+        StoredItemRecord innerShell = Stored(Item(id: inner), middle, 0);
 
         IReadOnlyList<ContainerRowRefusal> refused = shallow.ImportRows(
             new[] { Container(outer, Owner, 4), Container(middle, Owner, 4), Container(inner, Owner, 4) },
@@ -482,13 +511,12 @@ public sealed class ContainerGraphTests
         Capacity = capacity
     };
 
-    private static StoredItemRecord Item(string owner = Owner, Guid? childContainerId = null) => new()
+    private static StoredItemRecord Item(string owner = Owner, Guid? id = null) => new()
     {
-        PersistentItemId = Guid.NewGuid(),
+        PersistentItemId = id ?? Guid.NewGuid(),
         PrefabName = "TestItem",
         DisplayName = "Test Item",
         PersistentOwnerIdentity = owner,
-        ChildContainerId = childContainerId,
         StateVersion = 1
     };
 

@@ -222,7 +222,7 @@ public static class ItemsSaveCodec
             (bool?)item["essential"] ?? false);
     }
 
-    /// <summary>A container's row: its id, its shell's item when it is stored in another, its size. Its owner stays here until R5.</summary>
+    /// <summary>A container's row: its id (its shell's item id, OI-CON-09) and its size. Its owner stays here until R5's owners from the ledger.</summary>
     public static JObject WriteContainer(ContainerRecord container)
     {
         JObject row = new()
@@ -232,8 +232,6 @@ public static class ItemsSaveCodec
             ["prefab"] = container.PrefabName ?? string.Empty,
             ["capacity"] = container.Capacity
         };
-        if (container.ParentItemId is Guid parent && parent != Guid.Empty)
-            row["item"] = parent.ToString("D");
         return row;
     }
 
@@ -249,8 +247,7 @@ public static class ItemsSaveCodec
             PersistentContainerId = id,
             OwnerIdentity = owner.ToString("D"),
             PrefabName = (string)row["prefab"] ?? string.Empty,
-            Capacity = (int)row["capacity"],
-            ParentItemId = Guid.TryParse((string)row["item"], out Guid parent) && parent != Guid.Empty ? parent : null
+            Capacity = (int)row["capacity"]
         };
     }
 

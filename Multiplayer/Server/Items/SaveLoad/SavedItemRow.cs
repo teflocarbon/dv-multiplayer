@@ -42,8 +42,6 @@ internal sealed class SavedItemRow
     public Quaternion Rotation { get; set; } = Quaternion.identity;
     /// <summary>A stored item's container (an unowned one's; an owned one's is its home).</summary>
     public Guid ContainerId { get; set; }
-    /// <summary>The container a stored container shell holds, or empty.</summary>
-    public Guid ChildContainerId { get; set; }
     public uint StateVersion { get; set; }
     /// <summary>The item's own <c>ItemSaveData</c> JSON, or null for an item without (a mug).</summary>
     public JObject State { get; set; }
@@ -102,8 +100,6 @@ internal sealed class SavedItemRow
                 ["position"] = VectorToJson(ParentLocalPosition),
                 ["rotation"] = QuaternionToJson(ParentLocalRotation)
             };
-        if (ChildContainerId != Guid.Empty)
-            row["childContainer"] = FormatGuid(ChildContainerId);
         if (StateVersion != 0)
             row["stateVersion"] = StateVersion;
         if (State != null)
@@ -151,7 +147,6 @@ internal sealed class SavedItemRow
             ParentLocalRotation = QuaternionFromJson(parent?["rotation"] as JArray),
             Position = VectorFromJson(value["position"] as JArray),
             Rotation = QuaternionFromJson(value["rotation"] as JArray),
-            ChildContainerId = ParseGuid((string)value["childContainer"]),
             StateVersion = (uint?)value["stateVersion"] ?? 0,
             State = value["state"] as JObject
         };

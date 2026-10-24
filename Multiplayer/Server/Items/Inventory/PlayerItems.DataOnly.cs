@@ -62,9 +62,9 @@ internal static partial class PlayerItems
     // The state each holder's game sent as it put an item away (D14, OI-COLD-13), laid over the
     // server's own when its object goes: the holder's copy is the item as it was in their hands.
     private static readonly Dictionary<ushort, JObject> stashedStates = new();
-    // What only the server keeps in an item's state, which a holder's copy never replaces: a
-    // container's id, which every game's copy mints for itself.
-    private static readonly HashSet<string> serverKeys = new(StringComparer.Ordinal) { ContainerIdentityPatch.SaveKey };
+    // What only the server keeps in an item's state, which a holder's copy never replaces: the
+    // item's id (a container's id too, which is its shell's item id).
+    private static readonly HashSet<string> serverKeys = new(StringComparer.Ordinal) { ItemIdentityPatch.Key };
 
     /// <summary>Keeps the state a player's game sent with a stash, for the item's row.</summary>
     public static void KeepStashedState(ushort netId, string state)
@@ -98,13 +98,13 @@ internal static partial class PlayerItems
         ColdInventories.Contains(record.PersistentItemId) &&
         !(NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item != null);
 
-    /// <summary>The NetId of a container shell kept as data, by its container's id (saved in its state), or 0.</summary>
+    /// <summary>The NetId of a container shell kept as data, by its container's id (the shell's item id), or 0.</summary>
     public static ushort DataOnlyShell(Guid containerId)
     {
-        string wanted = containerId.ToString("D");
+        if (containerId == Guid.Empty)
+            return 0;
         foreach (LiveItems.LiveItem record in LiveItems.Records)
-            if (IsDataOnly(record) && ColdInventories.TryGet(record.PersistentItemId, out SavedItemRow row) &&
-                string.Equals((string)row.State?["multiplayerColdContainerId"], wanted, StringComparison.OrdinalIgnoreCase))
+            if (record.PersistentItemId == containerId && IsDataOnly(record))
                 return record.NetId;
         return 0;
     }

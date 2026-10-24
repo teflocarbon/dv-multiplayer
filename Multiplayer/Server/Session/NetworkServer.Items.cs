@@ -659,17 +659,11 @@ public partial class NetworkServer : IItemServer
     // ---- Containers: a request names a container or a stored item by its handle, and the
     // container graph by its own session handle; the translation is here, on the server only. ----
 
-    // The graph's handle for the container a wire handle names: the container's own, or a stored
-    // container item's (a toolbox in a crate), which opens its contents. 0 if neither.
-    private static uint ContainerGraphHandle(uint handle)
-    {
-        if (!ItemHandles.TryResolve(handle, out Guid id))
-            return 0;
-        if (ContainerServer.Graph.TryGetContainer(id, out ContainerRecord container))
-            return container.SessionHandle;
-        return ContainerServer.Graph.TryGetItem(id, out StoredItemRecord stored) && stored.ChildContainerId is Guid child &&
-               ContainerServer.Graph.TryGetContainer(child, out ContainerRecord inner) ? inner.SessionHandle : 0;
-    }
+    // The graph's handle for the container a wire handle names: the container's own, which is a
+    // stored container item's too (a toolbox in a crate), since a container has its shell's id. 0 if neither.
+    private static uint ContainerGraphHandle(uint handle) =>
+        ItemHandles.TryResolve(handle, out Guid id) && ContainerServer.Graph.TryGetContainer(id, out ContainerRecord container)
+            ? container.SessionHandle : 0;
 
     // A stored item a wire handle names, and the graph's handle for the container it's in.
     private static bool TryGetStoredItem(uint handle, out StoredItemRecord stored, out uint containerGraphHandle)

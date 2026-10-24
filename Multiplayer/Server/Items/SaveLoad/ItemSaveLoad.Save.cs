@@ -259,7 +259,6 @@ internal static partial class ItemSaveLoad
             ParentLocalRotation = checkpoint?.ParentLocalRotation ?? record.ParentLocalRotation,
             Position = checkpoint?.AbsolutePosition ?? record.Position,
             Rotation = checkpoint?.Rotation ?? record.Rotation,
-            ChildContainerId = item.GetComponent<ContainerIdentity>()?.PersistentId ?? Guid.Empty,
             State = TrySaveItemState(record.NetId, item)
         };
     }
@@ -273,7 +272,6 @@ internal static partial class ItemSaveLoad
             PrefabName = stored.PrefabName,
             DisplayName = stored.DisplayName ?? string.Empty,
             Placement = ItemPlacementKind.Container,
-            ChildContainerId = stored.ChildContainerId ?? Guid.Empty,
             StateVersion = stored.StateVersion
         };
         row.TakeDetachedState(stored.DetachedState);

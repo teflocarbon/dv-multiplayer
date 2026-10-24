@@ -114,7 +114,7 @@ The host puts the item's vanilla save data in every `Create` it sends, and the c
 the new copy before anything else is applied.
 
 - **Host:** a clone of `SaveItemData()` from its copy, with the mod's own keys removed (`dvmpPersistentWorldItemId`,
-  `dvmpManagedWorldItem`, `dvmpAuthoredWorldItemKey`, `multiplayerColdContainerId`), sent as a UTF-8
+  `dvmpManagedWorldItem`, `dvmpAuthoredWorldItemKey`), sent as a UTF-8
   JSON string in a new `ItemUpdateData` field present only on `Create`. Interest entry sends `Create`s
   in bulk (a station yard), so the JSON is cached per item and rebuilt only when its object state has
   changed since (the record's object-state revision run). Measure the station-arrival hitch before and

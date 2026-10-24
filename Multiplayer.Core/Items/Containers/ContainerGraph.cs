@@ -59,6 +59,10 @@ public sealed class ContainerLimits
     };
 }
 
+/// <summary>
+/// A cold container. Its id is its shell's item id (docs/design/items/containers.md): a container
+/// is stored inside another when the graph holds an item with that id.
+/// </summary>
 public sealed class ContainerRecord
 {
     public Guid PersistentContainerId { get; set; }
@@ -67,7 +71,6 @@ public sealed class ContainerRecord
     public int Capacity { get; set; }
     public uint Revision { get; set; }
     public uint SessionHandle { get; set; }
-    public Guid? ParentItemId { get; set; }
 
     public ContainerRecord Clone() => new()
     {
@@ -76,8 +79,7 @@ public sealed class ContainerRecord
         PrefabName = PrefabName,
         Capacity = Capacity,
         Revision = Revision,
-        SessionHandle = SessionHandle,
-        ParentItemId = ParentItemId
+        SessionHandle = SessionHandle
     };
 }
 
@@ -90,7 +92,6 @@ public sealed class StoredItemRecord
     public string AuthoredItemKey { get; set; } = string.Empty;
     public Guid ParentContainerId { get; set; }
     public int Slot { get; set; } = -1;
-    public Guid? ChildContainerId { get; set; }
     public uint StateVersion { get; set; }
     public byte[] DetachedState { get; set; } = Array.Empty<byte>();
     public ItemLifecycleState LifecycleState { get; set; } = ItemLifecycleState.Cold;
@@ -106,7 +107,6 @@ public sealed class StoredItemRecord
         AuthoredItemKey = AuthoredItemKey,
         ParentContainerId = ParentContainerId,
         Slot = Slot,
-        ChildContainerId = ChildContainerId,
         StateVersion = StateVersion,
         DetachedState = DetachedState?.ToArray() ?? Array.Empty<byte>(),
         LifecycleState = LifecycleState,
@@ -316,9 +316,8 @@ public sealed class ContainerGraph
             HasMore = direct.Count > boundedOffset + boundedCount,
             Slots = direct.Skip(boundedOffset).Take(boundedCount).Select(item =>
             {
-                ContainerRecord child = item.ChildContainerId.HasValue &&
-                    containers.TryGetValue(item.ChildContainerId.Value, out ContainerRecord found)
-                        ? found : null;
+                ContainerRecord child = containers.TryGetValue(item.PersistentItemId, out ContainerRecord found)
+                    ? found : null;
                 return new ContainerSlotView
                 {
                     Slot = item.Slot,
@@ -353,7 +352,7 @@ public sealed class ContainerGraph
         ContainerOperationResult validation = ValidateDestination(command.OperationId,
             ContainerOperationKind.Deposit, command.ActorIdentity, destination,
             command.ExpectedDestinationRevision, command.DestinationSlot, command.Item,
-            command.Item?.ChildContainerId);
+            ContainerOf(command.Item));
         if (!validation.Accepted)
             return Complete(command.OperationId, validation);
         if (command.Item == null || command.Item.PersistentItemId == Guid.Empty ||
@@ -368,15 +367,11 @@ public sealed class ContainerGraph
             return Complete(command.OperationId, Reject(command.OperationId,
                 ContainerOperationKind.Deposit, ContainerOperationStatus.Unauthorized,
                 "deposit-item-not-owned"));
+        // A container already stored in another is this too: its id is its shell's.
         if (items.ContainsKey(command.Item.PersistentItemId))
             return Complete(command.OperationId, Reject(command.OperationId,
                 ContainerOperationKind.Deposit, ContainerOperationStatus.DuplicateIdentity,
                 "duplicate-item-id"));
-        if (command.Item.ChildContainerId.HasValue &&
-            containers[command.Item.ChildContainerId.Value].ParentItemId.HasValue)
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Deposit, ContainerOperationStatus.OperationConflict,
-                "child-container-already-parented"));
         if (CountOwnedItems(command.Item.PersistentOwnerIdentity) >= Limits.MaximumItemsPerOwner)
             return Complete(command.OperationId, Reject(command.OperationId,
                 ContainerOperationKind.Deposit, ContainerOperationStatus.OwnerQuotaExceeded,
@@ -393,8 +388,6 @@ public sealed class ContainerGraph
         item.RetiringNetId = command.PhysicalNetId;
         item.SessionHandle = AllocateHandle();
         items.Add(item.PersistentItemId, item);
-        if (item.ChildContainerId.HasValue)
-            containers[item.ChildContainerId.Value].ParentItemId = item.PersistentItemId;
         destination.Revision = NextRevision(destination.Revision);
         return Complete(command.OperationId, Accept(command.OperationId,
             ContainerOperationKind.Deposit, destinationRevision: destination.Revision,
@@ -486,8 +479,6 @@ public sealed class ContainerGraph
         item.LifecycleState = ItemLifecycleState.Materialized;
         item.ParentContainerId = Guid.Empty;
         item.Slot = -1;
-        if (item.ChildContainerId.HasValue)
-            containers[item.ChildContainerId.Value].ParentItemId = null;
         preparingWithdrawals.Remove(operationId);
         ContainerOperationResult result = Accept(operationId, ContainerOperationKind.Withdraw,
             sourceRevision: source.Revision, itemId: item.PersistentItemId,
@@ -540,7 +531,7 @@ public sealed class ContainerGraph
         ContainerOperationResult validation = ValidateDestination(command.OperationId,
             ContainerOperationKind.Move, command.ActorIdentity, destination,
             command.ExpectedDestinationRevision, command.DestinationSlot, item,
-            item.ChildContainerId, ignoreItemId: item.PersistentItemId);
+            ContainerOf(item), ignoreItemId: item.PersistentItemId);
         if (!validation.Accepted)
             return Complete(command.OperationId, validation);
         item.ParentContainerId = destination.PersistentContainerId;
@@ -574,8 +565,8 @@ public sealed class ContainerGraph
     /// <summary>
     /// Loads rows from a save, each on its own (docs/design/items/save-load.md, "Rows stand alone";
     /// C1): the containers, then the stored items. A row that breaks a rule (a slot out of range or
-    /// taken, a container it isn't in, an owner that isn't its container's, a child container that
-    /// isn't its, nesting deeper than the limit) is refused and returned, and every other row loads.
+    /// taken, a container it isn't in, an owner that isn't its container's, a container inside
+    /// itself, nesting deeper than the limit) is refused and returned, and every other row loads.
     /// The caller keeps the refused rows as they were saved. Replaces whatever the graph held.
     /// </summary>
     public IReadOnlyList<ContainerRowRefusal> ImportRows(IEnumerable<ContainerRecord> containerRows,
@@ -616,39 +607,35 @@ public sealed class ContainerGraph
             return "container-slot-invalid";
         if (FindDirect(input.ParentContainerId, input.Slot) != null)
             return "container-slot-occupied";
-        ContainerRecord child = null;
-        if (input.ChildContainerId.HasValue &&
-            (!containers.TryGetValue(input.ChildContainerId.Value, out child) ||
-             child.ParentItemId.HasValue && child.ParentItemId != input.PersistentItemId))
-            return "child-container-invalid";
         StoredItemRecord clone = input.Clone();
         clone.SessionHandle = AllocateHandle();
         // After a restart no Unity representation survives: every stored item is cold.
         clone.LifecycleState = ItemLifecycleState.Cold;
         clone.RetiringNetId = 0;
         items.Add(clone.PersistentItemId, clone);
-        Guid? hadParent = child?.ParentItemId;
-        if (child != null)
-            child.ParentItemId = clone.PersistentItemId;
         ContainerOperationResult depth = ValidateDepthFrom(RootOf(parent.PersistentContainerId));
         if (depth.Accepted)
             return string.Empty;
         items.Remove(clone.PersistentItemId);
-        if (child != null)
-            child.ParentItemId = hadParent;
         return depth.Reason;
     }
 
-    // The outermost container above this one, through the items that hold each.
+    /// <summary>Whether this item is a container's shell: the container has the item's id.</summary>
+    public bool IsContainer(Guid itemId) => containers.ContainsKey(itemId);
+
+    // The outermost container above this one: a container is stored as the item with its id.
     private Guid RootOf(Guid containerId)
     {
         HashSet<Guid> seen = new();
         Guid current = containerId;
-        while (seen.Add(current) && containers.TryGetValue(current, out ContainerRecord container) &&
-               container.ParentItemId.HasValue && items.TryGetValue(container.ParentItemId.Value, out StoredItemRecord holder))
+        while (seen.Add(current) && items.TryGetValue(current, out StoredItemRecord holder))
             current = holder.ParentContainerId;
         return current;
     }
+
+    // The container an item opens, if it is one's shell.
+    private Guid? ContainerOf(StoredItemRecord item) =>
+        item != null && containers.ContainsKey(item.PersistentItemId) ? item.PersistentItemId : null;
 
     public ContainerOperationResult ValidateWholeGraph()
     {
@@ -771,9 +758,9 @@ public sealed class ContainerGraph
     }
 
     private IEnumerable<Guid> DirectChildContainers(Guid parent) => items.Values
-        .Where(item => item.ParentContainerId == parent && item.ChildContainerId.HasValue &&
+        .Where(item => item.ParentContainerId == parent && containers.ContainsKey(item.PersistentItemId) &&
             item.LifecycleState != ItemLifecycleState.Materialized)
-        .Select(item => item.ChildContainerId.Value);
+        .Select(item => item.PersistentItemId);
 
     private StoredItemRecord FindDirect(Guid containerId, int slot, Guid? ignore = null) =>
         items.Values.FirstOrDefault(item => item.ParentContainerId == containerId &&

@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Threading.Tasks;
 using Dvmp.Lib;
-using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.SaveLoad;
@@ -22,12 +21,12 @@ namespace Dvmp.Scenarios
     ///    lantern has its wick; dropped, the client doesn't hold it tombstoned as Lost and Found's, and
     ///    the host has it dropped in the world with its wick.
     /// 2. The client stashes a toolbox, takes it out and stashes it again: its server row keeps the
-    ///    container id the server's object had (a holder's copy mints its own, which replaced it and
-    ///    orphaned its contents).
+    ///    item id the server's object had, which is its container's id too (a holder's copy once minted
+    ///    its own container id, which replaced the server's and orphaned its contents; OI-CON-09).
     /// The Lost and Found policy is tightened for the run (owner distance 50 m, grace 1 s), as
     /// lost-and-found does.
     /// </summary>
-    [Scenario("retrieved-state", "A lantern retrieved from Lost and Found keeps its wick through a take-out and a drop; a toolbox's server row keeps its container id through stashes")]
+    [Scenario("retrieved-state", "A lantern retrieved from Lost and Found keeps its wick through a take-out and a drop; a toolbox's server row keeps its item id through stashes")]
     [Budget(300)]
     public sealed class RetrievedState : Scenario<RetrievedState.Options>
     {
@@ -71,17 +70,17 @@ namespace Dvmp.Scenarios
             Expect.Equal("Dropped", server.State, "the host's lantern's state");
             Expect.AtMost(Off(server.Wick, wick), 0.05, $"the host's wick off {wick}");
 
-            // 2. A toolbox's container id is the server's, whatever the client's copy minted.
+            // 2. A toolbox's id (its container's id too, OI-CON-09) is the server's, whatever the client's copy says.
             ushort box = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Container, "client"));
             string minted = await pair.Host.Run(() => InGame.ObjectContainerId(box));
-            Report.Note($"{o.Container} {box}: the server's container id {minted}");
-            Require.That(minted.Length > 0, "the server's toolbox has a container id");
+            Report.Note($"{o.Container} {box}: the server's item id {minted}");
+            Require.That(minted.Length > 0, "the server's toolbox has an item id");
             await pair.Client.Run<int>(s => Items.Stash(s, box, false), 60);
             await Task.Delay(2000);   // the stash's row is written
-            Expect.Equal(minted, await pair.Host.Run(() => InGame.RowContainerId(box)), "the container id in the server's row after the stash (A1)");
+            Expect.Equal(minted, await pair.Host.Run(() => InGame.RowContainerId(box)), "the item id in the server's row after the stash (A1)");
             await pair.Client.Run<StashState.Kept>(s => StashState.InGame.TakeOutAndStash(s, box), 60);
             await Task.Delay(2000);
-            Expect.Equal(minted, await pair.Host.Run(() => InGame.RowContainerId(box)), "the container id in the server's row after a take-out and a second stash");
+            Expect.Equal(minted, await pair.Host.Run(() => InGame.RowContainerId(box)), "the item id in the server's row after a take-out and a second stash");
         }
 
         private static float Off(float value, float wanted) => Math.Abs(value - wanted);
@@ -143,20 +142,20 @@ namespace Dvmp.Scenarios
                 Hands.ReleaseControl();
             }
 
-            /// <summary>Host: the container id the server's object of the item saves, "" for none.</summary>
+            /// <summary>Host: the item id the server's object of the item saves, "" for none.</summary>
             [Step]
             public static string ObjectContainerId(ushort id)
             {
                 if (!NetworkedItem.TryGet(id, out NetworkedItem item) || item == null) return "";
                 string state = ItemStateText.Capture(item.gameObject);
-                return state.Length > 0 ? (string)JObject.Parse(state)[ContainerIdentityPatch.SaveKey] ?? "" : "";
+                return state.Length > 0 ? (string)JObject.Parse(state)[ItemIdentityPatch.Key] ?? "" : "";
             }
 
-            /// <summary>Host: the container id in the server's row of an item kept as data, "" for none.</summary>
+            /// <summary>Host: the item id in the server's row of an item kept as data, "" for none.</summary>
             [Step]
             public static string RowContainerId(ushort id) =>
                 LiveItems.TryGet(id, out LiveItems.LiveItem record) && ColdInventories.TryGet(record.PersistentItemId, out SavedItemRow row)
-                    ? (string)row.State?[ContainerIdentityPatch.SaveKey] ?? "" : "";
+                    ? (string)row.State?[ItemIdentityPatch.Key] ?? "" : "";
         }
     }
 }
