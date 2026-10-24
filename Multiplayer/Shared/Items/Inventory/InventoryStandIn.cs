@@ -96,7 +96,12 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
     }
 
     /// <summary>Whether an item of this prefab can be a stand-in: a prefab known here (job papers too, OI-COLD-07).</summary>
-    public static bool CanStandIn(string prefabName) => FindSpec(prefabName) != null;
+    public static bool CanStandIn(string prefabName) => !IsUnmadePaper(prefabName) && FindSpec(prefabName) != null;
+
+    // An expired or missing-licence report is the job system's, but no row can make it again (it
+    // has no recipe): it stays an object, as it's made generically from no job otherwise.
+    private static bool IsUnmadePaper(string prefabName) =>
+        prefabName is nameof(JobExpiredReport) or nameof(JobMissingLicenseReport);
 
     /// <summary>
     /// Whether this object can be a stand-in: its prefab can, and none of its magazines holds
