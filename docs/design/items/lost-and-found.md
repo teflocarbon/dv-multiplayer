@@ -68,3 +68,21 @@ Scenarios: `car-delete-owner` (an owned mug in a cab, its owner online, gone or 
 `car-delete-attached` (an owned lantern on a coupler and an owned gadget to Lost and Found, an
 unowned lantern into the world), `item-bug-car-delete-unowned` (`HOW=car`, `HOW=track`: an unowned
 mug stays in the world).
+
+## Attached and snapped items
+
+An item on a coupler (an end-of-train lantern) or a snap point (a hanger) goes to Lost and Found off
+it: `LiveItems.TryMoveToLostAndFound` takes it off first (`NetworkedItem.LeaveSnapPoint`: unsnapped
+and into the world's parent, since an unsnap gives back the parent it had, which may be the car),
+and every client's inert copy comes off too (`EnforceLostAndFoundProjection`), so no hidden lantern
+holds the coupler. That serves each way in:
+
+- **Collection:** an offline owner's attached and snapped items are collected like their items in a
+  cab or on a shelf (OI-LF-04); a snap no longer protects them. An online owner's stay where they are.
+- **Retrieval:** the owner retrieves one from their list like an item lying anywhere (`Collect`,
+  OI-LIST-14). An installed gadget's retrieval waits on gadgets (OI-LIST-15, paused).
+- **A deleted car:** [above](#a-deleted-car).
+
+The owned-items list words an attached item "on the end of car L-042" (OI-LIST-06).
+
+Scenario: `attached-offline`.

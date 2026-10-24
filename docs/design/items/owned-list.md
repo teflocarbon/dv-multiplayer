@@ -69,15 +69,14 @@ container's name (its record's prefab, localised).
 | `LostAndFound` | "in Lost and Found" |
 | `Installed` on a car | "installed on L-042", or "installed on a car" |
 | `Installed` on the world (`Home.WorldAnchor`) | "installed in the world" |
-| `Attached` | "attached to L-042" |
+| `Attached` | "on the end of car L-042", or "on the end of a car" when the car isn't found |
 | `Snapped` | "fitted in place" |
-| `Missing` | "missing" (the kind goes in R4, D9) |
 
 "your" is the viewer's own hands and inventory. Another player is named only while connected; an
 offline holder reads "another player's". A ground item doesn't say where ("near Harbor, 1.2 km",
 OI-LIST-04) and a container doesn't name its nesting ("in your Toolbox, in your inventory",
-OI-LIST-05): both are paused (list wording). "attached to L-042" and "missing" are built but no
-scenario lists them (OI-LIST-06, R6).
+OI-LIST-05): both are paused (list wording). "on the end of car L-042" is listed by `attached-offline` (OI-LIST-06, R6). There is no `Missing` home since R4 (D9): a
+home the list can't word reads "lost track of it".
 
 ## Retrieval
 
@@ -93,12 +92,13 @@ asked, so Lost and Found's nearby-player protection and grace period don't apply
 | `Slot` or `Hand` of the owner | `NothingToDo` | refused, `nothing-to-retrieve` |
 | `Slot` or `Hand` of another player | `TakeFromHolder` | taken from them, then into Lost and Found |
 | `World`, `TrainInterior`, `Shelf` | `Collect` | into Lost and Found now |
+| `Attached`, `Snapped` | `Collect` | off its coupler or snap point, then into Lost and Found (OI-LIST-14) |
 | `Container` | `OutermostContainer` | the outermost of the owner's own boxes around it goes, whole; out of a box that isn't theirs, it comes out alone |
-| `LostAndFound`, `Missing` | `NothingToDo` | refused, `nothing-to-retrieve` |
-| `Attached`, `Snapped`, `Installed` | `NotYet` | refused, `not-retrievable-yet` |
+| `LostAndFound`, `Unloadable` | `NothingToDo` | refused, `nothing-to-retrieve` |
+| `Installed` | `NotYet` | refused, `not-retrievable-yet` |
 
-Detaching an attached or snapped item first is OI-LIST-14 (R6); retrieving an installed gadget is
-OI-LIST-15 (paused: gadgets). A shelf retrieval is built but unproved (OI-LIST-09, R7).
+The detaching is Lost and Found's own ([lost-and-found.md](lost-and-found.md#attached-and-snapped-items)).
+Retrieving an installed gadget is OI-LIST-15 (paused: gadgets). A shelf retrieval is built but unproved (OI-LIST-09, R7).
 
 ### The outermost container
 
@@ -180,8 +180,8 @@ A recall is one step ([wire.md](wire.md#recall)), so a retrieval never meets one
 Core (`Multiplayer.Core.Tests/Items/OwnedList/PlaceTextTests.cs`):
 
 - `PlaceTextTests`: the owner's own hands, inventory and belt read "your"; another player's name;
-  ground, car and shelf; container, Lost and Found, attached, installed on a car and in the world,
-  fitted in place, missing.
+  ground, car and shelf; container, Lost and Found, on the end of a car (named and not), installed on a car and
+  in the world, fitted in place.
 - `RetrievalRuleTests.EachPlace_HasItsRetrieval`: the kind for each home.
 
 Scenarios (`DevTools/DvmpScenarios/Scenarios/`):
@@ -196,5 +196,7 @@ Scenarios (`DevTools/DvmpScenarios/Scenarios/`):
 - `ledger-rows`: the host's retrieval of the client's mug is refused (`not-your-item`); the owner's
   list names another player's inventory and its own hand (OI-LIST-21); the client retrieves its mug
   from the host's inventory, and Lost and Found records `RetrievedByOwner` (OI-LIST-12, OI-LF-20).
+- `attached-offline`: the client's lantern on a coupler is listed "on the end of car" its flatbed, and its
+  retrieval takes it off the coupler into its Lost and Found.
 - `item-lineage`: a used-up item leaves the list.
 - `rekey`: the owned list and a Lost and Found retrieval survive a re-key.

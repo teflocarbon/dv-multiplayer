@@ -37,13 +37,13 @@ public static class DeletedCarItems
         // Snapped first: an unsnap gives a lantern back to the parent it had, which may be this car.
         foreach (NetworkedItem item in NetworkedItem.GetAll().Where(item => item != null && item.NetId != 0 &&
                      SnappedOn(item, car)).Distinct().ToList())
-            TakeOff(item, car, Unsnap);
+            TakeOff(item, car);
         foreach (ushort netId in LiveItems.GetAll()
                      .Where(record => record.Placement == ItemPlacementKind.TrainInterior && record.WorldParentNetId == carNetId ||
                                       record.Placement == ItemPlacementKind.Attached && record.AttachedCarNetId == carNetId)
                      .Select(record => record.NetId).ToList())
             if (NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null)
-                TakeOff(item, car, Unsnap);
+                TakeOff(item, car);
     }
 
     /// <summary>
@@ -71,20 +71,13 @@ public static class DeletedCarItems
                                  TrainCar.Resolve(point.gameObject) == car);
     }
 
-    private static void Unsnap(NetworkedItem item)
-    {
-        ItemSnapPointBase point = item.Item?.SnappableItem?.SnappedTo;
-        if (point != null)
-            point.UnsnapItem(true);
-    }
-
     // Off the car first (unsnapped, out of its interior), so the pool doesn't take it; then an owned
     // item to its owner, and any other into the world where it is.
-    private static void TakeOff(NetworkedItem item, TrainCar car, Action<NetworkedItem> detach)
+    private static void TakeOff(NetworkedItem item, TrainCar car)
     {
         if (LostAndFoundServer.Contains(item.NetId))
             return;
-        detach?.Invoke(item);
+        item.LeaveSnapPoint();
         item.transform.SetParent(WorldMover.OriginShiftParent, true);
         bool owned = LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && record.Owner != Guid.Empty;
         if (owned && LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, $"car {car.ID} deleted"))

@@ -7,7 +7,8 @@ namespace Multiplayer.Core.Tests.Items.LostAndFound;
 /// <summary>
 /// An owner who isn't connected counts as far away (owned-items.md, PR 3; decided by the user
 /// 2026-10-21): their items are collected under the usual nearby-player and grace rules, from train
-/// interiors and shelves as well as the world. An online owner's still come from the world only.
+/// interiors, shelves, couplers and snap points as well as the world. An online owner's still come from
+/// the world only.
 /// </summary>
 [TestFixture]
 public sealed class LostAndFoundAwayOwnerTests
@@ -56,6 +57,42 @@ public sealed class LostAndFoundAwayOwnerTests
         item.OwnerDistanceSquared = 5000 * 5000;
 
         Assert.That(Evaluate(item).Reason, Is.EqualTo("not-in-world"));
+    }
+
+    // An end-of-train lantern on a coupler, an item on a hanger: collected detached (OI-LF-04).
+    [TestCase(LivePlacement.Attached)]
+    [TestCase(LivePlacement.SnappedAttachment)]
+    public void AnAwayOwnersAttachedOrSnappedItem_IsCollectedToo(LivePlacement placement)
+    {
+        LostItemCandidate item = AwayOwners(placement);
+        item.IsSnapped = true;
+
+        Assert.That(Evaluate(item).ShouldCollect, Is.True);
+    }
+
+    [TestCase(LivePlacement.Attached)]
+    [TestCase(LivePlacement.SnappedAttachment)]
+    public void AnOnlineOwnersAttachedOrSnappedItem_StaysWhereItIs(LivePlacement placement)
+    {
+        LostItemCandidate item = AwayOwners(placement);
+        item.IsSnapped = true;
+        item.OwnerConnected = true;
+        item.OwnerPositionKnown = true;
+        item.OwnerDistanceSquared = 5000 * 5000;
+
+        Assert.That(Evaluate(item).Kind, Is.EqualTo(LostItemDecisionKind.Ineligible));
+    }
+
+    [Test]
+    public void AnOnlineOwnersSnappedItemInTheWorld_StaysWhereItIs()
+    {
+        LostItemCandidate item = AwayOwners();
+        item.IsSnapped = true;
+        item.OwnerConnected = true;
+        item.OwnerPositionKnown = true;
+        item.OwnerDistanceSquared = 5000 * 5000;
+
+        Assert.That(Evaluate(item).Reason, Is.EqualTo("actively-contained-or-interacted"));
     }
 
     [TestCase(LivePlacement.PlayerHand)]

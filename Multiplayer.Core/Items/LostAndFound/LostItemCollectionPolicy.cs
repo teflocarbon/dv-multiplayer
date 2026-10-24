@@ -58,12 +58,14 @@ public static class LostItemCollectionPolicy
         if (item.IsLicensePaper)
             return Ineligible("license-paper-excluded");
         // An offline owner counts as far away (decided by the user 2026-10-21), and their items are
-        // collected from train interiors and shelves too; an online owner's from the world only.
+        // collected from train interiors, shelves, couplers and snap points too (an end-of-train lantern,
+        // a hanger: detached first, OI-LF-04); an online owner's from the world only.
         bool ownerAway = !item.OwnerConnected;
         if (item.Placement != LivePlacement.World &&
-            !(ownerAway && item.Placement is LivePlacement.TrainInterior or LivePlacement.StaticParent))
+            !(ownerAway && item.Placement is LivePlacement.TrainInterior or LivePlacement.StaticParent
+                or LivePlacement.Attached or LivePlacement.SnappedAttachment))
             return Ineligible("not-in-world");
-        if (item.IsGrabbed || item.IsSnapped || item.IsInMachine)
+        if (item.IsGrabbed || item.IsSnapped && !ownerAway || item.IsInMachine)
             return Ineligible("actively-contained-or-interacted");
         if (!ownerAway && !item.OwnerPositionKnown)
             return Protected("owner-position-unknown");

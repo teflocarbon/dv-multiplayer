@@ -45,7 +45,8 @@ public sealed class PlaceTextTests
         Assert.That(Text(Home.Container(Guid.NewGuid()), container: "Toolbox"), Is.EqualTo("in Toolbox"));
         Assert.That(Text(Home.Container(Guid.NewGuid())), Is.EqualTo("in a container"));
         Assert.That(Text(Home.LostAndFound), Is.EqualTo("in Lost and Found"));
-        Assert.That(Text(Home.Attached("x", true), car: "L-007"), Is.EqualTo("attached to L-007"));
+        Assert.That(Text(Home.Attached("x", true), car: "L-007"), Is.EqualTo("on the end of car L-007"));
+        Assert.That(Text(Home.Attached("x", true)), Is.EqualTo("on the end of a car"));
         Assert.That(Text(Home.Installed("x"), car: "L-007"), Is.EqualTo("installed on L-007"));
         Assert.That(Text(Home.Installed(Home.WorldAnchor)), Is.EqualTo("installed in the world"));
         Assert.That(Text(Home.Snapped("hanger")), Is.EqualTo("fitted in place"));
@@ -70,7 +71,8 @@ public sealed class RetrievalRuleTests
         Assert.That(RetrievalRule.For(Home.Unloadable, Owner), Is.EqualTo(RetrievalKind.NothingToDo));
         Assert.That(RetrievalRule.For(Home.TrainInterior("x"), Owner), Is.EqualTo(RetrievalKind.Collect));
         Assert.That(RetrievalRule.For(Home.Container(Guid.NewGuid()), Owner), Is.EqualTo(RetrievalKind.OutermostContainer));
-        Assert.That(RetrievalRule.For(Home.Attached("x", true), Owner), Is.EqualTo(RetrievalKind.NotYet));
+        Assert.That(RetrievalRule.For(Home.Attached("x", true), Owner), Is.EqualTo(RetrievalKind.Collect));
+        Assert.That(RetrievalRule.For(Home.Snapped("hanger"), Owner), Is.EqualTo(RetrievalKind.Collect));
         Assert.That(RetrievalRule.For(Home.Installed("x"), Owner), Is.EqualTo(RetrievalKind.NotYet));
     }
 }
