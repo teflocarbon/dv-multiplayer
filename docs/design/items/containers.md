@@ -207,6 +207,8 @@ overview or a report as a row, as an inventory does ([inventory.md](inventory.md
 - **Its job ends:** a booklet or overview in a box goes from it (`JobPaperRows.DropStored`); a
   report outlives its job. A booklet in a box counts as carried, so the load doesn't print another
   (`JobPaperRows.HasBookletRow`).
+- **Saved** with its box, as a carried paper is (`IsUnsavedJobPaper`), and back in it after a
+  restart while its job is still on.
 
 ## Moving between boxes
 
