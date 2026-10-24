@@ -90,6 +90,33 @@ If the withdrawer has left, the item can't be made, or the graph refuses the com
 (or the object made at their feet) is taken back, the ledger moves the item back into the box, and
 the reservation ends (OI-CON-03).
 
+## Taken out by the server
+
+The server takes a row out of its box with no player's request when an owner retrieves their item
+from a box that isn't theirs ([owned-list.md](owned-list.md#out-of-a-box), OI-LIST-23).
+`ContainerServer.TakeOutLoose` does it in one step: the row must be settled (`ContainerGraph.IsSettled`:
+no deposit or withdrawal of it, or of anything inside it, part way; else `container-busy`,
+OI-LIST-18); the ledger moves the item from its box to `World`; the item is made an object again
+(`ItemSaveLoad.MakeLive`); and `ContainerGraph.TakeOut` removes the row and moves the box's revision
+on. If the item can't be made, the ledger moves it back and the row stays. A box taken out keeps its
+own container and contents: its shell binds to them by its id.
+
+## A box destroyed
+
+A box's shell destroyed for good (by the game, a deleted car, a scenario; not put in a box,
+collected, gone cold, remade or an authored slot's old object) takes its container with it (OI-CON-11; `ContainerServer.OnRemoved`,
+called from `ItemChangeLog.RecordRemoval`). `ContainerGraph.RemoveContainer` removes the container
+and gives back its rows:
+
+- an **owned** item is made an object where the box was (the ledger moved to `World` first) and goes
+  on to its owner's Lost and Found (`ContainerCleared`), whole if it's a box, its contents still in it
+  (OI-LF-07); if Lost and Found refuses it, it stays where the box was. If it can't be made, its
+  ledger entry ends: its box is gone, so it has nowhere to go back to;
+- an **unowned** item goes with the box. An unowned box among them is dealt with the same way, its
+  owned contents to their owners and its unowned ones gone.
+
+Unloading the world or quitting destroys every shell without clearing any container.
+
 ## Moving between boxes
 
 A move from one slot to another, in one box or between a box and one nested in it, needs the keeper

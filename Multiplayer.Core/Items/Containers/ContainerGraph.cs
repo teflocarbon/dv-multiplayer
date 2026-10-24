@@ -540,6 +540,77 @@ public sealed class ContainerGraph
     }
 
     /// <summary>
+    /// Whether the item, and everything inside it when it's a box, is settled: no deposit or
+    /// withdrawal of any of it is part way (OI-LIST-18). A live shell's id checks its contents.
+    /// </summary>
+    public bool IsSettled(Guid id)
+    {
+        if (items.TryGetValue(id, out StoredItemRecord own) && own.LifecycleState != ItemLifecycleState.Cold)
+            return false;
+        HashSet<Guid> seen = new() { id };
+        Queue<Guid> open = new();
+        open.Enqueue(id);
+        while (open.Count > 0)
+        {
+            Guid container = open.Dequeue();
+            foreach (StoredItemRecord inside in items.Values.Where(item => item.ParentContainerId == container))
+            {
+                if (inside.LifecycleState != ItemLifecycleState.Cold)
+                    return false;
+                if (seen.Add(inside.PersistentItemId))
+                    open.Enqueue(inside.PersistentItemId);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The server takes a settled row out of its box with no player's request (a retrieval:
+    /// docs/design/items/containers.md, "Taken out by the server"): it is stored no longer, and its
+    /// box's revision moves on. A box's own container and contents stay, for its shell to bind by
+    /// its id. Null, with the reason, when it isn't stored or isn't settled.
+    /// </summary>
+    public StoredItemRecord TakeOut(Guid itemId, out string reason)
+    {
+        reason = string.Empty;
+        if (!items.TryGetValue(itemId, out StoredItemRecord item))
+        {
+            reason = "item-not-found";
+            return null;
+        }
+        if (!IsSettled(itemId))
+        {
+            reason = "container-item-busy";
+            return null;
+        }
+        items.Remove(itemId);
+        if (containers.TryGetValue(item.ParentContainerId, out ContainerRecord parent))
+            parent.Revision = NextRevision(parent.Revision);
+        return item.Clone();
+    }
+
+    /// <summary>
+    /// A box's shell is gone for good (OI-CON-11): its container goes, and its rows come out of the
+    /// graph, returned (with their box and slot) for the server to deal with. A box among them keeps
+    /// its own container and contents until the server decides. Empty when there's no such container.
+    /// </summary>
+    public IReadOnlyList<StoredItemRecord> RemoveContainer(Guid containerId)
+    {
+        if (!containers.Remove(containerId))
+            return Array.Empty<StoredItemRecord>();
+        List<StoredItemRecord> direct = items.Values.Where(item => item.ParentContainerId == containerId)
+            .Select(item => item.Clone()).ToList();
+        foreach (StoredItemRecord row in direct)
+        {
+            items.Remove(row.PersistentItemId);
+            foreach (Guid operation in preparingWithdrawals.Where(pair => pair.Value == row.PersistentItemId)
+                         .Select(pair => pair.Key).ToArray())
+                preparingWithdrawals.Remove(operation);
+        }
+        return direct;
+    }
+
+    /// <summary>
     /// Whether the move would be committed, changing nothing, and which item it moves
     /// (<see cref="ContainerOperationResult.ItemId"/>): the server moves the ledger between the
     /// check and the commit, as for a deposit.

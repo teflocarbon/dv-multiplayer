@@ -63,7 +63,8 @@ on one item and asks the policy:
   item's own, when the record has none) against `ItemAccessServer.Fixtures`.
 - **Is an essential:** the item's `InventoryItemSpec.IsEssential`.
 
-A container's item is a row with no object, so a withdrawal asks with the row's facts instead
+A container's item is a row with no object, so a withdrawal, and a retrieval out of a box that isn't
+the owner's ([owned-list.md](owned-list.md#out-of-a-box)), ask with the row's facts instead
 (`ItemAccessServer.AllowsRow`): its owner from the ledger, its prefab and authored key, and its
 prefab's spec.
 

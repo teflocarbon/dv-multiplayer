@@ -13,6 +13,7 @@ using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
+using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -25,7 +26,8 @@ namespace Multiplayer.Server.Items.OwnedList;
 /// (owned-items.md, "Retrieval", PR 6b). The owner asked, so the Lost and Found's nearby-player
 /// protection and grace period don't apply.
 /// - Lying somewhere (the ground, a train's cab, a shelf): collected now.
-/// - In a container: the outermost container that isn't with them goes, with everything in it.
+/// - In a container: the outermost of their own boxes goes, with everything in it; out of a box
+///   that isn't theirs, the item (or their box) comes out alone.
 /// - With another player, in their hand or inventory: taken from them, and they're told.
 /// - With them already, in Lost and Found, or missing: nothing to do.
 /// - Attached, snapped or installed: not yet (detaching first, and gadget removal, PR 8).
@@ -37,6 +39,7 @@ public static class Retrieval
     public const string NotYet = "not-retrievable-yet";
     public const string Unknown = "unknown-item";
     public const string NotYours = "not-your-item";
+    public const string Busy = "container-busy";
 
     /// <summary>Whether the owner could retrieve the entry now; why not when they can't.</summary>
     public static bool CanRetrieve(ServerPlayer owner, LedgerEntry entry, out string reason)
@@ -53,16 +56,20 @@ public static class Retrieval
                 reason = NotYet;
                 return false;
             case RetrievalKind.OutermostContainer:
-                return Target(owner, entry.Id, out _, out reason) != null;
+                return Target(owner, entry.Id, out _, out _, out reason);
             default:
                 return true;
         }
     }
 
-    /// <summary>What a retrieval of the item would take: the item, or the outermost container that holds it. Null if none.</summary>
+    /// <summary>
+    /// What a retrieval of the item would take, as an object: the item, or the outermost box that
+    /// goes with it. Null if none, or if what goes is a row taken out of a box.
+    /// </summary>
     public static LiveItems.LiveItem Subject(ServerPlayer owner, Guid itemId) =>
         !ServerLedger.Ledger.TryGetHome(itemId, out Home home) ? null
-        : home.Kind == HomeKind.Container ? Target(owner, itemId, out _, out _) : Find(itemId);
+        : home.Kind != HomeKind.Container ? Find(itemId)
+        : Target(owner, itemId, out LiveItems.LiveItem shell, out _, out _) ? shell : null;
 
     /// <summary>The owner retrieves the item. False, with the reason, when it doesn't go.</summary>
     public static bool Retrieve(ServerPlayer owner, Guid itemId, out string reason)
@@ -74,9 +81,22 @@ public static class Retrieval
         }
         if (!CanRetrieve(owner, entry, out reason))
             return false;
-        LiveItems.LiveItem record = entry.Home.Kind == HomeKind.Container
-            ? Target(owner, itemId, out _, out reason)
-            : Find(itemId);
+        LiveItems.LiveItem record;
+        if (entry.Home.Kind == HomeKind.Container)
+        {
+            if (!Target(owner, itemId, out record, out Guid row, out reason))
+                return false;
+            if (row != Guid.Empty)
+                return RetrieveStored(owner, row, out reason);
+            // A box mid-deposit or mid-withdrawal waits (OI-LIST-18).
+            if (!ContainerServer.Graph.IsSettled(record.PersistentItemId))
+            {
+                reason = Busy;
+                return false;
+            }
+        }
+        else
+            record = Find(itemId);
         if (record == null || !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null)
         {
             reason = reason.Length > 0 ? reason : Unknown;
@@ -92,48 +112,84 @@ public static class Retrieval
             "retrieved by " + owner.Username, out reason);
     }
 
-    // An item in a container goes as the outermost container that isn't with its owner: walk up
-    // the cold graph from the item to the live shell that holds it all.
-    private static LiveItems.LiveItem Target(ServerPlayer owner, Guid itemId, out Guid shellId, out string reason)
+    // What a retrieval of an item in a box takes (OI-LIST-10, OI-LIST-23). Walking up from the item,
+    // each box that is the owner's own goes with it; the first box that isn't theirs (someone
+    // else's, or nobody's) stays, and what of theirs is in it comes out alone, as a row
+    // (<paramref name="row"/>). Reaching the outermost box with every box theirs, that box goes whole
+    // (<paramref name="shell"/>). Nothing to do when the outermost box is with them, or in their
+    // Lost and Found.
+    private static bool Target(ServerPlayer owner, Guid itemId, out LiveItems.LiveItem shell, out Guid row,
+        out string reason)
     {
+        shell = null;
+        row = Guid.Empty;
         reason = string.Empty;
-        shellId = Guid.Empty;
-        ContainerGraphSnapshot cold = ContainerServer.Graph.ExportSnapshot();
-        Guid current = itemId;
-        for (int depth = 0; depth < 16; depth++)
+        ContainerGraph graph = ContainerServer.Graph;
+        string identity = owner.Guid.ToString("D");
+        Guid current = itemId, taking = Guid.Empty;
+        for (int depth = 0; depth <= graph.Limits.MaximumDepth + 1; depth++)
         {
-            StoredItemRecord stored = cold.Items.FirstOrDefault(i => i.PersistentItemId == current);
-            if (stored == null)
+            if (!graph.TryGetItem(current, out StoredItemRecord stored))
                 break;
-            ContainerRecord container = cold.Containers.FirstOrDefault(c => c.PersistentContainerId == stored.ParentContainerId);
-            if (container == null)
+            // A box has its shell's item id: stored inside another, the shell is that row; lying in
+            // the world or carried, it is a live shell.
+            Guid parent = stored.ParentContainerId;
+            if (taking == Guid.Empty && graph.OwnerOf(parent) != identity)
+                taking = current;
+            if (graph.TryGetItem(parent, out _))
+            {
+                current = parent;
+                continue;
+            }
+            LiveItems.LiveItem outermost = ContainerServer.TryGetShellNetId(parent, out ushort shellNetId) &&
+                                           LiveItems.TryGet(shellNetId, out LiveItems.LiveItem live) ? live : null;
+            if (outermost != null && (outermost.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
+                                      outermost.Holder == owner.Guid ||
+                                      outermost.Placement == ItemPlacementKind.LostAndFound && taking == Guid.Empty))
+            {
+                reason = NothingToDo;
+                return false;
+            }
+            if (taking != Guid.Empty)
+            {
+                row = taking;
+                return true;
+            }
+            if (outermost == null)
                 break;
-            // A container has its shell's item id: stored inside another, the shell is that row;
-            // lying in the world or carried, it is a live shell.
-            Guid parent = container.PersistentContainerId;
-            LiveItems.LiveItem shell = null;
-            if (cold.Items.All(i => i.PersistentItemId != parent))
-            {
-                if (!ContainerServer.TryGetShellNetId(parent, out ushort shellNetId) ||
-                    !LiveItems.TryGet(shellNetId, out shell))
-                    break;
-            }
-            if (shell != null)
-            {
-                bool withOwner = shell.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
-                                 shell.Holder == owner.Guid;
-                if (withOwner)
-                {
-                    reason = NothingToDo;
-                    return null;
-                }
-                shellId = parent;
-                return shell;
-            }
-            current = parent;
+            shell = outermost;
+            return true;
         }
         reason = Unknown;
-        return null;
+        return false;
+    }
+
+    // Out of a box that isn't the owner's, alone: made loose and on into their Lost and Found
+    // (OI-LIST-23), asked about the item itself.
+    private static bool RetrieveStored(ServerPlayer owner, Guid id, out string reason)
+    {
+        if (!ContainerServer.Graph.TryGetItem(id, out StoredItemRecord stored))
+        {
+            reason = Unknown;
+            return false;
+        }
+        Guid.TryParse(ContainerServer.Graph.OwnerOf(id), out Guid itemOwner);
+        if (!ItemAccessServer.AllowsRow(owner, ItemAccessAction.Retrieve, itemOwner, stored.PrefabName,
+                stored.AuthoredItemKey, ItemSaveLoad.FindSpec(stored.PrefabName)?.IsEssential == true, out reason))
+            return false;
+        NetworkedItem item = ContainerServer.TakeOutLoose(id, ContainerServer.SafetyPosition,
+            ItemChangeLog.Move(ItemMoveReason.CollectedToLostAndFound, owner, "retrieved by " + owner.Username), out reason);
+        if (item == null)
+        {
+            if (reason == "container-item-busy")
+                reason = Busy;
+            return false;
+        }
+        if (ServerLedger.SendToLostAndFound(id, LostItemReason.RetrievedByOwner, "retrieved by " + owner.Username, out reason))
+            return true;
+        Multiplayer.LogError($"Retrieval: {stored.PrefabName} ({id:D}) came out of its box but Lost and Found refused it " +
+                             $"({reason}); it is loose at the safety position");
+        return false;
     }
 
     // As a departing borrower's items are dropped (PlayerItems.Leave):
