@@ -67,6 +67,9 @@ internal static partial class ItemSaveLoad
         {
             ServerLedger.FinishLoad();
         }
+        // The host's own player is admitted in-process before the load, so its rows go live now.
+        foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers.ToArray())
+            PlayerItems.Join(player);
     }
 
     private static void Load(ItemsSave items)
