@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using DV.TimeKeeping;
 using Multiplayer.Shared.Players;
 using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Session;
@@ -15,7 +16,8 @@ namespace Multiplayer.Shared.Items.Inventory;
 /// a row with no object on any game; its holder's game plays it at their camera
 /// (<see cref="StashedItems"/>), and the server tells the players near them what it plays
 /// (<see cref="ClientboundStashedSoundPacket"/>), so each of their games plays it at the holder's
-/// avatar, in the world, as the boombox in their hands would sound.
+/// avatar, in the world, as the boombox in their hands would sound. A stashed alarm clock's ring
+/// is heard the same way, once, as it rings.
 /// </summary>
 internal static class HeardStashedSounds
 {
@@ -39,6 +41,11 @@ internal static class HeardStashedSounds
     {
         if (packet == null || packet.NetId == 0)
             return;
+        if (packet.Once != 0)
+        {
+            HearOnce(packet);
+            return;
+        }
         JObject state = Parse(packet.State);
         string plays = StashedBoombox.WhatPlays(state, packet.CassettePrefab);
         if (plays.Length == 0)
@@ -65,6 +72,26 @@ internal static class HeardStashedSounds
             ["plays"] = plays,
             ["track"] = track,
             ["lateMs"] = packet.LateMilliseconds
+        });
+    }
+
+    // A nearby player's stashed alarm clock rang or turned: heard once at their avatar, as the
+    // clock in their hands would sound.
+    private static void HearOnce(ClientboundStashedSoundPacket packet)
+    {
+        AnalogAlarmClockAudioController sounds = InventoryStandIn.FindSpec(packet.PrefabName)?
+            .GetComponentInChildren<AnalogAlarmClockAudioController>(true);
+        AudioSource from = packet.Once == ClientboundStashedSoundPacket.AlarmRang ? sounds?.alarmAudioSource : sounds?.incrementAudioSource;
+        if (from == null || from.clip == null || AnchorOf(packet.HolderId) is not { } anchor)
+            return;
+        GameObject sound = new($"[MP] Stashed alarm {packet.NetId} of P{packet.HolderId}");
+        sound.transform.SetParent(anchor, false);
+        StashedItems.CopySource(from, sound, spatial: true).Play();
+        Object.Destroy(sound, from.clip.length + 0.5f);
+        StashedItems.Trace("item.heard-stashed-alarm", packet.NetId, new()
+        {
+            ["holder"] = packet.HolderId,
+            ["sound"] = packet.Once == ClientboundStashedSoundPacket.AlarmRang ? "rang" : "turned"
         });
     }
 

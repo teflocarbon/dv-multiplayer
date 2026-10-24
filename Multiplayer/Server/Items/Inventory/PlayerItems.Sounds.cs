@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using DV.TimeKeeping;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
@@ -159,14 +160,17 @@ internal static partial class PlayerItems
 
     private static ClientboundStashedSoundPacket Stopped(ushort netId, byte holder) => new() { HolderId = holder, NetId = netId };
 
-    // How far a boombox is heard: as far as its music source reaches.
+    // How far a stashed item is heard: as far as its own source reaches, a boombox's music or an
+    // alarm clock's ring.
     private static float HearingOf(string prefabName)
     {
         if (!hearing.TryGetValue(prefabName, out float range))
         {
-            AudioSource music = InventoryStandIn.FindSpec(prefabName)?.GetComponent<BoomboxInteractionController>()?
-                .volumeAndInterferenceController?.musicAudioSource;
-            hearing[prefabName] = range = (music != null ? music.maxDistance : DefaultHearing) + HearingMargin;
+            InventoryItemSpec spec = InventoryStandIn.FindSpec(prefabName);
+            AudioSource source = spec?.GetComponent<BoomboxInteractionController>()?.volumeAndInterferenceController?.musicAudioSource;
+            if (source == null)
+                source = spec?.GetComponentInChildren<AnalogAlarmClockAudioController>(true)?.alarmAudioSource;
+            hearing[prefabName] = range = (source != null ? source.maxDistance : DefaultHearing) + HearingMargin;
         }
         return range;
     }

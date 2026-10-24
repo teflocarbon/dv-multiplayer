@@ -11,8 +11,10 @@ using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
+using Multiplayer.Shared.Session;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Dvmp.Scenarios
 {
@@ -22,12 +24,14 @@ namespace Dvmp.Scenarios
     /// stashes it: it's a stand-in, the HUD still counts it as the player's clock, and when the
     /// host skips the world's clock past its time it rings (a copy of its ring sound plays at the
     /// player) and is unset in the stand-in's row and in the server's. Taken out, the clock is unset
-    /// too. The player then turns a boombox on in radio mode at a volume of its own (not vanilla's
+    /// too. The other player, brought next to the holder beforehand, hears the ring at the holder's
+    /// avatar (a dedicated host has no player, so a client's clock has no one to hear it there).
+    /// The player then turns a boombox on in radio mode at a volume of its own (not vanilla's
     /// default) and stashes it: its radio plays from the row at that volume, stops as it's taken out,
     /// and the boombox's own volume is still the row's two seconds later. WHO=host does it with the
     /// host's own player (a player host only). The items are destroyed at the end.
     /// </summary>
-    [Scenario("stashed-items", "A stashed alarm clock keeps the HUD time and rings from its row; a stashed boombox plays its radio from its row; both come back as they were")]
+    [Scenario("stashed-items", "A stashed alarm clock keeps the HUD time and rings from its row, heard by the player next to its holder; a stashed boombox plays its radio from its row; both come back as they were")]
     [Budget(400)]
     public sealed class StashedItemEffects : Scenario<StashedItemEffects.Options>
     {
@@ -46,6 +50,8 @@ namespace Dvmp.Scenarios
             bool host = o.Who == "host";
             if (host && pair.Dedicated) throw new HarnessException("WHO=host needs a player host");
             Peer who = host ? pair.Host : pair.Client;
+            // The player who should hear its ring: the other one. A dedicated host has none.
+            Peer listener = host ? pair.Client : pair.Dedicated ? null : pair.Host;
             ushort clock = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Clock, o.Who));
             ushort boombox = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Boombox, o.Who));
             pair.Cleanup(async () => await pair.Host.Run<ushort[]>(s => Items.Destroy(s, new[] { clock, boombox }), 30));
@@ -57,8 +63,19 @@ namespace Dvmp.Scenarios
             Expect.That(set.Mine, "the stashed clock is the player's");
             Expect.That(set.HasClock, $"the HUD counts the player's clock with it stashed (clock objects registered: {set.ClockObjects})");
 
+            Task<bool> heard = null;
+            if (listener != null)
+            {
+                await listener.Run<bool>(s => InGame.ComeNear(s, set.HolderAt), 30);
+                heard = listener.Run<bool>(s => InGame.HearRing(s, clock, o.Clock, set.Holder), 60);
+                await Task.Delay(1000);
+            }
+            else
+                Report.Note("a dedicated host has no player to hear a client's stashed alarm: the hearing check is skipped");
             await pair.Host.Run(() => InGame.SkipTime(set.DueInMinutes + 2));
             Clock rang = await who.Run<Clock>(s => InGame.AfterRing(s, clock), 60);
+            if (heard != null)
+                Expect.That(await heard, "the other player next to the holder hears the stashed alarm ring at the holder");
             Report.Note($"after the skip: {rang}");
             Expect.That(rang.StandIn, "still a stand-in after it rang");
             Expect.That(rang.StandInState.Contains("\"alarmSet\":false"), $"its row has the alarm unset: {rang.StandInState}");
@@ -87,6 +104,8 @@ namespace Dvmp.Scenarios
             public int ClockObjects;
             public int DueInMinutes;
             public string StandInState = "";
+            public byte Holder;
+            public Abs HolderAt;
 
             public override string ToString() =>
                 $"stand-in {StandIn}, mine {Mine}, HUD clock {HasClock} ({ClockObjects} objects), due in {DueInMinutes} min, " +
@@ -130,7 +149,36 @@ namespace Dvmp.Scenarios
                 yield return Wait.Until(() => PlayerInventory.Holds(id), 5f, "the stash");
                 yield return new WaitForSecondsRealtime(1.5f);
                 Hands.ReleaseControl();
-                step.Result = Read(id, due);
+                Clock clock = Read(id, due);
+                clock.Holder = NetworkRole.LocalPlayerId;
+                clock.HolderAt = Positions.Of(PlayerManager.PlayerTransform.position);
+                step.Result = clock;
+            }
+
+            /// <summary>The other player: comes next to the holder.</summary>
+            [Step]
+            public static IEnumerator ComeNear(Step<bool> step, Abs at)
+            {
+                yield return LocalPlayer.TeleportAbs(new Vector3(at.X + 2f, at.Y + 0.1f, at.Z), 1f);
+                step.Result = true;
+            }
+
+            /// <summary>The other player: waits to hear the holder's stashed alarm clock ring at the holder (HeardStashedSounds).</summary>
+            [Step]
+            public static IEnumerator HearRing(Step<bool> step, ushort id, string prefab, byte holder)
+            {
+                string name = $"[MP] Stashed alarm {id} of P{holder}";
+                float until = Time.realtimeSinceStartup + 40f;
+                bool heard = false;
+                while (!heard && Time.realtimeSinceStartup < until)
+                {
+                    // Its turns are heard the same way: the ring is the clock's alarm clip.
+                    AudioClip ring = InventoryStandIn.FindSpec(prefab)?.GetComponentInChildren<AnalogAlarmClockAudioController>(true)?.alarmAudioSource?.clip;
+                    heard = Object.FindObjectsOfType<AudioSource>().Any(source => source.name == name && source.isPlaying &&
+                                                                                   source.spatialBlend > 0f && source.clip == ring);
+                    yield return null;
+                }
+                step.Result = heard;
             }
 
             /// <summary>Host: skips the world's clock on, for every game (as /time does).</summary>
