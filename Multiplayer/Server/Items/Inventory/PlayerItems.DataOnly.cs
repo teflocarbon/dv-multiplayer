@@ -279,11 +279,18 @@ internal static partial class PlayerItems
     /// </summary>
     public static void WithObject(ushort netId, Action<NetworkedItem> done)
     {
-        // Ammo kept as data is made with its tool.
+        // Ammo kept as data is made with its tool. Whatever the request does to it (an owner's
+        // retrieval takes it out), the tool's holder is sent the tool's row as it goes back to data,
+        // so their stand-in doesn't nest ammo that has gone.
         if (LiveItems.TryGet(netId, out LiveItems.LiveItem ammo) && IsDataOnlyAmmo(ammo))
         {
-            WithObject(ammo.MagazineNetId, tool =>
-                done(tool != null && NetworkedItem.TryGet(netId, out NetworkedItem made) && made != null ? made : null));
+            ushort toolNetId = ammo.MagazineNetId;
+            WithObject(toolNetId, tool =>
+            {
+                done(tool != null && NetworkedItem.TryGet(netId, out NetworkedItem made) && made != null ? made : null);
+                if (tool != null && LiveItems.TryGet(toolNetId, out LiveItems.LiveItem toolRecord))
+                    Stored(toolRecord, grace: true, sendRow: true);
+            });
             return;
         }
         if (!IsDataOnly(netId) && !materializing.Contains(netId))

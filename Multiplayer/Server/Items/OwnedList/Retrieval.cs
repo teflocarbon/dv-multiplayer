@@ -29,6 +29,8 @@ namespace Multiplayer.Server.Items.OwnedList;
 /// - In a container: the outermost of their own boxes goes, with everything in it; out of a box
 ///   that isn't theirs, the item (or their box) comes out alone.
 /// - With another player, in their hand or inventory: taken from them, and they're told.
+/// - Loaded in a tool: where its tool is. With them, nothing to do; anywhere else it comes out of the
+///   tool alone, and a player who has the tool is told.
 /// - With them already, in Lost and Found, or missing: nothing to do.
 /// - Attached, snapped or installed: not yet (detaching first, and gadget removal, PR 8).
 /// A recall is one step (docs/design/items/wire.md), so a retrieval never meets one half done.
@@ -47,6 +49,11 @@ public static class Retrieval
         reason = string.Empty;
         if (owner == null || entry == null || !entry.IsLive) { reason = Unknown; return false; }
         if (!entry.Owner.IsPlayer(owner.Guid)) { reason = NotYours; return false; }
+        if (ToolOf(entry.Home) is { } tool && WithPlayer(tool, owner.Guid))
+        {
+            reason = NothingToDo;
+            return false;
+        }
         switch (RetrievalRule.For(entry.Home, owner.Guid))
         {
             case RetrievalKind.NothingToDo:
@@ -108,8 +115,14 @@ public static class Retrieval
         if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
             !TakeFromHolder(owner, item, record, out reason))
             return false;
-        return ServerLedger.SendToLostAndFound(record.PersistentItemId, LostItemReason.RetrievedByOwner,
-            "retrieved by " + owner.Username, out reason);
+        ServerPlayer toolHolder = record.Placement == ItemPlacementKind.Magazine && ToolOf(entry.Home) is { } tool &&
+                                  WithPlayer(tool, tool.Holder) ? PlayerNumbers.Session(tool.Holder) : null;
+        if (!ServerLedger.SendToLostAndFound(record.PersistentItemId, LostItemReason.RetrievedByOwner,
+                "retrieved by " + owner.Username, out reason))
+            return false;
+        if (toolHolder != null && toolHolder != owner)
+            NetworkServer.Instance.SendWhisper($"{owner.Username} took back their {item.Item?.InventorySpecs?.LocalizedName ?? record.PrefabName}", toolHolder);
+        return true;
     }
 
     // What a retrieval of an item in a box takes (OI-LIST-10, OI-LIST-23). Walking up from the item,
@@ -231,6 +244,16 @@ public static class Retrieval
         NetworkServer.Instance.SendItemUpdate(snapshot);
         return true;
     }
+
+    // Ammo in a tool's magazine (containers.md, "Ammo in a magazine") is where its tool is: with its
+    // owner there's nothing to do; anywhere else it comes out of the tool alone, and a player who
+    // has the tool is told.
+    private static LiveItems.LiveItem ToolOf(Home home) =>
+        home.Kind == HomeKind.Magazine && Guid.TryParse(home.Anchor, out Guid toolId) ? Find(toolId) : null;
+
+    private static bool WithPlayer(LiveItems.LiveItem record, Guid player) =>
+        player != Guid.Empty && record.Holder == player &&
+        record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
 
     private static LiveItems.LiveItem Find(Guid id) => id == Guid.Empty ? null :
         LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == id);

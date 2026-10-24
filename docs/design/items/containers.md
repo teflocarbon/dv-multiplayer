@@ -148,6 +148,12 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
   way it came back.
 - **The tool destroyed for good** lets its ammo go as a destroyed box's contents go: an owned item to
   its owner's Lost and Found (`ContainerCleared`), any other loose where the tool was.
+- **Retrieved by its owner** (owned items), loaded ammo is where its tool is: nothing to do while the
+  tool is with its owner; otherwise it comes out of the tool alone into their Lost and Found
+  (`Retrieval.ToolOf`), and a player who has the tool is told. Every game's copy leaves the magazine
+  (the client's Lost and Found projection unloads it, `NetworkedItem.LeaveMagazine`). Out of a tool
+  that is a stand-in, the tool's object is made for it and goes back to data, and its holder is sent
+  the tool's row (`PlayerItems.WithObject`), so their stand-in no longer nests it.
 - **Saved,** loaded ammo is a row with placement `Magazine`, its container the tool and its slot;
   unowned ammo is saved when its tool is. The load makes it after the tools (`LoadAction.IntoMagazine`,
   `ItemSaveLoad.LoadIntoMagazine`), into the live tool's magazine, or as a row of the tool's container

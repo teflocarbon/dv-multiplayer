@@ -293,6 +293,9 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
             item.Relation == ItemRelation.Mine &&
             Item?.InventorySpecs?.IsEssential == true && item.InventoryClaimSlot >= 0 &&
             NetworkedItem.HasRetrievalFlag(item.InventoryClaimFlags);
+        // Ammo goes out of its tool's magazine (an owner's retrieval from someone else's tool), as
+        // the server's copy does (LiveItems.TryMoveToLostAndFound).
+        try { item.LeaveMagazine(); } catch { }
         try
         {
             DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
