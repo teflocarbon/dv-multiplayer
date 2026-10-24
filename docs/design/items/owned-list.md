@@ -106,8 +106,8 @@ An item in a box goes with the boxes around it that are its owner's own, up to t
 goes whole, everything in it (OI-LIST-10). `Retrieval.Target` walks up the container graph from the
 item: a box stored in another names its shell item, and the walk goes on from there; the outermost
 box is a live shell, lying in the world or carried, bound by its container id
-(`ContainerServer.TryGetShellNetId`). If the outermost shell is in the owner's own hand or inventory,
-or is theirs and in their Lost and Found, there is nothing to do (`nothing-to-retrieve`). If the walk
+(`ContainerServer.TryGetShellNetId`). If every box on the way is theirs and the outermost shell is in
+the owner's own hand or inventory, or in their Lost and Found, there is nothing to do (`nothing-to-retrieve`). If the walk
 can't reach a live shell, `unknown-item`. Otherwise the shell is what goes, from wherever it is, by
 the rules above, and the access check and Lost and Found are asked of it. A box with a deposit or a
 withdrawal part way inside it is refused `container-busy` (OI-LIST-18).
@@ -120,7 +120,10 @@ own boxes it is in. It is asked about itself (`ItemAccessServer.AllowsRow`, from
 by the server (`ContainerServer.TakeOutLoose`, [containers.md](containers.md#taken-out-by-the-server):
 settled, else `container-busy`; the ledger moves it to `World`; made an object at DV's safety
 position), and goes on to Lost and Found like any other. So an owner's mug in a toolbox nobody owns,
-or in someone else's, comes back to them, and the box stays with whoever has it.
+or in someone else's, comes back to them, and the box stays with whoever has it. That holds wherever the
+box is, even inside a box of the owner's that they hold: they can't open someone else's box, so
+it comes out alone too. A walk that meets no box but theirs has nothing to do when the outermost is
+with them.
 
 ### From another player
 

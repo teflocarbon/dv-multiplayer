@@ -129,8 +129,8 @@ public static class Retrieval
     // each box that is the owner's own goes with it; the first box that isn't theirs (someone
     // else's, or nobody's) stays, and what of theirs is in it comes out alone, as a row
     // (<paramref name="row"/>). Reaching the outermost box with every box theirs, that box goes whole
-    // (<paramref name="shell"/>). Nothing to do when the outermost box is with them, or in their
-    // Lost and Found.
+    // (<paramref name="shell"/>). Nothing to do when every box is theirs and the outermost is with
+    // them, or in their Lost and Found.
     private static bool Target(ServerPlayer owner, Guid itemId, out LiveItems.LiveItem shell, out Guid row,
         out string reason)
     {
@@ -154,19 +154,21 @@ public static class Retrieval
                 current = parent;
                 continue;
             }
-            LiveItems.LiveItem outermost = ContainerServer.TryGetShellNetId(parent, out ushort shellNetId) &&
-                                           LiveItems.TryGet(shellNetId, out LiveItems.LiveItem live) ? live : null;
-            if (outermost != null && (outermost.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
-                                      outermost.Holder == owner.Guid ||
-                                      outermost.Placement == ItemPlacementKind.LostAndFound && taking == Guid.Empty))
-            {
-                reason = NothingToDo;
-                return false;
-            }
+            // Out of a box that isn't theirs it comes out alone, wherever that box is: with them (in a
+            // box of theirs they hold, they still can't open someone else's), or anywhere else.
             if (taking != Guid.Empty)
             {
                 row = taking;
                 return true;
+            }
+            LiveItems.LiveItem outermost = ContainerServer.TryGetShellNetId(parent, out ushort shellNetId) &&
+                                           LiveItems.TryGet(shellNetId, out LiveItems.LiveItem live) ? live : null;
+            if (outermost != null && (outermost.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&
+                                      outermost.Holder == owner.Guid ||
+                                      outermost.Placement == ItemPlacementKind.LostAndFound))
+            {
+                reason = NothingToDo;
+                return false;
             }
             if (outermost == null)
                 break;
