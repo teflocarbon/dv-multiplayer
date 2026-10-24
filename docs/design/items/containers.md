@@ -113,11 +113,14 @@ and gives back its rows:
 - an **owned** item is made an object where the box was (the ledger moved to `World` first) and goes
   on to its owner's Lost and Found (`ContainerCleared`), whole if it's a box, its contents still in it
   (OI-LF-07); if Lost and Found refuses it, it stays where the box was. If it can't be made, its
-  ledger entry ends: its box is gone, so it has nowhere to go back to;
+  ledger entry ends: its box is gone, so it has nowhere to go back to, and a box's own
+  contents are dealt with as a destroyed box's are;
 - an **unowned** item goes with the box. An unowned box among them is dealt with the same way, its
   owned contents to their owners and its unowned ones gone.
 
-Unloading the world or quitting destroys every shell without clearing any container.
+Unloading the world or quitting destroys every shell without clearing any container. However a
+shell goes, its NetId stops naming its container at once (`shellByNetId`), so a NetId given to
+another shell before the next scan doesn't find the old one's.
 
 ## Ammo in a magazine
 

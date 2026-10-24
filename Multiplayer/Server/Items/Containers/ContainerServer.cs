@@ -591,6 +591,11 @@ public static class ContainerServer
             return;
         // A tool's ammo goes with it, or out of it if it's gone for good (MagazineServer).
         MagazineServer.OnToolRemoved(shell, LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem tool) ? tool.PersistentItemId : Guid.Empty, cause);
+        // Its NetId binds nothing now, however it went: a NetId freed and given to another shell
+        // before the next scan would find this one's container.
+        Guid id = shellByNetId.TryGetValue(shell.NetId, out Guid bound) ? bound
+            : LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) ? record.PersistentItemId : Guid.Empty;
+        shellByNetId.Remove(shell.NetId);
         switch (cause.Reason)
         {
             case ItemRemovalReason.DepositedInContainer:
@@ -604,9 +609,6 @@ public static class ContainerServer
         // Unloading the world or quitting destroys every item without ending any of them.
         if (UnloadWatcher.isUnloading || UnloadWatcher.isQuitting || !shell.gameObject.scene.isLoaded)
             return;
-        Guid id = shellByNetId.TryGetValue(shell.NetId, out Guid bound) ? bound
-            : LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) ? record.PersistentItemId : Guid.Empty;
-        shellByNetId.Remove(shell.NetId);
         if (id == Guid.Empty || !graph.IsContainer(id))
             return;
         Vector3 at = shell.transform.position - WorldMover.currentMove;
@@ -633,8 +635,11 @@ public static class ContainerServer
                 detail: "its box was destroyed: " + cause.Reason));
             if (item == null)
             {
-                // Its box is gone, so it can't go back: its entry ends with it.
+                // Its box is gone, so it can't go back: its entry ends with it, and a box's own
+                // contents go as a destroyed box's do, not left in the graph with no box.
                 ServerLedger.Ledger.End(row.PersistentItemId, cause.Reason, detail: "its box was destroyed and it couldn't be made");
+                if (graph.IsContainer(row.PersistentItemId))
+                    Clear(row.PersistentItemId, at, cause, ref lost, ref gone);
                 continue;
             }
             if (!LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, "its box was destroyed"))
