@@ -229,7 +229,6 @@ public partial class NetworkClient : NetworkManager, ILocalPlayerSession, IClien
         LogDebug(() => $"NetworkClient Constructor");
 
         this.onDisconnect = onDisconnect;
-        //netManager.Start();
         base.Start();
 
         ulong steamId = PlayerIdentity.LocalSteamId;

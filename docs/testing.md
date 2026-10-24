@@ -286,6 +286,70 @@ host has no player, so `WHO=host` runs, `recall TAKEN=1`, `jobs ACCEPT=host` and
 Outside the gate: `station-load` (C#; frame times on both peers while players arrive at a far
 station; fails on a frame over `MAX_MS`, default 1000).
 
+### GNS pairs
+
+Cloud test pods (RunPod, the game under Wine) can't run Steam: Steam blocks sign-ins from data
+centres, and allows one playing session per account. So a **Debug build** of the mod can run on
+Valve's open-source [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets)
+(GNS), the library Steam's own sockets come from, instead of Steam: `dvmp up --transport gns`
+(MCP: `transport: "gns"`) launches both games with `-dvmp-transport gns`. A game on GNS never
+starts Steam (DV handles it as Steam not running), so a GNS pair on this PC runs as a pod does:
+players keyed by their install GUIDs (`-mp-allow-unverified`), joined by IP, and no Steam name,
+avatar, lobby or invite.
+
+**What matches Steam.** `GnsTransport` (`Multiplayer/Shared/Transport/Gns/`) makes the same calls
+as `SteamWorksTransport` and the Facepunch classes beneath it: the same delivery mapping
+(`SteamWorksTransport.ToSendType`: every reliable method goes on the one reliable ordered stream),
+messages of up to 512 KB, unreliable messages fragmented, the same socket settings (send buffer,
+send rates, 20 s timeout, fake loss and lag) and the same ping (round trip, once a second). GNS
+v1.6.1 has the interface versions DV's Steamworks SDK uses (`SteamNetworkingSockets012`,
+`SteamNetworkingUtils004`).
+
+**What differs.**
+- No relay: a GNS host listens on its UDP port only, and a join by SteamID is refused (logged).
+- Steam runs its sockets in the Steam client, built from Valve's private copy of this code; the
+  open-source release can be ahead of or behind it on fixes. GNS 1.5 and 1.6 (2026) brought four
+  years of Steam's fixes to the open-source tree, so 1.6.1 is as close as a public build gets.
+- Connections are encrypted with Windows' BCrypt and self-signed certificates instead of
+  Steam-issued ones, so the peer's identity isn't authenticated (test pairs don't need it).
+- GNS's warnings reach the game log as `GNS: ...`; Steam's sockets log inside the Steam client.
+  A joining client logs `recv queue overflow` while the world streams in, at 1000 messages or
+  1 MB queued: GNS drops what doesn't fit unacknowledged, so the host sends it again and nothing
+  is lost. Those limits (`RecvBufferMessages`, `RecvBufferSize`) are the same defaults in Steam's
+  sockets.
+
+**Runs that stay on Steam pairs.** GNS pairs add capacity for the item and world scenarios; they
+don't replace these. A result that differs between GNS and Steam is checked on Steam.
+- Train-sync and coupling baselines.
+- Join, rejoin, auth (#205) and lobbies.
+- `LAG=` runs: the gate refuses them on a GNS pair, and `Net.SetReceiveLag` throws there.
+- Soak and performance (`fps-drop`, `host-stall`, `player-soak`, `dvmp perf` baselines).
+- `--verified` (dvmp refuses it with `--transport gns`: there is no Steam ticket).
+
+**In the gate.** `TRANSPORT=gns` (or `UP_ARGS="--transport gns"`) starts the gate's pairs on GNS.
+Every run's line and the summary name the transport its pair ran on (`dvmp status` reports each
+game's), and a gate run against an already running pair records that pair's. A plain `dvmp up`
+keeps a running pair's transport, so a scenario that rejoins its client or restarts the pair stays
+on GNS.
+
+```bash
+TRANSPORT=gns PAIRS="p:1 d:1" ONLY="train-items recall" bash DevTools/Scenarios/gate.sh
+```
+
+**Setup, once per machine.** `DevTools/Gns/build-gns.ps1` builds the DLL from pinned sources
+(GNS v1.6.1 and the vcpkg baseline it names, for protobuf) with Visual Studio 2022's C++ tools,
+in about 15 minutes. It is one self-contained `GameNetworkingSockets.dll` (static C runtime and
+protobuf, BCrypt crypto) that needs nothing else on a PC or under Wine. It also checks that the
+struct offsets the P/Invoke code reads match the headers (`layout-check.cpp`). A Debug build of
+Multiplayer then installs the DLL beside the mod; `dvmp up --transport gns` refuses to start
+without it.
+
+**Never in a release.** The transport is compiled only into Debug builds (Multiplayer.csproj
+removes `Shared/Transport/Gns/` from every other configuration, and `TransportSwitch` reads the
+switch under `#if DEBUG`), so a release ignores `-dvmp-transport`. post-build.ps1 never puts the
+DLL in `build/` (which a release zips): a Debug build copies it straight into the game, and a
+release deletes any copy left in `build/` or the game's mod folder, and fails if its zip holds one.
+
 ### Known item bugs (expected to fail)
 
 Scenarios that prove a catalogued item bug ([research/item-bug-review.md](research/item-bug-review.md)).

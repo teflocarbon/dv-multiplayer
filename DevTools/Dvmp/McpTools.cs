@@ -62,13 +62,14 @@ public static class McpTools
         [Description("Launch the host as a dedicated server (-mp-dedicated): no avatar, no player slot.")] bool dedicated = false,
         [Description("Start or reuse only a host, with its own identity (needs a named session).")] bool hostOnly = false,
         [Description("Launch the host checking Steam tickets (no -mp-allow-unverified); use with fresh.")] bool verified = false,
+        [Description("\"steam\" or \"gns\": both games run on Valve's open-source GameNetworkingSockets without Steam, as on a cloud pod (Debug builds only; not with verified). Default: keep the running pair's, or Steam for new games. See docs/testing.md, \"GNS pairs\".")] string? transport = null,
         [Description("Name for a brand-new session started with newSession.")] string? newSessionName = null,
         [Description(Session)] string? session = null,
         CancellationToken ct = default)
     {
         using IDisposable scope = Sessions.Use(session);
         return Render(await Dvmp.Session.UpAsync(new UpOptions(fresh, save, 960, 540, Arrange: true, background, Math.Clamp(fpsCap, 5, 240), sound, trace, newSession,
-                NewSessionName: newSessionName, HostOnly: hostOnly, Dedicated: dedicated, Verified: verified, Reseed: reseed),
+                NewSessionName: newSessionName, HostOnly: hostOnly, Dedicated: dedicated, Verified: verified, Reseed: reseed, Transport: transport),
             TimeSpan.FromSeconds(Math.Clamp(waitSeconds, 1, 600)), ct));
     }
 

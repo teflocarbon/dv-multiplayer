@@ -983,8 +983,6 @@ public partial class NetworkServer : NetworkManager
     private void OnServerboundLoadStateUpdatePacket(ServerboundLoadStateUpdatePacket packet, ITransportPeer peer)
     {
         LogDebug(() => $"OnServerboundLoadStateUpdatePacket from peerId: {peer.Id}, loadState: {packet.LoadState}");
-        if (peer is LiteNetLibPeer)
-            Log($"Debug loopback peer {peer.Id} requested load state {packet.LoadState}");
         if (!TryGetServerPlayer(peer, out ServerPlayer player))
         {
             LogError($"Load state update received for {peer.GetType()}, peerId: {peer.Id}, but ServerPlayer not found");

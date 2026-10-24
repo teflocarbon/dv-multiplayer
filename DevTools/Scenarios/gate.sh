@@ -26,11 +26,19 @@
 #   A pair runs nothing until its host and client both answer with a world loaded (READY_WAIT s,
 #   default 150, then one `dvmp up` and as long again). A run that failed because dvmp couldn't
 #   reach its games is an ERROR, not a FAIL: it's counted apart, and retried once with PAIRS.
+#   TRANSPORT=gns: the pairs it starts run on GameNetworkingSockets without Steam (`dvmp up
+#   --transport gns`; docs/testing.md, "GNS pairs"). Every run records its pair's transport, and
+#   runs that need Steam (LAG=) are refused on a GNS pair.
 [ -n "${RUNS:-}" ] && [ -f "$RUNS" ] && RUNS=$(cat "$RUNS")   # read before the cd: a path relative to the caller
 cd "$(dirname "$0")/../.."
 export DVMP=${DVMP:-DevTools/Dvmp/bin/Debug/net8.0/dvmp.exe}
 S=DevTools/Scenarios
 LOG_DIR=${LOG_DIR:-$(mktemp -d)}; mkdir -p "$LOG_DIR"
+# The transport of the pairs the gate starts; UP_ARGS="--transport gns" works too.
+transport_arg=' --transport ([a-z]+) '
+if [[ " ${UP_ARGS:-} " =~ $transport_arg ]]; then TRANSPORT=${BASH_REMATCH[1]}; UP_ARGS=$(echo " $UP_ARGS " | sed -E 's/ --transport [a-z]+ / /'); fi
+TRANSPORT=${TRANSPORT:-steam}
+[ "$TRANSPORT" = steam ] || [ "$TRANSPORT" = gns ] || { echo "TRANSPORT: steam or gns, not '$TRANSPORT'"; exit 2; }
 runs=( # name | scenario | variables | pair kind it prefers (default player)
   "train-items|train-items|"
   "train-items-host-throw-moving|train-items|WHO=host MODE=throw WHEN=moving|player"
@@ -182,6 +190,8 @@ teleport_home() { # puts both players back where every run starts (scenarios mov
 # ones from when it started and from after, so a game that crashed or was relaunched is still named.
 game_logs() { $DVMP status 2>/dev/null | node -e 'try{const o=JSON.parse(require("fs").readFileSync(0,"utf8"));console.log((o.agents||[]).map(a=>a.role+" "+(a.logFile||"?")).join("; "))}catch(e){}'; }
 note_logs() { echo; echo "game logs at the start: $1"; echo "game logs after: $(game_logs)"; }
+# The current session's transport, from its host: steam or gns (docs/testing.md, "GNS pairs").
+pair_transport() { $DVMP status 2>/dev/null | node -e 'try{const o=JSON.parse(require("fs").readFileSync(0,"utf8"));const h=(o.agents||[]).find(a=>a.role==="host");console.log(h?h.transport||"steam":"?")}catch(e){console.log("?")}'; }
 coupler_breaks() { local n=0 t; for t in host client; do n=$(( n + $($DVMP logs -t $t -l error -c "Coupler broke" -n 1000 2>/dev/null | grep -c '"message"') )); done; echo $n; }
 # A run that failed because dvmp couldn't reach its pair (games not answering yet, or gone) says
 # nothing about the code: it's an ERROR, reported apart from FAILs (and retried once with PAIRS).
@@ -277,6 +287,17 @@ if [ -n "${ONLY:-}" ]; then # by label, run or scenario name
   queue=("${kept[@]}")
 fi
 parallel=; [ -n "${PAIRS:-}" ] || [ -n "${REPEAT:-}" ] && parallel=1
+# The transport the runs go on: the pairs the gate starts, or the running pair's. A run that needs
+# Steam can't run on GameNetworkingSockets: LAG= sets Steam's fake lag (docs/testing.md, "GNS pairs").
+if [ -n "$parallel" ]; then gate_transport=$TRANSPORT; else gate_transport=$(pair_transport); fi
+if [ -z "$parallel" ] && [ "$TRANSPORT" = gns ] && [ "$gate_transport" != gns ]; then
+  echo "TRANSPORT=gns, but the running pair is on $gate_transport: start it with \`dvmp up --fresh --transport gns\`"; exit 2
+fi
+if [ "$gate_transport" = gns ]; then
+  steam_only=()
+  for q in "${queue[@]}"; do IFS='|' read -r label _ vars _ <<<"$q"; [[ " $vars " == *" LAG="* ]] && steam_only+=("$label"); done
+  [ ${#steam_only[@]} -eq 0 ] || { echo "these runs need a Steam pair (LAG= is Steam's fake lag), not GNS: ${steam_only[*]}"; exit 2; }
+fi
 REPEAT=${REPEAT:-1}
 # Each run REPEAT times; a label that appears more than once (repeats, or a line given twice)
 # is numbered: name#1, name#2...
@@ -326,7 +347,7 @@ if [ -n "$parallel" ]; then
     [[ $n =~ ^[0-9]+$ ]] || { echo "PAIRS: can't read '$part' (a count, or p:N and d:N)"; exit 2; }
     for _ in $(seq 1 "$n"); do made[$kind]=$(( ${made[$kind]:-0} + 1 )); pairs+=("${kind:0:1}${made[$kind]}|$kind"); done
   done
-  up_args() { echo "${UP_ARGS:-} $([ "$1" = dedicated ] && echo --dedicated)"; }
+  up_args() { echo "${UP_ARGS:-} $([ "$1" = dedicated ] && echo --dedicated) $([ "$TRANSPORT" = gns ] && echo --transport gns)"; }
   fits() { [ "$1" = any ] || [ "$1" = "$2" ]; } # run kind, pair kind
   first_pair() { local p; for p in "${pairs[@]}"; do fits "$1" "${p#*|}" && { echo "${p%%|*}"; return; }; done; }
   kind_of() { local p; for p in "${pairs[@]}"; do [ "${p%%|*}" = "$1" ] && { echo "${p#*|}"; return; }; done; }
@@ -372,11 +393,11 @@ if [ -n "$parallel" ]; then
     first=$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game|FIXED[?]' "$log" | head -1 | cut -c1-90)
     breaks=$(( $(coupler_breaks) - breaks )); [ $breaks -gt 0 ] && first="$first [$breaks coupler break(s) logged]"
     first+=${retry:-}
-    result "$label" $r "$(( $(date +%s) - start ))" "$session" "$first"
+    result "$label" $r "$(( $(date +%s) - start ))" "$session" "$(pair_transport)" "$first"
   }
-  result() { # label PASS|FAIL|ERROR secs session first-line
-    printf '%s|%s|%s|%s|%s\n' "$@" >"$Q/result/${1//#/_}"
-    printf '%-34s %-5s %3ss  %-4s %s\n' "$@"
+  result() { # label PASS|FAIL|ERROR secs session transport first-line
+    printf '%s|%s|%s|%s|%s|%s\n' "$@" >"$Q/result/${1//#/_}"
+    printf '%-34s %-5s %3ss  %-4s %-5s %s\n' "$@"
   }
   healthy() { # session: a host and a client answering, both with a world loaded
     local st; st=$(DVMP_SESSION=$1 $DVMP status 2>/dev/null)
@@ -392,11 +413,11 @@ if [ -n "$parallel" ]; then
     return 1
   }
   run_ready() { # label dir vars session kind: runs on a ready pair, once more after a harness error
-    if ! ready "$4" "$5"; then r=ERROR; result "$1" ERROR 0 "$4" "pair $4 never became ready"; return; fi
+    if ! ready "$4" "$5"; then r=ERROR; result "$1" ERROR 0 "$4" "$TRANSPORT" "pair $4 never became ready"; return; fi
     run_one "$@"
     [ $r = ERROR ] || return
     mv "$LOG_DIR/$1.$4.log" "$LOG_DIR/$1.$4.error.log"
-    ready "$4" "$5" || { result "$1" ERROR 0 "$4" "pair $4 not ready again after a harness error"; return; }
+    ready "$4" "$5" || { result "$1" ERROR 0 "$4" "$TRANSPORT" "pair $4 not ready again after a harness error"; return; }
     retry=" [retried after a harness error]" run_one "$@"
   }
   worker() { # session kind: claims the runs that fit its pair until none are left
@@ -414,7 +435,7 @@ if [ -n "$parallel" ]; then
     done
     [ ${#exclusive[@]} -gt 0 ] && [[ $keep != *" $session "* ]] && DVMP_SESSION=$session $DVMP down >/dev/null 2>&1
   }
-  echo "== starting ${#pairs[@]} pair(s) (${pairs[*]%%|*}): ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive, longest first ($unknown with no recorded duration)"
+  echo "== starting ${#pairs[@]} pair(s) (${pairs[*]%%|*}) on $TRANSPORT: ${#items[@]} parallel run(s), ${#exclusive[@]} exclusive, longest first ($unknown with no recorded duration)"
   for p in "${pairs[@]}"; do s=${p%%|*}; DVMP_SESSION=$s $DVMP up $(up_args "${p#*|}") >"$LOG_DIR/up-$s.log" 2>&1 & done
   wait
   for p in "${pairs[@]}"; do
@@ -423,7 +444,7 @@ if [ -n "$parallel" ]; then
   for p in "${pairs[@]}"; do worker "${p%%|*}" "${p#*|}" & done
   wait
   for i in "${!items[@]}"; do # runs no ready pair took
-    [ -d "$Q/claim/$i" ] || result "${items[$i]%%|*}" ERROR 0 - "not run: no ready pair of its kind"
+    [ -d "$Q/claim/$i" ] || result "${items[$i]%%|*}" ERROR 0 - "$TRANSPORT" "not run: no ready pair of its kind"
   done
   for e in "${exclusive[@]}"; do # each alone: every other pair down, its own back up if needed
     IFS='|' read -r label dir vars kind <<<"$e"
@@ -440,7 +461,8 @@ if [ -n "$parallel" ]; then
   echo; echo "== summary"
   cat "$Q"/result/* 2>/dev/null | node -e '
     const rows=require("fs").readFileSync(0,"utf8").trim().split("\n").filter(Boolean).map(l=>l.split("|"));
-    const by={};for(const [label,r,secs,session,first] of rows){const n=label.replace(/#\d+$/,"");(by[n]||=[]).push({r,secs:+secs,session,first});}
+    console.log(`transport: ${[...new Set(rows.map(x=>x[4]))].join(", ")}`);
+    const by={};for(const [label,r,secs,session,,first] of rows){const n=label.replace(/#\d+$/,"");(by[n]||=[]).push({r,secs:+secs,session,first});}
     let fails=0,errors=0,passed=0,known=0,fixed=[];for(const n of Object.keys(by).sort()){const g=by[n],p=g.filter(x=>x.r==="PASS").length;passed+=p;
       const f=g.find(x=>x.r==="FAIL"),e=g.find(x=>x.r==="ERROR"),ne=g.filter(x=>x.r==="ERROR").length;if(f)fails++;else if(e)errors++;
       const nk=g.filter(x=>x.r==="KNOWN").length,nx=g.filter(x=>x.r==="FIXED?").length;known+=nk;if(nx)fixed.push(n);
@@ -454,6 +476,7 @@ if [ -n "$parallel" ]; then
   exit $status
 fi
 
+echo "== transport: $gate_transport"
 failed=0
 for it in "${all[@]}"; do
   IFS='|' read -r name dir vars _ <<<"$it"
@@ -462,7 +485,7 @@ for it in "${all[@]}"; do
   if run_scenario "$dir" "$vars" >"$LOG_DIR/$name.log" 2>&1; then r=PASS; else r=$(result_of $?); note_logs "$logs" >>"$LOG_DIR/$name.log"; [ $r = FAIL ] && harness_error "$LOG_DIR/$name.log" && r=ERROR; fi
   case $r in FAIL|ERROR) failed=1;; esac
   breaks=$(( $(coupler_breaks) - breaks )); flag=""; [ $breaks -gt 0 ] && flag=" [$breaks coupler break(s) logged]"
-  printf '%-32s %-5s %3ss  %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game|FIXED[?]' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
+  printf '%-32s %-5s %3ss  %-5s %s%s\n' "$name" "$r" "$(( $(date +%s) - start ))" "$(pair_transport)" "$( [ $r != PASS ] && grep -E 'FAIL|rror|no agent|no game|FIXED[?]' "$LOG_DIR/$name.log" | head -1 | cut -c1-90)" "$flag"
 done
 echo "logs: $LOG_DIR"
 exit $failed
