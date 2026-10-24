@@ -111,12 +111,18 @@ Every other change to a row is that item's ordinary update:
   to place, and the stand-in goes (`LeaveStandIn`, `MakeFromRow`). A `Destroy` just ends the row;
 - an update the stand-in is already past changes nothing (`SupersededForStandIn`): one with no
   `ItemState` (an object's state alone says nothing of where the item is), and this player's own
-  change echoed after they put the item away again. A put-away sets the stand-in's revision to the
-  one its stash commits at, and a correction sets it back.
+  change echoed after they put the item away again. A put-away or a slot move sets the stand-in's
+  revision to the one it commits at, and a correction sets it back. An object made from a stand-in
+  takes that revision, so a correction below it (the stash was refused) still applies on a client.
 
 A row the server sends after the join (a server-made item, or a recall or Lost and Found retrieval
-into a slot, sent as the row with its state once the server's object goes) is no news for an item
-this game has taken out since: its own change decides.
+into a slot, sent as the row with its state once the server's object goes, and only for those) is
+no news where the item has an object and no stand-in (kept live in its slot, or taken out since: its
+own change decides), or a stand-in past the row's revision (`InventoryRows.IsLate`).
+
+The server leaves its own object of an item that can't be a stand-in (`InventoryStandIn.CanStandIn`:
+a loaded magazine, an expired or missing-licence report) as its holder's game does, and such a row
+goes live as an object at a join.
 
 ### Putting away
 
