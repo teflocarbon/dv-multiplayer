@@ -361,11 +361,18 @@ public static class LiveItems
         if (appliesPlacement)
         {
             bool inMagazine = record.Placement == ItemPlacementKind.Magazine;
-            // A scene tool a player loads takes an id of its own, which its ammo's home names. One the
-            // scene made loaded stays the scene's, its ammo with it.
+            // A scene tool a player loads takes an id of its own, which its ammo's home names, and
+            // becomes an ordinary item as every promoted scene item does (its scene slot tombstoned,
+            // its key let go), so a save keeps it once. One the scene made loaded stays the scene's,
+            // its ammo with it.
             if (inMagazine && actor != null && NetworkedItem.TryGet(snapshot.MagazineNetId, out NetworkedItem tool) &&
                 records.TryGetValue(snapshot.MagazineNetId, out LiveItem toolRecord) && toolRecord.PersistentItemId == Guid.Empty)
+            {
+                if (tool.IsSceneAuthored)
+                    ItemSaveLoad.RecordDestroyed(tool);
                 PromoteAuthoredToPersistent(tool);
+                tool.DetachAuthoredItemKey();
+            }
             record.MagazineNetId = inMagazine ? snapshot.MagazineNetId : (ushort)0;
             record.MagazineToolId = inMagazine ? ToolIdOf(snapshot.MagazineNetId) : Guid.Empty;
             record.MagazineSlot = inMagazine ? snapshot.MagazineSlot : -1;
