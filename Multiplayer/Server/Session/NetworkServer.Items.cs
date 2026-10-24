@@ -670,6 +670,10 @@ public partial class NetworkServer : IItemServer
         ItemHandles.TryResolve(handle, out Guid id) && ContainerServer.Graph.TryGetContainer(id, out ContainerRecord container)
             ? container.SessionHandle : 0;
 
+    // Whether a box is stored directly in another: a box's shell has the box's id.
+    private static bool InsideOf(Guid box, Guid outer) =>
+        ContainerServer.Graph.TryGetItem(box, out StoredItemRecord shell) && shell.ParentContainerId == outer;
+
     // A stored item a wire handle names, and the graph's handle for the container it's in.
     private static bool TryGetStoredItem(uint handle, out StoredItemRecord stored, out uint containerGraphHandle)
     {
@@ -734,7 +738,16 @@ public partial class NetworkServer : IItemServer
         uint destination = ContainerGraphHandle(request.Container);
         if (destination == 0)
             return Refuse(request, "container-handle-not-found", ItemRefusal.UnknownItem);
-        ContainerOperationResult result = ContainerServer.Move(player, Guid.NewGuid(), source, request.ExpectedRevision,
+        // The client has one box open, and both revisions it sends are that box's. Between that box
+        // and one inside it (or the one around it) the source isn't the box it has open: the handle
+        // names the row exactly, so the source is checked by the row, and the open box by its
+        // revision (OI-CON-13).
+        uint expectedSource = source != destination && ContainerServer.Graph.TryGetContainer(source, out ContainerRecord from) &&
+                              ContainerServer.Graph.TryGetContainer(destination, out ContainerRecord to) &&
+                              (InsideOf(to.PersistentContainerId, from.PersistentContainerId) ||
+                               InsideOf(from.PersistentContainerId, to.PersistentContainerId))
+            ? from.Revision : request.ExpectedRevision;
+        ContainerOperationResult result = ContainerServer.Move(player, Guid.NewGuid(), source, expectedSource,
             stored.Slot, destination, request.ContainerRevision, request.Slot);
         return ContainerResult(request, result, result.DestinationRevision, 0);
     }

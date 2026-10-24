@@ -60,11 +60,13 @@ graph checks ownership again from the ledger). The deposit never changes ownersh
    (`ServerLedger.CommitStored`).
 3. `ContainerGraph.CommitDeposit` adds the row, pending its object's retirement; if it refuses
    after all, the ledger moves the item back.
-4. The object retires: its Destroy goes out, then it leaves interest, the inventory and vanilla's
-   storage, and is destroyed. Until the Destroy is sent the object is the item, so a failure takes
-   the deposit back (`ContainerGraph.RevokeDeposit`, the ledger moved back, the object live again;
-   OI-CON-06). Once it is sent the row is the item, and the object goes whatever else fails. The item
-   is never an object and a row at once, so nothing half-retired is ever saved.
+4. The object retires: its Destroy goes out, by interest (OI-CON-12): to the players who know the
+   object and the depositor, whose stand-in it was, never to everyone. Then it leaves interest, the
+   inventory and vanilla's storage, and is destroyed. Until the Destroy is sent the object is the
+   item, so a failure takes the deposit back (`ContainerGraph.RevokeDeposit`, the ledger moved back,
+   the object live again; OI-CON-06). Once it is sent the row is the item, and the object goes
+   whatever else fails. The item is never an object and a row at once, so nothing half-retired is
+   ever saved.
 
 ## Withdrawal
 
@@ -122,6 +124,15 @@ Unloading the world or quitting destroys every shell without clearing any contai
 A move from one slot to another, in one box or between a box and one nested in it, needs the keeper
 of both. `ContainerGraph.CheckMove` checks it and names the item; the ledger moves it from one
 `Container` home to the other; `ContainerGraph.Move` commits, and a refusal moves the ledger back.
+
+The container UI has one box open and sends that box's revision as both the source's and the
+destination's. For an item moved between that box and the one directly inside it (or the one
+around it) the source isn't the box the client has open, so the server checks the source by the row
+the handle names and the open box by its revision (`NetworkServer.CarryMoveInContainer`, OI-CON-13).
+Between boxes not nested directly, both revisions are checked as sent.
+
+A withdrawal's item goes by interest too: a row is sent to the withdrawer alone (`PlayerItems.Issue`),
+and one made loose at their feet reaches others through the world index, as any item does.
 
 ## Depth
 
