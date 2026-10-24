@@ -84,7 +84,7 @@ public sealed class ItemWirePacketTests
     }
 
     [Test]
-    public void InventoryRows_RoundTripEachRowWithItsState()
+    public void InventoryRows_RoundTripEachRowWithItsStateAndWhetherTheyAreTheWholeInventory()
     {
         ItemUpdate row = new()
         {
@@ -93,14 +93,16 @@ public sealed class ItemWirePacketTests
         };
         ClientboundInventoryRowsPacket result = RoundTrip(new ClientboundInventoryRowsPacket
         {
+            Full = true,
             Rows = new List<ItemUpdate> { row.For(ItemRelation.Mine, claimant: true), row.For(ItemRelation.Nobodys, claimant: false) },
             States = new[] { "{\"fuel\":0.5}", "" }
-        }, p => new ClientboundInventoryRowsPacket { Rows = p.Rows.ToList(), States = p.States.ToArray() });
+        }, p => new ClientboundInventoryRowsPacket { Full = p.Full, Rows = p.Rows.ToList(), States = p.States.ToArray() });
 
         Assert.That(result.Rows.Select(r => r.InventorySlot), Is.EqualTo(new[] { 7, 7 }));
         Assert.That(result.Rows[0].InventoryClaimSlot, Is.EqualTo(7));
         Assert.That(result.Rows[0].PrefabName, Is.EqualTo("Lighter"));
         Assert.That(result.States, Is.EqualTo(new[] { "{\"fuel\":0.5}", "" }));
+        Assert.That(result.Full, Is.True);
     }
 
     [Test]
@@ -116,7 +118,7 @@ public sealed class ItemWirePacketTests
     private static IEnumerable<ItemRequest> Requests()
     {
         yield return new ItemRequest { RequestId = 1, ItemNetId = 78, ExpectedRevision = 5, Action = ItemAction.Take, Hand = PlayerHand.Left, States = new() { ["on"] = true } };
-        yield return new ItemRequest { RequestId = 2, ItemNetId = 78, ExpectedRevision = 6, Action = ItemAction.Stash, Slot = 3, ClaimFlags = ItemInventoryClaimFlags.Reserved };
+        yield return new ItemRequest { RequestId = 2, ItemNetId = 78, ExpectedRevision = 6, Action = ItemAction.Stash, Slot = 3, ClaimFlags = ItemInventoryClaimFlags.Reserved, SavedState = "{\"Lighter_state\":{\"fuel\":0.25}}" };
         yield return new ItemRequest { RequestId = 3, ItemNetId = 78, ExpectedRevision = 7, Action = ItemAction.MoveSlot, Slot = 5 };
         yield return new ItemRequest
         {

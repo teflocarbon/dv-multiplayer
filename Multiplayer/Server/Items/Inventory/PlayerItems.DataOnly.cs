@@ -17,6 +17,7 @@ using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -42,8 +43,28 @@ internal static partial class PlayerItems
     private static readonly Dictionary<ushort, byte[]> knownBy = new();
     private static float nextScan;
 
+    // The state each holder's game sent as it put an item away (D14, OI-COLD-13), kept as its row's
+    // state when the server's object goes: the holder's copy is the item as it was.
+    private static readonly Dictionary<ushort, JObject> stashedStates = new();
+
+    /// <summary>Keeps the state a player's game sent with a stash, for the item's row.</summary>
+    public static void KeepStashedState(ushort netId, string state)
+    {
+        if (netId == 0 || string.IsNullOrEmpty(state))
+            return;
+        try
+        {
+            stashedStates[netId] = JObject.Parse(state);
+        }
+        catch (Exception exception)
+        {
+            Multiplayer.LogWarning($"Inventory: the state sent with netId {netId}'s stash isn't JSON ({exception.Message}); the server's copy is kept");
+        }
+    }
+
     private static void ClearDataOnly()
     {
+        stashedStates.Clear();
         settlingSince.Clear();
         materializing.Clear();
         knownBy.Clear();
@@ -82,6 +103,8 @@ internal static partial class PlayerItems
             if (!ShouldBeData(record, out NetworkedItem item, out ServerPlayer holder))
             {
                 settlingSince.Remove(record.NetId);
+                if (record.Placement != ItemPlacementKind.PlayerInventory)
+                    stashedStates.Remove(record.NetId);
                 continue;
             }
             if (!settlingSince.TryGetValue(record.NetId, out float since))
@@ -122,8 +145,11 @@ internal static partial class PlayerItems
         row.PlacementPlayerIdentity = record.Holder;
         row.OwnerIdentity = record.Owner;
         row.Slot = record.Slot;
+        if (stashedStates.TryGetValue(record.NetId, out JObject stashed))
+            row.State = stashed;
         if (!ColdInventories.Add(row))
             return;
+        stashedStates.Remove(record.NetId);
 
         // The holder keeps theirs, and so does an owner whose silhouette stands for it (recall). Anyone
         // else who was shown it (in the holder's inventory, nearby) is told it's gone.

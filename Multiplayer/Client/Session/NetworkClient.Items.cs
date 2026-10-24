@@ -1,4 +1,5 @@
 ﻿using LiteNetLib;
+using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Client.Items.LostAndFound;
 using Multiplayer.Client.Items.Projection;
@@ -28,7 +29,8 @@ public partial class NetworkClient : IItemClient
 
     private void OnClientboundInventoryRowsPacket(ClientboundInventoryRowsPacket packet)
     {
-        LogDebug(() => $"OnClientboundInventoryRowsPacket({packet?.Rows?.Count})");
+        LogDebug(() => $"OnClientboundInventoryRowsPacket({packet?.Rows?.Count}, full {packet?.Full})");
+        InventoryRows.Receive(packet?.Rows, packet?.States, packet?.Full == true);
         ClientItemManager.Instance?.ReceiveInventoryRows(packet?.Rows, packet?.States);
     }
 

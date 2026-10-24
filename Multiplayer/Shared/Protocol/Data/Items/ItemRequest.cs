@@ -62,6 +62,12 @@ public class ItemRequest
     public PlayerHand Hand { get; set; }
     /// <summary>A stash's claim on its slot (an essential's reserved slot), as the requester's inventory has it.</summary>
     public ItemInventoryClaimFlags ClaimFlags { get; set; }
+    /// <summary>
+    /// A stash's own saved state (the item's <c>ItemSaveData</c> JSON), captured on the requester's
+    /// game as it put the item away (D14, OI-COLD-13): the server keeps it as the row's state. Empty
+    /// for an item with none.
+    /// </summary>
+    public string SavedState { get; set; } = string.Empty;
     public Vector3 Position { get; set; }
     public Quaternion Rotation { get; set; } = Quaternion.identity;
     public ItemWorldParentKind WorldParentKind { get; set; }
@@ -109,6 +115,7 @@ public class ItemRequest
             case ItemAction.Stash:
                 writer.Put(data.Slot);
                 writer.Put((byte)data.ClaimFlags);
+                writer.Put(data.SavedState ?? string.Empty);
                 break;
             case ItemAction.MoveSlot:
             case ItemAction.Recall:
@@ -180,6 +187,7 @@ public class ItemRequest
             case ItemAction.Stash:
                 data.Slot = reader.GetInt();
                 data.ClaimFlags = (ItemInventoryClaimFlags)reader.GetByte();
+                data.SavedState = reader.GetString();
                 break;
             case ItemAction.MoveSlot:
             case ItemAction.Recall:

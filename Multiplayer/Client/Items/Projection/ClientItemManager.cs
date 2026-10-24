@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Multiplayer.Client.Items.Inventory;
 using Multiplayer.Client.Items.LiveState;
 using Multiplayer.Client.Items.Physics;
 using Multiplayer.Shared.Items.LiveState;
@@ -93,6 +94,7 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
     {
         Spatial.Clear();
         ClientDetachedAuthoredSlots.Clear();
+        InventoryRows.Clear();
     }
 
     public bool IsLostAndFoundTombstoned(ushort itemNetId) =>
