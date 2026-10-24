@@ -37,6 +37,18 @@ namespace Dvmp.Scenarios
             string client = await pair.Host.Run(() => Owned.ClientIdentity());
             string host = await pair.Host.Run(() => Owned.HostIdentity());
             List<Owned_> items = new();
+            // The items go at the end, by id (each restart gives them new net IDs), so the next
+            // scenario doesn't find an extra flashlight in an inventory.
+            pair.Cleanup(async () =>
+            {
+                var now = new List<ushort>();
+                foreach (Owned_ item in items)
+                {
+                    ushort netId = await pair.Host.Run(() => Owned.NetIdOf(item.Id));
+                    if (netId != 0) now.Add(netId);
+                }
+                await pair.Host.Run<ushort[]>(s => Items.Destroy(s, now.ToArray()), 60);
+            });
 
             async Task<string> Own(string what, ushort netId, string owner, string where)
             {
@@ -116,6 +128,7 @@ namespace Dvmp.Scenarios
             ushort clone = await pair.Host.Run<ushort>(s => Owned.Clone(s, original));
             string cloneId = await pair.Host.Run(() => Owned.IdOf(clone));
             Report.Note($"cloned {original} as {clone}: id {cloneId}");
+            if (cloneId.Length > 0) items.Add(new Owned_ { What = "the cab mug's clone", Id = cloneId });
             Expect.That(cloneId.Length > 0 && cloneId != cabId, "the clone has an id of its own", cloneId);
             Expect.Equal(original, await pair.Host.Run(() => Owned.NetIdOf(cabId)), "the original still has its id");
             LedgerEntry after = await pair.Host.Run(() => Owned.Entry(cabId));
