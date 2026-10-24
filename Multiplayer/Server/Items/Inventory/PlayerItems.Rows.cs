@@ -98,6 +98,7 @@ internal static partial class PlayerItems
         {
             Multiplayer.LogWarning($"Inventory: {player.Username}'s report ({row.PersistentItemId:D}) stays cold: " +
                                    (slot < 0 ? "no slot for it" : "it was saved with no recipe to make it from"));
+            keptCold.Add(row.PersistentItemId);
             return null;
         }
         if (paper && !JobPaperRows.Wanted(row, out job))
