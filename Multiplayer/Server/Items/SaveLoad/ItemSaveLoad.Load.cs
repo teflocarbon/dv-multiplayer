@@ -10,6 +10,7 @@ using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Items.WorldItems;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -166,6 +167,22 @@ internal static partial class ItemSaveLoad
             }
         }
 
+        foreach ((SavedItemRow row, LedgerEntry entry, JToken token) in context.Ammo)
+        {
+            try
+            {
+                LoadIntoMagazine(row, entry, token);
+            }
+            catch (Exception exception)
+            {
+                Multiplayer.LogException($"Items: loading {row.PrefabName} ({row.PersistentItemId:D}) into its tool failed; its rows are kept as they are", exception);
+                if (entry != null)
+                    KeepUnloadable(entry.Id, items);
+                else
+                    kept.Unowned.Add(token);
+            }
+        }
+
         Multiplayer.Log($"Items: loaded {made} item(s) into the world and Lost and Found, {cold} into offline " +
                         $"inventories, {context.Stored.Count} into containers; {keptOwned.Count} unloadable, " +
                         $"{kept.All().Count()} row(s) kept as they were");
@@ -194,6 +211,61 @@ internal static partial class ItemSaveLoad
         public Dictionary<Guid, SavedItemRow> StoredRows { get; } = new();
         /// <summary>Unowned stored items' rows as saved, kept if their container refuses them.</summary>
         public Dictionary<Guid, JToken> UnownedStoredTokens { get; } = new();
+        /// <summary>Ammo saved in a magazine: its row, its entry if owned, its row as saved if not.</summary>
+        public List<(SavedItemRow Row, LedgerEntry Entry, JToken Token)> Ammo { get; } = new();
+    }
+
+    // Ammo saved in its tool's magazine (containers.md, "Ammo in a magazine"): made in it if the tool
+    // is an object; a row of the tool's container if the tool is a row (an offline player's
+    // inventory, a box). With its tool gone, an owned one goes to its owner's Lost and Found and an
+    // unowned one's row is kept.
+    private static void LoadIntoMagazine(SavedItemRow row, LedgerEntry entry, JToken token)
+    {
+        Guid toolId = row.ContainerId;
+        ushort toolNetId = LiveToolNetId(toolId);
+        if (toolNetId != 0 && NetworkedItem.TryGet(toolNetId, out NetworkedItem tool) && tool != null)
+        {
+            row.Position = tool.transform.position - WorldMover.currentMove;
+            if (MakeLive(row, owned: entry != null))
+                return;
+        }
+        else if (ToolRowPrefab(toolId) is { Length: > 0 } toolPrefab)
+        {
+            string refused = "the tool has no magazine";
+            if (EnsureToolContainer(toolId, toolPrefab) && ContainerServer.Graph.Stow(StoredOf(row, toolId, row.Slot), out refused))
+            {
+                if (entry != null)
+                    ServerLedger.Ledger.Repair(entry.Id, Home.Container(toolId, row.Slot),
+                        new LedgerCause(ItemMoveReason.RestoredFromSave, Guid.Empty, "its tool is a row"));
+                return;
+            }
+            Multiplayer.LogWarning($"Items: {row.PrefabName} ({row.PersistentItemId:D}) won't go into its tool's container: {refused}");
+        }
+        if (entry != null)
+            Recover(entry, row, LostItemReason.SaveRecovery, $"its tool {toolId:D} is gone");
+        else
+        {
+            Multiplayer.LogWarning($"Items: {row.PrefabName} ({row.PersistentItemId:D})'s tool {toolId:D} is gone; its row is kept");
+            kept.Unowned.Add(token);
+        }
+    }
+
+    // The prefab of a tool that is a row: in an offline inventory, or stored in a box.
+    private static string ToolRowPrefab(Guid toolId) =>
+        ColdInventories.TryGet(toolId, out SavedItemRow cold) ? cold.PrefabName
+        : ContainerServer.Graph.TryGetItem(toolId, out StoredItemRecord stored) ? stored.PrefabName : string.Empty;
+
+    private static bool EnsureToolContainer(Guid toolId, string prefab)
+    {
+        if (ContainerServer.Graph.IsContainer(toolId))
+            return true;
+        int capacity = FindSpec(prefab)?.GetComponentInChildren<DV.Items.ItemMagazine>(true)?.Capacity ?? 0;
+        return capacity > 0 && ContainerServer.Graph.AddContainer(new ContainerRecord
+        {
+            PersistentContainerId = toolId,
+            PrefabName = prefab,
+            Capacity = capacity
+        }).Accepted;
     }
 
     private static LoadAction LoadOwned(LoadStep step, LoadContext context)
@@ -254,6 +326,14 @@ internal static partial class ItemSaveLoad
             case LoadAction.IntoContainer:
                 context.Stored.Add(StoredOf(row, Guid.Parse(step.Home.Anchor), step.Home.Slot));
                 context.StoredRows[row.PersistentItemId] = row;
+                return step.Action;
+            case LoadAction.IntoMagazine:
+                // After every other item, so its tool is made first (LoadIntoMagazine).
+                row.OwnerIdentity = owner;
+                row.Placement = ItemPlacementKind.Magazine;
+                row.ContainerId = Guid.Parse(step.Home.Anchor);
+                row.Slot = step.Home.Slot;
+                context.Ammo.Add((row, entry, null));
                 return step.Action;
             case LoadAction.MakeLive:
                 PlaceFromHome(row, step.Home);
@@ -365,6 +445,10 @@ internal static partial class ItemSaveLoad
                 context.Stored.Add(StoredOf(row, row.ContainerId, row.Slot));
                 context.StoredRows[row.PersistentItemId] = row;
                 context.UnownedStoredTokens[row.PersistentItemId] = token;
+                return true;
+            case ItemPlacementKind.Magazine:
+                row.OwnerIdentity = Guid.Empty;
+                context.Ammo.Add((row, null, token));
                 return true;
             default:
                 return MakeLive(row, owned: false);

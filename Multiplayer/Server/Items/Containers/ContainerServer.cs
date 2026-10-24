@@ -550,6 +550,8 @@ public static class ContainerServer
     {
         if (!ServerLedger.Loaded || shell == null || !IsShell(shell))
             return;
+        // A tool's ammo goes with it, or out of it if it's gone for good (MagazineServer).
+        MagazineServer.OnToolRemoved(shell, LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem tool) ? tool.PersistentItemId : Guid.Empty, cause);
         switch (cause.Reason)
         {
             case ItemRemovalReason.DepositedInContainer:
@@ -690,7 +692,10 @@ public static class ContainerServer
                  .Distinct().ToArray())
         {
             seen.Add(shell.NetId);
-            TryBindShell(shell, out _);
+            // A tool whose container has rows (its ammo while it was a row) loads them, kept or not.
+            if (TryBindShell(shell, out Guid id) ||
+                LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) && (id = record.PersistentItemId) != Guid.Empty)
+                MagazineServer.LoadFromRows(shell, id);
         }
         foreach (ushort stale in shellByNetId.Keys.Where(id => !seen.Contains(id)).ToArray())
             shellByNetId.Remove(stale);
@@ -733,6 +738,9 @@ public static class ContainerServer
 
     // An item vanilla gives a container of its own (a toolbox; a tool's magazine too).
     private static bool IsShell(NetworkedItem item) => item.GetComponent<AItemContainer>() != null;
+
+    /// <summary>The shell's container in the graph, made from its id and capacity if it has none yet.</summary>
+    internal static void EnsureContainer(NetworkedItem shell, Guid id) => EnsureShellRecord(shell, id);
 
     private static void EnsureShellRecord(NetworkedItem shell, Guid id)
     {

@@ -161,6 +161,11 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
         if (ItemObjectStateAuthority.ClientMaySend(NetworkedItem.ToWireState(currentState), pageOnly: false,
                 localInteraction: false))
             return true;
+        // Ammo in a magazine goes with its tool: the tool's holder uses it up (a sprayer's paint).
+        if (currentState == ItemState.InMagazine && NetworkedItem.TryGet(item.MagazineToolNetId, out NetworkedItem tool) &&
+            tool != null && ItemObjectStateAuthority.ClientMaySend(NetworkedItem.ToWireState(tool.GetItemState()),
+                pageOnly: false, localInteraction: false))
+            return true;
         worldInteraction = item.IsLocalInteractionOpen;
         pageOnly = !worldInteraction && item.IsTrackedValueDirty(NetworkedPageBookState.TrackedValueKey);
         return worldInteraction || pageOnly;

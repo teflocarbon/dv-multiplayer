@@ -16,7 +16,9 @@ public enum LivePlacement : byte
     Destroyed,
     TrainInterior,
     StaticParent,
-    SnappedAttachment
+    SnappedAttachment,
+    /// <summary>In a live tool's magazine (ammo: a cassette, a paint can, a spool), by the tool and slot.</summary>
+    Magazine
 }
 
 [Flags]

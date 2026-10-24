@@ -56,6 +56,8 @@ public static class PlaceText
                 return "fitted in place";
             case HomeKind.Container:
                 return "in " + (string.IsNullOrEmpty(facts.ContainerName) ? "a container" : facts.ContainerName);
+            case HomeKind.Magazine:
+                return "loaded in " + (string.IsNullOrEmpty(facts.ContainerName) ? "a tool" : facts.ContainerName);
             case HomeKind.LostAndFound:
                 return "in Lost and Found";
             case HomeKind.Installed:

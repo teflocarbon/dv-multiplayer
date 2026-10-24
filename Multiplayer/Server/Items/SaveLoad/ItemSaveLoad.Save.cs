@@ -226,7 +226,9 @@ internal static partial class ItemSaveLoad
     internal static SavedItemRow RowOf(LiveItems.LiveItem record, NetworkedItem item)
     {
         ItemSpatialStateData checkpoint = null;
-        NetworkedItemManager.Instance?.TryGetLatestSpatialState(record.NetId, out checkpoint);
+        // Ammo in a magazine is where its tool is, not where it was loaded (containers.md).
+        if (record.Placement != ItemPlacementKind.Magazine)
+            NetworkedItemManager.Instance?.TryGetLatestSpatialState(record.NetId, out checkpoint);
         ItemWorldParentKind parentKind = checkpoint?.WorldParentKind ?? record.WorldParentKind;
         ItemPlacementKind placement = checkpoint == null ? record.Placement : parentKind switch
         {
@@ -247,7 +249,9 @@ internal static partial class ItemSaveLoad
             OwnerIdentity = record.Owner,
             PlacementPlayerIdentity = record.Holder,
             ClaimSlot = record.InventoryClaimSlot,
-            Slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.Slot : -1,
+            Slot = record.Placement == ItemPlacementKind.PlayerInventory ? record.Slot
+                : record.Placement == ItemPlacementKind.Magazine ? record.MagazineSlot : -1,
+            ContainerId = record.Placement == ItemPlacementKind.Magazine ? record.MagazineToolId : Guid.Empty,
             ClaimFlags = record.InventoryClaimFlags,
             WorldParentKind = parentKind,
             WorldParentNetId = checkpoint?.WorldParentNetId ?? record.WorldParentNetId,
@@ -302,6 +306,12 @@ internal static partial class ItemSaveLoad
             return true;
         if (IsJobSystemDocument(record.PrefabName))
             return false;
+        // Ammo in a magazine is saved with its tool (containers.md, "Ammo in a magazine").
+        if (record.Placement == ItemPlacementKind.Magazine)
+            return LiveItems.TryGet(record.MagazineNetId, out LiveItems.LiveItem tool) && tool.Placement != ItemPlacementKind.Magazine &&
+                   NetworkedItem.TryGet(tool.NetId, out NetworkedItem toolItem) && toolItem != null &&
+                   (tool.PersistentItemId != Guid.Empty && ServerLedger.Ledger.IsLive(tool.PersistentItemId) ||
+                    ShouldPersistUnowned(tool, toolItem));
         return item.Item?.InventorySpecs?.BelongsToPlayer == true &&
                record.Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or
                    ItemPlacementKind.StaticParent or ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment;

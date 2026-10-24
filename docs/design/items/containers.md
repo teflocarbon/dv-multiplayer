@@ -119,6 +119,42 @@ and gives back its rows:
 
 Unloading the world or quitting destroys every shell without clearing any container.
 
+## Ammo in a magazine
+
+A vanilla magazine (`ItemMagazine`: a boombox's cassette, a sprayer's paint can, a soldering tool's
+spool) is an item container too, its ammo inactive under the world's origin parent, not under the
+tool. Its ammo has a home in both of the tool's forms (CN1, OI-CON-16's first half; R5 C7):
+
+- **While the tool is an object**, its ammo is an object loaded in the tool's magazine: live
+  placement `Magazine`, home `Magazine(tool, slot)` (the tool's item id and the magazine's slot). On
+  the wire it is `ItemState.InMagazine` with the tool's NetId and the slot (`MagazineNetId`,
+  `MagazineSlot`; [wire.md](wire.md#the-update)). The game that loads it (`MagazinePatch` on
+  `AddItem` and `RemoveItem`) observes it as any change: a client may send it while it holds or
+  stashes the tool, and the server takes it from the tool's holder only (`SenderPossesses`), checks
+  the tool, the slot and that the magazine takes that item (`LiveItems.MagazineRefusal`:
+  `magazine-tool-unknown`, `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken`),
+  and every other game loads its copy into its copy of the tool (`NetworkedItem.LoadInto`; an update
+  that arrives before the tool waits for it ten seconds). Loaded ammo is non-spatial: a player gets
+  it with its tool.
+- **While the tool is a row** (in a box, in a cold inventory), its ammo is a row of the tool's
+  container, `Container(tool, slot)`, as a box's contents are; the tool's container id is its item id
+  (OI-CON-09). `MagazineServer.OnToolRemoved` (from `ContainerServer.OnRemoved`) stows each
+  loaded item when the tool's object goes into a box, cold with its leaving holder, into Lost and
+  Found, remade or replaced in an authored slot: the ledger first, then the graph (`ContainerGraph.Stow`),
+  then its object retires by interest, as a deposit's does. `MagazineServer.LoadFromRows` makes them
+  objects in the magazine again when the tool's object is bound (the server's shell scan), whichever
+  way it came back.
+- **The tool destroyed for good** lets its ammo go as a destroyed box's contents go: an owned item to
+  its owner's Lost and Found (`ContainerCleared`), any other loose where the tool was.
+- **Saved,** loaded ammo is a row with placement `Magazine`, its container the tool and its slot;
+  unowned ammo is saved when its tool is. The load makes it after the tools (`LoadAction.IntoMagazine`,
+  `ItemSaveLoad.LoadIntoMagazine`), into the live tool's magazine, or as a row of the tool's container
+  when the tool is a row.
+
+A loaded magazine still stays an object in its owner's slot (R4C's A1; [inventory.md](inventory.md)):
+a stand-in that carries its ammo as rows nested in its own, made with it at take-out, is OI-CON-16's
+second half. Ammo in a scene tool stays the scene's until a player loads it.
+
 ## Moving between boxes
 
 A move from one slot to another, in one box or between a box and one nested in it, needs the keeper

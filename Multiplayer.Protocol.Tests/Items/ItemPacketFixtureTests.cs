@@ -51,6 +51,7 @@ public sealed class ItemPacketFixtureTests
     [TestCase(ItemState.InInventory)]
     [TestCase(ItemState.Attached)]
     [TestCase(ItemState.Installed)]
+    [TestCase(ItemState.InMagazine)]
     public void ItemStateRoundTripsOnlyItsWireSemanticFields(ItemState state)
     {
         ItemUpdate source = Fixture(ItemUpdate.ItemUpdateType.ItemState, state);
@@ -90,7 +91,16 @@ public sealed class ItemPacketFixtureTests
                 Assert.That(result.CarNetId, Is.EqualTo(source.CarNetId));
                 Assert.That(result.AttachedFront, Is.False);
                 break;
+            case ItemState.InMagazine:
+                // Ammo in a tool's magazine: the tool and the slot, no pose (containers.md).
+                Assert.That(result.MagazineNetId, Is.EqualTo(source.MagazineNetId));
+                Assert.That(result.MagazineSlot, Is.EqualTo(source.MagazineSlot));
+                Assert.That(result.ItemPosition, Is.EqualTo(Vector3.zero));
+                Assert.That(result.CarNetId, Is.EqualTo(0));
+                break;
         }
+        if (state != ItemState.InMagazine)
+            Assert.That(result.MagazineNetId, Is.EqualTo(0), "only ammo in a magazine carries its tool");
         Assert.That(ItemUpdate.HomeOf(result), Is.EqualTo(ItemUpdate.HomeOf(source)));
         if (state != ItemState.InInventory)
             Assert.That(result.InventorySlot, Is.EqualTo(-1), "only an inventory item carries a slot");
@@ -302,6 +312,8 @@ public sealed class ItemPacketFixtureTests
         InventorySlot = 17,
         CarNetId = 22,
         AttachedFront = true,
+        MagazineNetId = 31,
+        MagazineSlot = 0,
         States = new Dictionary<string, object> {
             ["bool"] = true, ["int"] = -2, ["uint"] = 7u, ["float"] = 1.25f, ["string"] = "state"
         }

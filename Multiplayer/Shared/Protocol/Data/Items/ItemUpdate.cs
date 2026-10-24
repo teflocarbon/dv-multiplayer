@@ -102,6 +102,10 @@ public class ItemUpdate
     public string WorldParentKey { get; set; }
     public Vector3 ParentLocalPosition { get; set; }
     public Quaternion ParentLocalRotation { get; set; }
+    /// <summary>The tool whose magazine it's in (<see cref="ItemState.InMagazine"/>), by its NetId; else 0.</summary>
+    public ushort MagazineNetId { get; set; }
+    /// <summary>Its slot of that magazine, or -1.</summary>
+    public int MagazineSlot { get; set; } = -1;
 
     // Detached local observability correlation. This is deliberately not serialized.
     internal string DebugCorrelationFingerprint { get; set; }
@@ -180,6 +184,10 @@ public class ItemUpdate
                     break;
                 case WireHome.Installed:
                     writer.Put(data.CarNetId);
+                    break;
+                case WireHome.Magazine:
+                    writer.Put(data.MagazineNetId);
+                    writer.Put((sbyte)Math.Max(-1, Math.Min(sbyte.MaxValue, data.MagazineSlot)));
                     break;
             }
         }
@@ -268,6 +276,10 @@ public class ItemUpdate
                 case WireHome.Installed:
                     data.CarNetId = reader.GetUShort();
                     break;
+                case WireHome.Magazine:
+                    data.MagazineNetId = reader.GetUShort();
+                    data.MagazineSlot = reader.GetSByte();
+                    break;
             }
         }
 
@@ -294,7 +306,9 @@ public class ItemUpdate
         /// <summary>Snapped to a parent (a hanger, a mount) by its key: an attached item on no car.</summary>
         Snapped,
         /// <summary>A gadget on a car, or on the world (car 0).</summary>
-        Installed
+        Installed,
+        /// <summary>Ammo in a tool's magazine, by the tool's NetId and the slot.</summary>
+        Magazine
     }
 
     public static WireHome HomeOf(ItemUpdate data) => data.ItemState switch
@@ -303,6 +317,7 @@ public class ItemUpdate
         ItemState.InInventory => WireHome.Slot,
         ItemState.Attached => data.CarNetId == 0 && !string.IsNullOrEmpty(data.WorldParentKey) ? WireHome.Snapped : WireHome.Attached,
         ItemState.Installed => WireHome.Installed,
+        ItemState.InMagazine => WireHome.Magazine,
         _ => data.WorldParentKind switch
         {
             ItemWorldParentKind.TrainInterior => WireHome.TrainInterior,
@@ -317,6 +332,7 @@ public class ItemUpdate
         WireHome.Slot => ItemState.InInventory,
         WireHome.Attached or WireHome.Snapped => ItemState.Attached,
         WireHome.Installed => ItemState.Installed,
+        WireHome.Magazine => ItemState.InMagazine,
         _ => ItemState.Dropped
     };
 

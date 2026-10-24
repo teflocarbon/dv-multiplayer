@@ -37,6 +37,7 @@ public enum ItemState : byte
     InInventory,    //in player's inventory
     Attached,       //attached to another object (e.g. EOT Lanterns)
     Installed,      //installed on a car as a gadget: the item is inactive and its projection is on the car
+    InMagazine,     //ammo in a tool's magazine (a cassette in a boombox): inactive, the tool shows it
 }
 
 public enum ClientItemUnboundState : byte

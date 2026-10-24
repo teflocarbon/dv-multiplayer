@@ -22,7 +22,12 @@ public enum LoadAction : byte
     /// <summary>It can't go home: made from its row (or fresh, with no row) in its owner's Lost and Found (D9).</summary>
     Recover,
     /// <summary>Its prefab is gone: its rows are kept verbatim and tried again at the next load (D9).</summary>
-    Unloadable
+    Unloadable,
+    /// <summary>
+    /// In a tool's magazine: made into it once every other item is made, or a row of the tool's
+    /// container if the tool is a row (containers.md, "Ammo in a magazine").
+    /// </summary>
+    IntoMagazine
 }
 
 /// <summary>One owned item's step at load.</summary>
@@ -102,6 +107,8 @@ public static class ItemLoadPlanner
                     : Recover(entry, LostItemReason.SaveRecovery, $"saved with {home.Holder:D}, not its owner");
             case HomeKind.Container:
                 return new LoadStep(entry.Id, LoadAction.IntoContainer, home);
+            case HomeKind.Magazine:
+                return new LoadStep(entry.Id, LoadAction.IntoMagazine, home);
             case HomeKind.TrainInterior:
             case HomeKind.Attached:
                 return world.CarExists(home.Anchor)

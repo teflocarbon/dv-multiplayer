@@ -47,6 +47,17 @@ public sealed class ItemLoadPlannerTests
     }
 
     [Test]
+    public void AmmoInAMagazine_WaitsForItsTool()
+    {
+        Home home = Home.Magazine(Guid.NewGuid(), 0);
+
+        LoadStep step = Only(Entry(home), true, Everything);
+
+        Assert.That(step.Action, Is.EqualTo(LoadAction.IntoMagazine));
+        Assert.That(step.Home, Is.EqualTo(home));
+    }
+
+    [Test]
     public void ATrainItemWhoseCarIsGone_IsRecovered()
     {
         LoadWorld noCars = new() { CarExists = _ => false };

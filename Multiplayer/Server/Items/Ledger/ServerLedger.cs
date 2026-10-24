@@ -454,6 +454,7 @@ public static partial class ServerLedger
         ItemPlacementKind.StaticParent => Home.Shelf(record.WorldParentKey),
         ItemPlacementKind.Attached => Home.Attached(record.AttachedCarPersistentId, record.AttachedFront),
         ItemPlacementKind.SnappedAttachment => Home.Snapped(record.WorldParentKey),
+        ItemPlacementKind.Magazine => Home.Magazine(record.MagazineToolId, record.MagazineSlot),
         // A gadget on no car is installed on the world (vanilla's WorldCustomization, OI-GAD-10).
         ItemPlacementKind.Installed => Home.Installed(record.AttachedCarNetId == 0 ? Home.WorldAnchor : record.AttachedCarPersistentId),
         ItemPlacementKind.LostAndFound => Home.LostAndFound,

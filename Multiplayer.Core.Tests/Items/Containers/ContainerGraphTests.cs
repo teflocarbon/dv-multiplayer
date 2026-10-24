@@ -587,6 +587,37 @@ public sealed class ContainerGraphTests
     }
 
     [Test]
+    public void Stow_PutsASettledRowInItsSlot_AndMovesTheBoxOn()
+    {
+        // Ammo going with its tool as the tool becomes a row (containers.md, "Ammo in a magazine").
+        StoredItemRecord ammo = Item();
+        ammo.ParentContainerId = root;
+        ammo.Slot = 1;
+        uint before = Revision(root);
+
+        Assert.That(graph.Stow(ammo, out string reason), Is.True, reason);
+        Assert.That(graph.TryGetItem(ammo.PersistentItemId, out StoredItemRecord stored), Is.True);
+        Assert.That(stored.Slot, Is.EqualTo(1));
+        Assert.That(graph.IsSettled(ammo.PersistentItemId), Is.True);
+        Assert.That(Revision(root), Is.GreaterThan(before));
+    }
+
+    [Test]
+    public void Stow_RefusesATakenSlot_AndChangesNothing()
+    {
+        StoredItemRecord first = Item(), second = Item();
+        first.ParentContainerId = second.ParentContainerId = root;
+        first.Slot = second.Slot = 0;
+        Assert.That(graph.Stow(first, out _), Is.True);
+        uint before = Revision(root);
+
+        Assert.That(graph.Stow(second, out string reason), Is.False);
+        Assert.That(reason, Is.EqualTo("container-slot-occupied"));
+        Assert.That(graph.TryGetItem(second.PersistentItemId, out _), Is.False);
+        Assert.That(Revision(root), Is.EqualTo(before));
+    }
+
+    [Test]
     public void ARowPartWay_IsntSettled_AndTheServerCantTakeItOut()
     {
         // OI-LIST-18: a retrieval meets no deposit or withdrawal half done.

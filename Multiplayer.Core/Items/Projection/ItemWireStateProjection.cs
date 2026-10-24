@@ -7,7 +7,8 @@ public enum WireItemState : byte
     InInventory,
     InHand,
     Attached,
-    Installed
+    Installed,
+    InMagazine
 }
 
 /// <summary>
@@ -61,6 +62,10 @@ public static class ItemWireStateComparer
             WireItemState.Attached =>
                 previous.AttachedCarNetId != current.AttachedCarNetId ||
                 previous.AttachedFront != current.AttachedFront,
+            // A magazine's tool rides in the car field, its slot in the hand's.
+            WireItemState.InMagazine =>
+                previous.AttachedCarNetId != current.AttachedCarNetId ||
+                previous.PlacementHand != current.PlacementHand,
             _ => false
         };
     }

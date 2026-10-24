@@ -200,6 +200,12 @@ internal sealed partial class ServerItemManager
             // can be resolved. New train-interior settlements take the live-parent path above.
             return recipientCells.Contains(WorldItemCellCoord.FromAbsolute(record.Position));
         }
+        // Ammo in a magazine goes where its tool goes (containers.md, "Ammo in a magazine"): vanilla
+        // leaves it inactive where it was loaded, so its own position means nothing.
+        if (record.Placement == ItemPlacementKind.Magazine)
+            return NetworkedItem.TryGet(record.MagazineNetId, out NetworkedItem tool) && tool != null && tool != item &&
+                   (recipient.KnownItems.ContainsKey(tool) || IsNonSpatialRelevantTo(tool, recipient, recipientCells) ||
+                    recipientCells.Contains(WorldItemCellCoord.FromAbsolute(tool.transform.position - WorldMover.currentMove)));
         if (record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment)
         {
             // Attached items (e.g. end-of-train lanterns) ride their car; the record's position is

@@ -113,7 +113,11 @@ public enum ItemMoveReason : byte
     /// <summary>Moved from one of its holder's inventory slots to another (OI-SLOT-01).</summary>
     SlotMoved,
     /// <summary>A cold inventory item made again in its slot as its holder joined (D12).</summary>
-    WentLive
+    WentLive,
+    /// <summary>Loaded into a tool's magazine (a cassette into a boombox).</summary>
+    LoadedIntoMagazine,
+    /// <summary>Out of a tool's magazine: ejected, or taken out.</summary>
+    UnloadedFromMagazine
 }
 
 /// <summary>Where an item is, by whom it's held, and who owns it: what a move changes.</summary>
@@ -154,6 +158,10 @@ public static class ItemMoveClassifier
             return before.Placement == after.Placement ? ItemMoveReason.Unknown : ItemMoveReason.InstalledAsGadget;
         if (before.Placement == LivePlacement.Installed)
             return ItemMoveReason.RemovedAsGadget;
+        if (after.Placement == LivePlacement.Magazine)
+            return before.Placement == after.Placement ? ItemMoveReason.Unknown : ItemMoveReason.LoadedIntoMagazine;
+        if (before.Placement == LivePlacement.Magazine)
+            return ItemMoveReason.UnloadedFromMagazine;
         bool fromOtherPlayer = IsHeld(before.Placement) && before.Holder != Guid.Empty &&
             IsHeld(after.Placement) && after.Holder != before.Holder;
         switch (after.Placement)
@@ -215,6 +223,7 @@ public static class ItemMoveClassifier
         LivePlacement.TrainInterior => "train car",
         LivePlacement.StaticParent => "static parent",
         LivePlacement.SnappedAttachment => "snapped",
+        LivePlacement.Magazine => "magazine",
         _ => at.Placement.ToString()
     };
 }

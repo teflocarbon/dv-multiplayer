@@ -22,9 +22,9 @@ namespace Dvmp.Scenarios
     /// inside, until R5 makes the ammo a row: OI-CON-16); a take-out makes the object with it in
     /// its first frame, and it still has it after a second in the hand (the server's copy, made
     /// afresh, doesn't overwrite it); after a rejoin the row brings it down again and a second
-    /// take-out has it too (a magazine's ammo through a rejoin is R5's, so it's noted, not
-    /// checked). A client's loaded magazines are only noted: its ammo has no home yet and leaves
-    /// the magazine once the tool is picked up (known bug CN1). WHO=host does it
+    /// take-out has it too (a magazine's ammo through a rejoin waits for the ammo as a row inside
+    /// its tool's row, so it's noted, not checked). The ammo stays in a client's magazine too: it
+    /// has the magazine as its home (R5 C7, CN1). WHO=host does it
     /// with the host's own player (R4C C4), saving and restarting both games for the rejoin (a
     /// player host only). The items are destroyed at the end.
     /// </summary>
@@ -64,17 +64,6 @@ namespace Dvmp.Scenarios
                 Kept kept = await who.Run<Kept>(s => InGame.ChangeAndStash(s, netId, ammoId), 90);
                 Report.Note($"{prefab} {netId}, stashed: {kept}");
                 bool loaded = ammo.Length > 0;
-                if (loaded && !host)
-                {
-                    // A client's ammo has no home yet: it leaves the magazine once the tool is picked
-                    // up (known bug CN1, item-bug-magazine-ammo; R5, OI-CON-16), so it's noted only.
-                    Kept outClient = await who.Run<Kept>(s => InGame.TakeOutAndStash(s, netId), 60);
-                    Report.Note($"{prefab}, taken out (CN1: noted, not checked on a client): {outClient}");
-                    ids.Add(await pair.Host.Run(() => Owned.IdOf(netId)));
-                    ammoIds.Add(await pair.Host.Run(() => Owned.IdOf(ammoId)));
-                    before.Add(outClient);
-                    continue;
-                }
                 if (loaded)
                 {
                     Expect.That(!kept.StandIn, $"{prefab}: an object in the {who.Name}'s slot, loaded (OI-CON-16)");
