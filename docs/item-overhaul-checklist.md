@@ -64,7 +64,7 @@ On 2026-10-24, with R3 (#342, #343, #344), R4a (#347) and R4b (#348), after OI-R
 | Starting items | 8 | 1 | 0 | 1 | 0 | 0 | 0 |
 | Essentials and claims | 13 | 1 | 0 | 2 | 0 | 0 | 1 |
 | Inventory slots | 3 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Cold and live homes | 6 | 0 | 0 | 9 | 0 | 0 | 0 |
+| Cold and live homes | 6 | 0 | 1 | 8 | 0 | 0 | 0 |
 | Lost and Found | 15 | 1 | 0 | 6 | 0 | 0 | 0 |
 | The list and retrieval | 11 | 2 | 1 | 3 | 0 | 6 | 0 |
 | Lineage | 3 | 1 | 0 | 0 | 0 | 3 | 0 |
@@ -79,7 +79,7 @@ On 2026-10-24, with R3 (#342, #343, #344), R4a (#347) and R4b (#348), after OI-R
 | Gadgets seam | 3 | 0 | 0 | 1 | 0 | 7 | 1 |
 | Mod items | 0 | 0 | 0 | 0 | 0 | 5 | 0 |
 | Migration | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
-| **All 277** | **135** | **10** | **3** | **69** | **0** | **49** | **11** |
+| **All 277** | **135** | **10** | **4** | **68** | **0** | **49** | **11** |
 
 - **The item refactor** (user, 2026-10-23; the plan is the item-refactor-plan session's
   `docs/design/item-refactor.md`) builds the rows that serve storing items, giving them back and
