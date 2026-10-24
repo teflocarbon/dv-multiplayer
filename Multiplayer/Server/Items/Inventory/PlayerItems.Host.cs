@@ -33,8 +33,8 @@ internal static partial class PlayerItems
     }
 
     // The host's own player's rows go live as data in their slots and are drawn as stand-ins once
-    // its inventory exists. Job papers, an item the ledger moved to Lost and Found and one with no
-    // free slot are made as objects instead (TakeUp, GoLive), as for a remote joiner.
+    // its inventory exists, job papers too (OI-COLD-07). An item the ledger moved to Lost and Found
+    // and one with no free slot are made as objects instead (TakeUp, GoLive), as for a remote joiner.
     private static IEnumerator JoinHost(ServerPlayer player)
     {
         while (DV.InventorySystem.Inventory.Instance == null && player.PlayerId != 0)
