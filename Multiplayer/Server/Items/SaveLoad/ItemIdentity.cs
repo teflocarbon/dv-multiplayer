@@ -14,18 +14,6 @@ internal sealed class ItemIdentity : MonoBehaviour
         set => this.value = value == Guid.Empty ? string.Empty : value.ToString("D");
     }
 
-    [SerializeField] private string owner;
-
-    /// <summary>
-    /// The owner saved with an item the mod's own records don't keep (an installed gadget,
-    /// <see cref="ItemIdentityPatch.OwnerKey"/>), until its record takes it.
-    /// </summary>
-    public Guid Owner
-    {
-        get => Guid.TryParse(owner, out Guid id) ? id : Guid.Empty;
-        set => owner = value == Guid.Empty ? string.Empty : value.ToString("D");
-    }
-
     /// <summary>The id this item's identity was copied from, when the server gave it a new one (OI-ID-18). Not saved.</summary>
     [NonSerialized] public Guid CopiedFrom;
 

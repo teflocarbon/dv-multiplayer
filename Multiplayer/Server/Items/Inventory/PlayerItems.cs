@@ -236,10 +236,11 @@ internal static partial class PlayerItems
     /// <summary>
     /// Host: a player joined. Each of their cold rows is made again in its exact slot, for a client
     /// and for the host's own player (D12; OI-COLD-03 makes it happen before their inventory shows).
+    /// A player admitted before the load (the host's own) has no rows yet: the load joins them.
     /// </summary>
     public static void Join(ServerPlayer player)
     {
-        if (player == null || player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true)
+        if (player == null || player.Guid == Guid.Empty || NetworkLifecycle.Instance?.IsHost() != true || !ServerLedger.Loaded)
             return;
         foreach (SavedItemRow row in ColdInventories.Of(player.Guid))
             CoroutineManager.Instance.StartCoroutine(GoLive(player, row));
@@ -281,8 +282,21 @@ internal static partial class PlayerItems
             ItemSaveData saveData = instance.GetComponent<ItemSaveData>();
             if (saveData != null && row.State != null)
             {
-                saveData.LoadItemData(row.State);
-                saveData.PostLoadItemData();
+                try
+                {
+                    saveData.LoadItemData(row.State);
+                    saveData.PostLoadItemData();
+                }
+                catch (Exception exception) when (ServerLedger.Ledger.IsLive(row.PersistentItemId))
+                {
+                    // Its state won't load: it comes back fresh in its owner's Lost and Found (D9, OI-LED-16).
+                    item.AbortColdMaterialization();
+                    Object.Destroy(instance);
+                    ColdInventories.Remove(row.PersistentItemId);
+                    CoroutineManager.Instance.StartCoroutine(ItemSaveLoad.RemakeFresh(null, row.PersistentItemId,
+                        row.PrefabName, exception.Message));
+                    yield break;
+                }
             }
             ItemBase itemBase = instance.GetComponent<ItemBase>();
             if (itemBase == null || item.NetId == 0)

@@ -92,8 +92,8 @@ public static partial class ServerLedger
         netIdByPersistentId.TryGetValue(id, out ushort netId) && LiveItems.TryGet(netId, out LiveItems.LiveItem record) &&
         record.PersistentItemId == id ? record : LiveItems.GetAll().FirstOrDefault(r => r.PersistentItemId == id);
 
-    // Every copy of an item the server can see: its objects, a cold inventory's rows, Lost and
-    // Found's pending entries and the containers' rows, with vanilla's lists for each object.
+    // Every copy of an item the server can see: its objects, a cold inventory's rows and the
+    // containers' rows, with vanilla's lists for each object.
     // Inactive objects count (OI-LED-10): the records are walked, never FindObjectsOfType.
     private static IEnumerable<ObservedItem> Observe()
     {
@@ -102,11 +102,10 @@ public static partial class ServerLedger
         HashSet<ItemBase> world = Members(storage?.StorageWorld);
         HashSet<ItemBase> lost = Members(storage?.StorageLostAndFound);
         HashSet<ItemBase> installed = Members(storage?.StorageInstalledGadgets);
-        HashSet<Guid> pendingLost = PendingLostAndFound();
         foreach (LiveItems.LiveItem record in LiveItems.GetAll())
         {
             if (record.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.Container ||
-                pendingLost.Contains(record.PersistentItemId) || record.PersistentItemId == Guid.Empty &&
+                record.PersistentItemId == Guid.Empty &&
                 record.Placement != ItemPlacementKind.PlayerInventory)
                 continue;
             // Kept as data on the server: its row is the copy (ColdRows).
@@ -134,21 +133,12 @@ public static partial class ServerLedger
         }
         foreach (ObservedItem cold in ColdRows())
             yield return cold;
-        foreach (LostAndFoundServer.PendingEntry pending in LostAndFoundServer.PendingEntries())
-            yield return new ObservedItem
-            {
-                Id = pending.ItemId,
-                Name = pending.Prefab,
-                Source = ObservedSource.LostAndFoundRow,
-                Home = Home.LostAndFound,
-                StoreOwner = OwnerRef.Player(pending.Owner)
-            };
         foreach (StoredItemRecord row in ContainerServer.Graph.ExportSnapshot().Items)
         {
             Guid.TryParse(row.PersistentOwnerIdentity, out Guid owner);
             yield return new ObservedItem
             {
-                Id = ItemIdOf(row),
+                Id = row.PersistentItemId,
                 Name = row.PrefabName,
                 Source = ObservedSource.ContainerRow,
                 Home = Home.Container(row.ParentContainerId, row.Slot),

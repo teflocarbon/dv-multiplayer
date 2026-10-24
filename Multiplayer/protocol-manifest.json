@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.24-dev.0945+c51a77caf46507d865d55c6f5a430890ac3ad608",
-  "Fingerprint": "ac8cb59039b737924c592849181dbc164c58fdfd435ef39b65e211d83ec9c85a",
+  "BuildVersion": "2026.10.24-dev.1239+3c8a84e59164a8189a3a18d219023fa8df3fdeaa",
+  "Fingerprint": "41cb822292225e39e8059a477548ef309f89ef11dba165f296860dd61712b02b",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1305,7 +1305,8 @@
       "AuthoredSlotReplaced": 8,
       "DestroyedFromInventory": 9,
       "LeftInterest": 10,
-      "WentCold": 11
+      "WentCold": 11,
+      "RemadeFresh": 12
     },
     "Multiplayer.Core.Items.Ledger.ItemRelation": {
       "Nobodys": 0,

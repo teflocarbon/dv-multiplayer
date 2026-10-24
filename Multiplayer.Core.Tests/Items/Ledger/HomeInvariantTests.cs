@@ -57,9 +57,9 @@ public sealed class HomeInvariantTests
     }
 
     [Test]
-    public void Rule1_AMissingEntry_IsNotLookedFor()
+    public void Rule1_AnUnloadableEntry_IsNotLookedFor()
     {
-        Assert.That(HomeInvariant.Check(new[] { Entry(Lantern, Home.Missing) }, Array.Empty<ObservedItem>()), Is.Empty);
+        Assert.That(HomeInvariant.Check(new[] { Entry(Lantern, Home.Unloadable) }, Array.Empty<ObservedItem>()), Is.Empty);
     }
 
     [Test]

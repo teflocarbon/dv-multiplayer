@@ -1,29 +1,24 @@
 using DV;
-using DV.InventorySystem;
 using DV.JObjectExtstensions;
 using DV.ThingTypes;
-using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Players;
-using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace Multiplayer.Server.Career;
 
 /// <summary>
 /// The save format where every player's state is stored by their player ID (PlayerIdentity), the
-/// host's own player included: a position under Multiplayer.Players.&lt;ID&gt;, and item records
-/// owned by that ID
-/// (WorldItemsV1). The server restores it at that player's login, wherever the server runs. See
-/// docs/design/server-player-split.md.
+/// host's own player included: a position under Multiplayer.Players.&lt;ID&gt;. Items are all in
+/// Multiplayer.Items (docs/design/items/save-load.md). The server restores a player's state at their
+/// login, wherever the server runs. See docs/design/server-player-split.md.
 ///
 /// DV's own fields (Player_position, Storage_Inventory) are still written from the local player,
-/// so a career opens in vanilla DV without the mod, but the mod no longer reads them, except to
-/// convert a career saved before this format, once.
+/// so a career opens in vanilla DV without the mod, but the mod never reads its item lists (D2), and
+/// reads its position only to convert a career saved before this format, once.
 ///
 /// Runs when hosting starts (SaveGameManager_FindStartGameData_Patch), after DV has read the save
 /// and before it places the player or loads any item.
@@ -78,38 +73,38 @@ public static class PerPlayerSaveFormat
             }
         }
 
-        // The local inventory comes back from the server at the local player's login, like any
-        // player's, not from DV's copy. On a dedicated host that leaves the parked body empty.
+        // Vanilla's item lists are a mirror the mod writes and never reads (D2): every item comes from
+        // Multiplayer.Items, so vanilla makes none of them. Installed gadgets stay vanilla's to make.
         data.SetObject(SaveGameKeys.Storage_Inventory, new List<StorageItemData>());
+        data.SetObject(SaveGameKeys.Storage_World, new List<StorageItemData>());
+        data.SetObject(SaveGameKeys.Storage_LostAndFound, new List<StorageItemData>());
         Multiplayer.Log($"Save format: per-player (local player {(lifecycle.IsDedicatedHost ? "is the dedicated host's parked body" : PlayerIdentity.Describe(LocalId))})");
     }
 
     // A career saved before this format: the host player's state is only in DV's fields. Move it to
     // the owner's ID, as if they had been a client all along. Other players' entries are already
     // per player (under install GUIDs, which InstallGuidRekey moves at their login). Runs once:
-    // the marker is set after it.
+    // the marker is set after it. Its items aren't converted: a career saved before Multiplayer.Items
+    // starts every player's items fresh (D1).
     private static void Convert(SaveGameData data, JObject root, Guid owner)
     {
-        int moved = ConvertSave(root, owner, data.GetVector3(SaveGameKeys.Player_position),
-            data.GetVector3(SaveGameKeys.Player_rotation)?.y ?? 0f,
-            StorageSerializer.LoadStorageData(StorageType.Inventory, data));
-        Multiplayer.Log($"Save format: converted a career saved before per-player state; {moved} inventory item(s) and the position now belong to {owner}");
+        bool moved = ConvertSave(root, owner, data.GetVector3(SaveGameKeys.Player_position),
+            data.GetVector3(SaveGameKeys.Player_rotation)?.y ?? 0f);
+        Multiplayer.Log($"Save format: converted a career saved before per-player state; " +
+                        (moved ? $"the position now belongs to {owner}" : $"{owner} already had a position"));
     }
 
     /// <summary>
-    /// Moves the state DV keeps for the local player (its position, rotation and inventory) into
-    /// the save's Multiplayer root, owned by <paramref name="owner"/>. Converting the same root
-    /// twice changes nothing the second time: an existing entry for the owner is kept, and an item
-    /// already recorded isn't recorded again (an item without a persistent ID gets one derived from
-    /// the owner, its place in the inventory and its prefab). Job paperwork is left to DV's job save.
-    /// Returns how many items it recorded.
+    /// Moves the position DV keeps for the local player into the save's Multiplayer root, owned by
+    /// <paramref name="owner"/>. An existing entry for the owner is kept, so converting the same root
+    /// twice changes nothing the second time. Returns whether it made the entry.
     /// </summary>
-    public static int ConvertSave(JObject root, Guid owner, Vector3? position, float rotationY,
-        IEnumerable<StorageItemData> inventory)
+    public static bool ConvertSave(JObject root, Guid owner, Vector3? position, float rotationY)
     {
         JObject players = root.GetJObject(PlayersKey) ?? new JObject();
         string key = owner.ToString();
-        if (players.GetJObject(key) == null)
+        bool moved = players.GetJObject(key) == null;
+        if (moved)
         {
             JObject entry = new JObject();
             if (position.HasValue)
@@ -118,43 +113,6 @@ public static class PerPlayerSaveFormat
             players.SetJObject(key, entry);
         }
         root.SetJObject(PlayersKey, players);
-
-        JArray records = root[ItemSaveLoad.SaveKey] as JArray ?? new JArray();
-        HashSet<Guid> known = new(records.OfType<JObject>()
-            .Select(value => Guid.TryParse((string)value["persistentItemId"], out Guid id) ? id : Guid.Empty));
-        int moved = 0;
-        int index = -1;
-        foreach (StorageItemData item in inventory ?? new List<StorageItemData>())
-        {
-            index++;
-            if (item == null || string.IsNullOrEmpty(item.itemPrefabName) || ItemSaveLoad.IsJobSystemDocument(item.itemPrefabName))
-                continue;
-            Guid id = Guid.TryParse((string)item.state?[global::Multiplayer.Server.Items.SaveLoad.ItemIdentityPatch.Key], out Guid saved) && saved != Guid.Empty
-                ? saved : ConvertedItemId(owner, index, item);
-            if (!known.Add(id))
-                continue;   // already a record: nothing to move
-            records.Add(new SavedItemRow
-            {
-                PersistentItemId = id,
-                PrefabName = item.itemPrefabName,
-                Placement = ItemPlacementKind.PlayerInventory,
-                OwnerIdentity = item.belongsToPlayer ? owner : Guid.Empty,
-                PlacementPlayerIdentity = owner,
-                ClaimSlot = item.inventorySlotIndex,
-                State = item.state,
-            }.ToJson());
-            moved++;
-        }
-        root[ItemSaveLoad.SaveKey] = records;
         return moved;
-    }
-
-    // The same for the same item in the same career, so converting twice records it once.
-    private static Guid ConvertedItemId(Guid owner, int index, StorageItemData item)
-    {
-        using var md5 = System.Security.Cryptography.MD5.Create();
-        byte[] hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(
-            $"converted-inventory|{owner:D}|{index}|{item.inventorySlotIndex}|{item.itemPrefabName}"));
-        return new Guid(hash);
     }
 }

@@ -1,22 +1,31 @@
 using Multiplayer.Shared.Protocol.Data.Items;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Text;
 using UnityEngine;
 
 namespace Multiplayer.Server.Items.SaveLoad;
 
-/// <summary>Typed representation of one entry in the version-one world-item save array.</summary>
+/// <summary>
+/// One item as data: what <c>Multiplayer.Items</c> saves of it (docs/design/items/save-load.md,
+/// "The key"), and what a cold inventory keeps. Owned and unowned rows differ in what they write: an
+/// owned item's owner, holder, slot and claim are its ledger entry's, so its row has only its pose
+/// and its state; an unowned item's row is the only place its home is.
+/// </summary>
 internal sealed class SavedItemRow
 {
     public Guid PersistentItemId { get; set; }
     public string AuthoredItemKey { get; set; } = string.Empty;
     public string PrefabName { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
     public uint Revision { get; set; }
     public bool HasPersistentOverride { get; set; }
     public bool IsReplenishableStockFork { get; set; }
     public ItemPlacementKind Placement { get; set; } = ItemPlacementKind.World;
+    /// <summary>In memory only: an owned row's owner is its ledger entry's.</summary>
     public Guid OwnerIdentity { get; set; }
     public Guid PlacementPlayerIdentity { get; set; }
+    /// <summary>In memory only: an essential's claim is its ledger entry's.</summary>
     public int ClaimSlot { get; set; } = -1;
     /// <summary>Its slot of the holder's inventory (OI-SLOT-01), or -1.</summary>
     public int Slot { get; set; } = -1;
@@ -31,83 +40,146 @@ internal sealed class SavedItemRow
     public Quaternion ParentLocalRotation { get; set; } = Quaternion.identity;
     public Vector3 Position { get; set; }
     public Quaternion Rotation { get; set; } = Quaternion.identity;
+    /// <summary>A stored item's container (an unowned one's; an owned one's is its home).</summary>
+    public Guid ContainerId { get; set; }
+    /// <summary>The container a stored container shell holds, or empty.</summary>
+    public Guid ChildContainerId { get; set; }
+    public uint StateVersion { get; set; }
+    /// <summary>The item's own <c>ItemSaveData</c> JSON, or null for an item without (a mug).</summary>
     public JObject State { get; set; }
+    /// <summary>A stored item's state that isn't JSON, kept as it was.</summary>
+    public byte[] StateBytes { get; set; }
 
     public bool IsTombstone => Placement == ItemPlacementKind.Destroyed;
 
-    public JObject ToJson()
+    /// <summary>The row as <c>Multiplayer.Items</c> writes it: an owned row without its home, an unowned row with it.</summary>
+    public JObject ToJson(bool owned)
     {
-        if (IsTombstone)
-            return new JObject
-            {
-                ["persistentItemId"] = string.Empty,
-                ["authoredItemKey"] = AuthoredItemKey ?? string.Empty,
-                ["prefabName"] = PrefabName ?? string.Empty,
-                ["revision"] = Revision,
-                ["placement"] = (byte)ItemPlacementKind.Destroyed
-            };
-
-        return new JObject
+        JObject row = new()
         {
-            ["persistentItemId"] = FormatGuid(PersistentItemId),
-            ["authoredItemKey"] = AuthoredItemKey ?? string.Empty,
-            ["prefabName"] = PrefabName ?? string.Empty,
-            ["revision"] = Revision,
-            ["hasPersistentOverride"] = HasPersistentOverride,
-            ["replenishableStockFork"] = IsReplenishableStockFork,
-            ["placement"] = (byte)Placement,
-            ["ownerIdentity"] = FormatGuid(OwnerIdentity),
-            ["placementPlayerIdentity"] = FormatGuid(PlacementPlayerIdentity),
-            ["claimSlot"] = ClaimSlot,
-            ["slot"] = Slot,
-            ["claimFlags"] = (byte)ClaimFlags,
-            ["worldParentKind"] = (byte)WorldParentKind,
-            ["worldParentNetId"] = WorldParentNetId,
-            ["worldParentKey"] = WorldParentKey ?? string.Empty,
-            ["worldParentPersistentId"] = WorldParentPersistentId ?? string.Empty,
-            ["attachedCarPersistentId"] = AttachedCarPersistentId ?? string.Empty,
-            ["attachedFront"] = AttachedFront,
-            ["parentLocalPosition"] = VectorToJson(ParentLocalPosition),
-            ["parentLocalRotation"] = QuaternionToJson(ParentLocalRotation),
-            ["position"] = VectorToJson(Position),
-            ["rotation"] = QuaternionToJson(Rotation),
-            ["state"] = State
+            ["id"] = FormatGuid(PersistentItemId),
+            ["prefab"] = PrefabName ?? string.Empty
         };
+        if (!string.IsNullOrEmpty(AuthoredItemKey))
+            row["authoredKey"] = AuthoredItemKey;
+        if (!string.IsNullOrEmpty(DisplayName))
+            row["display"] = DisplayName;
+        if (!owned)
+        {
+            row["place"] = Placement.ToString();
+            if (PlacementPlayerIdentity != Guid.Empty)
+                row["holder"] = FormatGuid(PlacementPlayerIdentity);
+            if (Slot >= 0)
+                row["slot"] = Slot;
+            if (ContainerId != Guid.Empty)
+                row["container"] = FormatGuid(ContainerId);
+            if (Placement == ItemPlacementKind.Attached)
+            {
+                row["attachedCar"] = AttachedCarPersistentId ?? string.Empty;
+                row["attachedFront"] = AttachedFront;
+            }
+            if (Placement == ItemPlacementKind.SnappedAttachment)
+                row["snappedTo"] = WorldParentKey ?? string.Empty;
+        }
+        if (Revision != 0)
+            row["revision"] = Revision;
+        if (HasPersistentOverride)
+            row["override"] = true;
+        if (IsReplenishableStockFork)
+            row["stockFork"] = true;
+        if (Placement is ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent or
+            ItemPlacementKind.SnappedAttachment or ItemPlacementKind.Attached)
+        {
+            row["position"] = VectorToJson(Position);
+            row["rotation"] = QuaternionToJson(Rotation);
+        }
+        if (WorldParentKind != ItemWorldParentKind.World)
+            row["parent"] = new JObject
+            {
+                ["kind"] = WorldParentKind.ToString(),
+                ["key"] = WorldParentKey ?? string.Empty,
+                ["car"] = WorldParentPersistentId ?? string.Empty,
+                ["position"] = VectorToJson(ParentLocalPosition),
+                ["rotation"] = QuaternionToJson(ParentLocalRotation)
+            };
+        if (ChildContainerId != Guid.Empty)
+            row["childContainer"] = FormatGuid(ChildContainerId);
+        if (StateVersion != 0)
+            row["stateVersion"] = StateVersion;
+        if (State != null)
+            row["state"] = State;
+        else if (StateBytes?.Length > 0)
+            row["stateBytes"] = Convert.ToBase64String(StateBytes);
+        return row;
     }
 
+    /// <summary>
+    /// A saved row. Throws on one it can't read, which the caller keeps as it was: one with no prefab,
+    /// or with neither an id nor a scene key (a scene item's override has only its key).
+    /// </summary>
     public static SavedItemRow FromJson(JObject value)
     {
         if (value == null)
             throw new ArgumentNullException(nameof(value));
-
-        return new SavedItemRow
+        Guid id = ParseGuid((string)value["id"]);
+        if (id == Guid.Empty && string.IsNullOrEmpty((string)value["authoredKey"]))
+            throw new FormatException("a row with neither an id nor a scene key");
+        string prefab = (string)value["prefab"];
+        if (string.IsNullOrEmpty(prefab))
+            throw new FormatException("a row without a prefab");
+        JObject parent = value["parent"] as JObject;
+        SavedItemRow row = new()
         {
-            PersistentItemId = ParseGuid((string)value["persistentItemId"]),
-            AuthoredItemKey = (string)value["authoredItemKey"] ?? string.Empty,
-            PrefabName = (string)value["prefabName"] ?? string.Empty,
+            PersistentItemId = id,
+            AuthoredItemKey = (string)value["authoredKey"] ?? string.Empty,
+            PrefabName = prefab,
+            DisplayName = (string)value["display"] ?? string.Empty,
             Revision = (uint?)value["revision"] ?? 0,
-            HasPersistentOverride = (bool?)value["hasPersistentOverride"] ?? false,
-            IsReplenishableStockFork = (bool?)value["replenishableStockFork"] ?? false,
-            Placement = (ItemPlacementKind)((byte?)value["placement"] ?? (byte)ItemPlacementKind.World),
-            OwnerIdentity = ParseGuid((string)value["ownerIdentity"]),
-            PlacementPlayerIdentity = ParseGuid((string)value["placementPlayerIdentity"]),
-            ClaimSlot = (int?)value["claimSlot"] ?? -1,
+            HasPersistentOverride = (bool?)value["override"] ?? false,
+            IsReplenishableStockFork = (bool?)value["stockFork"] ?? false,
+            Placement = Enum.TryParse((string)value["place"], out ItemPlacementKind place) ? place : ItemPlacementKind.World,
+            PlacementPlayerIdentity = ParseGuid((string)value["holder"]),
             Slot = (int?)value["slot"] ?? -1,
-            ClaimFlags = (ItemInventoryClaimFlags)((byte?)value["claimFlags"] ?? 0),
-            WorldParentKind = (ItemWorldParentKind)((byte?)value["worldParentKind"] ?? 0),
-            WorldParentNetId = (ushort?)value["worldParentNetId"] ?? 0,
-            WorldParentKey = (string)value["worldParentKey"] ?? string.Empty,
-            WorldParentPersistentId = (string)value["worldParentPersistentId"] ?? string.Empty,
-            AttachedCarPersistentId = (string)value["attachedCarPersistentId"] ?? string.Empty,
+            ContainerId = ParseGuid((string)value["container"]),
+            AttachedCarPersistentId = (string)value["attachedCar"] ?? string.Empty,
             AttachedFront = (bool?)value["attachedFront"] ?? true,
-            ParentLocalPosition = VectorFromJson(value["parentLocalPosition"] as JArray),
-            ParentLocalRotation = QuaternionFromJson(value["parentLocalRotation"] as JArray),
+            WorldParentKind = parent != null && Enum.TryParse((string)parent["kind"], out ItemWorldParentKind kind)
+                ? kind : ItemWorldParentKind.World,
+            WorldParentKey = (string)parent?["key"] ?? (string)value["snappedTo"] ?? string.Empty,
+            WorldParentPersistentId = (string)parent?["car"] ?? string.Empty,
+            ParentLocalPosition = VectorFromJson(parent?["position"] as JArray),
+            ParentLocalRotation = QuaternionFromJson(parent?["rotation"] as JArray),
             Position = VectorFromJson(value["position"] as JArray),
             Rotation = QuaternionFromJson(value["rotation"] as JArray),
+            ChildContainerId = ParseGuid((string)value["childContainer"]),
+            StateVersion = (uint?)value["stateVersion"] ?? 0,
             State = value["state"] as JObject
         };
+        if (row.State == null && value["stateBytes"] is JValue bytes)
+            row.StateBytes = Convert.FromBase64String((string)bytes);
+        return row;
     }
 
+    /// <summary>A stored item's state as the container graph keeps it: the JSON as UTF-8 bytes.</summary>
+    public byte[] DetachedState() =>
+        State != null ? Encoding.UTF8.GetBytes(State.ToString(Newtonsoft.Json.Formatting.None)) : StateBytes ?? Array.Empty<byte>();
+
+    /// <summary>Takes a stored item's state from the container graph's bytes: JSON when it parses, else the bytes.</summary>
+    public void TakeDetachedState(byte[] bytes)
+    {
+        State = null;
+        StateBytes = null;
+        if (bytes == null || bytes.Length == 0)
+            return;
+        try
+        {
+            State = JObject.Parse(Encoding.UTF8.GetString(bytes));
+        }
+        catch (Exception)
+        {
+            StateBytes = bytes;
+        }
+    }
 
     private static string FormatGuid(Guid value) => value == Guid.Empty ? string.Empty : value.ToString("D");
 

@@ -34,6 +34,7 @@ host-authority model works end to end, then points at the rest.
 | [design/items/owned-list.md](design/items/owned-list.md) | The owned-items list and retrieval (R3): rows from the ledger, the place text, what retrieval does from each home |
 | [design/items/access.md](design/items/access.md) | `ItemAccess` (R3): the one place that decides what a player may do with an item, each action's rule, and where the server asks |
 | [design/items/change-causes.md](design/items/change-causes.md) | Why an item moved or went away (R3): the causes, how the server names them, and what goes on the wire |
+| [design/items/save-load.md](design/items/save-load.md) | Saving and loading (R4): one key, `Multiplayer.Items`, each fact saved once and each row standing alone; the load before any request and its plan; rows that won't load (`Unloadable`, `SaveRecovery`); old saves start items fresh; vanilla's lists as a write-only mirror |
 | [design/shops.md](design/shops.md) | Shops as a server transaction: shared registers and shelves, the cash rules and the scanner are built; prediction, delivery to the owner, receipts, station fixtures and per-player stock are planned |
 
 ## Legacy
@@ -49,7 +50,7 @@ Docs that describe a system before it was rebuilt, kept as evidence of how it be
 | [legacy/items/item-world-sync.md](legacy/items/item-world-sync.md) | Legacy, replaced in R7: Scene-authored items and the catalogue, cells and interest, projection to clients, convergence, anchored placements, the VR belt and office stock |
 | [legacy/items/item-spatial-physics.md](legacy/items/item-spatial-physics.md) | Legacy, replaced in R7: Thrown and dropped items: simulation leases, sampling, settlement, the terrain guard and fall rescue |
 | [legacy/items/train-item-wake.md](legacy/items/train-item-wake.md) | Legacy, replaced in R7: Items resting in moving trains, and the server waking them |
-| [legacy/items/item-persistence.md](legacy/items/item-persistence.md) | Legacy, replaced in R4: Which store saves each item, `WorldItemsV1`, and how a load rebuilds them |
+| [legacy/items/item-persistence.md](legacy/items/item-persistence.md) | Legacy, replaced in R4 by [save-load.md](design/items/save-load.md): Which store saves each item, `WorldItemsV1`, and how a load rebuilds them |
 | [legacy/items/item-change-causes.md](legacy/items/item-change-causes.md) | Legacy, replaced in R3 by [change-causes.md](design/items/change-causes.md): Why an item moved or went away: the recorded causes, on the server and clients |
 | [legacy/items/item-ownership-open-questions.md](legacy/items/item-ownership-open-questions.md) | Legacy, replaced in R3 by [ledger.md](design/items/ledger.md#open): The item-ownership questions still open |
 | [legacy/items/item-sync-review.md](legacy/items/item-sync-review.md) | Historical: the July 2026 review of item sync, with each finding's status then |

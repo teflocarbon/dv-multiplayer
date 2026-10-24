@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Multiplayer.Core.Items.Containers;
 using NUnit.Framework;
 
@@ -327,9 +328,9 @@ public sealed class ContainerGraphTests
         ContainerGraphSnapshot snapshot = graph.ExportSnapshot();
         ContainerGraph loaded = new();
 
-        ContainerOperationResult result = loaded.ImportSnapshot(snapshot);
+        IReadOnlyList<ContainerRowRefusal> refused = loaded.ImportRows(snapshot.Containers, snapshot.Items);
 
-        Assert.That(result.Accepted, Is.True);
+        Assert.That(refused, Is.Empty);
         Assert.That(loaded.TryGetItem(item.PersistentItemId, out var restored), Is.True);
         Assert.That(restored.PersistentOwnerIdentity, Is.EqualTo(item.PersistentOwnerIdentity));
         Assert.That(restored.DetachedState, Is.EqualTo(item.DetachedState));
@@ -338,42 +339,64 @@ public sealed class ContainerGraphTests
     }
 
     [Test]
-    public void MalformedSaveWithDuplicateSlot_IsRejectedWithoutReplacingCurrentGraph()
+    public void ARowInATakenSlot_IsRefusedAlone()
     {
         StoredItemRecord first = Item();
         StoredItemRecord second = Item();
-        ContainerGraphSnapshot malformed = new()
-        {
-            Containers = new List<ContainerRecord> { Container(root, Owner, 4) },
-            Items = new List<StoredItemRecord>
-            {
-                Stored(first, root, 0),
-                Stored(second, root, 0)
-            }
-        };
+        StoredItemRecord third = Item();
 
-        ContainerOperationResult result = graph.ImportSnapshot(malformed);
+        IReadOnlyList<ContainerRowRefusal> refused = graph.ImportRows(new[] { Container(root, Owner, 4) },
+            new[] { Stored(first, root, 0), Stored(second, root, 0), Stored(third, root, 1) });
 
-        Assert.That(result.Accepted, Is.False);
-        Assert.That(graph.ContainerCount, Is.EqualTo(1));
-        Assert.That(graph.ItemCount, Is.Zero);
+        Assert.That(refused.Select(r => r.Item?.PersistentItemId), Is.EqualTo(new Guid?[] { second.PersistentItemId }));
+        Assert.That(refused.Single().Reason, Is.EqualTo("container-slot-occupied"));
+        Assert.That(graph.ItemCount, Is.EqualTo(2));
     }
 
     [Test]
-    public void SnapshotWithForeignOwnedEdge_IsRejected()
+    public void ARowPastItsContainersEnd_IsRefusedAndTheRestLoad()
+    {
+        // F18: a capacity change left one item's slot past the end. Every other row still loads.
+        StoredItemRecord past = Item();
+        StoredItemRecord fine = Item();
+
+        IReadOnlyList<ContainerRowRefusal> refused = graph.ImportRows(new[] { Container(root, Owner, 4) },
+            new[] { Stored(past, root, 9), Stored(fine, root, 2) });
+
+        Assert.That(refused.Single().Item.PersistentItemId, Is.EqualTo(past.PersistentItemId));
+        Assert.That(refused.Single().Reason, Is.EqualTo("container-slot-invalid"));
+        Assert.That(graph.TryGetItem(fine.PersistentItemId, out _), Is.True);
+    }
+
+    [Test]
+    public void AForeignOwnedRow_IsRefused()
     {
         StoredItemRecord foreign = Stored(Item(owner: "owner-b"), root, 0);
-        ContainerGraphSnapshot malformed = new()
-        {
-            Containers = new List<ContainerRecord> { Container(root, Owner, 4) },
-            Items = new List<StoredItemRecord> { foreign }
-        };
 
-        ContainerOperationResult result = graph.ImportSnapshot(malformed);
+        IReadOnlyList<ContainerRowRefusal> refused = graph.ImportRows(new[] { Container(root, Owner, 4) }, new[] { foreign });
 
-        Assert.That(result.Accepted, Is.False);
-        Assert.That(result.Status, Is.EqualTo(ContainerOperationStatus.InvalidRecord));
+        Assert.That(refused.Single().Reason, Is.EqualTo("container-foreign-owned-item"));
         Assert.That(graph.ItemCount, Is.Zero);
+        Assert.That(graph.ContainerCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void ARowNestedTooDeep_IsRefused()
+    {
+        ContainerGraph shallow = new(new ContainerLimits { MaximumDepth = 1 });
+        Guid outer = Guid.NewGuid(), middle = Guid.NewGuid(), inner = Guid.NewGuid();
+        StoredItemRecord middleShell = Stored(Item(), outer, 0);
+        middleShell.ChildContainerId = middle;
+        StoredItemRecord innerShell = Stored(Item(), middle, 0);
+        innerShell.ChildContainerId = inner;
+
+        IReadOnlyList<ContainerRowRefusal> refused = shallow.ImportRows(
+            new[] { Container(outer, Owner, 4), Container(middle, Owner, 4), Container(inner, Owner, 4) },
+            new[] { middleShell, innerShell });
+
+        Assert.That(refused.Single().Item.PersistentItemId, Is.EqualTo(innerShell.PersistentItemId));
+        Assert.That(refused.Single().Reason, Is.EqualTo("container-depth-exceeded"));
+        Assert.That(shallow.TryGetItem(middleShell.PersistentItemId, out _), Is.True);
     }
 
     [Test]
@@ -417,7 +440,7 @@ public sealed class ContainerGraphTests
         Assert.That(snapshot.RekeyOwner(Owner, "owner-c"), Is.EqualTo(2));
 
         ContainerGraph imported = new();
-        Assert.That(imported.ImportSnapshot(snapshot).Accepted, Is.True);
+        Assert.That(imported.ImportRows(snapshot.Containers, snapshot.Items), Is.Empty);
         Assert.That(imported.HasOwner("owner-c"), Is.True);
         Assert.That(imported.HasOwner(Owner), Is.False);
     }

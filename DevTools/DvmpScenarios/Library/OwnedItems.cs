@@ -129,10 +129,6 @@ namespace Dvmp.Scenarios
             return id == Guid.Empty ? "" : id.ToString("D");
         }
 
-        /// <summary>Host: the next saves leave the ledger out, as a build without it would (until the game restarts).</summary>
-        [Step]
-        public static void SaveWithoutLedger() => ServerLedger.SaveWithoutLedger = true;
-
         /// <summary>
         /// Host: a copy of the item as a copied save or a dupe bug delivers one: a new item of the same
         /// prefab that arrives carrying the original's id, set before the server registers it.

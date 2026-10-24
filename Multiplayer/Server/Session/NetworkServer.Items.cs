@@ -60,7 +60,6 @@ public partial class NetworkServer : IItemServer
         JobReportArtifactRegistry.Remove(item.NetId);
     }
 
-    bool IItemServer.OwnsWorldPersistence(NetworkedItem item) => ItemSaveLoad.OwnsWorldPersistence(item);
 
     IItemManagerServerPart IItemServer.CreateItemManagerPart(NetworkedItemManager manager) => new ServerItemManager(manager);
 

@@ -55,10 +55,6 @@ public class ServerPlayer : IDisposable
         LastLogin = DateTime.UtcNow;
         Username = username;
         OriginalUsername = username;
-        Inventory = new StorageBase
-        {
-            storageType = DV.ThingTypes.StorageType.Inventory
-        };
     }
     internal PlayerLoadingState LoadingState { get; set; } = PlayerLoadingState.None;
     /// <summary>When this player finished loading (Time.realtimeSinceStartup), or -1.</summary>
@@ -146,7 +142,6 @@ public class ServerPlayer : IDisposable
     // Its shops, reported and kept the same way.
     internal ShopCatalogueFingerprint ShopCatalogue { get; set; }
     public bool WorldItemCatalogueAccepted { get; internal set; }
-    public StorageBase Inventory { get; private set; }
 
     private Vector3 _lastWorldPos = Vector3.zero;
     private Vector3 _lastAbsoluteWorldPosition = Vector3.zero;
@@ -167,10 +162,6 @@ public class ServerPlayer : IDisposable
 
         IsVR = isVr;
 
-        Inventory = new StorageBase
-        {
-            storageType = DV.ThingTypes.StorageType.Inventory
-        };
     }
 
     #region Positioning

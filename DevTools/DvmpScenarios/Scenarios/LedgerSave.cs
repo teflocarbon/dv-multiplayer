@@ -6,16 +6,16 @@ using Dvmp.Lib;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// The owned-items ledger is saved and comes back (owned-items.md, PR 1b), and a save without it
-    /// is migrated to the same ledger. The client owns items in Lost and Found, in its inventory, in
-    /// its hand, lying in the world and in a loco's cab; on a player host the host's player owns two
-    /// more. The ledger must list each, live, with its owner and where it is, agree with the records,
-    /// and keep all of it through a save and restart (the hand item comes back in the inventory).
-    /// Then the host saves without the ledger, as a build without it would, and after the restart
-    /// the migration must give the same entries, born Migrated. Last, a clone of an owned item made
-    /// with its identity copied gets an id of its own, and the original keeps its id and place.
+    /// The owned-items ledger is saved in Multiplayer.Items and comes back, through two restarts
+    /// (docs/design/items/save-load.md). The client owns items in Lost and Found, in its inventory,
+    /// in its hand, lying in the world and in a loco's cab; on a player host the host's player owns
+    /// two more. The ledger must list each, live, with its owner and where it is, agree with the
+    /// records, and keep all of it through a save and restart (the hand item comes back in the
+    /// inventory). A second save and restart must give the same entries, born as they were
+    /// (OI-PER-04). Last, a clone of an owned item made with its identity copied gets an id of its
+    /// own, and the original keeps its id and place.
     /// </summary>
-    [Scenario("ledger-save", "The owned-items ledger survives a save and restart, a save without it migrates to the same ledger, and a cloned item gets an id of its own")]
+    [Scenario("ledger-save", "The owned-items ledger survives two saves and restarts in Multiplayer.Items, and a cloned item gets an id of its own")]
     [Needs(Need.RestartsGames)]
     [Budget(2100)]
     public sealed class LedgerSave : Scenario<LedgerSave.Options>
@@ -59,7 +59,7 @@ namespace Dvmp.Scenarios
 
             ushort stashed = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Flashlight", "client"));
             await pair.Client.Run<int>(s => Items.Stash(s, stashed, false), 60);
-            await Own("flashlight in the client's inventory", stashed, client, "With/Inventory " + client);
+            await Own("flashlight in the client's inventory", stashed, client, "Slot " + client);
 
             ushort dropped = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             await pair.Client.Run(() => LostAndFound.InGame.Claim(dropped), 60);
@@ -70,17 +70,17 @@ namespace Dvmp.Scenarios
             ushort cab = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             await pair.Client.Run(() => LostAndFound.InGame.Claim(cab), 60);   // the client's before it boards with it
             await pair.Client.Run<float>(s => Items.CarryIntoCab(s, loco, cab, "drop", 90), 90);
-            string cabId = await Own("mug in the loco's cab", cab, client, "World car:");
+            string cabId = await Own("mug in the loco's cab", cab, client, "TrainInterior");
 
             ushort held = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Lantern", "client"));
             await pair.Client.Run<int>(s => Items.Stash(s, held, true), 60);
-            await Own("lantern in the client's hand", held, client, "With/Hand " + client);
+            await Own("lantern in the client's hand", held, client, "Hand " + client);
 
             if (!pair.Dedicated)
             {
                 ushort hostStashed = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Flashlight", "host"));
                 await pair.Host.Run<int>(s => Items.Stash(s, hostStashed, false), 60);
-                await Own("flashlight in the host's inventory", hostStashed, host, "With/Inventory " + host);
+                await Own("flashlight in the host's inventory", hostStashed, host, "Slot " + host);
                 ushort hostDropped = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "host"));
                 await pair.Host.Run(() => LostAndFound.InGame.Claim(hostDropped), 60);
                 await Own("the host's mug on the ground", hostDropped, host, "World");
@@ -96,15 +96,18 @@ namespace Dvmp.Scenarios
             await Task.Delay(15000);   // the client receives its restored items
             Expect.That(await pair.Host.Run(() => Owned.Loaded()), "the ledger was loaded after the restart");
             // A hand item is saved in the inventory.
-            foreach (Owned_ item in items.Where(i => i.Where.StartsWith("With/Hand")))
-                item.Where = item.Where.Replace("With/Hand", "With/Inventory");
+            foreach (Owned_ item in items.Where(i => i.Where.StartsWith("Hand ")))
+                item.Where = "Slot" + item.Where.Substring("Hand".Length);
             await CheckAll(pair, items, "after the restart", null);
 
-            await pair.Host.Run(() => Owned.SaveWithoutLedger());
+            string[] borns = (await pair.Host.Run(() => Owned.Entries(items.Select(i => i.Id).ToArray()))).Select(e => e.Born).ToArray();
             await pair.Host.Run(() => Saves.Manual());
             await pair.Restart(o.Session);
             await Task.Delay(15000);
-            await CheckAll(pair, items, "after migrating a save without the ledger", "Migrated");
+            await CheckAll(pair, items, "after a second restart", null);
+            LedgerEntry[] again = await pair.Host.Run(() => Owned.Entries(items.Select(i => i.Id).ToArray()));
+            for (int i = 0; i < items.Count; i++)
+                Expect.Equal(borns[i], again[i].Born, $"{items[i].What}: how its entry was born, after a second restart");
 
             ushort original = await pair.Host.Run(() => Owned.NetIdOf(cabId));
             if (!Expect.That(original != 0, "the cab mug is there to clone", cabId))

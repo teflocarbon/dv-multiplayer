@@ -921,7 +921,6 @@ public partial class NetworkServer : NetworkManager
         if (isLocalPlayer)
             LocalPlayer = serverPlayer;
         global::Multiplayer.Server.Career.InstallGuidRekey.OnLogin(serverPlayer);
-        ItemSaveLoad.OnOwnerConnected(serverPlayer);
         PlayerItems.Join(serverPlayer);
         DedicatedHost.OnPlayersChanged(someoneLeft: false);
         return serverPlayer;

@@ -3,9 +3,6 @@ using DV.JObjectExtstensions;
 using DV.ThingTypes;
 using DV.Utils;
 using JetBrains.Annotations;
-using Multiplayer.Server.Items.Containers;
-using Multiplayer.Server.Items.Ledger;
-using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Protocol.Data;
@@ -19,7 +16,6 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
 {
     private const string ROOT_KEY = "Multiplayer";
     private const string PLAYERS_KEY = "Players";
-    private const string INVENTORY_KEY = "Inventory";
 
     protected override void Awake()
     {
@@ -91,24 +87,14 @@ public class NetworkedSaveGameManager : SingletonBehaviour<NetworkedSaveGameMana
             playerData.SetFloat(SaveGameKeys.Player_rotation,
                 local ? PlayerManager.PlayerTransform.eulerAngles.y : player.WorldRotationY);
 
-            //Player Inventory data
-            SaveGameData saveGameData = new();
-            playerData.Remove(INVENTORY_KEY);
-            StorageSerializer.SaveStorage(player.Inventory, saveGameData);
-            ItemSaveLoad.RemoveVanillaStorageDuplicates(saveGameData);
-            playerData.Merge(saveGameData.GetJsonObject());
-
             players.SetJObject(player.Guid.ToString(), playerData);
 
         }
 
         Multiplayer.LogDebug(() => $"Updated save data: {players.ToString()}");
         root.SetJObject(PLAYERS_KEY, players);
-        LostAndFoundServer.WriteSave(root);
-        ContainerServer.WriteSave(root);
-        ItemSaveLoad.RemoveVanillaStorageDuplicates(data, keepInventory: true);
-        ItemSaveLoad.WriteSave(root);
-        ServerLedger.WriteSave(root);
+        // Every item, in Multiplayer.Items, and vanilla's lists as a mirror (docs/design/items/save-load.md).
+        ItemSaveLoad.WriteSave(root, data);
         data.SetJObject(ROOT_KEY, root);
     }
 

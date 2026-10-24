@@ -1,93 +1,89 @@
 using System;
 using System.Collections;
 using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using Dvmp.Agent;
 using Dvmp.Lib;
 using Multiplayer.Core.Items.Containers;
 using Multiplayer.Server.Items.Containers;
+using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Shared.Items.LiveState;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using UnityEngine;
 using CUI = Multiplayer.Client.Items.Containers.ContainerUi;
 
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Item bug F18 (docs/research/item-bug-review.md). [KnownBug] until R4 of the item refactor
-    /// (docs/design/item-refactor.md) replaces the container save with rows that stand alone; branch
-    /// items/container-save-refused has a fix for today's save, not merged. A cold-container save the server
-    /// refuses (a stored item's slot out of range after a capacity change, an older codec, a
-    /// corrupt blob, nesting deeper than 8) left the graph empty, and the next save (any join,
-    /// leave or autosave) wrote that empty graph over it: every player's stored items were gone.
-    /// The run stores a mug, saves, makes the saved blob unimportable the way a capacity change
-    /// does (one item's slot past the end), has the server import it again, and saves: the blob
-    /// must still hold the stored items, and every container operation must be refused meanwhile
-    /// (a deposit would go into a graph that is never saved). Cleanup puts the original blob back.
+    /// Item bug F18 (docs/research/item-bug-review.md), made impossible by R4's rows that stand alone
+    /// (docs/design/items/save-load.md, OI-CON-04, OI-PER-23). A cold-container save the server
+    /// refused used to leave the graph empty, and the next save wrote that empty graph over it: every
+    /// player's stored items were gone. Now each stored item is a row of its own. The run stores a mug
+    /// and a flashlight in the client's toolbox, checks containers are refused until the load has run,
+    /// and saves with the mug's row made unloadable the way a capacity change leaves it (its slot past
+    /// the end). After a restart the flashlight must still be in the toolbox, and the mug in the
+    /// client's Lost and Found (<c>SaveRecovery</c>), with its id; the next save must hold both.
     /// </summary>
-    [Scenario("item-bug-container-save-refused", "A cold-container save the server can't import is kept as it was, never overwritten with an empty one, and containers are refused meanwhile (F18)")]
-    [KnownBug("F18")]
-    [Budget(600)]
+    [Scenario("item-bug-container-save-refused", "A stored item's saved row the load refuses stands alone: the container's other items load, the refused one goes to its owner's Lost and Found, and containers wait for the load (F18)")]
+    [Needs(Need.RestartsGames)]
+    [Budget(900)]
     public sealed class ItemBugContainerSaveRefused : Scenario<ItemBugContainerSaveRefused.Options>
     {
         public sealed class Options
         {
             /// <summary>The container's prefab.</summary>
             public string Container = "ItemContainerToolbox";
-            /// <summary>The item to store.</summary>
+            /// <summary>The item whose row is made unloadable.</summary>
             public string Prefab = "Mug";
+            /// <summary>The item that stays in the container.</summary>
+            public string Other = "Flashlight";
+            /// <summary>The save to reload.</summary>
+            public string Session = "DVMP Test Career 2";
         }
 
         protected override async Task Run(Pair pair, Options o)
         {
+            await Task.Delay(10000);   // a just-joined client is still receiving its restored items
             ushort box = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Container, "client"));
-            ushort item = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
-            await pair.Client.Run(() => InGame.Deposit(box, item), 120);
-            await pair.Host.Run(() => Saves.Manual());
-            Blob saved = await pair.Host.Run(() => InGame.Read());
-            Report.Note($"saved: {saved.Items} stored item(s), {saved.Containers} container(s)");
-            Require.That(saved.Items >= 1, "the save holds the stored mug", saved.Items + " items");
-            pair.Cleanup(() => pair.Host.Run(() => InGame.Restore(saved.Encoded)));
+            ushort mug = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Prefab, "client"));
+            ushort other = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, o.Other, "client"));
+            string mugId = await pair.Host.Run(() => Owned.IdOf(mug));
+            string otherId = await pair.Host.Run(() => Owned.IdOf(other));
+            Require.That(mugId.Length > 0 && otherId.Length > 0, "both items have ids", $"{mugId} {otherId}");
+            await pair.Client.Run(() => InGame.Deposit(box, mug), 120);
+            await pair.Client.Run(() => InGame.Deposit(box, other), 120);
+            Require.Equal("Container", (await pair.Host.Run(() => Owned.Entry(mugId))).Place, "the mug's home after the deposit");
+            Require.Equal("Container", (await pair.Host.Run(() => Owned.Entry(otherId))).Place, "the flashlight's home after the deposit");
 
-            string refused = await pair.Host.Run(() => InGame.MakeUnimportable());
-            Report.Note("the server's import of the changed blob: " + refused);
-            if (!refused.StartsWith("refused")) throw new HarnessException("the server accepted the changed blob, so nothing was tested: " + refused);
-            string browse = await pair.Host.Run(() => InGame.TryBrowse(box));
-            Report.Note("browsing the client's container meanwhile: " + browse);
-            Expect.That(browse.Contains("container-save-unreadable"), "containers are refused while the save's containers can't be read", browse);
-            await pair.Host.Run(() => Saves.Manual());
-            Blob after = await pair.Host.Run(() => InGame.Read());
-            Report.Note($"saved again: {after.Items} stored item(s), {after.Containers} container(s)");
-            Expect.That(after.Items >= saved.Items, "the save still holds every stored item after a save the server couldn't import",
-                $"{after.Items} of {saved.Items}");
-        }
+            string browse = await pair.Host.Run(() => InGame.BrowseBeforeTheLoad(box));
+            Report.Note("browsing the client's container before the load has run: " + browse);
+            Expect.That(browse.Contains("items-loading"), "containers are refused until the load has run (OI-CON-05)", browse);
 
-        public sealed class Blob
-        {
-            public int Items, Containers;
-            public string Encoded;
+            string bad = await pair.Host.Run<string>(s => InGame.SaveWithBadRow(s, mugId), 60);
+            Report.Note("saved the mug's ledger row as " + bad);
+            Require.That(bad.Length > 0, "the mug's saved row was changed", bad);
+
+            await pair.Restart(o.Session);
+            await Task.Delay(15000);
+            LedgerEntry mugAfter = await pair.Host.Run(() => Owned.Entry(mugId));
+            LedgerEntry otherAfter = await pair.Host.Run(() => Owned.Entry(otherId));
+            Report.Note($"after the restart: {mugAfter}; {otherAfter}");
+            Expect.That(otherAfter.Live && otherAfter.Place == "Container", "the flashlight is still in the toolbox", otherAfter.ToString());
+            Expect.That(mugAfter.Live && mugAfter.Place == "LostAndFound", "the refused mug is in its owner's Lost and Found", mugAfter.ToString());
+            Expect.Equal("SaveRecovery", await pair.Host.Run(() => InGame.LostReason(mugId)), "why the mug is in Lost and Found");
+            Expect.That((await pair.Host.LogsSince(0, "warning")).Any(l => l.Message.Contains(mugId) && l.Message.Contains("its container refused it")),
+                "the refusal is logged");
+
+            await pair.Host.Run(() => Saves.Manual());
+            string saved = await pair.Host.Run(() => InGame.SavedHomes(mugId, otherId));
+            Report.Note("saved again: " + saved);
+            Expect.Equal("LostAndFound,Container", saved, "the next save's homes for the mug and the flashlight");
         }
 
         // ---- runs inside the games
         public static class InGame
         {
-            static JObject Root() => SaveGameManager.Instance.data.GetJObject("Multiplayer");
-
-            // GetJObject hands out a copy: a change is written back whole.
-            static void SetBlob(string encoded)
-            {
-                JObject root = Root();
-                root["ColdContainers"] = encoded;
-                SaveGameManager.Instance.data.SetJObject("Multiplayer", root);
-            }
-
-            static void Import()
-            {
-                typeof(ContainerServer).GetMethod("TryImportSave", BindingFlags.NonPublic | BindingFlags.Static)
-                    .Invoke(null, null);
-            }
-
             /// <summary>Client: stashes the item, takes the container and deposits the item in it.</summary>
             [Step]
             public static IEnumerator Deposit(ushort boxId, ushort itemId)
@@ -113,54 +109,48 @@ namespace Dvmp.Scenarios
                 for (int i = 0; i < 30; i++) yield return null;
             }
 
-            /// <summary>Host: what the save's cold-container blob holds.</summary>
-            [Step]
-            public static Blob Read()
-            {
-                string encoded = (string)Root()?["ColdContainers"];
-                if (string.IsNullOrEmpty(encoded)) return new Blob { Encoded = encoded ?? "" };
-                if (!ContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded), out ContainerGraphSnapshot snapshot, out string reason))
-                    throw new Exception("the saved blob doesn't decode: " + reason);
-                return new Blob { Items = snapshot.Items.Count, Containers = snapshot.Containers.Count, Encoded = encoded };
-            }
-
-            /// <summary>Host: puts one stored item's slot past its container's end in the save (as a
-            /// capacity change leaves it), and has the server import the save again. Result: whether
-            /// it was refused, and the graph's item count after.</summary>
-            [Step]
-            public static string MakeUnimportable()
-            {
-                string encoded = (string)Root()["ColdContainers"];
-                ContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded), out ContainerGraphSnapshot snapshot, out _);
-                StoredItemRecord stored = snapshot.Items.First();
-                int capacity = snapshot.Containers.First(c => c.PersistentContainerId == stored.ParentContainerId).Capacity;
-                stored.Slot = capacity + 5;
-                SetBlob(Convert.ToBase64String(ContainerSnapshotCodec.Encode(snapshot)));
-                ContainerServer.Clear();
-                Import();
-                int left = ContainerServer.Graph.ExportSnapshot().Items.Count;
-                return (left == 0 ? "refused" : "accepted") + $": {left} item(s) in the graph after the import";
-            }
-
-            /// <summary>Host: the client's player browses the container, as its request does.
+            /// <summary>Host: the client's player browses the container as if the load hadn't run.
             /// Result: the status and reason.</summary>
             [Step]
-            public static string TryBrowse(ushort box)
+            public static string BrowseBeforeTheLoad(ushort box)
             {
                 var player = Multiplayer.Server.Session.NetworkServer.Instance.ServerPlayers
                     .First(p => p.Peer != Multiplayer.Server.Session.NetworkServer.Instance.SelfPeer);
-                ContainerOperationResult result = ContainerServer.Browse(player, box, 0, 8, out _);
-                return $"{result.Status} {result.Reason}";
+                ServerLedger.loaded = false;
+                try
+                {
+                    ContainerOperationResult result = ContainerServer.Browse(player, box, 0, 8, out _);
+                    return $"{result.Status} {result.Reason}";
+                }
+                finally
+                {
+                    ServerLedger.loaded = true;
+                }
             }
 
-            /// <summary>Host, cleanup: the original blob back, imported again, and saved.</summary>
+            /// <summary>Host: a manual save whose ledger row for the item puts it past its container's
+            /// end, as a capacity change leaves it. Result: the row as saved.</summary>
             [Step]
-            public static IEnumerator Restore(string encoded)
+            public static IEnumerator SaveWithBadRow(Step<string> step, string itemId) => SaveEdits.SaveWith(step, root =>
             {
-                SetBlob(encoded);
-                ContainerServer.Clear();
-                Import();
-                yield return Saves.Manual();
+                if (SaveEdits.LedgerRow(root, itemId)?["where"] is not JObject where)
+                    return "";
+                where["slot"] = 999;
+                return SaveEdits.LedgerRow(root, itemId).ToString(Formatting.None);
+            });
+
+            /// <summary>Host: the reason of the item's Lost and Found entry, or "".</summary>
+            [Step]
+            public static string LostReason(string itemId) =>
+                Guid.TryParse(itemId, out Guid id) && LostAndFoundServer.TryGetEntry(id, out var entry) ? entry.Reason.ToString() : "";
+
+            /// <summary>Host: the saved ledger homes of the items, in order, comma-separated.</summary>
+            [Step]
+            public static string SavedHomes(string first, string second)
+            {
+                JObject root = SaveEdits.Saved();
+                string Home(string id) => (string)SaveEdits.LedgerRow(root, id)?["where"]?["kind"] ?? "none";
+                return Home(first) + "," + Home(second);
             }
         }
     }

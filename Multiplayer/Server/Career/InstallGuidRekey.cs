@@ -2,7 +2,6 @@ using Multiplayer.Core.Items.Ledger;
 using System;
 using System.Linq;
 using DV.JObjectExtstensions;
-using Multiplayer.Core.Items.Containers;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
@@ -22,15 +21,14 @@ namespace Multiplayer.Server.Career;
 /// too, the two are merged, never skipped (OI-ID-19): an item whose slot the Steam ID already uses
 /// goes to their Lost and Found, so nothing is left under an identity no one logs in as.
 ///
-/// It covers the save as loaded (Players, item records, the ledger, Lost and Found, cold containers), so a
-/// system that imports later finds the new ID, and the state already imported (the item registry, the
+/// It covers the save as loaded (Players and the <c>Items</c> key), the rows the load kept as they were,
+/// and the state already loaded (the item registry, the
 /// ledger's owners, holders and starter kits, Lost and Found, the cold-container graph, cold inventories).
 /// </summary>
 public static class InstallGuidRekey
 {
     private const string RootKey = "Multiplayer";
     private const string PlayersKey = "Players";
-    private const string LostAndFoundKey = "LostAndFound";
 
     /// <summary>At login, before the player's records are bound to them.</summary>
     public static void OnLogin(ServerPlayer player)
@@ -65,6 +63,7 @@ public static class InstallGuidRekey
          LiveItems.HasIdentity(id) ||
          ColdInventories.HasIdentity(id) ||
          LostAndFoundServer.HasOwner(id) ||
+         ItemSaveLoad.KeptNames(id) ||
          ContainerServer.Graph.HasOwner(id.ToString("D")) ||
          ServerLedger.Ledger.HasIdentity(id));
 
@@ -83,6 +82,8 @@ public static class InstallGuidRekey
         // The cold inventory's rows, after the ledger so its slot check sees the new identity's rows
         // where they are; one the ledger sent to Lost and Found goes there when the player joins.
         changed += ColdInventories.Rekey(from, to, merged.ToLostAndFound);
+        // Rows the load kept as they were (unloadable, unreadable): written back with the new identity.
+        changed += ItemSaveLoad.RekeyKept(from, to);
         return changed;
     }
 
@@ -90,21 +91,9 @@ public static class InstallGuidRekey
     {
         if (root == null || id == Guid.Empty)
             return false;
-        string key = id.ToString("D");
         if ((root[PlayersKey] as JObject)?.Properties().Any(p => SameId(p.Name, id)) == true)
             return true;
-        if (Records(root, ItemSaveLoad.SaveKey)
-            .Any(value => SameId(value["ownerIdentity"], id) || SameId(value["placementPlayerIdentity"], id)))
-            return true;
-        if (Records(root, LostAndFoundKey).Any(value => SameId(value["ownerIdentity"], id)))
-            return true;
-        if (LedgerItems(root).Any(value => LedgerFields(value).Any(field => SameId(field.Value, id))) ||
-            LedgerPlayers(root)?.Properties().Any(p => SameId(p.Name, id)) == true)
-            return true;
-        ContainerGraphSnapshot snapshot = ColdContainers(root);
-        return snapshot != null &&
-               (snapshot.Containers.Any(container => container.OwnerIdentity == key) ||
-                snapshot.Items.Any(item => item.PersistentOwnerIdentity == key));
+        return TokenNames(root[ItemsSaveCodec.Key], id);
     }
 
     /// <summary>Re-keys a save's Multiplayer root in place. Returns how many records changed.</summary>
@@ -124,93 +113,56 @@ public static class InstallGuidRekey
             }
         }
 
-        foreach (JObject value in Records(root, ItemSaveLoad.SaveKey))
+        // The items as saved, for a login before they have loaded: every identity in them (owners,
+        // holders, who caused an entry, a container's owner, a starter kit). Rows are edited in
+        // place, so one the load can't read stays as it was.
+        return changed + RekeyToken(root[ItemsSaveCodec.Key], from, to);
+    }
+
+    /// <summary>
+    /// Replaces one identity with another everywhere in a saved token: string values, and property
+    /// names (a player's entry), unless the new identity has one already. Returns how many changed.
+    /// </summary>
+    internal static int RekeyToken(JToken token, Guid from, Guid to)
+    {
+        int changed = 0;
+        switch (token)
         {
-            bool touched = false;
-            foreach (string field in new[] { "ownerIdentity", "placementPlayerIdentity" })
-            {
-                if (!SameId(value[field], from))
-                    continue;
-                value[field] = target;
-                touched = true;
-            }
-            if (touched)
+            case JObject value:
+                foreach (JProperty property in value.Properties().ToArray())
+                {
+                    changed += RekeyToken(property.Value, from, to);
+                    if (!SameId(property.Name, from) || value.Properties().Any(p => SameId(p.Name, to)))
+                        continue;
+                    property.Remove();
+                    value[to.ToString("D")] = property.Value;
+                    changed++;
+                }
+                break;
+            case JArray values:
+                foreach (JToken value in values)
+                    changed += RekeyToken(value, from, to);
+                break;
+            case JValue value when SameId(value, from):
+                value.Value = to.ToString("D");
                 changed++;
+                break;
         }
-
-        foreach (JObject value in Records(root, LostAndFoundKey).Where(value => SameId(value["ownerIdentity"], from)))
-        {
-            value["ownerIdentity"] = target;
-            changed++;
-        }
-
-        // The ledger as saved, for a login before it has loaded: owners, holders, who caused each
-        // entry, and the starter kit. Rows are edited in place, so one the ledger can't read stays.
-        foreach (JObject value in LedgerItems(root))
-        {
-            bool touched = false;
-            foreach (JProperty field in LedgerFields(value).Where(field => SameId(field.Value, from)).ToArray())
-            {
-                field.Value = target;
-                touched = true;
-            }
-            if (touched)
-                changed++;
-        }
-        if (LedgerPlayers(root) is JObject kits)
-        {
-            JProperty old = kits.Properties().FirstOrDefault(p => SameId(p.Name, from));
-            if (old != null && !kits.Properties().Any(p => SameId(p.Name, to)))
-            {
-                old.Remove();
-                kits[target] = old.Value;
-                changed++;
-            }
-        }
-
-        ContainerGraphSnapshot snapshot = ColdContainers(root);
-        int cold = snapshot?.RekeyOwner(from.ToString("D"), target) ?? 0;
-        if (cold > 0)
-        {
-            root[ContainerServer.SaveKey] = Convert.ToBase64String(ContainerSnapshotCodec.Encode(snapshot));
-            changed += cold;
-        }
-
         return changed;
     }
+
+    /// <summary>Whether a saved token names this identity anywhere: a value or a property name.</summary>
+    internal static bool TokenNames(JToken token, Guid id) => token switch
+    {
+        JObject value => value.Properties().Any(p => SameId(p.Name, id) || TokenNames(p.Value, id)),
+        JArray values => values.Any(value => TokenNames(value, id)),
+        JValue value => SameId(value, id),
+        _ => false
+    };
 
     private static bool SameId(JToken value, Guid id) =>
         value?.Type == JTokenType.String && SameId((string)value, id);
 
     private static bool SameId(string value, Guid id) =>
         Guid.TryParse(value, out Guid parsed) && parsed == id;
-
-    private static System.Collections.Generic.IEnumerable<JObject> Records(JObject root, string key) =>
-        (root[key] as JArray ?? new JArray()).OfType<JObject>();
-
-    private static System.Collections.Generic.IEnumerable<JObject> LedgerItems(JObject root) =>
-        (root[ServerLedger.SaveKey]?["items"] as JArray ?? new JArray()).OfType<JObject>();
-
-    private static JObject LedgerPlayers(JObject root) => root[ServerLedger.SaveKey]?["players"] as JObject;
-
-    // The identities a saved ledger entry names (LedgerSaveCodec): its owner, its holder, who caused it.
-    private static System.Collections.Generic.IEnumerable<JProperty> LedgerFields(JObject item) =>
-        new[] { item.Property("owner"), (item["where"] as JObject)?.Property("holder"), (item["born"] as JObject)?.Property("by") }
-            .Where(field => field != null);
-
-    private static ContainerGraphSnapshot ColdContainers(JObject root)
-    {
-        string encoded = (string)root[ContainerServer.SaveKey];
-        if (string.IsNullOrWhiteSpace(encoded))
-            return null;
-        try
-        {
-            return ContainerSnapshotCodec.TryDecode(Convert.FromBase64String(encoded),
-                out ContainerGraphSnapshot snapshot, out _) ? snapshot : null;
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
-    }
 }

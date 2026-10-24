@@ -60,8 +60,10 @@ public static class PlaceText
                 return "in Lost and Found";
             case HomeKind.Installed:
                 return where.Anchor == Home.WorldAnchor ? "installed in the world" : "installed on " + car;
+            case HomeKind.Unloadable:
+                return "can't be loaded (its item mod is missing)";
             default:
-                return "missing";
+                return "unknown";
         }
     }
 }
@@ -69,7 +71,7 @@ public static class PlaceText
 /// <summary>What retrieving an owned item from its place means (owned-items.md, "Retrieval").</summary>
 public enum RetrievalKind : byte
 {
-    /// <summary>With its owner, in Lost and Found, or missing: no button.</summary>
+    /// <summary>With its owner, in Lost and Found, or unloadable: no button.</summary>
     NothingToDo,
     /// <summary>Lying somewhere: collected into Lost and Found now.</summary>
     Collect,
@@ -86,7 +88,7 @@ public static class RetrievalRule
     public static RetrievalKind For(Home where, Guid owner) => where.Kind switch
     {
         HomeKind.Slot or HomeKind.Hand => where.Holder == owner ? RetrievalKind.NothingToDo : RetrievalKind.TakeFromHolder,
-        HomeKind.LostAndFound or HomeKind.Missing => RetrievalKind.NothingToDo,
+        HomeKind.LostAndFound or HomeKind.Unloadable => RetrievalKind.NothingToDo,
         HomeKind.Container => RetrievalKind.OutermostContainer,
         HomeKind.Attached or HomeKind.Snapped or HomeKind.Installed => RetrievalKind.NotYet,
         _ => RetrievalKind.Collect
