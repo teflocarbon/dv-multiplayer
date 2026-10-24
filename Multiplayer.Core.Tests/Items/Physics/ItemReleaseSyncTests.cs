@@ -98,6 +98,53 @@ public sealed class ItemReleaseSyncTests
     }
 
     [Test]
+    public void StateMachine_AcceptsTheSettlersRegrabMadeBeforeItsOwnSettleCommit()
+    {
+        // OI-REF-02: player 2 drops a lantern (-> 5), its flame changes twice on the server
+        // (-> 6, 7), and player 2's settle commit lands it (-> 8) a moment before their regrab,
+        // which was made at 7.
+        LiveItemState state = State(revision: 4, placement: LivePlacement.PlayerHand, holder: 2);
+        state = Apply(state, actor: 2, expected: 4, LivePlacement.World);
+        state = Apply(state, actor: 1, expected: 0, null, force: true);
+        state = Apply(state, actor: 1, expected: 0, null, force: true);
+        state = Settle(state, settler: 2);
+
+        for (uint seen = 5; seen <= 8; seen++)
+        {
+            TransitionResult regrab = ItemStateMachine.Apply(state, Command(actor: 2, expected: seen, LivePlacement.PlayerHand));
+            Assert.That(regrab.Accepted, Is.True, $"made at {seen}: {regrab.RejectionReason}");
+        }
+        Assert.That(ItemStateMachine.Apply(state, Command(actor: 2, expected: 4, LivePlacement.PlayerHand)).RejectionReason,
+            Is.EqualTo("stale-authority-revision"), "made before the drop, when it was still in the hand");
+        Assert.That(ItemStateMachine.Apply(state, Command(actor: 3, expected: 7, LivePlacement.PlayerHand)).RejectionReason,
+            Is.EqualTo("stale-authority-revision"), "another player didn't simulate where it came to rest");
+    }
+
+    [Test]
+    public void StateMachine_SettlersWindowOutlivesObjectStateButNotAMove()
+    {
+        LiveItemState state = State(revision: 4, placement: LivePlacement.World);
+        state = Settle(state, settler: 2);                                              // -> 5
+        state = Settle(state, settler: 2);                                              // settles again -> 6
+        state = Apply(state, actor: 1, expected: 0, null, force: true);                 // flame -> 7
+
+        Assert.That(ItemStateMachine.Apply(state, Command(actor: 2, expected: 4, LivePlacement.PlayerHand)).Accepted,
+            Is.True, "both settlements were player 2's own, and only object state changed after");
+
+        LiveItemState byOther = Settle(state, settler: 3);                              // -> 8
+        Assert.That(ItemStateMachine.Apply(byOther, Command(actor: 2, expected: 7, LivePlacement.PlayerHand)).Accepted,
+            Is.False, "player 3's settlement moved it since");
+
+        LiveItemState byServer = Settle(state, settler: 0);
+        Assert.That(ItemStateMachine.Apply(byServer, Command(actor: 2, expected: 7, LivePlacement.PlayerHand)).Accepted,
+            Is.False, "the server's own settling moved it since");
+
+        LiveItemState taken = Apply(state, actor: 3, expected: 7, LivePlacement.PlayerHand); // -> 8
+        Assert.That(ItemStateMachine.Apply(taken, Command(actor: 2, expected: 6, LivePlacement.PlayerHand)).RejectionReason,
+            Is.EqualTo("stale-authority-revision"), "player 3 took it since");
+    }
+
+    [Test]
     public void ReleaseGrace_HoldsBackAGentleReleaseOnly()
     {
         Assert.That(ItemReleaseGrace.ShouldDefer(WireItemState.InHand, WireItemState.Dropped,
@@ -239,5 +286,17 @@ public sealed class ItemReleaseSyncTests
         TransitionResult result = ItemStateMachine.Apply(state, Command(actor, expected, placement, force));
         Assert.That(result.Accepted, Is.True, result.RejectionReason);
         return result.State;
+    }
+
+    // A settle commit as LiveItems.TryCommitSpatialPose makes it, by the player simulating it.
+    private static LiveItemState Settle(LiveItemState state, int settler)
+    {
+        LiveItemState next = state.Clone();
+        (next.SettledBy, next.SettledBase, next.SettledTop) = ItemPlacementRevision.SettledAfter(P(settler),
+            state.Revision, state.ObjectStateRunBase, state.ObjectStateRunTop,
+            state.SettledBy, state.SettledBase, state.SettledTop);
+        next.Revision++;
+        next.ObjectStateRunBase = next.ObjectStateRunTop = 0;
+        return next;
     }
 }

@@ -88,6 +88,10 @@ public static class LiveItems
         // The revisions that changed only object state; see ItemPlacementRevision.
         public uint ObjectStateRunBase;
         public uint ObjectStateRunTop;
+        // The player whose own settle commits were the last placement changes; see ItemPlacementRevision.UnchangedFor.
+        public Guid SettledBy;
+        public uint SettledBase;
+        public uint SettledTop;
 
         private static readonly System.Reflection.FieldInfo[] Fields = typeof(LiveItem).GetFields(
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
@@ -448,7 +452,7 @@ public static class LiveItems
             record.ObjectStateRunBase, record.ObjectStateRunTop);
 
     public static bool TryCommitSpatialPose(NetworkedItem item, uint expectedRevision,
-        ItemSpatialStateData state, out LiveItem record, out string rejectionReason)
+        ItemSpatialStateData state, out LiveItem record, out string rejectionReason, Guid settler = default)
     {
         record = null;
         rejectionReason = string.Empty;
@@ -476,6 +480,11 @@ public static class LiveItems
         }
 
         ItemWhereabouts before = ItemChangeLog.Whereabouts(record);
+        // The simulating player knows where it came to rest: their own requests made before this
+        // commit still hold (ItemPlacementRevision.UnchangedFor). The server's own settling has none.
+        (record.SettledBy, record.SettledBase, record.SettledTop) = ItemPlacementRevision.SettledAfter(settler,
+            record.Revision, record.ObjectStateRunBase, record.ObjectStateRunTop,
+            record.SettledBy, record.SettledBase, record.SettledTop);
         record.Revision++;
         record.ObjectStateRunBase = record.ObjectStateRunTop = 0;
         record.Placement = state.WorldParentKind switch
@@ -1173,7 +1182,10 @@ public static class LiveItems
             InventoryClaimSlot = record.InventoryClaimSlot,
             InventoryClaimFlags = (ClaimFlags)(byte)record.InventoryClaimFlags,
             ObjectStateRunBase = record.ObjectStateRunBase,
-            ObjectStateRunTop = record.ObjectStateRunTop
+            ObjectStateRunTop = record.ObjectStateRunTop,
+            SettledBy = record.SettledBy,
+            SettledBase = record.SettledBase,
+            SettledTop = record.SettledTop
         };
     }
 
@@ -1187,6 +1199,9 @@ public static class LiveItems
         record.InventoryClaimFlags = (ItemInventoryClaimFlags)(byte)state.InventoryClaimFlags;
         record.ObjectStateRunBase = state.ObjectStateRunBase;
         record.ObjectStateRunTop = state.ObjectStateRunTop;
+        record.SettledBy = state.SettledBy;
+        record.SettledBase = state.SettledBase;
+        record.SettledTop = state.SettledTop;
     }
 
     private static ItemPlacementKind PlacementFrom(ItemState state) => state switch
