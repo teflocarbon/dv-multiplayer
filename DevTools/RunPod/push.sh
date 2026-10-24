@@ -20,11 +20,11 @@ key=${SSH_KEY:-$HOME/.ssh/runpod_dvmp}
 
 pod() { ssh -i "$key" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "dvmp@$host" "$@"; }
 # send FROM TO NAME...: copies FROM/NAME... into ~/TO on the pod (-h: the test install's big
-# folders are junctions to the real game).
+# folders are junctions to the real game, whose UMM Log.txt a running game may be writing).
 send() {
     local from=$1 to=$2; shift 2
     echo "  $to: $*"
-    tar -C "$from" -chf - "$@" | pod "mkdir -p '$to' && tar -xf - -C '$to'"
+    tar -C "$from" --exclude=Log.txt -chf - "$@" | pod "mkdir -p '$to' && tar -xf - -C '$to'"
 }
 
 for need in "$install/Mods/Multiplayer" "$install/Mods/MultiplayerDevTools" "$published/dvmp.exe" \

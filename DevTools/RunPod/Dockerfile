@@ -16,7 +16,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # container runtime. i386: Wine's 32-bit helpers during wineboot.
 RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl zstd xz-utils tar procps psmisc sudo openssh-server \
-        tigervnc-standalone-server novnc python3-websockify \
+        tigervnc-standalone-server novnc python3-websockify icewm x11-utils \
         libvulkan1 libx11-6 libx11-xcb1 libxext6 libxrandr2 libxi6 libxcursor1 libxcomposite1 \
         libxinerama1 libxrender1 libxfixes3 libxxf86vm1 libxcb1 libxcb-dri3-0 libxcb-present0 \
         libxcb-randr0 libxcb-sync1 libxcb-xfixes0 libfreetype6 libfontconfig1 libgnutls30 \
@@ -45,10 +45,16 @@ RUN chmod 755 /opt/dvmp/bin/* && ln -s /opt/dvmp/bin/dvmp /usr/local/bin/dvmp
 
 # The Wine prefix, made at build time so a pod boots ready: Proton's own Wine Mono (for the
 # scenario runner) installs from /opt/proton/files/share/wine/mono, and DXVK's DLLs go in.
+# GrabPointer=N: a focused game confines its cursor, which Wine turns into a grab of the whole
+# display, so a VNC viewer can't click the taskbar or the other game.
 USER dvmp
+RUN mkdir -p /home/dvmp/.icewm && printf 'DesktopBackgroundImage=""\nDesktopBackgroundColor="rgb:20/22/26"\n' > /home/dvmp/.icewm/prefoverride
 RUN mkdir -p /home/dvmp/dvmp/game /home/dvmp/dvmp/repo/DevTools /home/dvmp/dvmp/profile \
     && . /opt/dvmp/env.sh \
     && WINEDLLOVERRIDES="winedbg.exe=d;mshtml=" timeout 900 wine wineboot -u \
+    && timeout 300 wineserver -w \
+    && wine reg add 'HKCU\Software\Wine\X11 Driver' /v GrabPointer /t REG_SZ /d N /f </dev/null \
+    && wine reg add 'HKCU\Software\Wine\X11 Driver' /v GrabFullscreen /t REG_SZ /d N /f </dev/null \
     && timeout 300 wineserver -w \
     && cp /opt/proton/files/lib/wine/dxvk/x86_64-windows/*.dll "$WINEPREFIX/drive_c/windows/system32/" \
     && cp /opt/proton/files/lib/wine/dxvk/i386-windows/*.dll "$WINEPREFIX/drive_c/windows/syswow64/" \

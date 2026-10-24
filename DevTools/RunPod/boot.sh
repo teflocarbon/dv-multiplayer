@@ -27,6 +27,9 @@ fi
 # The games' display. VNC listens on localhost only: view it through SSH with
 # `ssh -L 6901:localhost:6901 ...` and http://localhost:6901/vnc.html.
 su dvmp -c 'Xvnc :1 -geometry 1920x1080 -depth 24 -localhost -rfbport 5901 -SecurityTypes None -AlwaysShared >/tmp/xvnc.log 2>&1 &'
+# A window manager with a taskbar: harness games start minimised, and with none a minimised
+# window can't be seen or restored.
+su dvmp -c 'sleep 2; DISPLAY=:1 icewm-session >/tmp/icewm.log 2>&1 &'
 su dvmp -c 'websockify --web /usr/share/novnc 127.0.0.1:6901 127.0.0.1:5901 >/tmp/novnc.log 2>&1 &'
 
 # The game: one archive on the global volume (DV_ARCHIVE, else the newest DerailValley-*.tar.zst
