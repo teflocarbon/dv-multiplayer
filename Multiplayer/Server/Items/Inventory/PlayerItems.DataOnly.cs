@@ -33,16 +33,27 @@ internal static partial class PlayerItems
     // once the holder has been sent the item. Anything that needs the object again (every request
     // naming the item) has it made from the row first, under the same NetId.
 
-    // How long an item sits in a remote inventory, unchanged, before the server's object goes.
-    private const float SettleSeconds = 1f;
-    private const float ScanSeconds = 0.25f;
+    // An object made again for a request (WithObject) waits this long before it goes back to data:
+    // the request, or the next one (a container browse, then a withdrawal), may still use it.
+    private const float RequestGraceSeconds = 1f;
+    // How many frames an item the server has just put in an inventory may wait (for vanilla to
+    // finish the add, for its holder's game to be ready for items) before it's left an object.
+    private const int MaxWaitFrames = 120;
 
-    private static readonly Dictionary<ushort, float> settlingSince = new();
+    private sealed class Pending
+    {
+        public float NotBefore;
+        public int Frames;
+    }
+
+    // The items the server has just put in (or changed in) a player's inventory while they have an
+    // object (Stored): each goes to data in the next frame, or after a request's grace. Nothing
+    // scans for them.
+    private static readonly Dictionary<ushort, Pending> pendingData = new();
     private static readonly HashSet<ushort> materializing = new();
     // Who had the item when the server's object went (its holder, an owner with a silhouette): the
     // object made again is known to them, so they aren't sent it a second time.
     private static readonly Dictionary<ushort, byte[]> knownBy = new();
-    private static float nextScan;
 
     // The state each holder's game sent as it put an item away (D14, OI-COLD-13), kept as its row's
     // state when the server's object goes: the holder's copy is the item as it was.
@@ -65,12 +76,10 @@ internal static partial class PlayerItems
 
     private static void ClearDataOnly()
     {
-        HostInventory.Clear();
         stashedStates.Clear();
-        settlingSince.Clear();
+        pendingData.Clear();
         materializing.Clear();
         knownBy.Clear();
-        nextScan = 0;
     }
 
     /// <summary>Whether the server keeps this item as data only: a live record in a remote inventory, with no object.</summary>
@@ -93,52 +102,71 @@ internal static partial class PlayerItems
         return 0;
     }
 
-    /// <summary>Host, every frame: the server's objects for items settled in remote inventories go.</summary>
+    /// <summary>
+    /// The server has put an item in a player's inventory, or changed it there (a committed
+    /// transition, a recall, a Lost and Found retrieval, a swap, an object made for a request):
+    /// if it has an object, the object goes in the next frame and the item is data only (D14,
+    /// OI-COLD-11). <paramref name="grace"/> keeps an object made for a request a moment longer.
+    /// </summary>
+    internal static void Stored(LiveItems.LiveItem record, bool grace = false)
+    {
+        if (record == null || record.Placement != ItemPlacementKind.PlayerInventory || record.NetId == 0 ||
+            NetworkLifecycle.Instance?.IsHost() != true || IsDataOnly(record))
+            return;
+        float notBefore = grace ? Time.realtimeSinceStartup + RequestGraceSeconds : 0f;
+        if (pendingData.TryGetValue(record.NetId, out Pending pending))
+            pending.NotBefore = Math.Max(pending.NotBefore, notBefore);
+        else
+            pendingData[record.NetId] = new Pending { NotBefore = notBefore };
+    }
+
+    /// <summary>Host, every frame: the server's objects of the items it just put in inventories go to data.</summary>
     public static void Update()
     {
-        if (NetworkLifecycle.Instance?.IsHost() != true || Time.realtimeSinceStartup < nextScan)
+        if (pendingData.Count == 0 || NetworkLifecycle.Instance?.IsHost() != true)
             return;
         float now = Time.realtimeSinceStartup;
-        nextScan = now + ScanSeconds;
-        HostInventory.Sweep(now);
-        foreach (LiveItems.LiveItem record in LiveItems.Records.ToArray())
+        foreach (KeyValuePair<ushort, Pending> entry in pendingData.ToArray())
         {
-            if (!ShouldBeData(record, out NetworkedItem item, out ServerPlayer holder))
-            {
-                settlingSince.Remove(record.NetId);
-                if (record.Placement != ItemPlacementKind.PlayerInventory)
-                    stashedStates.Remove(record.NetId);
+            if (entry.Value.NotBefore > now)
                 continue;
-            }
-            if (!settlingSince.TryGetValue(record.NetId, out float since))
-            {
-                settlingSince[record.NetId] = now;
+            bool wait = ToData(entry.Key);
+            if (wait && ++entry.Value.Frames < MaxWaitFrames)
                 continue;
-            }
-            if (now - since < SettleSeconds)
-                continue;
-            settlingSince.Remove(record.NetId);
-            GoData(record, item, holder);
+            if (wait)
+                Multiplayer.LogWarning($"Inventory: netId {entry.Key} is still an object in its holder's inventory after {MaxWaitFrames} frames; it stays one");
+            pendingData.Remove(entry.Key);
         }
     }
 
-    // A remote player's inventory item whose holder has it: not the host's own player's (the host's
-    // game is theirs), not job papers (their job's objects; OI-COLD-07, R6), not a loaded magazine
-    // (its ammo is an object inside it; OI-CON-16), nothing being made or moved.
-    private static bool ShouldBeData(LiveItems.LiveItem record, out NetworkedItem item, out ServerPlayer holder)
+    // One item the server put in an inventory: its object goes to data now. True to wait a frame
+    // (it's being made, or restored, or its holder's game isn't ready for items). Left an object:
+    // job papers (their job's objects; OI-COLD-07, C7) and a loaded magazine (its ammo is an object
+    // inside it; OI-CON-16).
+    private static bool ToData(ushort netId)
     {
-        item = null;
-        holder = null;
-        if (record.Placement != ItemPlacementKind.PlayerInventory || record.Slot < 0 ||
-            materializing.Contains(record.NetId) || ItemSaveLoad.IsJobSystemDocument(record.PrefabName) ||
-            !NetworkedItem.TryGet(record.NetId, out item) || item == null || item.Item == null ||
-            item.ColdMaterializationPending || item.ColdStorageRetirement ||
-            InventoryStandIn.HoldsAmmo(item.gameObject))
+        if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.PlayerInventory ||
+            record.Slot < 0 || ItemSaveLoad.IsJobSystemDocument(record.PrefabName) ||
+            !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null || item.Item == null ||
+            item.ColdStorageRetirement || InventoryStandIn.HoldsAmmo(item.gameObject))
+        {
+            // It stays an object (or has gone): its object's state is the item's, not a stash's.
+            stashedStates.Remove(netId);
             return false;
-        holder = PlayerNumbers.Session(record.Holder);
-        return holder != null && holder != NetworkServer.Instance.LocalPlayer && holder.Peer != null &&
-               holder.LoadingState >= PlayerLoadingState.ReadyForItems && holder.KnownItems.ContainsKey(item) &&
-               !ItemSaveLoad.IsRestorePending(item);
+        }
+        if (materializing.Contains(netId) || item.ColdMaterializationPending || ItemSaveLoad.IsRestorePending(item))
+            return true;
+        ServerPlayer holder = PlayerNumbers.Session(record.Holder);
+        if (holder == null || holder.PlayerId == 0)
+            return false;
+        if (holder == NetworkServer.Instance.LocalPlayer)
+            return !HostInventory.Stow(item, record);
+        if (holder.Peer == null)
+            return false;
+        if (holder.LoadingState < PlayerLoadingState.ReadyForItems)
+            return true;
+        GoData(record, item, holder);
+        return false;
     }
 
     private static void GoData(LiveItems.LiveItem record, NetworkedItem item, ServerPlayer holder)
@@ -156,21 +184,22 @@ internal static partial class PlayerItems
             return;
         stashedStates.Remove(record.NetId);
 
-        // The holder keeps theirs, and so does an owner whose silhouette stands for it (recall). Anyone
-        // else who was shown it (in the holder's inventory, nearby) is told it's gone.
+        // The holder keeps theirs (it was sent the change that put it there, known or not), and so
+        // does an owner whose silhouette stands for it (recall). Anyone else who was shown it (in the
+        // holder's inventory, nearby) is told it's gone.
         List<byte> keeping = new();
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
             bool knew = player.KnownItems.Remove(item);
             player.NearbyItems.Remove(item);
             player.AcknowledgedWorldItems.Remove(item.NetId);
-            if (!knew)
-                continue;
-            if (player == holder || player.Guid == record.Owner && record.InventoryClaimSlot >= 0)
+            if (player == holder || knew && player.Guid == record.Owner && record.InventoryClaimSlot >= 0)
             {
                 keeping.Add(player.PlayerId);
                 continue;
             }
+            if (!knew)
+                continue;
             ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
             if (destroy == null)
                 continue;
@@ -202,7 +231,8 @@ internal static partial class PlayerItems
     /// Has the server's object made again for an item kept as data, under its NetId and in its
     /// holder's inventory, then calls <paramref name="done"/> with it (null if it couldn't be). Any
     /// other item gets its object, or null, straight away. One in the host's own player's slot is
-    /// made at once, in place of its stand-in (<see cref="HostInventory.MakeInSlot"/>).
+    /// made at once, in place of its stand-in (<see cref="HostInventory.MakeInSlot"/>). An object
+    /// still in its inventory after the request goes back to data a moment later (<see cref="Stored"/>).
     /// </summary>
     public static void WithObject(ushort netId, Action<NetworkedItem> done)
     {
@@ -211,6 +241,13 @@ internal static partial class PlayerItems
             done(NetworkedItem.TryGet(netId, out NetworkedItem existing) && existing != null ? existing : null);
             return;
         }
+        Action<NetworkedItem> requested = done;
+        done = made =>
+        {
+            requested(made);
+            if (made != null && LiveItems.TryGet(netId, out LiveItems.LiveItem record))
+                Stored(record, grace: true);
+        };
         if (!materializing.Contains(netId) && HostInventory.Holds(netId))
         {
             done(HostInventory.MakeInSlot(netId, "request"));
@@ -374,7 +411,7 @@ internal static partial class PlayerItems
                 if (playerId != leaver?.PlayerId && NetworkServer.Instance.TryGetServerPlayer(playerId, out ServerPlayer knower))
                     NetworkServer.Instance.SendItemUpdate(destroy, knower);
         knownBy.Remove(record.NetId);
-        settlingSince.Remove(record.NetId);
+        pendingData.Remove(record.NetId);
         LiveItems.Remove(record.NetId);
         NetworkedItem.FreeDataNetId(record.NetId);
         Multiplayer.Log($"Item {record.PrefabName} (netId {record.NetId}) removed: {destroy.RemovalCause}");

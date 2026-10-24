@@ -262,7 +262,7 @@ internal static partial class ItemSaveLoad
         };
     }
 
-    private static SavedItemRow RowOfStored(StoredItemRecord stored)
+    internal static SavedItemRow RowOfStored(StoredItemRecord stored)
     {
         SavedItemRow row = new()
         {

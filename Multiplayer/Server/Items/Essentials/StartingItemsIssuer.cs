@@ -13,6 +13,7 @@ using Multiplayer.Server.Chat;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Ledger;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.Projection;
@@ -87,6 +88,13 @@ public static class StartingItemsIssuer
                 yield break;
             }
 
+            // The host's own player's rows are drawn in its inventory, once it has one.
+            while (player == NetworkServer.Instance.LocalPlayer && DV.InventorySystem.Inventory.Instance == null &&
+                   player.PlayerId != 0)
+                yield return null;
+            if (player.PlayerId == 0)
+                yield break;
+
             HashSet<int> taken = TakenSlots(player);
             List<(string Prefab, string State, bool Essential, ItemMoveReason Reason, int Slot)> wanted = new();
             foreach (string prefab in AdminItemGrants.StartingItemPrefabs().Distinct(StringComparer.Ordinal))
@@ -112,9 +120,12 @@ public static class StartingItemsIssuer
                 if (player.PlayerId == 0)
                     yield break;
                 bool overflow = item.Slot < 0;
-                bool ok = false;
-                yield return Make(player, item.Prefab, item.State, item.Essential, item.Reason, item.Slot, overflow,
-                    result => ok = result);
+                // Into a free slot it's a row, with no object (D14); with none it's made at their
+                // feet, on its way to their Lost and Found.
+                bool ok = !overflow && IssueRow(player, item.Prefab, item.State, item.Essential, item.Reason, item.Slot);
+                if (overflow)
+                    yield return MakeAtFeet(player, item.Prefab, item.State, item.Essential, item.Reason, item.Slot,
+                        result => ok = result);
                 if (ok) made++;
             }
             // Marked even if one of them failed: a kit is given once, as before.
@@ -166,13 +177,45 @@ public static class StartingItemsIssuer
         return -1;
     }
 
-    // As a cold-container withdrawal makes an item into a player's inventory
-    // (ContainerServer.Withdraw): made at DV's safety position, its state loaded a
-    // frame later, registered with its owner and slot, and sent to everyone. With overflow (their
-    // inventory is full) it is made at their feet and goes straight to their Lost and Found, keeping
-    // its claim: never into a full inventory, where it was in no slot at all (item-bug-review.md, E2a).
-    private static IEnumerator Make(ServerPlayer player, string prefab, string state, bool essential,
-        ItemMoveReason reason, int slot, bool overflow, Action<bool> done)
+    // Into a free slot as a row, owned by them, with no object made (D14, OI-COLD-11): their game
+    // draws its stand-in. An essential asks the ledger for its slot as its claim (OI-ESS-01), and
+    // the slot is reserved for it (its silhouette, and recall).
+    private static bool IssueRow(ServerPlayer player, string prefab, string state, bool essential,
+        ItemMoveReason reason, int slot)
+    {
+        if (ItemSaveLoad.FindSpec(prefab) == null)
+        {
+            Multiplayer.LogWarning($"Starting items: no item called {prefab}");
+            return false;
+        }
+        JObject saved;
+        try
+        {
+            saved = string.IsNullOrEmpty(state) ? null : JObject.Parse(state);
+        }
+        catch (Exception exception)
+        {
+            Multiplayer.LogWarning($"Starting items: {prefab}'s state isn't JSON ({exception.Message}); it starts fresh");
+            saved = null;
+        }
+        SavedItemRow row = new()
+        {
+            PersistentItemId = Guid.NewGuid(),
+            PrefabName = prefab,
+            OwnerIdentity = player.Guid,
+            ClaimSlot = essential ? slot : -1,
+            ClaimFlags = essential ? ItemInventoryClaimFlags.Reserved : ItemInventoryClaimFlags.None,
+            State = saved
+        };
+        return PlayerItems.Issue(player, row, slot, ItemChangeLog.Move(reason, player, "slot " + slot)) != null;
+    }
+
+    // With their inventory full, as a cold-container withdrawal once made an item: made at DV's
+    // safety position, its state loaded a frame later, registered with its owner, at their feet,
+    // and sent to everyone; then it goes straight to their Lost and Found, keeping its claim: never
+    // into a full inventory, where it was in no slot at all (item-bug-review.md, E2a).
+    private static IEnumerator MakeAtFeet(ServerPlayer player, string prefab, string state, bool essential,
+        ItemMoveReason reason, int slot, Action<bool> done)
     {
         InventoryItemSpec spec = Globals.G?.Items?.items?.FirstOrDefault(candidate => candidate != null &&
             string.Equals(candidate.ItemPrefabName, prefab, StringComparison.Ordinal));
@@ -211,14 +254,12 @@ public static class StartingItemsIssuer
             item.Initialize(itemBase, item.NetId, true);
             item.FinaliseTrackedValuesAutomatically();
 
-            if (overflow)
-                instance.transform.position = player.AbsoluteWorldPosition + WorldMover.currentMove + Vector3.up * 0.3f;
+            instance.transform.position = player.AbsoluteWorldPosition + WorldMover.currentMove + Vector3.up * 0.3f;
             ItemUpdate snapshot = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Create);
-            snapshot.ItemState = overflow ? ItemState.Dropped : ItemState.InInventory;
-            snapshot.PlayerId = overflow ? (byte)0 : player.PlayerId;
-            if (overflow)
-                snapshot.ItemPosition = player.AbsoluteWorldPosition + Vector3.up * 0.3f;
-            snapshot.InventorySlot = overflow ? -1 : slot;
+            snapshot.ItemState = ItemState.Dropped;
+            snapshot.PlayerId = 0;
+            snapshot.ItemPosition = player.AbsoluteWorldPosition + Vector3.up * 0.3f;
+            snapshot.InventorySlot = -1;
             // The claim it asks for; the ledger gives it (OI-ESS-01).
             snapshot.InventoryClaimSlot = essential ? slot : -1;
             // An essential's slot is reserved for it (its silhouette, and recall).
@@ -226,21 +267,19 @@ public static class StartingItemsIssuer
             ItemIdentity identity = instance.GetComponent<ItemIdentity>() ??
                                                    instance.AddComponent<ItemIdentity>();
             ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(reason, player,
-                overflow ? "inventory full, slot " + slot + " kept" : "slot " + slot);
+                "inventory full, slot " + slot + " kept");
             if (LiveItems.RegisterMaterializedColdItem(item, player, player.Guid,
                     snapshot, identity.Ensure(), cause) == null)
                 throw new InvalidOperationException("registration failed");
             item.ApplyServerCanonicalSnapshot(snapshot);
             ServerItemManager.Instance?.RegisterHostWorldItem(item);
-            if (!overflow && player.PlayerId == InventoryIntegration.LocalPlayerId && !InventoryIntegration.ContainsActive(instance))
-                throw new InvalidOperationException("not in the host's own inventory");
             item.CompleteColdMaterialization();
             ContainerServer.PublishMaterializedItem(snapshot, item);
             // If Lost and Found refuses it, it stays at their feet: in sight either way.
-            if (overflow && !LostAndFoundServer.Collect(item, LostItemReason.InventoryOverflow,
+            if (!LostAndFoundServer.Collect(item, LostItemReason.InventoryOverflow,
                     "made with the inventory full"))
                 Multiplayer.LogWarning($"Starting items: {player.Username}'s inventory is full and Lost and Found refused their {prefab}; it is at their feet");
-            else if (overflow)
+            else
                 Multiplayer.Log($"Starting items: {player.Username}'s inventory is full; their {prefab} is in their Lost and Found");
             done(true);
         }

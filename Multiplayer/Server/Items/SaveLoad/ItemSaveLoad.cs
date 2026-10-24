@@ -105,6 +105,24 @@ internal static partial class ItemSaveLoad
         ReplaceAuthoredTombstone(CreateTombstone(record).ToJson(owned: false));
     }
 
+    /// <summary>
+    /// A scene's own item comes out of a container as a row, with no object (D14): its place in the
+    /// scene stays taken, as its object's would when it became an ordinary item.
+    /// </summary>
+    internal static void RecordAuthoredTaken(SavedItemRow row)
+    {
+        if (row == null || !WorldItemStableIdentity.IsValid(row.AuthoredItemKey))
+            return;
+        ReplaceAuthoredTombstone(new SavedItemRow
+        {
+            AuthoredItemKey = row.AuthoredItemKey,
+            PrefabName = row.PrefabName ?? string.Empty,
+            Revision = 2,
+            Placement = ItemPlacementKind.Destroyed
+        }.ToJson(owned: false));
+        row.AuthoredItemKey = string.Empty;
+    }
+
     private static SavedItemRow CreateTombstone(LiveItems.LiveItem record) =>
         new()
         {

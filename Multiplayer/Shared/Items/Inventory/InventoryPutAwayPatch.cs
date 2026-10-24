@@ -75,7 +75,7 @@ internal static class InventoryPutAwayPatch
     {
         __state = null;
         // A held object is added through the unequip above; a silhouette isn't a put-away. The host
-        // sweeps up what it adds directly (IInventoryRowHolder.CatchesDirectAdds).
+        // puts away what it adds directly once it commits it (IInventoryRowHolder.CatchesDirectAdds).
         if (InventoryRowHolder.Current?.CatchesDirectAdds != true || addAsDropped || notPutAway > 0 || item == null ||
             __instance.GetEquipSlotForItem(item) >= 0)
             return;

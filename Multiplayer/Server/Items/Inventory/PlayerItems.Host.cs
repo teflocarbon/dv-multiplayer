@@ -19,14 +19,14 @@ internal static partial class PlayerItems
     // object made; a put-away hands its object over to data at once, with the state it had.
 
     /// <summary>
-    /// The host's own player put an object away (or the sweep did): the item is kept as data in its
+    /// The host's own player put an object away (or the server put one in its slot): the item is kept as data in its
     /// slot, with the state the object had, and the object goes from every game. False if it stays
     /// an object (no persistent id yet, or a row already there).
     /// </summary>
     internal static bool StoreAsData(LiveItems.LiveItem record, NetworkedItem item, ServerPlayer holder, string state)
     {
         KeepStashedState(record.NetId, state);
-        settlingSince.Remove(record.NetId);
+        pendingData.Remove(record.NetId);
         bool had = ColdInventories.Contains(record.PersistentItemId);
         GoData(record, item, holder);
         return !had && ColdInventories.Contains(record.PersistentItemId) && item.ColdStorageRetirement;
