@@ -75,17 +75,24 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     public Job Job { get; private set; }
     public NetworkedStationController Station { get; private set; }
 
-    private NetworkedItem _jobOverview;
+    // The job's papers are kept by NetId (D14, OI-COLD-07): one in an inventory is a row with no
+    // object, on the server and in its holder's game, and its object is made again under the same
+    // NetId when it leaves the slot (JobPapers). Their objects are looked up by NetId.
+    private ushort overviewNetId;
 
+    /// <summary>The job's overview's NetId, its object's or its row's, or 0.</summary>
+    public ushort JobOverviewNetId => overviewNetId;
+
+    /// <summary>The job's overview's object, or null (none, or it's a row in an inventory).</summary>
     public NetworkedItem JobOverview
     {
-        get => _jobOverview;
+        get => ObjectOf(overviewNetId);
         set
         {
             if (value != null && value.GetTrackedItem<JobOverview>() == null)
                 return;
 
-            _jobOverview = value;
+            overviewNetId = value != null ? value.NetId : (ushort)0;
 
             if (value != null)
             {
@@ -95,10 +102,21 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         }
     }
 
-    private readonly Dictionary<ushort, NetworkedItem> jobBooklets = [];
+    /// <summary>The job's overview is a row in an inventory, under this NetId (it has no object).</summary>
+    public void SetOverviewRow(ushort netId) => overviewNetId = netId;
+
+    private static NetworkedItem ObjectOf(ushort netId) =>
+        netId != 0 && NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null ? item : null;
+
+    private readonly HashSet<ushort> jobBooklets = [];
     private readonly JobBookletIssuanceIndex issuedBooklets = new();
 
-    public IReadOnlyCollection<NetworkedItem> JobBooklets => jobBooklets.Values;
+    /// <summary>The booklet copies that are objects; one in an inventory is a row (<see cref="JobBookletNetIds"/>).</summary>
+    public IReadOnlyCollection<NetworkedItem> JobBooklets =>
+        jobBooklets.Select(ObjectOf).Where(item => item != null).ToArray();
+
+    /// <summary>Every booklet copy's NetId, objects and rows.</summary>
+    public IReadOnlyCollection<ushort> JobBookletNetIds => jobBooklets.ToArray();
     public NetworkedItem LastChangedJobBooklet { get; private set; }
     public byte LastChangedJobBookletIssuedToPlayerId { get; private set; }
     public byte PendingBookletIssuedToPlayerId { get; set; }
@@ -107,7 +125,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     {
         if (item == null || item.NetId == 0 || item.GetTrackedItem<JobBooklet>() == null)
             return false;
-        jobBooklets[item.NetId] = item;
+        jobBooklets.Add(item.NetId);
         if (issuedToPlayerId != 0)
             issuedBooklets.Assign(issuedToPlayerId, item.NetId);
         LastChangedJobBooklet = item;
@@ -117,15 +135,27 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
         return true;
     }
 
-    public bool TryGetJobBooklet(ushort itemNetId, out NetworkedItem item) =>
-        jobBooklets.TryGetValue(itemNetId, out item) && item != null;
-
-    public bool TryGetIssuedJobBooklet(byte playerId, out NetworkedItem item)
+    /// <summary>A booklet copy that is a row in an inventory (its object is made from it later).</summary>
+    public void RegisterBookletRow(ushort netId, byte issuedToPlayerId)
     {
-        item = null;
-        return issuedBooklets.TryGetItem(playerId, out ushort itemNetId) &&
-            TryGetJobBooklet(itemNetId, out item);
+        if (netId == 0)
+            return;
+        jobBooklets.Add(netId);
+        if (issuedToPlayerId != 0)
+            issuedBooklets.Assign(issuedToPlayerId, netId);
     }
+
+    public bool HasJobBooklet(ushort itemNetId) => jobBooklets.Contains(itemNetId);
+
+    public bool TryGetJobBooklet(ushort itemNetId, out NetworkedItem item)
+    {
+        item = jobBooklets.Contains(itemNetId) ? ObjectOf(itemNetId) : null;
+        return item != null;
+    }
+
+    /// <summary>The NetId of the player's own copy, an object or a row.</summary>
+    public bool TryGetIssuedJobBooklet(byte playerId, out ushort itemNetId) =>
+        issuedBooklets.TryGetItem(playerId, out itemNetId) && jobBooklets.Contains(itemNetId);
 
     public bool TryGetIssuedPlayer(ushort itemNetId, out byte playerId)
     {
@@ -136,10 +166,15 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     {
         if (item == null)
             return;
-        jobBooklets.Remove(item.NetId);
-        issuedBooklets.RemoveItem(item.NetId);
+        UnregisterJobBooklet(item.NetId);
         if (ReferenceEquals(LastChangedJobBooklet, item))
             LastChangedJobBooklet = null;
+    }
+
+    public void UnregisterJobBooklet(ushort netId)
+    {
+        jobBooklets.Remove(netId);
+        issuedBooklets.RemoveItem(netId);
     }
     private readonly List<NetworkedItem> JobReports = [];
 
@@ -351,7 +386,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
 
     public void DestroyJobBooklets()
     {
-        foreach (NetworkedItem item in jobBooklets.Values.ToArray())
+        foreach (NetworkedItem item in JobBooklets)
         {
             JobBooklet jbItem = item?.GetTrackedItem<JobBooklet>();
             if (jbItem == null)

@@ -14,6 +14,7 @@ using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.VanillaStorage;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -140,13 +141,13 @@ internal static partial class PlayerItems
     }
 
     // One item the server put in an inventory: its object goes to data now. True to wait a frame
-    // (it's being made, or restored, or its holder's game isn't ready for items). Left an object:
-    // job papers (their job's objects; OI-COLD-07, C7) and a loaded magazine (its ammo is an object
-    // inside it; OI-CON-16).
+    // (it's being made, or restored, or its holder's game isn't ready for items). Left an object: a
+    // loaded magazine (its ammo is an object inside it; OI-CON-16). Job papers go too: their job
+    // keeps them by NetId, and they're made again from it (JobPapers; OI-COLD-07).
     private static bool ToData(ushort netId)
     {
         if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.PlayerInventory ||
-            record.Slot < 0 || ItemSaveLoad.IsJobSystemDocument(record.PrefabName) ||
+            record.Slot < 0 ||
             !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null || item.Item == null ||
             item.ColdStorageRetirement || InventoryStandIn.HoldsAmmo(item.gameObject))
         {
@@ -179,7 +180,7 @@ internal static partial class PlayerItems
         row.OwnerIdentity = record.Owner;
         row.Slot = record.Slot;
         if (stashedStates.TryGetValue(record.NetId, out JObject stashed))
-            row.State = stashed;
+            row.State = JobPapers.Complete(item.gameObject, stashed);
         if (!ColdInventories.Add(row))
             return;
         stashedStates.Remove(record.NetId);
@@ -337,6 +338,20 @@ internal static partial class PlayerItems
     private static GameObject InstantiateFromRow(ushort netId, SavedItemRow row, out NetworkedItem item)
     {
         item = null;
+        if (JobPapers.IsPaper(row.PrefabName))
+        {
+            Component paper = JobPapers.Make(row.PrefabName, row.State,
+                StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
+            if (paper == null)
+            {
+                Multiplayer.LogWarning($"Inventory: {row.PrefabName} netId {netId} has no job (or recipe) to be made from; it stays data");
+                return null;
+            }
+            materializing.Add(netId);
+            item = paper.GetOrAddComponent<NetworkedItem>();
+            item.BeginColdMaterialization();
+            return paper.gameObject;
+        }
         InventoryItemSpec spec = Globals.G?.Items?.items?.FirstOrDefault(candidate => candidate != null &&
             string.Equals(candidate.ItemPrefabName, row.PrefabName, StringComparison.Ordinal));
         if (spec == null)
@@ -370,7 +385,13 @@ internal static partial class PlayerItems
             throw new InvalidOperationException("couldn't take up its net id");
         ItemIdentity identity = instance.GetComponent<ItemIdentity>() ?? instance.AddComponent<ItemIdentity>();
         identity.Value = record.PersistentItemId;
-        item.Initialize(itemBase, netId, true);
+        if (JobPapers.PaperOf(instance) is { } paper)
+        {
+            if (JobPapers.Track(item, paper, netId, true, row.State) is { } report)
+                Jobs.JobReportArtifactRegistry.Register(report);
+        }
+        else
+            item.Initialize(itemBase, netId, true);
         item.FinaliseTrackedValuesAutomatically();
         ColdInventories.Remove(record.PersistentItemId);
         if (LiveItems.TryCreateCorrectionSnapshot(item, out ItemUpdate snapshot))

@@ -20,7 +20,7 @@ public static class BookletCreator_Patch
     [HarmonyPostfix]
     private static void CreateJobOverview(JobOverview __result, Job job)
     {
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkLifecycle.Instance.IsHost() || JobPapers.MakingFromRow)
             return;
 
         if (!NetworkedJob.TryGetFromJob(job, out NetworkedJob networkedJob))
@@ -39,7 +39,7 @@ public static class BookletCreator_Patch
     [HarmonyPostfix]
     private static void CreateJobBooklet(JobBooklet __result, Job job)
     {
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkLifecycle.Instance.IsHost() || JobPapers.MakingFromRow)
             return;
 
         if (!NetworkedJob.TryGetFromJob(job, out NetworkedJob networkedJob))
@@ -58,7 +58,7 @@ public static class BookletCreator_Patch
     [HarmonyPostfix]
     private static void CreateJobReport(JobReport __result, Job job, DisplayableDebt debt)
     {
-        if (!NetworkLifecycle.Instance.IsHost())
+        if (!NetworkLifecycle.Instance.IsHost() || JobPapers.MakingFromRow)
             return;
 
         if (!NetworkedJob.TryGetFromJob(job, out NetworkedJob networkedJob))
@@ -83,6 +83,7 @@ public static class BookletCreator_Patch
                 job,
                 debt);
             JobReportArtifactRegistry.Register(artifact);
+            JobPapers.KeepReport(netItem.NetId, artifact);
         }
     }
 }

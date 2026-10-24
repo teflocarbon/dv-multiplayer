@@ -178,8 +178,6 @@ internal static partial class PlayerItems
         if (holder == Guid.Empty || slot < 0 ||
             !NetworkedItem.TryGet(record.NetId, out NetworkedItem item) || item == null || item.Item == null)
             return false;
-        if (ItemSaveLoad.IsJobSystemDocument(record.PrefabName))
-            return false;
         if (item.IsSceneAuthored)
         {
             ItemSaveLoad.RecordDestroyed(item);

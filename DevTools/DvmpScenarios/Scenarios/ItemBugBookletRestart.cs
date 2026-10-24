@@ -1,20 +1,20 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
+using Multiplayer.Shared.Items.Inventory;
+using Multiplayer.Shared.Jobs;
 using UnityEngine;
 
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Known bug OI-COLD-15 (R4C, with OI-COLD-07): a client's job booklet isn't back in their own
-    /// inventory after a restart. The mod saves no job paperwork, and at the load vanilla prints a
-    /// booklet for each taken job into the local player's inventory: the host's on a player host,
-    /// nobody's on a dedicated host (docs/jobs.md, "Save, load and rejoin"). The client takes a
-    /// job at FM's office and stashes its booklet, the host saves, and both games restart: the
-    /// booklet must be in the client's inventory, in its slot. The run notes where it is instead.
+    /// OI-COLD-15 (R4C C7, with OI-COLD-07): a client's job booklet is back in their own inventory,
+    /// in its slot, after a restart. A booklet a player carries is a row, saved with them like any
+    /// item, and vanilla's load doesn't reprint it (docs/jobs.md, "Save, load and rejoin"). The
+    /// client takes a job at FM's office and stashes its booklet, the host saves, and both games
+    /// restart: the booklet must be in the client's inventory, in its slot, and in no other.
     /// </summary>
-    [Scenario("item-bug-booklet-restart", "Known bug OI-COLD-15: a client's job booklet is back in their own inventory, in its slot, after a restart")]
-    [KnownBug("OI-COLD-15")]
+    [Scenario("item-bug-booklet-restart", "OI-COLD-15: a client's job booklet is back in their own inventory, in its slot, after a restart")]
     [Needs(Need.RestartsGames)]
     [Budget(600)]
     public sealed class ItemBugBookletRestart : Scenario<ItemBugBookletRestart.Options>
@@ -69,16 +69,17 @@ namespace Dvmp.Scenarios
         // ---- runs inside the games
         public static class InGame
         {
-            /// <summary>This player: the inventory slot of a booklet for the job, or -1.</summary>
+            /// <summary>This player: the inventory slot of a booklet for the job (an object or a stand-in), or -1.</summary>
             [Step]
             public static int SlotOf(string jobId)
             {
-                var inv = DV.InventorySystem.Inventory.Instance;
-                for (int s = 0; s < inv.Capacity; s++)
+                foreach ((ushort _, int slot, GameObject item) in PlayerInventory.Stored())
                 {
-                    GameObject item = inv.PeekItemAtSlot(s, false);
-                    if (item != null && item.GetComponent<JobBooklet>()?.job?.ID == jobId)
-                        return s;
+                    if (item.GetComponent<JobBooklet>()?.job?.ID == jobId)
+                        return slot;
+                    if (item.TryGetComponent(out InventoryStandIn standIn) && standIn.PrefabName == nameof(JobBooklet) &&
+                        JobPapers.JobIdOf(standIn.State) == jobId)
+                        return slot;
                 }
                 return -1;
             }

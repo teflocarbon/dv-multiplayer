@@ -79,14 +79,24 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
         return standIn;
     }
 
-    /// <summary>The prefab's spec from the game's item list, or null if it isn't one (a mod item without its mod).</summary>
-    public static InventoryItemSpec FindSpec(string prefabName) =>
-        string.IsNullOrEmpty(prefabName) ? null : Globals.G?.Items?.items?.FirstOrDefault(spec =>
+    /// <summary>
+    /// The prefab's spec from the game's item list, or null if it isn't one (a mod item without its
+    /// mod). Job papers, which the job system makes from its resources, have theirs there.
+    /// </summary>
+    public static InventoryItemSpec FindSpec(string prefabName)
+    {
+        if (string.IsNullOrEmpty(prefabName))
+            return null;
+        InventoryItemSpec listed = Globals.G?.Items?.items?.FirstOrDefault(spec =>
             spec != null && string.Equals(spec.ItemPrefabName, prefabName, StringComparison.Ordinal));
+        if (listed != null || !Jobs.JobPapers.IsPaper(prefabName))
+            return listed;
+        GameObject paper = Resources.Load<GameObject>(prefabName);
+        return paper != null ? paper.GetComponent<InventoryItemSpec>() : null;
+    }
 
-    /// <summary>Whether an item of this prefab can be a stand-in: a prefab known here, not job papers (C7).</summary>
-    public static bool CanStandIn(string prefabName) =>
-        FindSpec(prefabName) != null && !NetworkedItemManager.IsJobDocumentPrefab(prefabName);
+    /// <summary>Whether an item of this prefab can be a stand-in: a prefab known here (job papers too, OI-COLD-07).</summary>
+    public static bool CanStandIn(string prefabName) => FindSpec(prefabName) != null;
 
     /// <summary>
     /// Whether this object can be a stand-in: its prefab can, and none of its magazines holds
@@ -96,7 +106,7 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
     /// </summary>
     public static bool CanStandIn(GameObject item) =>
         item != null && item.GetComponent<InventoryItemSpec>() is { } spec && CanStandIn(spec.ItemPrefabName) &&
-        !HoldsAmmo(item);
+        !HoldsAmmo(item) && (Jobs.JobPapers.PaperOf(item) == null || Jobs.JobPapers.CanBeRow(item));
 
     /// <summary>Whether a magazine of this object holds anything.</summary>
     public static bool HoldsAmmo(GameObject item) =>
@@ -174,7 +184,7 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
         try
         {
             JObject state = JObject.Parse(State);
-            return (string)state["jobId"] ?? (string)state["feeId"];
+            return Jobs.JobPapers.NameOf(state) ?? (string)state["feeId"];
         }
         catch
         {
