@@ -201,7 +201,7 @@ transport already uses.
 - **Re-keying risk:** an old install GUID isn't secret, so someone who learned it could in principle
   claim that player's old data with their own Steam account. That only works until the owner's own
   first verified login. GUIDs aren't sent to other clients, so the risk is small.
-- **Open question:** a host using `LiteNetLibTransport` without Steam on the server couldn't call
+- **Open question:** a host on a transport without Steam couldn't call
   `BeginAuthSession`. It would need the Steam Web API and a publisher key. Not designed for yet.
 
 ## How far today's code is from it
