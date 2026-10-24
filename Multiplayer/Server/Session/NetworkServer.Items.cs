@@ -20,6 +20,7 @@ using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Protocol.Packets.Clientbound;
 using Multiplayer.Shared.Protocol.Packets.Items;
+using Multiplayer.Shared.Protocol.Packets.Clientbound.World;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Transport;
@@ -347,6 +348,7 @@ public partial class NetworkServer : IItemServer
     {
         HandleLocal<ServerboundItemRequestPacket>(HandleItemRequest);
         HandleLocal<ServerboundItemListRequestPacket>(HandleItemListRequest);
+        HandleLocal<ServerboundStashedCassettePacket>(HandleStashedCassette);
     }
 
     private void OnServerboundItemRequestPacket(ServerboundItemRequestPacket packet, ITransportPeer peer)
@@ -751,6 +753,15 @@ public partial class NetworkServer : IItemServer
             stored.Slot, destination, request.ContainerRevision, request.Slot);
         return ContainerResult(request, result, result.DestinationRevision, 0);
     }
+
+    // ---- Stashed boomboxes (docs/design/items/inventory.md, "Stashed items that act") ----
+
+    // Its holder only: a report on anyone else's item, or one that isn't a stand-in, is dropped.
+    private void HandleStashedCassette(ServerboundStashedCassettePacket packet, ServerPlayer player) =>
+        PlayerItems.KeepCassettePosition(player, packet.NetId, packet.Track, packet.Seek, packet.Ended);
+
+    internal void SendStashedSound(ServerPlayer player, ClientboundStashedSoundPacket packet) =>
+        SendPacket(player.Peer, packet, DeliveryMethod.ReliableOrdered);
 
     // ---- Lists (docs/design/items/wire.md, "One list") ----
 

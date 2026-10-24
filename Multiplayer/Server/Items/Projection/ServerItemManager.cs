@@ -64,6 +64,7 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         Replenishment.Update();
         PlayerItems.Update();
         PlayerItems.UpdateAlarms();
+        PlayerItems.UpdateSounds();
     }
 
     public void Tick(uint tick)

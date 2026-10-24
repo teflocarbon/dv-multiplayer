@@ -1,12 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using DV;
-using DV.JObjectExtstensions;
 using DV.TimeKeeping;
 using DV.Utils;
 using HarmonyLib;
 using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Shared.Debugging;
+using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -23,23 +23,21 @@ namespace Multiplayer.Shared.Items.Inventory;
 /// <list type="bullet">
 /// <item>an alarm clock the player owns shows the HUD's time in a cab (<c>PlayerHasClock</c>);</item>
 /// <item>a set alarm clock counts down and rings (<see cref="AlarmRows"/>);</item>
-/// <item>a boombox left on in radio mode keeps playing its station at its volume. One playing a
-/// cassette stays an object (<see cref="PlaysCassette"/>), and plays as vanilla's does.</item>
+/// <item>a boombox left on keeps playing at its volume: its radio on its station, or its cassette
+/// from where it had got to, to the end of the tape (<see cref="StashedBoombox"/>). Its row keeps
+/// the cassette's track as it moves on, and the server is told (for the players near its holder,
+/// who hear it too, <see cref="HeardStashedSounds"/>, and for its object made again); a take-out
+/// resumes where it had got to.</item>
 /// </list>
 /// A silhouette's item is elsewhere, so it does none of these: its object does.
 /// </summary>
 [HarmonyPatch]
 internal static class StashedItems
 {
-    private const string PowerOnKey = "powerOn";
-    private const string RadioModeKey = "radioMode";
-    private const string VolumeKey = "vol";
-    private const string StationKey = "rsIndex";
-
     private static readonly AlarmRows.Ticker<ushort> alarms = new();
-    private static readonly Dictionary<ushort, StashedRadio> radios = new();
+    private static readonly Dictionary<ushort, StashedBoombox> boomboxes = new();
     private static readonly Dictionary<string, bool> boomboxPrefabs = new();
-    // A radio follows its row a few times a second: a take-out stops it within this.
+    // A boombox follows its row a few times a second: a take-out stops it within this.
     private const float RadioCheckSeconds = 0.25f;
     private static float nextRadioCheck;
     private static Transform soundRoot;
@@ -58,9 +56,14 @@ internal static class StashedItems
             __result = Stashed.Any(standIn => standIn.Relation == ItemRelation.Mine && AlarmRows.IsAlarmClock(standIn.PrefabName));
     }
 
-    /// <summary>Every frame on a game with a local player: alarms tick on the world's minute, and radios follow their rows.</summary>
+    /// <summary>
+    /// Every frame on a game with a local player: alarms tick on the world's minute, boomboxes
+    /// follow their rows, and other players' stashed boomboxes follow them.
+    /// </summary>
     public static void Update()
     {
+        HeardStashedSounds.Update();
+        WatchPause();
         if (InventoryRowHolder.Current == null)
         {
             StopAll();
@@ -71,7 +74,7 @@ internal static class StashedItems
         if (Time.unscaledTime >= nextRadioCheck)
         {
             nextRadioCheck = Time.unscaledTime + RadioCheckSeconds;
-            UpdateRadios();
+            UpdateBoomboxes();
         }
     }
 
@@ -110,34 +113,16 @@ internal static class StashedItems
         }
     }
 
-    private static void Trace(string eventName, ushort netId, Dictionary<string, object> data)
+    internal static void Trace(string eventName, ushort netId, Dictionary<string, object> data)
     {
         if (DebugRuntime.EnabledFor("item"))
             DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide, entityType: "Item", entityId: netId.ToString(), data: data);
     }
 
-    /// <summary>
-    /// Whether this object is a boombox playing its cassette: on, and not in radio mode. A stand-in
-    /// plays only the radio, so such a one stays an object in its slot, its cassette inside, and
-    /// plays as vanilla's does (<see cref="StandInAmmo.CanNest"/>).
-    /// </summary>
-    internal static bool PlaysCassette(GameObject item)
+    internal static bool IsBoombox(string prefabName)
     {
-        if (item.GetComponent<BoomboxInteractionController>() == null)
+        if (string.IsNullOrEmpty(prefabName))
             return false;
-        try
-        {
-            JObject state = JObject.Parse(ItemStateText.Capture(item));
-            return state.GetBool(PowerOnKey) == true && state.GetBool(RadioModeKey) != true;
-        }
-        catch (Newtonsoft.Json.JsonException)
-        {
-            return false;
-        }
-    }
-
-    private static bool IsBoombox(string prefabName)
-    {
         if (!boomboxPrefabs.TryGetValue(prefabName, out bool boombox))
         {
             InventoryItemSpec spec = InventoryStandIn.FindSpec(prefabName);
@@ -147,39 +132,85 @@ internal static class StashedItems
         return boombox;
     }
 
-    private static void UpdateRadios()
+    private static void UpdateBoomboxes()
     {
         HashSet<ushort> playing = null;
         foreach (InventoryStandIn standIn in Stashed)
         {
-            if (!IsBoombox(standIn.PrefabName) || string.IsNullOrEmpty(standIn.State))
+            if (!IsBoombox(standIn.PrefabName) || string.IsNullOrEmpty(standIn.State) || Parse(standIn) is not { } state)
                 continue;
-            if (Parse(standIn) is not { } state || state.GetBool(PowerOnKey) != true || state.GetBool(RadioModeKey) != true)
+            string cassette = CassettePrefabOf(standIn.State);
+            string plays = StashedBoombox.WhatPlays(state, cassette);
+            if (plays.Length == 0)
                 continue;
             (playing ??= new HashSet<ushort>()).Add(standIn.NetId);
-            if (radios.ContainsKey(standIn.NetId))
+            if (boomboxes.TryGetValue(standIn.NetId, out StashedBoombox running))
+            {
+                if (running.Plays == plays)
+                    continue;
+                running.Stop();
+                boomboxes.Remove(standIn.NetId);
+            }
+            StashedBoombox boombox = StashedBoombox.Start(standIn.NetId.ToString(), standIn.PrefabName, state, cassette, SoundRoot, false);
+            if (boombox == null)
                 continue;
-            StashedRadio radio = StashedRadio.Start(standIn, state, SoundRoot);
-            if (radio != null)
-                radios.Add(standIn.NetId, radio);
+            ushort netId = standIn.NetId;
+            boombox.TrackChanged += _ => KeepPosition(netId, "track");
+            boombox.RanOut += () => KeepPosition(netId, "ran-out");
+            boomboxes.Add(netId, boombox);
+            Trace("item.stashed-boombox-playing", netId, new() { ["plays"] = plays });
         }
         // Taken out (its object plays now), turned into a silhouette or gone: it stops.
-        foreach (ushort netId in radios.Keys.Where(netId => playing == null || !playing.Contains(netId)).ToArray())
+        foreach (ushort netId in boomboxes.Keys.Where(netId => playing == null || !playing.Contains(netId)).ToArray())
         {
-            radios[netId].Stop();
-            radios.Remove(netId);
+            boomboxes[netId].Stop();
+            boomboxes.Remove(netId);
         }
-        WatchPause();
+    }
+
+    /// <summary>The cassette in a stand-in's magazine (its nested ammo), or null.</summary>
+    internal static string CassettePrefabOf(string standInState) =>
+        StandInAmmo.Of(standInState).Select(entry => entry.PrefabName).FirstOrDefault(prefab => StashedCassette.CassetteOfPrefab(prefab) != null);
+
+    /// <summary>
+    /// Before a stand-in's item is taken out: its row takes the position its cassette has got to,
+    /// so the object made from it resumes there, and the server's copy of the row with it.
+    /// </summary>
+    public static void BeforeTakeOut(InventoryStandIn standIn)
+    {
+        if (standIn != null && boomboxes.ContainsKey(standIn.NetId))
+            KeepPosition(standIn.NetId, "take-out");
+    }
+
+    // The cassette's position goes into its row, and up to the server.
+    private static void KeepPosition(ushort netId, string why)
+    {
+        if (!boomboxes.TryGetValue(netId, out StashedBoombox boombox) || !boombox.TryGetPosition(out int track, out long seek, out bool ranOut) ||
+            !InventoryStandIn.TryGet(netId, out InventoryStandIn standIn) || Parse(standIn) is not { } state ||
+            !StashedCassette.TryRead(state, out StashedCassette.Position was))
+            return;
+        StashedCassette.Position position = new(track, ranOut ? 0L : seek, was.Playing, ranOut);
+        StashedCassette.Write(state, position);
+        standIn.State = state.ToString(Newtonsoft.Json.Formatting.None);
+        ItemClient.Current?.SendStashedCassette(netId, position.Track, position.Seek, position.Ended);
+        Trace("item.stashed-cassette-position", netId, new()
+        {
+            ["why"] = why,
+            ["track"] = position.Track,
+            ["seek"] = position.Seek,
+            ["ended"] = position.Ended
+        });
     }
 
     private static void StopAll()
     {
-        foreach (StashedRadio radio in radios.Values)
-            radio.Stop();
-        radios.Clear();
+        foreach (StashedBoombox boombox in boomboxes.Values)
+            boombox.Stop();
+        boomboxes.Clear();
     }
 
-    // The radios pause with the game, as a boombox's own do (BoomboxInteractionController.OnGamePaused).
+    // The music pauses with the game, as a boombox's own does (BoomboxInteractionController.OnGamePaused),
+    // and so does what this game hears of other players' (HeardStashedSounds).
     private static void WatchPause()
     {
         AppUtil app = AppUtil.Instance;
@@ -199,14 +230,14 @@ internal static class StashedItems
 
     private static void OnGamePaused()
     {
-        foreach (StashedRadio radio in radios.Values)
-            radio.Controller.OnGamePaused();
+        foreach (StashedBoombox boombox in boomboxes.Values.Concat(HeardStashedSounds.Playing))
+            boombox.OnGamePaused();
     }
 
     private static void OnGameUnpaused()
     {
-        foreach (StashedRadio radio in radios.Values)
-            radio.Controller.OnGameUnpaused();
+        foreach (StashedBoombox boombox in boomboxes.Values.Concat(HeardStashedSounds.Playing))
+            boombox.OnGameUnpaused();
     }
 
     // Where a stashed item's sounds come from: the player's camera, as ItemPositionHandler puts a
@@ -237,9 +268,10 @@ internal static class StashedItems
 
     /// <summary>
     /// A copy of a prefab's audio source on another object, set as the prefab sets it, and 2D as
-    /// a stashed item's sources are (ItemAudioSpatialBlendController).
+    /// a stashed item's sources are (ItemAudioSpatialBlendController), unless it's
+    /// <paramref name="spatial"/>: 3D, as the item's own are in the world.
     /// </summary>
-    internal static AudioSource CopySource(AudioSource from, GameObject to)
+    internal static AudioSource CopySource(AudioSource from, GameObject to, bool spatial = false)
     {
         AudioSource source = to.AddComponent<AudioSource>();
         source.playOnAwake = false;
@@ -249,7 +281,7 @@ internal static class StashedItems
         source.pitch = from.pitch;
         source.loop = from.loop;
         source.priority = from.priority;
-        source.spatialBlend = 0f;
+        source.spatialBlend = spatial ? 1f : 0f;
         source.spread = from.spread;
         source.dopplerLevel = from.dopplerLevel;
         source.reverbZoneMix = from.reverbZoneMix;
@@ -272,46 +304,6 @@ internal static class StashedItems
             Camera camera = PlayerManager.ActiveCamera;
             if (camera != null)
                 transform.SetPositionAndRotation(camera.transform.position, camera.transform.rotation);
-        }
-    }
-
-    /// <summary>
-    /// A stashed boombox's radio: vanilla's own radio player (<c>RadioPlayerController</c>) on a
-    /// copy of the boombox's music source, tuned to the row's station at the row's volume. A
-    /// stashed boombox's interference is paused (its controller is disabled), so a copy has none.
-    /// </summary>
-    private sealed class StashedRadio
-    {
-        private GameObject host;
-        public RadioPlayerController Controller { get; private set; }
-
-        public static StashedRadio Start(InventoryStandIn standIn, JObject state, Transform parent)
-        {
-            AudioSource music = standIn.Prefab.GetComponent<BoomboxInteractionController>()?.volumeAndInterferenceController?.musicAudioSource;
-            if (music == null)
-                return null;
-            GameObject host = new($"[MP] Stashed radio {standIn.NetId}");
-            host.transform.SetParent(parent, false);
-            AudioSource source = CopySource(music, host);
-            // As the boombox's own (BoomboxInteractionController.Awake).
-            source.ignoreListenerPause = true;
-            source.volume = Mathf.Clamp01(state.GetFloat(VolumeKey) ?? VolumeAndInterferenceController.DEFAULT_VOLUME);
-            RadioPlayerController controller = new(host, source);
-            controller.OverrideLastPlayedStationIndex(state.GetInt(StationKey) ?? 0);
-            controller.OnPowerAndModeChanged(true, true);
-            Trace("item.stashed-radio-playing", standIn.NetId, new()
-            {
-                ["station"] = state.GetInt(StationKey) ?? 0,
-                ["volume"] = source.volume
-            });
-            return new StashedRadio { host = host, Controller = controller };
-        }
-
-        public void Stop()
-        {
-            Controller.TurnOff();
-            if (host != null)
-                Object.Destroy(host);
         }
     }
 }

@@ -83,6 +83,7 @@ internal static partial class PlayerItems
 
     private static void ClearDataOnly()
     {
+        ClearSounds();
         stashedStates.Clear();
         ammoRows.Clear();
         pendingData.Clear();

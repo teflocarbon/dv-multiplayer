@@ -161,9 +161,9 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
     objects before the tool's (vanilla empties a destroyed magazine into the world). The server's
     `GoData` does the same with its copies (`AmmoGoesData`): each becomes a row, and anyone who knew it
     other than the tool's keepers is told it's gone. A tool whose ammo has no record in its magazine
-    stays an object (`AmmoCanGoData`), as does a boombox playing its cassette, which a stand-in
-    can't play (`StashedItems.PlaysCassette`): decided, user 2026-10-25 (no stashed cassette player;
-    it plays as vanilla's does).
+    stays an object (`AmmoCanGoData`). A boombox playing its cassette stands in too: its music plays
+    on from its row, where the cassette had got to, and is heard by the players near its holder
+    ([inventory.md](inventory.md#stashed-items-that-act), R5 C10).
   - **Taken out:** the holder's game makes the ammo with the tool from the nested rows, under their
     NetIds, loaded as the server's word (`ClientItemManager.MakeAmmo`); a refusal retires them with
     the tool. The server makes its copies as the tool's object is made (`TakeUpObject`, `TakeUpAmmo`),

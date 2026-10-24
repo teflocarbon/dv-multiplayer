@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.25-dev.0653+a2e2751c1c8374648a0bd000a5afdc1af8ff3c5d",
-  "Fingerprint": "bd81d8d1623cf443687a54cdb33837f8a6c8e436425375492cf7e1f47767e276",
+  "BuildVersion": "2026.10.25-dev.0728+00a79dff86f571deba432b0362fb28ffdd5786f8",
+  "Fingerprint": "86dc07d7f0deb2c798ae5a03032752c424f0614c1aee085fc35344668b4f904c",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -301,6 +301,15 @@
       "SuppressByDefault": false
     },
     {
+      "Hash": "3B08A8721C2C203E",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.World.ClientboundStashedSoundPacket",
+      "Direction": "Clientbound",
+      "Category": "Clientbound.World",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
       "Hash": "3D709690F0D95F22",
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.Train.ServerboundFireboxIgnitePacket",
       "Direction": "Serverbound",
@@ -422,6 +431,15 @@
       "TypeName": "Multiplayer.Shared.Protocol.Packets.Clientbound.Jobs.ClientboundJobsCreatePacket",
       "Direction": "Clientbound",
       "Category": "Clientbound.Jobs",
+      "SemanticDecoder": null,
+      "HighFrequency": false,
+      "SuppressByDefault": false
+    },
+    {
+      "Hash": "5C7B863BAFF78ECD",
+      "TypeName": "Multiplayer.Shared.Protocol.Packets.Serverbound.ServerboundStashedCassettePacket",
+      "Direction": "Serverbound",
+      "Category": "Serverbound",
       "SemanticDecoder": null,
       "HighFrequency": false,
       "SuppressByDefault": false

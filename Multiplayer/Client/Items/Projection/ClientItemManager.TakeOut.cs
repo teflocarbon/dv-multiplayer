@@ -42,6 +42,8 @@ internal sealed partial class ClientItemManager
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         if (inventory == null || standIn == null || !standIn.Known)
             return null;
+        // A stashed cassette resumes where it had got to: its row takes the position, and the server's with it.
+        StashedItems.BeforeTakeOut(standIn);
         int slot = inventory.IndexOf(standIn.gameObject);
         ItemUpdate inSlot = new()
         {

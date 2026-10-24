@@ -15,6 +15,12 @@
 | `ServerboundItemListRequestPacket` | to the server | asks for one list |
 | `ClientboundItemListPacket` | to a client | a list: Lost and Found, owned items, or a container's slots, as `ItemRow`s |
 
+Two more carry a stashed boombox's music, which is presentation, not a change, so they aren't in
+`Items/`: `Serverbound/ServerboundStashedCassettePacket` (its holder's game: where the cassette has got to, for its
+row) and `Clientbound/World/ClientboundStashedSoundPacket` (to each player near the holder: what it
+plays, or that it stopped). [inventory.md](inventory.md#stashed-items-that-act)
+says what they do.
+
 A player host's own player uses the same packets through its local session
 (`LocalPlayerSession.Items.cs`): there is one path for every host.
 

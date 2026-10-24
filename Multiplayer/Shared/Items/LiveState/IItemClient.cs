@@ -32,6 +32,8 @@ public interface IItemClient
     void SendItemSpatialSample(ItemSpatialStateData state);
     void SendItemSpatialSettlement(ItemSpatialStateData state);
     void SendItemTrainWakeWitness(ServerboundItemTrainWakeWitnessPacket packet);
+    /// <summary>Where one of this player's stashed boomboxes' cassette has got to (StashedItems), for its row on the server.</summary>
+    void SendStashedCassette(ushort netId, int track, long seek, bool ended);
 
     /// <summary>The remote client's part of a new item manager (never asked for on the host).</summary>
     IItemManagerClientPart CreateItemManagerPart(NetworkedItemManager manager);

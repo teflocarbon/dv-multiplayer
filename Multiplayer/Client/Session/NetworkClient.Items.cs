@@ -89,6 +89,9 @@ public partial class NetworkClient : IItemClient
         return requestId;
     }
 
+    public void SendStashedCassette(ushort netId, int track, long seek, bool ended) =>
+        SendPacketToServer(new ServerboundStashedCassettePacket { NetId = netId, Track = track, Seek = seek, Ended = ended }, DeliveryMethod.ReliableOrdered);
+
     public void SendWorldItemProjectionAck(ushort netId, uint revision, bool projected)
     {
         SendPacketToServer(new ServerboundWorldItemProjectionAckPacket

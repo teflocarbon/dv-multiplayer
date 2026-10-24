@@ -12,8 +12,8 @@
 | Side | Code |
 | --- | --- |
 | Core | `Multiplayer.Core/Items/Inventory/`: `InventorySlots`, `BeltSlots`, `SlotClaimPlanner`, `InventoryPresentation` |
-| Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `.DataOnly.cs`, `.Rows.cs`, `.Host.cs`, `.Alarms.cs`), `ColdInventories`, `HostInventory`, `InventoryMembershipPatch`; `Multiplayer/Server/Jobs/JobPaperRows.cs` |
-| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `InventorySilhouettes`, `ItemStateText`, `StashedItems`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
+| Server | `Multiplayer/Server/Items/Inventory/`: `PlayerItems` (`PlayerItems.cs`, `.DataOnly.cs`, `.Rows.cs`, `.Host.cs`, `.Alarms.cs`, `.Ammo.cs`, `.Sounds.cs`), `ColdInventories`, `HostInventory`, `InventoryMembershipPatch`; `Multiplayer/Server/Jobs/JobPaperRows.cs` |
+| Shared | `Multiplayer/Shared/Items/Inventory/`: `InventoryStandIn`, `InventoryRowHolder`, `InventoryPutAwayPatch`, `InventoryTakeOutPatch`, `InventoryStandInPatches`, `VanillaInventorySlots`, `InventorySilhouettes`, `ItemStateText`, `StashedItems`, `StashedBoombox`, `StashedCassette`, `HeardStashedSounds`, `BoomboxStatePatch`, `AlarmRows`, `ForcedItemRows`, `TutorialRadio`, `InventoryIntegration`, `InventoryItemStatePatch`; `Multiplayer/Shared/Jobs/JobPapers.cs` |
 | Client | `Multiplayer/Client/Items/Inventory/`: `InventoryRows`, `InventorySlotMovePatch`, `InventoryOwnershipUiPatch`; `Multiplayer/Client/Items/Projection/`: `ClientItemManager.StandIns.cs`, `.Rows.cs`, `.TakeOut.cs` |
 | Requests | `NetworkServer.CarryMoveSlot` and `DataOnlyNamed` (`Multiplayer/Server/Session/NetworkServer.Items.cs`) |
 
@@ -88,9 +88,10 @@ vanilla from parking, laying out or firing item events for a stand-in.
 These stay objects in a slot:
 
 - an item on an enabled VR belt slot (OI-COLD-14, above);
-- a loaded magazine whose ammo can't be rows nested in its row (`StandInAmmo.CanNest`: a boombox playing
-  its cassette, or ammo with no record in the magazine); any other loaded magazine stands in, its
-  ammo nested ([containers.md](containers.md#ammo-in-a-magazine), OI-CON-16);
+- a loaded magazine whose ammo can't be rows nested in its row (`StandInAmmo.CanNest`: ammo with no
+  record in the magazine); any other loaded magazine stands in, its ammo nested, a boombox playing
+  its cassette too ([containers.md](containers.md#ammo-in-a-magazine), OI-CON-16; [Stashed items that
+  act](#stashed-items-that-act));
 - an item whose prefab this game doesn't know (a mod item without its mod), and a job paper whose job
   this game doesn't know ([Job papers](#job-papers)).
 
@@ -122,7 +123,7 @@ no news where the item has an object and no stand-in (kept live in its slot, or 
 own change decides), or a stand-in past the row's revision (`InventoryRows.IsLate`).
 
 The server leaves its own object of an item that can't be a stand-in (`InventoryStandIn.CanStandIn`:
-a boombox playing its cassette, an expired or missing-licence report) as its holder's game does, and such a row
+an expired or missing-licence report) as its holder's game does, and such a row
 goes live as an object at a join.
 
 ### Putting away
@@ -358,11 +359,34 @@ these: its object does.
   they tick the row, as vanilla's load does, from the minute before that tick, so a time skip
   right after a stash (sleep, `/time`) rings it as a pocketed clock would. A cold row's clock is as
   its holder left it.
-- **The boombox.** One left on in radio mode keeps playing its station (`rsIndex`) at its volume
-  (`vol`): vanilla's own radio player on a copy of the boombox's music source, stopped as the item
-  is taken out (its object plays from the same state) or goes. A stashed boombox's interference is
-  paused in vanilla, so the copy has none. One playing a cassette stays an object (`StashedItems.PlaysCassette`)
-  and plays as vanilla's does.
+- **The boombox.** One left on keeps playing at its volume (`vol`) on vanilla's own players, on a
+  copy of the boombox's music source (`StashedBoombox`): in radio mode its station (`rsIndex`,
+  `RadioPlayerController`); in cassette mode with its cassette playing, the cassette's playlist
+  (`PlaylistPlayer`, as `CassettePlayerController` plays it) from where it had got to, to the end of
+  the tape. A stashed boombox's interference is paused in vanilla, so the copy has none; the music
+  pauses with the game, and stops as the item is taken out, becomes a silhouette or goes.
+- **Where the cassette had got to** (OI-CON-16, R5 C10). Vanilla saves the track (`cpIndex`) and
+  whether it plays (`cassettePlaying`), and a load starts the track from its beginning. The
+  stand-in's row also keeps the position in the track (`mpCassetteSeek`, in samples as vanilla's
+  player counts them) and that the tape ran out (`mpCassetteEnded`; `StashedCassette`), captured as
+  it's put away. The holder's game writes the track into the row as the cassette moves on, and the
+  position as it runs out or is taken out, and tells the server (`ServerboundStashedCassettePacket`,
+  sent before the take-out's own request; the host's own take-out writes the server's row in that
+  frame). The object made from the row resumes there: it loads its state before it sets itself up,
+  so `BoomboxStatePatch` tells its players the loaded power and mode once it has (before C10 a
+  boombox taken out on showed on and played nothing), and once its cassette is in (made after it,
+  from the nested row) gives the cassette the row's track and position and plays it if the row's
+  did. A tape that ran out comes out stopped on its last track (vanilla's stays "playing" with
+  nothing left to play).
+- **Heard by the players near its holder** (everything heard in the world is shared). Twice a second
+  the server reads what each stashed boombox of a connected player plays from its row
+  (`PlayerItems.UpdateSounds`) and tells each other player within its music's reach (the prefab
+  source's `maxDistance`, plus 10 m) as it starts, changes or stops, and as they come near or go
+  (`ClientboundStashedSoundPacket`: the holder, the boombox and its cassette, the row's state, and
+  how long ago its cassette position was current). Their game plays it at the holder's avatar, in
+  the world as the boombox's own source is set (`HeardStashedSounds`), a cassette caught up within
+  its track by that much; a track change starts the new track on every game. A dedicated host has
+  no player and plays none.
 - **The tutorials.** A quick tutorial's radio service (a host playing alone) that starts while the
   comms radio is stashed binds to it once it's taken out (`TutorialRadio`). The tutorial's mode
   control takes a stashed radio out first, and the modes it turns off are kept with the row as the
@@ -415,7 +439,8 @@ docs/jobs.md ("Papers in inventories") has the job side.
   `inventory-slots`: stash, move, swap, the belt, a reserved slot refused, the same slots after a
   rejoin; `stash-state`: an item's state through a stash and a take-out; `hotbar-cycle`: every vanilla
   item out of the hotbar and back, a stand-in in its slot, the take-out within a frame;
-  `takeout-refused`; `stashed-items`: the clock, the alarm and the boombox in a pocket; `join-rows`;
+  `takeout-refused`; `stashed-items`: the clock, the alarm and the boombox in a pocket; `stashed-cassette`: a cassette playing on
+  from its row, heard by a player near its holder, resumed where it had got to; `join-rows`;
   `cold-homes`: data on the server, a move while data, a refused move rolled back, cold rows and D5
   across a rejoin; `item-bug-essential-slot-rejoin`; `item-bug-booklet-restart`: a carried booklet
   back in its slot after a restart; `rekey MERGE=true`; `borrowed-disconnect`; `shop` (the banknote

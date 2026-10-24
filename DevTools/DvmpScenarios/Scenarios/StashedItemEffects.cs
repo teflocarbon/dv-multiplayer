@@ -234,7 +234,7 @@ namespace Dvmp.Scenarios
 
             private static Radio ReadRadio(ushort id)
             {
-                GameObject stashed = GameObject.Find($"{SoundRoot}/[MP] Stashed radio {id}");
+                GameObject stashed = GameObject.Find($"{SoundRoot}/[MP] Stashed boombox {id}");
                 AudioSource source = stashed != null ? stashed.GetComponent<AudioSource>() : null;
                 return new Radio
                 {

@@ -292,6 +292,7 @@ public partial class NetworkServer : NetworkManager
         // Items
         netPacketProcessor.SubscribeReusable<ServerboundItemRequestPacket, ITransportPeer>(OnServerboundItemRequestPacket);
         netPacketProcessor.SubscribeReusable<ServerboundItemListRequestPacket, ITransportPeer>(OnServerboundItemListRequestPacket);
+        netPacketProcessor.SubscribeReusable<ServerboundStashedCassettePacket, ITransportPeer>((packet, peer) => FromPeer(peer, packet, HandleStashedCassette));
         netPacketProcessor.SubscribeReusable<ServerboundGadgetSettingPacket, ITransportPeer>(OnServerboundGadgetSettingPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetCommandPacket, ITransportPeer>(OnServerboundGadgetCommandPacket);
         netPacketProcessor.SubscribeReusable<ServerboundGadgetPanelPacket, ITransportPeer>(OnServerboundGadgetPanelPacket);
