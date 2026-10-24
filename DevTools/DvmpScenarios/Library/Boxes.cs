@@ -176,6 +176,51 @@ namespace Dvmp.Scenarios
         public static int StoredSlot(string id) =>
             Guid.TryParse(id, out Guid wanted) && ContainerServer.Graph.TryGetItem(wanted, out StoredItemRecord row) ? row.Slot : -1;
 
+        /// <summary>Host: the id of the box the stored item is in, or "".</summary>
+        [Step]
+        public static string StoredIn(string id) =>
+            Guid.TryParse(id, out Guid wanted) && ContainerServer.Graph.TryGetItem(wanted, out StoredItemRecord row) ? row.ParentContainerId.ToString("D") : "";
+
+        /// <summary>Host: the box's revision now (0 when there's no such box).</summary>
+        [Step]
+        public static uint RevisionOf(string id) =>
+            Guid.TryParse(id, out Guid wanted) && ContainerServer.Graph.TryGetContainer(wanted, out ContainerRecord box) ? box.Revision : 0;
+
+        /// <summary>Host: the wire handle of an item or box by its id, as a view or list gives it.</summary>
+        [Step]
+        public static uint HandleOf(string id) => Multiplayer.Server.Items.Projection.ItemHandles.Of(Guid.Parse(id));
+
+        /// <summary>
+        /// Client: moves a stored item into a slot of a box, sent as the container UI sends it with that
+        /// box open: both revisions the open box's. Result: "accepted" or the refusal's detail.
+        /// </summary>
+        [Step]
+        public static IEnumerator MoveAsOpen(Step<string> step, uint itemHandle, uint boxHandle, uint openRevision, int slot)
+        {
+            Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemResultPacket result = null;
+            uint requestId = 0;
+            void Got(Multiplayer.Shared.Protocol.Packets.Items.ClientboundItemResultPacket p) { if (p.RequestId == requestId) result = p; }
+            ItemClient.Current.ItemResultReceived += Got;
+            try
+            {
+                requestId = ItemClient.Current.SendItemRequest(new Multiplayer.Shared.Protocol.Data.Items.ItemRequest
+                {
+                    Action = Multiplayer.Shared.Protocol.Data.Items.ItemAction.MoveInContainer,
+                    ItemHandle = itemHandle,
+                    ExpectedRevision = openRevision,
+                    Container = boxHandle,
+                    ContainerRevision = openRevision,
+                    Slot = slot
+                });
+                yield return Wait.Until(() => result != null, 15f, "the move's result");
+            }
+            finally
+            {
+                ItemClient.Current.ItemResultReceived -= Got;
+            }
+            step.Result = result.Accepted ? Accepted : result.Detail ?? "refused";
+        }
+
         /// <summary>Host: the cold graph checked whole, as the load would check a save of it: "ok" or why not.</summary>
         [Step]
         public static string GraphCheck()

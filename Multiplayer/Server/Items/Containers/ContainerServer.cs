@@ -260,14 +260,19 @@ public static class ContainerServer
             // Retirement is a transactional boundary, not an ordinary dirty-state update.
             // Publish it immediately on the reliable ordered channel before the Unity object
             // is torn down; waiting for the next item-manager tick can lose the Destroy after
-            // the representation and its interest membership have already been removed.
+            // the representation and its interest membership have already been removed. It goes
+            // by interest (OI-CON-12): to the players who know the object, and the depositor, whose
+            // stand-in it was; nobody else ever had it.
+            List<ServerPlayer> told = new();
             foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
             {
                 player.NearbyItems.Remove(item);
-                player.KnownItems.Remove(item);
+                if (player.KnownItems.Remove(item) || player == actor)
+                    told.Add(player);
                 player.AcknowledgedWorldItems.Remove(item.NetId);
             }
-            NetworkServer.Instance.SendItemUpdate(destroy);
+            foreach (ServerPlayer player in told)
+                NetworkServer.Instance.SendItemUpdate(destroy, player);
             sent = true;
             // Out of interest now, not when Unity destroys it at the end of the frame: a scan
             // before then would find a player who no longer knows it and send it again.
