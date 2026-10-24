@@ -183,20 +183,19 @@ public static class ContainerServer
             return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.Incompatible,
                 "game-container-rejected-item", operationId);
 
-        Guid? childId = item.GetComponent<ContainerIdentity>()?.PersistentId;
-        if (childId.HasValue)
-            EnsureShellRecord(item, childId.Value,
-                ResolveShellOwner(item) ?? actor.Guid.ToString("D"));
+        // The item's own id, not one of the record's: one id for life (ledger.md). A container
+        // item's container has that id too (OI-CON-09).
+        Guid itemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid();
+        if (IsShell(item))
+            EnsureShellRecord(item, itemId, ResolveShellOwner(item) ?? actor.Guid.ToString("D"));
         JObject detached = item.GetComponent<ItemSaveData>()?.SaveItemData();
         StoredItemRecord record = new()
         {
-            // The item's own id, not one of the record's: one id for life (owned-items.md).
-            PersistentItemId = authority.PersistentItemId != Guid.Empty ? authority.PersistentItemId : Guid.NewGuid(),
+            PersistentItemId = itemId,
             PrefabName = item.Item.InventorySpecs?.ItemPrefabName ?? item.name,
             DisplayName = item.Item.InventorySpecs?.LocalizedName ?? item.name,
             PersistentOwnerIdentity = (authority.Owner != Guid.Empty ? authority.Owner : actor.Guid).ToString("D"),
             AuthoredItemKey = item.AuthoredItemKey ?? string.Empty,
-            ChildContainerId = childId,
             StateVersion = 1,
             DetachedState = detached == null ? Array.Empty<byte>() :
                 Encoding.UTF8.GetBytes(detached.ToString(Formatting.None))
@@ -436,7 +435,7 @@ public static class ContainerServer
             ["capacity"] = container.Capacity,
             ["revision"] = container.Revision,
             ["sessionHandle"] = container.SessionHandle,
-            ["parentItemId"] = container.ParentItemId?.ToString("D") ?? string.Empty,
+            ["stored"] = snapshot.Items.Any(item => item.PersistentItemId == container.PersistentContainerId),
             ["coldItemCount"] = snapshot.Items.Count(item =>
                 item.ParentContainerId == container.PersistentContainerId)
         }).ToArray();
@@ -446,7 +445,7 @@ public static class ContainerServer
     {
         HashSet<ushort> seen = new();
         foreach (NetworkedItem shell in NetworkedItem.GetAll().Where(item =>
-                     item != null && item.NetId != 0 && item.GetComponent<AItemContainer>() != null)
+                     item != null && item.NetId != 0 && IsShell(item))
                  .Distinct().ToArray())
         {
             seen.Add(shell.NetId);
@@ -456,14 +455,17 @@ public static class ContainerServer
             shellByNetId.Remove(stale);
     }
 
+    // A container's id is its shell's item id (OI-CON-09): the id the item has from its birth or
+    // its saved row, before its state loads, so a restored shell can't mint another.
     private static bool TryBindShell(NetworkedItem shell, out Guid id)
     {
         id = Guid.Empty;
-        ContainerIdentity identity = shell.gameObject.GetOrAddComponent<ContainerIdentity>();
+        if (!LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) || record.PersistentItemId == Guid.Empty)
+            return false;
         string owner = ResolveShellOwner(shell);
         if (string.IsNullOrEmpty(owner)) return false;
-        EnsureShellRecord(shell, identity.PersistentId, owner);
-        shellByNetId[shell.NetId] = id = identity.PersistentId;
+        EnsureShellRecord(shell, record.PersistentItemId, owner);
+        shellByNetId[shell.NetId] = id = record.PersistentItemId;
         return true;
     }
 
@@ -472,8 +474,8 @@ public static class ContainerServer
     {
         shellNetId = shellByNetId.FirstOrDefault(pair => pair.Value == containerId).Key;
         if (shellNetId != 0) return true;
-        NetworkedItem shell = NetworkedItem.GetAll().FirstOrDefault(item => item != null &&
-            item.GetComponent<ContainerIdentity>() is ContainerIdentity identity && identity.PersistentId == containerId);
+        LiveItems.LiveItem shell = containerId == Guid.Empty ? null : LiveItems.GetAll().FirstOrDefault(record =>
+            record.PersistentItemId == containerId && NetworkedItem.TryGet(record.NetId, out NetworkedItem item) && item != null);
         shellNetId = shell?.NetId ?? PlayerItems.DataOnlyShell(containerId);
         return shellNetId != 0;
     }
@@ -484,8 +486,11 @@ public static class ContainerServer
     {
         if (shellByNetId.TryGetValue(shellNetId, out id)) return true;
         return NetworkedItem.TryGet(shellNetId, out NetworkedItem shell) && shell != null &&
-               shell.GetComponent<AItemContainer>() != null && TryBindShell(shell, out id);
+               IsShell(shell) && TryBindShell(shell, out id);
     }
+
+    // An item vanilla gives a container of its own (a toolbox; a tool's magazine too).
+    private static bool IsShell(NetworkedItem item) => item.GetComponent<AItemContainer>() != null;
 
     private static void EnsureShellRecord(NetworkedItem shell, Guid id, string owner)
     {

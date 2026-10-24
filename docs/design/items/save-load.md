@@ -20,7 +20,7 @@ one pass and read in one pass. Enums are written by name.
   "states":       { "<id>": { "prefab": "…", "position": […], "state": { …the item's ItemSaveData… } } },
   "unowned":      [ { "id": "…", "prefab": "…", "placement": "World", "state": { … } } ],
   "authored":     [ { "authoredKey": "…", … }, { "authoredKey": "…", "placement": "Destroyed" } ],
-  "containers":   [ { "id": "…", "owner": "…", "prefab": "…", "capacity": 12, "item": "<the shell's item id>" } ],
+  "containers":   [ { "id": "<the shell's item id>", "owner": "…", "prefab": "…", "capacity": 12 } ],
   "lostAndFound": [ { "id": "…", "reason": "OwnerDistance", "utc": 0, "display": "…" } ],
   "players":      { "<identity>": { "starterKit": true } }
 }
@@ -32,7 +32,7 @@ one pass and read in one pass. Enums are written by name.
 | `states` | each owned item's one row (`SavedItemRow`): its pose and its state, by id. An installed gadget has none (vanilla's `Storage_InstalledGadgets` keeps its state) |
 | `unowned` | each unowned item worth keeping, with its home in the row: one a player carries, one in a container, a player's item lying about |
 | `authored` | scene items changed from the scene: an override (moved) or a tombstone (gone), by authored key |
-| `containers` | each cold container: its id, size and shell. Its contents are items whose home is `Container(id, slot)`. Its owner stays in this row until R5 |
+| `containers` | each cold container: its id, which is its shell's item id (OI-CON-09), and its size. Its contents are items whose home is `Container(id, slot)`; a container is stored in another when an item with its id is. Its owner stays in this row until R5 |
 | `lostAndFound` | each Lost and Found entry's reason and time. Its owner and claim are the ledger's |
 | `players` | who has had a starter kit |
 

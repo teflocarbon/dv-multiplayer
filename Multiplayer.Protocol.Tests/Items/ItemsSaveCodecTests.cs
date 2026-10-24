@@ -150,11 +150,11 @@ public sealed class ItemsSaveCodecTests
     [Test]
     public void Containers_RoundTrip_AndOneWithoutAnOwnerIsntRead()
     {
-        Guid id = Guid.NewGuid(), parent = Guid.NewGuid();
+        Guid id = Guid.NewGuid();
         ContainerRecord container = new()
         {
             PersistentContainerId = id, OwnerIdentity = Liam.ToString("D"), PrefabName = "ItemContainerToolbox",
-            Capacity = 8, ParentItemId = parent
+            Capacity = 8
         };
 
         ContainerRecord read = ItemsSaveCodec.ReadContainer(ItemsSaveCodec.WriteContainer(container));
@@ -163,7 +163,6 @@ public sealed class ItemsSaveCodecTests
         Assert.That(read.OwnerIdentity, Is.EqualTo(Liam.ToString("D")));
         Assert.That(read.PrefabName, Is.EqualTo("ItemContainerToolbox"));
         Assert.That(read.Capacity, Is.EqualTo(8));
-        Assert.That(read.ParentItemId, Is.EqualTo(parent));
         container.OwnerIdentity = string.Empty;
         Assert.That(ItemsSaveCodec.ReadContainer(ItemsSaveCodec.WriteContainer(container)), Is.Null);
     }

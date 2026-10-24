@@ -108,20 +108,16 @@ public static class Retrieval
             ContainerRecord container = cold.Containers.FirstOrDefault(c => c.PersistentContainerId == stored.ParentContainerId);
             if (container == null)
                 break;
-            // A container stored inside another names its shell item (ParentItemId); one lying in the
-            // world or carried is a live shell, bound by its container id.
+            // A container has its shell's item id: stored inside another, the shell is that row;
+            // lying in the world or carried, it is a live shell.
+            Guid parent = container.PersistentContainerId;
             LiveItems.LiveItem shell = null;
-            Guid parent = container.ParentItemId ?? Guid.Empty;
-            if (container.ParentItemId == null && ContainerServer.TryGetShellNetId(container.PersistentContainerId, out ushort shellNetId) &&
-                LiveItems.TryGet(shellNetId, out LiveItems.LiveItem live))
+            if (cold.Items.All(i => i.PersistentItemId != parent))
             {
-                shell = live;
-                parent = live.PersistentItemId;
+                if (!ContainerServer.TryGetShellNetId(parent, out ushort shellNetId) ||
+                    !LiveItems.TryGet(shellNetId, out shell))
+                    break;
             }
-            else if (parent != Guid.Empty)
-                shell = Find(parent);
-            else
-                break;
             if (shell != null)
             {
                 bool withOwner = shell.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory &&

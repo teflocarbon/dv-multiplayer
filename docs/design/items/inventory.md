@@ -156,8 +156,8 @@ An item's own saved state goes with its row (OI-COLD-13, `ItemStateText`): what 
 `ItemSaveData` keeps (a lighter's fuel, duct tape's uses, a spool's ammo, a label, an alarm's time),
 captured as the object is put away, carried on the stash request, kept in the server's row and the
 client's, and loaded into the object made at a take-out. The holder's state is laid over the
-server's row, so what changed in their hands is theirs and what only the server keeps (a container's
-id, `ContainerIdentityPatch.SaveKey`) stays the server's. A job paper's state also names its job
+server's row, so what changed in their hands is theirs and what only the server keeps (the item's
+id, `ItemIdentityPatch.Key`, which is a container's id too) stays the server's. A job paper's state also names its job
 ([Job papers](#job-papers)).
 
 ## Silhouettes

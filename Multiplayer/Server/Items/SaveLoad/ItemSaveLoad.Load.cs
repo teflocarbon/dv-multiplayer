@@ -334,7 +334,6 @@ internal static partial class ItemSaveLoad
         AuthoredItemKey = row.AuthoredItemKey,
         ParentContainerId = container,
         Slot = slot,
-        ChildContainerId = row.ChildContainerId == Guid.Empty ? null : row.ChildContainerId,
         StateVersion = row.StateVersion,
         DetachedState = row.DetachedState()
     };
