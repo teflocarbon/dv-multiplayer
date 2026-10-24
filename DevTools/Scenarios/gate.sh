@@ -103,6 +103,7 @@ runs=( # name | scenario | variables | pair kind it prefers (default player)
   "booklet-restart-host|item-bug-booklet-restart|WHO=host|player"
   "old-report-row|old-report-row|"
   "old-report-row-unslotted|old-report-row|UNSLOTTED=1"
+  "old-report-row-unowned|old-report-row|UNSLOTTED=1 UNOWNED=1"
   "car-delete-unowned|item-bug-car-delete-unowned|"
   "essential-slot-rejoin|item-bug-essential-slot-rejoin|"
   "recall-lease|item-bug-recall-lease|"

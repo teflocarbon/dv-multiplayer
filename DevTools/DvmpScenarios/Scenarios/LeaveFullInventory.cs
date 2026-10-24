@@ -41,7 +41,7 @@ namespace Dvmp.Scenarios
             public string Essential = "Compass";
         }
 
-        private const int FirstBeltSlot = 33, Capacity = 36;
+        internal const int FirstBeltSlot = 33, Capacity = 36;
 
         protected override async Task Run(Pair pair, Options o)
         {
@@ -182,7 +182,7 @@ namespace Dvmp.Scenarios
         }
 
         // Mugs into the client's inventory (unowned ones: nobody's). Result: their ids.
-        private static async Task<string[]> Fill(Pair pair, List<string> ids, int count, bool unowned)
+        internal static async Task<string[]> Fill(Pair pair, List<string> ids, int count, bool unowned)
         {
             if (count <= 0) return Array.Empty<string>();
             ushort[] mugs = await pair.Host.Run<ushort[]>(s => InGame.SpawnMugs(s, count, unowned), 180);

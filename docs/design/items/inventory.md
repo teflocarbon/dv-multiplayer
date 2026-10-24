@@ -395,8 +395,8 @@ by NetId (`NetworkedJob`), and its object is made again from its job when it lea
 - **A row the job no longer wants goes**, at the holder's join or when the job ends. That is a booklet
   of a job that's over, or an overview of a job someone took or that expired. A connected holder's is
   made and destroyed, so their game is told. A report with no free slot (or homed in Lost and Found)
-  goes to Lost and Found like other items, made from its recipe (an unowned one becomes its
-  holder's); one with no recipe (saved before C7) can never be made, and goes.
+  goes to Lost and Found like other items, made from its recipe (an unowned one is left at the
+  player's feet, as other unowned items are); one with no recipe (saved before C7) can never be made, and goes.
 - **A holder who leaves** takes their papers cold, and the jobs forget their NetIds
   (`JobPaperRows.Forget`).
 

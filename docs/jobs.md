@@ -359,8 +359,8 @@ Under D14 a player's inventory holds rows, not objects, and job papers are no ex
   
   Otherwise it goes, as vanilla's load destroys the booklets no job claims. A report has no job to
   print it again: one with no free slot (or homed in Lost and Found) goes to Lost and Found like other
-  items, made from its recipe in `PlayerItems.GoLive` (an unowned one becomes its holder's, as Lost
-  and Found takes only owned items). One with no recipe (saved before C7) can never be made, so it
+  items, made from its recipe in `PlayerItems.GoLive`. An unowned one is left at the player's feet,
+  as other unowned items are, since Lost and Found takes only owned items. One with no recipe (saved before C7) can never be made, so it
   goes. The host's own join draws its other rows at once and waits up to 10 s for its papers' jobs to
   be registered, so a booklet isn't dropped (and printed again) for a job not known yet.
 - **Leaving.** A holder who leaves takes their papers' rows cold, and their jobs forget the NetIds
