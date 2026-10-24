@@ -21,6 +21,7 @@ internal static class JobPapers
 {
     private const string JobIdKey = "jobId";
     private const string ReportKey = "mpJobReport";
+    private const string ReportJobKey = "mpReportJobId";
 
     // Each report's recipe by NetId, on every game that has seen it, so it goes with its row.
     private static readonly Dictionary<ushort, string> reports = new();
@@ -67,11 +68,20 @@ internal static class JobPapers
             (state ??= new JObject())[JobIdKey] = overviewJob.ID;
         else if (item.GetComponent<JobBooklet>() is { job: { } bookletJob } && JobIdOf(state) == null)
             (state ??= new JObject())[JobIdKey] = bookletJob.ID;
-        else if (item.GetComponent<JobReport>() != null && item.GetComponent<NetworkedItem>() is { } networked &&
+        else if (item.GetComponent<JobReport>() is { } report && item.GetComponent<NetworkedItem>() is { } networked &&
                  reports.TryGetValue(networked.NetId, out string recipe))
+        {
             (state ??= new JObject())[ReportKey] = recipe;
+            state[ReportJobKey] = report.jobID;
+        }
         return state;
     }
+
+    /// <summary>
+    /// The job id a paper's stand-in is named after: its job's, or a report's own (kept apart, as
+    /// a report outlives its job and no job takes it back).
+    /// </summary>
+    public static string NameOf(JObject state) => JobIdOf(state) ?? (string)state?[ReportJobKey];
 
     /// <summary>
     /// A paper's object made from its row, at the safety position and not yet bound to a NetId
