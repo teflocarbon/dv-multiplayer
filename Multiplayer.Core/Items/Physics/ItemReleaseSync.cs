@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Core.Items.Projection;
 
 namespace Multiplayer.Core.Items.Physics;
@@ -15,6 +16,41 @@ public static class ItemPlacementRevision
     public static bool UnchangedSince(uint revision, uint current, uint runBase, uint runTop) =>
         revision == current ||
         runTop == current && runTop != 0 && runBase <= revision && revision < current;
+
+    /// <summary>
+    /// Whether <paramref name="actor"/>'s change made at <paramref name="revision"/> still describes
+    /// where the item is: placement is unchanged since, or the only placement changes since were
+    /// the actor's own settlements (<paramref name="settledBy"/>, from <paramref name="settledBase"/>
+    /// to <paramref name="settledTop"/>). The actor simulated those itself, so it knows where the
+    /// item lies: a player grabbing an item again just as it comes to rest must not be refused
+    /// because their own settle commit reached the server first.
+    /// </summary>
+    public static bool UnchangedFor(Guid actor, uint revision, uint current, uint runBase, uint runTop,
+        Guid settledBy, uint settledBase, uint settledTop) =>
+        UnchangedSince(revision, current, runBase, runTop) ||
+        actor != Guid.Empty && actor == settledBy && settledBase <= revision && revision < current &&
+        SettlementIsLatestPlacement(current, runBase, runTop, settledTop);
+
+    /// <summary>
+    /// The settler's window after its settlement commits at <paramref name="revisionBefore"/>: from
+    /// the oldest revision whose placement it still matched (the object-state run's base, or the
+    /// earlier settlement's base if the settler's own), to the settlement's revision.
+    /// </summary>
+    public static (Guid By, uint Base, uint Top) SettledAfter(Guid settler, uint revisionBefore,
+        uint runBase, uint runTop, Guid settledBy, uint settledBase, uint settledTop)
+    {
+        if (settler == Guid.Empty || revisionBefore == uint.MaxValue)
+            return (Guid.Empty, 0, 0);
+        uint oldest = runTop == revisionBefore && runTop != 0 ? runBase : revisionBefore;
+        if (settledBy == settler && SettlementIsLatestPlacement(revisionBefore, runBase, runTop, settledTop))
+            oldest = Math.Min(oldest, settledBase);
+        return (settler, oldest, revisionBefore + 1);
+    }
+
+    // The settlement is the last placement change: the item is at its revision, or only object
+    // state changed after it (a run starts at the revision before its first change).
+    private static bool SettlementIsLatestPlacement(uint current, uint runBase, uint runTop, uint settledTop) =>
+        settledTop != 0 && (current == settledTop || runTop == current && runTop != 0 && runBase == settledTop);
 
     /// <summary>The object-state run after an accepted change at <paramref name="revisionBefore"/>.</summary>
     public static (uint Base, uint Top) RunAfter(uint revisionBefore, uint runBase, uint runTop,

@@ -50,6 +50,14 @@ public sealed class LiveItemState
     /// </summary>
     public uint ObjectStateRunBase { get; set; }
     public uint ObjectStateRunTop { get; set; }
+    /// <summary>
+    /// The player whose own settle commits were the last placement changes, from
+    /// <see cref="SettledBase"/> to <see cref="SettledTop"/>: their changes made against those
+    /// revisions still hold (<see cref="ItemPlacementRevision.UnchangedFor"/>).
+    /// </summary>
+    public Guid SettledBy { get; set; }
+    public uint SettledBase { get; set; }
+    public uint SettledTop { get; set; }
 
     public LiveItemState Clone() => new()
     {
@@ -61,7 +69,10 @@ public sealed class LiveItemState
         InventoryClaimSlot = InventoryClaimSlot,
         InventoryClaimFlags = InventoryClaimFlags,
         ObjectStateRunBase = ObjectStateRunBase,
-        ObjectStateRunTop = ObjectStateRunTop
+        ObjectStateRunTop = ObjectStateRunTop,
+        SettledBy = SettledBy,
+        SettledBase = SettledBase,
+        SettledTop = SettledTop
     };
 }
 
@@ -139,9 +150,11 @@ public static class ItemStateMachine
                 ? "item-installed" : "installed-only-by-gadgets");
         // A transition made against an older revision still holds if only object state changed
         // since: the server's copy of a lantern flickering mustn't refuse its holder's drop, nor
-        // the re-grab of an item whose flame changed as it fell.
-        if (!command.Force && !ItemPlacementRevision.UnchangedSince(command.ExpectedRevision,
-                current.Revision, current.ObjectStateRunBase, current.ObjectStateRunTop))
+        // the re-grab of an item whose flame changed as it fell. Nor does one made before the
+        // actor's own settle commit: their re-grab as it came to rest.
+        if (!command.Force && !ItemPlacementRevision.UnchangedFor(command.Actor, command.ExpectedRevision,
+                current.Revision, current.ObjectStateRunBase, current.ObjectStateRunTop,
+                current.SettledBy, current.SettledBase, current.SettledTop))
             return TransitionResult.Reject(current, "stale-authority-revision");
         if (current.Revision == uint.MaxValue)
             return TransitionResult.Reject(current, "authority-revision-exhausted");
