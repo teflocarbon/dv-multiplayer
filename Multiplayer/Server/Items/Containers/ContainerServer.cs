@@ -374,8 +374,10 @@ public static class ContainerServer
         // unless no slot is free and it goes loose. The ledger moves first, and back if the item
         // can't be made or the graph refuses (OI-CON-03).
         Home inBox = Home.Container(container.PersistentContainerId, sourceSlot), taken = default;
-        bool ledgerMoved = false;
-        LiveItems.LiveItem loose = null;
+        bool ledgerMoved = false, failed = false;
+        LiveItems.LiveItem loose = null, made = null;
+        ContainerOperationResult committed = default;
+        int slot = -1;
         try
         {
             if (actor.PlayerId == 0)
@@ -384,7 +386,7 @@ public static class ContainerServer
                 throw new InvalidOperationException("withdraw-prefab-not-found");
             SavedItemRow row = ItemSaveLoad.RowOfStored(record);
             row.OwnerIdentity = owner;
-            int slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, ServerLedger.ClaimOf(row.PersistentItemId),
+            slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, ServerLedger.ClaimOf(row.PersistentItemId),
                 actor.Guid);
             ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, actor,
                 ItemChangeCauses.Detail(ItemChangeLog.Describe(
@@ -412,12 +414,12 @@ public static class ContainerServer
             // A scene's own item stays taken from the scene, as the object it was would have.
             ItemSaveLoad.RecordAuthoredTaken(row);
             // Its entry is where it goes already: the row is only placed, not settled again.
-            LiveItems.LiveItem made = slot >= 0
+            made = slot >= 0
                 ? PlayerItems.Issue(actor, row, slot, cause, own: _ => string.Empty)
                 : ItemSaveLoad.MakeLive(row, owner != Guid.Empty, out loose) ? loose : null;
             if (made == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
-            ContainerOperationResult committed = graph.CommitWithdrawal(operationId);
+            committed = graph.CommitWithdrawal(operationId);
             if (!committed.Accepted)
             {
                 if (slot >= 0)
@@ -425,6 +427,33 @@ public static class ContainerServer
                 throw new InvalidOperationException("withdraw-logical-commit-failed:" + committed.Reason);
             }
             loose = null;
+        }
+        catch (Exception exception)
+        {
+            // A loose object made for a withdrawal that didn't commit goes back as a deposit's does.
+            if (loose != null && NetworkedItem.TryGet(loose.NetId, out NetworkedItem unmade) && unmade != null)
+            {
+                unmade.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.DepositedInContainer, actor,
+                    "its withdrawal wasn't committed"));
+                unmade.BeginColdStorageRetirement();
+                UnityEngine.Object.Destroy(unmade.gameObject);
+            }
+            if (ledgerMoved)
+                ServerLedger.CommitStored(record.PersistentItemId, record.PrefabName, taken, inBox,
+                    ItemChangeLog.Move(ItemMoveReason.HostCorrection, actor, "withdrawal rolled back: " + exception.Message));
+            graph.AbortWithdrawal(operationId, exception.Message);
+            if (exception.Message != "withdraw-actor-left")
+                Multiplayer.LogException("Cold-container withdrawal failed", exception);
+            failed = true;
+            completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
+                ContainerOperationStatus.InvalidState, exception.Message, operationId), 0);
+        }
+        if (failed)
+            yield break;
+
+        // Committed: the row is the item in its new home, and nothing after this moves it back.
+        try
+        {
             // An owned item with no slot goes on to its owner's Lost and Found; if that refuses it,
             // it stays at the withdrawer's feet.
             if (slot < 0 && owner != Guid.Empty && NetworkedItem.TryGet(made.NetId, out NetworkedItem item) && item != null &&
@@ -438,27 +467,12 @@ public static class ContainerServer
                 ["destinationInventorySlot"] = slot,
                 ["containerHandle"] = containerHandle
             });
-            completed?.Invoke(committed, made.NetId);
         }
         catch (Exception exception)
         {
-            // A loose object made for a withdrawal that didn't commit goes back as a deposit's does.
-            if (loose != null && NetworkedItem.TryGet(loose.NetId, out NetworkedItem made) && made != null)
-            {
-                made.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.DepositedInContainer, actor,
-                    "its withdrawal wasn't committed"));
-                made.BeginColdStorageRetirement();
-                UnityEngine.Object.Destroy(made.gameObject);
-            }
-            if (ledgerMoved)
-                ServerLedger.CommitStored(record.PersistentItemId, record.PrefabName, taken, inBox,
-                    ItemChangeLog.Move(ItemMoveReason.HostCorrection, actor, "withdrawal rolled back: " + exception.Message));
-            graph.AbortWithdrawal(operationId, exception.Message);
-            if (exception.Message != "withdraw-actor-left")
-                Multiplayer.LogException("Cold-container withdrawal failed", exception);
-            completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
-                ContainerOperationStatus.InvalidState, exception.Message, operationId), 0);
+            Multiplayer.LogException("Cold-container withdrawal: after its commit", exception);
         }
+        completed?.Invoke(committed, made.NetId);
         yield break;
     }
 
