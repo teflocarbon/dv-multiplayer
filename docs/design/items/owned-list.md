@@ -93,7 +93,7 @@ asked, so Lost and Found's nearby-player protection and grace period don't apply
 | `Slot` or `Hand` of the owner | `NothingToDo` | refused, `nothing-to-retrieve` |
 | `Slot` or `Hand` of another player | `TakeFromHolder` | taken from them, then into Lost and Found |
 | `World`, `TrainInterior`, `Shelf` | `Collect` | into Lost and Found now |
-| `Container` | `OutermostContainer` | the outermost container not with the owner goes, whole |
+| `Container` | `OutermostContainer` | the outermost of the owner's own boxes around it goes, whole; out of a box that isn't theirs, it comes out alone |
 | `LostAndFound`, `Missing` | `NothingToDo` | refused, `nothing-to-retrieve` |
 | `Attached`, `Snapped`, `Installed` | `NotYet` | refused, `not-retrievable-yet` |
 
@@ -102,17 +102,25 @@ OI-LIST-15 (paused: gadgets). A shelf retrieval is built but unproved (OI-LIST-0
 
 ### The outermost container
 
-An item in a container goes as the outermost container that isn't with its owner, everything in it
-(OI-LIST-10). `Retrieval.Target` walks up the cold container graph
-(`ContainerServer.Graph.ExportSnapshot()`), at most 16 levels, from the item to the first live shell:
-a container lying in the world or carried is a live shell, bound by its container id
-(`ContainerServer.TryGetShellNetId`); one stored inside another names its shell item, and the walk
-goes on from there. If that shell is in the owner's own hand or inventory, there is nothing to do
-(`nothing-to-retrieve`). If the walk can't reach a live shell, `unknown-item`. Otherwise the shell is
-what goes, from wherever it is, by the rules above. The access check and Lost and Found are asked of
-the shell, not the item: a deposit needs only the item to be the depositor's, so an owner's mug in a
-toolbox nobody owns, or someone else's, is listed retrievable but refused at step 4 below. Taking the
-item itself out of the box, asked about the item, is R5's (OI-LIST-23).
+An item in a box goes with the boxes around it that are its owner's own, up to the outermost, which
+goes whole, everything in it (OI-LIST-10). `Retrieval.Target` walks up the container graph from the
+item: a box stored in another names its shell item, and the walk goes on from there; the outermost
+box is a live shell, lying in the world or carried, bound by its container id
+(`ContainerServer.TryGetShellNetId`). If the outermost shell is in the owner's own hand or inventory,
+or is theirs and in their Lost and Found, there is nothing to do (`nothing-to-retrieve`). If the walk
+can't reach a live shell, `unknown-item`. Otherwise the shell is what goes, from wherever it is, by
+the rules above, and the access check and Lost and Found are asked of it. A box with a deposit or a
+withdrawal part way inside it is refused `container-busy` (OI-LIST-18).
+
+### Out of a box
+
+The first box on the way up that isn't the owner's (someone else's, or nobody's) stays where it is,
+and what of theirs is in it comes out alone (OI-LIST-23): the item itself, or the outermost of their
+own boxes it is in. It is asked about itself (`ItemAccessServer.AllowsRow`, from its row), taken out
+by the server (`ContainerServer.TakeOutLoose`, [containers.md](containers.md#taken-out-by-the-server):
+settled, else `container-busy`; the ledger moves it to `World`; made an object at DV's safety
+position), and goes on to Lost and Found like any other. So an owner's mug in a toolbox nobody owns,
+or in someone else's, comes back to them, and the box stays with whoever has it.
 
 ### From another player
 
@@ -135,7 +143,7 @@ Found records the reason `RetrievedByOwner` (OI-LF-20).
 
 An item in a connected remote player's inventory is data only on the server (OI-COLD-06): no object
 there. Before a retrieval is carried out, `NetworkServer.DataOnlyNamed` finds its subject
-(`Retrieval.Subject`: the item, or for an item in a container the outermost shell) and, if it's data
+(`Retrieval.Subject`: the item, or for an item in a box the outermost shell that goes) and, if it's data
 only, `PlayerItems.WithObject` makes it again under the same NetId first. The retrieval then runs
 on the object; `item-data-unavailable` if it couldn't be made.
 
@@ -146,8 +154,10 @@ on the object; `item-data-unavailable` if it couldn't be made.
 1. the handle and the ledger entry exist, else `unknown-item`;
 2. `CanRetrieve`: the entry is live, else `unknown-item`; the requester owns it, else
    `not-your-item` (OI-LIST-20); the rule above allows it, else `nothing-to-retrieve` or
-   `not-retrievable-yet`; for a container, the walk finds a shell;
-3. the subject (the item, or the outermost shell) has a live record and object, else `unknown-item`;
+   `not-retrievable-yet`; for an item in a box, the walk finds what goes;
+3. out of a box that isn't the owner's, the row is asked about and taken out ("Out of a box"), and
+   goes on at step 6; otherwise the subject (the item, or the outermost shell) is settled, else
+   `container-busy`, and has a live record and object, else `unknown-item`;
 4. `ItemAccessServer.Allows(owner, Retrieve, subject)`: the subject is the owner's, else
    `requester-not-persistent-owner` ([access.md](access.md));
 5. from another player's hand or inventory, `TakeFromHolder`; its transition's refusal if it fails;
@@ -155,12 +165,12 @@ on the object; `item-data-unavailable` if it couldn't be made.
    doesn't go.
 
 The answer is one `ClientboundItemResultPacket` (`ItemRefusals.Classify` gives the code:
-`not-your-item` is `NotYours`, `nothing-to-retrieve` and `unknown-item` `UnknownItem`,
+`not-your-item` is `NotYours`, `nothing-to-retrieve` and `unknown-item` `UnknownItem`, `container-busy` `Busy`,
 `not-retrievable-yet` `NotAllowed`), followed by a fresh list.
 
 A recall is one step ([wire.md](wire.md#recall)), so a retrieval never meets one half done
-(OI-LIST-17). A retrieval of a container mid-withdrawal or mid-deposit isn't refused yet
-(OI-LIST-18, R5).
+(OI-LIST-17), and a box with a deposit or withdrawal part way inside it is refused `container-busy`
+(OI-LIST-18), as is a row part way out of or into a box.
 
 ## Tests
 
@@ -178,6 +188,8 @@ Scenarios (`DevTools/DvmpScenarios/Scenarios/`):
 - `owned-retrieve`: ground, cab and boxed mugs retrieved into Lost and Found (the toolbox whole), a
   mug in the client's own inventory refused (`nothing-to-retrieve`), a fresh list after the refusal,
   and on a player host the client's lantern taken back out of the host's hand.
+- `retrieve-from-box`: the client's mug in a toolbox nobody owns comes out alone into its Lost and
+  Found, and the box stays (OI-LIST-23).
 - `ledger-rows`: the host's retrieval of the client's mug is refused (`not-your-item`); the owner's
   list names another player's inventory and its own hand (OI-LIST-21); the client retrieves its mug
   from the host's inventory, and Lost and Found records `RetrievedByOwner` (OI-LIST-12, OI-LF-20).

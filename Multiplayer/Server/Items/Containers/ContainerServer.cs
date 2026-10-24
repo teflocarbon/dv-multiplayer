@@ -457,6 +457,146 @@ public static class ContainerServer
         yield break;
     }
 
+    /// <summary>Where an item made only to go into Lost and Found is made: DV's own safety position.</summary>
+    internal static Vector3 SafetyPosition => StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION - WorldMover.currentMove;
+
+    /// <summary>
+    /// The server takes a settled row out of its box with no player's request (a retrieval:
+    /// docs/design/items/containers.md, "Taken out by the server"), made an object again loose at
+    /// <paramref name="position"/>. Its ledger entry moves from the box to the world first. Null, with
+    /// the reason, when it isn't settled (OI-LIST-18) or can't be made; then nothing has changed.
+    /// </summary>
+    internal static NetworkedItem TakeOutLoose(Guid itemId, Vector3 position, ChangeCause<ItemMoveReason> cause,
+        out string reason)
+    {
+        reason = string.Empty;
+        if (!graph.TryGetItem(itemId, out StoredItemRecord stored))
+        {
+            reason = "container-item-not-found";
+            return null;
+        }
+        if (!graph.IsSettled(itemId))
+        {
+            reason = "container-item-busy";
+            return null;
+        }
+        NetworkedItem item = MakeLoose(stored, position, cause);
+        if (item == null)
+        {
+            reason = "container-item-not-made";
+            return null;
+        }
+        if (graph.TakeOut(itemId, out reason) != null)
+            return item;
+        // Settled a moment ago, so this doesn't happen; if it does, the row stays the item.
+        item.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.DepositedInContainer, detail: "it couldn't be taken out: " + reason));
+        item.BeginColdStorageRetirement();
+        UnityEngine.Object.Destroy(item.gameObject);
+        MoveBack(stored, "it couldn't be taken out: " + reason);
+        return null;
+    }
+
+    // A stored row made an object again, loose: an owned one's ledger entry moves from its box to
+    // the world first, and back if it can't be made. The graph's row is the caller's.
+    private static NetworkedItem MakeLoose(StoredItemRecord stored, Vector3 position, ChangeCause<ItemMoveReason> cause)
+    {
+        Guid.TryParse(graph.OwnerOf(stored.PersistentItemId), out Guid owner);
+        SavedItemRow row = ItemSaveLoad.RowOfStored(stored);
+        row.OwnerIdentity = owner;
+        row.Placement = ItemPlacementKind.World;
+        row.WorldParentKind = ItemWorldParentKind.World;
+        row.Position = position;
+        row.Rotation = Quaternion.identity;
+        if (owner != Guid.Empty)
+        {
+            string refused = ServerLedger.CommitStored(stored.PersistentItemId, stored.PrefabName,
+                Home.Container(stored.ParentContainerId, stored.Slot), Home.World, cause);
+            if (refused.Length > 0)
+            {
+                Multiplayer.LogWarning($"Cold container: {stored.PrefabName} ({stored.PersistentItemId:D}) couldn't come out: the ledger refused, {refused}");
+                return null;
+            }
+        }
+        ItemSaveLoad.RecordAuthoredTaken(row);
+        if (ItemSaveLoad.MakeLive(row, owner != Guid.Empty, out LiveItems.LiveItem made) &&
+            NetworkedItem.TryGet(made.NetId, out NetworkedItem item) && item != null)
+            return item;
+        Multiplayer.LogWarning($"Cold container: {stored.PrefabName} ({stored.PersistentItemId:D}) couldn't be made");
+        MoveBack(stored, "it couldn't be made");
+        return null;
+    }
+
+    private static void MoveBack(StoredItemRecord stored, string why)
+    {
+        if (!string.IsNullOrEmpty(graph.OwnerOf(stored.PersistentItemId)))
+            ServerLedger.CommitStored(stored.PersistentItemId, stored.PrefabName, Home.World,
+                Home.Container(stored.ParentContainerId, stored.Slot),
+                ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "taken back into its box: " + why));
+    }
+
+    /// <summary>
+    /// Host: an item went away (<see cref="ItemChangeLog.RecordRemoval"/>). A box's shell destroyed
+    /// for good takes its container with it (OI-CON-11, docs/design/items/containers.md, "A box
+    /// destroyed"): an owned item in it goes to its owner's Lost and Found, whole if it's a box, and
+    /// an unowned one goes with the box, its own contents dealt with the same way. A shell put in a
+    /// box, collected, gone cold or remade keeps its container.
+    /// </summary>
+    internal static void OnRemoved(NetworkedItem shell, ChangeCause<ItemRemovalReason> cause)
+    {
+        if (!ServerLedger.Loaded || shell == null || !IsShell(shell))
+            return;
+        switch (cause.Reason)
+        {
+            case ItemRemovalReason.DepositedInContainer:
+            case ItemRemovalReason.CollectedToLostAndFound:
+            case ItemRemovalReason.LeftInterest:
+            case ItemRemovalReason.WentCold:
+            case ItemRemovalReason.RemadeFresh:
+            case ItemRemovalReason.AuthoredSlotReplaced:
+                return;
+        }
+        // Unloading the world or quitting destroys every item without ending any of them.
+        if (UnloadWatcher.isUnloading || UnloadWatcher.isQuitting || !shell.gameObject.scene.isLoaded)
+            return;
+        Guid id = shellByNetId.TryGetValue(shell.NetId, out Guid bound) ? bound
+            : LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) ? record.PersistentItemId : Guid.Empty;
+        shellByNetId.Remove(shell.NetId);
+        if (id == Guid.Empty || !graph.IsContainer(id))
+            return;
+        Vector3 at = shell.transform.position - WorldMover.currentMove;
+        int lost = 0, gone = 0;
+        Clear(id, at, cause, ref lost, ref gone);
+        Multiplayer.Log($"Cold container: {shell.name} ({id:D}) was destroyed ({cause.Reason}): " +
+                        $"{lost} of its items went to their owners' Lost and Found, {gone} unowned went with it");
+    }
+
+    private static void Clear(Guid containerId, Vector3 at, ChangeCause<ItemRemovalReason> cause, ref int lost, ref int gone)
+    {
+        foreach (StoredItemRecord row in graph.RemoveContainer(containerId))
+        {
+            if (string.IsNullOrEmpty(graph.OwnerOf(row.PersistentItemId)))
+            {
+                gone++;
+                if (graph.IsContainer(row.PersistentItemId))
+                    Clear(row.PersistentItemId, at, cause, ref lost, ref gone);
+                continue;
+            }
+            // Owned: out where the box was, then on to its owner's Lost and Found, whole.
+            lost++;
+            NetworkedItem item = MakeLoose(row, at, ItemChangeLog.Move(ItemMoveReason.CollectedToLostAndFound,
+                detail: "its box was destroyed: " + cause.Reason));
+            if (item == null)
+            {
+                // Its box is gone, so it can't go back: its entry ends with it.
+                ServerLedger.Ledger.End(row.PersistentItemId, cause.Reason, detail: "its box was destroyed and it couldn't be made");
+                continue;
+            }
+            if (!LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, "its box was destroyed"))
+                Multiplayer.LogWarning($"Cold container: {row.PrefabName} ({row.PersistentItemId:D}) came out of a destroyed box " +
+                                       "and Lost and Found refused it; it is where the box was");
+        }
+    }
+
     internal static void PublishMaterializedItem(ItemUpdate snapshot, NetworkedItem item)
     {
         NetworkLifecycle lifecycle = NetworkLifecycle.Instance;

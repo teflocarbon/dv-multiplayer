@@ -569,6 +569,60 @@ public sealed class ContainerGraphTests
             root, Revision(root), outer, slot: 1)).Accepted, Is.True, "two deep under the outermost fits");
     }
 
+    [Test]
+    public void TakeOut_TakesASettledRowOutOfItsBox_AndMovesTheBoxOn()
+    {
+        StoredItemRecord item = Item();
+        Deposit(root, 0, item);
+        graph.FinalizeDepositRetirement(Guid.NewGuid(), item.PersistentItemId);
+        uint before = Revision(root);
+
+        StoredItemRecord taken = graph.TakeOut(item.PersistentItemId, out string reason);
+
+        Assert.That(taken, Is.Not.Null, reason);
+        Assert.That(taken.ParentContainerId, Is.EqualTo(root));
+        Assert.That(taken.Slot, Is.EqualTo(0));
+        Assert.That(graph.TryGetItem(item.PersistentItemId, out _), Is.False);
+        Assert.That(Revision(root), Is.GreaterThan(before));
+    }
+
+    [Test]
+    public void ARowPartWay_IsntSettled_AndTheServerCantTakeItOut()
+    {
+        // OI-LIST-18: a retrieval meets no deposit or withdrawal half done.
+        StoredItemRecord box = Box(), item = Item();
+        Deposit(root, 0, box);
+        graph.FinalizeDepositRetirement(Guid.NewGuid(), box.PersistentItemId);
+        Deposit(box.PersistentItemId, 0, item);
+
+        Assert.That(graph.IsSettled(root), Is.False, "a box with a deposit part way inside it");
+        Assert.That(graph.TakeOut(box.PersistentItemId, out string reason), Is.Null);
+        Assert.That(reason, Is.EqualTo("container-item-busy"));
+
+        graph.FinalizeDepositRetirement(Guid.NewGuid(), item.PersistentItemId);
+        Assert.That(graph.IsSettled(root), Is.True);
+    }
+
+    [Test]
+    public void RemoveContainer_GivesBackItsRows_AndABoxAmongThemKeepsItsOwn()
+    {
+        // OI-CON-11: a destroyed box's rows go with it, for the server to deal with.
+        StoredItemRecord loose = Item(), box = Box(), inner = Item();
+        Deposit(root, 0, loose);
+        Deposit(root, 1, box);
+        Deposit(box.PersistentItemId, 0, inner);
+
+        IReadOnlyList<StoredItemRecord> rows = graph.RemoveContainer(root);
+
+        Assert.That(rows.Select(row => row.Slot), Is.EquivalentTo(new[] { 0, 1 }));
+        Assert.That(rows.All(row => row.ParentContainerId == root), Is.True);
+        Assert.That(graph.TryGetContainer(root, out _), Is.False);
+        Assert.That(graph.TryGetItem(loose.PersistentItemId, out _), Is.False);
+        Assert.That(graph.TryGetContainer(box.PersistentItemId, out _), Is.True);
+        Assert.That(graph.TryGetItem(inner.PersistentItemId, out _), Is.True);
+        Assert.That(graph.RemoveContainer(root), Is.Empty);
+    }
+
     // An empty box: a shell owned by Owner whose container has its id.
     private StoredItemRecord Box()
     {

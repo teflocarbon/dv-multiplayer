@@ -2,6 +2,7 @@ using System;
 using Multiplayer.Core.Diagnostics;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.LiveState;
+using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
@@ -75,6 +76,7 @@ public static class ItemChangeLog
             cause, record?.LastMove ?? default));
         Multiplayer.Log(ItemChangeLogFormat.Removed(Name(item, record), item.NetId, cause));
         ServerLedger.OnRemoved(item, cause);
+        ContainerServer.OnRemoved(item, cause);
     }
 
     public static string PlayerName(byte playerId) =>
