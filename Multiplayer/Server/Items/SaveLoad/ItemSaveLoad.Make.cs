@@ -56,6 +56,10 @@ internal static partial class ItemSaveLoad
     /// <summary>Its state is still being loaded: nobody is sent it yet.</summary>
     public static bool IsRestorePending(NetworkedItem item) => item != null && pendingRepresentations.Contains(item);
 
+    /// <summary>Whether an item of this prefab can be made here: from its spec, or a job paper from its job.</summary>
+    internal static bool PrefabKnown(string prefabName) =>
+        FindSpec(prefabName) != null || Shared.Jobs.JobPapers.IsPaper(prefabName);
+
     internal static InventoryItemSpec FindSpec(string prefabName) =>
         string.IsNullOrEmpty(prefabName) ? null : Globals.G?.Items?.items?.FirstOrDefault(candidate =>
             candidate != null && string.Equals(candidate.ItemPrefabName, prefabName, StringComparison.Ordinal));
@@ -131,6 +135,8 @@ internal static partial class ItemSaveLoad
         NetworkedItem existing = FindExisting(row.PersistentItemId, row.AuthoredItemKey);
         if (existing != null || row.PersistentItemId == Guid.Empty)
             return existing;
+        if (Shared.Jobs.JobPapers.IsPaper(row.PrefabName))
+            return MakePaper(row);
         InventoryItemSpec spec = FindSpec(row.PrefabName);
         if (spec == null)
             return null;
@@ -139,6 +145,21 @@ internal static partial class ItemSaveLoad
         ItemIdentity identity = instance.GetComponent<ItemIdentity>() ?? instance.AddComponent<ItemIdentity>();
         identity.Value = row.PersistentItemId;
         return instance.GetComponent<NetworkedItem>() ?? instance.AddComponent<NetworkedItem>();
+    }
+
+    // A job paper is made from its job, and a report from its recipe, never from its prefab, which
+    // would have nothing printed on it (OI-COLD-07). Null if its job or recipe is gone.
+    private static NetworkedItem MakePaper(SavedItemRow row)
+    {
+        Component paper = Shared.Jobs.JobPapers.Make(row.PrefabName, row.State, row.Position + WorldMover.currentMove, row.Rotation);
+        if (paper == null)
+            return null;
+        ItemIdentity identity = paper.GetComponent<ItemIdentity>() ?? paper.gameObject.AddComponent<ItemIdentity>();
+        identity.Value = row.PersistentItemId;
+        NetworkedItem item = paper.GetComponent<NetworkedItem>() ?? paper.gameObject.AddComponent<NetworkedItem>();
+        if (Shared.Jobs.JobPapers.Track(item, paper, 0, true, row.State) is { } report)
+            Jobs.JobReportArtifactRegistry.Register(report);
+        return item;
     }
 
     private static NetworkedItem FindExisting(Guid persistentId, string authoredKey)

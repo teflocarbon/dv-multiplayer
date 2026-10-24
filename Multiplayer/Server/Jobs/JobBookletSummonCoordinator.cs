@@ -4,6 +4,7 @@ using System.Linq;
 using DV.Booklets;
 using DV.ThingTypes;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
@@ -63,8 +64,9 @@ public static class JobBookletSummonCoordinator
                     Vector3.up * (0.02f * index);
                 Quaternion rotation = validator.bookletPrinter.spawnAnchor.rotation;
 
-                if (!job.TryGetIssuedJobBooklet(requester.PlayerId, out NetworkedItem item))
+                if (!job.TryGetIssuedJobBooklet(requester.PlayerId, out ushort copy))
                 {
+                    NetworkedItem item;
                     job.PendingBookletIssuedToPlayerId = requester.PlayerId;
                     try
                     {
@@ -80,8 +82,13 @@ public static class JobBookletSummonCoordinator
                 }
                 else
                 {
-                    Relocate(item, requester, position, rotation);
-                    Publish("job.booklet-copy-summoned", job, item, requester.PlayerId);
+                    // A copy in an inventory is a row: its object is made first (D14, OI-COLD-07).
+                    NetworkedJob summoned = job;
+                    PlayerItems.WithObject(copy, item =>
+                    {
+                        Relocate(item, requester, position, rotation);
+                        Publish("job.booklet-copy-summoned", summoned, item, requester.PlayerId);
+                    });
                 }
 
                 validator.bookletPrinter.Print(true);

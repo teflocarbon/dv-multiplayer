@@ -105,8 +105,11 @@ public partial class NetworkClient : IJobsClient
             LogError($"JobReport artifact {artifact.ArtifactToken} conflicts with item {artifact.ItemNetId}.");
             return false;
         }
-        if (!NetworkedJob.Get(artifact.JobNetId, out NetworkedJob networkedJob) || networkedJob?.Job == null)
-            return false;
+        // Its recipe is all it needs: a report outlives its job (one restored from the save, or of a
+        // job over before this player joined), and only a job still here keeps it in its list.
+        NetworkedJob.Get(artifact.JobNetId, out NetworkedJob networkedJob);
+        if (networkedJob?.Job?.ID != artifact.Job?.Id)
+            networkedJob = null;
 
         Job_data jobData = artifact.Job.ToGameData();
         Debt_data debtData = artifact.Debt?.ToGameData();
@@ -118,7 +121,8 @@ public partial class NetworkClient : IJobsClient
 
         NetworkedItem netItem = report.GetOrAddComponent<NetworkedItem>();
         netItem.Initialize(report, artifact.ItemNetId, false);
-        networkedJob.AddReport(netItem);
+        networkedJob?.AddReport(netItem);
+        JobPapers.KeepReport(netItem.NetId, artifact);
         pendingJobReportArtifacts.Remove(artifact.ItemNetId);
         DebugRuntime.Publish("job", "job.report-artifact-materialized", DebugRuntimeSide.Client,
             entityType: "Item", entityId: artifact.ItemNetId.ToString(), data: new Dictionary<string, object>

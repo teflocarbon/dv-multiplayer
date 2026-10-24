@@ -208,12 +208,12 @@ Doesn't work, or unverified:
 - **Expired and missing-licence reports** have no render recipe and no client-side producer. They
   are do-not-create but not in `IsJobDocumentPrefab`, so a client receiving one falls through to
   generic creation. What clients actually see is unverified.
-- **Reports of jobs the client doesn't know** never appear: `TryMaterializeJobReport` needs the
-  `NetworkedJob`, and a joining client is sent only active jobs. A completed job's report lying
-  in the world stays pending on a late joiner.
-- **Reports across a reload**: `JobReportArtifactRegistry` is in memory only and reports aren't
-  excluded from world-item persistence, so a report restored from the save has no recipe to send.
-  Not tested in game.
+- **Reports of jobs the client doesn't know** are drawn from their recipe alone (R4C C7):
+  `TryMaterializeJobReport` no longer needs the `NetworkedJob`, which a joining client isn't sent
+  once the job is over. A job still here keeps the report in its list.
+- **Reports across a reload**: a report's recipe is saved in its row's state
+  (`JobPapers.Complete`, `mpJobReport`), and a report restored from the save is made from it
+  (`ItemSaveLoad.MakePaper`), its recipe registered again under its new NetId for clients.
 - **Issuance across sessions**: the issuance index is keyed by session player ID and isn't saved;
   after a reload or rejoin, a reprint may issue a fresh copy rather than summon the old one.
 
@@ -326,10 +326,39 @@ registered by `ReconcileExistingJobs` and `OnJobTaken` ignores the load-game tak
 doesn't broadcast spurious state changes. A client keeps nothing between sessions: on every join
 or rejoin it gets the active jobs afresh at `ReadyForJobs`, with all live booklet copies.
 
-Booklets aren't saved, so on load DV prints a replacement for each taken job into the local
-player's inventory (`JobSaveManager.CreateAndInitializeJobBookletForJob`). On a player host that is
-the host's player; a dedicated host has none, and `JobBookletRecoveryPatch` skips it there. Players
-who took a job reprint its booklet at a validator.
+A booklet or overview a player carries is a row, saved with them like any item
+(`ItemSaveLoad.IsUnsavedJobPaper`), and back in their slot when they're back (D14, OI-COLD-07,
+OI-COLD-15; see "Papers in inventories" below). Ones lying about or on a board aren't saved: the job
+system makes them again. On load DV prints a replacement booklet for each taken job into the local
+player's inventory (`JobSaveManager.CreateAndInitializeJobBookletForJob`). `JobBookletRecoveryPatch`
+holds it until the ledger is loaded and the host's own rows are back, and skips it for a job whose
+booklet a player carries (`JobPaperRows.HasBookletRow`). On a player host the rest go to the host's
+player; a dedicated host has none, and the patch skips them all there. Players without their
+booklet reprint it at a validator.
+
+### Papers in inventories
+
+Under D14 a player's inventory holds rows, not objects, and job papers are no exception
+(`JobPapers`, `JobPaperRows`):
+
+- **The job keeps its papers by NetId.** `NetworkedJob` keeps its overview's NetId and every booklet
+  copy's, object or row. `JobOverview` and `JobBooklets` give only the objects, so `JobData` sends
+  only the papers that are objects.
+- **A stashed paper is data only on the server and a stand-in in its holder's game.** Its row's state
+  names its job: a booklet's own `jobId`, and an overview's added by `JobPapers.Complete`. A report's
+  carries its render recipe (`mpJobReport`, the artifact), which outlives its job.
+- **Its object is made again from its job when it leaves the slot**, under the same NetId
+  (`JobPapers.Make` and `Track`, with `BookletCreator`). The server's `BookletCreator` patches leave
+  it unregistered while it's made. The job then registers it again, and other games print their copy
+  from that update. A game that has the paper as a stand-in doesn't print it.
+- **Joining.** A paper's row goes live only while its job wants it (`JobPaperRows.Wanted`):
+  - a booklet while its job is in progress;
+  - an overview while its job is offered, in place of the one the job printed on the board at the load.
+  
+  Otherwise it goes, as vanilla's load destroys the booklets no job claims.
+- **When a job ends**, its papers in inventories go with it (`JobPaperRows.OnJobEnded`): a connected
+  holder's is made and destroyed, and an absent holder's row is dropped.
+- **A summon** of a stashed copy makes its object first, then moves it to the printer.
 
 ## Tasks and warehouses
 

@@ -252,7 +252,27 @@ A stand-in is never destroyed as an item (`InventoryStandInPatches.DestroyItem` 
 on add), and spent duct tape, a spent soldering spool and a spent paint can, each in the hand or in a
 live magazine. The other destroy side effects run on an object only, as a put-away destroys through
 the mod's retirement path: a shop's restock (`ShopRestockerRetirementPatch`), a container's contents
-(`BeginColdStorageRetirement`), the container id, a clock's registration. Job papers are C7's.
+(`BeginColdStorageRetirement`), the container id, a clock's registration. Job papers are under
+"Job papers".
+
+## Job papers
+
+A booklet, an overview or a report in an inventory is a row like any item (D14, OI-COLD-07,
+OI-COLD-15): data only on the server, and a stand-in in its holder's game, whose look is the
+paper's prefab's (`InventoryStandIn.FindSpec` takes it from the game's resources). Its job keeps it
+by NetId (`NetworkedJob`), and its object is made again from its job when it leaves the slot
+(`JobPapers.Make`, with `BookletCreator`), not from its prefab, which has nothing printed on it.
+
+- **The row's state names its job.** A booklet saves its own `jobId`; `JobPapers.Complete` adds an
+  overview's, and a report's render recipe (its artifact), which outlives its job.
+- **Saved with its holder.** A paper a player carries is saved as their item is, and is back in its
+  slot after a restart. Ones on a board or lying about aren't saved, as before: the job system makes
+  them again. Vanilla's reprint at the load skips a job whose booklet a player carries.
+- **A row the job no longer wants goes**, at the holder's join or when the job ends. That is a booklet
+  of a job that's over, or an overview of a job someone took or that expired. A connected holder's is
+  made and destroyed, so their game is told.
+
+docs/jobs.md ("Papers in inventories") has the job side.
 
 ## Tests
 

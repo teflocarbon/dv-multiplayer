@@ -11,14 +11,18 @@ namespace Multiplayer.Shared.Items.Inventory;
 /// </summary>
 internal static class ItemStateText
 {
-    /// <summary>The object's state now, or empty when it has none or it won't save.</summary>
+    /// <summary>
+    /// The object's state now, or empty when it has none or it won't save. A job paper's says which
+    /// job it's for (and a report's, its render recipe), so it can be made again (OI-COLD-07).
+    /// </summary>
     public static string Capture(GameObject item)
     {
-        if (item == null || item.GetComponent<ItemSaveData>() is not { } saveData)
+        if (item == null)
             return string.Empty;
+        ItemSaveData saveData = item.GetComponent<ItemSaveData>();
         try
         {
-            return saveData.SaveItemData()?.ToString(Formatting.None) ?? string.Empty;
+            return Jobs.JobPapers.Complete(item, saveData != null ? saveData.SaveItemData() : null)?.ToString(Formatting.None) ?? string.Empty;
         }
         catch (Exception exception)
         {
