@@ -21,7 +21,7 @@ namespace Dvmp.Scenarios
     /// an item it can't make is refused) and once with one (as a stale revision is). Each time the
     /// client's object goes, the stand-in is back in its slot, and the server and ledger still have
     /// it there. Then, unrefused, the take-out goes through. A remote client only: the host's own
-    /// player keeps objects until R4C C4.
+    /// player's take-out is committed in process, with nothing to refuse.
     /// </summary>
     [Scenario("takeout-refused", "The server refuses a client's take-out, with and without a correction: the object goes and the stand-in is back in its slot")]
     [Budget(240)]

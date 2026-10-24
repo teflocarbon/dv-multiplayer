@@ -17,41 +17,29 @@ internal sealed partial class ClientItemManager
     // stand-in (and an object of it here goes); one that takes it anywhere else makes its object
     // from the row, with its state, and the stand-in goes. A put-away by the player
     // (InventoryPutAwayPatch) swaps the object for its stand-in before vanilla adds it, asks the
-    // server, and the object goes. The host's own player keeps objects until C4; VR belt items
-    // (OI-COLD-14), job papers (C7) and items with no prefab here stay objects.
+    // server, and the object goes. The host's own player is the server's (HostInventory); VR belt
+    // items (OI-COLD-14), job papers (C7) and items with no prefab here stay objects.
 
     /// <summary>Whether this game's own inventory is stand-ins: a remote client's, in a session.</summary>
     internal static bool StandInsActive => NetworkRole.IsRemoteClient && NetworkRole.LocalPlayerId != 0 &&
         DV.InventorySystem.Inventory.Instance != null;
 
-    /// <summary>Whether an item of this prefab can be a stand-in: a prefab known here, not job papers.</summary>
-    internal static bool CanStandIn(string prefabName) =>
-        InventoryStandIn.FindSpec(prefabName) != null && !NetworkedItemManager.IsJobDocumentPrefab(prefabName);
+    public bool Active => StandInsActive;
+
+    public bool CatchesDirectAdds => true;
 
     /// <summary>Whether this object goes into the inventory as a stand-in when the player puts it away.</summary>
-    internal bool PutsAwayAsStandIn(NetworkedItem item) =>
+    public bool PutsAwayAsStandIn(NetworkedItem item) =>
         StandInsActive && item != null && item.NetId != 0 && item.Item != null && !shell.DoNotCreateItem(item) &&
-        CanStandIn(item.Item.InventorySpecs?.itemPrefabName) &&
+        InventoryStandIn.CanStandIn(item.gameObject) &&
         !DV.InventorySystem.Inventory.Instance.IsDestroyedOnAddedToInventory(item.gameObject);
-
-    /// <summary>The stand-in an object of the local player's becomes as it's put away, with its row's fields and state.</summary>
-    internal static InventoryStandIn StandInFor(NetworkedItem item)
-    {
-        InventoryStandIn standIn = InventoryStandIn.For(item.NetId, item.Item.InventorySpecs.itemPrefabName);
-        standIn.Relation = item.Relation;
-        standIn.ClaimSlot = item.InventoryClaimSlot;
-        standIn.ClaimFlags = item.InventoryClaimFlags;
-        standIn.Revision = item.AuthorityRevision;
-        standIn.State = ItemStateText.Capture(item.gameObject);
-        return standIn;
-    }
 
     /// <summary>
     /// The local player put an object away and vanilla has its stand-in in a slot: the server is
     /// asked for the stash, with the item's state for its row (OI-COLD-13), and the object goes
     /// through the retirement path. A refusal comes back as the item's update and makes it again.
     /// </summary>
-    internal void CommitPutAway(NetworkedItem item, InventoryStandIn standIn)
+    public void CommitPutAway(NetworkedItem item, InventoryStandIn standIn)
     {
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         int slot = inventory.IndexOf(standIn.gameObject);
@@ -96,7 +84,7 @@ internal sealed partial class ClientItemManager
             return false;
         InventoryStandIn.TryGet(update.ItemNetId, out InventoryStandIn standIn);
         string prefabName = !string.IsNullOrEmpty(update.PrefabName) ? update.PrefabName : standIn?.PrefabName;
-        if (!CanStandIn(prefabName))
+        if (!InventoryStandIn.CanStandIn(prefabName))
             return false;
         DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
         // An enabled VR belt slot holds the object itself, as a hand does (OI-COLD-14).
@@ -104,6 +92,9 @@ internal sealed partial class ClientItemManager
             return false;
         if (NetworkedItem.TryGet(update.ItemNetId, out NetworkedItem item) && item != null)
         {
+            // A loaded magazine stays the object it is, its ammo inside (OI-CON-16).
+            if (!InventoryStandIn.CanStandIn(item.gameObject))
+                return false;
             bool held = inventory.GetEquipSlotForItem(item.gameObject) >= 0 || item.Item?.IsGrabbed() == true;
             // The player holds it: their own request decides, unless this is the server refusing
             // it (a take-out rolled back), which puts it back in its slot.
@@ -130,25 +121,10 @@ internal sealed partial class ClientItemManager
             standIn.State = state;
         else if (InventoryRows.TryGet(update.ItemNetId, out InventoryRows.Row row) && !string.IsNullOrEmpty(row.State))
             standIn.State = row.State;
-        PlaceStandIn(standIn, update);
+        standIn.Place(update);
         if (update.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
             ItemClient.Current?.SendWorldItemProjectionAck(update.ItemNetId, update.AuthorityRevision, true);
         return true;
-    }
-
-    // In the slot the server has it in (OI-SLOT-01): an essential in its claim slot through the
-    // claim, anything else exactly, as an object was placed before D14.
-    private static void PlaceStandIn(InventoryStandIn standIn, ItemUpdate update)
-    {
-        GameObject gameObject = standIn.gameObject;
-        bool reserved = NetworkedItem.HasRetrievalFlag(update.InventoryClaimFlags);
-        bool inClaim = update.InventoryClaimSlot >= 0 &&
-            (update.InventorySlot < 0 || update.InventorySlot == update.InventoryClaimSlot);
-        bool placed = inClaim
-            ? InventoryIntegration.RestoreClaim(gameObject, update.InventoryClaimSlot).Succeeded || reserved
-            : update.InventorySlot >= 0 && InventoryIntegration.PlaceAt(gameObject, update.InventorySlot) >= 0;
-        if (!placed && InventoryIntegration.AddActive(gameObject) < 0)
-            Multiplayer.LogWarning($"Inventory: no slot for {standIn.PrefabName} (netId {standIn.NetId}), which the server has in slot {update.InventorySlot}");
     }
 
     /// <summary>

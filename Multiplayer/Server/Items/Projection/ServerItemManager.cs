@@ -9,6 +9,7 @@ using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Items.TrainWake;
 using Multiplayer.Server.Items.WorldItems;
 using Multiplayer.Server.Session;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Protocol.Packets.Serverbound;
 using Multiplayer.Shared.Protocol.Data.Items;
@@ -42,6 +43,8 @@ internal sealed partial class ServerItemManager : IItemManagerServerPart
         HostSpatial = new ServerItemSpatial(shell.Spatial, this);
         TrainItemWake = new TrainItemWakeServer(shell.Spatial, HostSpatial);
         Replenishment = new OfficeStockReplenishment(this);
+        // A player host's own inventory is rows, as a client's is (D14).
+        InventoryRowHolder.Host = HostInventory.Instance;
     }
 
     /// <summary>The host's side of the Shared spatial manager's leases.</summary>

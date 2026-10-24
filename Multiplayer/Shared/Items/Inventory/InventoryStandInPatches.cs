@@ -153,4 +153,29 @@ internal static class InventoryStandInPatches
         __result = standIn.IsBeltSnappable;
         return false;
     }
+
+    // Vanilla's inventory save lists the slots' ItemBases and logs an error for each slot without
+    // one. A stand-in's row is saved by the mod, and vanilla's list is the mod's mirror (D2), so
+    // while it saves, its copy of the slots has no stand-ins.
+    private static bool savingStorage;
+
+    [HarmonyPatch(typeof(StorageSerializer), nameof(StorageSerializer.SaveStorage))]
+    [HarmonyPrefix]
+    private static void BeforeSaveStorage() => savingStorage = true;
+
+    [HarmonyPatch(typeof(StorageSerializer), nameof(StorageSerializer.SaveStorage))]
+    [HarmonyFinalizer]
+    private static void AfterSaveStorage() => savingStorage = false;
+
+    // A copy (vanilla's cache, refilled on each call), so blanking it changes no slot.
+    [HarmonyPatch(typeof(DV.InventorySystem.Inventory), nameof(DV.InventorySystem.Inventory.GetItemsArray))]
+    [HarmonyPostfix]
+    private static void SavedSlots(GameObject[] __result)
+    {
+        if (!savingStorage || __result == null)
+            return;
+        for (int i = 0; i < __result.Length; i++)
+            if (StandIn(__result[i]) != null)
+                __result[i] = null;
+    }
 }

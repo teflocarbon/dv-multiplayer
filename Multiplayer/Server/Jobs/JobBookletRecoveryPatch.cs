@@ -58,7 +58,7 @@ public static class JobBookletRecoveryPatch
             return false;
         StrongBox<float> since = waitingSince.GetValue(coroutine, _ => new StrongBox<float>(Time.realtimeSinceStartup));
         Guid host = NetworkServer.Instance?.LocalPlayer?.Guid ?? Guid.Empty;
-        bool waiting = !ServerLedger.Loaded || host == Guid.Empty || ColdInventories.Of(host).Count > 0;
+        bool waiting = !ServerLedger.Loaded || host == Guid.Empty || PlayerItems.RowsPending(host);
         if (!waiting || float.IsNaN(since.Value))
             return false;
         if (Time.realtimeSinceStartup - since.Value > MaxWait)

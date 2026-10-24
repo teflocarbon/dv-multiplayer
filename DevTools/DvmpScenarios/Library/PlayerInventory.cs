@@ -1,6 +1,7 @@
 // The local player's inventory as the scenarios see it (docs/design/items/inventory.md, "Stand-ins";
-// D14): on a remote client a slot holds the item's stand-in (InventoryStandIn, the row) and no object;
-// the host's own player still holds objects (until R4C C4). These read and act on either, by NetId.
+// D14): a slot holds the item's stand-in (InventoryStandIn, the row) and no object, on a remote client and
+// for a player host's own player; an object (a VR belt item, job papers) can be in one too. These read
+// and act on either, by NetId.
 using System;
 using System.Collections;
 using System.Collections.Generic;

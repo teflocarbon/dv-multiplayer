@@ -1,11 +1,10 @@
+using System;
 using DV.InventorySystem;
 using HarmonyLib;
-using Multiplayer.Client.Items.Projection;
-using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using UnityEngine;
 
-namespace Multiplayer.Client.Items.Inventory;
+namespace Multiplayer.Shared.Items.Inventory;
 
 /// <summary>
 /// The local player putting an object away (docs/design/items/inventory.md, "Putting away"; D14,
@@ -13,8 +12,9 @@ namespace Multiplayer.Client.Items.Inventory;
 /// an object added straight in. Before vanilla adds it, the object and its stand-in swap places in
 /// vanilla's data, so vanilla adds the stand-in, its events carry the stand-in and nothing parks
 /// the object. Once it's in its slot the server is asked for the stash and the object goes
-/// (<see cref="ClientItemManager.CommitPutAway"/>); if vanilla didn't add it, the swap is undone.
-/// A VR belt slot keeps the object, as a hand does (OI-COLD-14).
+/// (<see cref="IInventoryRowHolder.CommitPutAway"/>), or on the host the stash is committed there; if
+/// vanilla didn't add it, the swap is undone. A VR belt slot keeps the object, as a hand does
+/// (OI-COLD-14). The same on a client and for a player host's own player (<see cref="InventoryRowHolder"/>).
 /// </summary>
 [HarmonyPatch(typeof(DV.InventorySystem.Inventory))]
 internal static class InventoryPutAwayPatch
@@ -23,6 +23,27 @@ internal static class InventoryPutAwayPatch
     {
         public NetworkedItem Item;
         public InventoryStandIn StandIn;
+    }
+
+    private static int notPutAway;
+
+    /// <summary>
+    /// An add of the mod's own that isn't a put-away: an essential's silhouette, made by adding the
+    /// object to its slot and dropping it (InventoryIntegration.EnsureDroppedClaim). As a put-away
+    /// it became a stand-in and a stash the server refused (the item is in Lost and Found), and the
+    /// silhouette was gone.
+    /// </summary>
+    internal static T NotAPutAway<T>(Func<T> add)
+    {
+        notPutAway++;
+        try
+        {
+            return add();
+        }
+        finally
+        {
+            notPutAway--;
+        }
     }
 
     [HarmonyPatch("UnequipItem", new[] { typeof(bool), typeof(int), typeof(bool), typeof(InventoryActionType), typeof(InventorySlotState) },
@@ -53,8 +74,10 @@ internal static class InventoryPutAwayPatch
         out PutAway __state)
     {
         __state = null;
-        // A held object is added through the unequip above; a silhouette isn't a put-away.
-        if (addAsDropped || item == null || __instance.GetEquipSlotForItem(item) >= 0)
+        // A held object is added through the unequip above; a silhouette isn't a put-away. The host
+        // sweeps up what it adds directly (IInventoryRowHolder.CatchesDirectAdds).
+        if (InventoryRowHolder.Current?.CatchesDirectAdds != true || addAsDropped || notPutAway > 0 || item == null ||
+            __instance.GetEquipSlotForItem(item) >= 0)
             return;
         __state = Begin(__instance, item, slot);
         if (__state != null)
@@ -67,12 +90,12 @@ internal static class InventoryPutAwayPatch
 
     private static PutAway Begin(DV.InventorySystem.Inventory inventory, GameObject gameObject, int slot)
     {
-        ClientItemManager manager = ClientItemManager.Instance;
+        IInventoryRowHolder holder = InventoryRowHolder.Current;
         NetworkedItem item = gameObject.GetComponent<NetworkedItem>();
-        if (manager == null || slot < 0 || !manager.PutsAwayAsStandIn(item) || inventory.Contains(gameObject, false) ||
+        if (holder == null || slot < 0 || !holder.PutsAwayAsStandIn(item) || inventory.Contains(gameObject, false) ||
             inventory.IsValidVRBeltIndex(slot) && item.Item.IsBeltSnappable)
             return null;
-        InventoryStandIn standIn = ClientItemManager.StandInFor(item);
+        InventoryStandIn standIn = InventoryStandIn.ForObject(item);
         VanillaInventorySlots.Rebind(inventory, gameObject, standIn.gameObject);
         return new PutAway { Item = item, StandIn = standIn };
     }
@@ -83,7 +106,7 @@ internal static class InventoryPutAwayPatch
             return;
         if (putAway.StandIn != null && inventory.Contains(putAway.StandIn.gameObject, false))
         {
-            ClientItemManager.Instance?.CommitPutAway(putAway.Item, putAway.StandIn);
+            InventoryRowHolder.Current?.CommitPutAway(putAway.Item, putAway.StandIn);
             return;
         }
         // Vanilla didn't take it (a full inventory): the object is where it was.
