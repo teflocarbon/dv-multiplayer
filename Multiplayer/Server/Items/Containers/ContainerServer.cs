@@ -201,8 +201,16 @@ public static class ContainerServer
         if (paper && !JobPapers.CanBeRow(item.gameObject))
             return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.Incompatible,
                 "deposit-paper-cannot-be-row", operationId);
+        // A shell's container is in the graph for its check (nesting, depth); one made here for a
+        // deposit that goes no further is taken away again, so a refused deposit adds no row (F7).
+        bool madeContainer = IsShell(item) && !graph.IsContainer(itemId);
         if (IsShell(item))
             EnsureShellRecord(item, itemId);
+        void UnmakeContainer()
+        {
+            if (madeContainer)
+                graph.RemoveContainer(itemId);
+        }
         JObject detached = JobPapers.Complete(item.gameObject, item.GetComponent<ItemSaveData>()?.SaveItemData());
         StoredItemRecord record = new()
         {
@@ -231,7 +239,10 @@ public static class ContainerServer
         };
         ContainerOperationResult check = graph.CheckDeposit(command);
         if (!check.Accepted)
+        {
+            UnmakeContainer();
             return check;
+        }
 
         // The ledger first (docs/design/items/containers.md, "Deposit"): the item's home is the
         // slot the graph checked, and every later failure moves it back.
@@ -240,12 +251,16 @@ public static class ContainerServer
             $"{destination.PrefabName} slot {slot}");
         string ledgerRefused = ServerLedger.CommitStored(itemId, record.PrefabName, before, stored, depositing);
         if (ledgerRefused.Length > 0)
+        {
+            UnmakeContainer();
             return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.InvalidState,
                 "deposit-ledger-refused:" + ledgerRefused, operationId);
+        }
         ContainerOperationResult result = graph.CommitDeposit(command);
         if (!result.Accepted)
         {
             RollBackDeposit(itemId, record.PrefabName, stored, before, result.Reason);
+            UnmakeContainer();
             return result;
         }
 

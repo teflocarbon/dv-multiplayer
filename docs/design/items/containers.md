@@ -43,7 +43,10 @@ take from it (`ContainerGraph.KeeperOf`):
 
 A box nobody owns, holds or keeps is shut. The server binds a live shell to its container (a row
 made from its id and capacity) once it has an owner or a holder, so a box nobody has touched adds
-nothing to the save.
+nothing to the save. A deposit that goes no further takes away a container it made for the
+deposited box, and the save leaves out an empty container whose item is gone (no record, row,
+ledger entry or stored row has its id; `ItemSaveLoad.WriteContainers`): its shell makes it again
+if it ever binds.
 
 A browse marks each slot whose item is owned by someone other than the keeper (`ForeignOwned`): a
 box picked up from someone else shows their items as theirs.
