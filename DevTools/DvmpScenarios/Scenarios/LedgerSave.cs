@@ -59,7 +59,7 @@ namespace Dvmp.Scenarios
 
             ushort stashed = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Flashlight", "client"));
             await pair.Client.Run<int>(s => Items.Stash(s, stashed, false), 60);
-            await Own("flashlight in the client's inventory", stashed, client, "With/Inventory " + client);
+            await Own("flashlight in the client's inventory", stashed, client, "Slot " + client);
 
             ushort dropped = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             await pair.Client.Run(() => LostAndFound.InGame.Claim(dropped), 60);
@@ -70,17 +70,17 @@ namespace Dvmp.Scenarios
             ushort cab = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "client"));
             await pair.Client.Run(() => LostAndFound.InGame.Claim(cab), 60);   // the client's before it boards with it
             await pair.Client.Run<float>(s => Items.CarryIntoCab(s, loco, cab, "drop", 90), 90);
-            string cabId = await Own("mug in the loco's cab", cab, client, "World car:");
+            string cabId = await Own("mug in the loco's cab", cab, client, "TrainInterior");
 
             ushort held = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Lantern", "client"));
             await pair.Client.Run<int>(s => Items.Stash(s, held, true), 60);
-            await Own("lantern in the client's hand", held, client, "With/Hand " + client);
+            await Own("lantern in the client's hand", held, client, "Hand " + client);
 
             if (!pair.Dedicated)
             {
                 ushort hostStashed = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Flashlight", "host"));
                 await pair.Host.Run<int>(s => Items.Stash(s, hostStashed, false), 60);
-                await Own("flashlight in the host's inventory", hostStashed, host, "With/Inventory " + host);
+                await Own("flashlight in the host's inventory", hostStashed, host, "Slot " + host);
                 ushort hostDropped = await pair.Host.Run<ushort>(s => Items.SpawnPersonal(s, "Mug", "host"));
                 await pair.Host.Run(() => LostAndFound.InGame.Claim(hostDropped), 60);
                 await Own("the host's mug on the ground", hostDropped, host, "World");
@@ -96,8 +96,8 @@ namespace Dvmp.Scenarios
             await Task.Delay(15000);   // the client receives its restored items
             Expect.That(await pair.Host.Run(() => Owned.Loaded()), "the ledger was loaded after the restart");
             // A hand item is saved in the inventory.
-            foreach (Owned_ item in items.Where(i => i.Where.StartsWith("With/Hand")))
-                item.Where = item.Where.Replace("With/Hand", "With/Inventory");
+            foreach (Owned_ item in items.Where(i => i.Where.StartsWith("Hand ")))
+                item.Where = "Slot" + item.Where.Substring("Hand".Length);
             await CheckAll(pair, items, "after the restart", null);
 
             string[] borns = (await pair.Host.Run(() => Owned.Entries(items.Select(i => i.Id).ToArray()))).Select(e => e.Born).ToArray();
