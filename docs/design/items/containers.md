@@ -1,6 +1,6 @@
 # Containers
 
-> Status: built in R5 of the [item refactor](../item-refactor.md) (#367-#375, drafts, 2026-10-25), not yet
+> Status: built in R5 of the [item refactor](../item-refactor.md) (#367-#376, drafts, 2026-10-25), not yet
 > proved in a game: that is the end pass (OI-REF-01). It covers cold containers: what a stored
 > item is, who keeps a box, deposit, withdrawal, moves between boxes and ammo in a magazine. The ledger it commits to is
 > [ledger.md](ledger.md); the save rows are [save-load.md](save-load.md); who may deposit is
