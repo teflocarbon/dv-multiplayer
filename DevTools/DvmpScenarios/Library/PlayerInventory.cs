@@ -160,6 +160,18 @@ namespace Dvmp.Scenarios
             return go != null ? Inv.DropItemFromHandsOrInventory(go) : null;
         }
 
+        /// <summary>Asks the server to recall the item into a slot, as clicking its silhouette does: by its
+        /// object, else by its stand-in's row (an item in Lost and Found has no object here). Result:
+        /// whether a request went out.</summary>
+        public static bool Recall(ushort netId, int slot)
+        {
+            NetworkedItemManager manager = NetworkedItemManager.Instance;
+            if (manager == null) return false;
+            if (NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null) return manager.RequestItemRecall(item, slot);
+            return InventoryStandIn.TryGet(netId, out InventoryStandIn standIn) &&
+                   manager.RequestItemRecall(netId, standIn.Revision, standIn.Relation, slot);
+        }
+
         /// <summary>Moves whatever is in a slot to another, as dragging it in the UI does.</summary>
         public static bool Move(int from, int to) => Inv.MoveItemFromTo(from, to, false);
     }

@@ -146,7 +146,8 @@ namespace Dvmp.Scenarios
         /// <summary>
         /// After a run's cleanups: what its spawn steps made is removed, and must then be gone from
         /// both games; no cab control lease is still held; every item has one home (the ledger's
-        /// invariant check, docs/design/items/ledger.md). Each is a failure: a car that can't be
+        /// invariant check, docs/design/items/ledger.md); no inventory slot holds an object where its
+        /// row should be (D14, docs/design/items/inventory.md). Each is a failure: a car that can't be
         /// deleted, a lease never given back or an item in two places is a bug the next run would
         /// trip over.
         /// </summary>
@@ -162,6 +163,7 @@ namespace Dvmp.Scenarios
                 if (cars.Length > 0) Expect.Empty(await peer.Quiet(() => Cars.Existing(cars)), $"{peer.Name}: cars the run spawned that couldn't be deleted");
                 if (items.Length > 0) Expect.Empty(await peer.Quiet(() => Items.Existing(items)), $"{peer.Name}: items the run spawned that couldn't be destroyed");
                 Expect.Empty(await peer.Quiet(() => World.HeldLeases()), $"{peer.Name}: cab control leases still held");
+                Expect.Empty(await peer.Quiet(() => Invariant.ObjectsInSlots()), $"{peer.Name}: objects in inventory slots where their rows should be");
             }
         }
 

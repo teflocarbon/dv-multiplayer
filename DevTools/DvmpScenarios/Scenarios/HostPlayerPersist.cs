@@ -69,13 +69,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static State ReadState()
             {
-                var inv = DV.InventorySystem.Inventory.Instance;
-                var names = new List<string>();
-                for (int s = 0; s < inv.Capacity; s++)
-                {
-                    var go = inv.PeekItemAtSlot(s, false);
-                    if (go != null) names.Add(go.name.Replace("(Clone)", ""));
-                }
+                var names = PlayerInventory.Stored().Select(e => PlayerInventory.PrefabOf(e.go).Replace("(Clone)", "")).ToList();
                 names.Sort(StringComparer.Ordinal);
                 var dupes = names.GroupBy(n => n).Where(g => g.Count() > 1).Select(g => g.Key + " x" + g.Count());
                 return new State { Inventory = string.Join(",", names), Duplicates = string.Join(",", dupes), Position = Positions.Of(PlayerManager.PlayerTransform.position) };

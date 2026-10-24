@@ -289,19 +289,19 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator AttachToCoupler(Step<string> step, ushort netId, string car)
             {
-                yield return Items.Arrive(netId);
-                NetworkedItem.TryGet(netId, out NetworkedItem item);
+                // Granted into a client's inventory, it's a stand-in, and its object is made as it drops (D14).
+                yield return Wait.Until(() => PlayerInventory.SlotObject(netId) != null, 20f, $"item {netId} to arrive");
                 TrainCar c = Trains.Find(car);
                 Vector3 coupler = Dev.Abs(c.frontCoupler.transform.position);
                 yield return LocalPlayer.TeleportToGround(coupler.x + 1.5f, coupler.z);
                 yield return Wait.Until(() => c.physicsLod != null && c.physicsLod.GetCouplerSnapPoints().Any(), 20f, "the car's coupler snap points");
-                if (DV.InventorySystem.Inventory.Instance.IndexOf(item.gameObject) >= 0 &&
-                    DV.InventorySystem.Inventory.Instance.DropItemFromHandsOrInventory(item.gameObject) == null)
+                if (PlayerInventory.Slot(netId) >= 0 && PlayerInventory.Drop(netId) == null)
                     throw new Exception("couldn't take the lantern out of the inventory");
                 for (int i = 0; i < 30; i++) yield return null;
                 // From the hand: the server takes an attach only from a player holding the item.
                 yield return Hands.Pickup(netId);
                 for (int i = 0; i < 30; i++) yield return null;
+                NetworkedItem.TryGet(netId, out NetworkedItem item);
                 var point = c.physicsLod.GetCouplerSnapPoints().OrderByDescending(p => p.IsFront).First();
                 item.Item.ItemRigidbody.isKinematic = false;
                 if (!point.SnapItem(item.Item, false)) throw new Exception("the coupler refused the lantern");
