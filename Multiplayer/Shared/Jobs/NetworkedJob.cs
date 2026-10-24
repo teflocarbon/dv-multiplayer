@@ -374,7 +374,7 @@ public class NetworkedJob : IdMonoBehaviour<ushort, NetworkedJob>
     // When another player takes the job, this player's copy of its paperwork is destroyed. Vanilla's
     // drop leaves a locked or reserved slot pointing at the item, so the slot kept a dead overview
     // that couldn't be taken out until the job's booklet was printed. Clear every trace of it.
-    private static void RemoveFromInventory(ItemBase itemBase, ushort netId)
+    internal static void RemoveFromInventory(ItemBase itemBase, ushort netId)
     {
         if (itemBase == null)
             return;

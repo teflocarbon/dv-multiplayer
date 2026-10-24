@@ -27,8 +27,12 @@ public class ClientboundJobsUpdatePacket
             switch (job.Cause)
             {
                 case NetworkedJob.DirtyCause.JobOverview:
-                    validationItemNetId = job.JobOverview.NetId;
-                    itemPositionData = ItemPositionData.FromItem(job.JobOverview);
+                    // Its overview can have gone since (a paper made from its row to end with its job).
+                    if (job.JobOverview is { } overview)
+                    {
+                        validationItemNetId = overview.NetId;
+                        itemPositionData = ItemPositionData.FromItem(overview);
+                    }
                     break;
                 case NetworkedJob.DirtyCause.JobBooklet:
                     validationItemNetId = job.LastChangedJobBooklet?.NetId ?? 0;

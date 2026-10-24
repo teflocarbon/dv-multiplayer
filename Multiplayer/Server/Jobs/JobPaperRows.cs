@@ -1,4 +1,5 @@
 using System.Linq;
+using DV.CabControls;
 using DV.ThingTypes;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Server.Items.ChangeCauses;
@@ -96,10 +97,13 @@ internal static class JobPaperRows
                 Drop(row, $"its job {jobId} is over");
     }
 
+    // Out of its slot first: vanilla's DestroyJobOverview is a bare Destroy, which would leave the
+    // host's slot pointing at it.
     private static void Destroy(NetworkedItem item)
     {
         if (item == null)
             return;
+        NetworkedJob.RemoveFromInventory(item.GetComponent<ItemBase>(), item.NetId);
         if (item.GetTrackedItem<JobBooklet>() is { } booklet)
             booklet.DestroyJobBooklet();
         else if (item.GetTrackedItem<JobOverview>() is { } overview)
