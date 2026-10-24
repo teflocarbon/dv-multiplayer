@@ -112,6 +112,7 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
         standIn.ClaimFlags = item.InventoryClaimFlags;
         standIn.Revision = item.AuthorityRevision;
         standIn.State = ItemStateText.Capture(item.gameObject);
+        TutorialRadio.Keep(item);
         return standIn;
     }
 

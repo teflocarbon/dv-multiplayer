@@ -82,6 +82,8 @@ public partial class NetworkedItemManager : SingletonBehaviour<NetworkedItemMana
         // A remote client's: its side of the spatial stream, deferred world projections and the
         // unbound items it classifies.
         ClientPart?.Update();
+        // The local player's stashed alarms and radios, from their rows.
+        global::Multiplayer.Shared.Items.Inventory.StashedItems.Update();
     }
 
     internal void QueueLocalStateObservation(NetworkedItem item, string reason)
