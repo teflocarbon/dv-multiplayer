@@ -54,7 +54,7 @@ internal static partial class PlayerItems
             states.Add(row.State?.ToString(Formatting.None) ?? string.Empty);
             taken++;
         }
-        NetworkServer.Instance.SendInventoryRows(player, rows, states);
+        NetworkServer.Instance.SendInventoryRows(player, rows, states, full: true);
         if (taken > 0)
             Multiplayer.Log($"Inventory: {player.Username} joined; sent {taken} item(s) of their inventory as rows");
 

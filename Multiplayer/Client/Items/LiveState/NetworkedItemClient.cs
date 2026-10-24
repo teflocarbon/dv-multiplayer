@@ -203,6 +203,9 @@ public sealed class NetworkedItemClient : INetworkedItemClientPart
                 "not-a-request");
             return;
         }
+        // The item's own state goes up with it, for its row (OI-COLD-13).
+        if (request.Action == ItemAction.Stash)
+            request.SavedState = ItemStateText.Capture(gameObject);
         ItemClient.Current?.SendItemRequest(request);
     }
 

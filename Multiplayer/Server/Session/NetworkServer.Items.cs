@@ -207,13 +207,17 @@ public partial class NetworkServer : IItemServer
                     SendItemUpdatesTo(recipient, one);
     }
 
-    /// <summary>A joiner's inventory as rows (OI-COLD-03): each Create built for them, beside its saved state.</summary>
-    public void SendInventoryRows(ServerPlayer recipient, List<ItemUpdate> rows, List<string> states)
+    /// <summary>
+    /// Rows of a player's inventory (OI-COLD-03, D14): each Create built for them, beside its saved
+    /// state. <paramref name="full"/> is the whole inventory (the join), sent even when empty.
+    /// </summary>
+    public void SendInventoryRows(ServerPlayer recipient, List<ItemUpdate> rows, List<string> states, bool full = false)
     {
-        if (recipient?.Peer == null || recipient == LocalPlayer || rows == null || rows.Count == 0)
+        if (recipient?.Peer == null || recipient == LocalPlayer || rows == null || rows.Count == 0 && !full)
             return;
         ClientboundInventoryRowsPacket packet = new()
         {
+            Full = full,
             Rows = rows.Select(row => BuildFor(row, recipient)).ToList(),
             States = states.ToArray()
         };
@@ -506,6 +510,8 @@ public partial class NetworkServer : IItemServer
         ItemUpdate change = ItemRequestTranslation.ToChange(request, player.PlayerId);
         change.PrefabName = item.Item?.InventorySpecs?.ItemPrefabName ?? string.Empty;
         string refusal = item.Server_ReceiveItemUpdate(change, player);
+        if (refusal == null && request.Action == ItemAction.Stash)
+            PlayerItems.KeepStashedState(item.NetId, request.SavedState);
         return refusal == null ? Accept(request, RevisionOf(item.NetId), item.NetId) : Refuse(request, refusal);
     }
 
