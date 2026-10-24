@@ -1,0 +1,2 @@
+# Built into a Linux image: CRLF breaks the shell scripts.
+* text eol=lf

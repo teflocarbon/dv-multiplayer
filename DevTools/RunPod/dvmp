@@ -1,0 +1,6 @@
+#!/bin/sh
+# dvmp on a test pod: the Windows build (push.sh sends it), run by the same Wine as the games.
+. /opt/dvmp/env.sh
+# .NET otherwise loads Proton's ICU and exits 3 ("Cannot get symbol u_charsToUChars").
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+exec wine "$HOME/dvmp/repo/DevTools/Dvmp/bin/pod/dvmp.exe" "$@"

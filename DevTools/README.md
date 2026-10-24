@@ -12,6 +12,7 @@ run C# inside either game, take screenshots, and read logs. Debug-only; never sh
 | `Dvmp/Probes/*.cs` | Probes behind the tools (`host`, `join`, `snapshot`, `soak`, `trace-install`, `trace-show`) compiled and sent into the game at runtime. Edit them without rebuilding the agent. |
 | `Scenarios/` | Regression scenarios (`<name>/run.sh` plus its probes) and `gate.sh`, which runs them all. |
 | `DvmpScenarios/` | Regression scenarios in C#, replacing `Scenarios/` one at a time ([design](../docs/design/scenarios.md)): a net48 exe compiled against the mod, run by `dvmp scenario`. Its `[Step]` methods run inside the games through the agent's `/v1/load` and `/v1/invoke`. |
+| `RunPod/` | [Test pairs on RunPod](RunPod/README.md) GPU pods: the game under GE-Proton with no Steam, on the GNS transport. The pod image, its boot script, and `push.sh` to send a build from the PC. |
 
 ## Build
 
@@ -327,7 +328,10 @@ DevContext.Background("l010-controls")?.Stop();
   start minimised at below-normal priority, are muted, use the lowest graphics quality, and
   are capped at 30 fps (20 fps when not the foreground window). While a game loads (its loading
   screen is up, or its world is streaming in) the cap is 60 fps, since loading steps take a frame
-  each; `-dvmp-loading-fps N` changes it, 0 lifts it. This only applies to games
+  each; `-dvmp-loading-fps N` changes it, 0 lifts it. `DVMP_JOB_WORKERS=N` (or `-dvmp-job-workers N`)
+  limits Unity's job worker threads, one per core by default. The RunPod image sets 4: under Wine,
+  Unity counts every core of the machine, not the pod's CPU quota, and 47 workers per game on a
+  10-vCPU pod cost 0.85 cores and held the games at 18 fps instead of 30. This only applies to games
   started with `-dvmp-role`; nothing is written to the game's settings. Override with
   `dvmp up --visible --fps 60 --sound` (or the `background`/`fpsCap`/`sound` tool arguments).
   Probes can change it live via `HarnessMode.FpsCap`, `HarnessMode.LoadingFpsCap`, `HarnessMode.Muted`, etc.
