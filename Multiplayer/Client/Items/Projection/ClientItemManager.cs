@@ -95,6 +95,7 @@ internal sealed partial class ClientItemManager : IItemManagerClientPart
         Spatial.Clear();
         ClientDetachedAuthoredSlots.Clear();
         InventoryRows.Clear();
+        RetireStandIns();
     }
 
     public bool IsLostAndFoundTombstoned(ushort itemNetId) =>

@@ -92,8 +92,10 @@ internal static class InventoryOwnershipUiPatch
             ? spec.GetComponent<NetworkedItem>() ?? spec.GetComponentInParent<NetworkedItem>()
             : null;
         ColdContainerItemProxy coldProxy = data?.Spec as ColdContainerItemProxy;
-        InventoryItemPresentation presentation = InventoryIntegration.Project(item,
-            item != null && ItemServer.Current?.IsInLostAndFound(item.NetId) == true);
+        InventoryStandIn standIn = data?.Spec as InventoryStandIn;
+        InventoryItemPresentation presentation = standIn != null
+            ? InventoryIntegration.Project(standIn)
+            : InventoryIntegration.Project(item, item != null && ItemServer.Current?.IsInLostAndFound(item.NetId) == true);
         ForeignItemInventoryMarker marker = __instance.itemImage.gameObject.GetComponent<ForeignItemInventoryMarker>() ??
             __instance.itemImage.gameObject.AddComponent<ForeignItemInventoryMarker>();
         bool foreign = coldProxy?.ForeignOwned == true || presentation.ShowForeignStyle;
@@ -105,6 +107,7 @@ internal static class InventoryOwnershipUiPatch
         byte localPlayerId = InventoryIntegration.LocalPlayerId;
         string key = coldProxy != null
             ? $"cold:{coldProxy.ContainerHandle}:{coldProxy.ItemHandle}:{localPlayerId}"
+            : standIn != null ? $"{standIn.NetId}:{standIn.Relation}:{localPlayerId}"
             : $"{item.NetId}:{item.Relation}:{localPlayerId}";
         if (markedEvents.Add(key))
             DebugRuntime.Publish("item", "item.foreign-item-ui-marked", DebugRuntimeSide.Client,

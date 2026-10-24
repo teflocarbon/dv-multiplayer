@@ -242,6 +242,9 @@ internal sealed class DerailValleyInventoryRuntimeAdapter : IInventoryRuntimeAda
         if (other != null && other.InventoryClaimSlot == expectedSlot &&
             (other.InventoryClaimFlags & (ItemInventoryClaimFlags.Reserved | ItemInventoryClaimFlags.Locked)) != 0)
             return;
+        InventoryStandIn otherStandIn = occupant.GetComponent<InventoryStandIn>();
+        if (otherStandIn != null && otherStandIn.ClaimSlot == expectedSlot && otherStandIn.HasRetrievalClaim)
+            return;
         int free = LastFreeOffBelt(inventory, expectedSlot);
         if (free < 0)
             return;
@@ -475,6 +478,12 @@ internal static class InventoryIntegration
             item?.NetId ?? 0, item?.Relation ?? ItemRelation.Nobodys, runtime.LocalPlayerId != 0,
             retrievalEligible, hasRetrievalClaim, isLostAndFound));
     }
+
+    /// <summary>A stand-in's slot as drawn: from its row (D14).</summary>
+    public static InventoryItemPresentation Project(InventoryStandIn standIn) =>
+        InventoryPresentationPlanner.Plan(new InventoryPresentationInput(
+            standIn?.NetId ?? 0, standIn?.Relation ?? ItemRelation.Nobodys, runtime.LocalPlayerId != 0,
+            standIn != null && standIn.IsEssential, standIn?.HasRetrievalClaim == true, false));
 
     // The local player's inventory UI (Client/Items/Inventory/InventoryOwnershipUiPatch) asks with these.
     internal static bool RuntimeActive => runtime.RuntimeActive;
