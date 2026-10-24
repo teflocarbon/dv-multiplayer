@@ -123,7 +123,7 @@ Unloading the world or quitting destroys every shell without clearing any contai
 
 A vanilla magazine (`ItemMagazine`: a boombox's cassette, a sprayer's paint can, a soldering tool's
 spool) is an item container too, its ammo inactive under the world's origin parent, not under the
-tool. Its ammo has a home in both of the tool's forms (CN1, OI-CON-16's first half; R5 C7):
+tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 and C8):
 
 - **While the tool is an object**, its ammo is an object loaded in the tool's magazine: live
   placement `Magazine`, home `Magazine(tool, slot)` (the tool's item id and the magazine's slot). On
@@ -151,9 +151,28 @@ tool. Its ammo has a home in both of the tool's forms (CN1, OI-CON-16's first ha
   `ItemSaveLoad.LoadIntoMagazine`), into the live tool's magazine, or as a row of the tool's container
   when the tool is a row.
 
-A loaded magazine still stays an object in its owner's slot (R4C's A1; [inventory.md](inventory.md)):
-a stand-in that carries its ammo as rows nested in its own, made with it at take-out, is OI-CON-16's
-second half. Ammo in a scene tool stays the scene's until a player loads it.
+- **While the tool is a stand-in** (data in a connected player's slot; [inventory.md](inventory.md),
+  OI-CON-16's second half, R5 C8), its ammo is data too: its record stays, home still
+  `Magazine(tool, slot)`, its NetId reserved and its row kept by the server (`PlayerItems.Ammo`), with
+  no object on any game. The stand-in carries the same rows nested in its state, under
+  `mpMagazineAmmo` (`StandInAmmo`), so a stash, an inventory row and a join carry them without a
+  new packet; the server splits them off a stash's state and nests them in every row it sends.
+  - **Put away:** the holder's game captures the ammo into the stand-in's state and retires the ammo
+    objects before the tool's (vanilla empties a destroyed magazine into the world). The server's
+    `GoData` does the same with its copies (`AmmoGoesData`): each becomes a row, and anyone who knew it
+    other than the tool's keepers is told it's gone. A tool whose ammo has no record in its magazine
+    stays an object (`AmmoCanGoData`), as does a boombox playing its cassette, which a stand-in
+    can't play (`StashedItems.PlaysCassette`).
+  - **Taken out:** the holder's game makes the ammo with the tool from the nested rows, under their
+    NetIds, loaded as the server's word (`ClientItemManager.MakeAmmo`); a refusal retires them with
+    the tool. The server makes its copies as the tool's object is made (`TakeUpObject`, `TakeUpAmmo`),
+    the host's own take-out in that frame. A request that names the ammo makes its tool.
+  - **The holder leaves:** the ammo becomes rows of the tool's container (`AmmoGoesCold`), and at
+    their next join it is data again with fresh NetIds, nested in the tool's row (`AmmoFromRows`).
+  - **Saved:** an ammo row as data saves as any loaded ammo, and loads into the tool's container
+    (the tool is a row then).
+
+Ammo in a scene tool stays the scene's until a player loads it.
 
 ## Moving between boxes
 

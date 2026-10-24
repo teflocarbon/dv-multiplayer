@@ -80,6 +80,7 @@ public static class InstallGuidRekey
         // The cold inventory's rows, after the ledger so its slot check sees the new identity's rows
         // where they are; one the ledger sent to Lost and Found goes there when the player joins.
         changed += ColdInventories.Rekey(from, to, merged.ToLostAndFound);
+        changed += PlayerItems.RekeyAmmo(from, to);
         // Rows the load kept as they were (unloadable, unreadable): written back with the new identity.
         changed += ItemSaveLoad.RekeyKept(from, to);
         return changed;

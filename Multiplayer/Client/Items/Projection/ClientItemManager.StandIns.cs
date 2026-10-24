@@ -76,6 +76,7 @@ internal sealed partial class ClientItemManager
             ["claimFlags"] = flags.ToString(),
             ["stateLength"] = standIn.State.Length
         });
+        RetireAmmoOf(item, "put-away-with-its-tool");
         RetireClientProjection(item, "put-away");
     }
 
@@ -120,11 +121,12 @@ internal sealed partial class ClientItemManager
         if (item != null)
         {
             if (string.IsNullOrEmpty(state))
-                state = ItemStateText.Capture(item.gameObject);
+                state = StandInAmmo.Capture(item.gameObject);
             if (held)
                 ReleaseForRollBack(item);
             item.BeginColdStorageRetirement();
             VanillaInventorySlots.Forget(inventory, item.gameObject);
+            RetireAmmoOf(item, "its-tool-a-stand-in");
             RetireClientProjection(item, refused ? "take-out-rolled-back" : "now-a-stand-in");
         }
         pendingTakeOuts.Remove(update.ItemNetId);
@@ -161,12 +163,16 @@ internal sealed partial class ClientItemManager
         VanillaInventorySlots.Forget(DV.InventorySystem.Inventory.Instance, standIn.gameObject);
         NetworkedItem made = null;
         if (update.UpdateType != ItemUpdate.ItemUpdateType.Destroy && !update.UpdateType.HasFlag(ItemUpdate.ItemUpdateType.Create))
+        {
             made = MakeFromRow(new ItemUpdate
             {
                 ItemNetId = standIn.NetId,
                 PrefabName = standIn.PrefabName,
                 AuthorityRevision = standIn.Revision
-            }, standIn.State);
+            }, StandInAmmo.Without(standIn.State));
+            if (made != null)
+                MakeAmmo(made, standIn.State);
+        }
         standIn.Retire();
         InventoryRows.Remove(update.ItemNetId);
         return made;
@@ -199,6 +205,41 @@ internal sealed partial class ClientItemManager
             return;
         DV.InventorySystem.Inventory.Instance?.ReturnItemToWorld(item.gameObject);
         item.ClientPart?.QueueObservation("put-away-refused");
+    }
+
+    // A loaded tool becoming a stand-in: its ammo objects go with it, their rows nested in the
+    // stand-in's state (StandInAmmo, OI-CON-16). Before the tool goes: vanilla empties a destroyed
+    // magazine into the world.
+    private void RetireAmmoOf(NetworkedItem tool, string reason) =>
+        StandInAmmo.RetireLoaded(tool.gameObject, ammo => RetireClientProjection(ammo, reason));
+
+    // A tool made from its stand-in: its ammo is made with it from the nested rows, under the NetIds
+    // the server keeps for them, and loaded in its magazine as the server's word, so no load is
+    // reported back. The server makes its own copies as it takes the tool out (PlayerItems.Ammo).
+    private void MakeAmmo(NetworkedItem tool, string state)
+    {
+        foreach (StandInAmmo.Entry entry in StandInAmmo.Of(state))
+        {
+            NetworkedItem ammo = MakeFromRow(new ItemUpdate
+            {
+                ItemNetId = entry.NetId,
+                PrefabName = entry.PrefabName,
+                AuthorityRevision = entry.Revision
+            }, entry.State?.ToString(Newtonsoft.Json.Formatting.None));
+            if (ammo == null)
+                continue;
+            ammo.ReceiveSnapshot(new ItemUpdate
+            {
+                UpdateType = ItemUpdate.ItemUpdateType.ItemState,
+                ItemNetId = entry.NetId,
+                PrefabName = entry.PrefabName,
+                AuthorityRevision = entry.Revision,
+                ItemState = ItemState.InMagazine,
+                PlayerHand = PlayerHand.None,
+                MagazineNetId = tool.NetId,
+                MagazineSlot = entry.Slot
+            });
+        }
     }
 
     private static void RetireStandIns()

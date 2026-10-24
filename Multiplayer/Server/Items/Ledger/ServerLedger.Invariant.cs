@@ -131,7 +131,7 @@ public static partial class ServerLedger
                 Lists = lists
             };
         }
-        foreach (ObservedItem cold in ColdRows())
+        foreach (ObservedItem cold in ColdRows().Concat(AmmoRows()))
             yield return cold;
         foreach (StoredItemRecord row in ContainerServer.Graph.ExportSnapshot().Items)
         {
@@ -155,6 +155,16 @@ public static partial class ServerLedger
         Name = row.PrefabName,
         Source = ObservedSource.ColdRow,
         Home = Home.InSlot(row.PlacementPlayerIdentity, row.Slot),
+        StoreOwner = row.OwnerIdentity == Guid.Empty ? OwnerRef.None : OwnerRef.Player(row.OwnerIdentity)
+    });
+
+    // Ammo in the magazine of a tool kept as data, kept as data with it (OI-CON-16).
+    private static IEnumerable<ObservedItem> AmmoRows() => PlayerItems.AmmoRows().Select(row => new ObservedItem
+    {
+        Id = row.PersistentItemId,
+        Name = row.PrefabName,
+        Source = ObservedSource.ColdRow,
+        Home = Home.Magazine(row.ContainerId, row.Slot),
         StoreOwner = row.OwnerIdentity == Guid.Empty ? OwnerRef.None : OwnerRef.Player(row.OwnerIdentity)
     });
 

@@ -55,7 +55,7 @@ internal sealed class HostInventory : IInventoryRowHolder
         LiveItems.TryGet(item.NetId, out LiveItems.LiveItem record) && record.PersistentItemId != Guid.Empty &&
         record.Placement is not (ItemPlacementKind.Destroyed or ItemPlacementKind.Installed or ItemPlacementKind.LostAndFound) &&
         !LostAndFoundServer.Contains(item.NetId) &&
-        InventoryStandIn.CanStandIn(item.gameObject) &&
+        InventoryStandIn.CanStandIn(item.gameObject) && PlayerItems.AmmoCanGoData(item) &&
         !DV.InventorySystem.Inventory.Instance.IsDestroyedOnAddedToInventory(item.gameObject);
 
     /// <summary>

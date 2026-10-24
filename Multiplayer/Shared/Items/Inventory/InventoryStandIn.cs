@@ -104,14 +104,13 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
         prefabName is nameof(JobExpiredReport) or nameof(JobMissingLicenseReport);
 
     /// <summary>
-    /// Whether this object can be a stand-in: its prefab can, and none of its magazines holds
-    /// anything. A magazine's ammo (a boombox's cassette, a sprayer's can, a soldering tool's
-    /// spool) is a live object inside it that no row keeps yet, so a loaded one stays an object
-    /// in its slot (OI-CON-16).
+    /// Whether this object can be a stand-in: its prefab can, and its magazine is empty or its ammo
+    /// can be rows nested in its row (a boombox's cassette, a sprayer's can, a soldering tool's
+    /// spool; <see cref="StandInAmmo"/>, OI-CON-16).
     /// </summary>
     public static bool CanStandIn(GameObject item) =>
         item != null && item.GetComponent<InventoryItemSpec>() is { } spec && CanStandIn(spec.ItemPrefabName) &&
-        !HoldsAmmo(item) && (Jobs.JobPapers.PaperOf(item) == null || Jobs.JobPapers.CanBeRow(item));
+        (!HoldsAmmo(item) || StandInAmmo.CanNest(item)) && (Jobs.JobPapers.PaperOf(item) == null || Jobs.JobPapers.CanBeRow(item));
 
     /// <summary>Whether a magazine of this object holds anything.</summary>
     public static bool HoldsAmmo(GameObject item) =>
@@ -126,7 +125,7 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
         standIn.ClaimSlot = item.InventoryClaimSlot;
         standIn.ClaimFlags = item.InventoryClaimFlags;
         standIn.Revision = item.AuthorityRevision;
-        standIn.State = ItemStateText.Capture(item.gameObject);
+        standIn.State = StandInAmmo.Capture(item.gameObject);
         TutorialRadio.Keep(item);
         return standIn;
     }

@@ -68,7 +68,7 @@ namespace Dvmp.Scenarios
         /// <summary>
         /// This game: the inventory slots that hold an item's object where its row should be (D14,
         /// docs/design/items/inventory.md, "Stand-ins"): an object its row holder would put away as
-        /// its stand-in, or one with no NetId. A VR belt item in a belt slot, a loaded magazine, a
+        /// its stand-in, or one with no NetId. A VR belt item in a belt slot, a loaded magazine whose ammo can't nest, a
         /// job paper whose job isn't known here and an item with no prefab here stay objects. Empty
         /// on a game whose inventory isn't rows (a dedicated host, a client out of a session).
         /// </summary>

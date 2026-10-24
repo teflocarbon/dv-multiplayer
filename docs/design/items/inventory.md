@@ -88,9 +88,9 @@ vanilla from parking, laying out or firing item events for a stand-in.
 These stay objects in a slot:
 
 - an item on an enabled VR belt slot (OI-COLD-14, above);
-- a magazine that holds anything (a boombox's cassette, a sprayer's can, a soldering tool's spool),
-  whose ammo is an object in its magazine while the tool is one (`InventoryStandIn.HoldsAmmo`;
-  [containers.md](containers.md#ammo-in-a-magazine)); a stand-in carrying its ammo is OI-CON-16;
+- a loaded magazine whose ammo can't be rows nested in its row (`StandInAmmo.CanNest`: a boombox playing
+  its cassette, or ammo with no record in the magazine); any other loaded magazine stands in, its
+  ammo nested ([containers.md](containers.md#ammo-in-a-magazine), OI-CON-16);
 - an item whose prefab this game doesn't know (a mod item without its mod), and a job paper whose job
   this game doesn't know ([Job papers](#job-papers)).
 
@@ -122,7 +122,7 @@ no news where the item has an object and no stand-in (kept live in its slot, or 
 own change decides), or a stand-in past the row's revision (`InventoryRows.IsLate`).
 
 The server leaves its own object of an item that can't be a stand-in (`InventoryStandIn.CanStandIn`:
-a loaded magazine, an expired or missing-licence report) as its holder's game does, and such a row
+a boombox playing its cassette, an expired or missing-licence report) as its holder's game does, and such a row
 goes live as an object at a join.
 
 ### Putting away
@@ -252,7 +252,7 @@ An item in a player's inventory is data on the server, not an object (OI-COLD-06
   (`HandleItemListRequest`); a job's end, for its papers ([Job papers](#job-papers)). The players who
   had it are marked as knowing the new object, so it isn't sent to them again. Once the request is
   done it goes back to data (it is queued again, after a second's grace).
-- **Not data:** a loaded magazine, whose ammo is an object in it (OI-CON-16), and an item whose
+- **Not data:** a loaded magazine whose ammo can't nest in its row (OI-CON-16), and an item whose
   prefab isn't known. Job papers are data like any item since R4C C7 (OI-COLD-07).
 
 ## Cold inventories
@@ -361,7 +361,7 @@ these: its object does.
 - **The boombox.** One left on in radio mode keeps playing its station (`rsIndex`) at its volume
   (`vol`): vanilla's own radio player on a copy of the boombox's music source, stopped as the item
   is taken out (its object plays from the same state) or goes. A stashed boombox's interference is
-  paused in vanilla, so the copy has none. One with a cassette stays an object until R5 (OI-CON-16)
+  paused in vanilla, so the copy has none. One playing a cassette stays an object (`StashedItems.PlaysCassette`)
   and plays as vanilla's does.
 - **The tutorials.** A quick tutorial's radio service (a host playing alone) that starts while the
   comms radio is stashed binds to it once it's taken out (`TutorialRadio`). The tutorial's mode

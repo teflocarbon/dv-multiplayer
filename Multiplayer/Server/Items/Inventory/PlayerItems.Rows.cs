@@ -54,7 +54,7 @@ internal static partial class PlayerItems
             if (create == null)
                 continue;
             rows.Add(create);
-            states.Add(row.State?.ToString(Formatting.None) ?? string.Empty);
+            states.Add(StandInState(create.ItemNetId, row.State));
             taken++;
         }
         NetworkServer.Instance.SendInventoryRows(player, rows, states, full: true);
@@ -134,6 +134,7 @@ internal static partial class PlayerItems
         row.Slot = record.Slot;
         row.PlacementPlayerIdentity = player.Guid;
         knownBy[netId] = new[] { player.PlayerId };
+        AmmoFromRows(record, player);
         if (paper)
             JobPaperRows.Admit(record, row.PrefabName, player, job);
         ItemUpdate create = CreateOf(record);

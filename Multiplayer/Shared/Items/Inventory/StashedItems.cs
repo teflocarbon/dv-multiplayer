@@ -23,8 +23,8 @@ namespace Multiplayer.Shared.Items.Inventory;
 /// <list type="bullet">
 /// <item>an alarm clock the player owns shows the HUD's time in a cab (<c>PlayerHasClock</c>);</item>
 /// <item>a set alarm clock counts down and rings (<see cref="AlarmRows"/>);</item>
-/// <item>a boombox left on in radio mode keeps playing its station at its volume. One with a
-/// cassette stays an object until R5 (OI-CON-16), and plays as vanilla's does.</item>
+/// <item>a boombox left on in radio mode keeps playing its station at its volume. One playing a
+/// cassette stays an object (<see cref="PlaysCassette"/>), and plays as vanilla's does.</item>
 /// </list>
 /// A silhouette's item is elsewhere, so it does none of these: its object does.
 /// </summary>
@@ -114,6 +114,26 @@ internal static class StashedItems
     {
         if (DebugRuntime.EnabledFor("item"))
             DebugRuntime.Publish("item", eventName, NetworkRole.DebugSide, entityType: "Item", entityId: netId.ToString(), data: data);
+    }
+
+    /// <summary>
+    /// Whether this object is a boombox playing its cassette: on, and not in radio mode. A stand-in
+    /// plays only the radio, so such a one stays an object in its slot, its cassette inside, and
+    /// plays as vanilla's does (<see cref="StandInAmmo.CanNest"/>).
+    /// </summary>
+    internal static bool PlaysCassette(GameObject item)
+    {
+        if (item.GetComponent<BoomboxInteractionController>() == null)
+            return false;
+        try
+        {
+            JObject state = JObject.Parse(ItemStateText.Capture(item));
+            return state.GetBool(PowerOnKey) == true && state.GetBool(RadioModeKey) != true;
+        }
+        catch (Newtonsoft.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     private static bool IsBoombox(string prefabName)
