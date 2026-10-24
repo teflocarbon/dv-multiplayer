@@ -346,9 +346,20 @@ namespace Dvmp.Scenarios
 
     public static partial class Net
     {
-        /// <summary>Delays every packet this game receives (Steam's fake lag); 0 turns it off.</summary>
+        /// <summary>
+        /// Delays every packet this game receives (Steam's fake lag); 0 turns it off. Steam pairs
+        /// only: a GNS pair has no Steam to set it in (docs/testing.md, "GNS pairs").
+        /// </summary>
         [Step]
-        public static void SetReceiveLag(int ms) => Steamworks.SteamNetworkingUtils.FakeRecvPacketLag = ms;
+        public static void SetReceiveLag(int ms)
+        {
+            if (Multiplayer.Shared.Transport.TransportSwitch.UseGns)
+            {
+                if (ms == 0) return;
+                throw new InvalidOperationException("LAG= runs on Steam pairs only, not on -dvmp-transport gns");
+            }
+            Steamworks.SteamNetworkingUtils.FakeRecvPacketLag = ms;
+        }
     }
 
     /// <summary>

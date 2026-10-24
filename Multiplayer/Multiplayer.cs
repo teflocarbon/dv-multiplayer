@@ -2,7 +2,6 @@ using DV;
 using DV.UIFramework;
 using HarmonyLib;
 using JetBrains.Annotations;
-using LiteNetLib;
 using MPAPI;
 using Multiplayer.Menus.MainMenu;
 using Multiplayer.Shared.Api;
@@ -95,7 +94,6 @@ public static class Multiplayer
                 $"\tMultiplayer JSON Version: {ModEntry.Info.Version}, Internal Version: {Ver}\r\n" +
                 $"\tGame Version: {gameVer}\r\n" +
                 $"\tBuildbot Version: {BuildInfo.BUILDBOT_INFO.ToString()}\r\n" +
-                $"\tLiteNetLib Version: {LiteNetLibVer()}\r\n" +
                 $"\tMultiplayer API Required Version: {APIProvider.BUILT_AGAINST_API_VERSION}, Loaded Version: {MultiplayerAPI.LoadedApiVersion}\r\n" +
                 $"\tMultiplayer API Compatible: {APIcompatible}\r\n");
 
@@ -262,13 +260,6 @@ public static class Multiplayer
         }
     }
 
-    static string LiteNetLibVer()
-    {
-        Assembly liteNetLibAssembly = typeof(NetManager).Assembly;
-        AssemblyName assemblyName = liteNetLibAssembly.GetName();
-
-        return assemblyName.Version.ToString();
-    }
 #if DEBUG
     public static void CheckPatches()
     {

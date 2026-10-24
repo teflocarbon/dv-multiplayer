@@ -84,6 +84,25 @@ server can drive several pairs: p1, p2, d1. Remote games: `dvmp_remote` / `dvmp 
 | `dvmp_up` `reseed` | `dvmp up --reseed --session NAME` | Restart a named session with its user data copied afresh from your profile; see [Session user data](#session-user-data). |
 | `dvmp_perf` | `dvmp perf [-t ...] [-s 10]` | Frame-time percentiles, tick rate, memory (with the retained Mono heap), awake rigidbodies, cars, items, players, and packets per type per second, over a window. |
 
+## GNS pairs (no Steam)
+
+A pair can run without Steam, on Valve's open-source GameNetworkingSockets: this is how cloud pods
+run test pairs, and it also works on this PC (a GNS game never starts Steam, so it behaves as on a
+pod). Debug builds only. Build the DLL once per machine, then a Debug build installs it:
+
+```bash
+powershell -ExecutionPolicy Bypass -File DevTools/Gns/build-gns.ps1   # ~15 min, pinned sources
+dotnet build Multiplayer/Multiplayer.csproj -c Debug "-p:DvInstallDir=$DVMP_DV_DIR"
+dvmp up --session g1 --fresh --transport gns                           # MCP: transport: "gns"
+TRANSPORT=gns PAIRS="p:1 d:1" ONLY="recall" bash DevTools/Scenarios/gate.sh
+```
+
+`dvmp status` and `up`'s result show each game's `transport`. `up --transport X` only reuses a pair
+on transport X; a plain `up` keeps the running pair's (a client it starts joins on the host's, so a
+scenario's rejoin or restart stays on GNS) and starts new games on Steam. What matches Steam, what
+doesn't, and which runs must stay on Steam pairs (train-sync and coupling baselines,
+join/rejoin/auth/lobbies, `LAG=`, soak and perf, `--verified`): [`docs/testing.md`, "GNS pairs"](../docs/testing.md#gns-pairs).
+
 ## Host-only sessions
 
 A "light host" is a harness host that nobody plays: the first stage of
