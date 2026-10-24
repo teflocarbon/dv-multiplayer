@@ -126,6 +126,11 @@ the same rows as `Items`, so the career still opens in single player with the ho
 goes into `Storage_World` or `Storage_LostAndFound`. A dedicated host has no player, so its mirror is
 empty. `Storage_InstalledGadgets` stays vanilla's: it is how installed gadgets are made.
 
+Because vanilla's inventory starts empty, a job booklet DV reprints at load (it saves none of its own
+in multiplayer) would take the first slot vanilla has free, one the host's own saved item still holds
+as a row. On a player host the reprint waits until the host's items are back in their slots
+(`JobBookletRecoveryPatch`, at most 20 s); a dedicated host prints none.
+
 ## Re-keying a player
 
 `InstallGuidRekey` moves a player's install GUID to their Steam ID. Before the load it edits the saved
