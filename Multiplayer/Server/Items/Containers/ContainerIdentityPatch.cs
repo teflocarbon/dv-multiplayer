@@ -9,7 +9,7 @@ namespace Multiplayer.Server.Items.Containers;
 [HarmonyPatch]
 public static class ContainerIdentityPatch
 {
-    private const string SaveKey = "multiplayerColdContainerId";
+    internal const string SaveKey = "multiplayerColdContainerId";
 
     [HarmonyPatch(typeof(AItemContainer), "Awake")]
     [HarmonyPostfix]

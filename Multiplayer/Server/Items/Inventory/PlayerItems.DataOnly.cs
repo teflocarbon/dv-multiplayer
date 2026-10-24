@@ -7,6 +7,7 @@ using DV.CabControls;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
@@ -56,9 +57,12 @@ internal static partial class PlayerItems
     // object made again is known to them, so they aren't sent it a second time.
     private static readonly Dictionary<ushort, byte[]> knownBy = new();
 
-    // The state each holder's game sent as it put an item away (D14, OI-COLD-13), kept as its row's
-    // state when the server's object goes: the holder's copy is the item as it was.
+    // The state each holder's game sent as it put an item away (D14, OI-COLD-13), laid over the
+    // server's own when its object goes: the holder's copy is the item as it was in their hands.
     private static readonly Dictionary<ushort, JObject> stashedStates = new();
+    // What only the server keeps in an item's state, which a holder's copy never replaces: a
+    // container's id, which every game's copy mints for itself.
+    private static readonly HashSet<string> serverKeys = new(StringComparer.Ordinal) { ContainerIdentityPatch.SaveKey };
 
     /// <summary>Keeps the state a player's game sent with a stash, for the item's row.</summary>
     public static void KeepStashedState(ushort netId, string state)
@@ -179,8 +183,9 @@ internal static partial class PlayerItems
         row.PlacementPlayerIdentity = record.Holder;
         row.OwnerIdentity = record.Owner;
         row.Slot = record.Slot;
-        if (stashedStates.TryGetValue(record.NetId, out JObject stashed))
-            row.State = JobPapers.Complete(item.gameObject, stashed);
+        bool fromHolder = stashedStates.TryGetValue(record.NetId, out JObject stashed);
+        if (fromHolder)
+            row.State = JobPapers.Complete(item.gameObject, WithHolderValues(row.State, stashed));
         if (!ColdInventories.Add(row))
             return;
         stashedStates.Remove(record.NetId);
@@ -216,6 +221,28 @@ internal static partial class PlayerItems
         StorageIntegration.MoveTo(item.Item, StorageMembership.None);
         Object.Destroy(item.gameObject);
         Multiplayer.LogDebug(() => $"Inventory: {record.PrefabName} (netId {record.NetId}) in {holder.Username}'s slot {record.Slot} is data only on the server");
+        // A move the server made (a recall, a Lost and Found retrieval) reached the holder as an
+        // update with no state: their stand-in is given the row's, so a take-out isn't a fresh item.
+        if (!fromHolder)
+            NetworkServer.Instance.SendInventoryRows(holder, new List<ItemUpdate> { CreateOf(record) },
+                new List<string> { row.State?.ToString(Newtonsoft.Json.Formatting.None) ?? string.Empty });
+    }
+
+    // The holder's copy of an item's state over the server's: what changed in their hands (fuel, a
+    // label, tape used) is theirs, and what only the server keeps stays the server's.
+    private static JObject WithHolderValues(JObject server, JObject holder)
+    {
+        if (server == null)
+        {
+            foreach (string key in serverKeys)
+                holder.Remove(key);
+            return holder;
+        }
+        JObject merged = (JObject)server.DeepClone();
+        foreach (JProperty property in holder.Properties())
+            if (!serverKeys.Contains(property.Name))
+                merged[property.Name] = property.Value.DeepClone();
+        return merged;
     }
 
     // A scene-authored item becomes an ordinary one, so the scene doesn't make it again while it's data.

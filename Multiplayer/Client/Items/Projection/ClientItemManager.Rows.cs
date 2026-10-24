@@ -22,14 +22,14 @@ internal sealed partial class ClientItemManager
     // made until the item leaves its slot (MakeFromRow).
 
     /// <summary>Fills the joiner's inventory with stand-ins for the rows the server sent.</summary>
-    internal void ReceiveInventoryRows(List<ItemUpdate> rows, string[] states)
+    internal void ReceiveInventoryRows(List<ItemUpdate> rows, string[] states, bool full)
     {
         if (rows == null || rows.Count == 0)
             return;
-        CoroutineManager.Instance.StartCoroutine(FillFromRows(rows, states ?? Array.Empty<string>()));
+        CoroutineManager.Instance.StartCoroutine(FillFromRows(rows, states ?? Array.Empty<string>(), full));
     }
 
-    private IEnumerator FillFromRows(List<ItemUpdate> rows, string[] states)
+    private IEnumerator FillFromRows(List<ItemUpdate> rows, string[] states, bool full)
     {
         // The rows can come before the player's inventory exists.
         while (DV.InventorySystem.Inventory.Instance == null)
@@ -38,6 +38,12 @@ internal sealed partial class ClientItemManager
         for (int i = 0; i < rows.Count; i++)
         {
             ItemUpdate row = rows[i];
+            // A row sent after the join (a server-made item, or the state of one the server moved
+            // into a slot) is no news for an item this game has taken out since: its own change decides.
+            if (!full && row != null && !InventoryStandIn.TryGet(row.ItemNetId, out _) &&
+                NetworkedItem.TryGet(row.ItemNetId, out NetworkedItem taken) && taken != null &&
+                taken.Item != null && taken.Item.IsGrabbed())
+                continue;
             try
             {
                 if (ReceiveAsStandIn(row, i < states.Length ? states[i] : string.Empty))

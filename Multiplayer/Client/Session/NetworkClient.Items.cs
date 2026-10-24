@@ -31,7 +31,7 @@ public partial class NetworkClient : IItemClient
     {
         LogDebug(() => $"OnClientboundInventoryRowsPacket({packet?.Rows?.Count}, full {packet?.Full})");
         InventoryRows.Receive(packet?.Rows, packet?.States, packet?.Full == true);
-        ClientItemManager.Instance?.ReceiveInventoryRows(packet?.Rows, packet?.States);
+        ClientItemManager.Instance?.ReceiveInventoryRows(packet?.Rows, packet?.States, packet?.Full == true);
     }
 
     private void OnClientboundItemResultPacket(ClientboundItemResultPacket packet)
