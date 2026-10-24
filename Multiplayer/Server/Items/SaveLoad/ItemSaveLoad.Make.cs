@@ -69,8 +69,12 @@ internal static partial class ItemSaveLoad
     /// car's end. <paramref name="owned"/> marks it a player's, as vanilla's own flag does. False when
     /// its prefab (or, for a scene item, its authored object) is gone.
     /// </summary>
-    private static bool MakeLive(SavedItemRow row, bool owned)
+    private static bool MakeLive(SavedItemRow row, bool owned) => MakeLive(row, owned, out _);
+
+    /// <summary>The same, outside the load (a withdrawal with no slot free): <paramref name="made"/> is its record.</summary>
+    internal static bool MakeLive(SavedItemRow row, bool owned, out LiveItems.LiveItem made)
     {
+        made = null;
         NetworkedItem item = FindOrCreate(row);
         if (item == null)
             return false;
@@ -90,7 +94,7 @@ internal static partial class ItemSaveLoad
         seed.PlayerId = 0;
         seed.ItemPosition = row.Position;
         seed.ItemRotation = row.Rotation;
-        LiveItems.LiveItem record = LiveItems.Ensure(item, null, seed);
+        LiveItems.LiveItem record = made = LiveItems.Ensure(item, null, seed);
         if (record == null)
             return false;
         ApplySavedRecord(record, row);

@@ -35,7 +35,7 @@ rules the server already had before `ItemAccess` existed (OI-ACC-01).
 | --- | --- | --- | --- |
 | `Stash` (into an inventory slot; the VR belt is slots 33-35, no separate action) | anyone, but not a fixture | `fixture-stays-in-its-place` | yes (OI-ACC-02) |
 | `Deposit` (into a cold container) | the actor's own item only; never a fixture; never an essential | `deposit-item-not-owned`, `fixture-stays-in-its-place`, `essential-not-in-containers` | yes (OI-ACC-03) |
-| `Withdraw` (out of a cold container) | anyone | none | no: OI-ACC-04, R5 |
+| `Withdraw` (out of a cold container, into the slot the server picks) | anyone the box lets in (its keeper, [containers.md](containers.md#who-keeps-a-box)) | none | yes (OI-ACC-04) |
 | `TakeFromWorld` (from the world, a train, a shelf, a car's end, a snap point) | anyone, fixtures too: a fixture is carried in the hand | none | yes (OI-ACC-07) |
 | `TakeFromPlayer` (out of another player's hand or inventory) | nobody | `take-from-player` | yes (OI-ACC-07) |
 | `RemoveGadget` (an installed gadget off a car) | anyone | none | no: OI-ACC-06 and OI-GAD-07, paused (gadgets) |
@@ -62,6 +62,10 @@ on one item and asks the policy:
 - **Is a fixture:** `ItemAccessServer.IsFixture`, from the record's prefab and authored key (or the
   item's own, when the record has none) against `ItemAccessServer.Fixtures`.
 - **Is an essential:** the item's `InventoryItemSpec.IsEssential`.
+
+A container's item is a row with no object, so a withdrawal asks with the row's facts instead
+(`ItemAccessServer.AllowsRow`): its owner from the ledger, its prefab and authored key, and its
+prefab's spec.
 
 ## Fixtures
 
