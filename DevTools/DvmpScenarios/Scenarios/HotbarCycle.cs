@@ -23,7 +23,8 @@ namespace Dvmp.Scenarios
     /// within MAX_MS. The server and the ledger have it in the slot after each stash. WHO=host does
     /// it with the host's own player, whose slots are stand-ins too (R4C C4). PREFABS= limits the list.
     /// QUICK=1 stashes it again the moment it's in the hand, before the take-out's echo comes back
-    /// (R4C C9 A4): for 3 s after, every frame, it has no object and its slot holds its stand-in.
+    /// (R4C C9 A4): for 3 s after, every frame, it has no object and its slot holds its stand-in. LAG= lags
+    /// the client's link (150 ms by default with QUICK=1), so the echo comes after the second stash.
     /// </summary>
     [Scenario("hotbar-cycle", "Every vanilla item stashed into the hotbar, taken out and stashed again: no object while stored, its state in the first frame, the frame time bounded")]
     [Budget(3600)]
@@ -39,6 +40,8 @@ namespace Dvmp.Scenarios
             public float MaxMs = 100f;
             /// <summary>Stashes it again as soon as it's in the hand, and watches its slot for 3 s.</summary>
             public bool Quick;
+            /// <summary>Lag on the client's link, in ms, so the take-out's echo comes late: QUICK=1 (on a client) defaults to 150.</summary>
+            public int Lag = -1;
         }
 
         protected override async Task Run(Pair pair, Options o)
@@ -46,6 +49,9 @@ namespace Dvmp.Scenarios
             bool host = o.Who == "host";
             if (host && pair.Dedicated) throw new HarnessException("WHO=host needs a player host");
             Peer who = host ? pair.Host : pair.Client;
+            int lag = o.Lag >= 0 ? o.Lag : o.Quick && !host ? 150 : 0;
+            using IDisposable lagged = await pair.Client.Lag(lag);
+            if (lag > 0) Report.Note($"the client's link lags {lag} ms");
             string[] prefabs = o.Prefabs.Length > 0
                 ? o.Prefabs.Split(',').Select(p => p.Trim()).Where(p => p.Length > 0).ToArray()
                 : await who.Run(() => InGame.Prefabs());

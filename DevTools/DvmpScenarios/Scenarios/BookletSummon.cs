@@ -110,7 +110,8 @@ namespace Dvmp.Scenarios
             await Until.Value(() => pair.Host.Run(() => InGame.BookletState(job, station, booklet)), b => b.Distance >= 0 && b.Distance < 2f, 15,
                 $"host: booklet {booklet} out of its slot, at the printer (m)");
             int copied = await pair.Client.Run(() => InGame.Copies(booklet));
-            Report.Note($"the far client has {copied} copy(ies) of it while it's at the printer" + (copied == 0 ? ": nothing to leave behind, the check below proves nothing" : ""));
+            Report.Note($"the far client has {copied} copy(ies) of it while it's at the printer");
+            Require.That(copied > 0, "the far client has a copy of the booklet at the printer (else there's nothing to leave behind, and the check below proves nothing)");
             int again = await pair.Host.Run<int>(s => Items.Stash(s, booklet, false), 60);
             Report.Note($"the host stashed it again, in slot {again}");
             await Task.Delay(3000);   // it goes to data, and every game is told
