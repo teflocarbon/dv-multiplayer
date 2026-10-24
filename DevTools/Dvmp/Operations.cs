@@ -24,6 +24,7 @@ internal static class Operations
             entry["pid"] = agent.Pid;
             entry["port"] = agent.Info.Port;
             entry["session"] = agent.Session;
+            entry["transport"] = agent.Transport;
             if (agent.StatusError != null) entry["error"] = agent.StatusError;
             foreach (string w in ProbeWarnings(entry["probes"] as JsonObject))
                 warnings.Add($"{agent.Label}: {w}");

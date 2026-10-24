@@ -145,16 +145,20 @@ player anyway, the session drops it.
 
 `Multiplayer/Shared/Transport/`. `ITransport` abstracts the socket library.
 
-- `SteamworksTransport.cs` is the transport in use (`NetworkManager` constructs it). A server
-  opens both a normal UDP socket on the configured port and a Steam relay socket. A client
+- `SteamworksTransport.cs` is the transport in use (`NetworkManager` gets it from `TransportSwitch`). A
+  server opens both a normal UDP socket on the configured port and a Steam relay socket. A client
   connects natively by address and port, or through the relay by SteamID (port < 0). The login
   packet travels as the connection request payload.
-- Delivery methods are LiteNetLib's enum, mapped onto Steam send types in `SteamPeer.Send`:
+- Delivery methods are LiteNetLib's enum, mapped onto Steam send types by
+  `SteamWorksTransport.ToSendType`:
   `ReliableOrdered`, `ReliableUnordered` and `ReliableSequenced` become `Reliable`;
   `Unreliable` and `Sequenced` become `Unreliable`. So **`Sequenced` gives no ordering on
   Steam**; anything sent that way must tolerate reordering (train and player samples carry ticks).
-- `LiteNetLibTransport.cs` is an alternative transport that nothing uses at the moment (the
-  `new LiteNetLibTransport()` line in `NetworkManager` is commented out).
+- `Gns/` is the same transport on Valve's open-source GameNetworkingSockets, for test pairs
+  without a Steam client (cloud pods). It exists in **Debug builds only**: `-dvmp-transport gns`
+  selects it, a game on it never starts Steam, and a release has neither the code nor the DLL
+  ([testing.md, "GNS pairs"](testing.md#gns-pairs)).
+- `LiteNetLibTransport.cs` is an alternative transport that nothing uses at the moment.
 
 ### Packets
 

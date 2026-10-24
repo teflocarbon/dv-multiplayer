@@ -32,8 +32,7 @@ public abstract class NetworkManager
     protected NetworkManager(Settings settings)
     {
         netPacketProcessor = new NetPacketProcessor();
-        //transport = new LiteNetLibTransport();
-        transport = new SteamWorksTransport();
+        transport = TransportSwitch.Create();
 
         AttachTransport(transport);
 
