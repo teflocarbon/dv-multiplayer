@@ -61,7 +61,8 @@ An `ItemUpdate` has:
   the NetId and the revision (`AuthorityRevision`);
 - on `Create`, the prefab and the scene-authored key;
 - with item state: where it is (`ItemState`, with the pose; a car's NetId for an item in a train or
-  attached to a car's end; the holder and hand), the relation and the claim, and why it changed
+  attached to a car's end; the holder and hand; for `InMagazine`, the tool's NetId and the slot,
+  `MagazineNetId` and `MagazineSlot`), the relation and the claim, and why it changed
   (`TransitionReason`, the cause);
 - with object state: the item type's own values (`States`);
 - on a `Destroy`, why it went away, when the server knows (into a container, into Lost and Found, used

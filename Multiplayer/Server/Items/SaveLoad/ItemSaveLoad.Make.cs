@@ -5,6 +5,7 @@ using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Server.Gadgets;
 using Multiplayer.Server.Items.ChangeCauses;
+using Multiplayer.Server.Items.Inventory;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
@@ -75,6 +76,13 @@ internal static partial class ItemSaveLoad
     internal static bool MakeLive(SavedItemRow row, bool owned, out LiveItems.LiveItem made)
     {
         made = null;
+        // Ammo goes into its live tool's magazine (containers.md, "Ammo in a magazine").
+        ushort toolNetId = row.Placement == ItemPlacementKind.Magazine ? LiveToolNetId(row.ContainerId) : (ushort)0;
+        if (row.Placement == ItemPlacementKind.Magazine && toolNetId == 0)
+        {
+            Multiplayer.LogWarning($"Saved item {row.PrefabName} ({row.PersistentItemId:D}) can't be made: its tool {row.ContainerId:D} isn't live");
+            return false;
+        }
         NetworkedItem item = FindOrCreate(row);
         if (item == null)
             return false;
@@ -90,7 +98,10 @@ internal static partial class ItemSaveLoad
         item.transform.SetPositionAndRotation(row.Position + WorldMover.currentMove, row.Rotation);
         ItemUpdate seed = item.CreateUpdateData(ItemUpdate.ItemUpdateType.ItemState) ?? new ItemUpdate();
         seed.ItemState = row.Placement is ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment
-            ? ItemState.Attached : ItemState.Dropped;
+            ? ItemState.Attached
+            : row.Placement == ItemPlacementKind.Magazine ? ItemState.InMagazine : ItemState.Dropped;
+        seed.MagazineNetId = toolNetId;
+        seed.MagazineSlot = row.Placement == ItemPlacementKind.Magazine ? row.Slot : -1;
         seed.PlayerId = 0;
         seed.ItemPosition = row.Position;
         seed.ItemRotation = row.Rotation;
@@ -166,6 +177,12 @@ internal static partial class ItemSaveLoad
         return item;
     }
 
+    /// <summary>The NetId of the live object of the item with this id (a tool whose magazine ammo goes into), or 0.</summary>
+    internal static ushort LiveToolNetId(Guid toolId) => toolId == Guid.Empty ? (ushort)0
+        : LiveItems.GetAll().FirstOrDefault(record => record.PersistentItemId == toolId &&
+              record.Placement is not ItemPlacementKind.Destroyed && !PlayerItems.IsDataOnly(record) &&
+              NetworkedItem.TryGet(record.NetId, out NetworkedItem tool) && tool != null)?.NetId ?? 0;
+
     private static NetworkedItem FindExisting(Guid persistentId, string authoredKey)
     {
         if (WorldItemStableIdentity.IsValid(authoredKey) &&
@@ -205,6 +222,10 @@ internal static partial class ItemSaveLoad
             NetworkedTrainCar.TryGetNetId(attachedCar, out record.AttachedCarNetId);
         record.ParentLocalPosition = saved.ParentLocalPosition;
         record.ParentLocalRotation = saved.ParentLocalRotation;
+        bool inMagazine = record.Placement == ItemPlacementKind.Magazine;
+        record.MagazineToolId = inMagazine ? saved.ContainerId : Guid.Empty;
+        record.MagazineNetId = inMagazine ? LiveToolNetId(saved.ContainerId) : (ushort)0;
+        record.MagazineSlot = inMagazine ? saved.Slot : -1;
         record.HasPersistentOverride = saved.HasPersistentOverride;
         record.IsReplenishableStockFork = saved.IsReplenishableStockFork;
     }

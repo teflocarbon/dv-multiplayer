@@ -52,7 +52,7 @@ public static class OwnedItemRows
             records.TryGetValue(entry.Id, out LiveItems.LiveItem record);
             stored.TryGetValue(entry.Id, out StoredItemRecord inContainer);
             string containerName = null;
-            if (entry.Home.Kind == HomeKind.Container && Guid.TryParse(entry.Home.Anchor, out Guid containerId) &&
+            if (entry.Home.Kind is HomeKind.Container or HomeKind.Magazine && Guid.TryParse(entry.Home.Anchor, out Guid containerId) &&
                 containers.TryGetValue(containerId, out ContainerRecord container))
                 containerName = NameOf(container.PrefabName);
             PlaceFacts facts = new(player.Guid,

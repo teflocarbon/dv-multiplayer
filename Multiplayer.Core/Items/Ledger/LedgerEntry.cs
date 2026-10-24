@@ -33,7 +33,12 @@ public enum HomeKind : byte
     /// Its saved row can't be made because its prefab is gone (an item mod removed, D9). It has no
     /// object; the row is kept verbatim, written back unchanged and tried again at each load.
     /// </summary>
-    Unloadable
+    Unloadable,
+    /// <summary>
+    /// In a live tool's magazine slot (a cassette in a boombox), by the tool's id. A tool that is a
+    /// row has its ammo as rows of its container instead (<see cref="Container"/>).
+    /// </summary>
+    Magazine
 }
 
 /// <summary>How an owned item became owned. Saved by name.</summary>
@@ -110,6 +115,8 @@ public readonly struct Home : IEquatable<Home>
     public static Home Attached(string car, bool front) => new(HomeKind.Attached, anchor: car, front: front);
     public static Home Snapped(string parent) => new(HomeKind.Snapped, anchor: parent);
     public static Home Unloadable => new(HomeKind.Unloadable);
+    public static Home Magazine(Guid toolId, int slot) =>
+        new(HomeKind.Magazine, slot: slot, anchor: toolId.ToString("D"));
 
     /// <summary>Rebuilds a saved home. Fields a kind doesn't use are dropped.</summary>
     public static Home From(HomeKind kind, Guid holder, int slot, byte hand, string anchor, bool front) => kind switch
@@ -122,6 +129,7 @@ public readonly struct Home : IEquatable<Home>
         HomeKind.Installed => Installed(anchor),
         HomeKind.Attached => Attached(anchor, front),
         HomeKind.Snapped => Snapped(anchor),
+        HomeKind.Magazine => Guid.TryParse(anchor, out Guid tool) ? Magazine(tool, slot) : Unloadable,
         _ => new Home(kind)
     };
 
@@ -139,6 +147,7 @@ public readonly struct Home : IEquatable<Home>
         HomeKind.Slot => $"slot {Slot} of {Holder:D}",
         HomeKind.Hand => $"hand of {Holder:D}",
         HomeKind.Container => $"container {Anchor} slot {Slot}",
+        HomeKind.Magazine => $"magazine of {Anchor} slot {Slot}",
         HomeKind.Installed => $"installed on {Anchor}",
         HomeKind.Attached => $"attached to {Anchor} ({(Front ? "front" : "rear")})",
         _ => Anchor.Length == 0 ? Kind.ToString() : $"{Kind} {Anchor}"

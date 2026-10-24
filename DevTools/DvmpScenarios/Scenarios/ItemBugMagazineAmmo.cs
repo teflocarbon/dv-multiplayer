@@ -10,16 +10,14 @@ using UnityEngine;
 namespace Dvmp.Scenarios
 {
     /// <summary>
-    /// Known item bug CN1 (expected to fail on items/refactor and beta, docs/research/item-bug-review.md):
-    /// a client loads each vanilla magazine (a boombox's cassette, a sprayer's paint can, a soldering
-    /// tool's spool) and picks the tool up. An item inside a magazine has no home the server knows, so
-    /// at its next observation the client reports the ammo dropped in the world, the server's copy of
-    /// it falls, and its convergence pulls the ammo out of the client's magazine. Held or stashed
-    /// alike; the host's own magazines are the server's objects and keep theirs. R5 makes the ammo a
-    /// row inside its tool's (OI-CON-16).
+    /// Item bug CN1 (docs/research/item-bug-review.md), fixed in R5 C7: a client loads each vanilla
+    /// magazine (a boombox's cassette, a sprayer's paint can, a soldering tool's spool) and picks the
+    /// tool up. The ammo's home is the tool's magazine (docs/design/items/containers.md, "Ammo in a
+    /// magazine"), so it stays in it on the client after the hold, and the host's copy of the tool
+    /// holds it too. Before C7 the client reported the ammo dropped in the world at its next
+    /// observation, and the server's copy pulled it out of the client's magazine.
     /// </summary>
-    [Scenario("item-bug-magazine-ammo", "Known bug CN1: a client's ammo in a magazine (cassette, paint can, spool) must stay in it after the tool is picked up")]
-    [KnownBug("CN1")]
+    [Scenario("item-bug-magazine-ammo", "CN1: a client's ammo in a magazine (cassette, paint can, spool) stays in it after the tool is picked up, on both games")]
     [Budget(300)]
     public sealed class ItemBugMagazineAmmo : Scenario<ItemBugMagazineAmmo.Options>
     {
@@ -42,6 +40,8 @@ namespace Dvmp.Scenarios
                 Report.Note($"{tool} {toolId} with {ammo} {ammoId}: loaded [{held[0]}], after {o.Hold} s in the hand [{held[1]}]");
                 Expect.That(held[0].Length > 0, $"{tool}: its ammo in it once loaded", "empty");
                 Expect.Equal(held[0], held[1], $"{tool}: its ammo still in it after {o.Hold} s in the hand");
+                string onHost = await pair.Host.Run(() => InGame.HoldsOf(toolId));
+                Expect.Equal(held[0], onHost, $"{tool}: the host's copy holds the same ammo");
                 await pair.Client.Run(() => Items.Drop(), 10);
             }
         }
@@ -76,6 +76,14 @@ namespace Dvmp.Scenarios
                 yield return Hands.Pickup(toolId);
                 yield return new WaitForSecondsRealtime(seconds);
                 step.Result = new[] { loaded, Holds(magazine) };
+            }
+
+            /// <summary>What this game's copy of a tool's magazine holds, "" for none or no tool.</summary>
+            public static string HoldsOf(ushort toolId)
+            {
+                if (!NetworkedItem.TryGet(toolId, out NetworkedItem tool) || tool == null) return "";
+                var magazine = tool.GetComponentInChildren<ItemMagazine>(true);
+                return magazine == null ? "" : Holds(magazine);
             }
 
             private static string Holds(ItemMagazine magazine) => string.Join(", ",

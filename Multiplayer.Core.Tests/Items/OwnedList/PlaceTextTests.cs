@@ -49,6 +49,7 @@ public sealed class PlaceTextTests
         Assert.That(Text(Home.Installed("x"), car: "L-007"), Is.EqualTo("installed on L-007"));
         Assert.That(Text(Home.Installed(Home.WorldAnchor)), Is.EqualTo("installed in the world"));
         Assert.That(Text(Home.Snapped("hanger")), Is.EqualTo("fitted in place"));
+        Assert.That(Text(Home.Magazine(Guid.NewGuid(), 0), container: "Boombox"), Is.EqualTo("loaded in Boombox"));
         Assert.That(Text(Home.Unloadable), Is.EqualTo("can't be loaded (its item mod is missing)"));
     }
 }

@@ -590,6 +590,22 @@ public sealed class ContainerGraph
     }
 
     /// <summary>
+    /// The server puts a row in a container's slot with no player's request: ammo going with its tool
+    /// as the tool becomes a row (containers.md, "Ammo in a magazine"). Checked as a load checks a
+    /// row (the slot, the size, the depth); settled at once, as a stored item is. False, with the
+    /// reason, if it won't go.
+    /// </summary>
+    public bool Stow(StoredItemRecord row, out string reason)
+    {
+        reason = ImportItem(row);
+        if (reason.Length > 0)
+            return false;
+        ContainerRecord parent = containers[row.ParentContainerId];
+        parent.Revision = NextRevision(parent.Revision);
+        return true;
+    }
+
+    /// <summary>
     /// A box's shell is gone for good (OI-CON-11): its container goes, and its rows come out of the
     /// graph, returned (with their box and slot) for the server to deal with. A box among them keeps
     /// its own container and contents until the server decides. Empty when there's no such container.
@@ -747,6 +763,11 @@ public sealed class ContainerGraph
 
     /// <summary>Whether this item is a container's shell: the container has the item's id.</summary>
     public bool IsContainer(Guid itemId) => containers.ContainsKey(itemId);
+
+    /// <summary>A container's own rows (not those of boxes inside it), as copies, by slot.</summary>
+    public IReadOnlyList<StoredItemRecord> RowsIn(Guid containerId) => items.Values
+        .Where(item => item.ParentContainerId == containerId).OrderBy(item => item.Slot)
+        .Select(item => item.Clone()).ToList();
 
     // The outermost container above this one: a container is stored as the item with its id.
     private Guid RootOf(Guid containerId)

@@ -17,7 +17,7 @@ Built in R3 for the ledger and inventories; the save (R4), containers (R5) and L
 
 The homes: `Slot(holder, slot)`, `Hand(holder, hand)`, `World`, `TrainInterior(car)`, `Shelf(key)`,
 `Container(container, slot)`, `LostAndFound`, `Installed(anchor)`, `Attached(car,
-front)`, `Snapped(parent)` and `Unloadable` (its prefab is gone, R4) ([the plan](../item-refactor.md#the-guarantee) says what each names).
+front)`, `Snapped(parent)`, `Magazine(tool, slot)` (loaded in a live tool, R5) and `Unloadable` (its prefab is gone, R4) ([the plan](../item-refactor.md#the-guarantee) says what each names).
 A ledger entry's home is `Home`, its kind `HomeKind` (`Multiplayer.Core/Items/Ledger/LedgerEntry.cs`), exact since R3
 ([ledger.md](ledger.md)).
 

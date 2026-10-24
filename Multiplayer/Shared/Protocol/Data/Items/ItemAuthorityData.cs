@@ -14,7 +14,9 @@ public enum ItemPlacementKind : byte
     Destroyed,
     TrainInterior,
     StaticParent,
-    SnappedAttachment
+    SnappedAttachment,
+    /// <summary>In a live tool's magazine slot (containers.md, "Ammo in a magazine").</summary>
+    Magazine
 }
 
 public enum ItemWorldParentKind : byte

@@ -69,6 +69,7 @@ check waits (`ServerLedger.Loaded`).
    | `KeepCold` | in its owner's slot | a cold row (`ColdInventories`), made in its exact slot when the owner joins (D12) |
    | `IntoContainer` | in a container | a row of that container |
    | `IntoLostAndFound` | in Lost and Found | made there from its row, with its saved reason and time |
+   | `IntoMagazine` | loaded in a tool's magazine | made in the tool's magazine after the tools, or a row of the tool's container if the tool is a row ([containers.md](containers.md#ammo-in-a-magazine)) |
    | `MakeLive` | in the world, on a shelf, at a snap point, in a car or at a car's end whose car exists | made in its home from its row |
    | `LeaveInstalled` | an installed gadget whose car exists, or installed on the world | nothing: vanilla's installed storage makes it |
    | `Recover` | it can't go home | made from its row (or fresh, with no row) in its owner's Lost and Found |

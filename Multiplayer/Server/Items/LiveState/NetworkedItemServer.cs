@@ -234,8 +234,11 @@ public static class NetworkedItemServer
     private static bool SenderPossesses(this NetworkedItem item, ServerPlayer senderPlayer) =>
         senderPlayer != null &&
         LiveItems.TryGet(item.NetId, out LiveItems.LiveItem authority) &&
-        authority.Holder == senderPlayer.Guid &&
-        authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory;
+        (authority.Holder == senderPlayer.Guid &&
+         authority.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory ||
+         // Ammo in a magazine is its tool holder's to use up (containers.md, "Ammo in a magazine").
+         authority.Placement == ItemPlacementKind.Magazine && LiveItems.TryGet(authority.MagazineNetId, out LiveItems.LiveItem tool) &&
+         tool.Holder == senderPlayer.Guid && tool.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory);
 
     private static bool IsIgnoredNonHolderObjectState(this NetworkedItem item, ItemUpdate snapshot, ServerPlayer senderPlayer) =>
         snapshot != null && senderPlayer != null &&

@@ -36,6 +36,8 @@ public partial class NetworkedItem
 
     private void PrepareForStateChange(byte playerId, ItemState targetState)
     {
+        LeaveMagazine(targetState);
+
         // Cleanup from previous state/desyncs
         if (Item.IsSnapped && !KeepsLocalBeltSnap(playerId, targetState))
             Item.SnappableItem.SnappedTo.UnsnapItem(false); //Todo: should this be forced?
@@ -222,13 +224,20 @@ public partial class NetworkedItem
             carNetId = coupler.Car.GetNetId();
             attachedFront = coupler.IsFront;
         }
+        if (state == ItemState.InMagazine)
+        {
+            (ushort tool, byte slot) = MagazineProjection(state);
+            return new ItemWireStateProjection(WireItemState.InMagazine, 0, tool, false, slot);
+        }
         return new ItemWireStateProjection(ToWireState(state), playerBelongsToId,
             carNetId, attachedFront, (byte)HandForState(state));
     }
 
     private static ItemWireStateProjection ProjectionFromSnapshot(ItemUpdate snapshot) =>
-        new(ToWireState(snapshot.ItemState), snapshot.PlayerId, snapshot.CarNetId,
-            snapshot.AttachedFront, (byte)snapshot.PlayerHand);
+        snapshot.ItemState == ItemState.InMagazine
+            ? new(WireItemState.InMagazine, 0, snapshot.MagazineNetId, false, (byte)Mathf.Clamp(snapshot.MagazineSlot, 0, byte.MaxValue))
+            : new(ToWireState(snapshot.ItemState), snapshot.PlayerId, snapshot.CarNetId,
+                snapshot.AttachedFront, (byte)snapshot.PlayerHand);
 
     internal static WireItemState ToWireState(ItemState state) => state switch
     {
@@ -238,6 +247,7 @@ public partial class NetworkedItem
         ItemState.InHand => WireItemState.InHand,
         ItemState.Attached => WireItemState.Attached,
         ItemState.Installed => WireItemState.Installed,
+        ItemState.InMagazine => WireItemState.InMagazine,
         _ => WireItemState.Dropped
     };
 

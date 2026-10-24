@@ -76,7 +76,8 @@ internal sealed partial class ServerItemManager
                 return;
             if (record.Placement is ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory or
                 ItemPlacementKind.Container or ItemPlacementKind.Installed or
-                ItemPlacementKind.TrainInterior or ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment)
+                ItemPlacementKind.TrainInterior or ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment or
+                ItemPlacementKind.Magazine)
             {
                 HostNonSpatialItems.Add(item);
                 HostPlayerCells.Clear();

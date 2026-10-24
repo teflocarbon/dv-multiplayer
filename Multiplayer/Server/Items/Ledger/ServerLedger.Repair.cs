@@ -44,7 +44,7 @@ public static partial class ServerLedger
     /// The item goes to its ledger home: into its holder's slot (a cold row when they're offline),
     /// or into Lost and Found. A home the ledger keeps no pose for (the ground, a train, a shelf), a
     /// container's slot or an install the server can't make, and a slot it can't take: the owner's
-    /// Lost and Found. An item installed, attached or snapped where it is stays, and the ledger
+    /// Lost and Found. An item installed, attached, snapped or loaded in a tool where it is stays, and the ledger
     /// follows: the server can't take it off yet (as a retrieval can't, R8).
     /// </summary>
     internal static void PutHome(LiveItems.LiveItem record)
@@ -54,7 +54,7 @@ public static partial class ServerLedger
             return;
         Home live = HomeOf(record);
         LedgerCause follow = new(ItemMoveReason.HostCorrection, Guid.Empty, RepairDetail);
-        if (live.Kind is HomeKind.Installed or HomeKind.Attached or HomeKind.Snapped)
+        if (live.Kind is HomeKind.Installed or HomeKind.Attached or HomeKind.Snapped or HomeKind.Magazine)
         {
             ledger.Repair(id, live, follow);
             Multiplayer.LogWarning($"Invariant repair: {record.PrefabName} ({id:D}) is {live}, not {want}; " +

@@ -32,6 +32,10 @@ public sealed class ItemChangeReasonsTests
     [TestCase(LivePlacement.World, LivePlacement.Installed, false, ItemMoveReason.InstalledAsGadget)]
     [TestCase(LivePlacement.Installed, LivePlacement.World, false, ItemMoveReason.RemovedAsGadget)]
     [TestCase(LivePlacement.Installed, LivePlacement.PlayerHand, false, ItemMoveReason.RemovedAsGadget)]
+    [TestCase(LivePlacement.PlayerHand, LivePlacement.Magazine, false, ItemMoveReason.LoadedIntoMagazine)]
+    [TestCase(LivePlacement.World, LivePlacement.Magazine, false, ItemMoveReason.LoadedIntoMagazine)]
+    [TestCase(LivePlacement.Magazine, LivePlacement.World, false, ItemMoveReason.UnloadedFromMagazine)]
+    [TestCase(LivePlacement.Magazine, LivePlacement.PlayerHand, false, ItemMoveReason.UnloadedFromMagazine)]
     public void Classify_NamesTheMoveByWhereItWentFrom(LivePlacement from, LivePlacement to, bool thrown,
         ItemMoveReason expected)
     {

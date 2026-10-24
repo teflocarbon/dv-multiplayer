@@ -86,6 +86,10 @@ public static class LiveItems
         public ushort AttachedCarNetId;
         public string AttachedCarPersistentId = string.Empty;
         public bool AttachedFront;
+        // The tool whose magazine it's in (Placement Magazine): its NetId, its id and the slot.
+        public ushort MagazineNetId;
+        public Guid MagazineToolId;
+        public int MagazineSlot = -1;
         // The revisions that changed only object state; see ItemPlacementRevision.
         public uint ObjectStateRunBase;
         public uint ObjectStateRunTop;
@@ -180,7 +184,10 @@ public static class LiveItems
             ParentLocalPosition = seed?.ParentLocalPosition ?? Vector3.zero,
             ParentLocalRotation = seed?.ParentLocalRotation ?? Quaternion.identity,
             AttachedCarNetId = seed?.CarNetId ?? 0,
-            AttachedFront = seed?.AttachedFront ?? true
+            AttachedFront = seed?.AttachedFront ?? true,
+            MagazineNetId = initialPlacement == ItemPlacementKind.Magazine ? seed?.MagazineNetId ?? 0 : (ushort)0,
+            MagazineToolId = initialPlacement == ItemPlacementKind.Magazine ? ToolIdOf(seed?.MagazineNetId ?? 0) : Guid.Empty,
+            MagazineSlot = initialPlacement == ItemPlacementKind.Magazine ? seed?.MagazineSlot ?? -1 : -1
         };
         records[item.NetId] = record;
         Publish("item.canonical-record-created", item, record, null);
@@ -282,6 +289,13 @@ public static class LiveItems
             PublishRejected(item, record, actor, snapshot, rejectionReason);
             return false;
         }
+        if (appliesPlacement && requestedPlacement == ItemPlacementKind.Magazine &&
+            MagazineRefusal(item, snapshot) is { Length: > 0 } magazineRefusal)
+        {
+            rejectionReason = magazineRefusal;
+            PublishRejected(item, record, actor, snapshot, rejectionReason);
+            return false;
+        }
         TransitionResult result = ItemStateMachine.Apply(currentState, new ItemTransition
         {
             Actor = actorIdentity,
@@ -344,6 +358,18 @@ public static class LiveItems
         record.ParentLocalRotation = snapshot.ParentLocalRotation;
         record.AttachedCarNetId = snapshot.CarNetId;
         record.AttachedFront = snapshot.AttachedFront;
+        if (appliesPlacement)
+        {
+            bool inMagazine = record.Placement == ItemPlacementKind.Magazine;
+            // A scene tool a player loads takes an id of its own, which its ammo's home names. One the
+            // scene made loaded stays the scene's, its ammo with it.
+            if (inMagazine && actor != null && NetworkedItem.TryGet(snapshot.MagazineNetId, out NetworkedItem tool) &&
+                records.TryGetValue(snapshot.MagazineNetId, out LiveItem toolRecord) && toolRecord.PersistentItemId == Guid.Empty)
+                PromoteAuthoredToPersistent(tool);
+            record.MagazineNetId = inMagazine ? snapshot.MagazineNetId : (ushort)0;
+            record.MagazineToolId = inMagazine ? ToolIdOf(snapshot.MagazineNetId) : Guid.Empty;
+            record.MagazineSlot = inMagazine ? snapshot.MagazineSlot : -1;
+        }
         // The car an end-of-train lantern hangs on, or an installed gadget sits on.
         if ((record.Placement is ItemPlacementKind.Attached or ItemPlacementKind.Installed) &&
             NetworkedTrainCar.TryGet(record.AttachedCarNetId, out TrainCar attachedCar))
@@ -392,13 +418,40 @@ public static class LiveItems
         return true;
     }
 
+    // Into a tool's magazine (containers.md, "Ammo in a magazine"): a live tool whose magazine takes
+    // this ammo, in a slot nothing else has.
+    private static string MagazineRefusal(NetworkedItem item, ItemUpdate snapshot)
+    {
+        if (!NetworkedItem.TryGet(snapshot.MagazineNetId, out NetworkedItem tool) || tool == null || tool == item ||
+            !records.TryGetValue(tool.NetId, out LiveItem toolRecord) ||
+            toolRecord.Placement is ItemPlacementKind.Destroyed or ItemPlacementKind.LostAndFound or ItemPlacementKind.Magazine)
+            return "magazine-tool-unknown";
+        DV.Items.ItemMagazine magazine = tool.GetComponentInChildren<DV.Items.ItemMagazine>(true);
+        if (magazine == null || snapshot.MagazineSlot < 0 || snapshot.MagazineSlot >= magazine.Capacity)
+            return "magazine-slot-invalid";
+        if (!magazine.ValidItem(item.gameObject))
+            return "magazine-refused-item";
+        if (records.Values.Any(other => other.NetId != item.NetId && other.Placement == ItemPlacementKind.Magazine &&
+                                        other.MagazineNetId == tool.NetId && other.MagazineSlot == snapshot.MagazineSlot))
+            return "magazine-slot-taken";
+        return string.Empty;
+    }
+
+    private static Guid ToolIdOf(ushort toolNetId) =>
+        toolNetId != 0 && records.TryGetValue(toolNetId, out LiveItem tool) ? tool.PersistentItemId : Guid.Empty;
+
+    /// <summary>The ammo loaded in a tool's magazine (containers.md, "Ammo in a magazine").</summary>
+    public static IEnumerable<LiveItem> AmmoIn(ushort toolNetId) => toolNetId == 0
+        ? Enumerable.Empty<LiveItem>()
+        : records.Values.Where(record => record.Placement == ItemPlacementKind.Magazine && record.MagazineNetId == toolNetId).ToArray();
+
     // What taking it into this player's hands is: from the world, from another player, or neither.
     private static ItemAccessAction? TakeAction(LiveItem record, Guid taker) => record.Placement switch
     {
         ItemPlacementKind.PlayerHand or ItemPlacementKind.PlayerInventory =>
             record.Holder != Guid.Empty && record.Holder != taker ? ItemAccessAction.TakeFromPlayer : null,
         ItemPlacementKind.World or ItemPlacementKind.TrainInterior or ItemPlacementKind.StaticParent or
-            ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment => ItemAccessAction.TakeFromWorld,
+            ItemPlacementKind.Attached or ItemPlacementKind.SnappedAttachment or ItemPlacementKind.Magazine => ItemAccessAction.TakeFromWorld,
         _ => null
     };
 
@@ -444,6 +497,8 @@ public static class LiveItems
         snapshot.ParentLocalRotation = record.ParentLocalRotation;
         snapshot.CarNetId = record.AttachedCarNetId;
         snapshot.AttachedFront = record.AttachedFront;
+        snapshot.MagazineNetId = record.Placement == ItemPlacementKind.Magazine ? record.MagazineNetId : (ushort)0;
+        snapshot.MagazineSlot = record.Placement == ItemPlacementKind.Magazine ? record.MagazineSlot : -1;
     }
 
     /// <summary>
@@ -722,6 +777,12 @@ public static class LiveItems
             return false;
 
         record.Revision++;
+        // Out of its tool's magazine first (containers.md, "Ammo in a magazine").
+        if (record.Placement == ItemPlacementKind.Magazine && item.Item?.InContainer is DV.Items.ItemMagazine magazine)
+            magazine.RemoveItem(item.gameObject, false, false);
+        record.MagazineNetId = 0;
+        record.MagazineToolId = Guid.Empty;
+        record.MagazineSlot = -1;
         record.Placement = ItemPlacementKind.LostAndFound;
         record.Slot = -1;
         record.Holder = Guid.Empty;
@@ -987,6 +1048,8 @@ public static class LiveItems
         snapshot.ParentLocalRotation = record.ParentLocalRotation;
         snapshot.CarNetId = record.AttachedCarNetId;
         snapshot.AttachedFront = record.AttachedFront;
+        snapshot.MagazineNetId = record.Placement == ItemPlacementKind.Magazine ? record.MagazineNetId : (ushort)0;
+        snapshot.MagazineSlot = record.Placement == ItemPlacementKind.Magazine ? record.MagazineSlot : -1;
         snapshot.ItemPosition = record.Position;
         snapshot.ItemRotation = record.Rotation;
     }
@@ -1026,6 +1089,7 @@ public static class LiveItems
             ItemPlacementKind.PlayerInventory => ItemState.InInventory,
             ItemPlacementKind.Attached => ItemState.Attached,
             ItemPlacementKind.Installed => ItemState.Installed,
+            ItemPlacementKind.Magazine => ItemState.InMagazine,
             _ => ItemState.Dropped
         };
         snapshot.ItemPosition = record.Position;
@@ -1222,6 +1286,7 @@ public static class LiveItems
         ItemState.InInventory => ItemPlacementKind.PlayerInventory,
         ItemState.Attached => ItemPlacementKind.Attached,
         ItemState.Installed => ItemPlacementKind.Installed,
+        ItemState.InMagazine => ItemPlacementKind.Magazine,
         _ => ItemPlacementKind.World
     };
 

@@ -41,6 +41,7 @@ placement into a home.
 | `Installed` | `Home.Installed(anchor)` | a gadget on a car (its GUID) or on the world (`Home.WorldAnchor`, `:global:`) |
 | `Attached` | `Home.Attached(car, front)` | an end-of-train lantern on a car's end |
 | `Snapped` | `Home.Snapped(parent)` | on a snap point, by its parent's key |
+| `Magazine` | `Home.Magazine(tool, slot)` | loaded in a live tool's magazine, by the tool's item id and the slot ([containers.md](containers.md#ammo-in-a-magazine)); a row tool's ammo is `Container(tool, slot)` |
 | `Missing` | `Home.Missing` | the load found no store holding it; goes in R4 (D9, OI-LED-16) |
 
 An installed gadget's home names only its anchor; the gadget keeps its own UID (D13). A save's gadget

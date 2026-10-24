@@ -605,6 +605,9 @@ public partial class NetworkedItem
                 case ItemState.Installed:
                     HandleInstalledState();
                     break;
+                case ItemState.InMagazine:
+                    HandleMagazineState(snapshot);
+                    break;
 
                 default:
                     throw new Exception($"NetworkedItem.ApplySnapshot() Item state not implemented: {snapshot?.ItemState}");
@@ -756,6 +759,7 @@ public partial class NetworkedItem
         };
 
         CaptureLocalInventoryClaim(updateData);
+        WriteMagazine(updateData);
 
         Dictionary<string, object> snapshotDebugData = DebugTrace.ItemSnapshotData(updateData);
         if (DebugRuntime.EnabledFor("item"))
@@ -777,6 +781,9 @@ public partial class NetworkedItem
                 return ItemState.Installed;
         }
         catch { }
+
+        if (ObservedInMagazine())
+            return ItemState.InMagazine;
 
         if (wasThrown)
         {
