@@ -15,11 +15,9 @@ namespace Dvmp.Scenarios
     /// copy a new id as it registers (OI-ID-05). So the run puts the duplicate straight in front of
     /// Lost and Found: a mug of the client's is collected, then a second mug's record is given the
     /// first's id and collected too. Lost and Found must refuse it (`DuplicatePersistentItemId`), say
-    /// so in the log, and leave the second mug where it was, with the first's entry unchanged. It does,
-    /// but its rollback moves the first mug's ledger home back to the world (LF9): the one-home check
-    /// after the run fails.
+    /// so in the log, and leave the second mug where it was, with the first's entry unchanged. It's
+    /// asked before the ledger moves, so both mugs keep their ledger homes (LF9, fixed in R6).
     /// </summary>
-    [KnownBug("LF9")]
     [Scenario("lost-and-found-duplicate-id", "Lost and Found refuses a second item with an id it holds (DuplicatePersistentItemId), logs it, and leaves both items as they were")]
     [Budget(180)]
     public sealed class LostAndFoundDuplicateId : Scenario<LostAndFoundDuplicateId.Options>
