@@ -112,8 +112,8 @@ item lands, so `ServerLedger.OnSettled` gives the ledger that home (the world, a
 shelf) as it lands, from one car into another too.
 
 `ServerLedger.OnRemoved` (from `ItemChangeLog.RecordRemoval`) ends the entry with the removal's reason,
-except `CollectedToLostAndFound` (home becomes `LostAndFound`), `DepositedInContainer` (`OnDeposited`
-moves it), `LeftInterest`, `WentCold`, and while the world unloads. Every change raises
+except `CollectedToLostAndFound` (home becomes `LostAndFound`), `DepositedInContainer` (the deposit
+committed it first, `ServerLedger.CommitStored`), `LeftInterest`, `WentCold`, and while the world unloads. Every change raises
 `ItemLedger.Changed` with a `LedgerChange`: its kind (`Born`, `Moved`, `Ended`, `ShopStocked`,
 `ClaimSlot`), a copy of the entry, the home it left and a `LedgerCause` ([change-causes.md](change-causes.md#the-ledgers-cause)).
 
@@ -165,7 +165,13 @@ is **live**: an object people can see and touch.
   request; the server commits it to the ledger and confirms. Only a refusal rolls the client back (a
   refused swap corrects both items).
 
-**Still open:** Lost and Found entries stay objects on the server until R6 (OI-COLD-08, user 2026-10-24). Containers are cold already and join the ledger in R5.
+**Still open:** Lost and Found entries stay objects on the server until R6 (OI-COLD-08, user 2026-10-24).
+
+**Containers (R5).** A stored item's home is `Container(id, slot)`, and the graph keeps no owner of
+its own: who owns an item, and so who keeps a box (its shell's owner, else its outer box's keeper,
+else its holder), is the ledger's. A deposit, a withdrawal and a move between boxes commit the
+ledger first by the item's id (`ServerLedger.CommitStored`, since a stored item has no live record)
+and move it back if the graph or the object refuses after ([containers.md](containers.md)).
 
 ## The re-key merge
 

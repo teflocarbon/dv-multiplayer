@@ -4,7 +4,7 @@
 > It covers `ItemAccess`, the one place that decides what a player may do with an item, the
 > server's side that asks it (`ItemAccessServer`), and fixtures. What each action then does is the
 > owning subsystem's: [inventory.md](inventory.md), [essentials.md](essentials.md) (recall),
-> [owned-list.md](owned-list.md) (retrieval); containers are R5's `containers.md`.
+> [owned-list.md](owned-list.md) (retrieval); containers are [containers.md](containers.md).
 
 | Side | Code |
 | --- | --- |

@@ -275,6 +275,13 @@ public partial class NetworkedItem
         MarkValuesClean();
     }
 
+    /// <summary>A retirement that didn't happen (a deposit taken back, OI-CON-06): the item is live again.</summary>
+    internal void CancelColdStorageRetirement()
+    {
+        coldStorageRetirement = false;
+        pendingRemovalCause = default;
+    }
+
     internal void BeginColdMaterialization()
     {
         coldMaterializationPending = true;

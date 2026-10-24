@@ -66,7 +66,6 @@ public sealed class ContainerLimits
 public sealed class ContainerRecord
 {
     public Guid PersistentContainerId { get; set; }
-    public string OwnerIdentity { get; set; } = string.Empty;
     public string PrefabName { get; set; } = string.Empty;
     public int Capacity { get; set; }
     public uint Revision { get; set; }
@@ -75,7 +74,6 @@ public sealed class ContainerRecord
     public ContainerRecord Clone() => new()
     {
         PersistentContainerId = PersistentContainerId,
-        OwnerIdentity = OwnerIdentity,
         PrefabName = PrefabName,
         Capacity = Capacity,
         Revision = Revision,
@@ -88,7 +86,6 @@ public sealed class StoredItemRecord
     public Guid PersistentItemId { get; set; }
     public string PrefabName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
-    public string PersistentOwnerIdentity { get; set; } = string.Empty;
     public string AuthoredItemKey { get; set; } = string.Empty;
     public Guid ParentContainerId { get; set; }
     public int Slot { get; set; } = -1;
@@ -103,7 +100,6 @@ public sealed class StoredItemRecord
         PersistentItemId = PersistentItemId,
         PrefabName = PrefabName,
         DisplayName = DisplayName,
-        PersistentOwnerIdentity = PersistentOwnerIdentity,
         AuthoredItemKey = AuthoredItemKey,
         ParentContainerId = ParentContainerId,
         Slot = Slot,
@@ -195,6 +191,25 @@ public sealed class AllowAllContainerCompatibility : IContainerCompatibilityPoli
     public bool IsCompatible(StoredItemRecord item, ContainerRecord destination) => true;
 }
 
+/// <summary>
+/// Who owns an item and who holds a shell: the ledger's and the live items', never the graph's
+/// (docs/design/items/containers.md, "Owners"). Identities are strings, empty for nobody.
+/// </summary>
+public interface IContainerOwners
+{
+    /// <summary>The item's owner, or empty when nobody owns it.</summary>
+    string OwnerOf(Guid itemId);
+    /// <summary>Who holds the container's shell as a live item (in a hand or an inventory), or empty.</summary>
+    string HolderOf(Guid containerId);
+}
+
+/// <summary>Nobody owns or holds anything: a graph with no ledger behind it.</summary>
+public sealed class NoContainerOwners : IContainerOwners
+{
+    public string OwnerOf(Guid itemId) => string.Empty;
+    public string HolderOf(Guid containerId) => string.Empty;
+}
+
 /// <summary>A saved container row, or a stored item's, that <see cref="ContainerGraph.ImportRows"/> refused, and why.</summary>
 public sealed class ContainerRowRefusal
 {
@@ -216,10 +231,6 @@ public sealed class ContainerGraphSnapshot
     public int Version { get; set; } = 2;
     public List<ContainerRecord> Containers { get; set; } = new();
     public List<StoredItemRecord> Items { get; set; } = new();
-
-    /// <summary>Moves an owner's containers and items to a new identity. Returns how many changed.</summary>
-    public int RekeyOwner(string fromIdentity, string toIdentity) =>
-        ContainerGraph.RekeyOwner(Containers, Items, fromIdentity, toIdentity);
 }
 
 /// <summary>
@@ -234,13 +245,15 @@ public sealed class ContainerGraph
     private readonly Queue<Guid> completedOperationOrder = new();
     private readonly Dictionary<Guid, Guid> preparingWithdrawals = new();
     private readonly IContainerCompatibilityPolicy compatibility;
+    private readonly IContainerOwners owners;
     private uint nextSessionHandle = 1;
 
     public ContainerGraph(ContainerLimits limits = null,
-        IContainerCompatibilityPolicy compatibility = null)
+        IContainerCompatibilityPolicy compatibility = null, IContainerOwners owners = null)
     {
         Limits = (limits ?? new ContainerLimits()).Clone();
         this.compatibility = compatibility ?? new AllowAllContainerCompatibility();
+        this.owners = owners ?? new NoContainerOwners();
     }
 
     public ContainerLimits Limits { get; }
@@ -249,8 +262,7 @@ public sealed class ContainerGraph
 
     public ContainerOperationResult AddContainer(ContainerRecord record)
     {
-        if (record == null || record.PersistentContainerId == Guid.Empty ||
-            string.IsNullOrWhiteSpace(record.OwnerIdentity) || record.Capacity <= 0 ||
+        if (record == null || record.PersistentContainerId == Guid.Empty || record.Capacity <= 0 ||
             record.Capacity > Limits.MaximumCapacity)
             return Reject(Guid.Empty, ContainerOperationKind.Deposit,
                 ContainerOperationStatus.InvalidRecord, "invalid-container-record");
@@ -324,8 +336,8 @@ public sealed class ContainerGraph
                     ItemHandle = item.SessionHandle,
                     PrefabName = item.PrefabName,
                     DisplayName = item.DisplayName,
-                    ForeignOwned = !string.Equals(item.PersistentOwnerIdentity, actorIdentity,
-                        StringComparison.Ordinal),
+                    ForeignOwned = OwnerOf(item.PersistentItemId) is { Length: > 0 } owner &&
+                        !string.Equals(owner, actorIdentity, StringComparison.Ordinal),
                     IsContainer = child != null,
                     ChildContainerHandle = child?.SessionHandle ?? 0,
                     ChildItemCount = child == null ? 0 : items.Values.Count(value =>
@@ -339,7 +351,12 @@ public sealed class ContainerGraph
             sourceRevision: container.Revision);
     }
 
-    public ContainerOperationResult CommitDeposit(DepositCommand command)
+    /// <summary>
+    /// Whether the deposit would be committed, changing nothing: the server asks first, moves the
+    /// ledger, then commits (docs/design/items/containers.md, "Deposit"). A repeated operation's
+    /// remembered result is returned as it was.
+    /// </summary>
+    public ContainerOperationResult CheckDeposit(DepositCommand command)
     {
         if (command == null)
             return Reject(Guid.Empty, ContainerOperationKind.Deposit,
@@ -347,40 +364,46 @@ public sealed class ContainerGraph
         if (TryCompleted(command.OperationId, out ContainerOperationResult completed))
             return completed;
         if (!containers.TryGetValue(command.DestinationContainerId, out ContainerRecord destination))
-            return Complete(command.OperationId, Reject(command.OperationId, ContainerOperationKind.Deposit,
-                ContainerOperationStatus.NotFound, "destination-not-found"));
+            return Reject(command.OperationId, ContainerOperationKind.Deposit,
+                ContainerOperationStatus.NotFound, "destination-not-found");
         ContainerOperationResult validation = ValidateDestination(command.OperationId,
             ContainerOperationKind.Deposit, command.ActorIdentity, destination,
             command.ExpectedDestinationRevision, command.DestinationSlot, command.Item,
             ContainerOf(command.Item));
         if (!validation.Accepted)
-            return Complete(command.OperationId, validation);
+            return validation;
         if (command.Item == null || command.Item.PersistentItemId == Guid.Empty ||
             string.IsNullOrWhiteSpace(command.Item.PrefabName) ||
-            string.IsNullOrWhiteSpace(command.Item.PersistentOwnerIdentity) ||
             (command.Item.DetachedState?.Length ?? 0) > Limits.MaximumDetachedStateBytes)
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Deposit, ContainerOperationStatus.InvalidRecord,
-                "invalid-item-record"));
-        if (!string.Equals(command.Item.PersistentOwnerIdentity, command.ActorIdentity,
-                StringComparison.Ordinal))
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Deposit, ContainerOperationStatus.Unauthorized,
-                "deposit-item-not-owned"));
+            return Reject(command.OperationId, ContainerOperationKind.Deposit,
+                ContainerOperationStatus.InvalidRecord, "invalid-item-record");
+        // A deposit never changes ownership: only the depositor's own items go in (OI-CON-01).
+        string owner = OwnerOf(command.Item.PersistentItemId);
+        if (owner.Length == 0 || !string.Equals(owner, command.ActorIdentity, StringComparison.Ordinal))
+            return Reject(command.OperationId, ContainerOperationKind.Deposit,
+                ContainerOperationStatus.Unauthorized, "deposit-item-not-owned");
         // A container already stored in another is this too: its id is its shell's.
         if (items.ContainsKey(command.Item.PersistentItemId))
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Deposit, ContainerOperationStatus.DuplicateIdentity,
-                "duplicate-item-id"));
-        if (CountOwnedItems(command.Item.PersistentOwnerIdentity) >= Limits.MaximumItemsPerOwner)
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Deposit, ContainerOperationStatus.OwnerQuotaExceeded,
-                "owner-item-quota-exceeded"));
-        if (CountContainerOwnerItems(destination.OwnerIdentity) >= Limits.MaximumItemsPerOwner)
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Deposit, ContainerOperationStatus.OwnerQuotaExceeded,
-                "container-owner-item-quota-exceeded"));
+            return Reject(command.OperationId, ContainerOperationKind.Deposit,
+                ContainerOperationStatus.DuplicateIdentity, "duplicate-item-id");
+        if (CountOwnedItems(owner) >= Limits.MaximumItemsPerOwner)
+            return Reject(command.OperationId, ContainerOperationKind.Deposit,
+                ContainerOperationStatus.OwnerQuotaExceeded, "owner-item-quota-exceeded");
+        if (CountKeptItems(KeeperOf(destination.PersistentContainerId)) >= Limits.MaximumItemsPerOwner)
+            return Reject(command.OperationId, ContainerOperationKind.Deposit,
+                ContainerOperationStatus.OwnerQuotaExceeded, "container-owner-item-quota-exceeded");
+        return Accept(command.OperationId, ContainerOperationKind.Deposit,
+            destinationRevision: destination.Revision, itemId: command.Item.PersistentItemId);
+    }
 
+    public ContainerOperationResult CommitDeposit(DepositCommand command)
+    {
+        if (command != null && TryCompleted(command.OperationId, out ContainerOperationResult completed))
+            return completed;
+        ContainerOperationResult check = CheckDeposit(command);
+        if (!check.Accepted)
+            return command == null ? check : Complete(command.OperationId, check);
+        ContainerRecord destination = containers[command.DestinationContainerId];
         StoredItemRecord item = command.Item.Clone();
         item.ParentContainerId = destination.PersistentContainerId;
         item.Slot = command.DestinationSlot;
@@ -392,6 +415,24 @@ public sealed class ContainerGraph
         return Complete(command.OperationId, Accept(command.OperationId,
             ContainerOperationKind.Deposit, destinationRevision: destination.Revision,
             itemId: item.PersistentItemId, state: item.LifecycleState));
+    }
+
+    /// <summary>
+    /// A committed deposit whose object couldn't be retired is taken back (OI-CON-06): the item
+    /// leaves the container and stays the live object it was, and a repeat of the operation is
+    /// refused with the reason.
+    /// </summary>
+    public ContainerOperationResult RevokeDeposit(Guid operationId, Guid itemId, string reason)
+    {
+        if (!items.TryGetValue(itemId, out StoredItemRecord item) ||
+            item.LifecycleState != ItemLifecycleState.ColdCommittedPendingRetirement)
+            return Reject(operationId, ContainerOperationKind.Deposit,
+                ContainerOperationStatus.InvalidState, "item-not-pending-retirement");
+        items.Remove(itemId);
+        if (containers.TryGetValue(item.ParentContainerId, out ContainerRecord destination))
+            destination.Revision = NextRevision(destination.Revision);
+        return Complete(operationId, Reject(operationId, ContainerOperationKind.Deposit,
+            ContainerOperationStatus.InvalidState, reason ?? "deposit-revoked"));
     }
 
     public ContainerOperationResult FinalizeDepositRetirement(Guid operationId, Guid itemId)
@@ -498,7 +539,12 @@ public sealed class ContainerGraph
             ContainerOperationStatus.InvalidState, reason ?? "withdrawal-aborted");
     }
 
-    public ContainerOperationResult Move(MoveCommand command)
+    /// <summary>
+    /// Whether the move would be committed, changing nothing, and which item it moves
+    /// (<see cref="ContainerOperationResult.ItemId"/>): the server moves the ledger between the
+    /// check and the commit, as for a deposit.
+    /// </summary>
+    public ContainerOperationResult CheckMove(MoveCommand command)
     {
         if (command == null)
             return Reject(Guid.Empty, ContainerOperationKind.Move,
@@ -507,33 +553,42 @@ public sealed class ContainerGraph
             return completed;
         if (!containers.TryGetValue(command.SourceContainerId, out ContainerRecord source) ||
             !containers.TryGetValue(command.DestinationContainerId, out ContainerRecord destination))
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Move, ContainerOperationStatus.NotFound,
-                "source-or-destination-not-found"));
+            return Reject(command.OperationId, ContainerOperationKind.Move,
+                ContainerOperationStatus.NotFound, "source-or-destination-not-found");
         if (!Authorized(command.ActorIdentity, source) || !Authorized(command.ActorIdentity, destination))
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Move, ContainerOperationStatus.Unauthorized,
-                "container-private"));
+            return Reject(command.OperationId, ContainerOperationKind.Move,
+                ContainerOperationStatus.Unauthorized, "container-private");
         if (source.Revision != command.ExpectedSourceRevision ||
             destination.Revision != command.ExpectedDestinationRevision)
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Move, ContainerOperationStatus.StaleRevision,
-                "container-revision-stale"));
+            return Reject(command.OperationId, ContainerOperationKind.Move,
+                ContainerOperationStatus.StaleRevision, "container-revision-stale");
         if (source.Revision == uint.MaxValue)
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Move, ContainerOperationStatus.InvalidState,
-                "container-revision-exhausted"));
+            return Reject(command.OperationId, ContainerOperationKind.Move,
+                ContainerOperationStatus.InvalidState, "container-revision-exhausted");
         StoredItemRecord item = FindDirect(source.PersistentContainerId, command.SourceSlot);
         if (item == null)
-            return Complete(command.OperationId, Reject(command.OperationId,
-                ContainerOperationKind.Move, ContainerOperationStatus.NotFound,
-                "source-slot-empty"));
+            return Reject(command.OperationId, ContainerOperationKind.Move,
+                ContainerOperationStatus.NotFound, "source-slot-empty");
         ContainerOperationResult validation = ValidateDestination(command.OperationId,
             ContainerOperationKind.Move, command.ActorIdentity, destination,
             command.ExpectedDestinationRevision, command.DestinationSlot, item,
             ContainerOf(item), ignoreItemId: item.PersistentItemId);
         if (!validation.Accepted)
-            return Complete(command.OperationId, validation);
+            return validation;
+        return Accept(command.OperationId, ContainerOperationKind.Move, source.Revision,
+            destination.Revision, item.PersistentItemId, item.LifecycleState);
+    }
+
+    public ContainerOperationResult Move(MoveCommand command)
+    {
+        if (command != null && TryCompleted(command.OperationId, out ContainerOperationResult completed))
+            return completed;
+        ContainerOperationResult check = CheckMove(command);
+        if (!check.Accepted)
+            return command == null ? check : Complete(command.OperationId, check);
+        ContainerRecord source = containers[command.SourceContainerId];
+        ContainerRecord destination = containers[command.DestinationContainerId];
+        StoredItemRecord item = items[check.ItemId];
         item.ParentContainerId = destination.PersistentContainerId;
         item.Slot = command.DestinationSlot;
         source.Revision = NextRevision(source.Revision);
@@ -565,9 +620,10 @@ public sealed class ContainerGraph
     /// <summary>
     /// Loads rows from a save, each on its own (docs/design/items/save-load.md, "Rows stand alone";
     /// C1): the containers, then the stored items. A row that breaks a rule (a slot out of range or
-    /// taken, a container it isn't in, an owner that isn't its container's, a container inside
-    /// itself, nesting deeper than the limit) is refused and returned, and every other row loads.
-    /// The caller keeps the refused rows as they were saved. Replaces whatever the graph held.
+    /// taken, a container it isn't in, a container inside itself, nesting deeper than the limit)
+    /// is refused and returned, and every other row loads. Owners are the ledger's, so a row has
+    /// none to check. The caller keeps the refused rows as they were saved. Replaces whatever the
+    /// graph held.
     /// </summary>
     public IReadOnlyList<ContainerRowRefusal> ImportRows(IEnumerable<ContainerRecord> containerRows,
         IEnumerable<StoredItemRecord> itemRows)
@@ -599,8 +655,6 @@ public sealed class ContainerGraph
             return "duplicate-item-id";
         if (!containers.TryGetValue(input.ParentContainerId, out ContainerRecord parent))
             return "container-not-found";
-        if (!string.Equals(input.PersistentOwnerIdentity, parent.OwnerIdentity, StringComparison.Ordinal))
-            return "container-foreign-owned-item";
         if ((input.DetachedState?.Length ?? 0) > Limits.MaximumDetachedStateBytes)
             return "detached-state-too-large";
         if (input.Slot < 0 || input.Slot >= parent.Capacity)
@@ -648,28 +702,17 @@ public sealed class ContainerGraph
                 direct.GroupBy(item => item.Slot).Any(group => group.Count() > 1))
                 return Reject(Guid.Empty, ContainerOperationKind.Browse,
                     ContainerOperationStatus.InvalidRecord, "container-slot-invalid");
-            if (direct.Any(item => !string.Equals(item.PersistentOwnerIdentity,
-                    container.OwnerIdentity, StringComparison.Ordinal)))
-                return Reject(Guid.Empty, ContainerOperationKind.Browse,
-                    ContainerOperationStatus.Unauthorized, "container-foreign-owned-item");
             ContainerOperationResult traversal = ValidateDepthFrom(container.PersistentContainerId);
             if (!traversal.Accepted) return traversal;
         }
-        foreach (IGrouping<string, StoredItemRecord> owner in items.Values.GroupBy(item =>
-                     item.PersistentOwnerIdentity ?? string.Empty, StringComparer.Ordinal))
+        foreach (IGrouping<string, StoredItemRecord> owner in items.Values
+                     .GroupBy(item => OwnerOf(item.PersistentItemId), StringComparer.Ordinal)
+                     .Where(group => group.Key.Length > 0))
             if (owner.Count() > Limits.MaximumItemsPerOwner)
                 return Reject(Guid.Empty, ContainerOperationKind.Browse,
                     ContainerOperationStatus.OwnerQuotaExceeded, "owner-item-quota-exceeded");
-        foreach (IGrouping<string, StoredItemRecord> owner in items.Values.GroupBy(item =>
-                     containers.TryGetValue(item.ParentContainerId, out ContainerRecord parent)
-                         ? parent.OwnerIdentity : string.Empty, StringComparer.Ordinal))
-            if (owner.Count() > Limits.MaximumItemsPerOwner)
-                return Reject(Guid.Empty, ContainerOperationKind.Browse,
-                    ContainerOperationStatus.OwnerQuotaExceeded,
-                    "container-owner-item-quota-exceeded");
         return Accept(Guid.Empty, ContainerOperationKind.Browse);
     }
-
     private ContainerOperationResult ValidateDestination(Guid operationId,
         ContainerOperationKind kind, string actorIdentity, ContainerRecord destination,
         uint expectedRevision, int slot, StoredItemRecord item, Guid? childContainerId,
@@ -798,55 +841,47 @@ public sealed class ContainerGraph
         return result;
     }
 
-    /// <summary>Whether any container or item belongs to this owner identity.</summary>
-    public bool HasOwner(string ownerIdentity) =>
-        !string.IsNullOrWhiteSpace(ownerIdentity) &&
-        (containers.Values.Any(container => string.Equals(container.OwnerIdentity, ownerIdentity, StringComparison.Ordinal)) ||
-         items.Values.Any(item => string.Equals(item.PersistentOwnerIdentity, ownerIdentity, StringComparison.Ordinal)));
+    /// <summary>The item's owner, from the ledger: empty when nobody owns it.</summary>
+    public string OwnerOf(Guid itemId) => owners.OwnerOf(itemId) ?? string.Empty;
 
     /// <summary>
-    /// The owner's identity changed (an install GUID re-keyed to a Steam account): their containers
-    /// and the items in them move to the new one together, so every item still matches its
-    /// container's owner. Returns how many changed.
+    /// Who may open the container (OI-CON-01, OI-CON-08): its shell's owner; one nobody owns
+    /// stored in another is kept by whoever keeps that one; a live one by whoever holds it. Empty
+    /// when nobody may.
     /// </summary>
-    public int RekeyOwner(string fromIdentity, string toIdentity) =>
-        RekeyOwner(containers.Values, items.Values, fromIdentity, toIdentity);
-
-    internal static int RekeyOwner(IEnumerable<ContainerRecord> containers, IEnumerable<StoredItemRecord> items,
-        string fromIdentity, string toIdentity)
+    public string KeeperOf(Guid containerId)
     {
-        if (string.IsNullOrWhiteSpace(fromIdentity) || string.IsNullOrWhiteSpace(toIdentity))
-            return 0;
-        int changed = 0;
-        foreach (ContainerRecord container in containers)
+        HashSet<Guid> seen = new();
+        Guid current = containerId;
+        while (seen.Add(current))
         {
-            if (!string.Equals(container.OwnerIdentity, fromIdentity, StringComparison.Ordinal))
-                continue;
-            container.OwnerIdentity = toIdentity;
-            changed++;
+            string owner = OwnerOf(current);
+            if (owner.Length > 0)
+                return owner;
+            if (!items.TryGetValue(current, out StoredItemRecord stored))
+                return owners.HolderOf(current) ?? string.Empty;
+            current = stored.ParentContainerId;
         }
-        foreach (StoredItemRecord item in items)
-        {
-            if (!string.Equals(item.PersistentOwnerIdentity, fromIdentity, StringComparison.Ordinal))
-                continue;
-            item.PersistentOwnerIdentity = toIdentity;
-            changed++;
-        }
-        return changed;
+        return string.Empty;
     }
 
     private int CountOwnedItems(string owner) => items.Values.Count(item =>
-        string.Equals(item.PersistentOwnerIdentity, owner, StringComparison.Ordinal) &&
-        item.LifecycleState != ItemLifecycleState.Materialized);
-
-    private int CountContainerOwnerItems(string owner) => items.Values.Count(item =>
         item.LifecycleState != ItemLifecycleState.Materialized &&
-        containers.TryGetValue(item.ParentContainerId, out ContainerRecord parent) &&
-        string.Equals(parent.OwnerIdentity, owner, StringComparison.Ordinal));
+        string.Equals(OwnerOf(item.PersistentItemId), owner, StringComparison.Ordinal));
 
-    private static bool Authorized(string actor, ContainerRecord container) =>
-        !string.IsNullOrWhiteSpace(actor) && string.Equals(actor, container.OwnerIdentity,
-            StringComparison.Ordinal);
+    private int CountKeptItems(string keeper)
+    {
+        if (keeper.Length == 0)
+            return 0;
+        HashSet<Guid> kept = new(containers.Keys.Where(id =>
+            string.Equals(KeeperOf(id), keeper, StringComparison.Ordinal)));
+        return items.Values.Count(item => item.LifecycleState != ItemLifecycleState.Materialized &&
+            kept.Contains(item.ParentContainerId));
+    }
+
+    private bool Authorized(string actor, ContainerRecord container) =>
+        !string.IsNullOrWhiteSpace(actor) &&
+        string.Equals(actor, KeeperOf(container.PersistentContainerId), StringComparison.Ordinal);
 
     private uint AllocateHandle()
     {

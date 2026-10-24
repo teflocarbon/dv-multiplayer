@@ -135,14 +135,14 @@ public static partial class ServerLedger
             yield return cold;
         foreach (StoredItemRecord row in ContainerServer.Graph.ExportSnapshot().Items)
         {
-            Guid.TryParse(row.PersistentOwnerIdentity, out Guid owner);
             yield return new ObservedItem
             {
                 Id = row.PersistentItemId,
                 Name = row.PrefabName,
                 Source = ObservedSource.ContainerRow,
                 Home = Home.Container(row.ParentContainerId, row.Slot),
-                StoreOwner = owner == Guid.Empty ? OwnerRef.None : OwnerRef.Player(owner)
+                // A container row names no owner: its owner is the ledger's (containers.md).
+                StoreOwner = OwnerRef.None
             };
         }
     }

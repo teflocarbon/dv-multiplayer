@@ -102,7 +102,7 @@ internal static partial class ItemSaveLoad
             CarExists = car => !string.IsNullOrEmpty(car) && cars.Contains(car)
         };
 
-        // Containers first, so an unowned stored item knows its container's owner.
+        // Containers first, so an unowned stored item knows its container is there.
         Dictionary<Guid, ContainerRecord> containers = new();
         Dictionary<Guid, JToken> containerRows = new();
         foreach (JToken token in items.Containers)
@@ -252,7 +252,7 @@ internal static partial class ItemSaveLoad
                 return ColdInventories.Add(row) ? step.Action
                     : Recover(entry, row, LostItemReason.SaveRecovery, "its offline inventory refused it");
             case LoadAction.IntoContainer:
-                context.Stored.Add(StoredOf(row, owner, Guid.Parse(step.Home.Anchor), step.Home.Slot));
+                context.Stored.Add(StoredOf(row, Guid.Parse(step.Home.Anchor), step.Home.Slot));
                 context.StoredRows[row.PersistentItemId] = row;
                 return step.Action;
             case LoadAction.MakeLive:
@@ -325,12 +325,11 @@ internal static partial class ItemSaveLoad
         }
     }
 
-    private static StoredItemRecord StoredOf(SavedItemRow row, Guid owner, Guid container, int slot) => new()
+    private static StoredItemRecord StoredOf(SavedItemRow row, Guid container, int slot) => new()
     {
         PersistentItemId = row.PersistentItemId,
         PrefabName = row.PrefabName,
         DisplayName = row.DisplayName,
-        PersistentOwnerIdentity = owner == Guid.Empty ? string.Empty : owner.ToString("D"),
         AuthoredItemKey = row.AuthoredItemKey,
         ParentContainerId = container,
         Slot = slot,
@@ -360,11 +359,10 @@ internal static partial class ItemSaveLoad
                 row.OwnerIdentity = Guid.Empty;
                 return ColdInventories.Add(row);
             case ItemPlacementKind.Container:
-                // An unowned stored item is its container's owner's to see; the ledger doesn't hold it.
-                if (!context.Containers.TryGetValue(row.ContainerId, out ContainerRecord container))
+                // An unowned stored item: the ledger doesn't hold it, and whoever keeps its container sees it.
+                if (!context.Containers.ContainsKey(row.ContainerId))
                     return false;
-                Guid.TryParse(container.OwnerIdentity, out Guid owner);
-                context.Stored.Add(StoredOf(row, owner, row.ContainerId, row.Slot));
+                context.Stored.Add(StoredOf(row, row.ContainerId, row.Slot));
                 context.StoredRows[row.PersistentItemId] = row;
                 context.UnownedStoredTokens[row.PersistentItemId] = token;
                 return true;

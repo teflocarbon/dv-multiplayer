@@ -222,30 +222,27 @@ public static class ItemsSaveCodec
             (bool?)item["essential"] ?? false);
     }
 
-    /// <summary>A container's row: its id (its shell's item id, OI-CON-09) and its size. Its owner stays here until R5's owners from the ledger.</summary>
+    /// <summary>A container's row: its id (its shell's item id, OI-CON-09) and its size. Its owner is the ledger's, so it has none.</summary>
     public static JObject WriteContainer(ContainerRecord container)
     {
         JObject row = new()
         {
             ["id"] = container.PersistentContainerId.ToString("D"),
-            ["owner"] = container.OwnerIdentity ?? string.Empty,
             ["prefab"] = container.PrefabName ?? string.Empty,
             ["capacity"] = container.Capacity
         };
         return row;
     }
 
-    /// <summary>A saved container, or null when it can't be read (no id, no owner, no size).</summary>
+    /// <summary>A saved container, or null when it can't be read (no id, no size). An owner saved by an earlier build is ignored.</summary>
     public static ContainerRecord ReadContainer(JObject row)
     {
         if (!Guid.TryParse((string)row["id"], out Guid id) || id == Guid.Empty ||
-            !Guid.TryParse((string)row["owner"], out Guid owner) || owner == Guid.Empty ||
             ((int?)row["capacity"] ?? 0) <= 0)
             return null;
         return new ContainerRecord
         {
             PersistentContainerId = id,
-            OwnerIdentity = owner.ToString("D"),
             PrefabName = (string)row["prefab"] ?? string.Empty,
             Capacity = (int)row["capacity"]
         };
