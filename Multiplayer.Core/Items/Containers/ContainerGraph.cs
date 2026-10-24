@@ -687,6 +687,39 @@ public sealed class ContainerGraph
         return current;
     }
 
+    // How many boxes this one is inside: 0 for the outermost.
+    private int DepthOf(Guid containerId)
+    {
+        HashSet<Guid> seen = new();
+        Guid current = containerId;
+        int depth = 0;
+        while (seen.Add(current) && items.TryGetValue(current, out StoredItemRecord holder))
+        {
+            current = holder.ParentContainerId;
+            depth++;
+        }
+        return depth;
+    }
+
+    // How many boxes deep this one's contents go: 0 when it holds none.
+    private int HeightOf(Guid containerId)
+    {
+        HashSet<Guid> visited = new();
+        Queue<(Guid id, int depth)> queue = new();
+        queue.Enqueue((containerId, 0));
+        int height = 0;
+        while (queue.Count > 0 && visited.Count <= Limits.MaximumVisitedNodes)
+        {
+            (Guid current, int depth) = queue.Dequeue();
+            if (!visited.Add(current))
+                continue;
+            height = Math.Max(height, depth);
+            foreach (Guid child in DirectChildContainers(current))
+                queue.Enqueue((child, depth + 1));
+        }
+        return height;
+    }
+
     // The container an item opens, if it is one's shell.
     private Guid? ContainerOf(StoredItemRecord item) =>
         item != null && containers.ContainsKey(item.PersistentItemId) ? item.PersistentItemId : null;
@@ -744,6 +777,13 @@ public sealed class ContainerGraph
             ContainerOperationResult cycle = ValidateNoCycle(childContainerId.Value,
                 destination.PersistentContainerId);
             if (!cycle.Accepted) return cycle;
+            // The same limit the load holds a save to (OI-CON-15): a box nested deeper than
+            // MaximumDepth inside the outermost one is refused here, so no save is made that
+            // the load would refuse.
+            if (DepthOf(destination.PersistentContainerId) + 1 + HeightOf(childContainerId.Value) >
+                Limits.MaximumDepth)
+                return Reject(operationId, kind, ContainerOperationStatus.DepthExceeded,
+                    "container-depth-exceeded");
         }
         return Accept(operationId, kind, destinationRevision: destination.Revision);
     }

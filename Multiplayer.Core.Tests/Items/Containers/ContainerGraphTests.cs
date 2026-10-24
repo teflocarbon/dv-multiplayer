@@ -529,6 +529,57 @@ public sealed class ContainerGraphTests
             Is.EqualTo("item-not-pending-retirement"));
     }
 
+    [Test]
+    public void ABoxPastTheDepthLimit_IsRefusedAtDeposit_AndOneAtItLoadsAgain()
+    {
+        // OI-CON-15: a deposit holds the graph to the limit the load holds a save to.
+        graph = new ContainerGraph(new ContainerLimits { MaximumDepth = 2 }, owners: owners);
+        graph.AddContainer(Container(root, Owner, 4));
+        StoredItemRecord first = Box(), second = Box(), third = Box();
+        Deposit(root, 0, first);
+        Deposit(first.PersistentItemId, 0, second);
+        graph.TryGetContainer(second.PersistentItemId, out var deepest);
+
+        ContainerOperationResult tooDeep = graph.CommitDeposit(DepositCommand(Guid.NewGuid(),
+            second.PersistentItemId, deepest.Revision, third));
+
+        Assert.That(tooDeep.Status, Is.EqualTo(ContainerOperationStatus.DepthExceeded));
+        Assert.That(tooDeep.Reason, Is.EqualTo("container-depth-exceeded"));
+        ContainerGraphSnapshot saved = graph.ExportSnapshot();
+        Assert.That(new ContainerGraph(new ContainerLimits { MaximumDepth = 2 }, owners: owners)
+            .ImportRows(saved.Containers, saved.Items), Is.Empty);
+    }
+
+    [Test]
+    public void ABoxWithBoxesInside_CountsTheirDepthAtDeposit()
+    {
+        graph = new ContainerGraph(new ContainerLimits { MaximumDepth = 2 }, owners: owners);
+        graph.AddContainer(Container(root, Owner, 4));
+        StoredItemRecord outer = Box(), inner = Box(), level = Box();
+        Deposit(root, 0, level);
+        Deposit(outer.PersistentItemId, 0, inner);
+        graph.TryGetContainer(level.PersistentItemId, out var destination);
+
+        // level is 1 deep; outer would be 2 and inner 3.
+        ContainerOperationResult result = graph.CommitDeposit(DepositCommand(Guid.NewGuid(),
+            level.PersistentItemId, destination.Revision, outer));
+
+        Assert.That(result.Status, Is.EqualTo(ContainerOperationStatus.DepthExceeded));
+        Assert.That(graph.CommitDeposit(DepositCommand(Guid.NewGuid(),
+            root, Revision(root), outer, slot: 1)).Accepted, Is.True, "two deep under the outermost fits");
+    }
+
+    // An empty box: a shell owned by Owner whose container has its id.
+    private StoredItemRecord Box()
+    {
+        StoredItemRecord shell = Item();
+        graph.AddContainer(Container(shell.PersistentItemId, Owner, 4));
+        return shell;
+    }
+
+    private uint Revision(Guid container) =>
+        graph.TryGetContainer(container, out var record) ? record.Revision : 0;
+
     private void Deposit(Guid container, int slot, StoredItemRecord item = null,
         ushort physicalNetId = 0)
     {

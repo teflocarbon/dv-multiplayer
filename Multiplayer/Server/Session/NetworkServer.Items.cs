@@ -7,6 +7,7 @@ using Multiplayer.Core.Items.LiveState;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Inventory;
+using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.OwnedList;
@@ -392,6 +393,10 @@ public partial class NetworkServer : IItemServer
 
     private ClientboundItemResultPacket Carry(ItemRequest request, ServerPlayer player)
     {
+        // No request is carried out before the load has run (save-load.md, "The load"; OI-PER-23):
+        // one made before it would act on items the load hasn't placed, and the load would wipe it.
+        if (!ServerLedger.Loaded)
+            return Refuse(request, "items-loading", ItemRefusal.Busy);
         // An item kept as data on the server (inventory.md, "Data only on the server"; OI-COLD-06)
         // has its object made again first; the request is answered once it has.
         ushort needed = DataOnlyNamed(request, player);
