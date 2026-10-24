@@ -32,4 +32,19 @@ public static class ItemAccessServer
         reason = decision.Reason;
         return decision.Allowed;
     }
+
+    /// <summary>
+    /// The same for an item that is a row with no object (a container's, docs/design/items/containers.md):
+    /// its owner, prefab, authored key and spec stand in for the record and the object.
+    /// </summary>
+    public static bool AllowsRow(ServerPlayer actor, ItemAccessAction action, Guid owner, string prefab,
+        string authoredKey, bool essential, out string reason)
+    {
+        ItemAccessDecision decision = ItemAccess.Decide(new ItemAccessRequest(action,
+            actorOwnsItem: actor != null && owner != Guid.Empty && owner == actor.Guid,
+            isFixture: Fixtures.Count > 0 && Fixtures.Contains(prefab, authoredKey),
+            isEssential: essential));
+        reason = decision.Reason;
+        return decision.Allowed;
+    }
 }

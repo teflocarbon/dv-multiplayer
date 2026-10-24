@@ -712,14 +712,15 @@ public partial class NetworkServer : IItemServer
         return ContainerResult(request, result, result.DestinationRevision, request.ItemNetId);
     }
 
-    // A container row into the requester's inventory slot. It materializes over a few frames, so
-    // its answer is sent when it's done; until then a repeat of the request gets nothing.
+    // A container row into the requester's inventory, in the slot the server picks: the request's
+    // slot isn't used (OI-ACC-04). Its answer is sent when it's done; until then a repeat of the
+    // request gets nothing.
     private ClientboundItemResultPacket CarryWithdraw(ItemRequest request, ServerPlayer player)
     {
         if (!TryGetStoredItem(request.ItemHandle, out StoredItemRecord stored, out uint container))
             return Refuse(request, "container-item-not-found", ItemRefusal.UnknownItem);
         CoroutineManager.Instance.StartCoroutine(ContainerServer.Withdraw(player, Guid.NewGuid(), container,
-            request.ExpectedRevision, stored.Slot, request.Slot,
+            request.ExpectedRevision, stored.Slot,
             (result, withdrawnNetId) => CompleteItemRequest(player,
                 ContainerResult(request, result, result.SourceRevision, withdrawnNetId))));
         return null;

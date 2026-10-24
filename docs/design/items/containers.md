@@ -74,13 +74,21 @@ ledger's (OI-CON-02): somebody else's item comes out only while they are connect
 one comes out unowned. In order:
 
 1. `ContainerGraph.PrepareWithdrawal` reserves the row.
-2. The server picks the inventory slot (`ServerLedger.FreeSlot`).
-3. The ledger moves the item from `Container(id, slot)` to that slot.
-4. The row is issued into the inventory (`PlayerItems.Issue`), and `ContainerGraph.CommitWithdrawal`
+2. `ItemAccess` is asked (`Withdraw`, with the row's facts: `ItemAccessServer.AllowsRow`, OI-ACC-04).
+3. The server picks the inventory slot (`ServerLedger.FreeSlot`): the item's claim when the
+   withdrawer owns it, else the lowest free one. The slot the client asked for isn't used (BR LF3).
+4. The ledger moves the item from `Container(id, slot)` to that slot.
+5. The row is issued into the inventory (`PlayerItems.Issue`), and `ContainerGraph.CommitWithdrawal`
    removes it from the box.
 
+With no slot free the item still comes out, as an object at the withdrawer's feet (the ledger
+moves it to `World`; `ItemSaveLoad.MakeLive`). An owned item goes on from there to its owner's
+Lost and Found (`InventoryOverflow`), as an issued essential with no slot does; if Lost and Found
+refuses it, it stays at their feet. An unowned item stays at their feet.
+
 If the withdrawer has left, the item can't be made, or the graph refuses the commit, the issued row
-is taken back, the ledger moves the item back into the box, and the reservation ends (OI-CON-03).
+(or the object made at their feet) is taken back, the ledger moves the item back into the box, and
+the reservation ends (OI-CON-03).
 
 ## Moving between boxes
 

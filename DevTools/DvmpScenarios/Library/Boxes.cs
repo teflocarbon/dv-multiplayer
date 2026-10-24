@@ -149,6 +149,33 @@ namespace Dvmp.Scenarios
             }
         }
 
+        /// <summary>
+        /// Host: a row nobody owns into the box's first free slot, as a load makes one from a save
+        /// (a deposit can't: only an owned item goes in). The graph is loaded again with it, so the
+        /// box must be closed. Result: the row's id.
+        /// </summary>
+        [Step]
+        public static string PutUnowned(ushort boxId, string prefab)
+        {
+            if (!ContainerServer.TryResolveShell(boxId, out Guid container) ||
+                !ContainerServer.Graph.TryGetContainer(container, out ContainerRecord box))
+                throw new Exception("the box has no container");
+            ContainerGraphSnapshot now = ContainerServer.Graph.ExportSnapshot();
+            int slot = Enumerable.Range(0, box.Capacity).Where(s =>
+                !now.Items.Any(i => i.ParentContainerId == container && i.Slot == s)).DefaultIfEmpty(-1).First();
+            if (slot < 0) throw new Exception("the box is full");
+            Guid id = Guid.NewGuid();
+            now.Items.Add(new StoredItemRecord { PersistentItemId = id, PrefabName = prefab, DisplayName = prefab, ParentContainerId = container, Slot = slot });
+            var refused = ContainerServer.Graph.ImportRows(now.Containers, now.Items);
+            if (refused.Count > 0) throw new Exception("the graph refused rows: " + string.Join(", ", refused.Select(r => r.Reason)));
+            return id.ToString("D");
+        }
+
+        /// <summary>Host: the slot of the box the stored item is in, or -1.</summary>
+        [Step]
+        public static int StoredSlot(string id) =>
+            Guid.TryParse(id, out Guid wanted) && ContainerServer.Graph.TryGetItem(wanted, out StoredItemRecord row) ? row.Slot : -1;
+
         /// <summary>Host: the cold graph checked whole, as the load would check a save of it: "ok" or why not.</summary>
         [Step]
         public static string GraphCheck()
