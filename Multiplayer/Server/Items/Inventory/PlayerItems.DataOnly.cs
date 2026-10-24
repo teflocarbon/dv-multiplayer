@@ -192,8 +192,10 @@ internal static partial class PlayerItems
 
         // The holder keeps theirs (it was sent the change that put it there, known or not), and so
         // does an owner whose silhouette stands for it (recall). Anyone else who was shown it (in the
-        // holder's inventory, nearby) is told it's gone.
+        // holder's inventory, nearby) is told it's gone. So is every other game for a job paper: its
+        // job's update made each one a copy when the object was made, near it or not.
         List<byte> keeping = new();
+        bool paper = JobPapers.IsPaper(record.PrefabName);
         foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
         {
             bool knew = player.KnownItems.Remove(item);
@@ -204,7 +206,8 @@ internal static partial class PlayerItems
                 keeping.Add(player.PlayerId);
                 continue;
             }
-            if (!knew)
+            if (!knew && !(paper && player.Peer != NetworkServer.Instance.SelfPeer &&
+                           player.LoadingState >= PlayerLoadingState.ReadyForItems))
                 continue;
             ItemUpdate destroy = item.CreateUpdateData(ItemUpdate.ItemUpdateType.Destroy);
             if (destroy == null)
