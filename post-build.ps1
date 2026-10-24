@@ -3,8 +3,19 @@ param
     [switch]$NoArchive,
     [string]$GameDir,
     [string]$Target,
-	[string]$Ver
+	[string]$Ver,
+	# Debug builds only: the GameNetworkingSockets DLL for the test-only GNS transport.
+	[string]$GnsDll
 )
+
+# The GNS transport lets the mod run without Steam, so its DLL never goes in build/ (which a
+# release zips) and never ships: a Debug build installs it straight into the game, and a release
+# removes any left from an earlier Debug build (docs/testing.md, "GNS pairs").
+$gnsDllName = 'GameNetworkingSockets.dll'
+if (!$NoArchive -and $GnsDll) {
+	throw "A release must not install $gnsDllName"
+}
+Remove-Item -LiteralPath ($PSScriptRoot + "/build/$gnsDllName") -ErrorAction SilentlyContinue
 
 Write-Host "Root: $PSScriptRoot"
 Write-Host "No Archive: $NoArchive"
@@ -80,6 +91,15 @@ if (!(Test-Path ($GameDir))) {
 	New-Item -ItemType Directory -Path $GameDir
 }
 Copy-Item ("$PSScriptRoot/build/*") -Destination ($GameDir)
+if ($NoArchive -and $GnsDll) {
+	if (Test-Path -LiteralPath $GnsDll) {
+		Copy-Item -LiteralPath $GnsDll -Destination ($GameDir)
+	} else {
+		Write-Host "No $GnsDll, so -dvmp-transport gns won't work in this install (DevTools/Gns/build-gns.ps1 builds it)"
+	}
+} elseif (!$NoArchive) {
+	Remove-Item -LiteralPath (Join-Path $GameDir $gnsDllName) -ErrorAction SilentlyContinue
+}
 
 
 #Files to be compressed if we make a zip
@@ -97,4 +117,16 @@ if (!$NoArchive){
 	
 	Write-Host "Zip Path: " $compress.DestinationPath
     Compress-Archive @compress -Force
+
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+	$zip = [System.IO.Compression.ZipFile]::OpenRead($compress.DestinationPath)
+	try {
+		$leaked = @($zip.Entries | Where-Object { $_.Name -eq $gnsDllName })
+	} finally {
+		$zip.Dispose()
+	}
+	if ($leaked.Count -gt 0) {
+		Remove-Item -LiteralPath $compress.DestinationPath
+		throw "The release zip contained $gnsDllName; deleted it"
+	}
 }

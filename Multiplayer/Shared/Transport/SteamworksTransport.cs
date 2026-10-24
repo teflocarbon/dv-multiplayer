@@ -373,6 +373,20 @@ public class SteamWorksTransport : ITransport
         return connectionToPeer.TryGetValue(connection, out var peer) ? peer : null;
     }
 
+    /// <summary>
+    /// Steam's SendType for a LiteNetLib delivery method: every reliable method is Steam's one
+    /// reliable ordered stream. GnsTransport sends with the same flags.
+    /// </summary>
+    public static SendType ToSendType(DeliveryMethod deliveryMethod) => deliveryMethod switch
+    {
+        DeliveryMethod.ReliableOrdered => SendType.Reliable,
+        DeliveryMethod.ReliableUnordered => SendType.Reliable,
+        DeliveryMethod.Unreliable => SendType.Unreliable,
+        DeliveryMethod.ReliableSequenced => SendType.Reliable,
+        DeliveryMethod.Sequenced => SendType.Unreliable,
+        _ => SendType.Reliable
+    };
+
     public static DisconnectReason NetConnectionEndToDisconnectReason(NetConnectionEnd reason)
     {
         return reason switch
@@ -439,16 +453,7 @@ public class SteamPeer : ITransportPeer
     public void Send(NetDataWriter writer, DeliveryMethod deliveryMethod)
     {
         //Multiplayer.LogDebug(() => $"SteamPeer.Send({writer.Data.Length})\r\n{Environment.StackTrace}");
-        // Map LiteNetLib delivery method to Steam's SendType
-        SendType sendType = deliveryMethod switch
-        {
-            DeliveryMethod.ReliableOrdered => SendType.Reliable,
-            DeliveryMethod.ReliableUnordered => SendType.Reliable,
-            DeliveryMethod.Unreliable => SendType.Unreliable,
-            DeliveryMethod.ReliableSequenced => SendType.Reliable,
-            DeliveryMethod.Sequenced => SendType.Unreliable,
-            _ => SendType.Reliable
-        };
+        SendType sendType = SteamWorksTransport.ToSendType(deliveryMethod);
 
         Result result = connection.SendMessage(writer.Data, 0, writer.Length, sendType);
         // A refused reliable message is lost for good (a permanent desync), so never drop it silently.
