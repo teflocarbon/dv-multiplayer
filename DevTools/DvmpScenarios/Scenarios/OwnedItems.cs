@@ -131,14 +131,14 @@ namespace Dvmp.Scenarios
             [Step]
             public static IEnumerator WaitInInventory(Step<ushort> step, string prefab, float seconds)
             {
-                NetworkedItem got = null;
-                for (float t0 = Time.realtimeSinceStartup; got == null && Time.realtimeSinceStartup - t0 < seconds;)
+                ushort got = 0;
+                for (float t0 = Time.realtimeSinceStartup; got == 0 && Time.realtimeSinceStartup - t0 < seconds;)
                 {
                     yield return new WaitForSecondsRealtime(0.5f);
-                    got = DV.InventorySystem.Inventory.Instance.GetItemsArray(false).Where(go => go != null && go.name.StartsWith(prefab))
-                        .Select(go => go.GetComponent<NetworkedItem>()).FirstOrDefault(n => n != null && n.NetId != 0);
+                    got = PlayerInventory.Stored().Where(e => e.netId != 0 && PlayerInventory.PrefabOf(e.go).StartsWith(prefab))
+                        .Select(e => e.netId).FirstOrDefault();
                 }
-                step.Result = got == null ? (ushort)0 : got.NetId;
+                step.Result = got;
             }
         }
     }

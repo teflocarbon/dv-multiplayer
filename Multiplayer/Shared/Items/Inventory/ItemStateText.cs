@@ -35,4 +35,35 @@ internal static class ItemStateText
         saveData.LoadItemData(JObject.Parse(state));
         saveData.PostLoadItemData();
     }
+
+    /// <summary>
+    /// Makes an item's object from its prefab for its saved state, as vanilla's load does
+    /// (<c>StartingItemsController</c>): a container (a toolbox, a magazine such as the boombox)
+    /// doesn't register itself under a fresh id as it wakes, so its saved id registers it when its
+    /// state loads. Without it the container registers twice and its state won't load. Call
+    /// <see cref="FinishContainer"/> once its state is loaded, or isn't.
+    /// </summary>
+    public static GameObject Instantiate(GameObject prefab, Vector3 position, Quaternion rotation)
+    {
+        DV.InventorySystem.ItemContainerRegistry registry = DV.InventorySystem.Inventory.Instance?.ItemContainerRegistry;
+        bool couldRegister = registry == null || registry.canRegisterContainers;
+        if (registry != null)
+            registry.canRegisterContainers = false;
+        try
+        {
+            return UnityEngine.Object.Instantiate(prefab, position, rotation);
+        }
+        finally
+        {
+            if (registry != null)
+                registry.canRegisterContainers = couldRegister;
+        }
+    }
+
+    /// <summary>A container made by <see cref="Instantiate"/> that its state didn't register (none, or its id is taken) gets a fresh id, as vanilla's load does.</summary>
+    public static void FinishContainer(GameObject item)
+    {
+        if (item != null && item.GetComponent<ItemSaveData>() is { } saveData)
+            saveData.PostContainerLoadData();
+    }
 }

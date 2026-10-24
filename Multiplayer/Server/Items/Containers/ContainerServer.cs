@@ -330,7 +330,7 @@ public static class ContainerServer
         {
             GameObject prefab = FindItemSpec(record.PrefabName)?.gameObject;
             if (prefab == null) throw new InvalidOperationException("withdraw-prefab-not-found");
-            instance = UnityEngine.Object.Instantiate(prefab,
+            instance = ItemStateText.Instantiate(prefab,
                 StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
             instance.name = record.PrefabName;
             InventoryItemSpec spec = instance.GetComponent<InventoryItemSpec>();
@@ -379,6 +379,7 @@ public static class ContainerServer
                 saveData.LoadItemData(state);
                 saveData.PostLoadItemData();
             }
+            ItemStateText.FinishContainer(instance);
             ItemBase itemBase = instance.GetComponent<ItemBase>();
             if (item == null || itemBase == null || item.NetId == 0)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");

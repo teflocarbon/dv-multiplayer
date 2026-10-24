@@ -90,7 +90,7 @@ internal sealed partial class ClientItemManager
     /// made or moved to its slot, and an object of it here goes. False when it isn't one, or the
     /// item stays an object (it's in the player's hand, or can't be a stand-in).
     /// </summary>
-    internal bool ReceiveAsStandIn(ItemUpdate update, string state)
+    internal bool ReceiveAsStandIn(ItemUpdate update, string state, bool rollBack = false)
     {
         if (!StandInsActive || !InventoryRows.IsLocalInventory(update))
             return false;
@@ -98,17 +98,27 @@ internal sealed partial class ClientItemManager
         string prefabName = !string.IsNullOrEmpty(update.PrefabName) ? update.PrefabName : standIn?.PrefabName;
         if (!CanStandIn(prefabName))
             return false;
+        DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
+        // An enabled VR belt slot holds the object itself, as a hand does (OI-COLD-14).
+        if (inventory.IsValidVRBeltIndex(update.InventorySlot) && InventoryStandIn.IsBeltSnappablePrefab(prefabName))
+            return false;
         if (NetworkedItem.TryGet(update.ItemNetId, out NetworkedItem item) && item != null)
         {
-            DV.InventorySystem.Inventory inventory = DV.InventorySystem.Inventory.Instance;
-            // The player holds it: their own request is what decides, not this update.
-            if (inventory.GetEquipSlotForItem(item.gameObject) >= 0 || item.Item?.IsGrabbed() == true)
+            bool held = inventory.GetEquipSlotForItem(item.gameObject) >= 0 || item.Item?.IsGrabbed() == true;
+            // The player holds it: their own request decides, unless this is the server refusing
+            // it (a take-out rolled back), which puts it back in its slot.
+            bool refused = rollBack || update.MoveCause?.Reason == Core.Items.ChangeCauses.ItemMoveReason.HostCorrection;
+            if (held && !refused)
                 return false;
             if (string.IsNullOrEmpty(state))
                 state = ItemStateText.Capture(item.gameObject);
+            if (held)
+                ReleaseForRollBack(item);
             item.BeginColdStorageRetirement();
-            RetireClientProjection(item, "now-a-stand-in");
+            VanillaInventorySlots.Forget(inventory, item.gameObject);
+            RetireClientProjection(item, refused ? "take-out-rolled-back" : "now-a-stand-in");
         }
+        pendingTakeOuts.Remove(update.ItemNetId);
 
         standIn ??= InventoryStandIn.For(update.ItemNetId, prefabName);
         standIn.Relation = update.Relation;

@@ -78,6 +78,10 @@ namespace Dvmp.Scenarios
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
                 byte me = Multiplayer.Shared.Session.NetworkLifecycle.Instance.LocalSession.PlayerId;
+                // Stored, it's a stand-in with no object (D14).
+                var stored = PlayerInventory.Stored().FirstOrDefault(e => PlayerInventory.PrefabOf(e.go).StartsWith("CommsRadio") &&
+                                                                          PlayerInventory.IsStandIn(e.netId));
+                if (stored.go != null) return $"slot {stored.slot}";
                 var radio = Dev.All<NetworkedItem>().FirstOrDefault(n => n != null && n.NetId != 0 && n.Relation == ItemRelation.Mine && n.name.StartsWith("CommsRadio"));
                 if (radio == null) return "the client owns no comms radio";
                 int slot = inv.IndexOf(radio.gameObject);

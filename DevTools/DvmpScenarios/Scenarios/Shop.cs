@@ -183,7 +183,7 @@ namespace Dvmp.Scenarios
                     .Where(s => Vector3.Distance(s.transform.position, shop.cashRegister.transform.position) < 30f)
                     .Select(s => s.GetComponent<NetworkedItem>()).FirstOrDefault(n => n != null && n.NetId != 0);
                 NetworkedItem scanner = AtTheShop();
-                GameObject carried = Inventory.Instance.GetItemsArray().FirstOrDefault(g => g != null && g.GetComponent<ShopScanner>() != null);
+                GameObject carried = Inventory.Instance.GetItemsArray().FirstOrDefault(g => PlayerInventory.Has<ShopScanner>(g));
                 if (scanner == null && carried != null)
                 {
                     Inventory.Instance.DropItemFromHandsOrInventory(carried);

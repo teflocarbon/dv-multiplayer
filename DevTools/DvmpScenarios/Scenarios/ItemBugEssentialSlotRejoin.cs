@@ -7,6 +7,7 @@ using Dvmp.Agent;
 using Dvmp.Lib;
 using Multiplayer.Core.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using UnityEngine;
@@ -110,10 +111,10 @@ namespace Dvmp.Scenarios
                 var inv = DV.InventorySystem.Inventory.Instance;
                 if (Hands.Held != null) yield return Hands.Drop();
                 GameObject essential = inv.PeekItemAtSlot(slot, false) ?? throw new Exception("slot " + slot + " is empty");
-                if (essential.GetComponent<InventoryItemSpec>()?.IsEssential != true) throw new Exception(Name(essential) + " in slot " + slot + " isn't essential: a run before left the inventory rearranged");
-                NetworkedItem.TryGet(otherId, out NetworkedItem otherItem);
-                GameObject other = otherItem?.gameObject;
-                int otherSlot = other != null ? inv.IndexOf(other) : -1;
+                if (!PlayerInventory.IsEssential(essential)) throw new Exception(Name(essential) + " in slot " + slot + " isn't essential: a run before left the inventory rearranged");
+                // On a client the slots hold stand-ins (D14), which keep their place through a move.
+                GameObject other = PlayerInventory.SlotObject(otherId);
+                int otherSlot = PlayerInventory.Slot(otherId);
                 if (otherSlot < 0) throw new Exception($"item {otherId} isn't in the inventory");
                 int free = inv.GetLastFreeSlot();
                 if (free < 0 || free == otherSlot) throw new Exception("no free slot");
@@ -124,8 +125,8 @@ namespace Dvmp.Scenarios
                 if (inv.IndexOf(essential) != free || inv.IndexOf(other) != slot) throw new Exception("the moves didn't stick");
                 step.Result = new Layout
                 {
-                    Essential = Name(essential), EssentialId = essential.GetComponent<NetworkedItem>().NetId, EssentialSlot = free,
-                    Other = Name(other), OtherId = other.GetComponent<NetworkedItem>().NetId
+                    Essential = Name(essential), EssentialId = PlayerInventory.NetIdOf(essential), EssentialSlot = free,
+                    Other = Name(other), OtherId = PlayerInventory.NetIdOf(other)
                 };
             }
 
@@ -169,16 +170,25 @@ namespace Dvmp.Scenarios
                     if (essential && slot < 0)
                         failures.Add($"essential {Name(n.gameObject)} {n.NetId} is in no slot: {state}, active {n.gameObject.activeInHierarchy}, claim {n.InventoryClaimSlot}");
                 }
+                // Stored items on a client are stand-ins (D14): each in one slot, and no object besides.
+                var standIns = InventoryStandIn.All.Where(s => s.Relation == ItemRelation.Mine).ToList();
+                foreach (var s in standIns)
+                {
+                    int slot = inv.IndexOf(s.gameObject);
+                    if (slot < 0) failures.Add($"{s.PrefabName} {s.NetId} is a stand-in in no slot (claim {s.ClaimSlot})");
+                    if (mine.Any(n => n.NetId == s.NetId)) failures.Add($"{s.PrefabName} {s.NetId} is a stand-in and an object at once");
+                }
+                var names = mine.Select(n => (Name(n.gameObject), n.NetId)).Concat(standIns.Select(s => (s.PrefabName, s.NetId))).ToList();
                 // DV's own essentials: one of each, owned or not, must exist for this player.
                 foreach (string prefab in new[] { "CommsRadio", "Map", "MapSchematic", "RouteMap", "wallet", "VehicleCatalog", "Compass" })
                 {
-                    int count = mine.Count(n => Name(n.gameObject) == prefab);
+                    int count = names.Count(n => n.Item1 == prefab);
                     if (count != 1) failures.Add($"{prefab}: {count} owned, expected 1");
                 }
                 return new Check
                 {
                     Layout = string.Join(" ", layout), Failures = failures.ToArray(),
-                    RadioId = mine.FirstOrDefault(n => Name(n.gameObject) == "CommsRadio")?.NetId ?? 0
+                    RadioId = names.FirstOrDefault(n => n.Item1 == "CommsRadio").NetId
                 };
             }
 
@@ -188,8 +198,7 @@ namespace Dvmp.Scenarios
             public static IEnumerator PutBack(ushort id, int slot)
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
-                if (!NetworkedItem.TryGet(id, out NetworkedItem n) || n == null) yield break;
-                int now = inv.IndexOf(n.gameObject);
+                int now = PlayerInventory.Slot(id);
                 if (now == slot || now < 0) yield break;
                 if (inv.PeekItemAtSlot(slot, true) != null) inv.MoveItemFromTo(slot, inv.GetLastFreeSlot(), false);
                 inv.MoveItemFromTo(now, slot, false);

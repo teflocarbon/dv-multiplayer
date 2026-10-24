@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using DV;
 using DV.CabControls;
+using DV.CabControls.Spec;
+using DV.Items;
 using DV.Common;
 using DV.Localization;
 using Multiplayer.Core.Items.Ledger;
@@ -28,7 +30,7 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
     private static Transform root;
 
     private InventoryItemSpec source;
-    private ItemBase sourceItem;
+    private Item sourceItem;
 
     public ushort NetId { get; private set; }
     public string PrefabName { get; private set; } = string.Empty;
@@ -71,7 +73,7 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
         standIn.NetId = netId;
         standIn.PrefabName = prefabName ?? string.Empty;
         standIn.source = FindSpec(prefabName);
-        standIn.sourceItem = standIn.source != null ? standIn.source.GetComponent<ItemBase>() : null;
+        standIn.sourceItem = standIn.source != null ? standIn.source.GetComponent<Item>() : null;
         byNetId[netId] = standIn;
         return standIn;
     }
@@ -80,6 +82,10 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
     public static InventoryItemSpec FindSpec(string prefabName) =>
         string.IsNullOrEmpty(prefabName) ? null : Globals.G?.Items?.items?.FirstOrDefault(spec =>
             spec != null && string.Equals(spec.ItemPrefabName, prefabName, StringComparison.Ordinal));
+
+    /// <summary>Whether items of this prefab snap to the VR belt (an enabled belt slot keeps them as objects).</summary>
+    public static bool IsBeltSnappablePrefab(string prefabName) =>
+        BeltSnappable(FindSpec(prefabName)?.GetComponent<Item>());
 
     /// <summary>The prefab to make the item's object from, or null.</summary>
     public GameObject Prefab => source != null ? source.gameObject : null;
@@ -103,8 +109,13 @@ internal sealed class InventoryStandIn : MonoBehaviour, IInventoryItemSpec
     // its slot for its owner, never for someone else holding it.
     public bool IsEssentialForInventory => HasRetrievalClaim ||
         source != null && source.IsEssential && Relation != ItemRelation.SomeoneElses;
-    public bool IsBeltSnappable => sourceItem != null && sourceItem.IsBeltSnappable;
-    public bool IsTwoHandedItem => sourceItem != null && sourceItem.IsTwoHanded;
+    public bool IsBeltSnappable => BeltSnappable(sourceItem);
+    public bool IsTwoHandedItem => VRManager.IsVREnabled() && sourceItem != null &&
+        sourceItem.controllerAttachMethod == ItemControllerAttachMethod.TwoHandedPole;
+
+    // As ItemBase sets itself up from its spec: the belt is there only in VR.
+    private static bool BeltSnappable(Item spec) => spec != null && VRManager.IsVREnabled() &&
+        (spec.allowedSnapPointTypes & SnapPointTypes.Belt) != 0;
 
     // The row's name: a job's id on its papers, a label, as the item's own localizer gives it.
     private string NameParam()

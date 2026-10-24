@@ -119,7 +119,9 @@ namespace Dvmp.Scenarios
                 yield return Hands.Pickup(itemId);
                 inv.AddItemToInventory(item.gameObject);
                 for (int i = 0; i < 60; i++) yield return null;
-                if (inv.IndexOf(item.gameObject) < 0 || item.GetItemState() != ItemState.InInventory) throw new Exception("item did not go into the inventory: " + item.GetItemState());
+                // On a client it's now a stand-in and its object is gone (D14).
+                if (!PlayerInventory.Holds(itemId) || !PlayerInventory.IsStandIn(itemId) && item.GetItemState() != ItemState.InInventory)
+                    throw new Exception("item did not go into the inventory: " + (item != null ? item.GetItemState().ToString() : "no object"));
                 yield return LocalPlayer.GoTo(box);
                 yield return Hands.Pickup(boxId);
                 var c = box.GetComponentInChildren<DV.Items.ItemContainer>(true);
@@ -144,8 +146,8 @@ namespace Dvmp.Scenarios
                 yield return Open();
                 log.Add($"opened: {CUI.ActiveRowCount}/{CUI.ActiveCapacity}");
                 int before = CUI.ActiveRowCount;
-                yield return Mutate(() => !c.AddItem(item.gameObject, -1), "deposit");
-                bool goneFromInventory = item == null || inv.IndexOf(item.gameObject) < 0;
+                yield return Mutate(() => !c.AddItem(PlayerInventory.SlotObject(itemId), -1), "deposit");
+                bool goneFromInventory = PlayerInventory.Slot(itemId) < 0;
                 log.Add($"deposited: rows {CUI.ActiveRowCount}, gone from inventory {goneFromInventory}");
                 if (CUI.ActiveRowCount != before + 1 || !goneFromInventory) throw new Exception("deposit not reflected: " + string.Join("; ", log));
                 int slot = CUI.ActiveSlots.Last();
@@ -159,17 +161,25 @@ namespace Dvmp.Scenarios
 
                 yield return Mutate(() => !c.RemoveItem(slot, true, false), "withdraw");
                 ushort materialized = CUI.LastMutation.ItemNetId;
-                NetworkedItem back = null;
                 float w0 = Time.realtimeSinceStartup;
-                while (Time.realtimeSinceStartup - w0 < 10f && ((back = Find(materialized)) == null || inv.IndexOf(back.gameObject) < 0)) yield return null;
-                if (back == null || inv.IndexOf(back.gameObject) < 0) throw new Exception($"withdrawn item {materialized} not in the inventory: " + string.Join("; ", log));
-                Items.Track(back.NetId);
-                log.Add($"withdrew: {back.NetId} {back.Item.InventorySpecs.ItemPrefabName} in slot {inv.IndexOf(back.gameObject)}, rows {CUI.ActiveRowCount}");
-                float? powerAfter = back.GetComponentInChildren<Battery>(true)?.CurrentPower;
-                if (powerBefore != null) log.Add($"battery {powerBefore:F1}% -> {powerAfter:F1}%");
-                if (powerBefore != null && (powerAfter == null || Mathf.Abs(powerAfter.Value - powerBefore.Value) > 1f)) throw new Exception("item state lost: " + string.Join("; ", log));
-                if (back.Item.InventorySpecs.ItemPrefabName != prefab || CUI.ActiveRowCount != before) throw new Exception("withdraw mismatch: " + string.Join("; ", log));
+                while (Time.realtimeSinceStartup - w0 < 10f && !PlayerInventory.Holds(materialized)) yield return null;
+                if (!PlayerInventory.Holds(materialized)) throw new Exception($"withdrawn item {materialized} not in the inventory: " + string.Join("; ", log));
+                Items.Track(materialized);
+                string backPrefab = PlayerInventory.PrefabOf(PlayerInventory.SlotObject(materialized));
+                log.Add($"withdrew: {materialized} {backPrefab} in slot {PlayerInventory.Slot(materialized)}" +
+                        $"{(PlayerInventory.IsStandIn(materialized) ? " (stand-in)" : "")}, rows {CUI.ActiveRowCount}");
+                if (backPrefab != prefab || CUI.ActiveRowCount != before) throw new Exception("withdraw mismatch: " + string.Join("; ", log));
                 c.ToggleContainerAccess();
+                if (powerBefore != null)
+                {
+                    // A stand-in has no battery to read: put the box down and take the item out.
+                    for (int i = 0; i < 30; i++) yield return null;
+                    if (Hands.Held != null) yield return Hands.Drop();
+                    yield return PlayerInventory.TakeOut(materialized);
+                    float? powerAfter = Find(materialized)?.GetComponentInChildren<Battery>(true)?.CurrentPower;
+                    log.Add($"battery {powerBefore:F1}% -> {powerAfter:F1}%");
+                    if (powerAfter == null || Mathf.Abs(powerAfter.Value - powerBefore.Value) > 1f) throw new Exception("item state lost: " + string.Join("; ", log));
+                }
                 step.Result = log.ToArray();
             }
 

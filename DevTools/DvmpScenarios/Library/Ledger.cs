@@ -52,9 +52,7 @@ namespace Dvmp.Scenarios
 
         /// <summary>This game: the slot its inventory shows the item in, or -1.</summary>
         [Step]
-        public static int LocalSlot(ushort netId) =>
-            NetworkedItem.TryGet(netId, out NetworkedItem item) && item != null
-                ? DV.InventorySystem.Inventory.Instance.IndexOf(item.gameObject) : -1;
+        public static int LocalSlot(ushort netId) => PlayerInventory.Slot(netId);
     }
 
     public static class Invariant

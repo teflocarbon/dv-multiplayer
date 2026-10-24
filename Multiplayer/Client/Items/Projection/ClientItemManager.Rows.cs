@@ -67,7 +67,7 @@ internal sealed partial class ClientItemManager
             Multiplayer.LogError($"Inventory: no prefab called {row.PrefabName} for netId {row.ItemNetId}");
             return null;
         }
-        GameObject gameObject = Object.Instantiate(prefab,
+        GameObject gameObject = ItemStateText.Instantiate(prefab,
             StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
         NetworkedItem item = gameObject.GetOrAddComponent<NetworkedItem>();
         item.NetId = row.ItemNetId;
@@ -81,6 +81,7 @@ internal sealed partial class ClientItemManager
         {
             Multiplayer.LogWarning($"Inventory: {row.PrefabName} (netId {row.ItemNetId})'s saved state didn't load: {exception.Message}");
         }
+        ItemStateText.FinishContainer(gameObject);
         NetworkedItemManager.TraceItem("item.made-from-row", item, new() { ["prefabName"] = row.PrefabName });
         return item;
     }

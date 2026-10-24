@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Linq;
 using System.Threading.Tasks;
 using Dvmp.Lib;
 using Multiplayer.Shared.Items.LiveState;
@@ -85,25 +86,25 @@ namespace Dvmp.Scenarios
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
                 NetworkedItem Find(ushort id) => NetworkedItem.TryGet(id, out NetworkedItem n) ? n : null;
-                NetworkedItem box = null, item = null;
-                // Item 0: the first essential already in the inventory.
-                if (itemId == 0)
-                    for (int s = 0; s < inv.Capacity && item == null; s++)
-                        if (inv.PeekItemAtSlot(s, false)?.GetComponent<InventoryItemSpec>()?.IsEssential == true)
-                            item = inv.PeekItemAtSlot(s, false).GetComponent<NetworkedItem>();
-                if (itemId == 0 && item == null) throw new Exception("no essential in the inventory");
-                yield return Wait.Until(() => (box = Find(boxId)) != null && (item ?? (item = Find(itemId))) != null, 20f, "the container and the item to arrive");
+                NetworkedItem box = null;
+                // Item 0: the first essential already in the inventory (on a client, a stand-in: D14).
+                ushort id = itemId;
+                if (id == 0)
+                    id = PlayerInventory.Stored().Where(e => PlayerInventory.IsEssential(e.go)).Select(e => e.netId).FirstOrDefault();
+                if (id == 0) throw new Exception("no essential in the inventory");
+                yield return Wait.Until(() => (box = Find(boxId)) != null && (itemId == 0 || Find(itemId) != null), 20f, "the container and the item to arrive");
                 var open = inv.ItemContainerRegistry.ActiveContainer;   // leftovers from an earlier run
                 if (open != null) { open.ToggleContainerAccess(); for (int i = 0; i < 10; i++) yield return null; }
                 if (Hands.Held != null) yield return Hands.Drop();
                 if (itemId != 0)
                 {
+                    NetworkedItem item = Find(itemId);
                     yield return LocalPlayer.GoTo(item);
                     yield return Hands.Pickup(itemId);
                     inv.AddItemToInventory(item.gameObject);
                     for (int i = 0; i < 60; i++) yield return null;
                 }
-                if (inv.IndexOf(item.gameObject) < 0) throw new Exception("the item did not go into the inventory: " + item.GetItemState());
+                if (!PlayerInventory.Holds(id)) throw new Exception($"the item {id} did not go into the inventory");
                 yield return LocalPlayer.GoTo(box);
                 yield return Hands.Pickup(boxId);
                 var c = box.GetComponentInChildren<DV.Items.ItemContainer>(true);
@@ -111,7 +112,7 @@ namespace Dvmp.Scenarios
                 yield return Wait.Until(() => CUI.Active, 10f, "the container view");
 
                 uint seq = CUI.MutationSequence;
-                if (c.AddItem(item.gameObject, -1)) throw new Exception("the deposit was not intercepted");
+                if (c.AddItem(PlayerInventory.SlotObject(id), -1)) throw new Exception("the deposit was not intercepted");
                 float t0 = Time.realtimeSinceStartup;
                 while (CUI.MutationSequence == seq && Time.realtimeSinceStartup - t0 < 10f) yield return null;
                 var r = CUI.LastMutation;
@@ -121,7 +122,7 @@ namespace Dvmp.Scenarios
                 {
                     Accepted = r.Accepted,
                     Reason = r.Detail ?? "",
-                    InInventory = item != null && inv.IndexOf(item.gameObject) >= 0
+                    InInventory = PlayerInventory.Slot(id) >= 0
                 };
                 c.ToggleContainerAccess();
                 for (int i = 0; i < 10; i++) yield return null;

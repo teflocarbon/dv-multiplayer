@@ -103,11 +103,10 @@ namespace Dvmp.Scenarios
             public static IEnumerator FindEssential(Step<Essential> step)
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
-                for (int i = 0; i < inv.Capacity; i++)
+                foreach (var (netId, i, go) in PlayerInventory.Stored())
                 {
-                    GameObject go = inv.PeekItemAtSlot(i, false);
-                    if (go?.GetComponent<InventoryItemSpec>()?.IsEssential != true) continue;
-                    step.Result = new Essential { Item = go.GetComponent<NetworkedItem>().NetId, Slot = i, Name = go.name.Replace("(Clone)", ""), Where = "inventory" };
+                    if (!PlayerInventory.IsEssential(go)) continue;
+                    step.Result = new Essential { Item = netId, Slot = i, Name = PlayerInventory.PrefabOf(go).Replace("(Clone)", ""), Where = "inventory" };
                     yield break;
                 }
 
@@ -136,14 +135,16 @@ namespace Dvmp.Scenarios
             {
                 var inv = DV.InventorySystem.Inventory.Instance;
                 if (slot < 0)
-                    for (int i = 0; i < inv.Capacity && slot < 0; i++)
-                        if (inv.PeekItemAtSlot(i, false)?.GetComponent<InventoryItemSpec>()?.IsEssential == true) slot = i;
+                    slot = PlayerInventory.Stored().Where(e => PlayerInventory.IsEssential(e.go)).Select(e => e.slot).DefaultIfEmpty(-1).First();
                 if (slot < 0) throw new Exception("no essential in the inventory");
                 var go = inv.PeekItemAtSlot(slot, false) ?? throw new Exception("slot " + slot + " is empty");
-                var n = go.GetComponent<NetworkedItem>();
+                // On a client the slot holds a stand-in; the drop makes its object (D14).
+                ushort id = PlayerInventory.NetIdOf(go);
+                string name = PlayerInventory.PrefabOf(go).Replace("(Clone)", "");
                 inv.DropItemFromHandsOrInventory(slot);
                 for (int i = 0; i < 90; i++) yield return null;
-                step.Result = new Dropped { Slot = slot, Item = n.NetId, Name = go.name.Replace("(Clone)", ""), State = n.GetItemState().ToString(), Reserved = inv.GetSlotReservedState(slot) };
+                NetworkedItem.TryGet(id, out NetworkedItem n);
+                step.Result = new Dropped { Slot = slot, Item = id, Name = name, State = n != null ? n.GetItemState().ToString() : "no object", Reserved = inv.GetSlotReservedState(slot) };
             }
 
             /// <summary>Host: picks up another player's dropped item. Result: what it holds then.</summary>
@@ -170,9 +171,12 @@ namespace Dvmp.Scenarios
                 NetworkedItemManager.Instance.RequestItemRecall(item, slot);
                 var inv = DV.InventorySystem.Inventory.Instance;
                 float t0 = Time.realtimeSinceStartup;
-                bool Back() => inv.PeekItemAtSlot(slot, false) == item.gameObject && item.GetItemState() == ItemState.InInventory;
+                // Back on a client, it's a stand-in and the object is gone (D14).
+                bool Back() => PlayerInventory.Holds(id) && PlayerInventory.Slot(id) == slot &&
+                               (PlayerInventory.IsStandIn(id) || item != null && item.GetItemState() == ItemState.InInventory);
                 while (Time.realtimeSinceStartup - t0 < 10f && !Back()) yield return null;
-                step.Result = new Recalled { Slot = Back() ? slot : -1, State = item.GetItemState().ToString(), Seconds = Time.realtimeSinceStartup - t0 };
+                string state = PlayerInventory.IsStandIn(id) ? "InInventory (stand-in)" : item != null ? item.GetItemState().ToString() : "no object";
+                step.Result = new Recalled { Slot = Back() ? slot : -1, State = state, Seconds = Time.realtimeSinceStartup - t0 };
             }
         }
     }
