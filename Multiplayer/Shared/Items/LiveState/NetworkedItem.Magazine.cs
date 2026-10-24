@@ -74,7 +74,14 @@ public partial class NetworkedItem
     // this already; the server's word (a drop, a pickup, Lost and Found) hasn't.
     private void LeaveMagazine(ItemState targetState)
     {
-        if (targetState == ItemState.InMagazine || Item?.InContainer is not ItemMagazine magazine)
+        if (targetState != ItemState.InMagazine)
+            LeaveMagazine();
+    }
+
+    /// <summary>Out of the magazine it's in, if any: the server put it somewhere else (Lost and Found).</summary>
+    internal void LeaveMagazine()
+    {
+        if (Item?.InContainer is not ItemMagazine magazine)
             return;
         magazine.RemoveItem(gameObject, false, false);
         magazineToolNetId = 0;

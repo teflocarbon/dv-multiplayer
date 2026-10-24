@@ -15,10 +15,11 @@
 | `ServerboundItemListRequestPacket` | to the server | asks for one list |
 | `ClientboundItemListPacket` | to a client | a list: Lost and Found, owned items, or a container's slots, as `ItemRow`s |
 
-Two more carry a stashed boombox's music, which is presentation, not a change, so they aren't in
-`Items/`: `Serverbound/ServerboundStashedCassettePacket` (its holder's game: where the cassette has got to, for its
-row) and `Clientbound/World/ClientboundStashedSoundPacket` (to each player near the holder: what it
-plays, or that it stopped). [inventory.md](inventory.md#stashed-items-that-act)
+Two more carry a stashed boombox's music and a stashed alarm clock's ring, which are presentation,
+not a change, so they aren't in `Items/`: `Serverbound/ServerboundStashedCassettePacket` (its holder's
+game: where the cassette has got to, for its row) and `Clientbound/World/ClientboundStashedSoundPacket`
+(to each player near the holder: what it plays, that it stopped, or, with `Once`, an alarm's ring or
+turn). [inventory.md](inventory.md#stashed-items-that-act)
 says what they do.
 
 A player host's own player uses the same packets through its local session
@@ -100,6 +101,7 @@ arguments the action uses are written:
 | `ReportBelowMap` | the surface height | the terrain guard |
 | `Attach` | the car's NetId and which end; states | the live state |
 | `SetState` | the states, and whether it was a world interaction (a lever, a switch) | the live state |
+| `LoadMagazine` | the tool's NetId and the magazine slot; states | the live state; refused on `magazine-tool-unknown`, `magazine-tool-foreign` (a tool another player holds), `magazine-slot-invalid`, `magazine-refused-item`, `magazine-slot-taken` ([containers.md](containers.md#ammo-in-a-magazine)) |
 
 `ItemAction` is a byte, append-only. `CollectLost` sends the inventory's occupancy from the client
 until R3 keeps slots on the server.

@@ -1,7 +1,7 @@
 {
   "ProtocolVersion": "1.0.0.0",
-  "BuildVersion": "2026.10.25-dev.0728+00a79dff86f571deba432b0362fb28ffdd5786f8",
-  "Fingerprint": "86dc07d7f0deb2c798ae5a03032752c424f0614c1aee085fc35344668b4f904c",
+  "BuildVersion": "2026.10.25-dev.0804+b3760b8b1e14f1f5edfd50cdfa7bcab47c6fc832",
+  "Fingerprint": "262a5b49008101987946b8e5e9e8d1808d6f9f9402426cc56fc1e69e30a3fea3",
   "Packets": [
     {
       "Hash": "02D108E907B73FA9",
@@ -1458,7 +1458,8 @@
       "DepositMoney": 12,
       "ReportBelowMap": 13,
       "Attach": 14,
-      "SetState": 15
+      "SetState": 15,
+      "LoadMagazine": 16
     },
     "Multiplayer.Shared.Protocol.Data.Items.ItemInventoryClaimFlags": {
       "None": 0,

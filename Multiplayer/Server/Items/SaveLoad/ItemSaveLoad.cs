@@ -153,13 +153,15 @@ internal static partial class ItemSaveLoad
     /// <summary>
     /// Job papers not saved as items: a board's overview and a booklet lying about, which the job
     /// system makes again. One a player carries is theirs and is saved with them, as any item is,
-    /// so it's back in its slot after a restart (D14, OI-COLD-07, OI-COLD-15).
+    /// so it's back in its slot after a restart (D14, OI-COLD-07, OI-COLD-15); so is one put in a
+    /// box (a folder, a registrator: containers.md, "Job papers in a box").
     /// </summary>
     internal static bool IsUnsavedJobPaper(string prefabName, ItemPlacementKind placement) =>
-        IsJobSystemDocument(prefabName) && placement is not (ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand);
+        IsJobSystemDocument(prefabName) &&
+        placement is not (ItemPlacementKind.PlayerInventory or ItemPlacementKind.PlayerHand or ItemPlacementKind.Container);
 
     internal static bool IsUnsavedJobPaper(LedgerEntry entry) =>
-        IsJobSystemDocument(entry.Prefab) && entry.Home.Kind is not (HomeKind.Slot or HomeKind.Hand);
+        IsJobSystemDocument(entry.Prefab) && entry.Home.Kind is not (HomeKind.Slot or HomeKind.Hand or HomeKind.Container);
 
     /// <summary>An item in a player's inventory or hand, connected or not, the host's own player included.</summary>
     internal static bool IsPlayerPossession(LiveItems.LiveItem record) =>

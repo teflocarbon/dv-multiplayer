@@ -39,7 +39,9 @@ public enum ItemAction : byte
     /// <summary>Snapped to a car's end (an end-of-train lantern).</summary>
     Attach,
     /// <summary>Only its object state (<see cref="ItemRequest.States"/>) changed.</summary>
-    SetState
+    SetState,
+    /// <summary>Into slot <see cref="ItemRequest.MagazineSlot"/> of a tool's magazine (<see cref="ItemRequest.MagazineNetId"/>): ammo loaded.</summary>
+    LoadMagazine
 }
 
 /// <summary>
@@ -78,6 +80,9 @@ public class ItemRequest
     public Vector3 ThrowDirection { get; set; }
     public ushort CarNetId { get; set; }
     public bool Front { get; set; }
+    /// <summary>For a load: the tool whose magazine takes it, and the slot.</summary>
+    public ushort MagazineNetId { get; set; }
+    public int MagazineSlot { get; set; } = -1;
     /// <summary>A container's handle; for a deposit, 0 with <see cref="ShellNetId"/> for the open one.</summary>
     public uint Container { get; set; }
     public ushort ShellNetId { get; set; }
@@ -98,7 +103,7 @@ public class ItemRequest
     public static bool CarriesPose(ItemAction action) => action is ItemAction.Drop or ItemAction.Throw;
 
     public static bool CarriesStates(ItemAction action) => action is ItemAction.Take or ItemAction.Stash or
-        ItemAction.Drop or ItemAction.Throw or ItemAction.Attach or ItemAction.SetState;
+        ItemAction.Drop or ItemAction.Throw or ItemAction.Attach or ItemAction.SetState or ItemAction.LoadMagazine;
 
     public static void Serialize(NetDataWriter writer, ItemRequest data)
     {
@@ -163,6 +168,10 @@ public class ItemRequest
                 break;
             case ItemAction.SetState:
                 writer.Put(data.WorldInteraction);
+                break;
+            case ItemAction.LoadMagazine:
+                writer.Put(data.MagazineNetId);
+                writer.Put(data.MagazineSlot);
                 break;
         }
         if (CarriesStates(data.Action))
@@ -235,6 +244,10 @@ public class ItemRequest
                 break;
             case ItemAction.SetState:
                 data.WorldInteraction = reader.GetBool();
+                break;
+            case ItemAction.LoadMagazine:
+                data.MagazineNetId = reader.GetUShort();
+                data.MagazineSlot = reader.GetInt();
                 break;
         }
         if (CarriesStates(data.Action))

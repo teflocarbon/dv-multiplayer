@@ -9,7 +9,8 @@ namespace Multiplayer.Shared.Items.LiveState;
 /// (<see cref="NetworkedItem.GetSnapshot"/>) and sends it as a request (<see cref="FromObservation"/>);
 /// the server turns the request back into that change (<see cref="ToChange"/>) for the validation
 /// and the commit it has always used. Only what the action needs crosses the wire: the slot with
-/// a stash or a slot move, the pose with a drop or a throw, the car with an attach.
+/// a stash or a slot move, the pose with a drop or a throw, the car with an attach, the tool and
+/// its slot with a load into a magazine.
 /// </summary>
 public static class ItemRequestTranslation
 {
@@ -28,6 +29,7 @@ public static class ItemRequestTranslation
                 ItemState.Dropped => ItemAction.Drop,
                 ItemState.Thrown => ItemAction.Throw,
                 ItemState.Attached => ItemAction.Attach,
+                ItemState.InMagazine => ItemAction.LoadMagazine,
                 _ => ItemAction.None
             }
             : objectState ? ItemAction.SetState : ItemAction.None;
@@ -52,6 +54,8 @@ public static class ItemRequestTranslation
             ThrowDirection = snapshot.ThrowDirection,
             CarNetId = snapshot.CarNetId,
             Front = snapshot.AttachedFront,
+            MagazineNetId = action == ItemAction.LoadMagazine ? snapshot.MagazineNetId : (ushort)0,
+            MagazineSlot = action == ItemAction.LoadMagazine ? snapshot.MagazineSlot : -1,
             States = objectState ? snapshot.States ?? new Dictionary<string, object>() : null,
             WorldInteraction = snapshot.TransitionReason == ItemTransitionReason.ClientInteraction
         };
@@ -72,6 +76,7 @@ public static class ItemRequestTranslation
             ItemAction.Drop => ItemState.Dropped,
             ItemAction.Throw => ItemState.Thrown,
             ItemAction.Attach => ItemState.Attached,
+            ItemAction.LoadMagazine => ItemState.InMagazine,
             _ => null
         };
         if (state == null && request.Action != ItemAction.SetState)
@@ -102,6 +107,8 @@ public static class ItemRequestTranslation
             ThrowDirection = request.Action == ItemAction.Throw ? request.ThrowDirection : default,
             CarNetId = request.Action == ItemAction.Attach ? request.CarNetId : (ushort)0,
             AttachedFront = request.Action != ItemAction.Attach || request.Front,
+            MagazineNetId = request.Action == ItemAction.LoadMagazine ? request.MagazineNetId : (ushort)0,
+            MagazineSlot = request.Action == ItemAction.LoadMagazine ? request.MagazineSlot : -1,
             States = request.States,
             TransitionReason = request.WorldInteraction ? ItemTransitionReason.ClientInteraction : ItemTransitionReason.ClientState,
             OriginatingPlayerId = playerId

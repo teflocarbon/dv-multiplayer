@@ -23,6 +23,7 @@ using Multiplayer.Server.Items.LiveState;
 using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
+using Multiplayer.Server.Jobs;
 using Multiplayer.Server.Session;
 using Multiplayer.Shared.Debugging;
 using Multiplayer.Shared.Items.ChangeCauses;
@@ -30,6 +31,7 @@ using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.VanillaStorage;
 using Multiplayer.Shared.Items.WorldItems;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
@@ -193,9 +195,23 @@ public static class ContainerServer
         if (itemId == Guid.Empty)
             return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.InvalidRecord,
                 "item-has-no-id", operationId);
+        // A job paper is a row as it is in an inventory (OI-COLD-07): made again from its job (a
+        // report from its recipe), so one that can't be isn't taken.
+        bool paper = JobPapers.IsPaper(item.Item.InventorySpecs?.ItemPrefabName ?? item.name);
+        if (paper && !JobPapers.CanBeRow(item.gameObject))
+            return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.Incompatible,
+                "deposit-paper-cannot-be-row", operationId);
+        // A shell's container is in the graph for its check (nesting, depth); one made here for a
+        // deposit that goes no further is taken away again, so a refused deposit adds no row (F7).
+        bool madeContainer = IsShell(item) && !graph.IsContainer(itemId);
         if (IsShell(item))
             EnsureShellRecord(item, itemId);
-        JObject detached = item.GetComponent<ItemSaveData>()?.SaveItemData();
+        void UnmakeContainer()
+        {
+            if (madeContainer)
+                graph.RemoveContainer(itemId);
+        }
+        JObject detached = JobPapers.Complete(item.gameObject, item.GetComponent<ItemSaveData>()?.SaveItemData());
         StoredItemRecord record = new()
         {
             PersistentItemId = itemId,
@@ -223,7 +239,10 @@ public static class ContainerServer
         };
         ContainerOperationResult check = graph.CheckDeposit(command);
         if (!check.Accepted)
+        {
+            UnmakeContainer();
             return check;
+        }
 
         // The ledger first (docs/design/items/containers.md, "Deposit"): the item's home is the
         // slot the graph checked, and every later failure moves it back.
@@ -232,12 +251,16 @@ public static class ContainerServer
             $"{destination.PrefabName} slot {slot}");
         string ledgerRefused = ServerLedger.CommitStored(itemId, record.PrefabName, before, stored, depositing);
         if (ledgerRefused.Length > 0)
+        {
+            UnmakeContainer();
             return Failure(ContainerOperationKind.Deposit, ContainerOperationStatus.InvalidState,
                 "deposit-ledger-refused:" + ledgerRefused, operationId);
+        }
         ContainerOperationResult result = graph.CommitDeposit(command);
         if (!result.Accepted)
         {
             RollBackDeposit(itemId, record.PrefabName, stored, before, result.Reason);
+            UnmakeContainer();
             return result;
         }
 
@@ -262,18 +285,23 @@ public static class ContainerServer
             // is torn down; waiting for the next item-manager tick can lose the Destroy after
             // the representation and its interest membership have already been removed. It goes
             // by interest (OI-CON-12): to the players who know the object, and the depositor, whose
-            // stand-in it was; nobody else ever had it.
+            // stand-in it was; nobody else ever had it. A job paper goes from every game: its job's
+            // update made each one a copy, near it or not (as PlayerItems.GoData).
             List<ServerPlayer> told = new();
             foreach (ServerPlayer player in NetworkServer.Instance.ServerPlayers)
             {
                 player.NearbyItems.Remove(item);
-                if (player.KnownItems.Remove(item) || player == actor)
+                if (player.KnownItems.Remove(item) || player == actor ||
+                    paper && player.Peer != NetworkServer.Instance.SelfPeer && player.LoadingState >= PlayerLoadingState.ReadyForItems)
                     told.Add(player);
                 player.AcknowledgedWorldItems.Remove(item.NetId);
             }
             foreach (ServerPlayer player in told)
                 NetworkServer.Instance.SendItemUpdate(destroy, player);
             sent = true;
+            // Its job no longer keeps it by its NetId; a withdrawal gives it one again.
+            if (paper)
+                JobPaperRows.Forget(itemNetId);
             // Out of interest now, not when Unity destroys it at the end of the frame: a scan
             // before then would find a player who no longer knows it and send it again.
             ServerItemManager.Instance?.UnregisterHostWorldItem(item);
@@ -374,17 +402,29 @@ public static class ContainerServer
         // unless no slot is free and it goes loose. The ledger moves first, and back if the item
         // can't be made or the graph refuses (OI-CON-03).
         Home inBox = Home.Container(container.PersistentContainerId, sourceSlot), taken = default;
-        bool ledgerMoved = false;
-        LiveItems.LiveItem loose = null;
+        bool ledgerMoved = false, failed = false;
+        LiveItems.LiveItem loose = null, made = null;
+        NetworkedJob paperJob = null;
+        ContainerOperationResult committed = default;
+        int slot = -1;
         try
         {
             if (actor.PlayerId == 0)
                 throw new InvalidOperationException("withdraw-actor-left");
-            if (FindItemSpec(record.PrefabName) == null)
+            bool paper = JobPapers.IsPaper(record.PrefabName);
+            if (FindItemSpec(record.PrefabName) == null && !paper)
                 throw new InvalidOperationException("withdraw-prefab-not-found");
             SavedItemRow row = ItemSaveLoad.RowOfStored(record);
+            // A job paper comes out while its job wants it, made again from its job (OI-COLD-07).
+            if (paper && !JobPaperRows.Wanted(row, out paperJob))
+                throw new InvalidOperationException(PaperUnwanted);
+            // The deposit let the job forget this booklet, so a validator may have printed the
+            // withdrawer another since: theirs is that one, and this copy goes (H2).
+            if (paper && record.PrefabName == nameof(JobBooklet) && paperJob != null &&
+                paperJob.TryGetIssuedJobBooklet(actor.PlayerId, out _))
+                throw new InvalidOperationException(PaperCopyIssued);
             row.OwnerIdentity = owner;
-            int slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, ServerLedger.ClaimOf(row.PersistentItemId),
+            slot = ServerLedger.FreeSlot(row.PersistentItemId, owner, ServerLedger.ClaimOf(row.PersistentItemId),
                 actor.Guid);
             ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(ItemMoveReason.WithdrawnFromContainer, actor,
                 ItemChangeCauses.Detail(ItemChangeLog.Describe(
@@ -412,12 +452,12 @@ public static class ContainerServer
             // A scene's own item stays taken from the scene, as the object it was would have.
             ItemSaveLoad.RecordAuthoredTaken(row);
             // Its entry is where it goes already: the row is only placed, not settled again.
-            LiveItems.LiveItem made = slot >= 0
+            made = slot >= 0
                 ? PlayerItems.Issue(actor, row, slot, cause, own: _ => string.Empty)
                 : ItemSaveLoad.MakeLive(row, owner != Guid.Empty, out loose) ? loose : null;
             if (made == null)
                 throw new InvalidOperationException("withdraw-authoritative-registration-failed");
-            ContainerOperationResult committed = graph.CommitWithdrawal(operationId);
+            committed = graph.CommitWithdrawal(operationId);
             if (!committed.Accepted)
             {
                 if (slot >= 0)
@@ -425,6 +465,42 @@ public static class ContainerServer
                 throw new InvalidOperationException("withdraw-logical-commit-failed:" + committed.Reason);
             }
             loose = null;
+        }
+        catch (Exception exception)
+        {
+            // A loose object made for a withdrawal that didn't commit goes back as a deposit's does.
+            if (loose != null && NetworkedItem.TryGet(loose.NetId, out NetworkedItem unmade) && unmade != null)
+            {
+                unmade.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.DepositedInContainer, actor,
+                    "its withdrawal wasn't committed"));
+                unmade.BeginColdStorageRetirement();
+                UnityEngine.Object.Destroy(unmade.gameObject);
+            }
+            if (ledgerMoved)
+                ServerLedger.CommitStored(record.PersistentItemId, record.PrefabName, taken, inBox,
+                    ItemChangeLog.Move(ItemMoveReason.HostCorrection, actor, "withdrawal rolled back: " + exception.Message));
+            graph.AbortWithdrawal(operationId, exception.Message);
+            // A paper whose job is over goes from the box, as one in an inventory goes.
+            if (exception.Message == PaperUnwanted)
+                JobPaperRows.DropStored(record.PersistentItemId, "its job is over or has another");
+            else if (exception.Message == PaperCopyIssued)
+                JobPaperRows.DropStored(record.PersistentItemId, $"its job printed {actor.Username} another copy");
+            if (exception.Message != "withdraw-actor-left")
+                Multiplayer.LogException("Cold-container withdrawal failed", exception);
+            failed = true;
+            completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
+                ContainerOperationStatus.InvalidState, exception.Message, operationId), 0);
+        }
+        if (failed)
+            yield break;
+
+        // Committed: the row is the item in its new home, and nothing after this moves it back.
+        try
+        {
+            // A paper's job keeps it by its NetId; an overview takes over from the board's copy,
+            // which goes, so only once nothing can roll the withdrawal back (H5).
+            if (paperJob != null && slot >= 0)
+                JobPaperRows.Admit(made, record.PrefabName, actor, paperJob);
             // An owned item with no slot goes on to its owner's Lost and Found; if that refuses it,
             // it stays at the withdrawer's feet.
             if (slot < 0 && owner != Guid.Empty && NetworkedItem.TryGet(made.NetId, out NetworkedItem item) && item != null &&
@@ -438,29 +514,17 @@ public static class ContainerServer
                 ["destinationInventorySlot"] = slot,
                 ["containerHandle"] = containerHandle
             });
-            completed?.Invoke(committed, made.NetId);
         }
         catch (Exception exception)
         {
-            // A loose object made for a withdrawal that didn't commit goes back as a deposit's does.
-            if (loose != null && NetworkedItem.TryGet(loose.NetId, out NetworkedItem made) && made != null)
-            {
-                made.NoteRemovalCause(ItemChangeLog.Removal(ItemRemovalReason.DepositedInContainer, actor,
-                    "its withdrawal wasn't committed"));
-                made.BeginColdStorageRetirement();
-                UnityEngine.Object.Destroy(made.gameObject);
-            }
-            if (ledgerMoved)
-                ServerLedger.CommitStored(record.PersistentItemId, record.PrefabName, taken, inBox,
-                    ItemChangeLog.Move(ItemMoveReason.HostCorrection, actor, "withdrawal rolled back: " + exception.Message));
-            graph.AbortWithdrawal(operationId, exception.Message);
-            if (exception.Message != "withdraw-actor-left")
-                Multiplayer.LogException("Cold-container withdrawal failed", exception);
-            completed?.Invoke(Failure(ContainerOperationKind.Withdraw,
-                ContainerOperationStatus.InvalidState, exception.Message, operationId), 0);
+            Multiplayer.LogException("Cold-container withdrawal: after its commit", exception);
         }
+        completed?.Invoke(committed, made.NetId);
         yield break;
     }
+
+    private const string PaperUnwanted = "withdraw-paper-job-over";
+    private const string PaperCopyIssued = "withdraw-paper-copy-issued";
 
     /// <summary>Where an item made only to go into Lost and Found is made: DV's own safety position.</summary>
     internal static Vector3 SafetyPosition => StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION - WorldMover.currentMove;
@@ -552,6 +616,11 @@ public static class ContainerServer
             return;
         // A tool's ammo goes with it, or out of it if it's gone for good (MagazineServer).
         MagazineServer.OnToolRemoved(shell, LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem tool) ? tool.PersistentItemId : Guid.Empty, cause);
+        // Its NetId binds nothing now, however it went: a NetId freed and given to another shell
+        // before the next scan would find this one's container.
+        Guid id = shellByNetId.TryGetValue(shell.NetId, out Guid bound) ? bound
+            : LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) ? record.PersistentItemId : Guid.Empty;
+        shellByNetId.Remove(shell.NetId);
         switch (cause.Reason)
         {
             case ItemRemovalReason.DepositedInContainer:
@@ -565,9 +634,6 @@ public static class ContainerServer
         // Unloading the world or quitting destroys every item without ending any of them.
         if (UnloadWatcher.isUnloading || UnloadWatcher.isQuitting || !shell.gameObject.scene.isLoaded)
             return;
-        Guid id = shellByNetId.TryGetValue(shell.NetId, out Guid bound) ? bound
-            : LiveItems.TryGet(shell.NetId, out LiveItems.LiveItem record) ? record.PersistentItemId : Guid.Empty;
-        shellByNetId.Remove(shell.NetId);
         if (id == Guid.Empty || !graph.IsContainer(id))
             return;
         Vector3 at = shell.transform.position - WorldMover.currentMove;
@@ -594,8 +660,11 @@ public static class ContainerServer
                 detail: "its box was destroyed: " + cause.Reason));
             if (item == null)
             {
-                // Its box is gone, so it can't go back: its entry ends with it.
+                // Its box is gone, so it can't go back: its entry ends with it, and a box's own
+                // contents go as a destroyed box's do, not left in the graph with no box.
                 ServerLedger.Ledger.End(row.PersistentItemId, cause.Reason, detail: "its box was destroyed and it couldn't be made");
+                if (graph.IsContainer(row.PersistentItemId))
+                    Clear(row.PersistentItemId, at, cause, ref lost, ref gone);
                 continue;
             }
             if (!LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, "its box was destroyed"))

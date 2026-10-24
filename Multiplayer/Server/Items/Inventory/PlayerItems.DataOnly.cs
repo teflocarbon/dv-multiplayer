@@ -73,7 +73,7 @@ internal static partial class PlayerItems
             return;
         try
         {
-            stashedStates[netId] = JObject.Parse(SplitStashedAmmo(state));
+            stashedStates[netId] = JObject.Parse(SplitStashedAmmo(netId, state));
         }
         catch (Exception exception)
         {
@@ -85,6 +85,7 @@ internal static partial class PlayerItems
     {
         ClearSounds();
         stashedStates.Clear();
+        stashedNesting.Clear();
         ammoRows.Clear();
         pendingData.Clear();
         materializing.Clear();
@@ -164,10 +165,22 @@ internal static partial class PlayerItems
         if (!LiveItems.TryGet(netId, out LiveItems.LiveItem record) || record.Placement != ItemPlacementKind.PlayerInventory ||
             record.Slot < 0 ||
             !NetworkedItem.TryGet(netId, out NetworkedItem item) || item == null || item.Item == null ||
-            item.ColdStorageRetirement || !InventoryStandIn.CanStandIn(item.gameObject) || !AmmoCanGoData(item))
+            item.ColdStorageRetirement || !InventoryStandIn.CanStandIn(item.gameObject))
         {
             // It stays an object (or has gone): its object's state is the item's, not a stash's.
             stashedStates.Remove(netId);
+            stashedNesting.Remove(netId);
+            return false;
+        }
+        if (!AmmoCanGoData(item))
+        {
+            // As above; but the holder's game, which can't tell, stood it in with what it had loaded.
+            stashedStates.Remove(netId);
+            if (PlayerNumbers.Session(record.Holder) is { Peer: not null } stander && stander != NetworkServer.Instance.LocalPlayer &&
+                NestingDiffers(netId, StandInAmmo.Loaded(item.gameObject)
+                    .Select(loaded => loaded.Ammo.GetComponent<NetworkedItem>()?.NetId ?? 0)
+                    .Where(ammo => IsAmmoOf(ammo, netId))))
+                CorrectNesting(record, item, stander);
             return false;
         }
         if (materializing.Contains(netId) || item.ColdMaterializationPending || ItemSaveLoad.IsRestorePending(item))
@@ -230,6 +243,8 @@ internal static partial class PlayerItems
         }
         knownBy[record.NetId] = keeping.ToArray();
         AmmoGoesData(item, holder, keeping);
+        // The holder's stand-in nested other ammo than went to data here (E3): it's given the row.
+        bool nestingDiffers = NestingDiffers(record.NetId, DataAmmoOf(record.NetId).Select(ammo => ammo.NetId));
 
         ServerItemManager.Instance?.UnregisterHostWorldItem(item);
         item.HandOverToData();
@@ -238,7 +253,8 @@ internal static partial class PlayerItems
         Multiplayer.LogDebug(() => $"Inventory: {record.PrefabName} (netId {record.NetId}) in {holder.Username}'s slot {record.Slot} is data only on the server");
         // A move the server made (a recall, a Lost and Found retrieval) reached the holder as an
         // update with no state: their stand-in is given the row's, so a take-out isn't a fresh item.
-        if (sendRow && !fromHolder)
+        // So is one whose stand-in nests other ammo than the server's magazine had.
+        if (sendRow && !fromHolder || nestingDiffers)
             NetworkServer.Instance.SendInventoryRows(holder, new List<ItemUpdate> { CreateOf(record) },
                 new List<string> { StandInState(record.NetId, row.State) });
     }
@@ -279,11 +295,18 @@ internal static partial class PlayerItems
     /// </summary>
     public static void WithObject(ushort netId, Action<NetworkedItem> done)
     {
-        // Ammo kept as data is made with its tool.
+        // Ammo kept as data is made with its tool. Whatever the request does to it (an owner's
+        // retrieval takes it out), the tool's holder is sent the tool's row as it goes back to data,
+        // so their stand-in doesn't nest ammo that has gone.
         if (LiveItems.TryGet(netId, out LiveItems.LiveItem ammo) && IsDataOnlyAmmo(ammo))
         {
-            WithObject(ammo.MagazineNetId, tool =>
-                done(tool != null && NetworkedItem.TryGet(netId, out NetworkedItem made) && made != null ? made : null));
+            ushort toolNetId = ammo.MagazineNetId;
+            WithObject(toolNetId, tool =>
+            {
+                done(tool != null && NetworkedItem.TryGet(netId, out NetworkedItem made) && made != null ? made : null);
+                if (tool != null && LiveItems.TryGet(toolNetId, out LiveItems.LiveItem toolRecord))
+                    Stored(toolRecord, grace: true, sendRow: true);
+            });
             return;
         }
         if (!IsDataOnly(netId) && !materializing.Contains(netId))

@@ -4,11 +4,13 @@ using System.Linq;
 using Multiplayer.Core.Items.ChangeCauses;
 using Multiplayer.Core.Items.Containers;
 using Multiplayer.Core.Items.Ledger;
+using Multiplayer.Core.Items.LostAndFound;
 using Multiplayer.Core.Items.VanillaStorage;
 using Multiplayer.Server.Items.ChangeCauses;
 using Multiplayer.Server.Items.Containers;
 using Multiplayer.Server.Items.Ledger;
 using Multiplayer.Server.Items.LiveState;
+using Multiplayer.Server.Items.LostAndFound;
 using Multiplayer.Server.Items.Projection;
 using Multiplayer.Server.Items.SaveLoad;
 using Multiplayer.Server.Session;
@@ -67,13 +69,50 @@ internal static partial class PlayerItems
             record.Placement == ItemPlacementKind.Magazine && record.MagazineNetId == tool.NetId &&
             record.PersistentItemId != Guid.Empty);
 
+    // What each holder's stand-in nested as they put a tool away, by the tool's NetId: checked against
+    // the server's own magazine as the tool goes (or stays), and their stand-in corrected if they differ.
+    private static readonly Dictionary<ushort, HashSet<ushort>> stashedNesting = new();
+
     // The stash's state, the ammo's split off: each item's goes over its own row as its tool's does.
-    private static string SplitStashedAmmo(string state)
+    // Only this tool's ammo here counts: a NetId the server has anywhere else keeps its own state.
+    private static string SplitStashedAmmo(ushort toolNetId, string state)
     {
+        HashSet<ushort> nested = new();
         foreach (StandInAmmo.Entry entry in StandInAmmo.Of(state))
-            if (entry.State != null)
+        {
+            nested.Add(entry.NetId);
+            if (entry.State != null && IsAmmoOf(entry.NetId, toolNetId))
                 stashedStates[entry.NetId] = entry.State;
+        }
+        stashedNesting[toolNetId] = nested;
         return StandInAmmo.Without(state);
+    }
+
+    private static bool IsAmmoOf(ushort ammoNetId, ushort toolNetId) =>
+        LiveItems.TryGet(ammoNetId, out LiveItems.LiveItem record) && record.Placement == ItemPlacementKind.Magazine &&
+        record.MagazineNetId == toolNetId;
+
+    // Whether the holder's stash nested other ammo than <paramref name="server"/>, the NetIds this
+    // magazine holds on the server; false with no stash to go by. Forgets what they nested.
+    private static bool NestingDiffers(ushort toolNetId, IEnumerable<ushort> server)
+    {
+        if (!stashedNesting.TryGetValue(toolNetId, out HashSet<ushort> theirs))
+            return false;
+        stashedNesting.Remove(toolNetId);
+        return !theirs.SetEquals(server);
+    }
+
+    // A loaded tool the holder's game stood in stays an object here (AmmoCanGoData): their stand-in
+    // is given the server's word, the tool's state with only the ammo this magazine has a record of,
+    // so a take-out makes no ammo the server has elsewhere.
+    private static void CorrectNesting(LiveItems.LiveItem record, NetworkedItem tool, ServerPlayer holder)
+    {
+        string captured = StandInAmmo.Capture(tool.gameObject);
+        string state = StandInAmmo.With(StandInAmmo.Without(captured),
+            StandInAmmo.Of(captured).Where(entry => IsAmmoOf(entry.NetId, tool.NetId)));
+        Multiplayer.LogWarning($"Inventory: {holder.Username}'s stand-in of {record.PrefabName} (netId {record.NetId}) nested other ammo " +
+                               "than the server's magazine; it is given the server's");
+        NetworkServer.Instance.SendInventoryRows(holder, new List<ItemUpdate> { CreateOf(record) }, new List<string> { state });
     }
 
     // A row's state as its holder's stand-in keeps it: the item's own, with its tool's data ammo nested.
@@ -184,7 +223,7 @@ internal static partial class PlayerItems
                 ServerLedger.CommitStored(id, record.PrefabName, stowed, loaded,
                     ItemChangeLog.Move(ItemMoveReason.HostCorrection, detail: "not stowed with its tool: " + refused));
             if (refused.Length > 0)
-                Multiplayer.LogError($"Inventory: {record.PrefabName} ({id:D}) in {tool.PrefabName} couldn't go cold with it: {refused}");
+                Multiplayer.LogError($"Inventory: {record.PrefabName} ({id:D}) in {tool.PrefabName} couldn't go cold with it: {refused}; it is left where its holder was");
 
             ItemUpdate destroy = new()
             {
@@ -201,7 +240,42 @@ internal static partial class PlayerItems
             knownBy.Remove(record.NetId);
             LiveItems.Remove(record.NetId);
             NetworkedItem.FreeDataNetId(record.NetId);
+            if (refused.Length > 0)
+                AmmoLeftBehind(row, id, record.PrefabName, loaded, leaver, refused);
         }
+    }
+
+    // Ammo that couldn't go cold with its tool isn't lost: its object is made where its holder was,
+    // and an owned item goes on to its owner's Lost and Found, as a destroyed tool's ammo does
+    // (MagazineServer.Release).
+    private static void AmmoLeftBehind(SavedItemRow row, Guid id, string prefabName, Home loaded, ServerPlayer leaver, string why)
+    {
+        bool owned = ServerLedger.Ledger.IsLive(id);
+        row.Placement = ItemPlacementKind.World;
+        row.WorldParentKind = ItemWorldParentKind.World;
+        row.Position = (leaver != null ? leaver.AbsoluteWorldPosition : ContainerServer.SafetyPosition) + Vector3.up * 0.3f;
+        row.Rotation = Quaternion.identity;
+        row.ContainerId = Guid.Empty;
+        row.Slot = -1;
+        // From wherever the ledger has it: a stow's rollback that was refused left it in the tool's
+        // container. A refusal here still leaves the object at the holder's feet, where the home
+        // check finds it, rather than nowhere.
+        Home from = owned && ServerLedger.Ledger.TryGetHome(id, out Home had) ? had : loaded;
+        string refused = owned
+            ? ServerLedger.CommitStored(id, prefabName, from, Home.World,
+                ItemChangeLog.Move(ItemMoveReason.UnloadedFromMagazine, leaver, "its tool couldn't keep it: " + why))
+            : string.Empty;
+        if (refused.Length > 0)
+            Multiplayer.LogError($"Inventory: {prefabName} ({id:D}): the ledger refused to move it to where its holder was ({refused}); " +
+                                 "it is made there anyway");
+        if (!ItemSaveLoad.MakeLive(row, owned, out LiveItems.LiveItem made) ||
+            !NetworkedItem.TryGet(made.NetId, out NetworkedItem item) || item == null)
+        {
+            Multiplayer.LogError($"Inventory: {prefabName} ({id:D}) couldn't be made where its holder was");
+            return;
+        }
+        if (owned && refused.Length == 0)
+            LostAndFoundServer.Collect(item, LostItemReason.ContainerCleared, "its tool went cold without it");
     }
 
     // TakeUp: a tool's row goes live as data (a join), and the ammo rows of its container go with it,

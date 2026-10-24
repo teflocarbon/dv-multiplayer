@@ -358,7 +358,12 @@ these: its object does.
   clock made from the row later is the one that rang. Both work its due time out the first time
   they tick the row, as vanilla's load does, from the minute before that tick, so a time skip
   right after a stash (sleep, `/time`) rings it as a pocketed clock would. A cold row's clock is as
-  its holder left it.
+  its holder left it. The players near its holder hear it ring and turn (everything heard in the
+  world is shared): as the server's tick rings or turns a connected player's row, it tells each
+  other player within the ring's reach (the prefab's alarm source's `maxDistance`, plus 10 m) once
+  (`ClientboundStashedSoundPacket` with `Once` set), and their game plays a 3D copy of the ring or
+  the turn at the holder's avatar (`HeardStashedSounds`). A dedicated host has no player and hears
+  none.
 - **The boombox.** One left on keeps playing at its volume (`vol`) on vanilla's own players, on a
   copy of the boombox's music source (`StashedBoombox`): in radio mode its station (`rsIndex`,
   `RadioPlayerController`); in cassette mode with its cassette playing, the cassette's playlist

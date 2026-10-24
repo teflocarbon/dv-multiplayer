@@ -423,6 +423,7 @@ public partial class NetworkServer : IItemServer
             case ItemAction.Throw:
             case ItemAction.Attach:
             case ItemAction.SetState:
+            case ItemAction.LoadMagazine:
                 return CarryChange(request, player);
             case ItemAction.Recall:
                 return CarryRecall(request, player);
@@ -447,14 +448,17 @@ public partial class NetworkServer : IItemServer
         }
     }
 
-    // The item a request names, the container shell it opens, or the one it would swap with or
-    // take back, when it's data only.
+    // The item a request names, the container shell it opens, the tool it loads, or the one it
+    // would swap with or take back, when it's data only.
     private static ushort DataOnlyNamed(ItemRequest request, ServerPlayer player)
     {
         if (PlayerItems.IsDataOnly(request.ItemNetId))
             return request.ItemNetId;
         if (PlayerItems.IsDataOnly(request.ShellNetId))
             return request.ShellNetId;
+        // A load waits for its tool too: one a take is still making again is made by then (H4).
+        if (request.Action == ItemAction.LoadMagazine && PlayerItems.IsDataOnly(request.MagazineNetId))
+            return request.MagazineNetId;
         LiveItems.LiveItem record = request.Action switch
         {
             ItemAction.MoveSlot => LiveItems.GetAll().FirstOrDefault(other =>

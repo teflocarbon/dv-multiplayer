@@ -48,8 +48,7 @@ internal static partial class ItemSaveLoad
         SaveContext context = new();
         WriteOwned(context);
         WriteUnowned(context);
-        foreach (ContainerRecord container in ContainerServer.Graph.ExportSnapshot().Containers)
-            context.Items.Containers.Add(ItemsSaveCodec.WriteContainer(container));
+        WriteContainers(context);
         context.Items.Containers.AddRange(kept.Containers.Select(row => row.DeepClone()));
         context.Items.UnreadableLedger.AddRange(kept.Ledger.Select(row => row.DeepClone()));
         foreach (KeyValuePair<string, JToken> state in kept.States)
@@ -62,6 +61,40 @@ internal static partial class ItemSaveLoad
         foreach (string old in ItemsSaveCodec.OldKeys)
             multiplayerRoot.Remove(old);
         WriteVanillaMirror(data, context);
+    }
+
+    // Every container of the graph, but an empty one whose shell is gone (F7): an item with a
+    // container keeps a row once it has a keeper, and nothing else ever drops one whose shell went
+    // without a box's destruction (an unowned item gone, a refused deposit's). An empty container
+    // is made again from its shell as the shell binds, so leaving one out loses nothing.
+    private static void WriteContainers(SaveContext context)
+    {
+        ContainerGraphSnapshot graph = ContainerServer.Graph.ExportSnapshot();
+        HashSet<Guid> holding = new(graph.Items.Select(row => row.ParentContainerId));
+        foreach (JToken row in context.Items.Unowned)
+            if (row is JObject unowned && Guid.TryParse((string)unowned["container"], out Guid container))
+                holding.Add(container);
+        foreach (LedgerEntry entry in context.Items.Ledger)
+            if (entry.Home.Kind == HomeKind.Container && Guid.TryParse(entry.Home.Anchor, out Guid container))
+                holding.Add(container);
+        HashSet<Guid> items = new(graph.Items.Select(row => row.PersistentItemId));
+        foreach (LiveItems.LiveItem record in LiveItems.GetAll())
+            if (record.PersistentItemId != Guid.Empty && record.Placement != ItemPlacementKind.Destroyed)
+                items.Add(record.PersistentItemId);
+        int dropped = 0;
+        foreach (ContainerRecord container in graph.Containers)
+        {
+            Guid id = container.PersistentContainerId;
+            if (!holding.Contains(id) && !items.Contains(id) && !ServerLedger.Ledger.IsLive(id) &&
+                !ColdInventories.Contains(id) && !PlayerItems.TryGetAmmoRow(id, out _))
+            {
+                dropped++;
+                continue;
+            }
+            context.Items.Containers.Add(ItemsSaveCodec.WriteContainer(container));
+        }
+        if (dropped > 0)
+            Multiplayer.Log($"Items: {dropped} empty container(s) whose items are gone aren't saved");
     }
 
     private sealed class SaveContext
