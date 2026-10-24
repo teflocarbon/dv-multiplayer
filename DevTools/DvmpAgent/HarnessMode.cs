@@ -48,11 +48,12 @@ public sealed class HarnessMode : MonoBehaviour
     public static int TextureBudgetMb { get; set; } = 512;
 
     /// <summary>
-    /// Unity job worker threads; 0 leaves Unity's count, one per core it sees less one. Under Wine
-    /// Unity sees every core of the machine, not the container's CPU quota: on a 10-vCPU pod on a
-    /// 48-core machine each game ran 47 workers at 18 fps, and with 4 at 30 fps on 0.85 cores less.
+    /// Unity job worker threads; 0 (the default) leaves Unity's count, one per core it sees less
+    /// one. Set by DVMP_JOB_WORKERS, which the RunPod image exports as 4, or -dvmp-job-workers. Under
+    /// Wine Unity sees every core of the machine, not the container's CPU quota: on a 10-vCPU pod on
+    /// a 48-core machine each game ran 47 workers at 18 fps, and with 4 at 30 fps on 0.85 cores less.
     /// </summary>
-    public static int JobWorkers { get; set; } = 4;
+    public static int JobWorkers { get; set; }
 
     /// <summary>
     /// World tile loading range, in tiles, for DV's near (detailed) and far (distant scenery)
@@ -99,6 +100,7 @@ public sealed class HarnessMode : MonoBehaviour
         TextureBudgetMb = IntArg(args, "-dvmp-texture-budget", TextureBudgetMb);
         NearRange = IntArg(args, "-dvmp-near-range", NearRange);
         FarRange = IntArg(args, "-dvmp-far-range", FarRange);
+        if (int.TryParse(Environment.GetEnvironmentVariable("DVMP_JOB_WORKERS"), out int envWorkers)) JobWorkers = envWorkers;
         JobWorkers = IntArg(args, "-dvmp-job-workers", JobWorkers);
         if (JobWorkers > 0) JobsUtility.JobWorkerCount = Math.Min(JobWorkers, JobsUtility.JobWorkerMaximumCount);
         UserInput = args.Contains("-dvmp-input");

@@ -328,10 +328,10 @@ DevContext.Background("l010-controls")?.Stop();
   start minimised at below-normal priority, are muted, use the lowest graphics quality, and
   are capped at 30 fps (20 fps when not the foreground window). While a game loads (its loading
   screen is up, or its world is streaming in) the cap is 60 fps, since loading steps take a frame
-  each; `-dvmp-loading-fps N` changes it, 0 lifts it. Unity gets 4 job worker threads instead of
-  one per core (`-dvmp-job-workers N`, 0 for Unity's own count): under Wine, Unity counts every core of
-  the machine, not the pod's CPU quota, and 47 workers per game on a 10-vCPU pod cost 0.85 cores
-  and held the games at 18 fps instead of 30. This only applies to games
+  each; `-dvmp-loading-fps N` changes it, 0 lifts it. `DVMP_JOB_WORKERS=N` (or `-dvmp-job-workers N`)
+  limits Unity's job worker threads, one per core by default. The RunPod image sets 4: under Wine,
+  Unity counts every core of the machine, not the pod's CPU quota, and 47 workers per game on a
+  10-vCPU pod cost 0.85 cores and held the games at 18 fps instead of 30. This only applies to games
   started with `-dvmp-role`; nothing is written to the game's settings. Override with
   `dvmp up --visible --fps 60 --sound` (or the `background`/`fpsCap`/`sound` tool arguments).
   Probes can change it live via `HarnessMode.FpsCap`, `HarnessMode.LoadingFpsCap`, `HarnessMode.Muted`, etc.
