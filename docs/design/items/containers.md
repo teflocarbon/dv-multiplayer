@@ -1,8 +1,8 @@
 # Containers
 
-> Status: being built in R5 of the [item refactor](../item-refactor.md), 2026-10-25. This page says
-> what the code does, section by section as R5's PRs land. It covers cold containers: what a stored
-> item is, who keeps a box, deposit, withdrawal and moves between boxes. The ledger it commits to is
+> Status: built in R5 of the [item refactor](../item-refactor.md) (#367-#375, drafts, 2026-10-25), not yet
+> proved in a game: that is the end pass (OI-REF-01). It covers cold containers: what a stored
+> item is, who keeps a box, deposit, withdrawal, moves between boxes and ammo in a magazine. The ledger it commits to is
 > [ledger.md](ledger.md); the save rows are [save-load.md](save-load.md); who may deposit is
 > [access.md](access.md); the request packets are [wire.md](wire.md). It replaces the legacy
 > [container-storage.md](../../legacy/items/container-storage.md).
@@ -162,7 +162,8 @@ tool. Its ammo has a home in each of the tool's forms (CN1 and OI-CON-16; R5 C7 
     `GoData` does the same with its copies (`AmmoGoesData`): each becomes a row, and anyone who knew it
     other than the tool's keepers is told it's gone. A tool whose ammo has no record in its magazine
     stays an object (`AmmoCanGoData`), as does a boombox playing its cassette, which a stand-in
-    can't play (`StashedItems.PlaysCassette`).
+    can't play (`StashedItems.PlaysCassette`): decided, user 2026-10-25 (no stashed cassette player;
+    it plays as vanilla's does).
   - **Taken out:** the holder's game makes the ammo with the tool from the nested rows, under their
     NetIds, loaded as the server's word (`ClientItemManager.MakeAmmo`); a refusal retires them with
     the tool. The server makes its copies as the tool's object is made (`TakeUpObject`, `TakeUpAmmo`),

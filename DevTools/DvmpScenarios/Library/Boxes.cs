@@ -83,13 +83,18 @@ namespace Dvmp.Scenarios
         }
 
         /// <summary>
-        /// Takes the box in hand, opens it and withdraws what is in its slot (the first filled one
-        /// when <paramref name="slot"/> is -1), then closes it. Result: "accepted NETID" or the
-        /// refusal's detail.
+        /// Takes the box in hand (out of the inventory, where it's a stand-in, D14), opens it and
+        /// withdraws what is in its slot (the first filled one when <paramref name="slot"/> is -1),
+        /// then closes it. Result: "accepted NETID" or the refusal's detail.
         /// </summary>
         [Step]
         public static IEnumerator Withdraw(Step<string> step, ushort boxId, int slot)
         {
+            if (PlayerInventory.Holds(boxId))
+            {
+                if (Hands.Held != null) yield return Hands.Drop();
+                yield return PlayerInventory.TakeOut(boxId);
+            }
             NetworkedItem box = null;
             yield return Wait.Until(() => NetworkedItem.TryGet(boxId, out box) && box != null, 20f, "the box to arrive");
             yield return Hold(box);
