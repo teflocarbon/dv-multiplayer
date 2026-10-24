@@ -82,12 +82,9 @@ internal static partial class PlayerItems
         JobPapers.IsPaper(row.PrefabName) && JobPapers.JobIdOf(row.State) is { } jobId &&
         !NetworkedJob.TryGetFromJobId(jobId, out _);
 
-    // Rows a join left cold on purpose (a report with no recipe or no slot): none is still to come.
-    private static readonly HashSet<Guid> keptCold = new();
-
     /// <summary>Whether a row of this holder hasn't gone live yet: the host's join is still drawing its inventory.</summary>
     internal static bool RowsPending(Guid holder) =>
-        ColdInventories.Of(holder).Any(row => !IsTakenUp(row.PersistentItemId) && !keptCold.Contains(row.PersistentItemId));
+        ColdInventories.Of(holder).Any(row => !IsTakenUp(row.PersistentItemId));
 
     private static bool IsTakenUp(Guid persistentId) =>
         LiveItems.Records.Any(record => record.PersistentItemId == persistentId);

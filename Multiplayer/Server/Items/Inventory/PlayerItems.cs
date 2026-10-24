@@ -19,6 +19,7 @@ using Multiplayer.Server.Session;
 using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Items.VanillaStorage;
+using Multiplayer.Shared.Jobs;
 using Multiplayer.Shared.Protocol.Data.Items;
 using Multiplayer.Shared.Session;
 using Multiplayer.Shared.Utils;
@@ -199,7 +200,7 @@ internal static partial class PlayerItems
         }
 
         // A paper's object goes with no paper patch to tell its job (a bare Destroy).
-        if (Shared.Jobs.JobPapers.IsPaper(record.PrefabName))
+        if (JobPapers.IsPaper(record.PrefabName))
             Jobs.JobPaperRows.Forget(record.NetId);
         Retire(item, record, ItemChangeLog.Removal(ItemRemovalReason.WentCold, leaver, detail), leaver);
         return true;
@@ -257,18 +258,37 @@ internal static partial class PlayerItems
         // The ledger takes it back into its slot, so it waits for the stores' import and the check.
         while (!ServerLedger.Loaded && player.PlayerId != 0)
             yield return null;
-        InventoryItemSpec spec = Globals.G?.Items?.items?.FirstOrDefault(candidate => candidate != null &&
-            string.Equals(candidate.ItemPrefabName, row.PrefabName, StringComparison.Ordinal));
-        if (spec == null)
+        // A report (the one paper that comes here, JobPapers) is made from its recipe, not a prefab.
+        // An unowned one becomes its holder's, so Lost and Found takes it as it takes other items.
+        bool paper = JobPapers.IsPaper(row.PrefabName);
+        Guid owner = paper && row.OwnerIdentity == Guid.Empty ? player.Guid : row.OwnerIdentity;
+        GameObject instance;
+        if (paper)
         {
-            Multiplayer.LogWarning($"Inventory: no item called {row.PrefabName}; {player.Username}'s {row.PersistentItemId:D} stays cold");
-            yield break;
+            Component made = JobPapers.Make(row.PrefabName, row.State,
+                StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
+            if (made == null)
+            {
+                Multiplayer.LogWarning($"Inventory: {player.Username}'s {row.PrefabName} ({row.PersistentItemId:D}) can't be made from its row; it stays cold");
+                yield break;
+            }
+            instance = made.gameObject;
         }
-        GameObject instance = ItemStateText.Instantiate(spec.gameObject,
-            StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
-        instance.name = row.PrefabName;
+        else
+        {
+            InventoryItemSpec spec = Globals.G?.Items?.items?.FirstOrDefault(candidate => candidate != null &&
+                string.Equals(candidate.ItemPrefabName, row.PrefabName, StringComparison.Ordinal));
+            if (spec == null)
+            {
+                Multiplayer.LogWarning($"Inventory: no item called {row.PrefabName}; {player.Username}'s {row.PersistentItemId:D} stays cold");
+                yield break;
+            }
+            instance = ItemStateText.Instantiate(spec.gameObject,
+                StartingItemsController.ITEM_INSTANTIATION_SAFETY_POSITION, Quaternion.identity);
+            instance.name = row.PrefabName;
+        }
         InventoryItemSpec placed = instance.GetComponent<InventoryItemSpec>();
-        if (placed != null && row.OwnerIdentity != Guid.Empty)
+        if (placed != null && owner != Guid.Empty)
             placed.BelongsToPlayer = true;
         NetworkedItem item = instance.GetOrAddComponent<NetworkedItem>();
         item.BeginColdMaterialization();
@@ -282,7 +302,7 @@ internal static partial class PlayerItems
                 throw new InvalidOperationException("they left again");
             if (!ColdInventories.TryGet(row.PersistentItemId, out SavedItemRow still) || still != row)
                 throw new InvalidOperationException("its row is gone");
-            ItemSaveData saveData = instance.GetComponent<ItemSaveData>();
+            ItemSaveData saveData = paper ? null : instance.GetComponent<ItemSaveData>();
             if (saveData != null && row.State != null)
             {
                 try
@@ -305,7 +325,13 @@ internal static partial class PlayerItems
             ItemBase itemBase = instance.GetComponent<ItemBase>();
             if (itemBase == null || item.NetId == 0)
                 throw new InvalidOperationException("no net id");
-            item.Initialize(itemBase, item.NetId, true);
+            if (paper)
+            {
+                if (JobPapers.Track(item, JobPapers.PaperOf(instance), item.NetId, true, row.State) is { } report)
+                    Jobs.JobReportArtifactRegistry.Register(report);
+            }
+            else
+                item.Initialize(itemBase, item.NetId, true);
             item.FinaliseTrackedValuesAutomatically();
 
             // Its own slot if it's still free, else its claim or the first free one. One the ledger
@@ -313,7 +339,7 @@ internal static partial class PlayerItems
             // or with no slot free, goes there by way of the player's feet (OI-START-09's route).
             bool lost = ServerLedger.Ledger.TryGetHome(row.PersistentItemId, out Home home) && home.Kind == HomeKind.LostAndFound;
             int slot = lost ? -1
-                : ServerLedger.FreeSlot(row.PersistentItemId, row.OwnerIdentity, row.ClaimSlot, player.Guid, row.Slot, row.ClaimSlot);
+                : ServerLedger.FreeSlot(row.PersistentItemId, owner, row.ClaimSlot, player.Guid, row.Slot, row.ClaimSlot);
             bool overflow = slot < 0;
             if (overflow)
                 instance.transform.position = player.AbsoluteWorldPosition + WorldMover.currentMove + Vector3.up * 0.3f;
@@ -330,7 +356,7 @@ internal static partial class PlayerItems
             ColdInventories.Remove(row.PersistentItemId);
             ChangeCause<ItemMoveReason> cause = ItemChangeLog.Move(ItemMoveReason.WentLive, player,
                 overflow ? "its slot was taken" : "slot " + slot);
-            LiveItems.LiveItem record = LiveItems.RegisterMaterializedColdItem(item, player, row.OwnerIdentity,
+            LiveItems.LiveItem record = LiveItems.RegisterMaterializedColdItem(item, player, owner,
                 snapshot, row.PersistentItemId, cause);
             if (record == null)
             {

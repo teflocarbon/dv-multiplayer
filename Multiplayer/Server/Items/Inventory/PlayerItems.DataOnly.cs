@@ -84,7 +84,6 @@ internal static partial class PlayerItems
     private static void ClearDataOnly()
     {
         stashedStates.Clear();
-        keptCold.Clear();
         pendingData.Clear();
         materializing.Clear();
         knownBy.Clear();
