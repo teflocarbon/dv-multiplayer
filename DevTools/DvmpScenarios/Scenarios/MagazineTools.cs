@@ -22,9 +22,11 @@ namespace Dvmp.Scenarios
     /// comes out loose when the tool is gone. The client then loads its ammo into a tool that isn't
     /// its own (the host player's, stashed by the host, on a player host; nobody's lying in the
     /// world on a dedicated one) and retrieves it from its owned-items list: it's in its Lost and
-    /// Found, and no copy of the tool still holds it (E2). Last, a stashed loaded tool's take-out is
-    /// refused, with and without a correction: the stand-in is back with the ammo nested in its row,
-    /// and the server still has the ammo in the magazine; unrefused, the tool comes out loaded.
+    /// Found, and no copy of the tool still holds it (E2). On a player host the roles swap too: the
+    /// host's ammo in the client's tool, stashed by the client, retrieved by the host (H3). Last,
+    /// a stashed loaded tool's take-out is refused, with and without a correction: the stand-in is
+    /// back with the ammo nested in its row, and the server still has the ammo in the magazine;
+    /// unrefused, the tool comes out loaded.
     /// </summary>
     [Scenario("magazine-tools", "A loaded tool's ammo goes with it into a box and out, to Lost and Found and back, and comes out when it's destroyed; loaded ammo retrieved from someone else's tool leaves no copy; a refused take-out keeps the ammo nested")]
     [Budget(900)]
@@ -139,6 +141,31 @@ namespace Dvmp.Scenarios
             else
                 Expect.Equal("", await pair.Host.Run(() => ItemBugMagazineAmmo.InGame.HoldsOf(other)), "what the host's copy of the other tool holds after the retrieval");
 
+            // The roles swapped (H3, a player host): the host's ammo in the client's tool, which the
+            // client stashes, so the server keeps both as data; the host retrieves its ammo, and the
+            // client is sent the tool's row without it (PlayerItems.GoData).
+            if (!pair.Dedicated)
+            {
+                string hostId = await pair.Host.Run(() => Owned.HostIdentity());
+                (ushort clientTool, string _) = await Spawn(o.Tool, "client");
+                (ushort hostAmmo, string hostAmmoId) = await Spawn(ammoPrefab, "host");
+                string inClientTool = await pair.Host.Run<string>(s => InGame.Load(s, clientTool, hostAmmo), 60);
+                Require.That(inClientTool.Length > 0, "the host loaded its ammo into the client's tool");
+                await pair.Client.Run<int>(s => Items.Stash(s, clientTool, false), 60);
+                Require.That(await pair.Client.Run(() => InGame.Nests(clientTool)), "the client's stashed tool has the host's ammo nested");
+                uint hostHandle = await pair.Host.Run(() => OwnedRetrieve.InGame.HandleOf(hostId, hostAmmoId));
+                Require.That(hostHandle != 0, "the host's ammo is in its owned-items list");
+                OwnedRetrieve.Result hr = await pair.Host.Run<OwnedRetrieve.Result>(s => OwnedRetrieve.InGame.Retrieve(s, hostHandle), 30);
+                Expect.That(hr.Accepted, "the host's retrieval of its ammo from the client's stashed tool is accepted", hr.Reason);
+                await Task.Delay(2000);
+                OwnerInfo hostAmmoNow = await pair.Host.Run(() => Ownership.ById(hostAmmoId));
+                Expect.That(hostAmmoNow.Lost && hostAmmoNow.Owner == hostId, "the ammo is in the host's Lost and Found", hostAmmoNow.ToString());
+                Expect.Equal(0, await pair.Host.Run(() => InGame.AmmoCount(clientTool)), "the ammo the server has in the client's tool after the retrieval");
+                Expect.That(!await pair.Client.Run(() => InGame.Nests(clientTool)), "the client's stand-in no longer nests the ammo (its row was sent again)");
+                Expect.Equal("", await pair.Client.Run<string>(s => InGame.TakeOutAndRead(s, clientTool), 60),
+                    "what the client's tool holds, taken out after the retrieval (no copy left)");
+            }
+
             // A stashed loaded tool's take-out refused: the ammo stays nested.
             (ushort stashed, string stashedId) = await Spawn(o.Tool, "client");
             (ushort spare, string spareId) = await Spawn(ammoPrefab, "client");
@@ -238,7 +265,7 @@ namespace Dvmp.Scenarios
             [Step]
             public static int AmmoCount(ushort toolNetId) => LiveItems.AmmoIn(toolNetId).Count();
 
-            /// <summary>Host: takes the item out of the host's own inventory to the hand and reads what its magazine holds.</summary>
+            /// <summary>Takes the item out of this player's inventory to the hand, reads what its magazine holds, and drops it.</summary>
             [Step]
             public static IEnumerator TakeOutAndRead(Step<string> step, ushort netId)
             {
