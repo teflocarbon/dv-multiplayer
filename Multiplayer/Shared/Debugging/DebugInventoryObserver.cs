@@ -2,6 +2,7 @@ using DV;
 using DV.CabControls;
 using DV.InventorySystem;
 using DV.Items;
+using Multiplayer.Shared.Items.Inventory;
 using Multiplayer.Shared.Items.LiveState;
 using Multiplayer.Shared.Session;
 using Multiplayer.Debugging.Protocol;
@@ -255,7 +256,8 @@ internal sealed class DebugInventoryObserver : MonoBehaviour
         InventoryItemSpec spec = item.GetComponent<InventoryItemSpec>();
         return new Dictionary<string, object>
         {
-            ["netId"] = networked?.NetId ?? 0,
+            ["netId"] = networked?.NetId ?? item.GetComponent<InventoryStandIn>()?.NetId ?? 0,
+            ["standIn"] = item.GetComponent<InventoryStandIn>() != null,
             ["unityInstanceId"] = item.GetInstanceID(),
             ["name"] = item.name ?? string.Empty,
             ["prefab"] = spec?.ItemPrefabName ?? string.Empty,
@@ -301,8 +303,9 @@ internal sealed class DebugInventoryObserver : MonoBehaviour
         NetworkedItem networked = null;
         if (itemBase != null)
             NetworkedItem.TryGetNetworkedItem(itemBase, out networked);
-        string entityId = networked != null && networked.NetId != 0
-            ? networked.NetId.ToString()
+        ushort netId = networked?.NetId ?? item?.GetComponent<InventoryStandIn>()?.NetId ?? 0;
+        string entityId = netId != 0
+            ? netId.ToString()
             : $"unity:{item?.GetInstanceID() ?? 0}";
         DebugRuntime.Publish("inventory", eventName, Side(), entityType: "Item", entityId: entityId, data: data);
     }

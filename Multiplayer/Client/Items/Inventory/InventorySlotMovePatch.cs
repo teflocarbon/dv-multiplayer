@@ -40,13 +40,18 @@ internal static class InventorySlotMovePatch
             InventoryIntegration.LocalPlayerId == 0 || inventory != DV.InventorySystem.Inventory.Instance)
             return;
         GameObject moved = inventory.PeekItemAtSlot(slot, false);
-        NetworkedItem item = moved != null ? moved.GetComponent<NetworkedItem>() : null;
-        if (item == null || item.NetId == 0)
+        if (moved == null)
+            return;
+        // A stand-in (D14) is the row: its NetId and revision are the item's.
+        InventoryStandIn standIn = moved.GetComponent<InventoryStandIn>();
+        NetworkedItem item = standIn == null ? moved.GetComponent<NetworkedItem>() : null;
+        ushort netId = standIn != null ? standIn.NetId : item?.NetId ?? 0;
+        if (netId == 0)
             return;
         ItemClient.Current?.SendItemRequest(new ItemRequest
         {
-            ItemNetId = item.NetId,
-            ExpectedRevision = item.AuthorityRevision,
+            ItemNetId = netId,
+            ExpectedRevision = standIn != null ? standIn.Revision : item.AuthorityRevision,
             Action = ItemAction.MoveSlot,
             Slot = slot
         });

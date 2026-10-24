@@ -26,6 +26,10 @@ internal sealed partial class ClientItemManager
         if (snapshot == null)
             return;
         InventoryRows.Observe(snapshot);
+        // The local inventory is stand-ins (D14): one going in is placed, one leaving is made.
+        if (ReceiveAsStandIn(snapshot, null))
+            return;
+        NetworkedItem leftStandIn = LeaveStandIn(snapshot);
         // Before the item applies it, while the item still says whose it was.
         if (snapshot.UpdateType == ItemUpdate.ItemUpdateType.Destroy || snapshot.MoveCause.HasValue)
         {
@@ -191,6 +195,8 @@ internal sealed partial class ClientItemManager
         else if (netItem != null)
         {
             netItem.ReceiveSnapshot(snapshot);
+            if (leftStandIn != null && leftStandIn == netItem)
+                DropRefusedPutAway(netItem, snapshot);
         }
         else
         {
